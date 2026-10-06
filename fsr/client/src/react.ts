@@ -1,4 +1,5 @@
-import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
+import * as ReactModule from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { discard, islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Props, type Unmounter } from "./boot.js";
@@ -11,7 +12,7 @@ import { pictureParts, type ImageAsset, type PictureOptions } from "./picture.js
 
 export type { ImageAsset } from "./picture.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
-import { get, set, subscribe, type StoreKey } from "./store.js";
+import { get, isPending, set, subscribe, whenSettled, type StoreKey } from "./store.js";
 
 /** The store values this root's markup was rendered from, `$sv` on its props: what `useStore` hydrates against, since the live store may have moved on by the time a root hydrates. Null for a root the server did not render. */
 const RenderedStoreContext = createContext<{ [key: string]: unknown } | null>(null);
@@ -318,13 +319,33 @@ export function Slot({ name }: SlotProps): ReactElement {
 export function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void] {
   const [fallback] = useState(initial);
   const rendered = useContext(RenderedStoreContext);
+  const committed = useRef(false);
+  useEffect(() => {
+    committed.current = true;
+  }, []);
   const read = () => {
     const held = get(k);
     return held === undefined ? fallback : held;
   };
   const renderedRead = () => (rendered !== null && k in rendered ? (rendered[k] as T) : fallback);
   const value = useSyncExternalStore((changed: () => void) => subscribe(k, changed), read, renderedRead);
-  return [value, useCallback((next: T) => set(k, next), [k])];
+  const setter = useCallback((next: T) => set(k, next), [k]);
+  // A root the server did not render, on its first render, waits for a key a
+  // deferred segment has yet to seed rather than showing the value it is about
+  // to replace. A mounted root keeps what it shows and moves when the seed lands.
+  if (rendered === null && !committed.current && isPending(k)) suspend(whenSettled([k]));
+  return [value, setter];
+}
+
+/** React 19's `use`, which suspends on a promise; React 18 has none and suspends on a thrown one. */
+const reactUse = (ReactModule as unknown as { use?: <V>(promise: Promise<V>) => V }).use;
+
+function suspend(promise: Promise<void>): void {
+  if (reactUse) {
+    reactUse(promise);
+    return;
+  }
+  throw promise;
 }
 
 /** The document's locale as the application spells it, `fr_FR` or `fr`. The server renders it from the request, so the first paint and the hydration agree; a navigation that changes it re-renders every island reading it. The build lowers this call. */
@@ -485,19 +506,27 @@ function Mounting({ el, children }: { el: Element; children?: ReactNode }): Reac
   return createElement(Fragment, null, children);
 }
 
+/** Roots React rendered fresh, under a `Suspense` with no fallback so `useStore` can wait for a pending key. A root it hydrates has none: the server's markup carries no boundary to hydrate one against. */
+const suspending = new WeakSet<Element>();
+
+function rootElement(element: ReactElement, el: Element): ReactElement {
+  return suspending.has(el) ? createElement(Suspense, { fallback: null }, element) : element;
+}
+
 export const reactMounter: Mounter = (component, props, el, hydrate) => {
   const element = islandElement(component, props, el, false);
   if (hydrate) {
     return hydrateRoot(el, element);
   }
+  suspending.add(el);
   const root = createRoot(el);
-  root.render(element);
+  root.render(rootElement(element, el));
   return root;
 };
 
 export const reactPatcher: Patcher = (handle, component, props, el) => {
   patchChildren(el, islandState(el)?.children ?? null);
-  (handle as Root).render(islandElement(component, props, el, true));
+  (handle as Root).render(rootElement(islandElement(component, props, el, true), el));
 };
 
 export const reactUnmounter: Unmounter = (handle) => {

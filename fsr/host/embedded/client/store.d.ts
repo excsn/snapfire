@@ -13,7 +13,13 @@ export interface Contribution {
 	v: {
 		[key: string]: unknown;
 	};
+	/** On a promise, the keys a deferred segment will seed once it resolves; its `v` is empty and its seed replaces it. */
+	w?: string[];
 }
+/** Whether a deferred segment has yet to seed `k`: a promise awaits it and outranks every contribution holding it, so the value the store holds now is about to be replaced. The server decides the same way which islands to hold. */
+export declare function isPending(k: string): boolean;
+/** Resolves once none of `keys` is pending, at once when none is. One promise per pending key set while it waits, so a component suspending on it is handed the same promise on every render. */
+export declare function whenSettled(keys: string[]): Promise<void>;
 /** Sets the slot order the merge uses and remerges, notifying every key that moved. `adopt` calls it with what the document carries; a test calls it directly. */
 export declare function setSlotOrder(list: string[]): void;
 /** What the key holds or undefined when nothing has set it. */

@@ -589,3 +589,77 @@ fn warm_renders_record_a_build_and_answer_before_the_live_cache() {
   assert_eq!(block_on(warm.invalidate("k")), 2, "invalidation reaches the live cache alone");
   assert_eq!(block_on(warm.get("k|a")).map(|e| e.node), Some(Node::raw("built")));
 }
+
+/// A shell placing a deferred page and a memoized aside beside it, the aside reading `k`.
+struct TwoSlots;
+
+impl Evaluator for TwoSlots {
+  fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
+    Box::pin(stream::iter([Ok(Chunk::Slot(SlotName("content".into()))), Ok(Chunk::Slot(SlotName("aside".into())))]))
+  }
+}
+
+struct PendingAside(Arc<AtomicU32>);
+
+impl Evaluator for PendingAside {
+  fn evaluate(&self, _module: &ModuleId, props: &Data) -> NodeChunks {
+    self.0.fetch_add(1, Ordering::Relaxed);
+    let pending = matches!(props.get(snapfire_fsr_runtime::PENDING_PROP), Some(Value::Seq(keys)) if !keys.is_empty());
+    Box::pin(stream::iter([Ok(Chunk::Node(Node::raw(format!("<aside pending=\"{pending}\">"))))]))
+  }
+}
+
+struct SeedsK;
+
+impl snapfire_fsr_runtime::Seeds for SeedsK {
+  fn seed(&self, _ctx: &RequestCtx, _data: &Data) -> futures_util::future::BoxFuture<'static, Result<Data, snapfire_fsr_runtime::LoadError>> {
+    Box::pin(async move { Ok([("k".to_owned(), Value::Int(1))].into_iter().collect()) })
+  }
+
+  fn keys(&self) -> Option<Vec<String>> {
+    Some(vec!["k".to_owned()])
+  }
+}
+
+/// The shell and the page seed `k` the same, so the store a subtree reads is one value either way
+/// and only whether `k` is pending tells the two renders apart.
+#[test]
+fn a_memoized_subtree_rendered_while_a_key_it_reads_was_pending_is_not_served_once_it_is_not() {
+  use snapfire_fsr_runtime::{subtree_shape, Reads, Static, SubtreeReads};
+  let plan = |deferred: bool| {
+    let mut page = PlanNode::new(NodeId(1), ModuleId::new("page", "default"));
+    page.data_source = Some(DataSourceId("page".into()));
+    page.deferred = deferred;
+    let mut aside = PlanNode::new(NodeId(2), ModuleId::new("aside", "default"));
+    aside.cache_key = Some(CacheKey("aside".into()));
+    let mut shell = PlanNode::new(NodeId(0), ModuleId::new("shell", "document"));
+    shell.data_source = Some(DataSourceId("shell".into()));
+    shell.children.push((SlotName("content".into()), page));
+    shell.children.push((SlotName("aside".into()), aside));
+    shell
+  };
+  let evals = Arc::new(AtomicU32::new(0));
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(TwoSlots));
+  evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(CountingEval(Arc::new(AtomicU32::new(0)))));
+  evaluators.register(|m: &ModuleId| m.path == "aside", Arc::new(PendingAside(evals.clone())));
+  let mut sources = DataSources::new();
+  sources.insert_fn("page", |_p| async move { Ok(ValueMap::default()) });
+  sources.insert_fn("shell", |_p| async move { Ok(ValueMap::default()) });
+  let mut reads = Reads::new();
+  reads.insert(subtree_shape(&plan(true).children[1].1), SubtreeReads { class: Static::Fixed, store_keys: vec!["k".to_owned()], path: false, csrf: false });
+  let rt = Runtime::builder().sources(sources).evaluators(evaluators).store("shell", Arc::new(SeedsK)).store("page", Arc::new(SeedsK)).cache(Arc::new(MemoryCache::new())).reads(reads).build();
+  let ctx = RequestCtx::anonymous(Params::new());
+  let render = |deferred: bool| {
+    let assembly = block_on(assemble(&rt, &plan(deferred), &ctx, snapfire_fsr_runtime::Head::new("t", Node::raw("")))).unwrap();
+    let html: String = block_on(futures_util::StreamExt::collect::<Vec<_>>(snapfire_fsr_runtime::html_stream(assembly))).concat();
+    html
+  };
+
+  assert!(render(true).contains("<aside pending=\"true\">"));
+  assert_eq!(evals.load(Ordering::Relaxed), 1);
+  assert!(render(false).contains("<aside pending=\"false\">"), "with the page in the same wave nothing is pending, so the entry taken while it was is not reused");
+  assert_eq!(evals.load(Ordering::Relaxed), 2);
+  assert!(render(true).contains("<aside pending=\"true\">"));
+  assert_eq!(evals.load(Ordering::Relaxed), 2, "the entry taken while `k` was pending serves the next request where it is");
+}

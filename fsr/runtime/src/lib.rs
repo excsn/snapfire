@@ -18,7 +18,7 @@ pub mod stream;
 
 pub use actions::{ActionError, ActionHandler, ActionRegistry, FailureKind};
 pub use assembler::{
-  AssembleError, Assembly, Evaluators, Origin, PendingResolution, Resolved, Runtime, RuntimeBuilder, assemble, assemble_under,
+  AssembleError, Assembly, Evaluators, Origin, PENDING_PROP, PendingResolution, Resolved, Runtime, RuntimeBuilder, assemble, assemble_under,
 };
 pub use cache::{CacheEntry, FibreCache, LoadCache, MemoryCache, MemoryLoadCache, NoCache, NoLoadCache, NodeCache, WarmLoads, WarmRenders};
 pub use ctx::{Address, CsrfHandle, FAILURE_KEY, Identity, Locale, RequestCtx, SessionCell, unix_now, parse_query};
@@ -33,5 +33,5 @@ pub use natives::{FromNativeValue, IntoNativeValue, Native, NativeHandle, Native
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};
 pub use paths::Paths;
 pub use reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
-pub use store::{Contribution, Seeds, contribution_order, merge_contributions};
+pub use store::{Contribution, Seeds, contribution_order, merge_contributions, pending_keys};
 pub use stream::{FILL_SCRIPT, fragment_html, html_stream, contributions_to_json, meta_to_json, segments_from_json, segments_to_json, wire_stream};

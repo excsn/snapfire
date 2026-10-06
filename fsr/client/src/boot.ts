@@ -1,6 +1,6 @@
 import { adoptCatalog, adoptLocale } from "./locale.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
-import { adopt } from "./store.js";
+import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, SfValue } from "./values.js";
 
 export type Props = { [key: string]: SfValue };
@@ -193,8 +193,13 @@ export function scan(root: ParentNode): void {
     if (awaitingAnAncestor(el)) continue;
     if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
       el.setAttribute(SCHEDULED, "");
-      el.setAttribute(MOUNTED, "");
-      mountServer(el, moduleId, rawPropsFor(root, el.id));
+      const raw = { ...((rawPropsFor(root, el.id) ?? {}) as { [key: string]: unknown }) };
+      const keys = awaited(decodeValue((raw[AWAITS] ?? null) as SfValue));
+      delete raw[AWAITS];
+      afterSettled(el, keys, () => {
+        el.setAttribute(MOUNTED, "");
+        mountServer(el, moduleId, raw);
+      });
       continue;
     }
     const entry = islands.get(moduleId);
@@ -205,8 +210,35 @@ export function scan(root: ParentNode): void {
     }
     el.setAttribute(SCHEDULED, "");
     const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when") as MountTiming | null;
-    schedule(placed ? { ...entry, when: placed } : entry, moduleId, el, propsFor(root, el.id));
+    const props = propsFor(root, el.id);
+    const keys = awaited(props[AWAITS]);
+    delete props[AWAITS];
+    afterSettled(el, keys, () => schedule(placed ? { ...entry, when: placed } : entry, moduleId, el, props));
   }
+}
+
+/** The props key the server writes on an island it held: the store keys it read that a deferred segment had yet to seed. */
+const AWAITS = "$aw";
+
+function awaited(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : [];
+}
+
+/** Runs `then` once none of `keys` is pending, at once when none is. The server held this island's markup until those seeds land, so mounting it before would show a value about to be replaced. `discard` calls the wait off. */
+function afterSettled(el: Element, keys: string[], then: () => void): void {
+  if (!keys.some(isPending)) {
+    then();
+    return;
+  }
+  let off = false;
+  pending.set(el, () => {
+    off = true;
+  });
+  void whenSettled(keys).then(() => {
+    if (off) return;
+    pending.delete(el);
+    then();
+  });
 }
 
 /** Module ids no registry knew when a scan reached them. A miss is not yet a defect: a mounted site registers its islands when its own entry module runs, which is after the shell's `boot` has already scanned the document. */

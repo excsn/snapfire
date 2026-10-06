@@ -8,7 +8,7 @@ import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { prettyDOM, waitFor, within, type BoundQueries, type WaitForOptions } from "./queries.js";
 import type { Hoisted } from "./react.js";
-import { contribute, decodeContributions, reset } from "./store.js";
+import { adopt, contribute, decodeContributions, reset } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 export { f64 } from "./values.js";
@@ -810,6 +810,7 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   sf().load(html, path);
   clearRouterCache();
   reset();
+  adopt();
   const late = applyFills();
   await sf().entry?.(++loads);
   boot();

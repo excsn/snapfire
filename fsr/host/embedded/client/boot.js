@@ -1,6 +1,6 @@
 import { adoptCatalog, adoptLocale } from "./locale.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
-import { adopt } from "./store.js";
+import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue } from "./values.js";
 const mounted = new WeakMap();
 const pending = new WeakMap();
@@ -142,8 +142,15 @@ export function scan(root) {
         if (awaitingAnAncestor(el)) continue;
         if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
             el.setAttribute(SCHEDULED, "");
-            el.setAttribute(MOUNTED, "");
-            mountServer(el, moduleId, rawPropsFor(root, el.id));
+            const raw = {
+                ...rawPropsFor(root, el.id) ?? {}
+            };
+            const keys = awaited(decodeValue(raw[AWAITS] ?? null));
+            delete raw[AWAITS];
+            afterSettled(el, keys, ()=>{
+                el.setAttribute(MOUNTED, "");
+                mountServer(el, moduleId, raw);
+            });
             continue;
         }
         const entry = islands.get(moduleId);
@@ -154,11 +161,33 @@ export function scan(root) {
         }
         el.setAttribute(SCHEDULED, "");
         const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when");
-        schedule(placed ? {
-            ...entry,
-            when: placed
-        } : entry, moduleId, el, propsFor(root, el.id));
+        const props = propsFor(root, el.id);
+        const keys = awaited(props[AWAITS]);
+        delete props[AWAITS];
+        afterSettled(el, keys, ()=>schedule(placed ? {
+                ...entry,
+                when: placed
+            } : entry, moduleId, el, props));
     }
+}
+const AWAITS = "$aw";
+function awaited(value) {
+    return Array.isArray(value) ? value.map(String) : [];
+}
+function afterSettled(el, keys, then) {
+    if (!keys.some(isPending)) {
+        then();
+        return;
+    }
+    let off = false;
+    pending.set(el, ()=>{
+        off = true;
+    });
+    void whenSettled(keys).then(()=>{
+        if (off) return;
+        pending.delete(el);
+        then();
+    });
 }
 const missing = new Set();
 const entries = new Set();

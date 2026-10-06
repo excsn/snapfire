@@ -4,7 +4,7 @@ import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, rest
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { prettyDOM, waitFor, within } from "./queries.js";
-import { contribute, decodeContributions, reset } from "./store.js";
+import { adopt, contribute, decodeContributions, reset } from "./store.js";
 import { decodeValue, encodeValue } from "./values.js";
 export { f64 } from "./values.js";
 export { advance, AssertionError, settle, show } from "./harness.js";
@@ -654,6 +654,7 @@ export async function load(path, options = {}) {
     sf().load(html, path);
     clearRouterCache();
     reset();
+    adopt();
     const late = applyFills();
     await sf().entry?.(++loads);
     boot();

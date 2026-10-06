@@ -1,4 +1,5 @@
-import { cloneElement, createContext, createElement, Fragment, isValidElement, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
+import * as ReactModule from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { islandState, patchIsland, scan } from "./boot.js";
 import { encodeValue } from "./values.js";
@@ -7,7 +8,7 @@ import { morph } from "./server.js";
 import { linkAttributes } from "./link.js";
 import { pictureParts } from "./picture.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
-import { get, set, subscribe } from "./store.js";
+import { get, isPending, set, subscribe, whenSettled } from "./store.js";
 const RenderedStoreContext = createContext(null);
 const RENDERED_STORE_PROP = "$sv";
 function slotOf(el) {
@@ -269,18 +270,34 @@ export function Slot({ name }) {
 export function useStore(k, initial) {
     const [fallback] = useState(initial);
     const rendered = useContext(RenderedStoreContext);
+    const committed = useRef(false);
+    useEffect(()=>{
+        committed.current = true;
+    }, []);
     const read = ()=>{
         const held = get(k);
         return held === undefined ? fallback : held;
     };
     const renderedRead = ()=>rendered !== null && k in rendered ? rendered[k] : fallback;
     const value = useSyncExternalStore((changed)=>subscribe(k, changed), read, renderedRead);
+    const setter = useCallback((next)=>set(k, next), [
+        k
+    ]);
+    if (rendered === null && !committed.current && isPending(k)) suspend(whenSettled([
+        k
+    ]));
     return [
         value,
-        useCallback((next)=>set(k, next), [
-            k
-        ])
+        setter
     ];
+}
+const reactUse = ReactModule.use;
+function suspend(promise) {
+    if (reactUse) {
+        reactUse(promise);
+        return;
+    }
+    throw promise;
 }
 export function useLocale() {
     return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
@@ -402,18 +419,25 @@ function Mounting({ el, children }) {
     });
     return createElement(Fragment, null, children);
 }
+const suspending = new WeakSet();
+function rootElement(element, el) {
+    return suspending.has(el) ? createElement(Suspense, {
+        fallback: null
+    }, element) : element;
+}
 export const reactMounter = (component, props, el, hydrate)=>{
     const element = islandElement(component, props, el, false);
     if (hydrate) {
         return hydrateRoot(el, element);
     }
+    suspending.add(el);
     const root = createRoot(el);
-    root.render(element);
+    root.render(rootElement(element, el));
     return root;
 };
 export const reactPatcher = (handle, component, props, el)=>{
     patchChildren(el, islandState(el)?.children ?? null);
-    handle.render(islandElement(component, props, el, true));
+    handle.render(rootElement(islandElement(component, props, el, true), el));
 };
 export const reactUnmounter = (handle)=>{
     handle.unmount();

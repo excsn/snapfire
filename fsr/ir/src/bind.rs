@@ -5,9 +5,10 @@ use futures_util::stream;
 use snapfire_fsr_core::{Data, ModuleId, Node, Params, SlotName, Value};
 use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, FailureKind, HeadEl, LoadError, Meta, Metadata, NodeChunks, Paths, RequestCtx, Seeds};
 
-use crate::ast::{Body, Component};
+use crate::ast::{Body, Component, Entry, Expr, Stmt};
 use crate::interp::Interpreter;
-use crate::render::{rendered_store, store_keys, Components, Rendered, HOISTED_PROP, ISLAND_MARK, RENDERED_STORE_PROP, SLOT_MARK};
+use crate::render::{rendered_store, store_keys, Components, Rendered, AWAITS_PROP, HOISTED_PROP, ISLAND_MARK, RENDERED_STORE_PROP, SLOT_MARK};
+use snapfire_fsr_runtime::PENDING_PROP;
 
 /// The nodes a rendered component's markup makes: raw pieces, `Node::Slot`
 /// where a root slot sits and, where an island sits, its region: an
@@ -211,6 +212,12 @@ impl IrStore {
 }
 
 impl Seeds for IrStore {
+  fn keys(&self) -> Option<Vec<String>> {
+    let mut keys = std::collections::BTreeSet::new();
+    returned_keys(&self.body, &mut keys)?;
+    Some(keys.into_iter().collect())
+  }
+
   fn seed(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
     let id = self.source_id.clone();
     let body = self.body.clone();
@@ -224,6 +231,44 @@ impl Seeds for IrStore {
         other => Err(LoadError { source_id: id, message: format!("store must return an object, got {}", kind_name(&other)), kind: FailureKind::Internal }),
       }
     })
+  }
+}
+
+/// Every key a `return` of `body` can hold, into `keys`; `None` when a return is not an object of
+/// named fields, a spread or a computed key among them, since its keys are then the data's.
+fn returned_keys(body: &Body, keys: &mut std::collections::BTreeSet<String>) -> Option<()> {
+  for stmt in body {
+    match stmt {
+      Stmt::Return(expr) => object_keys(expr, body, keys)?,
+      Stmt::If { then, r#else, .. } => {
+        returned_keys(then, keys)?;
+        returned_keys(r#else, keys)?;
+      }
+      Stmt::ForOf { body, .. } => returned_keys(body, keys)?,
+      _ => {}
+    }
+  }
+  Some(())
+}
+
+fn object_keys(expr: &Expr, body: &Body, keys: &mut std::collections::BTreeSet<String>) -> Option<()> {
+  match expr {
+    Expr::Object(entries) => {
+      for entry in entries {
+        match entry {
+          Entry::Field(name, _) => {
+            keys.insert(name.clone());
+          }
+          _ => return None,
+        }
+      }
+      Some(())
+    }
+    Expr::Var(name) => body.iter().find_map(|stmt| match stmt {
+      Stmt::Let { name: bound, expr } if bound == name => object_keys(expr, body, keys),
+      _ => None,
+    }),
+    _ => None,
   }
 }
 
@@ -361,6 +406,21 @@ impl Evaluator for IrEvaluator {
     Box::pin(stream::once(async move {
       let id = module.to_string();
       let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
+      // A root a framework hydrates that reads a key a deferred segment has
+      // yet to seed is held: its slot regions only, mounted once the seed lands.
+      let awaits: Vec<Value> = match (props.get(PENDING_PROP), component.owner.hydrates()) {
+        (Some(Value::Seq(pending)), true) => store_keys(&component, &components).into_iter().map(Value::str).filter(|key| pending.contains(key)).collect(),
+        _ => Vec::new(),
+      };
+      if !awaits.is_empty() {
+        let children = snapfire_fsr_runtime::slot_regions(&props);
+        let mut props = props;
+        props.shift_remove("$slots");
+        props.shift_remove("$store");
+        props.shift_remove(PENDING_PROP);
+        props.insert(AWAITS_PROP.to_owned(), Value::seq(awaits));
+        return Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }));
+      }
       let rendered = interpreter.render_module(&id, &component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
       // A root a framework hydrates is told what it was rendered from, as a
       // placed island is through `mount_props`.
@@ -373,11 +433,13 @@ impl Evaluator for IrEvaluator {
         let mut props = props;
         props.shift_remove("$slots");
         props.shift_remove("$store");
+        props.shift_remove(PENDING_PROP);
         return Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }));
       }
       let mut props = props;
       props.shift_remove("$slots");
       props.shift_remove("$store");
+      props.shift_remove(PENDING_PROP);
       if !rendered.hoisted.is_empty() {
         props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
       }

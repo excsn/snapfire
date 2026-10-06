@@ -244,7 +244,7 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn loads(self, loads: Arc<dyn LoadCache>) -> Self`
 * `pub fn meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
 * `pub fn heads(self, heads: HashMap<String, Vec<HeadEl>>) -> Self`
-* `pub fn store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`
+* `pub fn store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`: `Seeds` has `seed(&self, ctx, data)`, the values a segment seeds from its data. Its `keys(&self) -> Option<Vec<String>>` is every key a seed can hold before the data is known, `None` by default. A segment with no keys promises nothing while it is deferred.
 * `pub fn slot_order(self, slot_order: Vec<String>) -> Self`: the list `contribution_order` ranks parallel slots by, `Runtime::slot_order`; empty by default.
 * `pub fn reads(self, reads: Reads) -> Self`
 * `pub fn build(self) -> Arc<Runtime>`
@@ -285,7 +285,7 @@ Turns a plan plus a request into a payload. The order is fixed: every eager data
 * **Head.** `Chunk::Slot(SlotName("head"))` substitutes `head.node(&meta)`, the head's `rest` followed by the title and description and marks the subtree head-using, which propagates to ancestors through non-deferred children.
 * **Slots.** Any other slot name must match a child in `PlanNode::children`; otherwise the call fails with `AssembleError::MissingSlot`.
 * **Slots inside an island.** A `Chunk::Node` holding a `Node::Slot` anywhere under it has each slot answered the way a `Chunk::Slot` is, in place, the child segment's path counting into the island's `children`; this is how a layout's page sits inside the layout's own markup.
-* **Seeding.** Every node whose data source has a `Seeds` registered and whose data loaded, deferred children excluded, contributes what its `seed` returns as one `Contribution`, placed by the slot names from the root down to it. The wave renders from the merge of its contributions by [`contribution_order`](#contribution) under `Runtime::slot_order`: a deeper segment wins a key an outer one also sets and, at one depth, the slot order decides, by name when it says nothing. A failing seed is logged on target `fsr::load` and costs its keys, not the page.
+* **Seeding.** Every node whose data source has a `Seeds` registered, deferred children excluded, contributes what its `seed` returns as one `Contribution`, placed by the slot names from the root down to it. The wave renders from the merge of its contributions by [`contribution_order`](#contribution) under `Runtime::slot_order`: a deeper segment wins a key an outer one also sets and, at one depth, the slot order decides, by name when it says nothing. A failing seed is logged on target `fsr::load` and costs its keys, not the page: the segment contributes empty values, so the browser drops what it seeded before. Every seeding node under a deferred child, at any depth, whose `Seeds::keys` is known contributes a promise to the wave, which keeps it with the seed its resolution writes ahead of its markup; a resolution that fails writes an empty seed for each.
 * **Deferral.** A child with `deferred` set gets a `SlotId` from a counter starting at 1, unique per response. Its `fallback` module is evaluated with the request props and the wave's store; a child with no fallback gets `Node::raw("")`. `Node::Pending { slot, fallback }` goes into the tree while a `PendingResolution` goes into `Assembly::pending`. When it resolves it renders from the contributions of the wave around it plus its own segments', merged by the same rule, so a component in it reads a layout's key as it would had the segment not been deferred; its own contributions are what `Resolved::contributions` carries.
 * **Collapse.** A node whose evaluator emitted exactly one chunk becomes that node. Otherwise it becomes `Node::Seq` and each non-deferred child segment records `path: [index]`.
 
@@ -325,10 +325,12 @@ pub async fn assemble_under(
 
 ### `Contribution`
 
-`pub struct Contribution { pub segment: String, pub path: Vec<String>, pub values: Data }`: what one segment seeded, `segment` its key as the sidecar and its region carry it and `path` the slot names from the route's root down to it. `Debug`, `Clone`, `PartialEq`.
+`pub struct Contribution { pub segment: String, pub path: Vec<String>, pub values: Data, pub awaits: Vec<String> }`: what one segment seeded, `segment` its key as the sidecar and its region carry it and `path` the slot names from the route's root down to it. A promise has no `values` and lists in `awaits` the keys a deferred segment will seed; the streams write it with `w`. `Contribution::seeded(segment, path, values)` and `Contribution::promised(segment, path, awaits)` build each. `Debug`, `Clone`, `PartialEq`.
 
 * `pub fn contribution_order(a: &[String], b: &[String], slot_order: &[String]) -> Ordering`: by depth, then at the first slot name the paths differ on, by `slot_order`: a name it lists comes after every name it does not and the later listed name is later; names it leaves out compare as strings. The browser merges by the same rule with the same list, so the two agree whatever order contributions arrive in.
 * `pub fn merge_contributions(contributions: &[Contribution], slot_order: &[String]) -> Data`: the store they merge to, each applied in that order.
+* `pub fn pending_keys(contributions: &[Contribution], slot_order: &[String]) -> BTreeSet<String>`: the keys a promise awaits and outranks every seed of, by `contribution_order`. A promise whose segment has seeded is kept and makes nothing pending. The browser store's `isPending` applies the same rule.
+* `PENDING_PROP`, `"$pending"`: the prop a node's pending keys ride in beside `$store`, the ones its subtree reads when that is known, every one otherwise. The memo key carries them, so a subtree rendered while a key was pending is not served once it is not.
 
 ### `Assembly`
 

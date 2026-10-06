@@ -69,6 +69,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [transaction](#transaction)
   * [derive](#derive)
   * [optimistic](#optimistic)
+  * [isPending and whenSettled](#ispending-and-whensettled)
   * [seed](#seed)
   * [adopt](#adopt)
   * [reset](#reset)
@@ -683,6 +684,15 @@ Sets the key to `guess`, awaits `remote` and returns its result. A rejection res
 
 Takes what a response's segments seeded, each contribution replacing the one its segment held, in one transaction. A key a contribution names loses whatever an island wrote to it. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value.
 
+A contribution with `w` is a promise: the keys a deferred segment will seed, with no values of its own. It keeps the values its segment last seeded or, when a navigation replaces the segment, those of the contribution at the same slot path, so a mounted island goes on showing them until the seed lands and replaces the promise.
+
+### isPending and whenSettled
+
+* `isPending(k: string): boolean`
+* `whenSettled(keys: string[]): Promise<void>`
+
+A key is pending while a promise awaits it and outranks, by the merge order, every contribution holding it; the server holds an island reading one by the same rule. `whenSettled` resolves once none of `keys` is pending, at once when none is. While it waits it hands back one promise per set of pending keys, which is what a component suspending on it needs. `boot` waits on it for an island whose props carry `$aw` before mounting it.
+
 ### setSlotOrder
 
 * `setSlotOrder(list: string[]): void`
@@ -837,6 +847,8 @@ A named slot of a layout: the region a parallel segment under `slots/<name>/` re
 * `function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void]`
 
 A store key as component state, over `useSyncExternalStore`. Reads the store's value or `initial` while nothing has set the key; `initial` is captured on the first render, so a fresh object literal there is safe. The setter writes the store, which re-renders every component reading that key in any root.
+
+In a root the server did not render, the first render suspends on a pending key, through React 19's `use` or a thrown promise under React 18. The adapter mounts such a root under a `Suspense` with no fallback, so the island shows nothing until the seed lands rather than the value about to be replaced. A mounted root never suspends: it keeps what it shows and moves when the seed lands.
 
 The build lowers the call, so the key must be a string literal or a `key()` it can follow through an import; anything else is residue naming the line. On the server the read becomes the seed's value with `initial` as the fallback and the island's props carry the values it was rendered from as `$sv`, which is what hydration compares the markup against; the store's live value takes over once hydrated, so a key another island wrote or a later segment seeded in between moves the island instead of failing it. The setter is dropped by lowering, like any handler.
 

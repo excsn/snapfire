@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -16,7 +16,7 @@ use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
 use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
-use crate::store::{Contribution, Seeds, merge_contributions};
+use crate::store::{Contribution, Seeds, merge_contributions, pending_keys};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AssembleError {
@@ -286,12 +286,27 @@ impl std::fmt::Debug for Assembly {
   }
 }
 
+/// The prop a node's pending store keys ride in beside `$store`, stripped with it.
+pub const PENDING_PROP: &str = "$pending";
+
+/// Of the pending keys, the ones a subtree reads; all of them when what it reads is not known.
+fn pending_read(pending: &BTreeSet<String>, reads: Option<&SubtreeReads>) -> Vec<String> {
+  match reads {
+    Some(reads) if reads.class != Static::Dynamic => pending.iter().filter(|k| reads.store_keys.contains(k)).cloned().collect(),
+    _ => pending.iter().cloned().collect(),
+  }
+}
+
 /// A node's props carry the route's store seed as `$store`, which a lowered
 /// component's `Expr::Store` reads and the IR evaluator strips again before
 /// the props reach the browser.
 /// The whole store for a subtree that reads everything, the keys it was seen
 /// to read otherwise, so a memoized render depends on what its key names.
-fn inject_store(props: &mut Data, store: &Data, reads: Option<&SubtreeReads>) {
+fn inject_store(props: &mut Data, store: &Data, pending: &BTreeSet<String>, reads: Option<&SubtreeReads>) {
+  let pending = pending_read(pending, reads);
+  if !pending.is_empty() {
+    props.insert(PENDING_PROP.to_owned(), Value::Seq(pending.into_iter().map(Value::str).collect()));
+  }
   let store = match reads {
     Some(reads) if reads.class != Static::Dynamic => store_read(store, &reads.store_keys),
     _ => store.clone(),
@@ -385,27 +400,48 @@ fn describing_nodes<'p>(
   }
 }
 
-/// Every node of `plan` whose loaded data seeds the store, outermost first,
-/// deferred children excluded since their data is not in this wave.
+/// Every node of `plan` whose source seeds the store, outermost first, with
+/// its slot path. Deferred children are excluded unless `deferred` is set,
+/// since their data is not in this wave.
 fn seeding_nodes<'p>(
   runtime: &Runtime,
   plan: &'p PlanNode,
-  loaded: &Loaded,
   is_root: bool,
+  deferred: bool,
   path: &mut Vec<String>,
   out: &mut Vec<(&'p PlanNode, Vec<String>)>,
 ) {
-  if plan.deferred && !is_root {
+  if plan.deferred && !is_root && !deferred {
     return;
   }
   if let Some(source) = &plan.data_source {
-    if runtime.stores.contains_key(&source.0) && loaded.data.contains_key(&plan.id.0) {
+    if runtime.stores.contains_key(&source.0) {
       out.push((plan, path.clone()));
     }
   }
   for (slot, child) in &plan.children {
     path.push(slot.0.clone());
-    seeding_nodes(runtime, child, loaded, false, path, out);
+    seeding_nodes(runtime, child, false, deferred, path, out);
+    path.pop();
+  }
+}
+
+/// Every seeding node beneath a deferred child of `plan`, at any depth, with
+/// its slot path: the segments this wave renders before their seeds land.
+fn promising_nodes<'p>(
+  runtime: &Runtime,
+  plan: &'p PlanNode,
+  is_root: bool,
+  path: &mut Vec<String>,
+  out: &mut Vec<(&'p PlanNode, Vec<String>)>,
+) {
+  if plan.deferred && !is_root {
+    seeding_nodes(runtime, plan, true, true, path, out);
+    return;
+  }
+  for (slot, child) in &plan.children {
+    path.push(slot.0.clone());
+    promising_nodes(runtime, child, false, path, out);
     path.pop();
   }
 }
@@ -415,12 +451,15 @@ fn seeding_nodes<'p>(
 struct Seeded {
   contributions: Vec<Contribution>,
   merged: Data,
+  /// The keys a deferred segment's seed will replace: see [`pending_keys`].
+  pending: BTreeSet<String>,
 }
 
 impl Seeded {
   fn new(contributions: Vec<Contribution>, slot_order: &[String]) -> Self {
     let merged = merge_contributions(&contributions, slot_order);
-    Self { contributions, merged }
+    let pending = pending_keys(&contributions, slot_order);
+    Self { contributions, merged, pending }
   }
 }
 
@@ -565,13 +604,13 @@ impl Session {
     })
   }
 
-  async fn fallback_node(&self, child: &PlanNode, store: &Data) -> Result<Node, AssembleError> {
+  async fn fallback_node(&self, child: &PlanNode, store: &Data, pending: &BTreeSet<String>) -> Result<Node, AssembleError> {
     let Some(module) = &child.fallback else {
       return Ok(Node::raw(""));
     };
     let mut props = ValueMap::default();
     self.inject_ctx_props(&mut props, child.id.0, Static::Dynamic, true, true);
-    inject_store(&mut props, store, None);
+    inject_store(&mut props, store, pending, None);
     let chunks: Vec<Chunk> = self
       .runtime
       .evaluators
@@ -599,6 +638,9 @@ impl Session {
   fn defer(self: &Arc<Self>, child: PlanNode, slot: SlotId, key: String, path: Vec<String>, around: Vec<Contribution>) -> PendingResolution {
     let session = Arc::clone(self);
     let resolved_key = key.clone();
+    let mut promised = Vec::new();
+    seeding_nodes(&self.runtime, &child, true, true, &mut path.clone(), &mut promised);
+    let kept: Vec<Contribution> = promised.into_iter().map(|(node, path)| Contribution::seeded(self.segment_key(node), path, Data::default())).collect();
     PendingResolution {
       slot,
       key,
@@ -620,7 +662,7 @@ impl Session {
             segments: Vec::new(),
             pending: Vec::new(),
             meta: Meta::default(),
-            contributions: Vec::new(),
+            contributions: kept,
           },
         }
       }),
@@ -637,7 +679,8 @@ impl Session {
   ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Vec<Contribution>, u64, Option<FailureKind>), AssembleError> {
     let loaded = self.load_eager(plan).await?;
     let meta = self.describe(plan, &loaded).await;
-    let own = self.seed(plan, path.clone(), &loaded).await;
+    let mut own = self.seed(plan, path.clone(), &loaded).await;
+    own.extend(self.promise(plan, path.clone()));
     let mut all = around;
     all.extend(own.iter().cloned());
     let seeded = Seeded::new(all, &self.runtime.slot_order);
@@ -648,22 +691,44 @@ impl Session {
   }
 
   /// What every seeding segment of `plan` seeds, each with the slot path
-  /// that places it. A failing seed costs its keys rather than the page.
+  /// that places it. A segment whose loader or seed failed seeds nothing, so
+  /// its keys go, a promise for it is kept and the browser drops what it
+  /// seeded before, rather than the page failing.
   async fn seed(&self, plan: &PlanNode, mut path: Vec<String>, loaded: &Loaded) -> Vec<Contribution> {
     let mut nodes = Vec::new();
-    seeding_nodes(&self.runtime, plan, loaded, true, &mut path, &mut nodes);
+    seeding_nodes(&self.runtime, plan, true, false, &mut path, &mut nodes);
     let mut out = Vec::new();
     for (node, path) in nodes {
       let source = node.data_source.as_ref().expect("a seeding node has a source");
-      match self.runtime.stores[&source.0]
-        .seed(self.ctx_of(node.id.0), &loaded.data[&node.id.0])
-        .await
-      {
-        Ok(values) => out.push(Contribution { segment: self.segment_key(node), path, values }),
-        Err(e) => tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment store failed"),
-      }
+      let values = match loaded.data.get(&node.id.0) {
+        Some(data) => match self.runtime.stores[&source.0].seed(self.ctx_of(node.id.0), data).await {
+          Ok(values) => values,
+          Err(e) => {
+            tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment store failed");
+            Data::default()
+          }
+        },
+        None => Data::default(),
+      };
+      out.push(Contribution::seeded(self.segment_key(node), path, values));
     }
     out
+  }
+
+  /// A promise per seeding segment under a deferred child of `plan` whose
+  /// keys are known before its data: what this wave tells the browser is
+  /// still coming.
+  fn promise(&self, plan: &PlanNode, mut path: Vec<String>) -> Vec<Contribution> {
+    let mut nodes = Vec::new();
+    promising_nodes(&self.runtime, plan, true, &mut path, &mut nodes);
+    nodes
+      .into_iter()
+      .filter_map(|(node, path)| {
+        let source = node.data_source.as_ref()?;
+        let keys = self.runtime.stores[&source.0].keys()?;
+        (!keys.is_empty()).then(|| Contribution::promised(self.segment_key(node), path, keys))
+      })
+      .collect()
   }
 
   /// Every described segment of `plan` folded outermost first, so a layout
@@ -694,7 +759,8 @@ impl Session {
   /// its shape, its own sources' data and the store it reads. A `Fixed` subtree's key names no visitor, so one entry
   /// serves everyone; an `Anonymous` one names the subject; a `Dynamic` one
   /// names the subject, the token and the whole store.
-  fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, store: &Data, shape: u64, reads: Option<&SubtreeReads>) -> Option<String> {
+  fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, seeded: &Seeded, shape: u64, reads: Option<&SubtreeReads>) -> Option<String> {
+    let store = &seeded.merged;
     let plan_key = node.cache_key.as_ref()?;
     if has_deferred_descendant(node) || subtree_has_failure(node, &loaded.failed) {
       return None;
@@ -720,7 +786,7 @@ impl Session {
       _ => format!("{}|doc={}", self.ctx.path, self.ctx.document.as_deref().unwrap_or("-")),
     };
     Some(format!(
-      "{}|{}|ident={}|csrf={}|locale={}|path={}|{:016x}|{:016x}|{:016x}",
+      "{}|{}|ident={}|csrf={}|locale={}|path={}|{:016x}|{:016x}|{:016x}|pending={}",
       plan_key.0,
       pairs.join("&"),
       subject,
@@ -729,7 +795,8 @@ impl Session {
       path,
       shape,
       subtree_data_fingerprint(node, data),
-      store_fp
+      store_fp,
+      pending_read(&seeded.pending, reads).join(",")
     ))
   }
 
@@ -815,7 +882,7 @@ impl Session {
           child_path.push(slot.0.clone());
           if child.deferred {
             let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
-            let fallback = self.fallback_node(child, &seeded.merged).await?;
+            let fallback = self.fallback_node(child, &seeded.merged, &seeded.pending).await?;
             out_pending.push(self.defer(child.clone(), slot_id, key.clone(), child_path, seeded.contributions.clone()));
             segments.push(SegmentInfo {
               key,
@@ -913,7 +980,7 @@ impl Session {
       let class = reads.map(|r| r.class).unwrap_or(Static::Dynamic);
       let cache_key = match self.runtime.head_users.lock().contains(&node.id.0) {
         true => None,
-        false => self.cache_key_for(node, loaded, &seeded.merged, shape, reads),
+        false => self.cache_key_for(node, loaded, seeded, shape, reads),
       };
       let render = tracing::info_span!(target: "fsr::trace", "render", module = %node.module, cache = tracing::field::Empty);
       let _rendering = render.enter();
@@ -929,7 +996,7 @@ impl Session {
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
       self.inject_ctx_props(&mut props, node.id.0, class, reads.is_none_or(|r| r.path), reads.is_none_or(|r| r.csrf));
-      inject_store(&mut props, &seeded.merged, reads);
+      inject_store(&mut props, &seeded.merged, &seeded.pending, reads);
       if !node.children.is_empty() || !node.keep.is_empty() {
         let slots = node
           .children
@@ -993,7 +1060,7 @@ impl Session {
             child_path.push(slot.0.clone());
             if child.deferred {
               let slot_id = SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed));
-              let fallback = self.fallback_node(child, &seeded.merged).await?;
+              let fallback = self.fallback_node(child, &seeded.merged, &seeded.pending).await?;
               parts.push(Node::Pending {
                 slot: slot_id,
                 fallback: Box::new(fallback),

@@ -53,6 +53,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
 * [6. Runtime Adapters](#6-runtime-adapters)
   * [IrSource](#irsource)
   * [IrPaths](#irpaths)
+  * [IrStore](#irstore)
   * [IrAction](#iraction)
 * [7. Error Handling](#7-error-handling)
   * [Fail](#fail)
@@ -242,6 +243,7 @@ Runs a body. `Clone`; the default carries the system clock and the standard libr
 * `HandlerRef { path: String, index: usize }` names the handler a step runs: `index` into the handlers of the component at `path`, which is empty for the island's own component (`HandlerRef::own(index)`) and otherwise the address a component rendered inside it carries, `c1` for a keyed placement or `0.c2` for one inside a loop, the `Hoists::path_key` of the render that reached it. `HandlerRef::parse` reads a token as an element binds it, `2` or `c1/2`; anything else is `None`.
 * `Interpreter::island_step(&self, module, component, props, state, handler: Option<HandlerRef>, event: &Value, library) -> Result<Stepped, Fail>`: one round trip of an island in server mode. The body's `let`s run with `state` standing in for the component's state bindings, the handler at `handler` runs with `$props`, `$state` and `$event` bound and the object it returns is merged into the state for the keys the component names, a key that is a store binding written to the render's store instead and answered in `Stepped.store`, then the component renders from that state in server mode: `$on:` markers print as `data-sf-on="click:0 change:1"` and `$key` as `data-sf-key`, neither of which prints in a browser-mode render. `None` for `handler` renders as is. A component rendered inside the island through a keyed placement has an address, its `path_key`: its state bindings ride in the same map as `<address>/<name>`, its markers print as `<address>/<index>`, the address of the component that owns the handler wherever inside it the element sits, so an element in one of its loops never takes the iteration's address and a `HandlerRef` naming it is found by rendering once to that path, which gives its handler the props the island's render gave it; `NotFound` when the render reaches no such path or the component there has no such index. The answered `state` is what the render consumed, so an instance the render no longer places leaves no entry behind. `Stepped { state, rendered, acts }`: `acts` is every `Act` the handler ran, in order, as `(action id, input)` with the input evaluated where the statement stood, so it reads the props and the state as they were at that point; the interpreter dispatches nothing itself. A missing handler index is `Internal`.
 * A `Tmpl::Island` in server mode renders its component the same way and `RenderedIsland { mode, state, reads, rendered_store, .. }` carries the mode, the values the state `let`s took, the store values the island was rendered from (the keys it reads that the store held, which `mount_props` writes as `$sv` on a browser-mode island) and the store keys the island reads, `render::store_keys(component, library)`: every `Expr::Store` in it and in the components it renders inline, sorted. `mount_props` adds the state under `render::STATE_PROP` (`$s`) and the keys under `render::READS_PROP` (`$sk`) and `rendered_nodes` writes `data-sf-mode="server"` on the region.
+* An island whose `store_keys` include one of the pending keys its props carry under `snapfire_fsr_runtime::PENDING_PROP` is held: its component is not rendered while its children are. `RenderedIsland::awaits` lists those keys, which `mount_props` writes as `render::AWAITS_PROP` (`$aw`) in place of `$sv`. A root a framework hydrates is held the same way by `IrEvaluator`: a `Node::Client` with its slot regions and `$aw`.
 * `render::ROOT_SLOT`: what a root component's own `Slot` writes into the markup, since it has no caller. `IrEvaluator` splits the markup there and emits a `Client` node whose `children` carry the pieces around a `Node::Slot("content")`, which is how a layout places its page.
 * `Interpreter::run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> impl Future<Output = Result<Outcome, Fail>>`. `input` is `None` for a loader; a body reads `Expr::Input` as `Value::Null` then. Session writes go to a draft copied from `ctx.session` at entry and are committed to the cell, key by key, only on success. A `SessionExtend` is applied to the cell after the draft, on success only.
 
@@ -443,6 +445,15 @@ A lowered `paths` naming the parameter sets a route prerenders. Implements `snap
 * `IrPaths::new(source_id: impl Into<String>, body: Body) -> IrPaths`
 * `IrPaths::with_interpreter(self, interpreter: Interpreter) -> IrPaths`
 * `paths` runs the body with no input and reads the `Value::Seq` it returned as one `Params` per `Value::Map`, a string or a number per key. A non-list return, an entry that is not an object, a value of another kind or a `Fail` is a `LoadError` carrying the id and the message.
+
+### IrStore
+
+A lowered `store` export. Implements `snapfire_fsr_runtime::Seeds`.
+
+* `IrStore::new(source_id: impl Into<String>, body: Body) -> IrStore`
+* `IrStore::with_interpreter(self, interpreter: Interpreter) -> IrStore`
+* `seed` runs the body with the segment's data as `Input` and returns the `Value::Map` it returned. A non-map return or a `Fail` is a `LoadError`.
+* `keys` is every field name a `return` of the body can hold, through branches, loops and a returned `let`: `None` when a return is anything but an object of named fields, a spread or a computed key among them, since its keys are then the data's.
 
 ### IrAction
 

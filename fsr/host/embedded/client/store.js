@@ -56,6 +56,40 @@ function order(a, b) {
     }
     return 0;
 }
+function samePath(a, b) {
+    return a.length === b.length && a.every((name, i)=>name === b[i]);
+}
+export function isPending(k) {
+    for (const promise of contributions.values()){
+        if (!promise.w?.includes(k)) continue;
+        const outranked = Array.from(contributions.values()).some((c)=>c.k !== promise.k && k in c.v && order(c, promise) >= 0);
+        if (!outranked) return true;
+    }
+    return false;
+}
+const waiters = new Set();
+const settling = new Map();
+export function whenSettled(keys) {
+    const waiting = keys.filter(isPending);
+    if (waiting.length === 0) return Promise.resolve();
+    const id = waiting.slice().sort().join("\u0000");
+    const held = settling.get(id);
+    if (held) return held;
+    const promise = new Promise((resolve)=>waiters.add({
+            keys: waiting,
+            resolve
+        }));
+    settling.set(id, promise);
+    void promise.then(()=>settling.delete(id));
+    return promise;
+}
+function release() {
+    for (const waiter of Array.from(waiters)){
+        if (waiter.keys.some(isPending)) continue;
+        waiters.delete(waiter);
+        waiter.resolve();
+    }
+}
 export function setSlotOrder(list) {
     slotOrder = list.slice();
     transaction(()=>{
@@ -63,6 +97,7 @@ export function setSlotOrder(list) {
         for (const c of contributions.values())for (const k of Object.keys(c.v))touched.add(k);
         remerge(touched);
     });
+    release();
 }
 function remerge(touched) {
     const before = new Map();
@@ -97,6 +132,7 @@ export function reset() {
     merged = new Map();
     writes.clear();
     derivedValues.clear();
+    release();
 }
 export function snapshot() {
     const out = {};
@@ -165,16 +201,22 @@ export function contribute(list) {
                 touched.add(k);
                 writes.delete(k);
             }
+            const before = old ?? Array.from(contributions.values()).find((held)=>held.k !== c.k && samePath(held.p, c.p));
+            const values = c.w && before ? before.v : c.v;
             contributions.set(c.k, {
                 k: c.k,
                 p: c.p.slice(),
                 v: {
-                    ...c.v
-                }
+                    ...values
+                },
+                ...c.w ? {
+                    w: c.w.slice()
+                } : {}
             });
         }
         remerge(touched);
     });
+    release();
 }
 export function retain(segments) {
     const keep = new Set(segments);
@@ -188,6 +230,7 @@ export function retain(segments) {
         }
         if (touched.size > 0) remerge(touched);
     });
+    release();
 }
 export function seed(values) {
     const held = contributions.get(PLAIN);
@@ -209,7 +252,10 @@ export function decodeContributions(encoded) {
         return {
             k: String(entry.k ?? ""),
             p: Array.isArray(entry.p) ? entry.p.map(String) : [],
-            v: decodeValue(entry.v ?? {}) ?? {}
+            v: decodeValue(entry.v ?? {}) ?? {},
+            ...Array.isArray(entry.w) ? {
+                w: entry.w.map(String)
+            } : {}
         };
     });
 }

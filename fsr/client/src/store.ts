@@ -15,6 +15,8 @@ export interface Contribution {
   k: string;
   p: string[];
   v: { [key: string]: unknown };
+  /** On a promise, the keys a deferred segment will seed once it resolves; its `v` is empty and its seed replaces it. */
+  w?: string[];
 }
 
 /** The contribution `seed()` writes: a plain map of values, outermost of all, patched by each call. */
@@ -90,6 +92,49 @@ function order(a: Contribution, b: Contribution): number {
   return 0;
 }
 
+function samePath(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((name, i) => name === b[i]);
+}
+
+/** Whether a deferred segment has yet to seed `k`: a promise awaits it and outranks every contribution holding it, so the value the store holds now is about to be replaced. The server decides the same way which islands to hold. */
+export function isPending(k: string): boolean {
+  for (const promise of contributions.values()) {
+    if (!promise.w?.includes(k)) continue;
+    const outranked = Array.from(contributions.values()).some((c) => c.k !== promise.k && k in c.v && order(c, promise) >= 0);
+    if (!outranked) return true;
+  }
+  return false;
+}
+
+interface Waiter {
+  keys: string[];
+  resolve: () => void;
+}
+
+const waiters = new Set<Waiter>();
+const settling = new Map<string, Promise<void>>();
+
+/** Resolves once none of `keys` is pending, at once when none is. One promise per pending key set while it waits, so a component suspending on it is handed the same promise on every render. */
+export function whenSettled(keys: string[]): Promise<void> {
+  const waiting = keys.filter(isPending);
+  if (waiting.length === 0) return Promise.resolve();
+  const id = waiting.slice().sort().join("\u0000");
+  const held = settling.get(id);
+  if (held) return held;
+  const promise = new Promise<void>((resolve) => waiters.add({ keys: waiting, resolve }));
+  settling.set(id, promise);
+  void promise.then(() => settling.delete(id));
+  return promise;
+}
+
+function release(): void {
+  for (const waiter of Array.from(waiters)) {
+    if (waiter.keys.some(isPending)) continue;
+    waiters.delete(waiter);
+    waiter.resolve();
+  }
+}
+
 /** Sets the slot order the merge uses and remerges, notifying every key that moved. `adopt` calls it with what the document carries; a test calls it directly. */
 export function setSlotOrder(list: string[]): void {
   slotOrder = list.slice();
@@ -98,6 +143,7 @@ export function setSlotOrder(list: string[]): void {
     for (const c of contributions.values()) for (const k of Object.keys(c.v)) touched.add(k);
     remerge(touched);
   });
+  release();
 }
 
 /** Recomputes the merge and notifies every key in `touched` whose effective value moved. */
@@ -142,6 +188,7 @@ export function reset(): void {
   merged = new Map();
   writes.clear();
   derivedValues.clear();
+  release();
 }
 
 /** Every key the store holds, for a test or a debugger. */
@@ -219,10 +266,14 @@ export function contribute(list: Contribution[]): void {
         touched.add(k);
         writes.delete(k);
       }
-      contributions.set(c.k, { k: c.k, p: c.p.slice(), v: { ...c.v } });
+      // A promise keeps what its slot last held, under its own key or the one a navigation is replacing at the same path, so a mounted island goes on showing that until the seed lands.
+      const before = old ?? Array.from(contributions.values()).find((held) => held.k !== c.k && samePath(held.p, c.p));
+      const values = c.w && before ? before.v : c.v;
+      contributions.set(c.k, { k: c.k, p: c.p.slice(), v: { ...values }, ...(c.w ? { w: c.w.slice() } : {}) });
     }
     remerge(touched);
   });
+  release();
 }
 
 /** Drops the contribution of every segment not in `segments`, which the navigator calls once a payload's tree is in: a segment leaves and its keys go with it, so a page that seeds nothing does not inherit what the page before it seeded. The plain contribution `seed()` writes stays. */
@@ -238,6 +289,7 @@ export function retain(segments: Iterable<string>): void {
     }
     if (touched.size > 0) remerge(touched);
   });
+  release();
 }
 
 /** Writes a whole map in one transaction, outside any segment: the plain contribution, patched by each call. The server is authoritative: a seeded key replaces whatever the browser held. */
@@ -255,11 +307,12 @@ interface SeedGlobal {
 export function decodeContributions(encoded: unknown): Contribution[] {
   if (!Array.isArray(encoded)) return [];
   return encoded.map((item) => {
-    const entry = item as { k?: unknown; p?: unknown; v?: unknown };
+    const entry = item as { k?: unknown; p?: unknown; v?: unknown; w?: unknown };
     return {
       k: String(entry.k ?? ""),
       p: Array.isArray(entry.p) ? entry.p.map(String) : [],
       v: (decodeValue((entry.v ?? {}) as SfValue) ?? {}) as { [key: string]: unknown },
+      ...(Array.isArray(entry.w) ? { w: entry.w.map(String) } : {}),
     };
   });
 }

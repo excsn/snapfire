@@ -1,7 +1,8 @@
-import { get } from "@snapfire/fsr-client/store";
-import { describe, expect, fireEvent, load, settle, spyOn, test } from "@snapfire/fsr-client/testing";
+import { contribute, get, isPending, reset, retain, whenSettled } from "@snapfire/fsr-client/store";
+import { describe, expect, fireEvent, load, render, settle, spyOn, test } from "@snapfire/fsr-client/testing";
 
 import { owner, slotOwner } from "@src/store";
+import Owner from "@src/ui/Owner";
 
 const owners = () => [...document.querySelectorAll(".owner")].map((el) => `${(el as HTMLElement).dataset.island}=${el.textContent}`);
 
@@ -65,5 +66,63 @@ describe("a streamed page that seeds a key its layout also seeds", () => {
     expect(document.querySelector(".peek-by"), "the intercept closed").toBeNull();
     expect(get(owner), "and its seed left with it").toEqual("layout");
     expect(owners().every((o) => o.endsWith("=layout")), owners().join(" ")).toBeTruthy();
+  });
+});
+
+describe("a key a streamed segment has yet to seed", () => {
+  test("holds a layout island that reads it out of the first wave, so the first paint never shows the value about to be replaced", async () => {
+    const html = await (await fetch("/streamed")).text();
+    const wave = html.slice(0, html.indexOf("<template data-sf-fill"));
+    expect(wave.includes('class="owner"'), "no island reading the key renders in the first wave").toBeFalsy();
+    expect(wave.includes('"$aw":["repro/owner"]'), "each says which key it waits for").toBeTruthy();
+    expect(wave.includes('"w":["repro/owner"]'), "the document says which segment will seed it").toBeTruthy();
+  });
+
+  test("is pending while a promise outranks what the store holds, until the seed keeps it", async () => {
+    reset();
+    contribute([{ k: "layout", p: [], v: { "repro/owner": "layout" } }]);
+    contribute([{ k: "page", p: ["content"], v: {}, w: ["repro/owner"] }]);
+    expect(isPending(owner)).toBeTruthy();
+    expect(get(owner), "the value held meanwhile is the layout's").toEqual("layout");
+    let settled = false;
+    void whenSettled([owner]).then(() => (settled = true));
+    contribute([{ k: "page", p: ["content"], v: { "repro/owner": "page" } }]);
+    await settle();
+    expect(settled).toBeTruthy();
+    expect(isPending(owner)).toBeFalsy();
+    expect(get(owner)).toEqual("page");
+  });
+
+  test("keeps what a segment last seeded while a new promise for it is out", async () => {
+    reset();
+    contribute([{ k: "page", p: ["content"], v: { "repro/owner": "before" } }]);
+    contribute([{ k: "page", p: ["content"], v: {}, w: ["repro/owner"] }]);
+    expect(isPending(owner)).toBeTruthy();
+    expect(get(owner), "a mounted island goes on showing it until the seed lands").toEqual("before");
+  });
+
+  test("keeps what the segment a navigation is replacing seeded, at the same slot path", async () => {
+    reset();
+    contribute([{ k: "layout", p: [], v: { "repro/owner": "layout" } }, { k: "page?page=a", p: ["content"], v: { "repro/owner": "a" } }]);
+    contribute([{ k: "page?page=b", p: ["content"], v: {}, w: ["repro/owner"] }]);
+    retain(["layout", "page?page=b"]);
+    expect(isPending(owner)).toBeTruthy();
+    expect(get(owner), "not the layout's value: the page it replaces held the slot").toEqual("a");
+    contribute([{ k: "page?page=b", p: ["content"], v: { "repro/owner": "b" } }]);
+    expect(get(owner)).toEqual("b");
+  });
+
+  test("suspends a root the server did not render until the seed lands while a mounted one keeps its value", async () => {
+    reset();
+    contribute([{ k: "layout", p: [], v: { "repro/owner": "layout" } }, { k: "page", p: ["content"], v: {}, w: ["repro/owner"] }]);
+    const view = await render(<Owner name="fresh" />, { hydrate: false });
+    expect(view.container.querySelector(".owner"), "nothing shows while the key is pending").toBeNull();
+    contribute([{ k: "page", p: ["content"], v: { "repro/owner": "page" } }]);
+    await settle();
+    expect(view.container.querySelector(".owner")?.textContent).toEqual("page");
+    contribute([{ k: "page", p: ["content"], v: {}, w: ["repro/owner"] }]);
+    await settle();
+    expect(view.container.querySelector(".owner")?.textContent, "a promise for a mounted root's key leaves what it shows").toEqual("page");
+    view.unmount();
   });
 });

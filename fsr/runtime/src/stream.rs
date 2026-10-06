@@ -17,17 +17,21 @@ pub const FILL_SCRIPT: &str = "<script>function __sfFill(n,g){var t=document.que
 /// The `T` row's body and the seed script's: one entry per seeding segment,
 /// `k` its key, `p` the slot names from the root to it and `v` what it seeded
 /// as a value map, so a reader merges them by position whatever order they
-/// arrived in.
+/// arrived in. A promise carries `w`, the keys it will seed, with an empty `v`.
 pub fn contributions_to_json(contributions: &[Contribution]) -> Json {
   Json::Array(
     contributions
       .iter()
       .map(|c| {
-        json!({
+        let mut row = json!({
           "k": c.segment,
           "p": c.path,
           "v": snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(c.values.clone())),
-        })
+        });
+        if !c.awaits.is_empty() {
+          row["w"] = json!(c.awaits);
+        }
+        row
       })
       .collect(),
   )

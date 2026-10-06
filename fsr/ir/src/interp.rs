@@ -180,6 +180,7 @@ impl Interpreter {
     let mut env = Env {
       ctx: ctx.clone(),
       store: ValueMap::default(),
+      pending: Default::default(),
       hoists: None,
       state: None,
       probe: None,
@@ -268,6 +269,8 @@ pub(crate) struct Env {
   extend: Option<u64>,
   pub(crate) scope: Vec<(String, Value)>,
   pub(crate) store: ValueMap,
+  /// The store keys a deferred segment has yet to seed: an island reading one is held.
+  pub(crate) pending: std::collections::BTreeSet<String>,
   clock: Arc<dyn Clock>,
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
@@ -438,6 +441,7 @@ impl Env {
       extend: None,
       scope,
       store: ValueMap::default(),
+      pending: Default::default(),
       clock: interpreter.clock.clone(),
       extensions: interpreter.extensions.clone(),
       catalogs: interpreter.catalogs.clone(),
@@ -572,6 +576,7 @@ impl Env {
       extend: None,
       scope: self.scope.clone(),
       store: self.store.clone(),
+      pending: self.pending.clone(),
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
       catalogs: self.catalogs.clone(),
