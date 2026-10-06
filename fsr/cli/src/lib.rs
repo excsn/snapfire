@@ -47,6 +47,8 @@ pub enum BuildError {
   Doctor(crate::doctor::Report),
   #[error("{0}: {1}")]
   Io(PathBuf, std::io::Error),
+  #[error("the configuration does not load: {0}")]
+  Configuration(String),
   #[error("no `routes/` directory under {0}")]
   NoRoutes(PathBuf),
   #[error("{path}: `{name}` is not a route segment; use a name, `[param]` or `[...rest]`")]
@@ -430,7 +432,8 @@ pub fn unprefixed(service: &str) -> &str {
   service.rsplit_once(':').map(|(_, rest)| rest).unwrap_or(service)
 }
 
-/// The configuration beside `app`, when it names this app directory.
+/// The configuration beside `app`, when it names this app directory. One that does not load is
+/// `None` here and refused by [`build_with`].
 pub(crate) fn config_beside(app: &Path) -> Option<snapfire_fsr_host::config::Config> {
   let root = serve::project_root(app);
   let config = snapfire_fsr_host::config::Config::load(&root).ok()?;
@@ -642,6 +645,10 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
     return Err(BuildError::NoRoutes(app.to_path_buf()));
   }
 
+  match snapfire_fsr_host::config::Config::load(serve::project_root(app)) {
+    Ok(_) | Err(snapfire_fsr_host::HostError::NoConfig(_)) => {}
+    Err(e) => return Err(BuildError::Configuration(e.to_string())),
+  }
   let mut report = Report::default();
   if let Some(config) = config_beside(app) {
     report.csp = doctor::csp(&config).into_iter().map(|f| (f.what, f.remedy)).collect();

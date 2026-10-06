@@ -238,16 +238,35 @@ fn a_site_with_a_direction_takes_the_framework_its_shell_serves() {
 
 #[test]
 fn a_scaffold_is_a_development_build_where_release_env_is_development_and_a_production_one_elsewhere() {
-  use snapfire_fsr_host::config::{Deployment, Loader};
+  use snapfire_fsr_host::config::{Deployment, Loader, SESSION_KEY_PLACEHOLDER};
   for site in [None, Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: None })] {
-    let root = root("development");
+    let root = root("environments");
     create(&root, NewOptions { site, ..offline() }).unwrap();
-    let dev = |release_env: &str| {
+    let load = |release_env: &str| {
       let deployment = Deployment { release_env: release_env.to_owned(), app_env: "local".to_owned(), region: None };
-      Loader::at(&root).deployment(deployment).config().unwrap().server.dev
+      Loader::at(&root).deployment(deployment).config().unwrap()
     };
-    assert_eq!(dev("development"), Some(true));
-    assert_eq!(dev("production"), None, "unwritten, so fsr build bundles for production");
+    let development = load("development");
+    assert_eq!(development.server.dev, Some(true));
+    assert_eq!(development.session.key, None, "a development host makes its own key");
+    let production = load("production");
+    assert_eq!(production.server.dev, Some(false));
+    assert_eq!(production.server.static_max_age, Some(3600));
+    assert!(production.session.secure);
+    assert_eq!(production.session.key.as_deref(), Some(SESSION_KEY_PLACEHOLDER), "the host refuses it until a deploy replaces it");
     std::fs::remove_dir_all(&root).unwrap();
   }
+}
+
+#[test]
+fn a_configuration_that_does_not_load_fails_the_build() {
+  let root = root("broken");
+  create(&root, offline()).unwrap();
+  let config = root.join("config/app.toml");
+  let text = std::fs::read_to_string(&config).unwrap();
+  std::fs::write(&config, text.replacen("[server]\n", "[server]\nnot_a_key = 1\n", 1)).unwrap();
+  let app = root.join("app");
+  let err = build(&app, &Options::beside(&app)).err().expect("refused");
+  assert!(err.to_string().contains("not_a_key"), "{err}");
+  std::fs::remove_dir_all(&root).unwrap();
 }

@@ -1,0 +1,3 @@
+# Read when RELEASE_ENV is development, which it is when unset. A deploy sets RELEASE_ENV=production and gets the minified build.
+[server]
+dev = true

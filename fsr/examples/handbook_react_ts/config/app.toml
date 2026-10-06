@@ -8,7 +8,6 @@ listen = "127.0.0.1:8110"
 title = "The FSR handbook"
 
 [session]
-key = "handbook-example-dev-key-not-a-secret"
 ttl = "1h"
 
 [typecheck]

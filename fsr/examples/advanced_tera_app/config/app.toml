@@ -10,7 +10,6 @@ import_map = "js/importmap.json"
 entry = "/static/js/app/main.js"
 
 [session]
-key = "tera-app-dev-signing-key-not-a-secret"
 ttl = "8h"
 csrf = "always"
 

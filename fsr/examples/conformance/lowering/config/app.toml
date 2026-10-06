@@ -11,7 +11,6 @@ object-src = ["'none'"]
 base-uri = ["'none'"]
 
 [session]
-key = "conformance-lowering-development-key-not-a-secret"
 ttl = "24h"
 
 [typecheck]

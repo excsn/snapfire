@@ -10,7 +10,6 @@ max_upload = 1048576
 title = "Uploads"
 
 [session]
-key = "uploads-example-dev-key-not-a-secret"
 csrf = "always"
 ttl = "1h"
 
