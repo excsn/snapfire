@@ -799,7 +799,7 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
   std::fs::create_dir_all(dir.join("dist")).unwrap();
   std::fs::write(
     dir.join("dist/.snapfire-build.json"),
-    "{\"outputs\":[\"main.js\",\"main.js.map\"]}",
+    "{\"outputs\":[\"main.js\",\"main.js.map\",\"styles/app.css\"]}",
   )
   .unwrap();
   std::fs::write(dir.join("dist/main.js"), "one").unwrap();
@@ -813,6 +813,11 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
   host.changed();
   let same = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
   assert_eq!(same, with_bundle, "a source map is not part of the id");
+  std::fs::create_dir_all(dir.join("dist/styles")).unwrap();
+  std::fs::write(dir.join("dist/styles/app.css"), "h1{color:red}").unwrap();
+  host.changed();
+  let restyled = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  assert_eq!(restyled, with_bundle, "nor is a stylesheet, which the document re-links in place");
   std::fs::write(dir.join("dist/main.js"), "two").unwrap();
   host.changed();
   let edited = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
@@ -6181,4 +6186,31 @@ fn a_session_key_left_at_the_scaffold_s_placeholder_refuses_to_start() {
   std::fs::write(dir.join("app.toml"), toml).unwrap();
   let err = Host::from(dir.join("app.toml")).unwrap().build().err().expect("refused");
   assert!(err.to_string().contains("placeholder"), "{err}");
+}
+
+/// `minified_app`'s bundle with a stylesheet under `styles/` among its outputs, as `fsr build`
+/// compiles one, and the directory beside the app the host infers `document.styles` from.
+fn styled_app(dev: bool, compiled: bool) -> PathBuf {
+  let dir = minified_app(dev, true);
+  std::fs::create_dir_all(dir.join("styles")).unwrap();
+  std::fs::write(dir.join("styles/site.css"), "body { color: black; }\n").unwrap();
+  let facts = std::fs::read_to_string(dir.join("dist/.snapfire-build.json")).unwrap();
+  let facts = match compiled {
+    true => facts.replace("\"src/ui/Late.js\"]", "\"src/ui/Late.js\",\"styles/site.css\",\"styles/site.min.css\"]"),
+    false => facts,
+  };
+  std::fs::write(dir.join("dist/.snapfire-build.json"), facts).unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_stylesheet_under_styles_is_linked_as_the_bundle_compiled_it() {
+  let render = |dir: PathBuf| async move { tuned_host(&dir).render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap() };
+  let html = render(styled_app(false, true)).await;
+  assert!(html.contains(r#"href="/static/js/app/styles/site.min.css""#), "outside development, the minified twin: {html}");
+  assert!(!html.contains("/static/css/site.css"), "{html}");
+  let html = render(styled_app(true, true)).await;
+  assert!(html.contains(r#"href="/static/js/app/styles/site.css""#), "in development, the readable copy: {html}");
+  let html = render(styled_app(false, false)).await;
+  assert!(html.contains(r#"href="/static/css/site.css""#), "a bundle that did not compile it leaves the directory's own file: {html}");
 }

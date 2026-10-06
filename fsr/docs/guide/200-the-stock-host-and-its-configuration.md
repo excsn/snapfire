@@ -38,7 +38,7 @@ The host reads these sections. `[server]` names the listen address, the plan fil
 
 ## What the host infers
 
-Most of `[document]` and `[[static]]` is never written, because the host infers it from the app directory and says so. The bundle's own facts file names the public path, so the static root for `dist/` and the entry script come from there. A `vendor/` directory is served at its conventional path. A `styles/` directory is served and every stylesheet in it is linked into the head. Each `[clients.<name>]` without a document gets `clients/<name>.openapi.json` or the `.proto` beside it. The boot report has an `inferred` section listing every one of those decisions:
+Most of `[document]` and `[[static]]` is never written, because the host infers it from the app directory and says so. The bundle's own facts file names the public path, so the static root for `dist/` and the entry script come from there. A `vendor/` directory is served at its conventional path. A `styles/` directory is compiled with the bundle and every stylesheet in it is linked into the head, minified outside development, with each `url()` it names an image or a font by taking the URL the build gave that file. Each `[clients.<name>]` without a document gets `clients/<name>.openapi.json` or the `.proto` beside it. The boot report has an `inferred` section listing every one of those decisions:
 
 ```
 inferred  document.entry from dist/.snapfire-build.json

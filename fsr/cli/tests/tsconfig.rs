@@ -52,3 +52,16 @@ fn the_configuration_names_the_target_and_lib_every_tsconfig_carries() {
   }
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn the_stylesheets_under_styles_compile_beside_the_modules() {
+  let root = project("styles", "");
+  let app = root.join("app");
+  assert!(app.join("styles").is_dir(), "the scaffold has a styles directory");
+  let built = build(&app, &Options::beside(&app)).unwrap();
+  let text = &built.files.iter().find(|(name, _)| name == "tsconfig.build.json").expect("written").1;
+  let config: serde_json::Value = serde_json::from_str(text).unwrap();
+  let include: Vec<&str> = config["include"].as_array().unwrap().iter().filter_map(|v| v.as_str()).collect();
+  assert!(include.contains(&"styles/**/*.css"), "{include:?}");
+  std::fs::remove_dir_all(&root).unwrap();
+}

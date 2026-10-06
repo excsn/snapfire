@@ -739,7 +739,7 @@ fsr build app
 fsr check app
 ```
 
-`build` bundles for production: a minified `.min.js` beside each module, with framework plugins compiling for production, so a Vue component's props lose their runtime type checks. A host outside development serves the `.min` files. `fsr dev` always bundles readable output with development plugins. `build` does the same when the configuration asks for it:
+`build` compiles the stylesheets under `styles/` beside the modules, so a `url()` in one names an image or a font by the URL the build gives it and a syntax error in one fails the build with its line. It bundles for production: a minified `.min.js` beside each module and a `.min.css` beside each stylesheet, with framework plugins compiling for production, so a Vue component's props lose their runtime type checks. A host outside development serves the `.min` files. `fsr dev` always bundles readable output with development plugins. `build` does the same when the configuration asks for it:
 
 ```toml
 [server]

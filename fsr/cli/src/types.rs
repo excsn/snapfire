@@ -692,6 +692,12 @@ pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String], 
   if app.join("ext").is_dir() {
     include.push("ext/**/*".to_owned());
   }
+  // The stylesheets a page links compile beside the modules, so they are
+  // minified with them and their `url()`s take the asset map's URLs.
+  let styles = crate::assets::Sections::of(app).dirs.styles;
+  if app.join(&styles).is_dir() {
+    include.push(format!("{styles}/**/*.css"));
+  }
   include.extend(route_files.iter().cloned());
   include.extend(["generated/islands.ts".to_owned(), "generated/client.ts".to_owned()]);
   let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();

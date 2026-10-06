@@ -3471,8 +3471,9 @@ where
 }
 
 /// What tells one bundle from the next: a hash over the content of every
-/// output the build facts list, source maps aside, so a rebundle that wrote
-/// the same modules keeps its id and an edited module changes it. `-` when
+/// output the build facts list, source maps and stylesheets aside, so a
+/// rebundle that wrote the same modules keeps its id and an edited module
+/// changes it. `-` when
 /// there is no bundle.
 fn bundle_id(facts: &Path) -> String {
   use std::hash::{Hash, Hasher};
@@ -3490,7 +3491,7 @@ fn bundle_id(facts: &Path) -> String {
     .flatten()
     .filter_map(|o| o.as_str())
   {
-    if output.ends_with(".map") || output.ends_with(".snapfire-build.json") {
+    if output.ends_with(".map") || output.ends_with(".snapfire-build.json") || output.ends_with(".css") {
       continue;
     }
     output.hash(&mut hasher);

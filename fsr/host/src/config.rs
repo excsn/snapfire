@@ -1913,20 +1913,32 @@ impl Config {
         inferred.push(format!("static {css_route} from {}/", dirs.styles));
       }
       if document.styles.is_none() {
+        let compiled = |name: &str| bundle.as_ref().filter(|b| b.outputs.contains(&format!("{}/{name}", dirs.styles))).map(|b| format!("{}/{}/{name}", b.route, dirs.styles));
+        let mut from_bundle = false;
         let mut sheets: Vec<String> = std::fs::read_dir(app.join(&dirs.styles))
           .map(|entries| {
             entries
               .filter_map(|e| e.ok())
               .map(|e| e.path())
               .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "css"))
-              .filter_map(|p| p.file_name().map(|n| format!("{css_route}/{}", n.to_string_lossy())))
+              .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+              .map(|name| match compiled(&name) {
+                Some(url) => {
+                  from_bundle = true;
+                  url
+                }
+                None => format!("{css_route}/{name}"),
+              })
               .collect()
           })
           .unwrap_or_default();
         sheets.sort();
         if !sheets.is_empty() {
           document.styles = Some(sheets);
-          inferred.push("document.styles from styles/*.css".to_owned());
+          inferred.push(match from_bundle {
+            true => format!("document.styles from styles/*.css as {facts_dir}/.snapfire-build.json compiled them"),
+            false => "document.styles from styles/*.css".to_owned(),
+          });
         }
       }
     }
