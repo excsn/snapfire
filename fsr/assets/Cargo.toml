@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_assets"
-version = "0.1.0"
+version = "0.1.1"
 description = "What FSR derives from an image or a font: resized and re-encoded variants under one policy, a face's metrics and the fallback that matches them"
 keywords = ["snapfire", "fsr", "image", "font", "avif"]
 categories = ["web-programming", "multimedia::images"]
