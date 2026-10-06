@@ -18,7 +18,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 fast_image_resize = { version = "6", features = ["image"] }
 ravif = "0.13"
 webp = "0.3"
-snapfire_media = { path = "../../media", version = "0" }
+snapfire_media = { path = "../../media", version = "0.1.0" }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
