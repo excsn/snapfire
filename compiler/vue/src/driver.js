@@ -163,6 +163,7 @@ globalThis.__vue_compile = function (filename, source, options, files) {
         filename,
         id: opened.scopeId,
         scoped: !!style.scoped,
+        isProd: opened.production,
         trim: true,
       });
       if (compiled.errors.length) {

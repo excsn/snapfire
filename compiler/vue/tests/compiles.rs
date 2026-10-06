@@ -129,3 +129,36 @@ fn a_block_with_src_names_the_file_it_needs_and_compiles_once_it_is_handed_over(
   assert!(css.contains("padding: 12px") && css.contains("[data-v-"), "scoped like an inline block: {css}");
   assert_eq!(compiled.deps, ["./card.css"], "and the file is a dependency the build watches");
 }
+
+const BOUND: &str = r#"<script setup lang="ts">
+import { ref } from "vue";
+const tint = ref("red");
+</script>
+
+<template>
+  <p class="tinted">x</p>
+</template>
+
+<style scoped>
+.tinted { color: v-bind(tint); }
+</style>
+"#;
+
+fn bound_variables(production: bool) -> (Vec<String>, Vec<String>) {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let options = Options { production, ..Options::default() };
+  let compiled = ok(compiler.compile("src/Tint.vue", BOUND, &options, &Default::default()).expect("answers"));
+  let css = compiled.css.expect("a style block");
+  let read: Vec<String> = css.split("var(--").skip(1).map(|rest| rest.split(')').next().expect("closed").to_owned()).collect();
+  let set: Vec<String> = compiled.js.split("_useCssVars(").nth(1).expect("the script sets the variables").split('"').skip(1).step_by(2).map(str::to_owned).collect();
+  (read, set)
+}
+
+#[test]
+fn a_style_reads_the_variable_its_script_sets_in_production_as_in_development() {
+  for production in [false, true] {
+    let (read, set) = bound_variables(production);
+    assert_eq!(read.len(), 1, "one v-bind in the style: {read:?}");
+    assert!(set.contains(&read[0]), "production {production}: the style reads --{} and the script sets {set:?}", read[0]);
+  }
+}
