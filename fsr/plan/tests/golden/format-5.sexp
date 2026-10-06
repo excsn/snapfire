@@ -1,5 +1,6 @@
 (plan 2)
 (framework react 18.3.1)
+(reads src/ui/Box.vue#default "cart/count" "user/name")
 (route /
   (node 0
     shell#document
@@ -91,6 +92,7 @@
     (session-del cart ())
     (act "desk.save" next)
     (do side))
+  (store-keys "cart/count" "a key with spaces")
   (paths
     (let n $props)
     (if ok ((ret "yes")))

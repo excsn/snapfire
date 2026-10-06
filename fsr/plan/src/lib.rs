@@ -13,10 +13,16 @@ pub mod sexpr;
 /// with bare action ids and no sources, still reads. Format 4 adds a node's
 /// `error-kind` sections, which a format 3 reader refuses by name rather than
 /// ignoring, so the version is what tells an older host to say so plainly.
-/// Format 5 adds a component's head rows and names every component's owner;
-/// in an older file a component that names none is React's. Format 6 adds a
-/// source's `store-keys` and the `reads` of islands the server does not render.
-pub const FORMAT_VERSION: u32 = 6;
+/// Format 5 adds a component's head rows and names every component's owner,
+/// a source's `store-keys` and the `reads` of islands the server does not
+/// render; in an older file a component that names none is React's.
+///
+/// Raise this only for a change to a format a published release of this crate
+/// already writes. A change to the format since the last publish is part of
+/// the format this number already names: add it to that format's line above
+/// and regenerate its golden file. Check the number in the last published
+/// release before raising it.
+pub const FORMAT_VERSION: u32 = 5;
 /// The first format in which a component must name its owner.
 pub(crate) const OWNERS_NAMED: u32 = 5;
 const OLDEST_READABLE: u32 = 1;
