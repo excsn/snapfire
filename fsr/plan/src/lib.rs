@@ -14,8 +14,9 @@ pub mod sexpr;
 /// `error-kind` sections, which a format 3 reader refuses by name rather than
 /// ignoring, so the version is what tells an older host to say so plainly.
 /// Format 5 adds a component's head rows and names every component's owner;
-/// in an older file a component that names none is React's.
-pub const FORMAT_VERSION: u32 = 5;
+/// in an older file a component that names none is React's. Format 6 adds a
+/// source's `store-keys` and the `reads` of islands the server does not render.
+pub const FORMAT_VERSION: u32 = 6;
 /// The first format in which a component must name its owner.
 pub(crate) const OWNERS_NAMED: u32 = 5;
 const OLDEST_READABLE: u32 = 1;
@@ -85,6 +86,10 @@ pub struct Manifest {
   /// manifest at build.
   #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
   pub frameworks: std::collections::BTreeMap<String, String>,
+  /// The store keys an island the server does not render reads, by module:
+  /// what the first wave holds its mount on while one of them is pending.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub reads: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 /// A handler row: `method` and `pattern` are what the host matches, `id` is
@@ -191,6 +196,10 @@ pub struct SourceEntry {
   /// The module's `store`, seeding the browser's store from this source's data.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub store: Option<Body>,
+  /// The keys `store` can return, inferred from its type at build: what the
+  /// segment promises a first wave it is deferred from.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub store_keys: Option<Vec<String>>,
   /// The module's `paths`, naming the parameter sets a route with a parameter prerenders.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub paths: Option<Body>,
@@ -207,6 +216,7 @@ impl SourceEntry {
       body: Some(body),
       meta: None,
       store: None,
+      store_keys: None,
       paths: None,
     }
   }
@@ -227,7 +237,7 @@ impl SourceEntry {
   }
 
   pub fn rust(id: impl Into<String>) -> Self {
-    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None, store: None, paths: None }
+    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None, store: None, store_keys: None, paths: None }
   }
 }
 
@@ -454,7 +464,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default() }
   }
 
   /// The constants bodies read by name.
@@ -731,6 +741,10 @@ impl Manifest {
     }
     if let Some(middleware) = json.get_mut("middleware") {
       namespace_body(middleware, &prefix);
+    }
+    if let Some(reads) = json.get_mut("reads").and_then(|r| r.as_object_mut()) {
+      let taken = std::mem::take(reads);
+      *reads = taken.into_iter().map(|(module, keys)| (if module.starts_with(&prefix) { module } else { format!("{prefix}{module}") }, keys)).collect();
     }
     if let Some(consts) = json.get_mut("consts").and_then(|c| c.as_object_mut()) {
       let taken = std::mem::take(consts);

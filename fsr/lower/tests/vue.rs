@@ -1071,3 +1071,29 @@ fn a_typed_script_declares_its_component_s_props_for_a_tsx_placement() {
   assert!(declaration("<script setup lang=\"ts\">\ndefineProps({ title: String });\n</script>\n<template><p /></template>\n").is_none(), "runtime props are not a type");
   assert_eq!(snapfire_fsr_lower::vue::props_declaration_path("src/ui/Card.vue"), "generated/vue/src/ui/Card.d.vue.ts");
 }
+
+const STORE_KEYS: &str = "import { key } from \"@snapfire/fsr-client/store\";\nexport const owner = key<string>(\"repro/owner\");\n";
+
+#[test]
+fn an_island_that_does_not_lower_still_names_the_store_keys_it_reads() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let vue = "<script setup lang=\"ts\">\nimport { inject } from \"vue\";\nimport { useStore } from \"@snapfire/fsr-client/vue\";\nimport { owner } from \"../store\";\nconst tone = inject(\"tone\", () => \"plain\", true);\nconst value = useStore(owner, \"none\");\nconst count = useStore(\"cart/count\", 0);\n</script>\n<template><p>{{ value }} {{ count }} {{ tone }}</p></template>\n";
+  let tsx = "import { useId } from \"react\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { owner } from \"../store\";\nexport default function Browser() {\n  const id = useId();\n  const [value] = useStore(owner, \"none\");\n  const [count] = useStore(\"cart/count\", 0);\n  return <p id={id}>{value}{count}</p>;\n}\n";
+  let dir = app("reads", &[("src/store.ts", STORE_KEYS), ("src/ui/Browser.tsx", tsx)]);
+  let mut set = ComponentSet::new(&dir);
+  set.describe("src/ui/Foreign.vue", describe(&compiler, "src/ui/Foreign.vue", vue));
+  assert!(set.lower("src/ui/Foreign.vue#default").is_err(), "the Vue island does not lower");
+  assert!(set.lower("src/ui/Browser.tsx#default").is_err(), "nor does the React one");
+  assert_eq!(set.store_reads("src/ui/Foreign.vue"), ["cart/count", "repro/owner"], "a literal and a `key()` followed through an import");
+  assert_eq!(set.store_reads("src/ui/Browser.tsx"), ["cart/count", "repro/owner"]);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_island_reading_a_key_the_build_cannot_follow_reads_nothing_it_knows() {
+  let tsx = "import { useStore } from \"@snapfire/fsr-client/react\";\nexport default function Dynamic({ which }: { which: string }) {\n  const [value] = useStore(which, \"none\");\n  return <p>{value}</p>;\n}\n";
+  let dir = app("reads-unknown", &[("src/ui/Dynamic.tsx", tsx)]);
+  let mut set = ComponentSet::new(&dir);
+  assert!(set.store_reads("src/ui/Dynamic.tsx").is_empty());
+  std::fs::remove_dir_all(&dir).unwrap();
+}

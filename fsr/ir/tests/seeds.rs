@@ -34,3 +34,10 @@ fn a_spread_or_a_computed_key_leaves_the_keys_to_the_data() {
   assert_eq!(keys(vec![Stmt::Return(Expr::Object(vec![Entry::Computed(Expr::Input, Expr::Input)]))]), None);
   assert_eq!(keys(vec![Stmt::Return(Expr::Input)]), None, "a return that is not an object literal");
 }
+
+#[test]
+fn the_keys_the_build_inferred_win_over_reading_the_returns() {
+  let spread = vec![Stmt::Return(Expr::Object(vec![Entry::Spread(Expr::Input)]))];
+  assert_eq!(IrStore::new("page", spread.clone()).keys(), None, "the returns alone do not say");
+  assert_eq!(IrStore::new("page", spread).with_keys(Some(vec!["repro/slot".to_owned()])).keys(), Some(vec!["repro/slot".to_owned()]), "the plan's `store-keys` does");
+}

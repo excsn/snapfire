@@ -6,7 +6,7 @@ pub mod plan;
 pub mod routes;
 
 use std::future::Future;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
@@ -321,7 +321,9 @@ pub struct AppBuilder {
   lowered_metas: Vec<(String, snapfire_fsr_ir::Body)>,
   /// By source id: metadata a Rust host describes a segment with.
   rust_metas: Vec<(String, Arc<dyn Metadata>)>,
-  lowered_stores: Vec<(String, snapfire_fsr_ir::Body)>,
+  lowered_stores: Vec<(String, snapfire_fsr_ir::Body, Option<Vec<String>>)>,
+  /// The plan's `reads`: the store keys each island the server does not render reads.
+  island_reads: std::collections::BTreeMap<String, Vec<String>>,
   /// By source id: the page loader module's `paths` body.
   lowered_paths: Vec<(String, snapfire_fsr_ir::Body)>,
   lowered_actions: Vec<(String, Option<String>, snapfire_fsr_ir::Body)>,
@@ -382,6 +384,7 @@ impl App {
       lowered_metas: Vec::new(),
       rust_metas: Vec::new(),
       lowered_stores: Vec::new(),
+      island_reads: Default::default(),
       lowered_paths: Vec::new(),
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
@@ -424,8 +427,9 @@ impl App {
       .collect();
     builder.lowered_stores = parsed
       .lowered_sources()
-      .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store)))
+      .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.store_keys.clone())))
       .collect();
+    builder.island_reads = parsed.reads.clone();
     builder.lowered_paths = parsed
       .lowered_sources()
       .filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths)))
@@ -468,7 +472,8 @@ impl AppBuilder {
     self.declared_actions.extend(parsed.action_ids());
     self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body))));
     self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta))));
-    self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store))));
+    self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.store_keys.clone()))));
+    self.island_reads.extend(parsed.reads.clone());
     self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
     self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
@@ -736,7 +741,8 @@ impl AppBuilder {
         None => Ok(()),
       }
     };
-    for (name, body) in self.lowered_sources.iter().chain(&self.lowered_metas).chain(&self.lowered_stores).chain(&self.lowered_paths) {
+    let stores = self.lowered_stores.iter().map(|(name, body, _)| (name, body));
+    for (name, body) in self.lowered_sources.iter().chain(&self.lowered_metas).chain(&self.lowered_paths).map(|(name, body)| (name, body)).chain(stores) {
       check(name, body)?;
     }
     for (id, _, body) in &self.lowered_actions {
@@ -768,7 +774,7 @@ impl AppBuilder {
       }
     }
     let interpreter =
-      Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone()).with_consts(self.consts.clone()).with_frameworks(self.frameworks);
+      Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone()).with_consts(self.consts.clone()).with_frameworks(self.frameworks).with_island_reads(self.island_reads.clone());
 
     for name in &self.overrides {
       if !declared.contains(name) {
@@ -983,10 +989,10 @@ impl AppBuilder {
       let source_class = |name: &String| if lowered(name) { statics.get(name).copied().unwrap_or(Static::Dynamic) } else { Static::Dynamic };
       let all = resolved.iter().map(|(_, plan, _)| plan).chain(intercepts.plans.values().flatten()).chain(not_found.iter());
       for plan in all {
-        subtree_reads(plan, &source_class, &self.lowered_components, &mut reads);
+        subtree_reads(plan, &source_class, &self.lowered_components, &self.island_reads, &mut reads);
       }
     }
-    let seeders: HashMap<String, Option<Vec<String>>> = self.lowered_stores.iter().map(|(name, body)| (name.clone(), seeded_keys(body))).collect();
+    let seeders: HashMap<String, Option<Vec<String>>> = self.lowered_stores.iter().map(|(name, body, keys)| (name.clone(), keys.clone().or_else(|| seeded_keys(body)))).collect();
     let mut renderable: Vec<(String, PlanNode)> = Vec::new();
     for (pattern, plan, _) in &resolved {
       if prerenderable.contains(pattern) || (pattern.contains('{') && !paths.contains_key(pattern)) {
@@ -1089,9 +1095,9 @@ impl AppBuilder {
     for (name, meta) in std::mem::take(&mut self.rust_metas) {
       runtime = runtime.meta(name, meta);
     }
-    for (name, store) in std::mem::take(&mut self.lowered_stores) {
+    for (name, store, keys) in std::mem::take(&mut self.lowered_stores) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
-        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store).with_interpreter(interpreter.clone())));
+        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store).with_keys(keys).with_interpreter(interpreter.clone())));
       }
     }
 
@@ -1302,7 +1308,7 @@ fn plan_reads_request_props(plan: &snapfire_fsr_core::PlanNode, components: &[(S
 /// its component, or a component it places, reads are listed rather than
 /// classed, since the memo key carries their values whoever seeds them. A
 /// module the app cannot see through reads everything.
-fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&String) -> Static, components: &[(String, Component)], reads: &mut Reads) -> SubtreeReads {
+fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&String) -> Static, components: &[(String, Component)], island_reads: &BTreeMap<String, Vec<String>>, reads: &mut Reads) -> SubtreeReads {
   let mut class = match &node.data_source {
     None => Static::Fixed,
     Some(source) => source_class(&source.0),
@@ -1324,13 +1330,13 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
         class = class.max(Static::Anonymous);
       }
       let mut seen = HashSet::new();
-      store_keys_read(&module, components, &mut seen, &mut keys);
+      store_keys_read(&module, components, island_reads, &mut seen, &mut keys);
       let mut seen = HashSet::new();
       path = renders_path(&module, components, &mut seen);
     }
   }
   for (_, child) in &node.children {
-    let below = subtree_reads(child, source_class, components, reads);
+    let below = subtree_reads(child, source_class, components, island_reads, reads);
     class = class.max(below.class);
     keys.extend(below.store_keys);
     path = path || below.path;
@@ -1392,11 +1398,14 @@ fn seeded_keys(body: &snapfire_fsr_ir::Body) -> Option<Vec<String>> {
 
 /// The store keys `module`'s component reads, and every component it places
 /// reads, transitively.
-fn store_keys_read(module: &str, components: &[(String, Component)], seen: &mut HashSet<String>, out: &mut Vec<String>) {
+fn store_keys_read(module: &str, components: &[(String, Component)], island_reads: &BTreeMap<String, Vec<String>>, seen: &mut HashSet<String>, out: &mut Vec<String>) {
   if !seen.insert(module.to_owned()) {
     return;
   }
-  let Some((_, component)) = components.iter().find(|(name, _)| name == module) else { return };
+  let Some((_, component)) = components.iter().find(|(name, _)| name == module) else {
+    out.extend(island_reads.get(module).into_iter().flatten().cloned());
+    return;
+  };
   component.visit(&mut |e| {
     if let Expr::Store(key) = e {
       out.push(key.clone());
@@ -1405,7 +1414,7 @@ fn store_keys_read(module: &str, components: &[(String, Component)], seen: &mut 
   let mut placed = Vec::new();
   placed_modules(&component.render, &mut placed);
   for module in placed {
-    store_keys_read(&module, components, seen, out);
+    store_keys_read(&module, components, island_reads, seen, out);
   }
 }
 

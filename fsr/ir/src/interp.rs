@@ -45,6 +45,8 @@ pub struct Interpreter {
   consts: Option<Arc<Consts>>,
   held: Arc<Held>,
   frameworks: Frameworks,
+  /// The store keys each island the server does not render reads, by module.
+  island_reads: Arc<std::collections::BTreeMap<String, Vec<String>>>,
 }
 
 /// The value of each constant that reads nothing from a request and calls
@@ -105,13 +107,13 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default() }
+    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default() }
+    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default() }
   }
 
   /// The frameworks the application vendors. A component one of them
@@ -119,6 +121,13 @@ impl Interpreter {
   /// with none set, every component is written as plain markup.
   pub fn with_frameworks(mut self, frameworks: Frameworks) -> Self {
     self.frameworks = frameworks;
+    self
+  }
+
+  /// The store keys an island the server does not render reads, by module: the
+  /// plan's `reads`. Such an island is held while one of them is pending.
+  pub fn with_island_reads(mut self, reads: std::collections::BTreeMap<String, Vec<String>>) -> Self {
+    self.island_reads = Arc::new(reads);
     self
   }
 
@@ -188,6 +197,7 @@ impl Interpreter {
       acts: Vec::new(),
       calls: 0,
       frameworks: self.frameworks,
+      island_reads: self.island_reads.clone(),
       markup: Markup::Plain,
       in_svg: false,
       in_noscript: false,
@@ -294,6 +304,7 @@ pub(crate) struct Env {
   pub(crate) calls: usize,
   /// The frameworks the application vendors, read on entering each component.
   pub(crate) frameworks: Frameworks,
+  pub(crate) island_reads: Arc<std::collections::BTreeMap<String, Vec<String>>>,
   /// The rules the markup being written is under.
   pub(crate) markup: Markup,
   /// Inside `<svg>` short of a `<foreignObject>`, where React 19 leaves those tags in place.
@@ -454,6 +465,7 @@ impl Env {
       acts: Vec::new(),
       calls: 0,
       frameworks: interpreter.frameworks,
+      island_reads: interpreter.island_reads.clone(),
       markup: Markup::Plain,
       in_svg: false,
       in_noscript: false,
@@ -589,6 +601,7 @@ impl Env {
       acts: Vec::new(),
       calls: self.calls,
       frameworks: self.frameworks,
+      island_reads: self.island_reads.clone(),
       markup: self.markup,
       in_svg: self.in_svg,
       in_noscript: self.in_noscript,

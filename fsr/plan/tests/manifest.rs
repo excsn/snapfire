@@ -66,7 +66,7 @@ fn the_file_names_every_source_and_module_a_host_must_bind() {
 fn a_version_the_runtime_does_not_know_is_refused() {
   let json = r#"{"version":99,"routes":[]}"#;
   assert_eq!(Manifest::from_json(json).unwrap_err(), PlanError::Version { found: 99 });
-  assert_eq!(FORMAT_VERSION, 5);
+  assert_eq!(FORMAT_VERSION, 6);
 }
 
 #[test]
@@ -157,4 +157,13 @@ fn a_lowered_row_without_a_body_is_refused() {
   let json = r#"{"version":2,"routes":[],"sources":[{"id":"catalog","owner":"lowered"}]}"#;
   let err = Manifest::from_json(json).unwrap_err();
   assert_eq!(err, PlanError::NoBody { id: "catalog".into() });
+}
+
+#[test]
+fn a_site_s_reads_carry_its_name_like_every_other_module() {
+  let mut manifest = Manifest::new(Vec::new());
+  manifest.reads.insert("src/ui/Box.vue#default".to_owned(), vec!["cart/count".to_owned()]);
+  let site = manifest.namespaced("shop", "/shop", "shell#document");
+  assert_eq!(site.reads.get("shop:src/ui/Box.vue#default"), Some(&vec!["cart/count".to_owned()]), "{:?}", site.reads);
+  assert_eq!(site.reads.len(), 1);
 }

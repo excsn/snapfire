@@ -1074,7 +1074,8 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
       render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_OPEN, "sf-s")?;
     }
     let index = out.islands.len();
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
+    let awaits: Vec<String> = env.island_reads.get(module).into_iter().flatten().filter(|key| env.pending.contains(*key)).cloned().collect();
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
@@ -2570,6 +2571,19 @@ mod markup_tests {
     let unrelated = Interpreter::default().render_module("routes/layout.tsx#default", &place(None), &props(&["other"]), &library).unwrap();
     assert!(unrelated.islands[0].body.html.starts_with("<b>2</b>"), "a pending key it does not read holds nothing: {}", unrelated.islands[0].body.html);
     assert!(!unrelated.islands[0].mount_props().contains_key(AWAITS_PROP));
+  }
+
+  #[test]
+  fn an_island_the_server_has_no_body_for_is_held_by_the_keys_the_plan_says_it_reads() {
+    let library = Components::new();
+    let place = Component::new(crate::ast::Owner::Fsr, Vec::new(), Tmpl::Island { module: "src/ui/Foreign.vue#default".to_owned(), props: Vec::new(), children: Vec::new(), when: None, mode: None, id: 0, define: false });
+    let reads = [("src/ui/Foreign.vue#default".to_owned(), vec!["repro/owner".to_owned(), "cart/count".to_owned()])].into_iter().collect();
+    let interpreter = Interpreter::default().with_island_reads(reads);
+    let props = |pending: &[&str]| -> ValueMap { [(snapfire_fsr_runtime::PENDING_PROP.to_owned(), Value::seq(pending.iter().map(|k| Value::str(*k)).collect::<Vec<_>>()))].into_iter().collect() };
+    let held = interpreter.render_module("routes/layout.tsx#default", &place, &props(&["repro/owner"]), &library).unwrap();
+    assert_eq!(held.islands[0].mount_props().get(AWAITS_PROP), Some(&Value::seq(vec![Value::str("repro/owner")])), "the pending key it reads, not the settled one");
+    let settled = interpreter.render_module("routes/layout.tsx#default", &place, &props(&["other"]), &library).unwrap();
+    assert!(!settled.islands[0].mount_props().contains_key(AWAITS_PROP));
   }
 
   #[test]

@@ -20,6 +20,7 @@ use snapfire_fsr_ir::render::{html_attr_name, CONTEXT_PREFIX, HANDLER_ATTR, KEY_
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
+use swc_core::ecma::visit::VisitWith;
 
 use crate::assets::{self, AssetResolver, ImageFacts, ImageRequest, NoAssets};
 use crate::hoist::{self, Candidates, Hook, Rewrite};
@@ -186,6 +187,51 @@ impl ComponentSet {
   /// The loader module's `store`, when it exports one.
   pub fn lower_store(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
     self.resolving_loop(file, |parsed, defaults, resolved| lower_of_data_in(parsed, defaults, resolved, "store"))
+  }
+
+  /// The store keys `file` reads through `useStore`, for an island the server
+  /// does not render, so a first wave can hold its mount while a key it reads
+  /// is pending. A key is a literal or a `key()` the build follows through an
+  /// import; a module with a key it cannot read reads nothing the build knows.
+  pub fn store_reads(&mut self, file: &str) -> Vec<String> {
+    if let Some(described) = self.described.get(file).cloned() {
+      if self.parse_described(file, &described).is_err() {
+        return Vec::new();
+      }
+    }
+    let read = self.resolving_loop(file, |parsed, defaults, resolved| {
+      let mut calls = StoreCalls { parsed, args: Vec::new() };
+      parsed.module.visit_with(&mut calls);
+      let mut keys = Vec::new();
+      for arg in &calls.args {
+        let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+        match lowerer.expr(arg) {
+          Ok(Expr::Lit(Lit::Str(key))) => keys.push(key),
+          Ok(_) => return Ok(Vec::new()),
+          Err(residue) => return Err((residue.into(), lowerer.unbound.take())),
+        }
+      }
+      keys.sort();
+      keys.dedup();
+      Ok(keys)
+    });
+    read.unwrap_or_default()
+  }
+
+  /// A described component's script, parsed under its own file name with its
+  /// lines where the file has them.
+  fn parse_described(&mut self, file: &str, described: &Described) -> Result<(), LowerError> {
+    if self.parsed.contains_key(file) {
+      return Ok(());
+    }
+    let (source, line) = match &described.script {
+      Some(script) => (script.content.clone(), script.line as usize),
+      None => (String::new(), 1),
+    };
+    let padded = format!("{}{source}", "\n".repeat(line.saturating_sub(1)));
+    let parsed = parse_with(file, &padded, false)?;
+    self.parsed.insert(file.to_owned(), Rc::new(parsed));
+    Ok(())
   }
 
   /// The page loader module's `paths`, when it exports one.
@@ -713,15 +759,7 @@ impl ComponentSet {
     }
     let module = format!("{file}#{export}");
     let described = self.described.get(file).cloned().expect("a described file");
-    if !self.parsed.contains_key(file) {
-      let (source, line) = match &described.script {
-        Some(script) => (script.content.clone(), script.line as usize),
-        None => (String::new(), 1),
-      };
-      let padded = format!("{}{source}", "\n".repeat(line.saturating_sub(1)));
-      let parsed = parse_with(file, &padded, false)?;
-      self.parsed.insert(file.to_owned(), Rc::new(parsed));
-    }
+    self.parse_described(file, &described)?;
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let component = loop {
       let (result, unbound) = {
@@ -5149,4 +5187,26 @@ fn weight(expr: &Expr) -> usize {
   let mut n = 0;
   expr.visit(&mut |_| n += 1);
   n
+}
+
+/// The first argument of every call to the client's `useStore`, however the module named it.
+struct StoreCalls<'a> {
+  parsed: &'a Parsed,
+  args: Vec<js::Expr>,
+}
+
+impl swc_core::ecma::visit::Visit for StoreCalls<'_> {
+  fn visit_call_expr(&mut self, call: &js::CallExpr) {
+    if let js::Callee::Expr(callee) = &call.callee {
+      if let js::Expr::Ident(name) = &**callee {
+        let client = |source: &str| source == "@snapfire/fsr-client/react" || source == crate::vue::VUE_CLIENT;
+        if imported_as(self.parsed, &name.sym, client).as_deref() == Some("useStore") {
+          if let Some(first) = call.args.first() {
+            self.args.push((*first.expr).clone());
+          }
+        }
+      }
+    }
+    call.visit_children_with(self);
+  }
 }

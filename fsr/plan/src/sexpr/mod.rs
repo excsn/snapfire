@@ -26,6 +26,11 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
   for (package, version) in &manifest.frameworks {
     out.push(form("framework", vec![sym(package.clone()), sym(version.clone())]));
   }
+  for (module, keys) in &manifest.reads {
+    let mut terms = vec![sym(module.clone())];
+    terms.extend(keys.iter().map(|key| Sx::Str(key.clone())));
+    out.push(form("reads", terms));
+  }
   for route in &manifest.routes {
     out.push(form("route", vec![sym(route.pattern.clone()), node_to_sx(&route.plan)]));
   }
@@ -81,6 +86,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     middleware: None,
     intercepts: Vec::new(),
     frameworks: Default::default(),
+    reads: Default::default(),
   };
   let mut versioned = false;
   for sx in forms {
@@ -97,6 +103,12 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
           return Err(err("a framework is `(framework package version)`"));
         }
         manifest.frameworks.insert(as_sym(&items[1])?, as_sym(&items[2])?);
+      }
+      "reads" => {
+        if items.len() < 2 {
+          return Err(err("reads are `(reads module key ...)`"));
+        }
+        manifest.reads.insert(as_sym(&items[1])?, items[2..].iter().map(as_sym).collect::<Res<Vec<_>>>()?);
       }
       "route" | "intercept" => {
         if items.len() != 3 {

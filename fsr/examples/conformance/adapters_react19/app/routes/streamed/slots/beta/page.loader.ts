@@ -4,4 +4,6 @@ export async function load(_: Ctx<"/streamed">) {
   return { by: "beta" };
 }
 
-export const store = ({ data }: { data: { by: string } }) => ({ "repro/slot": data.by });
+const seed = (by: string) => ({ "repro/slot": by });
+
+export const store = ({ data }: { data: { by: string } }) => ({ ...seed(data.by) });

@@ -78,6 +78,12 @@ describe("a key a streamed segment has yet to seed", () => {
     expect(wave.includes('"w":["repro/owner"]'), "the document says which segment will seed it").toBeTruthy();
   });
 
+  test("promises the keys a store export returns through a spread", async () => {
+    const html = await (await fetch("/streamed")).text();
+    const wave = html.slice(0, html.indexOf("<template data-sf-fill"));
+    expect(wave.includes('{"k":"routes/streamed/slots/beta/page.tsx#default","p":["content","content","beta"],"v":{},"w":["repro/slot"]}'), "beta's spread store still says which key it will seed").toBeTruthy();
+  });
+
   test("is pending while a promise outranks what the store holds, until the seed keeps it", async () => {
     reset();
     contribute([{ k: "layout", p: [], v: { "repro/owner": "layout" } }]);

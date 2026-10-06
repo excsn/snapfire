@@ -197,22 +197,33 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
 pub struct IrStore {
   source_id: String,
   body: Arc<Body>,
+  /// The keys the build inferred the body returns, which win over reading its returns.
+  keys: Option<Vec<String>>,
   interpreter: Interpreter,
 }
 
 impl IrStore {
   pub fn new(source_id: impl Into<String>, body: Body) -> Self {
-    Self { source_id: source_id.into(), body: Arc::new(body), interpreter: Interpreter::default() }
+    Self { source_id: source_id.into(), body: Arc::new(body), keys: None, interpreter: Interpreter::default() }
   }
 
   pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
     self.interpreter = interpreter;
     self
   }
+
+  /// The keys the plan's `store-keys` names, inferred at build from the body's type.
+  pub fn with_keys(mut self, keys: Option<Vec<String>>) -> Self {
+    self.keys = keys;
+    self
+  }
 }
 
 impl Seeds for IrStore {
   fn keys(&self) -> Option<Vec<String>> {
+    if let Some(keys) = &self.keys {
+      return Some(keys.clone());
+    }
     let mut keys = std::collections::BTreeSet::new();
     returned_keys(&self.body, &mut keys)?;
     Some(keys.into_iter().collect())

@@ -1279,7 +1279,25 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
       }
     })
     .collect();
-  let manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
+  // What a deferred segment promises a first wave: the keys its `store` is
+  // inferred to return.
+  let mut sources = sources;
+  for source in &mut sources {
+    if let (Some(loader), Some(store)) = (&source.body, &source.store) {
+      source.store_keys = seeded(&contract, session_type, &set.consts, &config, loader, store).map(|fields| fields.into_iter().map(|(key, _)| key).collect());
+    }
+  }
+  let lowered: std::collections::HashSet<&str> = components.iter().map(|entry| entry.module.as_str()).collect();
+  let mut reads = std::collections::BTreeMap::new();
+  for module in islands.iter().filter(|module| !lowered.contains(module.as_str())) {
+    let file = module.split('#').next().unwrap_or(module);
+    let keys = set.store_reads(file);
+    if !keys.is_empty() {
+      reads.insert(module.clone(), keys);
+    }
+  }
+  let mut manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
+  manifest.reads = reads;
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
   let (manifest, contract, contracts) = match &options.site {
@@ -1439,16 +1457,22 @@ pub fn write_overlay(app: &Path, built: &Built) -> Result<(), BuildError> {
 /// The shell contract of this build: every store key a loader's `store`
 /// export seeds, typed the way the browser reads it, plus the import map and
 /// the frameworks this build vendors.
+/// The keys a `store` body returns and their types, inferred from the data its
+/// loader returns; `None` when the return is not a record the build can read.
+fn seeded(contract: &Contract, session: Option<&str>, consts: &Consts, config: &[(String, infer::Ts)], loader: &snapfire_fsr_ir::Body, store: &snapfire_fsr_ir::Body) -> Option<Vec<(String, infer::Ts)>> {
+  let data = infer::Inferer { contract, session, input: None, input_type: None, consts, config, natives: &[] }.returns(loader);
+  match (infer::Inferer { contract, session, input: None, input_type: Some(data), consts, config, natives: &[] }.returns(store)) {
+    infer::Ts::Record(fields) => Some(fields.into_iter().collect()),
+    _ => None,
+  }
+}
+
 fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, sources: &[SourceEntry], consts: &Consts, config: &[(String, infer::Ts)], frameworks: &std::collections::BTreeMap<String, String>) -> Result<ShellContract, BuildError> {
   let mut store = std::collections::BTreeMap::new();
   for source in sources {
     let (Some(loader), Some(body)) = (&source.body, &source.store) else { continue };
-    let data = infer::Inferer { contract, session, input: None, input_type: None, consts, config, natives: &[] }.returns(loader);
-    let inferred = infer::Inferer { contract, session, input: None, input_type: Some(data), consts, config, natives: &[] }.returns(body);
-    if let infer::Ts::Record(fields) = inferred {
-      for (key, ty) in fields {
-        store.insert(key, ty.print(Flavour::Client));
-      }
+    for (key, ty) in seeded(contract, session, consts, config, loader, body).unwrap_or_default() {
+      store.insert(key, ty.print(Flavour::Client));
     }
   }
   let imports = std::fs::read_to_string(app.join("importmap.json"))

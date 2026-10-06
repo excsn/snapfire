@@ -326,6 +326,7 @@ The frameworks an application vendors, each at the major whose server markup the
 
 * `pub struct Frameworks { pub react: Option<ReactMajor>, pub vue: Option<VueMajor> }`; `Default` vendors nothing. Defined in `render` and re-exported at the root.
 * `Interpreter::with_frameworks(self, frameworks: Frameworks) -> Interpreter` and `Interpreter::frameworks(&self) -> Frameworks`.
+* `Interpreter::with_island_reads(self, reads: BTreeMap<String, Vec<String>>) -> Interpreter`: the plan's `reads`. An island the renderer has no body for carries `$aw` with those of its keys that are pending.
 * A component a vendored framework hydrates renders under that framework's rules at the vendored major. A component hydrated by a framework the application does not vendor renders as plain markup. An `Fsr` component keeps its caller's rules. At the top of a render those are plain markup.
 
 | Written | React 18.3 | React 19 | Plain |
@@ -452,8 +453,9 @@ A lowered `store` export. Implements `snapfire_fsr_runtime::Seeds`.
 
 * `IrStore::new(source_id: impl Into<String>, body: Body) -> IrStore`
 * `IrStore::with_interpreter(self, interpreter: Interpreter) -> IrStore`
+* `IrStore::with_keys(self, keys: Option<Vec<String>>) -> IrStore`: the plan's `store-keys`, which `keys` answers with when set.
 * `seed` runs the body with the segment's data as `Input` and returns the `Value::Map` it returned. A non-map return or a `Fail` is a `LoadError`.
-* `keys` is every field name a `return` of the body can hold, through branches, loops and a returned `let`: `None` when a return is anything but an object of named fields, a spread or a computed key among them, since its keys are then the data's.
+* `keys`, without `with_keys`, is every field name a `return` of the body can hold, through branches, loops and a returned `let`: `None` when a return is anything but an object of named fields, a spread or a computed key among them, since its keys are then the data's.
 
 ### IrAction
 
