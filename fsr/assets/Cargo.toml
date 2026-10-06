@@ -16,12 +16,18 @@ readme = "README.md"
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
 fast_image_resize = { version = "6", features = ["image"] }
-ravif = "0.13"
 webp = "0.3"
 snapfire_media = { path = "../../media", version = "0.1.0" }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
+
+# rav1e's x86_64 assembly needs nasm on the machine that builds it.
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+ravif = { version = "0.13", default-features = false, features = ["threading"] }
+
+[target.'cfg(not(target_arch = "x86_64"))'.dependencies]
+ravif = "0.13"
 
 [dev-dependencies]
 proptest = "1"
