@@ -738,6 +738,15 @@ fsr build app
 fsr check app
 ```
 
+`build` bundles for production when the configuration says so:
+
+```toml
+[server]
+dev = false
+```
+
+The bundle then carries a minified `.min.js` beside each module and framework plugins compile for production, so a Vue component's props lose their runtime type checks. `dev = true` or no `dev` at all bundles readable output with development plugins, which is what `fsr dev` always does.
+
 ## Building Strictly
 
 A component that does not lower still works: it renders in the browser alone, as a `client` row for TSX or a `foreign` row for a `.vue` file. The page around it is still server-rendered. Its markup is missing from the document until the bundle runs, which costs the content in the HTML and a shift when it appears. Strict mode makes that a build error instead, naming each cause and the components it leaves in the browser:

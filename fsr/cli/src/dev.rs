@@ -95,6 +95,8 @@ struct App {
   layout: Layout,
   snapfirec: PathBuf,
   options: DevOptions,
+  /// Minified, with plugins compiling for production. [`emit`] sets it from a written `server.dev = false`.
+  production: bool,
 }
 
 impl App {
@@ -102,7 +104,7 @@ impl App {
     let dir = dir.canonicalize().map_err(|e| BuildError::Io(dir.to_path_buf(), e))?;
     let layout = Layout::of(&dir)?;
     let snapfirec = find_snapfirec(options.snapfirec.as_deref());
-    Ok(Self { dir, layout, snapfirec, options })
+    Ok(Self { dir, layout, snapfirec, options, production: false })
   }
 
   /// Builds and writes, with `adopted` the asset paths earlier bundles reported, so the map the
@@ -131,6 +133,9 @@ impl App {
       "--asset-map",
       crate::assets::MAP_FILE,
     ]);
+    if self.production {
+      command.args(["--minify", "compact"]);
+    }
     command
   }
 
@@ -732,8 +737,15 @@ pub const BUNDLE_OVERLAY: &str = ".fsr-bundle";
 /// last bundle wrote, which a host cannot tell from a current one, so this
 /// is what a build script and `fsr build` call. A build script under `fsr dev`
 /// leaves it to the loop; see [`owns_build`].
+/// Whether `app`'s configuration writes `server.dev = false`. Unwritten, the host decides at serve
+/// time from `RELEASE_ENV`, which the build cannot know.
+fn production(app: &Path) -> bool {
+  crate::config_beside(app).is_some_and(|config| config.server.dev == Some(false))
+}
+
 pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
-  let app = App::open(app, options)?;
+  let mut app = App::open(app, options)?;
+  app.production = production(&app.dir);
   let mut plugins = Plugins::new();
   let mut built = crate::build_with(&app.dir, &app.options.build, &mut plugins)?;
   let rest = (|| -> Result<(Vec<PathBuf>, Option<Checked>), BuildError> {
@@ -1019,7 +1031,40 @@ mod tests {
   use super::*;
 
   fn app(dir: &Path) -> App {
-    App { dir: dir.to_path_buf(), layout: Layout::default(), snapfirec: PathBuf::from("snapfirec"), options: DevOptions::default() }
+    App { dir: dir.to_path_buf(), layout: Layout::default(), snapfirec: PathBuf::from("snapfirec"), options: DevOptions::default(), production: false }
+  }
+
+  fn scaffold(tag: &str, server: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("fsr-cli-dev-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    crate::new::create(&root, crate::new::NewOptions { fetch: false, ..crate::new::NewOptions::default() }).unwrap();
+    let config = root.join("config/app.toml");
+    let text = std::fs::read_to_string(&config).unwrap().replacen("[server]\n", &format!("[server]\n{server}"), 1);
+    std::fs::write(&config, text).unwrap();
+    root
+  }
+
+  #[test]
+  fn only_a_written_server_dev_false_builds_for_production() {
+    for (tag, server, expected) in [("false", "dev = false\n", true), ("true", "dev = true\n", false), ("unwritten", "", false)] {
+      let root = scaffold(tag, server);
+      assert_eq!(production(&root.join("app")), expected, "server.dev {tag}");
+      std::fs::remove_dir_all(&root).unwrap();
+    }
+  }
+
+  fn args(app: &App) -> Vec<String> {
+    app.compiler().get_args().map(|a| a.to_string_lossy().into_owned()).collect()
+  }
+
+  #[test]
+  fn a_production_bundle_is_minified_and_any_other_is_not() {
+    let mut built = app(Path::new("/p/app"));
+    assert!(!args(&built).iter().any(|a| a == "--minify"));
+    built.production = true;
+    let args = args(&built);
+    let at = args.iter().position(|a| a == "--minify").expect("--minify is passed");
+    assert_eq!(args[at + 1], "compact");
   }
 
   fn project(shell: &Path) -> Project {

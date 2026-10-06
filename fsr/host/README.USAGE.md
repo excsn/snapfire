@@ -1060,7 +1060,7 @@ host.failed("routes/page.loader.ts:7:17: an optional call");
 
 While a build is refused every document shows the reason in a panel over the page, a document opened in the meantime included. The next build that lands takes the panel away. Every event names the bundle the last build left, a hash over the modules `dist/.snapfire-build.json` lists, taken once per build rather than per request. A document rendered against a different bundle reloads, since the modules it hydrated with are stale. The same bundle means only the server side or a stylesheet moved: the script re-links every stylesheet with a fresh query string and asks the client library's `refresh` to fetch the route's payload and patch it in place, so layouts keep their DOM and state; a page without the client library reloads instead. Static files are served with `Cache-Control: no-cache` in development so a reload revalidates them. Outside development a file with no hash in its name carries `no-cache` unless `server.static_max_age` sets a lifetime. A hashed one is `immutable`.
 
-`dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment and `prerender` never writes the script. The boot report prints one `dev` row while it is on.
+`dev = false` under `[server]` turns all of it off, `dev = true` turns it on whatever the environment and `prerender` never writes the script. `fsr build` reads the same key: a written `dev = false` bundles for production and anything else bundles for development. The boot report prints one `dev` row while it is on.
 
 ## Watching What a Request Did
 
