@@ -470,16 +470,25 @@ async fn call_action_runs_the_lowered_body_against_a_given_session() {
 }
 
 #[test]
-fn a_missing_session_key_or_an_unknown_key_refuses_to_start() {
+fn a_missing_session_key_refuses_a_host_outside_development_and_a_development_host_makes_one() {
+  for dev in [false, true] {
+    let dir = app_dir();
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    let toml = toml.replacen("key = \"test-key\"\n", "", 1).replace("[server]\n", &format!("[server]\ndev = {dev}\n"));
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+    let builder = Host::from(dir.join("app.toml")).expect("the configuration loads without a key");
+    assert_eq!(builder.config().session.key, None);
+    match (dev, builder.build()) {
+      (false, Err(e)) => assert!(e.to_string().contains("session.key") && e.to_string().contains("C5_SESSION__KEY"), "{e}"),
+      (false, Ok(_)) => panic!("a host outside development started without a key"),
+      (true, built) => assert!(built.is_ok(), "a development host signs with a key it makes"),
+    }
+  }
+}
+
+#[test]
+fn an_unknown_key_refuses_to_start() {
   let dir = app_dir();
-  std::fs::write(dir.join("app.toml"), "[server]\nlisten = \"127.0.0.1:0\"\n").unwrap();
-  let err = Host::from(dir.join("app.toml")).unwrap_err();
-  assert!(err.to_string().contains("session"), "{err}");
-
-  std::fs::write(dir.join("app.toml"), "[session]\nttl = \"1h\"\n").unwrap();
-  let err = Host::from(dir.join("app.toml")).unwrap_err();
-  assert!(err.to_string().contains("key"), "{err}");
-
   std::fs::write(
     dir.join("app.toml"),
     "[session]\nkey = \"k\"\n[server]\nlisten = \"x\"\nport = 1\n",
@@ -4824,7 +4833,7 @@ mod secrets {
     std::fs::create_dir_all(dir.join("private_keys")).unwrap();
     std::fs::write(dir.join("private_keys/app.txt"), "unused by base64").unwrap();
     let builder = Host::from(dir.join("app.toml")).unwrap();
-    assert_eq!(builder.config().session.key, "test-key");
+    assert_eq!(builder.config().session.key.as_deref(), Some("test-key"));
     builder.build().unwrap();
   }
 
@@ -4835,7 +4844,7 @@ mod secrets {
       Ok(_) => panic!("loaded without a key"),
       Err(e) => e.to_string(),
     };
-    assert!(err.contains("session"), "{err}");
+    assert!(err.contains("session.key") && err.contains("decrypt"), "{err}");
   }
 
   #[test]
@@ -4846,7 +4855,7 @@ mod secrets {
     std::fs::write(elsewhere.join("app.txt"), "unused by base64").unwrap();
     let keys = elsewhere.clone();
     let loader = Loader::at(dir.join("app.toml")).secrets(move |s| s.secret_keys_path = Some(keys.clone()));
-    assert_eq!(loader.config().unwrap().session.key, "test-key");
+    assert_eq!(loader.config().unwrap().session.key.as_deref(), Some("test-key"));
     assert!(Loader::at(dir.join("app.toml")).config().is_err(), "the default key directory does not exist");
   }
 
@@ -4863,7 +4872,7 @@ mod secrets {
       .secrets(move |s| s.secret_keys_path = Some(keys.clone()));
     assert_eq!(loader.config().unwrap().document.title, "Extra");
     let mounted = loader.mount(site.join("app.toml")).config().unwrap();
-    assert_eq!(mounted.session.key, "test-key");
+    assert_eq!(mounted.session.key.as_deref(), Some("test-key"));
     assert_eq!(mounted.document.title, "Test <app>");
   }
 }
@@ -6162,4 +6171,14 @@ async fn a_mounted_site_s_minified_bundle_is_served_by_a_shell_outside_developme
   assert!(html.contains(r#"<script type="module" src="/shop/static/js/app/src/main.min.js"></script>"#), "{html}");
   let payload = body_of(host.handle(Request::get("/shop?__payload").body(Bytes::new()).unwrap()).await).await;
   assert!(payload.contains("E \"/shop/static/js/app/src/main.min.js\""), "{payload}");
+}
+
+#[test]
+fn a_session_key_left_at_the_scaffold_s_placeholder_refuses_to_start() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  let toml = toml.replacen("key = \"test-key\"", &format!("key = \"{}\"", snapfire_fsr_host::config::SESSION_KEY_PLACEHOLDER), 1);
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  let err = Host::from(dir.join("app.toml")).unwrap().build().err().expect("refused");
+  assert!(err.to_string().contains("placeholder"), "{err}");
 }

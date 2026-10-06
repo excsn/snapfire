@@ -655,8 +655,11 @@ impl DocumentConfig {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionSection {
-  /// The cookie signing key. Required, so a deployment never runs on a default.
-  pub key: String,
+  /// The cookie signing key, from the environment or a secret in a deployment. Absent, a
+  /// development host signs with a key it generates at boot and any other host that builds its own
+  /// key ring refuses to start.
+  #[serde(default)]
+  pub key: Option<String>,
   /// Keys that still verify a cookie signed before `key` replaced them, in
   /// order; a rotation moves the old key here and removes it once the ttl
   /// has passed. A reload may change both.
@@ -689,6 +692,27 @@ pub struct SessionSection {
   /// open form; the oldest is dropped as newer ones are minted.
   #[serde(default = "default_csrf_outstanding")]
   pub csrf_outstanding: u32,
+}
+
+/// The `session.key` the `fsr new` scaffold writes into `config/production.toml`. A host refuses to
+/// start while the key holds it.
+pub const SESSION_KEY_PLACEHOLDER: &str = "replace-this-with-a-generated-key";
+
+impl Default for SessionSection {
+  fn default() -> Self {
+    Self {
+      key: None,
+      previous_keys: Vec::new(),
+      store: default_store(),
+      client: None,
+      ttl: default_ttl(),
+      capacity: default_capacity(),
+      secure: false,
+      csrf: default_csrf(),
+      csrf_scheme: default_csrf_scheme(),
+      csrf_outstanding: default_csrf_outstanding(),
+    }
+  }
 }
 
 fn default_csrf() -> String {
@@ -1339,13 +1363,17 @@ impl Config {
     let app_section: AppSection = section(store, "app", &at)?;
     let server: ServerConfig = section(store, "server", &at)?;
     let document: DocumentConfig = section(store, "document", &at)?;
-    if !store.path_exists("session") {
+    let session: SessionSection = match store.path_exists("session") {
+      true => store.get_into_struct("session").map_err(fail)?,
+      false => SessionSection::default(),
+    };
+    // c5store stores a secret it could not decrypt as null, so the key path exists with no value.
+    if session.key.is_none() && store.path_exists("session.key") {
       return Err(HostError::Config(
         at.clone(),
-        "missing section `session`; `session.key` is required".to_owned(),
+        "`session.key` is written but has no value: a secret that does not decrypt loads empty".to_owned(),
       ));
     }
-    let session: SessionSection = store.get_into_struct("session").map_err(fail)?;
     if !matches!(session.csrf.as_str(), "identified" | "always") {
       return Err(HostError::Config(
         at.clone(),

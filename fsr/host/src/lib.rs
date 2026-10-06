@@ -1378,7 +1378,14 @@ impl Host {
       ));
     }
     if let Some(ring) = &self.keyring {
-      ring.replace(session_keys(&config));
+      match &config.session.key {
+        Some(key) if key == config::SESSION_KEY_PLACEHOLDER => {
+          return Err(placeholder_session_key(&config));
+        }
+        Some(_) => ring.replace(session_keys(&config)),
+        None if config.dev() => {}
+        None => return Err(missing_session_key(&config)),
+      }
     }
     let report = tables.report.clone();
     *self.live.write() = Arc::new(tables);
@@ -4505,7 +4512,13 @@ impl HostBuilder {
     #[cfg(feature = "ws")]
     let sockets = self.sockets.take().unwrap_or_else(|| Arc::new(socket::Sockets::new()));
     let http2 = self.http2;
-    let (tables, config) = self.assemble()?;
+    let (tables, mut config) = self.assemble()?;
+    if config.session.key.is_none() && config.dev() {
+      config.session.key = Some(snapfire_fsr_session::random_token());
+    }
+    if config.session.key.as_deref() == Some(config::SESSION_KEY_PLACEHOLDER) {
+      return Err(placeholder_session_key(&config));
+    }
     let ttl = config.session_ttl()?;
     let store: Arc<dyn SessionStore> = match store {
       Some(store) => store,
@@ -4525,6 +4538,9 @@ impl HostBuilder {
     let (ring, owned_ring) = match chosen_ring {
       Some(ring) => (ring, None),
       None => {
+        if config.session.key.is_none() {
+          return Err(missing_session_key(&config));
+        }
         let ring = Arc::new(Keyring::from_keys(session_keys(&config)));
         (ring.clone(), Some(ring))
       }
@@ -4543,7 +4559,7 @@ impl HostBuilder {
     };
     let sessions = Sessions::with_codec(
       store,
-      config.session.key.as_bytes(),
+      config.session.key.as_deref().unwrap_or_default().as_bytes(),
       codec,
       SessionConfig {
         ttl,
@@ -5463,7 +5479,6 @@ fn session_shape(config: &Config) -> String {
   )
 }
 
-/// `session.key` first, then `session.previous_keys` in order.
 /// What a trace token signs. The prefix keeps a token from verifying as any
 /// other value the same ring signs, a session id among them.
 fn trace_token_input(id: u64) -> String {
@@ -5476,8 +5491,26 @@ fn under_prefix(path: &str, prefix: &str) -> bool {
   prefix.is_empty() || path == prefix || path.strip_prefix(prefix).is_some_and(|rest| rest.starts_with('/'))
 }
 
+fn placeholder_session_key(config: &Config) -> HostError {
+  HostError::Config(
+    config.config_dir(),
+    "`session.key` is still the placeholder; set C5_SESSION__KEY or replace it with a generated key".to_owned(),
+  )
+}
+
+fn missing_session_key(config: &Config) -> HostError {
+  HostError::Config(
+    config.config_dir(),
+    "`session.key` is not set outside development; set C5_SESSION__KEY or write it in a configuration file the host reads".to_owned(),
+  )
+}
+
+/// `session.key` first, then `session.previous_keys` in order.
 fn session_keys(config: &Config) -> Vec<Vec<u8>> {
-  std::iter::once(&config.session.key)
+  config
+    .session
+    .key
+    .iter()
     .chain(config.session.previous_keys.iter())
     .map(|k| k.as_bytes().to_vec())
     .collect()

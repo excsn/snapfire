@@ -135,7 +135,7 @@ family = "Inter"
 fallback = "Arial"
 
 [session]
-key = "a signing key"             # required
+key = "a signing key"             # absent, a development host makes one at boot and any other refuses to start
 previous_keys = []                # keys that still verify a cookie signed before `key` replaced them
 ttl = "8h"                        # 30s, 15m, 8h, 2d or seconds
 csrf = "identified"               # when a CSRF token is minted: once signed in, or always
@@ -757,7 +757,6 @@ let host = Host::from(".")?
 
 ```toml
 [session]
-key = "a signing key"
 store = "service"
 client = "identity"
 ```
@@ -799,7 +798,9 @@ Extend where it is cheap: on sign-in, on a write the application makes anyway or
 
 ## Rotating the Session Key
 
-The cookie is the session id signed under `session.key`. The host signs with `key` and verifies with `key` and every entry of `previous_keys`, so a rotation is two edits and a wait:
+The cookie is the session id signed under `session.key`. A deployment sets it through `C5_SESSION__KEY` or a `.c5encval` secret rather than in the clear. A development host with no key signs with one it generates at boot, so a restart signs everyone out and a reload in place does not. Any other host refuses to start without a key and refuses `replace-this-with-a-generated-key`, the placeholder `fsr new` writes into `config/production.toml`. A `.c5encval` that does not decrypt is refused when the configuration loads, since c5store stores it as an empty value.
+
+The host signs with `key` and verifies with `key` and every entry of `previous_keys`, so a rotation is two edits and a wait:
 
 ```toml
 [session]
