@@ -96,6 +96,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("sites", sites(&config)),
     ("csp", csp(&config)),
     ("store", store(&config)),
+    ("images", image_metadata(&config)),
   ] {
     if findings.is_empty() {
       report.clean.push(check);
@@ -104,6 +105,34 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     }
   }
   Ok(report)
+}
+
+/// Every AVIF original the build serves carrying an EXIF or XMP block. The
+/// build strips a JPEG, PNG, WebP or GIF itself and leaves an AVIF as it was
+/// saved, so its position, camera and capture time ship under a URL cached for
+/// a year. Off with `[images] strip = false`, which serves every original as
+/// saved on purpose.
+fn image_metadata(config: &Config) -> Vec<Finding> {
+  if !config.images.strip {
+    return Vec::new();
+  }
+  let path = config.app.join(snapfire_fsr_host::assets::ASSETS_FILE);
+  let Some(manifest) = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<snapfire_fsr_host::assets::AssetsManifest>(&text).ok()) else {
+    return Vec::new();
+  };
+  manifest
+    .entries
+    .iter()
+    .filter(|entry| !entry.stripped && entry.source.to_ascii_lowercase().ends_with(".avif"))
+    .filter(|entry| std::fs::read(config.app.join(&entry.source)).is_ok_and(|bytes| snapfire_fsr_assets::strip::carries_metadata(&bytes)))
+    .map(|entry| {
+      Finding::new(
+        "images",
+        format!("{} carries EXIF or XMP metadata, which the build does not strip from an AVIF", entry.source),
+        "remove the metadata before committing it, keeping the orientation and the colour profile. `[images] strip = false` serves every original as saved instead",
+      )
+    })
+    .collect()
 }
 
 /// The plan as the host would read it or `None` when there is none to read:

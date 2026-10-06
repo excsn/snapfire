@@ -61,7 +61,7 @@ A decoded image held as RGBA.
 
 ## 3. Fonts
 
-`font` is `snapfire_media::font` re-exported. `Face`, `Fallback`, `Metrics`, `Style` and `Header` are re-exported at the root.
+`font` is `snapfire_media::font` re-exported and `strip` is `snapfire_media::strip`, which the build writes a served original through. `Face`, `Fallback`, `Metrics`, `Style` and `Header` are re-exported at the root.
 
 ### Style
 

@@ -52,6 +52,11 @@ pub struct ImageEntry {
   /// Served as it is, with no variant.
   #[serde(default)]
   pub passthrough: bool,
+  /// The served original is the source with its metadata stripped, so the
+  /// derive pass writes it through `snapfire_media::strip` rather than
+  /// copying it; `hash` is of the stripped bytes.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub stripped: bool,
   /// The widths generated, after the never-upscale rule and any override.
   #[serde(default)]
   pub widths: Vec<u32>,

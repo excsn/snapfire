@@ -31,7 +31,7 @@ Three things follow from the markup. The browser picks the width that fits the s
 
 ## Where the variants come from
 
-`fsr build` reads every image a component imports, chooses its widths under the `[images]` policy and, after the bundle runs, writes the hashed original and the variants under `dist/`. The bundle places nothing of its own: the build hands the compiler the URL of every image and font it defined. An import the build had not seen, from a module only the browser runs, comes back to it, is read and gets its variants like the rest:
+`fsr build` reads every image a component imports, chooses its widths under the `[images]` policy and, after the bundle runs, writes the hashed original and the variants under `dist/`. The original a browser without AVIF or WebP falls back to is the file as saved less its metadata: GPS position, camera, capture time and an embedded thumbnail go, while the orientation the browser rotates by, the colour profile and the EXIF creator and copyright stay. No pixel is re-encoded. That holds for JPEG, PNG, WebP and GIF; `fsr doctor` names an AVIF original that carries metadata, since the build leaves one as saved. `strip = false` under `[images]` serves every original as saved. The bundle places nothing of its own: the build hands the compiler the URL of every image and font it defined. An import the build had not seen, from a module only the browser runs, comes back to it, is read and gets its variants like the rest:
 
 ```toml
 [images]

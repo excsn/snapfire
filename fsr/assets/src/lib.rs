@@ -8,6 +8,10 @@ pub mod image;
 pub mod policy;
 
 /// The face reader and the fallback table, `snapfire_media::font` as it is.
+pub mod strip {
+  pub use snapfire_media::strip::*;
+}
+
 pub mod font {
   pub use snapfire_media::font::*;
 }

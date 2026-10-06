@@ -271,9 +271,10 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 `[images]`: the variant policy every image is built under and how a remote one is addressed.
 
-* `pub struct ImagesSection { pub widths: Vec<u32>, pub formats: Vec<String>, pub quality: BTreeMap<String, u8>, pub rewrite: bool, pub base: Option<String>, pub sources: BTreeMap<String, ImageSource> }`, `#[non_exhaustive]`.
+* `pub struct ImagesSection { pub widths: Vec<u32>, pub formats: Vec<String>, pub quality: BTreeMap<String, u8>, pub rewrite: bool, pub strip: bool, pub base: Option<String>, pub sources: BTreeMap<String, ImageSource> }`, `#[non_exhaustive]`.
 * `widths` (default `[640, 960, 1280, 1920, 2560]`), each at least 1; `formats` (default `["avif", "webp"]`), each `avif` or `webp`; `quality` keyed by format, 0 to 100, a format left out keeping its default of 60 for AVIF and 80 for WebP.
 * `rewrite` (default `true`): whether an `<img>` whose `src` is an imported asset's is lowered as a `Picture`.
+* `strip` (default `true`): whether the served original of a JPEG, PNG, WebP or GIF is `snapfire_media::strip::strip` of the source, keeping the EXIF orientation, creator and copyright and the ICC profile. Off, the original is the source as saved.
 * `base`: `scheme://host/path` with no trailing slash, prefixed onto every emitted image URL at build time for a static tree a CDN serves.
 * `sources`: `[images.sources.<name>] template = "…"`, a URL template a string `src` goes through, which must carry `{src}` and may carry `{width}`. `pub struct ImageSource { pub template: String }`.
 * Each rule above is refused at load with the key named.
@@ -496,7 +497,7 @@ What the build derived from the application's images and fonts reaches a documen
 
 * `pub struct AssetsManifest { pub version: u32, pub images: ImagePolicy, pub entries: Vec<ImageEntry>, pub fonts: Fonts }`; `read(app: &Path) -> Option<AssetsManifest>`, `policy_json(&self) -> String`, `image(&self, source: &str) -> Option<&ImageEntry>`.
 * `pub struct ImagePolicy { pub widths: Vec<u32>, pub formats: Vec<String>, pub quality: BTreeMap<String, u8>, pub base: Option<String>, pub sources: BTreeMap<String, String> }`.
-* `pub struct ImageEntry { pub source: String, pub src: String, pub path: String, pub hash: String, pub width: u32, pub height: u32, pub passthrough: bool, pub widths: Vec<u32>, pub quality: BTreeMap<String, u8>, pub variants: Vec<Variant> }`; `pub struct Variant { pub width: u32, pub format: String, pub url: String, pub path: String }`, each `path` under the bundle's output directory, the entry's being the hashed original's.
+* `pub struct ImageEntry { pub source: String, pub src: String, pub path: String, pub hash: String, pub width: u32, pub height: u32, pub passthrough: bool, pub stripped: bool, pub widths: Vec<u32>, pub quality: BTreeMap<String, u8>, pub variants: Vec<Variant> }`; `pub struct Variant { pub width: u32, pub format: String, pub url: String, pub path: String }`, each `path` under the bundle's output directory, the entry's being the hashed original's. `stripped` says the derive pass writes the original stripped of its metadata; `hash` is then of the stripped bytes.
 * `pub struct Fonts { pub base: Option<String>, pub faces: Vec<Face>, pub css: String, pub preload: Vec<String>, pub remote: Vec<Remote>, pub referenced: Vec<FontFile>, pub variables: BTreeMap<String, String> }`; `pub struct FontFile { pub source: String, pub url: String, pub path: String }`, a font a module or a stylesheet names outside the fonts directory, placed under `dist/` like a face and written into no `@font-face`; `pub struct Face { pub key: String, pub family: String, pub weight: u16, pub weight_range: Option<(u16, u16)>, pub style: String, pub source: String, pub url: String, pub path: String, pub unicode_range: Option<String>, pub preload: bool }`; `pub struct Remote { pub key: String, pub family: String, pub href: String, pub preconnect: Vec<String> }`.
 
 ### Body

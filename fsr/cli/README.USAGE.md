@@ -650,6 +650,7 @@ Sixteen checks, each answering from something the build already computed, so non
 | `sites` | a mounted `name@version` site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its routes, plus artifacts under the root no mount names |
 | `csp` | a policy names `'unsafe-inline'` in `script-src` beside the import map's hash, which makes the browser ignore it; or it names `'strict-dynamic'`, which makes it ignore `'self'` and so the entry module |
 | `store` | a site sets `[store] slot_order`, which the browser takes from the shell's document and so ignores |
+| `images` | an AVIF original carries EXIF or XMP metadata, which the build strips from a JPEG, PNG, WebP or GIF and leaves in an AVIF; quiet under `[images] strip = false` |
 
 The `csp` check also runs on every `fsr build` and `fsr dev`, since either policy leaves the page with no working script: its findings print as `csp` rows of the build report.
 

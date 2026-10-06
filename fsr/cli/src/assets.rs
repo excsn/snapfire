@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_assets::{font, hash, image, variant_name, Face, Format, Source, VariantPolicy};
+use snapfire_fsr_assets::{font, hash, image, strip, variant_name, Face, Format, Source, VariantPolicy};
 use snapfire_compiler_wire::driven::{AssetMap, MappedAsset};
 use snapfire_fsr_host::assets::{AssetsManifest, Face as FaceOut, FontFile, Fonts, ImageEntry, ImagePolicy, Remote, Variant, VERSION};
 use snapfire_fsr_host::config::{Config, DirsSection, FontsSection, ImagesSection};
@@ -55,6 +55,7 @@ struct Seen {
   width: u32,
   height: u32,
   passthrough: bool,
+  stripped: bool,
   /// Relative directory under the app, `src/img`, and the stem and extension.
   dir: String,
   stem: String,
@@ -202,6 +203,7 @@ impl Resolver {
           width: seen.width,
           height: seen.height,
           passthrough: seen.passthrough,
+          stripped: seen.stripped,
           widths,
           quality: seen.quality.iter().map(|(f, q)| (f.extension().to_owned(), *q)).collect(),
           variants,
@@ -233,7 +235,21 @@ impl AssetResolver for Resolver {
     }
     let mut seen = self.seen.borrow_mut();
     if !seen.contains_key(path) {
-      let bytes = std::fs::read(&file).ok()?;
+      let mut bytes = std::fs::read(&file).ok()?;
+      let mut stripped = false;
+      if self.sections.images.strip {
+        match strip::strip(&bytes) {
+          Ok(Some(rewritten)) => {
+            bytes = rewritten;
+            stripped = true;
+          }
+          Ok(None) => {}
+          Err(e) => {
+            self.refused.borrow_mut().push((path.to_owned(), e));
+            return None;
+          }
+        }
+      }
       let digest = hash::of(&bytes);
       let (width, height) = match image::dimensions(&file) {
         Ok(size) => size,
@@ -248,7 +264,7 @@ impl AssetResolver for Resolver {
       let stem = relative.file_stem().unwrap_or_default().to_string_lossy().into_owned();
       let ext = relative.extension().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
       let src = self.url(self.sections.images.base.as_deref(), &format!("{}{}", dir_prefix(&dir), hash::emitted_name(&stem, &digest, &ext)));
-      seen.insert(path.to_owned(), Seen { src, hash: digest, width, height, passthrough, dir, stem, ext, widths: BTreeSet::new(), quality: BTreeMap::new() });
+      seen.insert(path.to_owned(), Seen { src, hash: digest, width, height, passthrough, stripped, dir, stem, ext, widths: BTreeSet::new(), quality: BTreeMap::new() });
     }
     let entry = seen.get_mut(path).expect("just inserted");
     let policy = match &request.widths {
@@ -329,7 +345,14 @@ pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Deriv
         if let Some(parent) = original.parent() {
           std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
         }
-        std::fs::copy(app.join(&entry.source), &original).map_err(|e| BuildError::Io(original.clone(), e))?;
+        let source = app.join(&entry.source);
+        if entry.stripped {
+          let bytes = std::fs::read(&source).map_err(|e| BuildError::Io(source.clone(), e))?;
+          let bytes = strip::strip(&bytes).map_err(|e| BuildError::Assets(format!("{}: {e}", entry.source)))?.unwrap_or(bytes);
+          std::fs::write(&original, bytes).map_err(|e| BuildError::Io(original.clone(), e))?;
+        } else {
+          std::fs::copy(&source, &original).map_err(|e| BuildError::Io(original.clone(), e))?;
+        }
         derived.written.push(original);
       }
     }

@@ -50,7 +50,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 16, "{out}");
+  assert_eq!(out.clean.len(), 17, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -176,7 +176,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 16 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 17 checks"), "{out}");
   assert!(!out.is_clean());
 }
 
@@ -557,4 +557,26 @@ fn a_mounted_site_leaves_the_policy_to_its_shell() {
 fn no_policy_at_all_is_quiet() {
   let dir = app("", &[]);
   assert!(!findings(&dir).contains(&"csp".to_owned()), "{}", report(&dir));
+}
+
+/// An application whose manifest names one AVIF original, `with_xmp` deciding whether its file carries a packet.
+fn with_avif(toml: &str, with_xmp: bool) -> PathBuf {
+  let dir = app(toml, &[]);
+  std::fs::create_dir_all(dir.join("app/src/img")).unwrap();
+  let mut avif = b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf".to_vec();
+  if with_xmp {
+    avif.extend(b"<x:xmpmeta><rdf:Description exif:GPSLatitude=\"51,30N\"/></x:xmpmeta>");
+  }
+  std::fs::write(dir.join("app/src/img/shot.avif"), avif).unwrap();
+  let manifest = r#"{"version":1,"images":{"widths":[],"formats":[]},"entries":[{"source":"src/img/shot.avif","src":"/static/js/app/src/img/shot.0.avif","path":"src/img/shot.0.avif","hash":"0","width":1,"height":1,"passthrough":true}]}"#;
+  std::fs::write(dir.join("app/generated/assets.json"), manifest).unwrap();
+  dir
+}
+
+#[test]
+fn an_avif_original_carrying_metadata_is_reported_since_the_build_does_not_strip_one() {
+  let found = report(&with_avif("", true));
+  assert!(found.contains("src/img/shot.avif carries EXIF or XMP metadata"), "{found}");
+  assert!(!findings(&with_avif("", false)).contains(&"images".to_owned()), "an AVIF with nothing to strip is fine");
+  assert!(!findings(&with_avif("[images]\nstrip = false\n", true)).contains(&"images".to_owned()), "an application serving its originals as saved chose to");
 }

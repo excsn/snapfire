@@ -187,6 +187,11 @@ pub struct ImagesSection {
   /// `Picture`. Off, only `Picture` does anything.
   #[serde(default = "default_true")]
   pub rewrite: bool,
+  /// Whether the served original of a JPEG, PNG, WebP or GIF loses its
+  /// metadata: everything but the EXIF orientation, creator and copyright and
+  /// the ICC profile. Off, the original is served as the author saved it.
+  #[serde(default = "default_true")]
+  pub strip: bool,
   /// `scheme://host/path` every emitted image URL is prefixed with, for a
   /// deployment whose static tree a CDN serves. No trailing slash.
   #[serde(default)]

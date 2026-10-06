@@ -165,8 +165,16 @@ export default function Page() {
 }
 "#;
 
-#[test]
-fn a_tagged_photo_is_upright_in_the_manifest_the_markup_and_its_variants() {
+/// `photo` with a comment segment after its SOI, standing in for what a camera writes.
+fn commented(photo: &[u8]) -> Vec<u8> {
+  let mut out = photo[..2].to_vec();
+  out.extend([0xff, 0xfe, 0x00, 0x0c]);
+  out.extend(b"GPS 51.5 N");
+  out.extend(&photo[2..]);
+  out
+}
+
+fn tagged(strip: &str) -> (PathBuf, Built) {
   let root = root("tagged");
   create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
   let app = root.join("app");
@@ -174,14 +182,19 @@ fn a_tagged_photo_is_upright_in_the_manifest_the_markup_and_its_variants() {
   std::fs::create_dir_all(app.join("vendor")).unwrap();
   std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"}}}"#).unwrap();
   std::fs::create_dir_all(app.join("src/img")).unwrap();
-  std::fs::write(app.join("src/img/photo.jpg"), fixture("photo.jpg")).unwrap();
+  std::fs::write(app.join("src/img/photo.jpg"), commented(&fixture("photo.jpg"))).unwrap();
   std::fs::write(app.join("routes/page.tsx"), TAGGED_PAGE).unwrap();
   let config = root.join("config/app.toml");
   let mut text = std::fs::read_to_string(&config).unwrap();
-  text.push_str("\n[images]\nwidths = [80]\n");
+  text.push_str(&format!("\n[images]\nwidths = [80]\n{strip}"));
   std::fs::write(&config, text).unwrap();
   let built = build(&app, &Options::beside(&app)).unwrap();
+  (app, built)
+}
 
+#[test]
+fn a_tagged_photo_is_upright_in_the_manifest_the_markup_and_its_variants() {
+  let (app, built) = tagged("");
   let entry = built.assets.entries.iter().find(|e| e.source == "src/img/photo.jpg").expect("the photo is an entry");
   assert_eq!((entry.width, entry.height), (160, 320), "stored 320x160 with EXIF orientation 6");
   assert_eq!(entry.widths, [80, 160]);
@@ -190,9 +203,16 @@ fn a_tagged_photo_is_upright_in_the_manifest_the_markup_and_its_variants() {
 
   let dist = app.join("dist");
   let derived = assets::derive(&app, &dist, &built.assets).unwrap();
-  let hash = snapfire_fsr_assets::hash::of(&fixture("photo.jpg"));
+  let source = commented(&fixture("photo.jpg"));
+  let served = snapfire_fsr_assets::strip::strip(&source).unwrap().unwrap();
+  let hash = snapfire_fsr_assets::hash::of(&served);
+  assert!(entry.stripped);
+  assert_eq!(entry.hash, hash, "the URL names the bytes served");
   assert_eq!(derived.written.len(), 5, "{:?}", derived.written);
-  assert_eq!(std::fs::read(dist.join(format!("src/img/photo.{hash}.jpg"))).unwrap(), fixture("photo.jpg"), "the original is served as saved, tag and all");
+  let original = std::fs::read(dist.join(format!("src/img/photo.{hash}.jpg"))).unwrap();
+  assert_eq!(original, served);
+  assert!(!original.windows(10).any(|w| w == b"GPS 51.5 N"), "what the camera wrote is gone");
+  assert_eq!(snapfire_fsr_assets::Header::from_bytes(Path::new("x.jpg"), &original).unwrap().orientation, 6, "the tag the browser rotates by stays");
   let webp = std::fs::read(dist.join(format!("src/img/photo.{hash}.80.webp"))).unwrap();
   let decoded = snapfire_fsr_assets::Source::from_bytes(Path::new("x.webp"), &webp).unwrap();
   assert_eq!((decoded.width(), decoded.height()), (80, 160), "the variant is upright");
@@ -355,4 +375,16 @@ fn fonts_add_keeps_the_providers_family_when_the_file_names_another() {
   assert_eq!(fonts.faces.len(), 2, "both subsets match the provider's family, not the file's `Inter`");
   assert!(fonts.css.contains("font-family:\"Display Sans\""), "{}", fonts.css);
   assert_eq!(fonts.variables["--font-display"], "\"Display Sans\", \"Display Sans Fallback\", sans-serif");
+}
+
+#[test]
+fn an_application_that_turns_stripping_off_serves_the_original_as_saved() {
+  let (app, built) = tagged("strip = false\n");
+  let entry = built.assets.entries.iter().find(|e| e.source == "src/img/photo.jpg").expect("the photo is an entry");
+  let source = commented(&fixture("photo.jpg"));
+  assert!(!entry.stripped);
+  assert_eq!(entry.hash, snapfire_fsr_assets::hash::of(&source));
+  let dist = app.join("dist");
+  assets::derive(&app, &dist, &built.assets).unwrap();
+  assert_eq!(std::fs::read(dist.join(&entry.path)).unwrap(), source);
 }

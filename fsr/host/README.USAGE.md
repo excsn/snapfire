@@ -126,6 +126,7 @@ widths = [640, 960, 1280, 1920, 2560]
 formats = ["avif", "webp"]
 quality = { avif = 60, webp = 80 }
 rewrite = true                    # an <img> of an imported asset is lowered as a Picture
+strip = true                      # the served original loses its metadata but its orientation, profile and credit
 # base = "https://cdn.example.com"            # prefixed onto every image URL at build time
 # [images.sources.cms]                        # a string src goes through a template
 # template = "https://img.example.com/{src}?w={width}&auto=format"
