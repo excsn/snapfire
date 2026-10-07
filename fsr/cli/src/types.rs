@@ -518,7 +518,7 @@ fn bare_imports(text: &str) -> Vec<String> {
     .collect()
 }
 
-/// Every package directory under the types directory, with what the manifest knows about it.
+/// Every package under the types directory whose declaration entry is on disk, with what the manifest knows about it: the entry it records, else `index.d.ts`.
 pub fn present(app: &Path, layout: &Layout) -> Result<Vec<(String, TypedPackage)>, BuildError> {
   let manifest = TypesManifest::read(app, layout)?;
   let root = app.join(&layout.types);
@@ -545,7 +545,9 @@ pub fn present(app: &Path, layout: &Layout) -> Result<Vec<(String, TypedPackage)
   for dir in dirs {
     let name = dir.strip_prefix(&root).unwrap_or(&dir).to_string_lossy().replace('\\', "/");
     let typed = manifest.packages.get(&name).cloned().unwrap_or_else(|| TypedPackage { entry: "index.d.ts".to_owned(), ..TypedPackage::default() });
-    out.push((name, typed));
+    if dir.join(&typed.entry).is_file() {
+      out.push((name, typed));
+    }
   }
   out.sort_by(|a, b| a.0.cmp(&b.0));
   Ok(out)

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use snapfire_fsr_cli::types::{foreign_shim, status, tsconfig, write_foreign_shim, TypedPackage, TypesManifest};
+use snapfire_fsr_cli::types::{foreign_shim, missing, status, tsconfig, write_foreign_shim, TypedPackage, TypesManifest};
 use snapfire_fsr_cli::xwpm::Layout;
 
 /// One directory per call rather than per nanosecond: two tests in this file
@@ -119,4 +119,24 @@ fn a_build_that_rewrites_fsrs_own_declarations_records_the_version_it_wrote() {
   snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
   assert_eq!(TypesManifest::read(&dir, &layout).unwrap().packages["@snapfire/fsr-client"].version, env!("CARGO_PKG_VERSION"), "the files already matched, and the record still says what wrote them");
   std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_package_whose_recorded_entry_is_not_on_disk_is_missing() {
+  let dir = app();
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/b","htmx.org":"/h"}}"#).unwrap();
+  std::fs::create_dir_all(dir.join("types/htmx.org")).unwrap();
+  std::fs::write(dir.join("types/htmx.org/package.json"), r#"{"name":"htmx.org","types":"dist/htmx.d.ts"}"#).unwrap();
+  let mut manifest = TypesManifest::read(&dir, &Layout::default()).unwrap();
+  manifest.packages.insert("htmx.org".into(), TypedPackage { version: "2.0.4".into(), from: "htmx.org".into(), entry: "dist/htmx.d.ts".into(), ambient: false });
+  manifest.write(&dir, &Layout::default()).unwrap();
+
+  assert_eq!(missing(&dir).unwrap(), vec!["htmx.org"], "the folder without its entry declares nothing");
+  let rows = status(&dir).unwrap();
+  let htmx = rows.iter().find(|(package, _)| package == "htmx.org").map(|(_, row)| row.as_str());
+  assert_eq!(htmx, Some("missing; run `fsr types`"), "{rows:?}");
+
+  std::fs::create_dir_all(dir.join("types/htmx.org/dist")).unwrap();
+  std::fs::write(dir.join("types/htmx.org/dist/htmx.d.ts"), "export {};").unwrap();
+  assert!(missing(&dir).unwrap().is_empty(), "the entry written, it is declared");
 }
