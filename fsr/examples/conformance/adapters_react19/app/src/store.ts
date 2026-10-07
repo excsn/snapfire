@@ -8,3 +8,6 @@ export const owner = key<string>("repro/owner");
 
 /** Seeded by two streamed slots of the streamed layout, each with its own name, so which one settles it is a matter of position. */
 export const slotOwner = key<string>("repro/slot");
+
+/** Read beside `probeCount` by the held probes, so one hydration can carry a key the server held and one it did not. */
+export const probeOther = key<number>("probe/other");

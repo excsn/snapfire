@@ -95,11 +95,15 @@ function componentOf(module) {
 export const vueMounter = (module, props, el, hydrate)=>{
     const { root, props: state, children } = rootFor(componentOf(module), props, el);
     const app = hydrate ? createSSRApp(root) : createApp(root);
-    const rendered = props.$sv;
-    app.provide(RENDERED_STORE, hydrate && rendered ? rendered : null);
+    const rendered = {
+        values: props.$sv ?? {},
+        hydrating: hydrate
+    };
+    app.provide(RENDERED_STORE, rendered);
     held.set(el, state);
     childrenHeld.set(el, children);
     app.mount(el);
+    rendered.hydrating = false;
     return app;
 };
 export const vueUnmounter = (handle, el)=>{
@@ -121,9 +125,10 @@ export const vuePatcher = (handle, module, props, el)=>{
 };
 export function useStore(key, initial) {
     const rendered = inject(RENDERED_STORE, null);
+    const values = rendered !== null && rendered.hydrating ? rendered.values : null;
     const live = ()=>get(key) ?? initial;
     const state = reactive({
-        value: rendered !== null && key in rendered ? rendered[key] : live()
+        value: values === null ? live() : key in values ? values[key] : initial
     });
     let ours = false;
     const off = subscribe(key, (next)=>{
@@ -131,7 +136,7 @@ export function useStore(key, initial) {
         state.value = next;
     });
     onScopeDispose(off);
-    if (rendered !== null) {
+    if (values !== null) {
         onMounted(()=>{
             const now = live();
             if (!Object.is(state.value, now)) state.value = now;

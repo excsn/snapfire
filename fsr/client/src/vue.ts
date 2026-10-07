@@ -15,8 +15,13 @@ const held = new WeakMap<Element, Record<string, unknown>>();
 /** What the server rides on an island's props for the runtime rather than the component: the hoisted table, the region key, a server-mode island's state and the store values the island was rendered from. */
 const RUNTIME_PROPS = ["$h", "$k", "$s", "$sv"];
 
-/** The store values a hydrating app's markup was rendered from, `$sv` on its props, provided to the app so `useStore` starts from them. Null when the app mounts fresh. */
-const RENDERED_STORE: InjectionKey<{ [key: string]: unknown } | null> = Symbol("sf-rendered-store");
+/** What an app's markup was rendered from, provided to it so `useStore` hydrates against it: `values` is `$sv`, the keys the server held, and every other key was rendered from its `initial`. `hydrating` holds only while `app.mount` runs, the one pass that hydrates, so a component created after it renders from the store. */
+interface Rendered {
+  values: { [key: string]: unknown };
+  hydrating: boolean;
+}
+
+const RENDERED_STORE: InjectionKey<Rendered> = Symbol("sf-rendered-store");
 
 function ownProps(props: Props): Record<string, unknown> {
   const own: Record<string, unknown> = {};
@@ -97,11 +102,12 @@ function componentOf(module: unknown): Component {
 export const vueMounter: Mounter = (module, props, el, hydrate) => {
   const { root, props: state, children } = rootFor(componentOf(module), props, el);
   const app: App = hydrate ? createSSRApp(root) : createApp(root);
-  const rendered = (props as { $sv?: { [key: string]: unknown } }).$sv;
-  app.provide(RENDERED_STORE, hydrate && rendered ? rendered : null);
+  const rendered: Rendered = { values: (props as { $sv?: { [key: string]: unknown } }).$sv ?? {}, hydrating: hydrate };
+  app.provide(RENDERED_STORE, rendered);
   held.set(el, state);
   childrenHeld.set(el, children);
   app.mount(el);
+  rendered.hydrating = false;
   return app;
 };
 
@@ -124,18 +130,19 @@ export const vuePatcher: Patcher = (handle, module, props, el) => {
   if (fresh !== null && children) children.value = fresh;
 };
 
-/** The neutral store as a Vue ref: `const region = useStore(regionKey, "all")`, readable and writable, following every other island that shares the key. A hydrating island starts from the value the server rendered it from, which its props carry, and moves to the store's once mounted, so a key that moved in the meantime never fails the hydration. Call it in `setup`, so the subscription ends with the component. */
+/** The neutral store as a Vue ref: `const region = useStore(regionKey, "all")`, readable and writable, following every other island that shares the key. A hydrating island starts from the value the server rendered it from, which its props carry, or from `initial` for a key the server held none of, and moves to the store's once mounted, so a key that moved in the meantime never fails the hydration. Call it in `setup`, so the subscription ends with the component. */
 export function useStore<T>(key: StoreKey<T>, initial: T): { value: T } {
   const rendered = inject(RENDERED_STORE, null);
+  const values = rendered !== null && rendered.hydrating ? rendered.values : null;
   const live = () => get(key) ?? initial;
-  const state = reactive({ value: rendered !== null && key in rendered ? (rendered[key] as T) : live() }) as { value: T };
+  const state = reactive({ value: values === null ? live() : key in values ? (values[key] as T) : initial }) as { value: T };
   let ours = false;
   const off = subscribe(key, (next) => {
     if (ours) return;
     state.value = next as T;
   });
   onScopeDispose(off);
-  if (rendered !== null) {
+  if (values !== null) {
     onMounted(() => {
       const now = live();
       if (!Object.is(state.value, now)) state.value = now;

@@ -1,6 +1,10 @@
-import { ctx, describe, expect, fireEvent, load, render, settle, test, waitFor } from "@snapfire/fsr-client/testing";
+import { clear, set } from "@snapfire/fsr-client/store";
+import { ctx, describe, expect, fireEvent, load, render, settle, spyOn, test, waitFor } from "@snapfire/fsr-client/testing";
 
 import { tally } from "@src/probes";
+import { probeCount, probeOther } from "@src/store";
+import HeldProbe from "@src/ui/HeldProbe";
+import HeldVueProbe from "@src/ui/HeldVueProbe.vue";
 import ReactProbe from "@src/ui/ReactProbe";
 import VueProbe from "@src/ui/VueProbe.vue";
 
@@ -8,8 +12,8 @@ const REACT = "src/ui/ReactProbe.tsx#default";
 const VUE = "src/ui/VueProbe.vue#default";
 
 const FRAMEWORKS = [
-  { owner: "react", module: REACT, other: VUE, Probe: ReactProbe },
-  { owner: "vue", module: VUE, other: REACT, Probe: VueProbe },
+  { owner: "react", module: REACT, other: VUE, Probe: ReactProbe, Held: HeldProbe },
+  { owner: "vue", module: VUE, other: REACT, Probe: VueProbe, Held: HeldVueProbe },
 ] as const;
 
 const page = async (path = "/", locale?: string) => {
@@ -21,7 +25,23 @@ const probe = (owner: string) => document.querySelector<HTMLElement>(`.probes > 
 
 const counts = () => [...document.querySelectorAll(".probe .count")].map((count) => count.textContent);
 
-describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe }) => {
+/** The props the server writes on an island it rendered from `values`, the store keys it held. */
+const renderedFrom = (values: Record<string, unknown>) => ({ $sv: values }) as object;
+
+/** What the frameworks logged about hydration while `body` ran. */
+async function hydrationWarnings(body: () => Promise<unknown>): Promise<string[]> {
+  const warned = spyOn(console, "warn");
+  const errored = spyOn(console, "error");
+  try {
+    await body();
+    return [...warned.mock.calls, ...errored.mock.calls].map((args) => args.map(String).join(" ")).filter((line) => /hydrat/i.test(line));
+  } finally {
+    warned.mockRestore();
+    errored.mockRestore();
+  }
+}
+
+describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, Held }) => {
   test("mounts the island and hydrates over the server's markup", async () => {
     const before = tally().renders[owner] ?? 0;
     const r = await render(<Probe label="alone" nest={[]} />);
@@ -70,6 +90,45 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe }
     expect(counts().length, "both probes, both nested probes and both server islands").toEqual(6);
     expect(counts().every((count) => count === "1"), counts().join()).toEqual(true);
   });
+
+  test("hydrates over a key another island wrote while the server held none", async () => {
+    set(probeCount, 5);
+    let r: Awaited<ReturnType<typeof render>> | undefined;
+    const warnings = await hydrationWarnings(async () => {
+      r = await render(<Probe label="late" nest={[]} />);
+    });
+    clear(probeCount);
+    expect(warnings, "the first render matches the server's, which rendered `initial`").toEqual([]);
+    expect(r!.container.querySelector(".count")?.textContent, "then it moves to the store's value").toEqual("5");
+  });
+
+  test("hydrates a key the server held none of from `initial` beside one it held", async () => {
+    set(probeCount, 7);
+    set(probeOther, 5);
+    let r: Awaited<ReturnType<typeof render>> | undefined;
+    const warnings = await hydrationWarnings(async () => {
+      r = await render(<Held label="held" {...renderedFrom({ "probe/count": 0 })} />);
+    });
+    clear(probeCount);
+    clear(probeOther);
+    expect(warnings, "the server rendered `probe/count` as held and `probe/other` from `initial`").toEqual([]);
+    expect([".held", ".other"].map((at) => r!.container.querySelector(at)?.textContent), "then both move to the store's values").toEqual(["7", "5"]);
+  });
+
+  for (const [server, values] of [["held the key", { "probe/count": 0 }], ["held nothing", null]] as const) {
+    test(`renders a component created after hydration from the store on its first render when the server ${server}`, async () => {
+      const r = await render(<Held label="late" {...(values === null ? {} : renderedFrom(values))} />);
+      set(probeCount, 5);
+      await settle();
+      const before = tally().renders[`${owner}-late`] ?? 0;
+      await fireEvent.click(r.container.querySelector(".more")!);
+      await settle();
+      const renders = (tally().renders[`${owner}-late`] ?? 0) - before;
+      clear(probeCount);
+      expect(r.container.querySelector(".late")?.textContent).toEqual("5");
+      expect(renders, "one render, of the store's value, with no hydration to agree with").toEqual(1);
+    });
+  }
 
   test("binds the locale the request chose", async () => {
     await page();
