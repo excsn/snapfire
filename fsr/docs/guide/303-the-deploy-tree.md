@@ -21,6 +21,7 @@ dist/
     generated/             plan.sexp and contracts/, read at boot
     clients/               the service documents, imported at boot
     locales/               the message catalogs
+    routes/, templates/    each .tera template, at its path under the app
     importmap.json
   serve/
     static/js/app/         the bundle
@@ -29,7 +30,7 @@ dist/
     static/css/
 ```
 
-The process reads `config/` and `app/` from its working directory. The web server reads `serve/` and can reach nothing above it. No `.tsx` file is copied into the tree, so none can be served by accident.
+The process reads `config/` and `app/` from its working directory. The web server reads `serve/` and can reach nothing above it. No `.tsx` file is copied into the tree, so none can be served by accident. A `.tera` template is, under `app/`, which the web server cannot reach.
 
 ## Where files land
 
@@ -90,7 +91,7 @@ place beside it: the binary, the logging configuration
 
 The routes on the left are not a list the command carries. They are the host's own static roots, read from the configuration the same way the host reads them at boot: the `[[static]]` entries the file declares, plus the four the host infers, which chapter 200 covers, `dist/` at the public path from `dist/.snapfire-build.json`, `vendor/`, `icons/` and `styles/`. So the URLs a server answers from disk are the URLs the host answered in development and adding a `[[static]]` entry changes the deploy without anyone editing a build script. A hand-written copy list would duplicate the configuration and fall out of date.
 
-The list on the right is derived the same way, from what the host reads at boot rather than from a directory the bundle sweeps. `app/clients/` is there when the application declares a service, because the host imports each client's document at boot and refuses to start without it. `app/locales/` is there when the application has message catalogs, because the host reads that directory by name and an application whose catalogs did not ship serves message keys instead of messages. Neither is named in any configuration setting, which is why the list has to come from the host's own reads.
+The list on the right is derived the same way, from what the host reads at boot rather than from a directory the bundle sweeps. `app/clients/` is there when the application declares a service, because the host imports each client's document at boot and refuses to start without it. `app/locales/` is there when the application has message catalogs, because the host reads that directory by name and an application whose catalogs did not ship serves message keys instead of messages. Each `.tera` template the application holds is there at its path under the app, because the host loads every one at boot and refuses a plan naming one the tree does not hold; the walk that finds them is the host's own, `template_files`, so a partial an include names ships with the page that includes it. None of these is named in any configuration setting, which is why the list has to come from the host's own reads.
 
 `server.prerender`, when configured, is copied beside the plan: those documents are read by the host and answered from the file, not served off disk.
 

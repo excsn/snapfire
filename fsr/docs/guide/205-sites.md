@@ -85,7 +85,7 @@ Store keys are the exception and the only place a site and the shell can genuine
 
 ## What a version is
 
-An artifact is a deploy tree: the files the host reads and nothing more, laid out the way chapter 303 describes. The configuration goes under `config/`. The plan, the contracts, the service documents and the message catalogs go under `app/`. Every static root goes under `serve/` at the route it answers. Routes, sources, types and a site's own markdown are build inputs and stay out.
+An artifact is a deploy tree: the files the host reads and nothing more, laid out the way chapter 303 describes. The configuration goes under `config/`. The plan, the contracts, the service documents, the message catalogs and every `.tera` template go under `app/`. Every static root goes under `serve/` at the route it answers. The TypeScript in routes and sources, types and a site's own markdown are build inputs and stay out.
 
 The destinations are derived from the configuration rather than copied from the project. So a site whose static root points at a shared build outside its own directory still packs, because the artifact does not record where that directory sat. A hash taken in a working tree is the hash of what a release copied out of it, because laying a tree out again yields the same tree, so a pin made in development holds against the deployed directory.
 
