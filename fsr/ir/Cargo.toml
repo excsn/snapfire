@@ -20,6 +20,7 @@ parking_lot = "0.12"
 regex = "1"
 snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
+form_urlencoded = "1"
 fixed_decimal = { version = "0.7", features = ["ryu"] }
 futures-util = "0.3"
 getrandom = "0.3"

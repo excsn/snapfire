@@ -16,6 +16,7 @@ readme = "README.md"
 [dependencies]
 snapfire_fsr_core.workspace = true
 snapfire_fsr_payload.workspace = true
+form_urlencoded = "1"
 futures-util = "0.3"
 fibre_cache = "0.4"
 indexmap = "2"

@@ -1670,25 +1670,6 @@ fn form_encode(s: &str) -> String {
 }
 
 /// The inverse of [`form_encode`], a malformed escape kept as written.
-fn form_decode(s: &str) -> String {
-  let hex = |b: u8| (b as char).to_digit(16).map(|d| d as u8);
-  let bytes = s.as_bytes();
-  let mut out = Vec::with_capacity(bytes.len());
-  let mut i = 0;
-  while i < bytes.len() {
-    match bytes[i] {
-      b'+' => out.push(b' '),
-      b'%' if i + 2 < bytes.len() && hex(bytes[i + 1]).is_some() && hex(bytes[i + 2]).is_some() => {
-        out.push(hex(bytes[i + 1]).unwrap_or(0) * 16 + hex(bytes[i + 2]).unwrap_or(0));
-        i += 2;
-      }
-      b => out.push(b),
-    }
-    i += 1;
-  }
-  String::from_utf8_lossy(&out).into_owned()
-}
-
 /// `a ** b` as JavaScript computes it: a base of 1 or -1 to an infinite power is NaN where `powf` answers 1.
 fn js_pow(a: f64, b: f64) -> f64 {
   if b.is_infinite() && a.abs() == 1.0 {
@@ -2357,15 +2338,8 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
             other => Err(type_error(&format!("{name:?}"), "an array of [key, value] pairs", other)),
           })
           .collect::<Result<_, Fail>>()?,
-        Value::Str(s) => s
-          .strip_prefix('?')
-          .unwrap_or(s)
-          .split('&')
-          .filter(|part| !part.is_empty())
-          .map(|part| {
-            let (k, v) = part.split_once('=').unwrap_or((part, ""));
-            (form_decode(k), form_decode(v))
-          })
+        Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes())
+          .map(|(k, v)| (k.into_owned(), v.into_owned()))
           .collect(),
         Value::Null => Vec::new(),
         other => return Err(type_error(&format!("{name:?}"), "an object, pairs or a query string", other)),
