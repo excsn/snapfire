@@ -331,3 +331,28 @@ fn the_asset_manifest_travels_with_the_tree_when_the_build_wrote_one() {
   let place = after.places.iter().find(|p| p.to == "app/generated/assets.json").expect("the manifest is placed");
   assert!(!place.required, "a tree without one still boots");
 }
+
+#[test]
+fn every_template_the_host_reads_ships_and_none_it_skips() {
+  let at = project("templates", "");
+  for (name, text) in [
+    ("app/routes/page.tera", "<p>page</p>"),
+    ("app/routes/board/layout.tera", "{{ slot(name=\"content\") }}"),
+    ("app/templates/nav.tera", "<nav></nav>"),
+    ("app/tests/fixture.tera", "x"),
+    ("app/vendor/lib/part.tera", "x"),
+    ("app/.cache/old.tera", "x"),
+    ("app/routes/notes.txt", "x"),
+  ] {
+    write(&at.join(name), text);
+  }
+  let (_, laid) = laid(&at);
+  let mut shipped: Vec<(&str, bool)> = laid.places.iter().filter(|p| p.to.ends_with(".tera")).map(|p| (p.to.as_str(), p.required)).collect();
+  shipped.sort();
+  assert_eq!(
+    shipped,
+    [("app/routes/board/layout.tera", true), ("app/routes/page.tera", true), ("app/templates/nav.tera", true)],
+    "{:?}",
+    laid.places
+  );
+}

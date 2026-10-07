@@ -277,6 +277,15 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     place(format!("{APP}/locales"), Source::Path(locales), false)?;
   }
 
+  let templates = snapfire_fsr_host::template_files(&config.app).map_err(|e| match e {
+    snapfire_fsr_host::HostError::Io(path, e) => LayoutError::Io(path, e),
+    other => LayoutError::Io(config.app.clone(), std::io::Error::other(other.to_string())),
+  })?;
+  for file in templates {
+    let rel = file.strip_prefix(&config.app).unwrap_or(&file).to_string_lossy().replace('\\', "/");
+    place(format!("{APP}/{rel}"), Source::Path(file), true)?;
+  }
+
   for (name, client) in &config.clients {
     let document = client
       .document

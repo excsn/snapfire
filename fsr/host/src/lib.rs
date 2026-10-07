@@ -84,6 +84,34 @@ pub fn is_template_module(module: &ModuleId) -> bool {
   TEMPLATE_EXTENSIONS.iter().any(|ext| module.path.ends_with(&format!(".{ext}")))
 }
 
+/// Directories directly under the app no template is read from.
+const TEMPLATE_SKIPPED: &[&str] = &["vendor", "dist", "generated", "node_modules", "tests", "types"];
+
+/// Every template under `app` the host reads at boot, sorted: each file
+/// ending in one of `TEMPLATE_EXTENSIONS` outside a dot directory and the
+/// `TEMPLATE_SKIPPED` ones.
+pub fn template_files(app: &Path) -> Result<Vec<PathBuf>, HostError> {
+  fn collect(app: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), HostError> {
+    let entries = std::fs::read_dir(dir).map_err(|e| HostError::Io(dir.to_path_buf(), e))?;
+    for path in entries.filter_map(|e| e.ok().map(|e| e.path())) {
+      let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+      if path.is_dir() {
+        if dir == app && TEMPLATE_SKIPPED.contains(&name.as_str()) || name.starts_with('.') {
+          continue;
+        }
+        collect(app, &path, out)?;
+      } else if TEMPLATE_EXTENSIONS.iter().any(|ext| name.ends_with(&format!(".{ext}"))) {
+        out.push(path);
+      }
+    }
+    Ok(())
+  }
+  let mut out = Vec::new();
+  collect(app, app, &mut out)?;
+  out.sort();
+  Ok(out)
+}
+
 /// Beside `loads.json`: every subtree a build rendered ahead of a request,
 /// under the memo key a request composes for it, which a boot reads into the
 /// render memo in front of whatever `[cache]` configured.

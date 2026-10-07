@@ -147,6 +147,42 @@ fn the_host_loads_the_configuration_the_bundle_wrote() {
   );
 }
 
+#[cfg(feature = "tera")]
+#[test]
+fn a_bundled_tera_application_boots_and_renders_its_templates() {
+  let dir = app("");
+  for (name, source) in [
+    ("app/importmap.json", "{\"imports\":{}}\n"),
+    ("app/routes/layout.tera", "<div class=\"frame\">{% include \"templates/nav.tera\" %}<main>{{ slot(name=\"content\") }}</main></div>\n"),
+    ("app/routes/page.tera", "<h1>board</h1>\n"),
+    ("app/templates/nav.tera", "<nav>home</nav>\n"),
+  ] {
+    std::fs::write(dir.join(name), source).unwrap_or_else(|_| {
+      std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
+      std::fs::write(dir.join(name), source).unwrap();
+    });
+  }
+  let app_dir = dir.join("app");
+  let built = snapfire_fsr_cli::build(&app_dir, &snapfire_fsr_cli::Options::beside(&app_dir)).expect("builds");
+  snapfire_fsr_cli::write(&app_dir, &built).expect("writes");
+  let rendered = |root: &std::path::Path| {
+    let config = Config::load(root).expect("the host loads the configuration");
+    let host = snapfire_fsr_host::Host::from_config(config).unwrap().build().map_err(|e| e.to_string())?;
+    tokio::runtime::Runtime::new()
+      .unwrap()
+      .block_on(host.render_to_string("/", snapfire_fsr_host::RenderMode::Html, snapfire_fsr_runtime::SessionCell::default()))
+      .map_err(|e| e.to_string())
+  };
+  let complete = |html: &str| html.contains("<h1>board</h1>") && html.contains("class=\"frame\"") && html.contains("<nav>home</nav>");
+  let source = rendered(&dir).expect("the project boots from its sources");
+  assert!(complete(&source), "{source}");
+
+  let out = dir.join("dist");
+  bundle::run(&dir, &out).expect("bundles");
+  let bundled = rendered(&out).expect("the host boots from the tree");
+  assert!(complete(&bundled), "{bundled}");
+}
+
 fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
   let mut out = Vec::new();
   let Ok(entries) = std::fs::read_dir(dir) else { return out };
