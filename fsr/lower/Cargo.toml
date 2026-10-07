@@ -27,6 +27,8 @@ features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
 
 [dev-dependencies]
 snapfire_fsr_core.workspace = true
+snapfire_fsr_runtime.workspace = true
+futures = "0.3"
 snapfire_vue = { path = "../../compiler/vue" }
 
 [dev-dependencies.swc_core]

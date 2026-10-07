@@ -576,6 +576,10 @@ impl Parsed {
 
 fn classify_in<'a>(parsed: &'a Parsed, init: &'a js::Expr) -> Exported<'a> {
   match init {
+    js::Expr::Paren(inner) => classify_in(parsed, &inner.expr),
+    js::Expr::TsAs(inner) => classify_in(parsed, &inner.expr),
+    js::Expr::TsSatisfies(inner) => classify_in(parsed, &inner.expr),
+    js::Expr::Fn(f) => Exported::Function(f.function.params.first().map(|p| &p.pat), f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or(&[])),
     js::Expr::Arrow(arrow) => match &*arrow.body {
       js::ArrowFunctionBody::FunctionBody(b) => Exported::Function(arrow.params.first(), &b.stmts),
       js::ArrowFunctionBody::Expr(e) => Exported::Expr(arrow.params.first(), e),
@@ -821,6 +825,11 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// Whether `init` is the context parameter itself, so a declaration of it binds as the parameter's own destructuring does.
+  fn is_ctx(&self, init: Option<&js::Expr>) -> bool {
+    matches!(init, Some(js::Expr::Ident(id)) if matches!(self.root_of(id), Some(Root::Ctx)))
+  }
+
   fn root_named(&self, name: &str) -> Option<Root> {
     if self.middleware && name == "request" {
       return Some(Root::Input);
@@ -838,6 +847,10 @@ impl<'a> Lowerer<'a> {
       match stmt {
         js::Stmt::Decl(js::Decl::Var(var)) => {
           for decl in &var.decls {
+            if self.is_ctx(decl.init.as_deref()) {
+              self.bind_ctx(Some(&decl.name))?;
+              continue;
+            }
             out.push(self.declare(decl)?);
           }
         }
