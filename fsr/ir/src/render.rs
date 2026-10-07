@@ -1360,7 +1360,7 @@ const UNITLESS: &[&str] = &["animationIterationCount", "aspectRatio", "borderIma
 fn style_text(map: &ValueMap) -> Result<String, Fail> {
   let mut out = String::new();
   for (name, value) in map {
-    let unitless = UNITLESS.contains(&name.as_str()) || name.starts_with("--");
+    let unitless = name.starts_with("--") || is_unitless(name);
     let name = &css_name(name);
     let text = match value {
       Value::Null | Value::Bool(_) => continue,
@@ -1382,6 +1382,35 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
     out.push_str(&text);
   }
   Ok(out)
+}
+
+/// Whether `name`, in the spelling a style object writes or in CSS spelling,
+/// is one React leaves unitless. A plan from an older build holds CSS
+/// spellings, which the set does not.
+fn is_unitless(name: &str) -> bool {
+  if UNITLESS.contains(&name) {
+    return true;
+  }
+  if !name.contains('-') {
+    return false;
+  }
+  let mut camel = String::with_capacity(name.len());
+  let mut upper = false;
+  for c in name.chars() {
+    match c {
+      '-' => upper = true,
+      c if upper => {
+        camel.push(c.to_ascii_uppercase());
+        upper = false;
+      }
+      c => camel.push(c),
+    }
+  }
+  let mut lowered = camel.clone();
+  if let Some(first) = lowered.get_mut(0..1) {
+    first.make_ascii_lowercase();
+  }
+  UNITLESS.contains(&camel.as_str()) || UNITLESS.contains(&lowered.as_str())
 }
 
 /// A style property's CSS spelling: `fontSize` is `font-size` and
