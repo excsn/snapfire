@@ -76,6 +76,7 @@ multer = "3"
 [dev-dependencies]
 snapfire_fsr_macros.workspace = true
 proptest = "1"
+bolero = "0.13"
 axum = "0.8"
 futures = "0.3"
 hyper = { version = "1", features = ["client", "http2"] }
