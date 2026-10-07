@@ -743,15 +743,25 @@ fn production(app: &Path) -> bool {
 /// is what a build script and `fsr build` call. A build script under `fsr dev`
 /// leaves it to the loop; see [`owns_build`].
 pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
+  emit_from(app, options, crate::types::NPM_REGISTRY)
+}
+
+/// `emit` with the declarations it lacks fetched from `registry`.
+pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Result<Emitted, BuildError> {
   let mut app = App::open(app, options)?;
   app.production = production(&app.dir);
+  let fetched = crate::types::fetch_missing_from(&app.dir, registry);
   let mut plugins = Plugins::new();
   let mut built = crate::build_with(&app.dir, &app.options.build, &mut plugins)?;
   let rest = (|| -> Result<(Vec<PathBuf>, Option<Checked>), BuildError> {
     let mut written = write(&app.dir, &built)?;
     let missing = crate::types::missing(&app.dir)?;
     if !missing.is_empty() {
-      return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`", missing.join(", "))));
+      let failure = match &fetched {
+        Err(e) => format!(" ({e})"),
+        Ok(_) => String::new(),
+      };
+      return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`{failure}", missing.join(", "))));
     }
     let checked = app.compile(&built, &mut plugins)?;
     if let Some(checked) = &checked {
@@ -1208,4 +1218,103 @@ mod tests {
     let after = vec![("generated/plan.sexp".to_owned(), "(plan)".to_owned()), overlay_file("src/a.ts", "one")];
     assert_eq!(rewritten(app, None, &after), vec![app.join("src/a.ts")]);
   }
+
+  /// The npm registry as `fsr types` reads it, holding `htmx.org` 2.0.4 alone, whose tarball carries `dist/htmx.d.ts`.
+  fn npm_stub() -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let mut tarball = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
+    for (path, text) in [("package/package.json", r#"{"name":"htmx.org","types":"dist/htmx.d.ts"}"#), ("package/dist/htmx.d.ts", "export declare const version: string;\n")] {
+      let mut header = tar::Header::new_gnu();
+      header.set_size(text.len() as u64);
+      header.set_mode(0o644);
+      header.set_cksum();
+      tarball.append_data(&mut header, path, text.as_bytes()).unwrap();
+    }
+    let tarball = tarball.into_inner().unwrap().finish().unwrap();
+    let base = host.clone();
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        let mut line = String::new();
+        let mut reader = BufReader::new(&stream);
+        if reader.read_line(&mut line).is_err() {
+          continue;
+        }
+        loop {
+          let mut header = String::new();
+          if reader.read_line(&mut header).map(|n| n == 0).unwrap_or(true) || header == "\r\n" {
+            break;
+          }
+        }
+        let path = line.split(' ').nth(1).unwrap_or("").to_owned();
+        let body: Option<Vec<u8>> = match path.as_str() {
+          "/htmx.org" => Some(r#"{"dist-tags":{"latest":"2.0.4"},"versions":{"2.0.4":{}}}"#.as_bytes().to_vec()),
+          "/htmx.org/2.0.4" => Some(format!(r#"{{"version":"2.0.4","types":"dist/htmx.d.ts","dist":{{"tarball":"{base}/htmx.org-2.0.4.tgz"}}}}"#).into_bytes()),
+          "/htmx.org-2.0.4.tgz" => Some(tarball.clone()),
+          _ => None,
+        };
+        let head = match &body {
+          Some(body) => format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()),
+          None => "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned(),
+        };
+        let _ = stream.write_all(head.as_bytes());
+        if let Some(body) = body {
+          let _ = stream.write_all(&body);
+        }
+      }
+    });
+    host
+  }
+
+  /// A scaffold whose import map names `htmx.org`, built with no typecheck and a compiler that is not there, so the build stops at the bundle once the declarations are settled.
+  fn htmx_app(tag: &str) -> (PathBuf, DevOptions) {
+    let root = scaffold(tag, "");
+    let app = root.join("app");
+    let map = app.join("importmap.json");
+    let mut json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&map).unwrap()).unwrap();
+    json["imports"]["htmx.org"] = serde_json::Value::String("/static/js/vendor/htmx.org/htmx.mjs".to_owned());
+    std::fs::write(&map, json.to_string()).unwrap();
+    let mut options = DevOptions::beside(&app);
+    options.typecheck.enabled = false;
+    options.snapfirec = Some(root.join("no-snapfirec"));
+    (app, options)
+  }
+
+  fn declares_htmx(app: &Path) -> bool {
+    app.join("types/htmx.org/dist/htmx.d.ts").is_file() && crate::types::missing(app).unwrap().is_empty()
+  }
+
+  /// REQUESTS 11.38.
+  #[test]
+  fn a_build_fetches_the_declarations_a_clean_checkout_lacks() {
+    let (app, options) = htmx_app("fetch-clean");
+    let _ = std::fs::remove_dir_all(app.join("types/htmx.org"));
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert!(declares_htmx(&app), "the build fetched and recorded htmx.org");
+  }
+
+  /// DEFECTS 1.67's tree: the directory committed, its entry not.
+  #[test]
+  fn a_build_fetches_a_package_whose_directory_lacks_its_entry() {
+    let (app, options) = htmx_app("fetch-entryless");
+    std::fs::create_dir_all(app.join("types/htmx.org")).unwrap();
+    std::fs::write(app.join("types/htmx.org/package.json"), r#"{"name":"htmx.org","types":"dist/htmx.d.ts"}"#).unwrap();
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert!(declares_htmx(&app), "the build fetched htmx.org again");
+  }
+
+  #[test]
+  fn a_build_that_cannot_fetch_the_declarations_names_fsr_types_and_the_failure() {
+    let (app, options) = htmx_app("fetch-offline");
+    let _ = std::fs::remove_dir_all(app.join("types/htmx.org"));
+    match emit_from(&app, options, "http://127.0.0.1:1") {
+      Err(BuildError::Types(message)) => assert!(message.contains("no declarations for htmx.org; run `fsr types`") && message.contains("127.0.0.1:1"), "{message}"),
+      other => panic!("{:?}", other.err()),
+    }
+  }
+
 }

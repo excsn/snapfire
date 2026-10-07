@@ -167,8 +167,8 @@ fn encode(name: &str) -> String {
 }
 
 /// The version of `name` to take: the highest release sharing `major` when one is given and exists, else `latest`.
-fn choose_version(client: &reqwest::blocking::Client, name: &str, major: Option<u64>) -> Result<Option<String>, BuildError> {
-  let url = format!("{NPM_REGISTRY}/{}", encode(name));
+fn choose_version(client: &reqwest::blocking::Client, registry: &str, name: &str, major: Option<u64>) -> Result<Option<String>, BuildError> {
+  let url = format!("{registry}/{}", encode(name));
   let response = client
     .get(&url)
     .header("accept", "application/vnd.npm.install-v1+json")
@@ -190,8 +190,8 @@ fn choose_version(client: &reqwest::blocking::Client, name: &str, major: Option<
   Ok(doc.dist_tags.get("latest").cloned())
 }
 
-fn version_doc(client: &reqwest::blocking::Client, name: &str, version: &str) -> Result<VersionDoc, BuildError> {
-  let url = format!("{NPM_REGISTRY}/{}/{version}", encode(name));
+fn version_doc(client: &reqwest::blocking::Client, registry: &str, name: &str, version: &str) -> Result<VersionDoc, BuildError> {
+  let url = format!("{registry}/{}/{version}", encode(name));
   let bytes = get(client, &url)?.ok_or_else(|| BuildError::Http(url.clone(), "HTTP 404".to_owned()))?;
   serde_json::from_slice(&bytes).map_err(|e| BuildError::Http(url, e.to_string()))
 }
@@ -276,15 +276,15 @@ struct Fetched {
 }
 
 /// Declarations for `package` into `<types>/<package>/`: from the package itself when it declares `types`, else from DefinitelyTyped.
-fn fetch_npm(client: &reqwest::blocking::Client, app: &Path, layout: &Layout, package: &str, major: Option<u64>) -> Result<Option<Fetched>, BuildError> {
+fn fetch_npm(client: &reqwest::blocking::Client, registry: &str, app: &Path, layout: &Layout, package: &str, major: Option<u64>) -> Result<Option<Fetched>, BuildError> {
   let dir = app.join(&layout.types).join(package);
   let mut candidates: Vec<(String, bool)> = vec![(package.to_owned(), false)];
   if !package.starts_with("@types/") {
     candidates.push((definitely_typed(package), true));
   }
   for (name, from_dt) in candidates {
-    let Some(version) = choose_version(client, &name, major)? else { continue };
-    let doc = version_doc(client, &name, &version)?;
+    let Some(version) = choose_version(client, registry, &name, major)? else { continue };
+    let doc = version_doc(client, registry, &name, &version)?;
     let entry = doc.types.clone().or(doc.typings.clone()).or_else(|| from_dt.then(|| "index.d.ts".to_owned()));
     let Some(entry) = entry else { continue };
     let entry = entry.trim_start_matches("./").to_owned();
@@ -315,12 +315,6 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
   let layout = Layout::of(app)?;
   let mut report = TypesReport::default();
   let mut manifest = TypesManifest::read(app, &layout)?;
-  let vendored = VendorManifest::read(app, &layout)?;
-  let shell_frameworks = match crate::site_beside(app).and_then(|site| site.shell) {
-    Some(path) => crate::ShellContract::read(&path)?.frameworks,
-    None => Default::default(),
-  };
-  let client = vendor::client()?;
 
   if layout.xwpm {
     xwpm::run(app, &["restore"])?;
@@ -330,6 +324,48 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
 
   let mut queue: Vec<String> = ALWAYS.iter().map(|s| (*s).to_owned()).collect();
   queue.extend(import_map_packages(app, &layout)?);
+  fill(app, &layout, &mut manifest, queue, refresh, NPM_REGISTRY, &mut report)?;
+  manifest.write(app, &layout)?;
+  let shim = write_foreign_shim(app, &layout, &[])?;
+  if let Some(path) = &shim {
+    report.written.push(path.clone());
+  }
+  let generated = app.join("generated").is_dir();
+  let path = app.join("tsconfig.json");
+  let declared = app.join(snapfire_fsr_lower::vue::PROPS_DECLARATION_DIR).is_dir();
+  std::fs::write(&path, tsconfig(app, generated, shim.is_some(), declared)?).map_err(|e| BuildError::Io(path, e))?;
+  report.written.push("tsconfig.json".to_owned());
+  Ok(report)
+}
+
+/// What `fsr build` fetches before it checks: the packages [`missing`] names,
+/// each the way `fsr types` fetches it from `registry`, recorded in the
+/// manifest. The build writes the tsconfig and the shim itself. Nothing is
+/// fetched under xwpm, which supplies its own.
+pub(crate) fn fetch_missing_from(app: &Path, registry: &str) -> Result<TypesReport, BuildError> {
+  let layout = Layout::of(app)?;
+  let mut report = TypesReport::default();
+  let queue = missing(app)?;
+  if queue.is_empty() || layout.xwpm {
+    return Ok(report);
+  }
+  let mut manifest = TypesManifest::read(app, &layout)?;
+  fill(app, &layout, &mut manifest, queue, false, registry, &mut report)?;
+  manifest.write(app, &layout)?;
+  Ok(report)
+}
+
+/// Fills the types directory for `queue` and each package a fetched one
+/// depends on: the fsr packages from the binary, the rest from `registry` at
+/// the vendored major, else a site's shell's. A package whose entry is on disk
+/// is kept unless `refresh`.
+fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, mut queue: Vec<String>, refresh: bool, registry: &str, report: &mut TypesReport) -> Result<(), BuildError> {
+  let vendored = VendorManifest::read(app, layout)?;
+  let shell_frameworks = match crate::site_beside(app).and_then(|site| site.shell) {
+    Some(path) => crate::ShellContract::read(&path)?.frameworks,
+    None => Default::default(),
+  };
+  let client = vendor::client()?;
   let mut seen: Vec<String> = Vec::new();
   while let Some(package) = queue.first().cloned() {
     queue.remove(0);
@@ -343,18 +379,19 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
       "@snapfire/fsr-authoring" => Some(FSR_AUTHORING),
       _ => None,
     };
-    if dir.is_dir() && !refresh && embedded.is_none() {
+    let entry = manifest.packages.get(&package).map(|typed| typed.entry.clone()).unwrap_or_else(|| "index.d.ts".to_owned());
+    if dir.join(&entry).is_file() && !refresh && embedded.is_none() {
       report.kept.push(package.clone());
       if let Some(typed) = manifest.packages.get_mut(&package) {
         if let Ok(text) = std::fs::read_to_string(dir.join(&typed.entry)) {
           typed.ambient = is_ambient(&text);
         }
-        queue.extend(dependencies_of(app, &layout, &package, typed.from.starts_with("@types/")));
+        queue.extend(dependencies_of(app, layout, &package, typed.from.starts_with("@types/")));
       }
       continue;
     }
     if let Some(files) = embedded {
-      write_embedded(app, &layout, &package, files)?;
+      write_embedded(app, layout, &package, files)?;
       manifest.packages.insert(package.clone(), embedded_record());
       report.fetched.push((package, env!("CARGO_PKG_VERSION").to_owned(), "fsr".to_owned()));
       continue;
@@ -368,7 +405,7 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
       continue;
     }
     let major = wanted_major(vendored.packages.get(&package).map(|p| p.version.as_str()), shell_frameworks.get(&package).map(String::as_str));
-    match fetch_npm(&client, app, &layout, &package, major)? {
+    match fetch_npm(&client, registry, app, layout, &package, major)? {
       Some(fetched) => {
         for dependency in fetched.dependencies {
           queue.push(from_definitely_typed(&dependency));
@@ -379,17 +416,7 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
       None => report.missing.push((package, "no `types` in the package and nothing on DefinitelyTyped".to_owned())),
     }
   }
-  manifest.write(app, &layout)?;
-  let shim = write_foreign_shim(app, &layout, &[])?;
-  if let Some(path) = &shim {
-    report.written.push(path.clone());
-  }
-  let generated = app.join("generated").is_dir();
-  let path = app.join("tsconfig.json");
-  let declared = app.join(snapfire_fsr_lower::vue::PROPS_DECLARATION_DIR).is_dir();
-  std::fs::write(&path, tsconfig(app, generated, shim.is_some(), declared)?).map_err(|e| BuildError::Io(path, e))?;
-  report.written.push("tsconfig.json".to_owned());
-  Ok(report)
+  Ok(())
 }
 
 /// The source directories the application has, of the ones the typechecker

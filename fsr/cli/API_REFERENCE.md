@@ -150,7 +150,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### fsr types
 
 * `fsr types <app dir> [--refresh]`
-* `types::fetch`; prints `ran <command>` for each delegated xwpm command, `types <package> <from> <version>` per fetch, `kept <package>`, `missing <package> <why>` and `wrote <path>` for `<types>/foreign.d.ts` when a source is foreign and for `tsconfig.json`, which it writes from what it fetched. Exit 0 with missing packages, 1 on a `BuildError`.
+* `types::fetch`; a package whose entry is on disk (the one its manifest row records, else `index.d.ts`) is kept unless `--refresh`. Prints `ran <command>` for each delegated xwpm command, `types <package> <from> <version>` per fetch, `kept <package>`, `missing <package> <why>` and `wrote <path>` for `<types>/foreign.d.ts` when a source is foreign and for `tsconfig.json`, which it writes from what it fetched. Exit 0 with missing packages, 1 on a `BuildError`.
 
 ## 2. The Build
 
@@ -214,6 +214,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * `pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError>`
 * `pub struct Emitted { pub built: Built, pub written: Vec<PathBuf>, pub checked: Option<typecheck::Checked> }`
+* First fetches from the npm registry, as `fsr types` does, each package `types::missing` names, recording it in the manifest, so the tsconfig `build` writes maps it; nothing under xwpm. A fetch that fails is not an error by itself: the check before the bundle is `BuildError::Types` naming the packages still missing and `fsr types`, with the fetch's error in parentheses when one happened.
 * `build`, then `write`, then `snapfirec` over `tsconfig.build.json` into `<app>/dist` with `options.public_path`, the layout's import map and `--overlay .fsr-bundle` when the build wrote one, so a rewritten source is compiled in place of its original at the same path. The order is load-bearing: the bundle compiles the island registry the generation writes.
 * Adds `--minify compact` unless the configuration writes `server.dev = true`: a `.min.js` beside each module, `"minified": ".min"` in the build facts and plugins compiling for production. `server.dev = true` bundles readable output with plugins in development mode.
 * The whole artifact a host reads and what a `build.rs` calls when `dev::owns_build()` is false. `build` and `write` alone leave `dist/` at whatever the last bundle wrote, which the host cannot distinguish from a current one.

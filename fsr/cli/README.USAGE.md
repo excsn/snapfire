@@ -605,7 +605,7 @@ types     csstype                      csstype 3.2.3
 wrote     tsconfig.json
 ```
 
-A package with nothing to fetch is reported `missing` and the build goes on; its imports are `any` in the editor and errors under `strict`. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit`, never shipped, so a fresh checkout runs `fsr types` once rather than committing them.
+`fsr types` reports a package with nothing to fetch as `missing`. The build stops on it with `no declarations for <package>`, since the checker cannot resolve its imports. Put `types/` in `.gitignore`: declarations are read by an editor and `tsc --noEmit` and never shipped. A fresh checkout's first `fsr build` fetches what its import map needs before it typechecks. A package whose recorded entry is not on disk is fetched again, by either command.
 
 Templates are JSX; what types their JSX follows the import map. With `react` in it the templates are React components, typed by `@types/react`. Without it, `tsconfig.json` gets `"jsxImportSource": "@snapfire/fsr-authoring"` and the templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, which come from the binary with the rest of the authoring package; no React declarations are fetched. Those declarations type a hyphenated tag as a custom element whose attributes are its own, so `<shed-tally count={reserved}>` passes where `<divv>` does not. They also type `<template shadowrootmode="open">`, for a shadow root the server writes. Under either set of declarations an element template's tag is typed with its props by `generated/elements.d.ts`, as [Writing an Element's Shadow Template](#writing-an-elements-shadow-template) shows.
 
