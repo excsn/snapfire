@@ -1353,13 +1353,15 @@ fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(Strin
   result
 }
 
-/// CSS properties React leaves unitless; every other number gets `px`.
-const UNITLESS: &[&str] = &["animation-iteration-count", "aspect-ratio", "border-image-outset", "border-image-slice", "border-image-width", "box-flex", "box-flex-group", "box-ordinal-group", "column-count", "columns", "flex", "flex-grow", "flex-positive", "flex-shrink", "flex-negative", "flex-order", "grid-area", "grid-row", "grid-row-end", "grid-row-span", "grid-row-start", "grid-column", "grid-column-end", "grid-column-span", "grid-column-start", "font-weight", "line-clamp", "line-height", "opacity", "order", "orphans", "scale", "tab-size", "widows", "z-index", "zoom", "fill-opacity", "flood-opacity", "stop-opacity", "stroke-dasharray", "stroke-dashoffset", "stroke-miterlimit", "stroke-opacity", "stroke-width"];
+/// The style properties React DOM 19.1.0 leaves unitless, keyed by the name as written in the style object, as its `setValueForStyle` and server renderer check them. Every other number gets `px`.
+const UNITLESS: &[&str] = &["animationIterationCount", "aspectRatio", "borderImageOutset", "borderImageSlice", "borderImageWidth", "boxFlex", "boxFlexGroup", "boxOrdinalGroup", "columnCount", "columns", "flex", "flexGrow", "flexPositive", "flexShrink", "flexNegative", "flexOrder", "gridArea", "gridRow", "gridRowEnd", "gridRowSpan", "gridRowStart", "gridColumn", "gridColumnEnd", "gridColumnSpan", "gridColumnStart", "fontWeight", "lineClamp", "lineHeight", "opacity", "order", "orphans", "scale", "tabSize", "widows", "zIndex", "zoom", "fillOpacity", "floodOpacity", "stopOpacity", "strokeDasharray", "strokeDashoffset", "strokeMiterlimit", "strokeOpacity", "strokeWidth", "MozAnimationIterationCount", "MozBoxFlex", "MozBoxFlexGroup", "MozLineClamp", "msAnimationIterationCount", "msFlex", "msZoom", "msFlexGrow", "msFlexNegative", "msFlexOrder", "msFlexPositive", "msFlexShrink", "msGridColumn", "msGridColumnSpan", "msGridRow", "msGridRowSpan", "WebkitAnimationIterationCount", "WebkitBoxFlex", "WebKitBoxFlexGroup", "WebkitBoxOrdinalGroup", "WebkitColumnCount", "WebkitColumns", "WebkitFlex", "WebkitFlexGrow", "WebkitFlexPositive", "WebkitFlexShrink", "WebkitLineClamp"];
 
-/// A style object the way React's server renderer prints it: `name:value` joined by `;`, null and empty values skipped, a number in `px` unless the property is unitless or the number is zero.
+/// A style object the way React's server renderer prints it: each name as its CSS spelling, `name:value` joined by `;`, null and empty values skipped, a number in `px` unless the property is unitless or the number is zero.
 fn style_text(map: &ValueMap) -> Result<String, Fail> {
   let mut out = String::new();
   for (name, value) in map {
+    let unitless = UNITLESS.contains(&name.as_str()) || name.starts_with("--");
+    let name = &css_name(name);
     let text = match value {
       Value::Null | Value::Bool(_) => continue,
       Value::Str(s) if s.trim().is_empty() => continue,
@@ -1368,7 +1370,7 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
       Value::F64(f) if *f == 0.0 => "0".to_owned(),
       Value::Int(_) | Value::F64(_) | Value::F32(_) | Value::UInt(_) => {
         let n = stringify(value)?;
-        if UNITLESS.contains(&name.as_str()) || name.starts_with("--") { n } else { format!("{n}px") }
+        if unitless { n } else { format!("{n}px") }
       }
       other => stringify(other)?,
     };
@@ -1380,6 +1382,24 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
     out.push_str(&text);
   }
   Ok(out)
+}
+
+/// A style property's CSS spelling: `fontSize` is `font-size` and
+/// `WebkitLineClamp` is `-webkit-line-clamp`. A custom property keeps its name.
+fn css_name(key: &str) -> String {
+  if key.starts_with("--") {
+    return key.to_owned();
+  }
+  let mut out = String::with_capacity(key.len() + 4);
+  for c in key.chars() {
+    if c.is_ascii_uppercase() {
+      out.push('-');
+      out.push(c.to_ascii_lowercase());
+    } else {
+      out.push(c);
+    }
+  }
+  out
 }
 
 /// Rewrites a loaded component so every element whose open tag is entirely

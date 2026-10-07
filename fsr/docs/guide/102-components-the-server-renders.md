@@ -12,7 +12,7 @@ The build reads a page as an exported function whose parameter is `props` or a d
 
 Inside the JSX, the build reads JSX's own constructs:
 
-- An element with attributes: strings, expressions or bare booleans. `className` and its relatives become their HTML names; `style` takes an object literal; `key` and `ref` are dropped since the server has no use for them.
+- An element with attributes: strings, expressions or bare booleans. `className` and its relatives become their HTML names; `style` takes a string or any object, a literal, a constant, a prop or a spread, each property named and given `px` the way React does; `key` and `ref` are dropped since the server has no use for them.
 - Text and `{expr}`. Text keeps JSX's whitespace rule and decodes entities. An expression prints as React prints it: strings and numbers as text, `null` and booleans as nothing, an array item by item.
 - `c ? <a /> : <b />` and `c && <a />`, an `if`, with `null` as an empty branch.
 - `xs.map((x) => <li />)`, a loop; the callback may be a block of `const`s ending in `return`.

@@ -480,3 +480,29 @@ fn a_react_island_holds_the_children_its_first_render_did_not_place() {
   let rendered = Interpreter::default().render_module("routes/page.tsx#default", &library["routes/page.tsx#default"], &props, &library).unwrap();
   assert_eq!(rendered.islands[0].body.html, "<div><button>more</button></div><template data-sf-children><p class=\"kept\">n=2 many</p></template>", "the held children read the caller's locals");
 }
+
+#[test]
+fn a_style_held_in_a_const_a_prop_or_a_branch_renders_on_the_server() {
+  let set = lower(
+    &[
+      ("routes/page.tsx", "import { Box } from \"../src/Box\";\nconst framed = { color: \"red\", paddingTop: 4 };\nexport default function Page() {\n  return <main><div style={framed}>a</div><Box look={{ fontWeight: 700, marginLeft: 2 }} on={true} /></main>;\n}\n"),
+      ("src/Box.tsx", "const off = { opacity: 0.5 };\nexport function Box({ look, on }: { look: { fontWeight: number; marginLeft: number }; on: boolean }) {\n  return <p style={look}><span style={on ? { zIndex: 2 } : off}>b</span></p>;\n}\n"),
+    ],
+    "routes/page.tsx#default",
+  );
+  assert!(island_in(render_of(&set, "routes/page.tsx#default")).is_none(), "nothing is left to the browser");
+  let html = render(&library(&set), "routes/page.tsx#default", &[]).unwrap();
+  assert!(html.contains(r#"<div style="color:red;padding-top:4px">a</div>"#), "{html}");
+  assert!(html.contains(r#"<p style="font-weight:700;margin-left:2px">"#), "{html}");
+  assert!(html.contains(r#"<span style="z-index:2">b</span>"#), "{html}");
+}
+
+#[test]
+fn a_spread_into_a_style_takes_css_names_like_the_fields_beside_it() {
+  let set = lower(
+    &[("routes/page.tsx", "const base = { fontSize: 12, WebkitLineClamp: 2, \"--gap\": \"1rem\" };\nexport default function Page() {\n  return <div style={{ ...base, backgroundColor: \"red\" }}>a</div>;\n}\n")],
+    "routes/page.tsx#default",
+  );
+  let html = render(&library(&set), "routes/page.tsx#default", &[]).unwrap();
+  assert!(html.contains(r#"style="font-size:12px;-webkit-line-clamp:2;--gap:1rem;background-color:red""#), "{html}");
+}

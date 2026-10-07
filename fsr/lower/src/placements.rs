@@ -64,12 +64,12 @@ pub(crate) fn value<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Ex
   }
 }
 
-/// `style`: a string as written, or an object literal keyed by CSS name,
-/// which the renderer serialises the way the owner's framework does.
+/// `style`: a string as written or any expression, which the renderer
+/// serialises the way the owner's framework does, naming each property.
 pub(crate) fn style<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Expr> {
   let Value::Script(expr) = &attr.value else { return value(cx, attr) };
   let js::Expr::Object(obj) = &**expr else {
-    return Err(refuse(cx, At::Span(expr.span()), "a style that is not an object literal"));
+    return cx.lowerer().expr(expr);
   };
   let mut entries = Vec::new();
   for prop in &obj.props {
@@ -87,22 +87,9 @@ pub(crate) fn style<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Ex
         other => return Err(refuse(cx, At::Span(other.span()), "a method in a style")),
       },
     };
-    entries.push(Entry::Field(css_name(&key), value));
+    entries.push(Entry::Field(key, value));
   }
   Ok(Expr::Object(entries))
-}
-
-pub(crate) fn css_name(key: &str) -> String {
-  let mut out = String::with_capacity(key.len() + 4);
-  for c in key.chars() {
-    if c.is_ascii_uppercase() {
-      out.push('-');
-      out.push(c.to_ascii_lowercase());
-    } else {
-      out.push(c);
-    }
-  }
-  out
 }
 
 /// When the navigator calls a link the current page.
