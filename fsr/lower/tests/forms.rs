@@ -506,3 +506,12 @@ fn a_spread_into_a_style_takes_css_names_like_the_fields_beside_it() {
   let html = render(&library(&set), "routes/page.tsx#default", &[]).unwrap();
   assert!(html.contains(r#"style="font-size:12px;-webkit-line-clamp:2;--gap:1rem;background-color:red""#), "{html}");
 }
+
+#[test]
+fn a_literal_style_is_kept_in_css_spelling_so_an_older_host_renders_it() {
+  let set = lower(&[("routes/page.tsx", "export default function Page() {\n  return <div style={{ marginTop: 4, \"--gap\": \"1rem\" }}>a</div>;\n}\n")], "routes/page.tsx#default");
+  let Tmpl::Element { attrs, .. } = render_of(&set, "routes/page.tsx#default") else { panic!() };
+  let Some(Entry::Field(_, Expr::Object(entries))) = attrs.iter().find(|a| matches!(a, Entry::Field(name, _) if name == "style")) else { panic!("{attrs:?}") };
+  let names: Vec<&str> = entries.iter().filter_map(|e| match e { Entry::Field(name, _) => Some(name.as_str()), _ => None }).collect();
+  assert_eq!(names, ["margin-top", "--gap"]);
+}

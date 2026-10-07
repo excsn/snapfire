@@ -1415,7 +1415,7 @@ fn is_unitless(name: &str) -> bool {
 
 /// A style property's CSS spelling: `fontSize` is `font-size` and
 /// `WebkitLineClamp` is `-webkit-line-clamp`. A custom property keeps its name.
-fn css_name(key: &str) -> String {
+pub fn css_name(key: &str) -> String {
   if key.starts_with("--") {
     return key.to_owned();
   }

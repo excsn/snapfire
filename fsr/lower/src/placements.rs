@@ -65,7 +65,9 @@ pub(crate) fn value<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Ex
 }
 
 /// `style`: a string as written or any expression, which the renderer
-/// serialises the way the owner's framework does, naming each property.
+/// serialises the way the owner's framework does, naming each property. A
+/// literal's keys are written in CSS spelling here as well, since a host on
+/// ir before 0.15.2 writes the keys a plan holds as they stand.
 pub(crate) fn style<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Expr> {
   let Value::Script(expr) = &attr.value else { return value(cx, attr) };
   let js::Expr::Object(obj) = &**expr else {
@@ -87,7 +89,7 @@ pub(crate) fn style<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<Ex
         other => return Err(refuse(cx, At::Span(other.span()), "a method in a style")),
       },
     };
-    entries.push(Entry::Field(key, value));
+    entries.push(Entry::Field(snapfire_fsr_ir::render::css_name(&key), value));
   }
   Ok(Expr::Object(entries))
 }
