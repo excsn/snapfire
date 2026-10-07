@@ -418,6 +418,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `pub fn types::write_foreign_shim(app: &Path, layout: &Layout, placed: &[String]) -> Result<Option<String>, BuildError>`: writes the shim to `<types>/foreign.d.ts`, creating the directory; answers the path relative to the app; with nothing foreign it removes a shim that is there and answers `None`.
 * `types::definitely_typed(package) -> String`, `types::is_ambient(entry: &str) -> bool` (contains `declare module "` or `declare module '`).
 * `types::present(app, &layout) -> Result<Vec<(String, TypedPackage)>, BuildError>`: every package directory under the types directory, scoped ones included, with the manifest's record or `index.d.ts` as the entry when it has none.
+* `types::declared_packages(app, &layout) -> Result<Vec<(String, TypedPackage)>, BuildError>`: what `present` finds plus `@snapfire/fsr-client` and `@snapfire/fsr-authoring`, which the build writes itself. The tsconfig, the report's `types` rows and `missing` read this.
 * `types::status(app) -> Result<Vec<(String, String)>, BuildError>`: the report rows for the fsr packages and every import map package: `<types>/<package>  <from> <version>`, `<types>/<package>` when unrecorded or `missing; run fsr types`.
 * `types::NPM_REGISTRY` is `https://registry.npmjs.org`.
 

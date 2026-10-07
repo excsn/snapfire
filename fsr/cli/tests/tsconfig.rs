@@ -65,3 +65,26 @@ fn the_stylesheets_under_styles_compile_beside_the_modules() {
   assert!(include.contains(&"styles/**/*.css"), "{include:?}");
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// DEFECTS 1.61: the checker reads the tsconfig of the build that wrote the declarations, on the first build as on every later one.
+#[test]
+fn the_first_build_maps_the_fsr_packages_it_writes() {
+  let root = project("first", "");
+  let app = root.join("app");
+  assert!(!app.join("types/@snapfire").exists(), "a fresh checkout holds no fsr declarations");
+  let built = build(&app, &Options::beside(&app)).unwrap();
+  snapfire_fsr_cli::write(&app, &built).unwrap();
+  let text = &built.files.iter().find(|(name, _)| name == "tsconfig.json").expect("written").1;
+  let config: serde_json::Value = serde_json::from_str(text).unwrap();
+  for package in ["@snapfire/fsr-client", "@snapfire/fsr-authoring"] {
+    let targets = config["compilerOptions"]["paths"][package].as_array().unwrap_or_else(|| panic!("{package} is mapped: {text}"));
+    for target in targets {
+      let target = target.as_str().unwrap();
+      assert!(app.join(target).is_file(), "{package} maps to {target}, which the build wrote");
+    }
+  }
+  for (package, row) in built.report.types.iter().filter(|(name, _)| name.starts_with("@snapfire/")) {
+    assert!(!row.starts_with("missing"), "{package} is reported as {row}, which this build writes");
+  }
+  std::fs::remove_dir_all(&root).unwrap();
+}

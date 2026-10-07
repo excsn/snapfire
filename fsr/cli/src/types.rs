@@ -225,10 +225,9 @@ fn unpack_declarations(bytes: &[u8], dir: &Path) -> Result<usize, BuildError> {
   Ok(count)
 }
 
-/// Rewrites the declarations `fsr` carries for its own packages when the app's
-/// copies differ from them, so an application cannot typecheck against a
-/// client older than the binary that built it. Reads no network and creates no
-/// `types/` directory: an app that has never run `fsr types` is left alone.
+/// Writes the declarations `fsr` carries for its own packages when the app's
+/// copies are absent or differ from them, so an application cannot typecheck
+/// against a client older than the binary that built it. Reads no network.
 pub fn refresh_embedded(app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   let layout = Layout::of(app)?;
   let root = app.join(&layout.types);
@@ -564,18 +563,31 @@ fn wanted(app: &Path, layout: &Layout) -> Result<Vec<String>, BuildError> {
   Ok(packages)
 }
 
+/// What [`present`] finds plus the packages this binary carries, which every
+/// build writes after its tsconfig and report are computed.
+pub fn declared_packages(app: &Path, layout: &Layout) -> Result<Vec<(String, TypedPackage)>, BuildError> {
+  let mut out = present(app, layout)?;
+  for package in ALWAYS {
+    if !out.iter().any(|(name, _)| name == package) {
+      out.push(((*package).to_owned(), embedded_record()));
+    }
+  }
+  out.sort_by(|a, b| a.0.cmp(&b.0));
+  Ok(out)
+}
+
 /// The packages with no declarations under `types/`, which tsc reports as one
 /// unresolved module per import and then hundreds of untyped JSX elements.
 pub fn missing(app: &Path) -> Result<Vec<String>, BuildError> {
   let layout = Layout::of(app)?;
-  let present = present(app, &layout)?;
+  let present = declared_packages(app, &layout)?;
   Ok(wanted(app, &layout)?.into_iter().filter(|package| !present.iter().any(|(name, _)| name == package)).collect())
 }
 
 /// The `types` rows of the build report: one per import map package.
 pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
   let layout = Layout::of(app)?;
-  let present = present(app, &layout)?;
+  let present = declared_packages(app, &layout)?;
   let mut rows = Vec::new();
   for package in wanted(app, &layout)? {
     let row = match present.iter().find(|(n, _)| *n == package) {
@@ -641,7 +653,7 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool) -> Resu
   if shim {
     include.push(format!("{types}/{FOREIGN_SHIM}"));
   }
-  for (name, typed) in present(app, &layout)? {
+  for (name, typed) in declared_packages(app, &layout)? {
     if typed.ambient {
       include.push(format!("{types}/{name}/{}", typed.entry));
     } else {

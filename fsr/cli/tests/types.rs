@@ -48,7 +48,7 @@ fn the_tsconfig_maps_every_typed_package_and_includes_ambient_entries() {
   assert_eq!(row("react"), "types/react  @types/react 18.3.31");
   assert!(!rows.iter().any(|(n, _)| n == "csstype"), "a dependency the import map does not name is not a row");
   assert_eq!(row("lodash"), "missing; run `fsr types`");
-  assert!(row("@snapfire/fsr-authoring").starts_with("missing"), "the fsr packages are always listed");
+  assert_eq!(row("@snapfire/fsr-authoring"), format!("types/@snapfire/fsr-authoring  fsr {}", env!("CARGO_PKG_VERSION")), "the fsr packages are always listed");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
