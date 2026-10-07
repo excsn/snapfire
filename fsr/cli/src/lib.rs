@@ -16,6 +16,7 @@ pub mod infer;
 pub mod native;
 pub mod test;
 pub mod bundle;
+pub mod census;
 pub mod install;
 pub mod typecheck;
 pub mod types;
@@ -640,6 +641,25 @@ pub fn build(app: &Path, options: &Options) -> Result<Built, BuildError> {
 /// Builds `app`, reading each framework component through `plugins`, the pool the command keeps for
 /// the compiler it drives as well.
 pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins) -> Result<Built, BuildError> {
+  build_in(app, options, plugins, &mut None)
+}
+
+/// `build_with`, or with `skipped` given, a build that records each residue in a loader, an action, a handler, middleware or an extension there and goes on without that part rather than stopping at it.
+pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plugins, skipped: &mut Option<Vec<snapfire_fsr_lower::Residue>>) -> Result<Built, BuildError> {
+  macro_rules! lowered {
+    ($e:expr) => {
+      match $e {
+        Ok(value) => value,
+        Err(LowerError::Residue(residue)) if skipped.is_some() => {
+          if let Some(all) = skipped.as_mut() {
+            all.push(residue);
+          }
+          Default::default()
+        }
+        Err(e) => return Err(e.into()),
+      }
+    };
+  }
   let routes_dir = app.join("routes");
   if !routes_dir.is_dir() {
     return Err(BuildError::NoRoutes(app.to_path_buf()));
@@ -734,7 +754,7 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
   describe_foreign(app, &mut set, &mut report, plugins)?;
   for file in sorted_files(&app.join(EXT_DIR), ".ts")? {
     let rel = format!("{EXT_DIR}/{}", file.file_name().unwrap_or_default().to_string_lossy());
-    report.extensions.extend(set.lower_extensions(&rel)?);
+    report.extensions.extend(lowered!(set.lower_extensions(&rel)));
   }
   for (_, module) in &elements {
     set.lower(module)?;
@@ -782,10 +802,10 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
     let loader = dir.join("layout.loader.ts");
     let source = if loader.is_file() {
       let loader_module = format!("{rel}/layout.loader.ts");
-      let body = set.lower_loader(&loader_module)?;
-      let meta = set.lower_meta(&loader_module)?;
-      let store = set.lower_store(&loader_module)?;
-      if set.lower_paths(&loader_module)?.is_some() {
+      let body = lowered!(set.lower_loader(&loader_module));
+      let meta = lowered!(set.lower_meta(&loader_module));
+      let store = lowered!(set.lower_store(&loader_module));
+      if lowered!(set.lower_paths(&loader_module)).is_some() {
         return Err(BuildError::PathsOffPage(loader_module));
       }
       sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
@@ -819,10 +839,10 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
       let loader = slot_dir.join("page.loader.ts");
       let source = if loader.is_file() {
         let loader_module = format!("{slot_rel}/page.loader.ts");
-        let body = set.lower_loader(&loader_module)?;
-        let meta = set.lower_meta(&loader_module)?;
-        let store = set.lower_store(&loader_module)?;
-        if set.lower_paths(&loader_module)?.is_some() {
+        let body = lowered!(set.lower_loader(&loader_module));
+        let meta = lowered!(set.lower_meta(&loader_module));
+        let store = lowered!(set.lower_store(&loader_module));
+        if lowered!(set.lower_paths(&loader_module)).is_some() {
           return Err(BuildError::PathsOffPage(loader_module));
         }
         sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
@@ -834,7 +854,7 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
       let slot_actions = slot_dir.join("actions.ts");
       if slot_actions.is_file() {
         let module = format!("{slot_rel}/actions.ts");
-        for lowered in set.lower_actions(&module)? {
+        for lowered in lowered!(set.lower_actions(&module)) {
           let action_id = format!("{slot_id}.{}", lowered.export);
           if let Some(name) = &lowered.input {
             if !contract.types.contains_key(name) {
@@ -891,10 +911,10 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
     let loader = route.dir.join("page.loader.ts");
     let source = if loader.is_file() {
       let module = format!("{rel}/page.loader.ts");
-      let body = set.lower_loader(&module)?;
-      let meta = set.lower_meta(&module)?;
-      let store = set.lower_store(&module)?;
-      let paths = set.lower_paths(&module)?;
+      let body = lowered!(set.lower_loader(&module));
+      let meta = lowered!(set.lower_meta(&module));
+      let store = lowered!(set.lower_store(&module));
+      let paths = lowered!(set.lower_paths(&module));
       if paths.is_some() && !route.pattern.contains('{') {
         return Err(BuildError::PathsWithoutParameter { module, pattern: route.pattern.clone() });
       }
@@ -908,7 +928,7 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
     let actions_file = route.dir.join("actions.ts");
     if actions_file.is_file() {
       let module = format!("{rel}/actions.ts");
-      for lowered in set.lower_actions(&module)? {
+      for lowered in lowered!(set.lower_actions(&module)) {
         let id = format!("{}.{}", route.id, lowered.export);
         if let Some(name) = &lowered.input {
           if !contract.types.contains_key(name) {
@@ -987,7 +1007,7 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
     let rel = route.dir.strip_prefix(app).unwrap_or(&route.dir);
     let rel = rel.to_string_lossy().replace('\\', "/");
     let module = format!("{rel}/route.ts");
-    for lowered in set.lower_handlers(&module)? {
+    for lowered in lowered!(set.lower_handlers(&module)) {
       let id = format!("{}.{}", route.id, lowered.method);
       if let Some(name) = &lowered.input {
         if !contract.types.contains_key(name) {
@@ -1004,7 +1024,7 @@ pub fn build_with(app: &Path, options: &Options, plugins: &mut plugins::Plugins)
   let middleware_file = app.join("middleware.ts");
   let middleware = if middleware_file.is_file() {
     report.middleware = Some("middleware.ts".to_owned());
-    Some(set.lower_middleware("middleware.ts")?)
+    Some(lowered!(set.lower_middleware("middleware.ts")))
   } else {
     None
   };

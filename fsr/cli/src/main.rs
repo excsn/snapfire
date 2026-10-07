@@ -48,6 +48,8 @@ enum Command {
   Doctor(Doctor),
   /// Builds and typechecks an application, writing nothing.
   Check(Check),
+  /// Counts what the build refuses or leaves to the browser across applications, by cause, writing nothing.
+  Census(Census),
   /// Gives an application a client direction: react, vue, elements or htmx.
   Use(Use),
   /// Vendors packages into the application and names them in its import map.
@@ -158,6 +160,13 @@ struct Serve {
   /// The address to listen on, over the configured one.
   #[arg(long)]
   listen: Option<String>,
+}
+
+#[derive(Args)]
+struct Census {
+  /// The application directories.
+  #[arg(required = true)]
+  app_dirs: Vec<PathBuf>,
 }
 
 #[derive(Args)]
@@ -471,6 +480,10 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => failed(e),
       }
+    }
+    Command::Census(args) => {
+      print!("{}", snapfire_fsr_cli::census::run(&args.app_dirs));
+      ExitCode::SUCCESS
     }
     Command::Prerender(args) => match serve::prerender(&args.app_dir, args.out.as_deref()) {
       Ok(written) => {

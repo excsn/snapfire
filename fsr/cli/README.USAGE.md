@@ -50,6 +50,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Reading the Plan File](#reading-the-plan-file)
 * [Naming the Shell](#naming-the-shell)
 * [Answering a Residue Diagnostic](#answering-a-residue-diagnostic)
+* [Counting What Does Not Lower](#counting-what-does-not-lower)
 * [Building From Rust](#building-from-rust)
 * [Error Handling](#error-handling)
 
@@ -1382,6 +1383,29 @@ routes/cart/page.loader.ts:2:18: `slugify` is not bound here; an import the buil
 ```
 
 Two answers: rewrite the body inside the IR or keep the file and bind the name in Rust with `source_override` on the host builder, which makes the row a Rust override in the report. Removing the `page.loader.ts` and binding the id with `source` also works, since a route without a loader declares no source.
+
+## Counting What Does Not Lower
+
+`fsr build` stops at the first residue. `fsr census` builds each application past every one and counts them by cause, so the constructs a codebase reaches for most are at the top.
+
+```
+$ fsr census app ../other/app
+census of 2 applications
+refused      2  `…` is not bound here; an import the build cannot follow, or a name from outside the body
+                routes/cart/page.loader.ts:2:18  app
+                routes/feed/page.loader.ts:5:9  ../other/app
+client       1  the `…` operator
+                src/ui/LocalClock.tsx:2:16  app
+```
+
+A name in backticks counts as `…`, so `slugify` and `titleCase` unbound in two loaders are one cause seen twice. `refused` is what a build stops on, `client` a component left to the browser and `foreign` one another framework renders. An application that lowers whole prints `every module lowered`.
+
+```rust
+let census = snapfire_fsr_cli::census::run(&[app.to_path_buf()]);
+for (cause, seen) in &census.refused {
+    println!("{} {cause}", seen.len());
+}
+```
 
 ## Building From Rust
 

@@ -12,6 +12,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr build](#fsr-build)
   * [fsr check](#fsr-check)
   * [fsr doctor](#fsr-doctor)
+  * [fsr census](#fsr-census)
   * [fsr bundle](#fsr-bundle)
   * [fsr serve](#fsr-serve)
   * [Sites](#sites)
@@ -102,6 +103,13 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * `Finding { check: &'static str, what: String, remedy: String }`. `check` is the short name a report can be grepped for.
 * The checks, each answering from what a build already computed: `canonical`, `[document] origin` unset while the deployment names hosts or prerenders; `ctx.host`, a body reading `ctx.host` against an empty `[server] hosts`; `ctx.config`, a body reading a `ctx.config` key `[public]` does not declare; `locales`, a supported locale with no catalog under `locales/`; `stale`, a plan missing or older than `routes/`, `src/`, `clients/` or `schemas/`; `vendor`, an import map naming a package with nothing under `vendor/`; `statics`, a `[[static]]` root with no directory; `shadow`, a static route swallowing a route pattern; `bearer`, a client carrying a token with no `[auth]` provider to write one; `cache.tags`, a tag dropped by a call and cached by none; `links`, a literal `href` matching no route, static root or mounted site, skipped for a site; `render`, a `[server] render` line, which no host accepts since every page renders on the server; `tree`, a required file a deploy tree would carry that the project does not hold; a configuration `snapfire_fsr_sites::layout` refuses; `images`, an AVIF original the asset manifest names carrying EXIF or XMP while `[images] strip` is on; `sites`, a `name@version` mount pinning no hash, an artifact missing a part it ships or missing its plan, a site plan older than its routes and artifacts under the root no mount names.
 * Reports only. A condition the host refuses to start over stays a boot error rather than moving here. `fsr bundle` calls this before it writes, so a deploy that ends in a bundle needs no separate step.
+
+### fsr census
+
+* `fsr census <app dir>...`
+* Builds each application in full, recording every residue in a loader, an action, a handler, middleware or an extension where `fsr build` stops at the first. It prints each cause with its count and up to three places, ranked within three kinds: `refused` (the residue a build stops on), `client` (a component left to render in the browser) and `foreign` (a component another framework renders). Writes nothing. Exit 0 whatever it found.
+* `census::run(apps: &[PathBuf]) -> Census`: the same census as a value. `Census { apps: usize, refused, client, foreign: BTreeMap<String, Vec<Sighting>>, failed: Vec<(String, String)> }`, each map keyed by the cause, `failed` naming an application whose build failed for something other than residue. `Sighting { app, at, message }`, `at` as `file:line:column`. `Display` writes the table.
+* `census::cause_of(message: &str) -> String`: the cause a message counts under, each backticked span written `` `…` ``, so one construct met under different names counts once.
 
 ### fsr bundle
 
