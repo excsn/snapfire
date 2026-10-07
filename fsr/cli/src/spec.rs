@@ -964,7 +964,7 @@ struct FetchHooks {
 impl FetchHooks {
   async fn dispatch(&self, method: String, path: String, query: String, target: String, body: Option<String>, headers: Vec<(String, String)>) -> FetchResponse {
     if method == "POST" {
-      if let Some(module) = path.strip_prefix("/_sf/island/").map(|m| percent_decode(m)) {
+      if let Some(module) = path.strip_prefix("/_sf/island/").map(snapfire_fsr_host::percent_decoded) {
         let Some(host) = &self.host else {
           return json_response(500, serde_json::json!({ "kind": "internal", "message": "an island step needs the configuration beside the app" }));
         };
@@ -985,7 +985,7 @@ impl FetchHooks {
     if path.starts_with("/auth/") {
       return self.auth(method, path, query, body, headers).await;
     }
-    let action = path.strip_prefix("/_sf/action/").map(|id| percent_decode(id));
+    let action = path.strip_prefix("/_sf/action/").map(snapfire_fsr_host::percent_decoded);
     let Some(id) = action.filter(|_| method == "POST") else {
       if let Some(found) = self.handlers.1.match_request(&method, &path) {
         return self.handler(found.id, found.params, query, body, is_form(&headers)).await;
@@ -1131,12 +1131,8 @@ impl FetchHooks {
       return FetchResponse::new(500, "no current ctx");
     };
     let session = mock.ctx.session.clone();
-    let fragment = query.split('&').find_map(|pair| match pair.split_once('=') {
-      Some(("__fragment", slot)) => Some(Some(percent_decode(slot))),
-      None if pair == "__fragment" => Some(None),
-      _ => None,
-    });
-    let mode = if query.split('&').any(|p| p == "__payload") {
+    let fragment = snapfire_fsr_host::fragment_of(&query);
+    let mode = if snapfire_fsr_host::payload_of(&query) {
       RenderMode::Payload
     } else if let Some(slot) = fragment {
       RenderMode::Fragment(slot)
@@ -1161,24 +1157,6 @@ impl FetchHooks {
       Err(e) => FetchResponse::new(500, e.to_string()),
     }
   }
-}
-
-fn percent_decode(text: &str) -> String {
-  let bytes = text.as_bytes();
-  let mut out = Vec::with_capacity(bytes.len());
-  let mut i = 0;
-  while i < bytes.len() {
-    if bytes[i] == b'%' && i + 2 < bytes.len() {
-      if let Ok(byte) = u8::from_str_radix(&text[i + 1..i + 3], 16) {
-        out.push(byte);
-        i += 3;
-        continue;
-      }
-    }
-    out.push(bytes[i]);
-    i += 1;
-  }
-  String::from_utf8_lossy(&out).into_owned()
 }
 
 #[cfg(test)]

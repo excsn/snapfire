@@ -47,3 +47,33 @@ fn a_body_test_sees_an_extension_in_the_session_trace() {
   assert_eq!(summary.passed, 1, "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_spec_fetch_reads_an_empty_fragment_or_payload_value_like_the_bare_key() {
+  let dir = app(&[
+    ("routes/layout.tsx", "export default function Layout({ children }: { children: unknown }) {\n  return <main class=\"frame\">{children}</main>;\n}\n"),
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("tests/query.spec.ts", "import { ctx, expect, load, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"an empty value is the bare key\", async () => {\n  await load(\"/\", { ctx: ctx({}) });\n  for (const query of [\"__fragment\", \"__fragment=\", \"__fragment=&by=1\", \"%5F%5Ffragment\"]) {\n    const response = await fetch(`/?${query}`);\n    expect(response.status, query).toEqual(200);\n    const html = await response.text();\n    expect(html.includes(\"<p>page</p>\") && !html.includes(\"frame\"), `${query}: ${html}`).toBeTruthy();\n  }\n  for (const query of [\"__payload\", \"__payload=\", \"by=1&__payload=\"]) {\n    const text = await (await fetch(`/?${query}`)).text();\n    expect(text.startsWith(\"V {\\\"fmt\\\"\"), `${query}: ${text.slice(0, 40)}`).toBeTruthy();\n  }\n});\n"),
+  ]);
+  let summary = test::run(&dir, &Options::beside(&dir), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 1, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_spec_fetch_of_an_action_decodes_only_a_percent_and_two_hex_digits() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("tests/action.spec.ts", "import { ctx, expect, load, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"a stray percent stays as it is\", async () => {\n  await load(\"/\", { ctx: ctx({}) });\n  for (const [path, id] of [[\"/_sf/action/%a\\u00e9\", \"%a\\u00e9\"], [\"/_sf/action/%+1x\", \"%+1x\"]]) {\n    const response = await fetch(path, { method: \"POST\", headers: { \"content-type\": \"application/json\" }, body: \"{}\" });\n    const body = await response.text();\n    expect(body.includes(`\\`${id}\\``), `${path}: ${body}`).toBeTruthy();\n  }\n});\n"),
+  ]);
+  let (done, finished) = std::sync::mpsc::channel();
+  let spec = dir.clone();
+  std::thread::spawn(move || done.send(test::run(&spec, &Options::beside(&spec), None).map(|s| (s.failed, s.passed, s.to_string()))));
+  let (failed, passed, summary) = finished
+    .recv_timeout(std::time::Duration::from_secs(60))
+    .expect("the spec answers within a minute")
+    .unwrap();
+  assert_eq!((failed, passed), (0, 1), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

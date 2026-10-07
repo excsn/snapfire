@@ -4107,6 +4107,73 @@ async fn the_edge_answers_a_fragment_from_the_query_and_a_missing_slot_with_not_
 }
 
 #[tokio::test]
+async fn an_empty_fragment_value_is_the_page_like_the_bare_key() {
+  let host = shelved();
+  let response = host
+    .handle(Request::get("/shelf?__fragment=&n=3&by=1").body(Bytes::new()).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let body = body_of(response).await;
+  assert!(body.contains("drill") && !body.contains("routes/layout.tsx"), "`__fragment=` is the page: {body}");
+}
+
+#[tokio::test]
+async fn an_empty_payload_value_asks_for_the_payload_like_the_bare_key() {
+  let host = shelved();
+  for query in ["__payload=", "n=3&__payload=&by=1", "%5F%5Fpayload"] {
+    let response = host
+      .handle(Request::get(format!("/shelf?{query}")).body(Bytes::new()).unwrap())
+      .await;
+    assert_eq!(
+      response.headers().get(header::CONTENT_TYPE).unwrap(),
+      "application/x-sf-payload+json; charset=utf-8",
+      "{query}"
+    );
+  }
+}
+
+#[tokio::test]
+async fn the_middleware_sees_a_payload_asked_for_with_an_empty_value() {
+  let dir = app_dir();
+  write_plan(&dir, SHELF_PLAN);
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("drill")])));
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .middleware(|_ctx, input| async move {
+      let payload = match &input {
+        Value::Map(map) => matches!(map.get("payload"), Some(Value::Bool(true))),
+        _ => false,
+      };
+      let mut headers = ValueMap::default();
+      headers.insert("x-payload".to_owned(), Value::str(payload.to_string()));
+      let mut out = ValueMap::default();
+      out.insert("headers".to_owned(), Value::Map(headers));
+      Ok(Value::Map(out))
+    })
+    .build()
+    .unwrap();
+  for (query, expected) in [("__payload", "true"), ("__payload=", "true"), ("%5F%5Fpayload", "true"), ("__payloads", "false"), ("", "false")] {
+    let response = host
+      .handle(Request::get(format!("/shelf?{query}")).body(Bytes::new()).unwrap())
+      .await;
+    assert_eq!(response.headers().get("x-payload").unwrap(), expected, "{query}");
+  }
+}
+
+#[tokio::test]
+async fn an_action_path_decodes_only_a_percent_and_two_hex_digits() {
+  let host = shelved();
+  for (path, id) in [("/_sf/action/%a\u{e9}", "%a\u{e9}"), ("/_sf/action/%+1x", "%+1x"), ("/_sf/action/a%3Ab", "a:b")] {
+    let response = host
+      .handle(Request::post(path).header(header::CONTENT_TYPE, "application/json").body(Bytes::from("{}")).unwrap())
+      .await;
+    let body = body_of(response).await;
+    assert!(body.contains(&format!("`{id}`")), "{path}: {body}");
+  }
+}
+
+#[tokio::test]
 async fn a_form_posted_from_a_fragment_is_sent_back_to_a_fragment() {
   let host = formed();
   let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;

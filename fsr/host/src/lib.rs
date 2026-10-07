@@ -426,11 +426,14 @@ pub enum RenderMode {
 
 /// The fragment `raw_query` asks for, when it asks for one.
 pub fn fragment_of(raw_query: &str) -> Option<Option<String>> {
-  raw_query.split('&').find_map(|pair| match pair.split_once('=') {
-    Some(("__fragment", slot)) => Some(Some(percent_decoded(slot))),
-    None if pair == "__fragment" => Some(None),
-    _ => None,
-  })
+  form_urlencoded::parse(raw_query.as_bytes())
+    .find(|(key, _)| key == "__fragment")
+    .map(|(_, slot)| (!slot.is_empty()).then(|| slot.into_owned()))
+}
+
+/// Whether `raw_query` asks for the navigator's payload.
+pub fn payload_of(raw_query: &str) -> bool {
+  form_urlencoded::parse(raw_query.as_bytes()).any(|(key, _)| key == "__payload")
 }
 
 /// `location` with the fragment `slot` names asked for again, so a form posted
@@ -2024,7 +2027,7 @@ impl Host {
       request.insert("path".to_owned(), Value::str(path.to_owned()));
       request.insert(
         "payload".to_owned(),
-        Value::Bool(raw_query.split('&').any(|p| p == "__payload")),
+        Value::Bool(payload_of(raw_query)),
       );
       request.insert(
         "site".to_owned(),
@@ -3091,7 +3094,7 @@ impl Host {
       return response;
     }
 
-    let mode = if raw_query.split('&').any(|p| p == "__payload") {
+    let mode = if payload_of(raw_query) {
       RenderMode::Payload
     } else if let Some(slot) = fragment_of(raw_query) {
       RenderMode::Fragment(slot)
@@ -4040,22 +4043,11 @@ pub fn referer_path(referer: &str) -> Option<String> {
 
 /// A path segment with its `%XX` escapes decoded, since the client encodes
 /// an action id and a site's carries a colon.
-fn percent_decoded(segment: &str) -> String {
-  let bytes = segment.as_bytes();
-  let mut out = Vec::with_capacity(bytes.len());
-  let mut i = 0;
-  while i < bytes.len() {
-    if bytes[i] == b'%' && i + 2 < bytes.len() {
-      if let Ok(byte) = u8::from_str_radix(&segment[i + 1..i + 3], 16) {
-        out.push(byte);
-        i += 3;
-        continue;
-      }
-    }
-    out.push(bytes[i]);
-    i += 1;
-  }
-  String::from_utf8(out).unwrap_or_else(|_| segment.to_owned())
+pub fn percent_decoded(segment: &str) -> String {
+  percent_encoding::percent_decode_str(segment)
+    .decode_utf8()
+    .map(|decoded| decoded.into_owned())
+    .unwrap_or_else(|_| segment.to_owned())
 }
 
 /// Whether a form post asked for the action's value rather than its page back.
