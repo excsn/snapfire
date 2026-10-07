@@ -199,6 +199,18 @@ pub(crate) fn absolute_imports(module: &str) -> Vec<String> {
   found
 }
 
+/// Where a module's trailing `//# sourceMappingURL=` comment starts and the
+/// relative URL it names. A `data:` or absolute URL names nothing to vendor.
+fn source_map(module: &str) -> Option<(usize, String)> {
+  let trimmed = module.trim_end();
+  let at = trimmed.rfind("//# sourceMappingURL=")?;
+  let named = trimmed[at + "//# sourceMappingURL=".len()..].trim();
+  if named.is_empty() || named.contains(':') || named.starts_with('/') || named.contains(char::is_whitespace) {
+    return None;
+  }
+  Some((at, named.to_owned()))
+}
+
 pub(crate) fn file_name(path: &str) -> String {
   path.rsplit('/').next().unwrap_or(path).to_owned()
 }
@@ -209,6 +221,11 @@ pub(crate) fn file_name(path: &str) -> String {
 /// `xwpm add`, which converts and carries dependencies itself, so `externals`
 /// has nothing to say and a subpath is the package's own `exports` business.
 pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport, BuildError> {
+  add_from(app, specs, externals, ESM_HOST)
+}
+
+/// [`add`] against `host` in place of esm.sh.
+fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Result<AddReport, BuildError> {
   let layout = Layout::of(app)?;
   if layout.xwpm {
     let mut delegated = Vec::new();
@@ -276,7 +293,7 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
         external.push(package);
       }
     }
-    let mut url = format!("{ESM_HOST}/{}@{}", spec.package, spec.version);
+    let mut url = format!("{host}/{}@{}", spec.package, spec.version);
     if let Some(sub) = &spec.subpath {
       url.push('/');
       url.push_str(sub);
@@ -305,7 +322,7 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
       if written.contains(&name) {
         continue;
       }
-      let module_url = format!("{ESM_HOST}{path}");
+      let module_url = format!("{host}{path}");
       let bytes = get(&client, &module_url)?.ok_or_else(|| BuildError::Http(module_url.clone(), "HTTP 404".to_owned()))?;
       let mut text = String::from_utf8(bytes).map_err(|e| BuildError::Http(module_url.clone(), e.to_string()))?;
       for import in absolute_imports(&text) {
@@ -316,6 +333,20 @@ pub fn add(app: &Path, specs: &[Spec], externals: &[String]) -> Result<AddReport
         let sibling = file_name(&import);
         text = text.replace(&format!("\"{import}\""), &format!("\"./{sibling}\"")).replace(&format!("'{import}'"), &format!("'./{sibling}'"));
         queue.push(import);
+      }
+      if let Some((at, named)) = source_map(&text) {
+        let map_path = format!("{}/{named}", path.rsplit_once('/').map_or("", |(parent, _)| parent));
+        let map_name = file_name(&map_path);
+        let map_url = format!("{host}{map_path}");
+        let comment = match get(&client, &map_url)? {
+          Some(map) => {
+            let file = dir.join(&map_name);
+            std::fs::write(&file, map).map_err(|e| BuildError::Io(file, e))?;
+            format!("//# sourceMappingURL={map_name}")
+          }
+          None => String::new(),
+        };
+        text.replace_range(at.., &comment);
       }
       let file = dir.join(&name);
       let size = text.len();
@@ -364,5 +395,57 @@ mod tests {
     assert_eq!(absolute_imports(module), ["/scheduler@^0.23.2?target=es2022"]);
     assert_eq!(package_of("@snapfire/fsr-client/react"), "@snapfire/fsr-client");
     assert_eq!(package_of("react/jsx-runtime"), "react");
+  }
+
+  /// esm.sh as `fsr add` reads it: the stub, a bundle that imports two siblings and a map beside every module but `unmapped.mjs`.
+  fn esm_stub() -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+      for stream in listener.incoming() {
+        let Ok(mut stream) = stream else { continue };
+        let mut line = String::new();
+        if BufReader::new(&stream).read_line(&mut line).is_err() {
+          continue;
+        }
+        let path = line.split(' ').nth(1).unwrap_or("").to_owned();
+        let body = match path.as_str() {
+          "/vue@3.5.13?target=es2022&bundle" => Some("/* esm.sh - vue@3.5.13 */\nexport * from \"/vue@3.5.13/es2022/vue.bundle.mjs\";\n"),
+          "/vue@3.5.13/es2022/vue.bundle.mjs" => Some("import \"/vue@3.5.13/es2022/shared.mjs\";\nimport \"/vue@3.5.13/es2022/unmapped.mjs\";\nexport const v = 1;\n//# sourceMappingURL=vue.bundle.mjs.map"),
+          "/vue@3.5.13/es2022/shared.mjs" => Some("export const s = 1;\n//# sourceMappingURL=shared.mjs.map"),
+          "/vue@3.5.13/es2022/unmapped.mjs" => Some("export const u = 1;\n//# sourceMappingURL=unmapped.mjs.map\n"),
+          "/vue@3.5.13/es2022/vue.bundle.mjs.map" | "/vue@3.5.13/es2022/shared.mjs.map" => Some(r#"{"version":3,"sources":["a.js"],"sourcesContent":["x"],"mappings":"AAAA"}"#),
+          _ => None,
+        };
+        let response = match body {
+          Some(body) => format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()),
+          None => "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned(),
+        };
+        let _ = stream.write_all(response.as_bytes());
+      }
+    });
+    host
+  }
+
+  /// DEFECTS 1.63.
+  #[test]
+  fn every_source_map_a_vendored_module_names_is_vendored_beside_it() {
+    let app = std::env::temp_dir().join(format!("fsr-vendor-maps-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(&app).unwrap();
+    add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], &esm_stub()).unwrap();
+    let dir = app.join(Layout::of(&app).unwrap().vendor).join("vue");
+    let mut named = Vec::new();
+    for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+      let text = std::fs::read_to_string(entry.path()).unwrap();
+      for line in text.lines().filter_map(|line| line.trim().strip_prefix("//# sourceMappingURL=")) {
+        named.push(line.to_owned());
+        assert!(dir.join(line).is_file(), "{} names {line}, which is not vendored", entry.path().display());
+      }
+    }
+    named.sort();
+    assert_eq!(named, ["shared.mjs.map", "vue.bundle.mjs.map"], "a module whose map esm.sh lacks loses the comment");
+    std::fs::remove_dir_all(&app).unwrap();
   }
 }

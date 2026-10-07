@@ -137,6 +137,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * `fsr add <app dir> <name@version[/subpath]>... [--external <name,...>]`
 * `vendor::add` over the specs; prints `added <specifier> <file> <bytes>` per entry, `remapped <specifier> <url>` per entry moved to the layout's base or `xwpm add <spec>` per delegated call. Same exit codes; a spec without a version exits 2.
+* Each module's source map is vendored beside it under the name its `sourceMappingURL` comment gives. A module whose map esm.sh does not have loses the comment.
 
 ### fsr types
 
