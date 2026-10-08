@@ -143,6 +143,39 @@ await optimistic(cartCount, (get(cartCount) ?? 0) + quantity, () =>
 );
 ```
 
+## Coming from signals
+
+FSR has no `signal()`, because the store already does what signals are used for. A signal shared between components is a store key; a signal local to one component is `useState` in React or `ref` in Vue:
+
+| With signals | In FSR |
+|---|---|
+| `const count = signal(0)` shared between components | `const count = key<number>("cart/count")` in a module, read with `useStore(count, 0)` |
+| `computed(() => price.value * qty.value)` | `derive(total, [price, qty], read => (read(price) ?? 0) * (read(qty) ?? 0))` |
+| `effect(() => log(count.value))` | `subscribe(count, value => log(value))` |
+| `batch(() => { a.value = 1; b.value = 2; })` | `transaction(() => { set(a, 1); set(b, 2); })` |
+| a signal one component owns | `useState` in React, `ref` or `computed` in Vue |
+
+```ts
+import { derive, key, subscribe, transaction, set } from "@snapfire/fsr-client/store";
+
+export const price = key<number>("cart/price");
+export const qty = key<number>("cart/qty");
+export const total = key<number>("cart/total");
+
+derive(total, [price, qty], read => (read(price) ?? 0) * (read(qty) ?? 0));
+subscribe(total, value => console.log("total", value));
+transaction(() => {
+  set(price, 12);
+  set(qty, 3);
+});
+```
+
+The store does three things a signal library leaves to the application. A loader seeds it on the server, so the first paint already holds the value. A server-rendered island records the values it was rendered from, so the browser hydrates against what the server saw. `optimistic` puts a guess up while an action runs and takes it back if the action fails.
+
+`derive`, `subscribe` and `transaction` run in the browser only. The server renders a derived key from the seed, so a value the first paint needs is either seeded by the loader or computed in the component from the keys it reads with `useStore`.
+
+Two things differ from signals. A key is a global string that the build has to read, so two instances of one island share it; state that belongs to one instance is `useState`, since a key built from an id at runtime is residue. An update re-renders the components that read the key through React or Vue; nothing patches a single text node the way Solid or Preact signals do.
+
 ## Writing components that lower
 
 The pages in the storefront were written as ordinary React and seven of eight lowered on the first try. The eighth built a query string with `new URLSearchParams`, which the build cannot follow; it became a template string with `encodeURIComponent`. Write components as functions of props, keep state and effects in handlers and the server can render them. A component that needs more renders in the browser and the report says so; the build does not fail.
