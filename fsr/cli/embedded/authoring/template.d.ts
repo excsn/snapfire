@@ -549,3 +549,16 @@ export interface PictureProps extends Omit<ImageAttributes, "src"> {
 
 /** A `<picture>` with a `<source>` per format and the hashed original as its `<img>`, width and height filled from the file; an `<img>` alone for an image served as it is or a string `src`. Lowered by the build. */
 export function Picture(props: PictureProps): TemplateNode;
+
+/** A value a template provides to every component it renders inline, read with `use`. Lowered by the build: the server resolves it whole, so nothing reads it in the browser. An island is a root of its own and reads the default. */
+export interface Context<T> {
+  readonly __sfContext: T;
+  /** Provides `value` to the components rendered inside it, in place of the default. */
+  Provider: Component<{ value: T; children?: Children }>;
+}
+
+/** A context whose value is `defaultValue` wherever no `Provider` encloses the read. Declared at module level. */
+export function createContext<T>(defaultValue: T): Context<T>;
+
+/** The value the nearest enclosing `Provider` of `context` gives, else its default. A template has no hooks, so it may be called anywhere in one. */
+export function use<T>(context: Context<T>): T;

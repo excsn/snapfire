@@ -1,4 +1,4 @@
-import { type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { createContext, useContext, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { MountTiming, Mounter, Patcher, type Props, type Unmounter } from "./boot.js";
 import { type PrefetchTiming } from "./navigator.js";
 import { type ImageAsset } from "./picture.js";
@@ -120,3 +120,5 @@ export declare function withHoisted(table: Hoisted | null, element: ReactElement
 export declare const reactMounter: Mounter;
 export declare const reactPatcher: Patcher;
 export declare const reactUnmounter: Unmounter;
+/** The template dialect's context where an island reaches a template file: the build points that file's import of the dialect here, so its contexts are React's and `use` is `useContext`. */
+export { createContext, useContext as use };

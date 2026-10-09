@@ -45,3 +45,13 @@ export declare function island<P extends Record<string, unknown>>(component: (pr
 export declare function Slot(props: {
 	children?: FsrNode;
 }): FsrElement;
+/** The template dialect's context as a description. The server resolves a provider and every read under it, so this runs only in a file nothing mounts and answers the default. */
+export interface FsrContext<T> {
+	readonly __sfContext: T;
+	Provider: (props: {
+		value: T;
+		children?: FsrNode;
+	}) => FsrElement;
+}
+export declare function createContext<T>(defaultValue: T): FsrContext<T>;
+export declare function use<T>(context: FsrContext<T>): T;

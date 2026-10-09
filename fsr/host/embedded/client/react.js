@@ -442,4 +442,5 @@ export const reactPatcher = (handle, component, props, el)=>{
 export const reactUnmounter = (handle)=>{
     handle.unmount();
 };
+export { createContext, useContext as use };
 //# sourceMappingURL=react.js.map

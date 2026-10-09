@@ -35,4 +35,15 @@ export function Slot(props) {
         children: props.children
     });
 }
+export function createContext(defaultValue) {
+    return {
+        __sfContext: defaultValue,
+        Provider: (props)=>jsx(Fragment, {
+                children: props.children
+            })
+    };
+}
+export function use(context) {
+    return context.__sfContext;
+}
 //# sourceMappingURL=jsx-runtime.js.map

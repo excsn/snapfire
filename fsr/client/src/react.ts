@@ -532,3 +532,6 @@ export const reactPatcher: Patcher = (handle, component, props, el) => {
 export const reactUnmounter: Unmounter = (handle) => {
   (handle as Root).unmount();
 };
+
+/** The template dialect's context where an island reaches a template file: the build points that file's import of the dialect here, so its contexts are React's and `use` is `useContext`. */
+export { createContext, useContext as use };

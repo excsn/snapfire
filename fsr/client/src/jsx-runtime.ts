@@ -65,3 +65,17 @@ export function island<P extends Record<string, unknown>>(component: (props: P) 
 export function Slot(props: { children?: FsrNode }): FsrElement {
   return jsx(Fragment, { children: props.children });
 }
+
+/** The template dialect's context as a description. The server resolves a provider and every read under it, so this runs only in a file nothing mounts and answers the default. */
+export interface FsrContext<T> {
+  readonly __sfContext: T;
+  Provider: (props: { value: T; children?: FsrNode }) => FsrElement;
+}
+
+export function createContext<T>(defaultValue: T): FsrContext<T> {
+  return { __sfContext: defaultValue, Provider: (props) => jsx(Fragment, { children: props.children }) };
+}
+
+export function use<T>(context: FsrContext<T>): T {
+  return context.__sfContext;
+}
