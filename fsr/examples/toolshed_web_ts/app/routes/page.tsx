@@ -1,6 +1,6 @@
-import { Link } from "@snapfire/fsr-authoring/template";
-
 import type { RootProps } from "@generated/client";
+import { Reserved } from "@src/reserved";
+import { ToolRow } from "@src/ui/ToolRow";
 
 export default function ToolsPage({ category, categories, tools, reserved }: RootProps) {
   return (
@@ -24,22 +24,13 @@ export default function ToolsPage({ category, categories, tools, reserved }: Roo
           </a>
         ))}
       </nav>
-      <ol className="tool-list">
-        {tools.map((tool) => (
-          <li key={tool.id} className="tool-row">
-            <span className="what">
-              <Link href={`/tool/${tool.id}`} className="tool-title">
-                {tool.name}
-              </Link>
-              <span className="by">
-                {tool.keeper}'s, £{tool.deposit} deposit, {tool.days} days
-              </span>
-            </span>
-            <span className={`category category-${tool.category.toLowerCase()}`}>{tool.category}</span>
-            {reserved.includes(tool.id) ? <span className="kept">reserved</span> : <span className="kept kept-off" />}
-          </li>
-        ))}
-      </ol>
+      <Reserved.Provider value={reserved}>
+        <ol className="tool-list">
+          {tools.map((tool) => (
+            <ToolRow key={tool.id} tool={tool} />
+          ))}
+        </ol>
+      </Reserved.Provider>
       {tools.length === 0 ? <p className="quiet">Nothing on that shelf.</p> : null}
       <p className="note">The shelf chips are htmx: each one fetches this page as a fragment and swaps it in place. The tool names are links the navigator handles.</p>
     </section>

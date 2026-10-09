@@ -68,6 +68,39 @@ The store adapter for an element is just `get` and `subscribe`. React reads the 
 
 `disconnectedCallback` removes the listener and the subscription that `connectedCallback` added. A morph that moves an element disconnects it and connects it again, so without the stop a moved tally would carry two click listeners that cancel each other out; a removed one would stay subscribed and keep being written.
 
+## Passing a value down without props
+
+A template has no hooks, but it can still hand a value to every component it renders without threading a prop through each one. The template module has `createContext` and `use` for that. The shelf page provides the reserved tool ids and each row reads them:
+
+```tsx
+// src/reserved.ts
+import { createContext } from "@snapfire/fsr-authoring/template";
+
+export const Reserved = createContext<string[]>([]);
+```
+
+```tsx
+// routes/page.tsx
+<Reserved.Provider value={reserved}>
+  <ol className="tool-list">
+    {tools.map((tool) => (
+      <ToolRow key={tool.id} tool={tool} />
+    ))}
+  </ol>
+</Reserved.Provider>
+```
+
+```tsx
+// src/ui/ToolRow.tsx
+{use(Reserved).includes(tool.id) ? <span className="kept">reserved</span> : <span className="kept kept-off" />}
+```
+
+The server resolves the provider and every read under it, so the page and `ToolRow` stay `static` and neither is in the bundle. `use` is an ordinary call here, not a hook, so it can sit in a ternary or a condition. A fragment renders the page with its provider inside it, so a shelf chip's htmx swap shows the same marks. A read with no provider around it gets the default. So does a read inside an island, which is a root of its own. A provider in a layout does not reach the page under it: the page renders in a region of its own and a fragment has no layout at all, so put the provider in the template whose components read it.
+
+This is the server's half only. An element's script still reads its attributes and the store; a context reaches what the server writes, not the element's code. In an application with React the same `createContext` and `use` are React's, so a template that an island renders reads them as React does.
+
+The browser loads only what something names: the elements an island defines, `src/main` and what they import. `ToolRow.tsx` and `reserved.ts` are imported by templates alone, so the bundle leaves them out. A file the browser would load that writes JSX or imports the template module is refused in an application with no JSX framework, naming the file and what loads it, since nothing in the browser could compile or serve it.
+
 ## Server-written shadow roots
 
 An element that wants its own styles has a shadow root. The parser attaches one from a `<template shadowrootmode="open">` inside the element, before any script runs. The element's template lives beside its class in `elements/loan-planner.tsx`. The server writes it inside every `<loan-planner>` it renders:

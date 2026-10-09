@@ -26,3 +26,13 @@ test("a shelf chip swaps the page in through htmx and the settle hands its seed 
   expect(document.querySelector(".chip-on")?.textContent?.trim(), "the swapped page marks its own chip").toEqual("Workshop");
   await waitFor(() => expect(get(reservedCount), "the fragment's seed, read once htmx settled").toEqual(1));
 });
+
+test("each row reads the reserved tools from the context the shelf provides, in the page and in its fragment", async () => {
+  await load("/", { ctx: stocked() });
+  await settle();
+  const kept = () => [...document.querySelectorAll(".tool-row")].map((row) => [row.querySelector(".tool-title")?.textContent, row.querySelector(".kept")?.textContent]);
+  expect(kept()).toEqual([["Hedge trimmer", ""], ["Cordless drill", "reserved"]]);
+  const chip = [...document.querySelectorAll(".chip")].find((a) => a.textContent?.trim() === "Workshop")!;
+  await fireEvent.click(chip);
+  await waitFor(() => expect(kept(), "the fragment renders the provider with the page").toEqual([["Cordless drill", "reserved"]]));
+});
