@@ -42,10 +42,12 @@ test("a component inside the island keeps state of its own, addressed under the 
   const hours = () => island.querySelector(".contact-hours")!;
   await fireEvent.click(own());
   expect(hours().textContent).toContain("Weekdays 9 to 5");
+  expect(hours().querySelector(".quote")?.textContent, "the order number the island provides").toEqual(" and quote #5001");
   const toggle = hours().querySelector("button[data-sf-on]")!;
   expect(toggle.getAttribute("data-sf-on")?.startsWith("click:c"), `the nested handler binds under its address: ${toggle.getAttribute("data-sf-on")}`).toBeTruthy();
   await fireEvent.click(toggle);
   expect(hours().textContent).toContain("Saturday 10 to 2");
+  expect(hours().querySelector(".quote")?.textContent, "a step of the nested component still reads the provider around it").toEqual(" and quote #5001");
   expect(screen.getByText("help@snapfire.shop"), "the island's own state stayed open").toBeTruthy();
   await fireEvent.click(own());
   expect(document.querySelector(".contact-hours")).toBeNull();
