@@ -1220,20 +1220,52 @@ mod tests {
   }
 
   /// The npm registry as `fsr types` reads it, holding `htmx.org` 2.0.4 alone, whose tarball carries `dist/htmx.d.ts`.
+  /// A registry serving `htmx.org`; `@htmx/core` at 1.0.0, 1.2.0 and 2.0.0, `latest` 2.0.0; and `@htmx/ext`, typed only through `exports` and asking for `@htmx/core` at `~1.0.0`.
   fn npm_stub() -> String {
     use std::io::{BufRead, BufReader, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let host = format!("http://{}", listener.local_addr().unwrap());
-    let mut tarball = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
-    for (path, text) in [("package/package.json", r#"{"name":"htmx.org","types":"dist/htmx.d.ts"}"#), ("package/dist/htmx.d.ts", "export declare const version: string;\n")] {
-      let mut header = tar::Header::new_gnu();
-      header.set_size(text.len() as u64);
-      header.set_mode(0o644);
-      header.set_cksum();
-      tarball.append_data(&mut header, path, text.as_bytes()).unwrap();
+    let pack = |files: &[(&str, String)]| {
+      let mut tarball = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
+      for (path, text) in files {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(text.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tarball.append_data(&mut header, format!("package/{path}"), text.as_bytes()).unwrap();
+      }
+      tarball.into_inner().unwrap().finish().unwrap()
+    };
+    let core = |version: &str| (version.to_owned(), serde_json::json!({ "name": "@htmx/core", "types": "index.d.ts" }), vec![("index.d.ts", format!("export declare const core: \"{version}\";\n"))]);
+    let registry: Vec<(&str, &str, Vec<(String, serde_json::Value, Vec<(&str, String)>)>)> = vec![
+      ("htmx.org", "2.0.4", vec![("2.0.4".to_owned(), serde_json::json!({ "name": "htmx.org", "types": "dist/htmx.d.ts" }), vec![("dist/htmx.d.ts", "export declare const version: string;\n".to_owned())])]),
+      ("@htmx/core", "2.0.0", vec![core("1.0.0"), core("1.2.0"), core("2.0.0")]),
+      (
+        "@htmx/ext",
+        "1.0.0",
+        vec![(
+          "1.0.0".to_owned(),
+          serde_json::json!({ "name": "@htmx/ext", "exports": { ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" } }, "dependencies": { "@htmx/core": "~1.0.0" } }),
+          vec![("lib/index.d.ts", "export * from '@htmx/core';\n".to_owned())],
+        )],
+      ),
+    ];
+    let mut routes: std::collections::HashMap<String, Vec<u8>> = std::collections::HashMap::new();
+    for (name, latest, versions) in registry {
+      let encoded = name.replace('/', "%2f");
+      let listed: serde_json::Map<String, serde_json::Value> = versions.iter().map(|(v, _, _)| (v.clone(), serde_json::json!({}))).collect();
+      routes.insert(format!("/{encoded}"), serde_json::json!({ "dist-tags": { "latest": latest }, "versions": listed }).to_string().into_bytes());
+      for (version, manifest, files) in versions {
+        let tarball = format!("/tgz/{encoded}-{version}.tgz");
+        let mut doc = manifest.clone();
+        doc["version"] = serde_json::Value::String(version.clone());
+        doc["dist"] = serde_json::json!({ "tarball": format!("{host}{tarball}") });
+        routes.insert(format!("/{encoded}/{version}"), doc.to_string().into_bytes());
+        let mut packed = vec![("package.json", doc.to_string())];
+        packed.extend(files);
+        routes.insert(tarball, pack(&packed));
+      }
     }
-    let tarball = tarball.into_inner().unwrap().finish().unwrap();
-    let base = host.clone();
     std::thread::spawn(move || {
       for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };
@@ -1249,19 +1281,13 @@ mod tests {
           }
         }
         let path = line.split(' ').nth(1).unwrap_or("").to_owned();
-        let body: Option<Vec<u8>> = match path.as_str() {
-          "/htmx.org" => Some(r#"{"dist-tags":{"latest":"2.0.4"},"versions":{"2.0.4":{}}}"#.as_bytes().to_vec()),
-          "/htmx.org/2.0.4" => Some(format!(r#"{{"version":"2.0.4","types":"dist/htmx.d.ts","dist":{{"tarball":"{base}/htmx.org-2.0.4.tgz"}}}}"#).into_bytes()),
-          "/htmx.org-2.0.4.tgz" => Some(tarball.clone()),
-          _ => None,
-        };
-        let head = match &body {
+        let head = match routes.get(&path) {
           Some(body) => format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()),
           None => "HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned(),
         };
         let _ = stream.write_all(head.as_bytes());
-        if let Some(body) = body {
-          let _ = stream.write_all(&body);
+        if let Some(body) = routes.get(&path) {
+          let _ = stream.write_all(body);
         }
       }
     });
@@ -1305,6 +1331,136 @@ mod tests {
     let result = emit_from(&app, options, &npm_stub());
     assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
     assert!(declares_htmx(&app), "the build fetched htmx.org again");
+  }
+
+  /// `htmx.org`'s declarations kept from a fetch that did not follow what they import, as `vue`'s re-export of `@vue/runtime-dom` was before 0b1ccf9.
+  fn keep_htmx_without_its_dependency(app: &Path) {
+    keep_htmx_importing(app, &[("@htmx/core", "1")]);
+  }
+
+  /// `htmx.org`'s declarations kept, re-exporting each of `dependencies` at the range given, with none of them under `types/`.
+  fn keep_htmx_importing(app: &Path, dependencies: &[(&str, &str)]) {
+    let dir = app.join("types/htmx.org");
+    std::fs::create_dir_all(dir.join("dist")).unwrap();
+    let declared: serde_json::Map<String, serde_json::Value> = dependencies.iter().map(|(name, range)| ((*name).to_owned(), serde_json::Value::String((*range).to_owned()))).collect();
+    std::fs::write(dir.join("package.json"), serde_json::json!({ "name": "htmx.org", "types": "dist/htmx.d.ts", "dependencies": declared }).to_string()).unwrap();
+    std::fs::write(dir.join("dist/htmx.d.ts"), dependencies.iter().map(|(name, _)| format!("export * from '{name}';\n")).collect::<String>()).unwrap();
+    let _ = std::fs::remove_dir_all(app.join("types/@htmx"));
+    let mut manifest = crate::types::TypesManifest::read(app, &crate::xwpm::Layout::of(app).unwrap()).unwrap();
+    manifest.packages.insert("htmx.org".to_owned(), crate::types::TypedPackage { version: "2.0.4".to_owned(), from: "htmx.org".to_owned(), entry: "dist/htmx.d.ts".to_owned(), ambient: false });
+    manifest.write(app, &crate::xwpm::Layout::of(app).unwrap()).unwrap();
+  }
+
+  fn recorded(app: &Path, package: &str) -> Option<crate::types::TypedPackage> {
+    crate::types::TypesManifest::read(app, &crate::xwpm::Layout::of(app).unwrap()).unwrap().packages.get(package).cloned()
+  }
+
+  /// DEFECTS 1.70: `vue` 3.5.42 pins `@vue/runtime-dom` at 3.5.42 and was given 3.5.43, `latest`.
+  #[test]
+  fn a_build_fetches_a_dependency_at_the_range_its_dependent_declares() {
+    let (app, options) = htmx_app("fetch-range");
+    keep_htmx_importing(&app, &[("@htmx/core", "^1")]);
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert_eq!(recorded(&app, "@htmx/core").map(|t| t.version), Some("1.2.0".to_owned()), "the highest ^1, not latest 2.0.0");
+  }
+
+  /// DEFECTS 1.70.
+  #[test]
+  fn a_build_takes_the_highest_version_every_dependent_accepts() {
+    let (app, options) = htmx_app("fetch-ranges");
+    keep_htmx_importing(&app, &[("@htmx/core", "^1"), ("@htmx/ext", "1")]);
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert_eq!(recorded(&app, "@htmx/core").map(|t| t.version), Some("1.0.0".to_owned()), "^1 from htmx.org and ~1.0.0 from @htmx/ext");
+  }
+
+  /// DEFECTS 1.70.
+  #[test]
+  fn a_build_fetches_again_a_kept_dependency_its_dependent_does_not_accept() {
+    let (app, options) = htmx_app("fetch-stale");
+    keep_htmx_importing(&app, &[("@htmx/core", "^1")]);
+    let core = app.join("types/@htmx/core");
+    std::fs::create_dir_all(&core).unwrap();
+    std::fs::write(core.join("package.json"), r#"{"name":"@htmx/core","version":"2.0.0","types":"index.d.ts"}"#).unwrap();
+    std::fs::write(core.join("index.d.ts"), "export declare const core: \"2.0.0\";\n").unwrap();
+    let layout = crate::xwpm::Layout::of(&app).unwrap();
+    let mut manifest = crate::types::TypesManifest::read(&app, &layout).unwrap();
+    manifest.packages.insert("@htmx/core".to_owned(), crate::types::TypedPackage { version: "2.0.0".to_owned(), from: "@htmx/core".to_owned(), entry: "index.d.ts".to_owned(), ambient: false });
+    manifest.write(&app, &layout).unwrap();
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert_eq!(recorded(&app, "@htmx/core").map(|t| t.version), Some("1.2.0".to_owned()));
+    assert!(std::fs::read_to_string(core.join("index.d.ts")).unwrap().contains("1.2.0"));
+  }
+
+  /// DEFECTS 1.70.
+  #[test]
+  fn a_range_no_version_meets_is_named_in_the_types_rows() {
+    let (app, options) = htmx_app("fetch-unmet");
+    keep_htmx_importing(&app, &[("@htmx/core", "^3")]);
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert_eq!(recorded(&app, "@htmx/core").map(|t| t.version), Some("2.0.0".to_owned()), "latest, since nothing meets ^3");
+    let rows = crate::types::status(&app).unwrap();
+    assert!(rows.iter().any(|(package, row)| package == "@htmx/core" && row.contains("htmx.org asks ^3")), "{rows:?}");
+  }
+
+  /// DEFECTS 1.70: `@babel/parser` 8 names its declarations only in `exports`.
+  #[test]
+  fn a_build_fetches_a_package_whose_types_only_exports_names() {
+    let (app, options) = htmx_app("fetch-exports");
+    keep_htmx_importing(&app, &[("@htmx/ext", "1")]);
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert_eq!(recorded(&app, "@htmx/ext").map(|t| t.entry), Some("lib/index.d.ts".to_owned()));
+    assert!(app.join("types/@htmx/core/index.d.ts").is_file(), "and what its declarations import");
+  }
+
+  /// DEFECTS 1.70.
+  #[test]
+  fn a_build_fetches_what_the_declarations_it_keeps_import() {
+    let (app, options) = htmx_app("fetch-dependency");
+    keep_htmx_without_its_dependency(&app);
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert!(app.join("types/@htmx/core/index.d.ts").is_file(), "the build fetched the package htmx.org's declarations re-export");
+    assert_eq!(crate::types::missing(&app).unwrap(), Vec::<String>::new());
+  }
+
+  /// DEFECTS 1.70: a package placed by hand has no manifest record to say where its declarations came from.
+  #[test]
+  fn a_build_fetches_what_an_unrecorded_packages_declarations_import() {
+    let (app, options) = htmx_app("fetch-dependency-unrecorded");
+    keep_htmx_without_its_dependency(&app);
+    let layout = crate::xwpm::Layout::of(&app).unwrap();
+    let mut manifest = crate::types::TypesManifest::read(&app, &layout).unwrap();
+    manifest.packages.remove("htmx.org");
+    manifest.write(&app, &layout).unwrap();
+    std::fs::rename(app.join("types/htmx.org/dist/htmx.d.ts"), app.join("types/htmx.org/index.d.ts")).unwrap();
+    let result = emit_from(&app, options, &npm_stub());
+    assert!(!matches!(&result, Err(BuildError::Types(_))), "{:?}", result.err());
+    assert!(app.join("types/@htmx/core/index.d.ts").is_file(), "the build fetched the package htmx.org's declarations re-export");
+  }
+
+  /// DEFECTS 1.70.
+  #[test]
+  fn the_types_rows_name_a_dependency_a_kept_package_imports() {
+    let (app, _) = htmx_app("status-dependency");
+    keep_htmx_without_its_dependency(&app);
+    let rows = crate::types::status(&app).unwrap();
+    assert!(rows.iter().any(|(package, row)| package == "@htmx/core" && row.starts_with("missing")), "{rows:?}");
+  }
+
+  /// DEFECTS 1.70.
+  #[test]
+  fn a_build_that_cannot_fetch_a_kept_packages_dependency_names_it() {
+    let (app, options) = htmx_app("fetch-dependency-offline");
+    keep_htmx_without_its_dependency(&app);
+    match emit_from(&app, options, "http://127.0.0.1:1") {
+      Err(BuildError::Types(message)) => assert!(message.contains("no declarations for @htmx/core; run `fsr types`"), "{message}"),
+      other => panic!("the build went on to the typecheck: {:?}", other.err()),
+    }
   }
 
   #[test]

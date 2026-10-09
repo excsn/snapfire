@@ -535,6 +535,9 @@ fn main() -> ExitCode {
         for (package, why) in &report.missing {
           println!("missing   {package:<28} {why}");
         }
+        for (package, version, ask) in &report.unmet {
+          println!("unmet     {package:<28} {version}; {} asks {}", ask.by, ask.range);
+        }
         for path in &report.written {
           println!("wrote     {path}");
         }

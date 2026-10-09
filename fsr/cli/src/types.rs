@@ -86,6 +86,8 @@ pub struct TypesReport {
   pub kept: Vec<String>,
   /// Package and why.
   pub missing: Vec<(String, String)>,
+  /// Package, the version it holds and the range asked of it that refuses that version.
+  pub unmet: Vec<(String, String, Asked)>,
   /// The xwpm commands run instead of fetching, when the application is xwpm's.
   pub delegated: Vec<String>,
   /// The files written beside the declarations: the foreign shim and the tsconfig.
@@ -119,22 +121,10 @@ pub fn is_ambient(entry: &str) -> bool {
   entry.lines().map(str::trim_start).any(|line| line.starts_with("declare module \"") || line.starts_with("declare module '"))
 }
 
-fn semver(v: &str) -> Option<(u64, u64, u64)> {
-  if v.contains('-') {
-    return None;
-  }
-  let mut parts = v.split('.').map(|p| p.parse::<u64>().ok());
-  Some((parts.next()??, parts.next()??, parts.next()??))
-}
-
-fn major_of(version: &str) -> Option<u64> {
-  semver(version).map(|(m, _, _)| m)
-}
-
 /// The major to take declarations at: the vendored version's, else the one a
 /// site's shell contract names for the framework.
 fn wanted_major(vendored: Option<&str>, shell: Option<&str>) -> Option<u64> {
-  vendored.or(shell).and_then(major_of)
+  vendored.or(shell).and_then(range::Version::parse).filter(|v| v.pre.is_empty()).map(|v| v.major)
 }
 
 #[derive(Deserialize)]
@@ -153,7 +143,9 @@ struct VersionDoc {
   #[serde(default)]
   typings: Option<String>,
   #[serde(default)]
-  dependencies: BTreeMap<String, String>,
+  exports: Option<serde_json::Value>,
+  #[serde(default)]
+  main: Option<String>,
   dist: Dist,
 }
 
@@ -166,8 +158,9 @@ fn encode(name: &str) -> String {
   name.replace('/', "%2f")
 }
 
-/// The version of `name` to take: the highest release sharing `major` when one is given and exists, else `latest`.
-fn choose_version(client: &reqwest::blocking::Client, registry: &str, name: &str, major: Option<u64>) -> Result<Option<String>, BuildError> {
+/// The version of `name` to take: the highest release every range accepts,
+/// else the highest the first accepts, else `latest`.
+fn choose_version(client: &reqwest::blocking::Client, registry: &str, name: &str, ranges: &[range::Range]) -> Result<Option<String>, BuildError> {
   let url = format!("{registry}/{}", encode(name));
   let response = client
     .get(&url)
@@ -181,10 +174,11 @@ fn choose_version(client: &reqwest::blocking::Client, registry: &str, name: &str
     return Err(BuildError::Http(url.clone(), format!("HTTP {}", response.status())));
   }
   let doc: Abbreviated = response.json().map_err(|e| BuildError::Http(url.clone(), e.to_string()))?;
-  if let Some(major) = major {
-    let best = doc.versions.keys().filter_map(|v| semver(v).filter(|s| s.0 == major).map(|s| (s, v.clone()))).max();
-    if let Some((_, v)) = best {
-      return Ok(Some(v));
+  let published: Vec<(range::Version, &String)> = doc.versions.keys().filter_map(|key| range::Version::parse(key).map(|v| (v, key))).collect();
+  let best = |accepts: &dyn Fn(&range::Version) -> bool| published.iter().filter(|(v, _)| accepts(v)).max_by(|a, b| a.0.cmp(&b.0)).map(|(_, key)| (*key).clone());
+  if let Some(first) = ranges.first() {
+    if let Some(version) = best(&|v| ranges.iter().all(|r| r.satisfies(v))).or_else(|| best(&|v| first.satisfies(v))) {
+      return Ok(Some(version));
     }
   }
   Ok(doc.dist_tags.get("latest").cloned())
@@ -272,37 +266,77 @@ struct Fetched {
   version: String,
   entry: String,
   ambient: bool,
-  dependencies: Vec<String>,
 }
 
-/// Declarations for `package` into `<types>/<package>/`: from the package itself when it declares `types`, else from DefinitelyTyped.
-fn fetch_npm(client: &reqwest::blocking::Client, registry: &str, app: &Path, layout: &Layout, package: &str, major: Option<u64>) -> Result<Option<Fetched>, BuildError> {
+/// Declarations for `package` into `<types>/<package>/`: from the package
+/// itself when it declares them, else from DefinitelyTyped, each at the
+/// version [`choose_version`] picks for the ranges `asked` holds of it. The
+/// candidate the first range names is tried first.
+fn fetch_npm(client: &reqwest::blocking::Client, registry: &str, app: &Path, layout: &Layout, package: &str, asked: &[Asked]) -> Result<Option<Fetched>, BuildError> {
   let dir = app.join(&layout.types).join(package);
   let mut candidates: Vec<(String, bool)> = vec![(package.to_owned(), false)];
   if !package.starts_with("@types/") {
     candidates.push((definitely_typed(package), true));
   }
+  if asked.iter().find_map(|a| a.of.as_deref()) == Some(definitely_typed(package).as_str()) {
+    candidates.reverse();
+  }
   for (name, from_dt) in candidates {
-    let Some(version) = choose_version(client, registry, &name, major)? else { continue };
+    let ranges: Vec<range::Range> = asked.iter().filter(|a| a.applies_to(&name)).filter_map(|a| range::Range::parse(&a.range)).collect();
+    let Some(version) = choose_version(client, registry, &name, &ranges)? else { continue };
     let doc = version_doc(client, registry, &name, &version)?;
-    let entry = doc.types.clone().or(doc.typings.clone()).or_else(|| from_dt.then(|| "index.d.ts".to_owned()));
-    let Some(entry) = entry else { continue };
-    let entry = entry.trim_start_matches("./").to_owned();
     let bytes = get(client, &doc.dist.tarball)?.ok_or_else(|| BuildError::Http(doc.dist.tarball.clone(), "HTTP 404".to_owned()))?;
     if dir.exists() {
       std::fs::remove_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
     }
     let count = unpack_declarations(&bytes, &dir)?;
-    let entry_path = dir.join(&entry);
-    if count == 0 || !entry_path.is_file() {
+    let entry = declaration_entries(&doc, from_dt).into_iter().find(|entry| dir.join(entry).is_file());
+    let Some(entry) = entry.filter(|_| count > 0) else {
       let _ = std::fs::remove_dir_all(&dir);
       continue;
-    }
+    };
+    let entry_path = dir.join(&entry);
     let ambient = is_ambient(&std::fs::read_to_string(&entry_path).map_err(|e| BuildError::Io(entry_path.clone(), e))?);
-    let dependencies = if from_dt { doc.dependencies.keys().cloned().collect() } else { imported_dependencies(&dir, doc.dependencies.keys()) };
-    return Ok(Some(Fetched { from: name, version: doc.version, entry, ambient, dependencies }));
+    return Ok(Some(Fetched { from: name, version: doc.version, entry, ambient }));
   }
   Ok(None)
+}
+
+/// Where a package's declarations may start, in the order TypeScript would
+/// look: `types`, `typings`, the `types` condition of `exports["."]`, a
+/// `.d.ts` beside `main`, and `index.d.ts`.
+fn declaration_entries(doc: &VersionDoc, definitely_typed: bool) -> Vec<String> {
+  let mut out: Vec<String> = Vec::new();
+  out.extend(doc.types.clone());
+  out.extend(doc.typings.clone());
+  out.extend(doc.exports.as_ref().and_then(exported_types));
+  out.extend(doc.main.as_deref().and_then(|main| {
+    [(".js", ".d.ts"), (".cjs", ".d.cts"), (".mjs", ".d.mts")].iter().find_map(|(js, dts)| main.strip_suffix(js).map(|stem| format!("{stem}{dts}")))
+  }));
+  if definitely_typed || out.is_empty() {
+    out.push("index.d.ts".to_owned());
+  }
+  out.into_iter().map(|entry| entry.trim_start_matches("./").to_owned()).collect()
+}
+
+/// The `types` an `exports` map gives the package root: the `"."` entry when
+/// the map has subpaths, conditions read in order, the first array item that has one.
+fn exported_types(exports: &serde_json::Value) -> Option<String> {
+  fn conditions(value: &serde_json::Value) -> Option<String> {
+    match value {
+      serde_json::Value::String(path) => [".d.ts", ".d.mts", ".d.cts"].iter().any(|ext| path.ends_with(ext)).then(|| path.clone()),
+      serde_json::Value::Array(items) => items.iter().find_map(conditions),
+      serde_json::Value::Object(map) => map.iter().find_map(|(condition, value)| match (condition.starts_with("types"), value) {
+        (true, serde_json::Value::String(path)) => Some(path.clone()),
+        _ => conditions(value),
+      }),
+      _ => None,
+    }
+  }
+  match exports {
+    serde_json::Value::Object(map) if map.keys().any(|k| k.starts_with('.')) => map.get(".").and_then(conditions),
+    other => conditions(other),
+  }
 }
 
 /// Fills the types directory for the fsr packages and every package the import
@@ -338,90 +372,101 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
   Ok(report)
 }
 
-/// What `fsr build` fetches before it checks: the packages [`missing`] names,
-/// each the way `fsr types` fetches it from `registry`, recorded in the
-/// manifest. The build writes the tsconfig and the shim itself. Nothing is
+/// What `fsr build` fetches before it checks: when [`missing`] or [`unmet`]
+/// names anything, what `fsr types` would fetch from `registry`, recorded in
+/// the manifest. The build writes the tsconfig and the shim itself. Nothing is
 /// fetched under xwpm, which supplies its own.
 pub(crate) fn fetch_missing_from(app: &Path, registry: &str) -> Result<TypesReport, BuildError> {
   let layout = Layout::of(app)?;
   let mut report = TypesReport::default();
-  let queue = missing(app)?;
-  if queue.is_empty() || layout.xwpm {
+  if layout.xwpm || (missing(app)?.is_empty() && unmet(app)?.is_empty()) {
     return Ok(report);
   }
   let mut manifest = TypesManifest::read(app, &layout)?;
-  fill(app, &layout, &mut manifest, queue, false, registry, &mut report)?;
+  fill(app, &layout, &mut manifest, wanted(app, &layout)?, false, registry, &mut report)?;
   manifest.write(app, &layout)?;
   Ok(report)
 }
 
-/// Fills the types directory for `queue` and each package a fetched one
-/// depends on: the fsr packages from the binary, the rest from `registry` at
-/// the vendored major, else a site's shell's. A package whose entry is on disk
-/// is kept unless `refresh`.
-fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, mut queue: Vec<String>, refresh: bool, registry: &str, report: &mut TypesReport) -> Result<(), BuildError> {
-  let vendored = VendorManifest::read(app, layout)?;
-  let shell_frameworks = match crate::site_beside(app).and_then(|site| site.shell) {
-    Some(path) => crate::ShellContract::read(&path)?.frameworks,
-    None => Default::default(),
-  };
+/// How many times [`fill`] takes one package, so ranges that keep moving each
+/// other's versions settle.
+const TAKES: usize = 3;
+
+/// Fills the types directory for `roots` and each package their declarations
+/// import: the fsr packages from the binary, the rest from `registry` at the
+/// version every range asked of it accepts, the first of them the vendored or
+/// a site's shell's major for a root. A package whose entry is on disk is kept
+/// unless `refresh` or a range asked of it refuses the version it holds, and
+/// one fetched again for a later range has its dependencies walked again.
+fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<String>, refresh: bool, registry: &str, report: &mut TypesReport) -> Result<(), BuildError> {
   let client = vendor::client()?;
-  let mut seen: Vec<String> = Vec::new();
-  while let Some(package) = queue.first().cloned() {
-    queue.remove(0);
-    if seen.contains(&package) {
+  let mut asked = pins(app, layout)?;
+  let mut queue: std::collections::VecDeque<String> = roots.into_iter().collect();
+  let mut taken: BTreeMap<String, usize> = BTreeMap::new();
+  while let Some(package) = queue.pop_front() {
+    let times = taken.entry(package.clone()).or_insert(0);
+    if *times >= TAKES {
       continue;
     }
-    seen.push(package.clone());
+    *times += 1;
+    let asks = asked.get(&package).cloned().unwrap_or_default();
     let dir = app.join(&layout.types).join(&package);
     let embedded = match package.as_str() {
       "@snapfire/fsr-client" => Some(FSR_CLIENT),
       "@snapfire/fsr-authoring" => Some(FSR_AUTHORING),
       _ => None,
     };
-    let entry = manifest.packages.get(&package).map(|typed| typed.entry.clone()).unwrap_or_else(|| "index.d.ts".to_owned());
-    if dir.join(&entry).is_file() && !refresh && embedded.is_none() {
-      report.kept.push(package.clone());
-      if let Some(typed) = manifest.packages.get_mut(&package) {
-        if let Ok(text) = std::fs::read_to_string(dir.join(&typed.entry)) {
-          typed.ambient = is_ambient(&text);
-        }
-        queue.extend(dependencies_of(app, layout, &package, typed.from.starts_with("@types/")));
-      }
-      continue;
-    }
     if let Some(files) = embedded {
       write_embedded(app, layout, &package, files)?;
       manifest.packages.insert(package.clone(), embedded_record());
       report.fetched.push((package, env!("CARGO_PKG_VERSION").to_owned(), "fsr".to_owned()));
       continue;
     }
-    if package.starts_with("@snapfire/") {
+    let entry = manifest.packages.get(&package).map(|typed| typed.entry.clone()).unwrap_or_else(|| "index.d.ts".to_owned());
+    if dir.join(&entry).is_file() && !refresh && accepted(&asks, held(app, layout, &package, manifest).as_ref()) {
+      report.kept.push(package.clone());
+      if let Some(typed) = manifest.packages.get_mut(&package) {
+        if let Ok(text) = std::fs::read_to_string(dir.join(&typed.entry)) {
+          typed.ambient = is_ambient(&text);
+        }
+      }
+    } else if package.starts_with("@snapfire/") {
       report.missing.push((package, "not a package fsr knows".to_owned()));
       continue;
-    }
-    if layout.xwpm {
+    } else if layout.xwpm {
       report.missing.push((package, "xwpm supplies declarations for its modules and externals".to_owned()));
       continue;
-    }
-    let major = wanted_major(vendored.packages.get(&package).map(|p| p.version.as_str()), shell_frameworks.get(&package).map(String::as_str));
-    match fetch_npm(&client, registry, app, layout, &package, major)? {
-      Some(fetched) => {
-        for dependency in fetched.dependencies {
-          queue.push(from_definitely_typed(&dependency));
+    } else {
+      match fetch_npm(&client, registry, app, layout, &package, &asks)? {
+        Some(fetched) => {
+          manifest.packages.insert(package.clone(), TypedPackage { version: fetched.version.clone(), from: fetched.from.clone(), entry: fetched.entry, ambient: fetched.ambient });
+          report.fetched.push((package.clone(), fetched.version, fetched.from));
         }
-        manifest.packages.insert(package.clone(), TypedPackage { version: fetched.version.clone(), from: fetched.from.clone(), entry: fetched.entry, ambient: fetched.ambient });
-        report.fetched.push((package, fetched.version, fetched.from));
+        None => {
+          report.missing.push((package, "no `types` in the package and nothing on DefinitelyTyped".to_owned()));
+          continue;
+        }
       }
-      None => report.missing.push((package, "no `types` in the package and nothing on DefinitelyTyped".to_owned())),
+    }
+    for asks in asked.values_mut() {
+      asks.retain(|a| a.by != package);
+    }
+    for (dependency, ask) in requirements_of(app, layout, &package) {
+      asked.entry(dependency.clone()).or_default().push(ask);
+      let refused = taken.contains_key(&dependency) && !accepted(&asked[&dependency], held(app, layout, &dependency, manifest).as_ref());
+      if (!taken.contains_key(&dependency) || refused) && !queue.contains(&dependency) {
+        queue.push_back(dependency);
+      }
+    }
+  }
+  for (package, asks) in &asked {
+    if let Some(holding) = held(app, layout, package, manifest) {
+      report.unmet.extend(refusing(asks, &holding).map(|ask| (package.clone(), holding.1.to_string(), ask.clone())));
     }
   }
   Ok(())
 }
 
-/// The source directories the application has, of the ones the typechecker
-/// reads. Only those, since the compiler warns once per build about an
-/// `include` pattern that matches nothing.
 pub fn source_dirs(app: &Path) -> Vec<&'static str> {
   SOURCE_DIRS.iter().copied().filter(|dir| app.join(dir).is_dir()).collect()
 }
@@ -491,18 +536,84 @@ pub fn write_foreign_shim(app: &Path, layout: &Layout, placed: &[String]) -> Res
   }
 }
 
-/// The packages a fetched package's declarations need beside it: every
-/// dependency of a DefinitelyTyped package, and of a package carrying its own
-/// declarations only those they import, `vue` re-exporting `@vue/runtime-dom`.
-fn dependencies_of(app: &Path, layout: &Layout, package: &str, definitely_typed: bool) -> Vec<String> {
+/// A range asked of a package's declarations: by a package whose own
+/// declarations import it, or by the vendored version or a site's shell for a
+/// package the import map names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Asked {
+  pub by: String,
+  /// The npm package the range is a range of, the dependency or its
+  /// `@types/` package; `None` for whichever supplies the declarations.
+  pub of: Option<String>,
+  pub range: String,
+}
+
+impl Asked {
+  fn applies_to(&self, npm: &str) -> bool {
+    self.of.as_deref().is_none_or(|of| of == npm)
+  }
+}
+
+/// What the packages the import map names are held to before any package asks:
+/// the vendored version's major, else the one a site's shell names.
+fn pins(app: &Path, layout: &Layout) -> Result<BTreeMap<String, Vec<Asked>>, BuildError> {
+  let vendored = VendorManifest::read(app, layout)?;
+  let shell = match crate::site_beside(app).and_then(|site| site.shell) {
+    Some(path) => crate::ShellContract::read(&path)?.frameworks,
+    None => Default::default(),
+  };
+  let mut out = BTreeMap::new();
+  for package in wanted(app, layout)? {
+    let vendored_version = vendored.packages.get(&package).map(|p| p.version.as_str());
+    if let Some(major) = wanted_major(vendored_version, shell.get(&package).map(String::as_str)) {
+      let by = match vendored_version {
+        Some(version) => format!("the vendored {version}"),
+        None => "the shell".to_owned(),
+      };
+      out.insert(package, vec![Asked { by, of: None, range: format!("^{major}") }]);
+    }
+  }
+  Ok(out)
+}
+
+/// What the declarations under `<types>/<package>/` need beside them, read
+/// from the `package.json` they came with, each with the range asked of it:
+/// every dependency of a DefinitelyTyped package, and of a package carrying
+/// its own declarations only those they import, `vue` re-exporting
+/// `@vue/runtime-dom`.
+fn requirements_of(app: &Path, layout: &Layout, package: &str) -> Vec<(String, Asked)> {
   let dir = app.join(&layout.types).join(package);
   let Ok(text) = std::fs::read_to_string(dir.join("package.json")) else { return Vec::new() };
   let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { return Vec::new() };
   let Some(dependencies) = value.get("dependencies").and_then(|d| d.as_object()) else { return Vec::new() };
-  match definitely_typed {
-    true => dependencies.keys().map(|k| from_definitely_typed(k)).collect(),
-    false => imported_dependencies(&dir, dependencies.keys()),
+  let range = |name: &str| dependencies.get(name).and_then(|r| r.as_str()).unwrap_or("*").to_owned();
+  let ask = |name: &str| Asked { by: package.to_owned(), of: Some(name.to_owned()), range: range(name) };
+  match value.get("name").and_then(|n| n.as_str()).is_some_and(|n| n.starts_with("@types/")) {
+    true => dependencies.keys().map(|k| (from_definitely_typed(k), ask(k))).collect(),
+    false => imported_dependencies(&dir, dependencies.keys()).into_iter().map(|name| (name.clone(), ask(&name))).collect(),
   }
+}
+
+/// The npm package the declarations under `<types>/<package>/` came from and
+/// its version: the manifest's record, else their own `package.json`.
+fn held(app: &Path, layout: &Layout, package: &str, manifest: &TypesManifest) -> Option<(String, range::Version)> {
+  if let Some(typed) = manifest.packages.get(package).filter(|t| !t.from.is_empty() && t.from != "fsr") {
+    return Some((typed.from.clone(), range::Version::parse(&typed.version)?));
+  }
+  let text = std::fs::read_to_string(app.join(&layout.types).join(package).join("package.json")).ok()?;
+  let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+  Some((value.get("name")?.as_str()?.to_owned(), range::Version::parse(value.get("version")?.as_str()?)?))
+}
+
+/// The ranges in `asks` that apply to what `holding` came from and refuse its
+/// version. A range that does not parse, a dist-tag or a URL, refuses nothing.
+fn refusing<'a>(asks: &'a [Asked], holding: &'a (String, range::Version)) -> impl Iterator<Item = &'a Asked> {
+  asks.iter().filter(|a| a.applies_to(&holding.0) && range::Range::parse(&a.range).is_some_and(|r| !r.satisfies(&holding.1)))
+}
+
+/// Whether what is held meets every range asked of it; a package with no version to judge does.
+fn accepted(asks: &[Asked], holding: Option<&(String, range::Version)>) -> bool {
+  holding.is_none_or(|holding| refusing(asks, holding).next().is_none())
 }
 
 /// The names among `dependencies` that a declaration file under `dir` imports,
@@ -592,6 +703,34 @@ fn wanted(app: &Path, layout: &Layout) -> Result<Vec<String>, BuildError> {
   Ok(packages)
 }
 
+/// The packages the application needs declarations for, [`wanted`] and what
+/// the declarations on disk import, walked as [`fill`] walks them, with every
+/// range asked of each. A package's own needs are known only once it is
+/// present, so one that is missing adds none until it is fetched.
+struct Closure {
+  order: Vec<String>,
+  asked: BTreeMap<String, Vec<Asked>>,
+}
+
+fn closure(app: &Path, layout: &Layout, present: &[(String, TypedPackage)]) -> Result<Closure, BuildError> {
+  let mut asked = pins(app, layout)?;
+  let mut order: Vec<String> = Vec::new();
+  let mut queue: std::collections::VecDeque<String> = wanted(app, layout)?.into_iter().collect();
+  while let Some(package) = queue.pop_front() {
+    if order.contains(&package) {
+      continue;
+    }
+    if present.iter().any(|(name, _)| *name == package) {
+      for (dependency, ask) in requirements_of(app, layout, &package) {
+        asked.entry(dependency.clone()).or_default().push(ask);
+        queue.push_back(dependency);
+      }
+    }
+    order.push(package);
+  }
+  Ok(Closure { order, asked })
+}
+
 /// What [`present`] finds plus the packages this binary carries, which every
 /// build writes after its tsconfig and report are computed.
 pub fn declared_packages(app: &Path, layout: &Layout) -> Result<Vec<(String, TypedPackage)>, BuildError> {
@@ -605,25 +744,46 @@ pub fn declared_packages(app: &Path, layout: &Layout) -> Result<Vec<(String, Typ
   Ok(out)
 }
 
-/// The packages with no declarations under `types/`, which tsc reports as one
-/// unresolved module per import and then hundreds of untyped JSX elements.
+/// The [`needed`] packages with no declarations under `types/`. tsc reports a
+/// wanted one as an unresolved module per import and then hundreds of untyped
+/// JSX elements; under `skipLibCheck` it reports nothing for a dependency, only
+/// the names it would have supplied once the application imports them.
 pub fn missing(app: &Path) -> Result<Vec<String>, BuildError> {
   let layout = Layout::of(app)?;
   let present = declared_packages(app, &layout)?;
-  Ok(wanted(app, &layout)?.into_iter().filter(|package| !present.iter().any(|(name, _)| name == package)).collect())
+  Ok(closure(app, &layout, &present)?.order.into_iter().filter(|package| !present.iter().any(|(name, _)| name == package)).collect())
 }
 
-/// The `types` rows of the build report: one per import map package.
+/// Each package on disk whose version a range asked of it refuses: the package, the version it holds and the range.
+pub fn unmet(app: &Path) -> Result<Vec<(String, String, Asked)>, BuildError> {
+  let layout = Layout::of(app)?;
+  let present = declared_packages(app, &layout)?;
+  let manifest = TypesManifest::read(app, &layout)?;
+  let closure = closure(app, &layout, &present)?;
+  let mut out = Vec::new();
+  for package in &closure.order {
+    let (Some(asks), Some(holding)) = (closure.asked.get(package), held(app, &layout, package, &manifest)) else { continue };
+    out.extend(refusing(asks, &holding).map(|ask| (package.clone(), holding.1.to_string(), ask.clone())));
+  }
+  Ok(out)
+}
+
+/// The `types` rows of the build report: one per package [`closure`] needs,
+/// each naming a range asked of it that the version it holds does not meet.
 pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
   let layout = Layout::of(app)?;
   let present = declared_packages(app, &layout)?;
+  let unmet = unmet(app)?;
   let mut rows = Vec::new();
-  for package in wanted(app, &layout)? {
-    let row = match present.iter().find(|(n, _)| *n == package) {
+  for package in closure(app, &layout, &present)?.order {
+    let mut row = match present.iter().find(|(n, _)| *n == package) {
       Some((_, typed)) if typed.from.is_empty() => format!("{}/{package}", layout.types),
       Some((_, typed)) => format!("{}/{package}  {} {}", layout.types, typed.from, typed.version),
       None => "missing; run `fsr types`".to_owned(),
     };
+    for (_, _, ask) in unmet.iter().filter(|(p, _, _)| *p == package) {
+      row.push_str(&format!("; {} asks {}", ask.by, ask.range));
+    }
     rows.push((package, row));
   }
   Ok(rows)
@@ -809,6 +969,380 @@ pub fn element_declarations(app: &Path, layout: &Layout, elements: &[(String, St
   Ok(out)
 }
 
+/// npm's version ranges, read the way node-semver reads them with neither
+/// `loose` nor `includePrerelease` (<https://github.com/npm/node-semver#ranges>).
+pub mod range {
+  use std::cmp::Ordering;
+  use std::fmt;
+
+  /// node-semver refuses a number above `Number.MAX_SAFE_INTEGER`.
+  const MAX_SAFE: u64 = 9_007_199_254_740_991;
+
+  #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+  pub enum Ident {
+    Num(u64),
+    Alpha(String),
+  }
+
+  impl Ord for Ident {
+    fn cmp(&self, other: &Self) -> Ordering {
+      match (self, other) {
+        (Ident::Num(a), Ident::Num(b)) => a.cmp(b),
+        (Ident::Num(_), Ident::Alpha(_)) => Ordering::Less,
+        (Ident::Alpha(_), Ident::Num(_)) => Ordering::Greater,
+        (Ident::Alpha(a), Ident::Alpha(b)) => a.cmp(b),
+      }
+    }
+  }
+
+  impl PartialOrd for Ident {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+    }
+  }
+
+  /// A version without its build metadata, which takes no part in precedence.
+  #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+  pub struct Version {
+    pub major: u64,
+    pub minor: u64,
+    pub patch: u64,
+    pub pre: Vec<Ident>,
+  }
+
+  impl Ord for Version {
+    fn cmp(&self, other: &Self) -> Ordering {
+      (self.major, self.minor, self.patch).cmp(&(other.major, other.minor, other.patch)).then_with(|| match (self.pre.is_empty(), other.pre.is_empty()) {
+        (true, true) => Ordering::Equal,
+        (true, false) => Ordering::Greater,
+        (false, true) => Ordering::Less,
+        (false, false) => self.pre.cmp(&other.pre),
+      })
+    }
+  }
+
+  impl PartialOrd for Version {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+      Some(self.cmp(other))
+    }
+  }
+
+  impl fmt::Display for Version {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      write!(f, "{}.{}.{}", self.major, self.minor, self.patch)?;
+      for (i, ident) in self.pre.iter().enumerate() {
+        f.write_str(if i == 0 { "-" } else { "." })?;
+        match ident {
+          Ident::Num(n) => write!(f, "{n}")?,
+          Ident::Alpha(s) => f.write_str(s)?,
+        }
+      }
+      Ok(())
+    }
+  }
+
+  impl Version {
+    pub fn new(major: u64, minor: u64, patch: u64) -> Self {
+      Self { major, minor, patch, pre: Vec::new() }
+    }
+
+    /// `major.minor.patch`, an optional `-prerelease` and `+build`, after an optional `v`.
+    pub fn parse(text: &str) -> Option<Self> {
+      let text = text.trim();
+      let text = text.strip_prefix('v').unwrap_or(text);
+      let (main, build) = match text.split_once('+') {
+        Some((main, build)) => (main, Some(build)),
+        None => (text, None),
+      };
+      if build.is_some_and(|build| !build_metadata(build)) {
+        return None;
+      }
+      let (core, pre) = match main.split_once('-') {
+        Some((core, pre)) => (core, Some(pre)),
+        None => (main, None),
+      };
+      let mut parts = core.split('.');
+      let (major, minor, patch) = (number(parts.next()?)?, number(parts.next()?)?, number(parts.next()?)?);
+      if parts.next().is_some() {
+        return None;
+      }
+      let pre = match pre {
+        Some(pre) => prerelease(pre)?,
+        None => Vec::new(),
+      };
+      Some(Self { major, minor, patch, pre })
+    }
+
+    fn lowest(major: u64, minor: u64, patch: u64) -> Self {
+      Self { major, minor, patch, pre: vec![Ident::Num(0)] }
+    }
+  }
+
+  /// A numeric identifier: `0` or digits with no leading zero, at most `MAX_SAFE`.
+  fn number(text: &str) -> Option<u64> {
+    if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) || (text.len() > 1 && text.starts_with('0')) {
+      return None;
+    }
+    text.parse::<u64>().ok().filter(|n| *n <= MAX_SAFE)
+  }
+
+  fn build_metadata(text: &str) -> bool {
+    text.split('.').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-'))
+  }
+
+  fn prerelease(text: &str) -> Option<Vec<Ident>> {
+    text
+      .split('.')
+      .map(|part| {
+        if part.is_empty() || !part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+          return None;
+        }
+        match part.bytes().all(|b| b.is_ascii_digit()) {
+          true => number(part).map(Ident::Num),
+          false => Some(Ident::Alpha(part.to_owned())),
+        }
+      })
+      .collect()
+  }
+
+  #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+  enum Op {
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+  }
+
+  #[derive(Debug, Clone, PartialEq, Eq)]
+  enum Comparator {
+    Any,
+    None,
+    Cmp(Op, Version),
+  }
+
+  impl Comparator {
+    fn test(&self, v: &Version) -> bool {
+      match self {
+        Comparator::Any => true,
+        Comparator::None => false,
+        Comparator::Cmp(op, c) => match op {
+          Op::Lt => v < c,
+          Op::Le => v <= c,
+          Op::Gt => v > c,
+          Op::Ge => v >= c,
+          Op::Eq => v == c,
+        },
+      }
+    }
+  }
+
+  /// A version with any of its three numbers written `x`, `X` or `*`, or left off.
+  #[derive(Debug, Clone, PartialEq, Eq)]
+  struct Partial {
+    major: Option<u64>,
+    minor: Option<u64>,
+    patch: Option<u64>,
+    pre: Vec<Ident>,
+  }
+
+  impl Partial {
+    fn parse(text: &str) -> Option<Self> {
+      let text = text.strip_prefix('v').unwrap_or(text);
+      let text = text.strip_prefix('=').unwrap_or(text);
+      let main = match text.split_once('+') {
+        Some((main, build)) => build_metadata(build).then_some(main)?,
+        None => text,
+      };
+      let (core, pre) = match main.split_once('-') {
+        Some((core, pre)) => (core, Some(pre)),
+        None => (main, None),
+      };
+      let xr = |part: &str| -> Option<Option<u64>> {
+        match part {
+          "x" | "X" | "*" => Some(None),
+          _ => number(part).map(Some),
+        }
+      };
+      let parts: Vec<&str> = core.split('.').collect();
+      if parts.is_empty() || parts.len() > 3 {
+        return None;
+      }
+      let major = xr(parts[0])?;
+      let minor = match parts.get(1) {
+        Some(p) => xr(p)?,
+        None => None,
+      };
+      let patch = match parts.get(2) {
+        Some(p) => xr(p)?,
+        None => None,
+      };
+      let pre = match pre {
+        Some(pre) if parts.len() == 3 => prerelease(pre)?,
+        Some(_) => return None,
+        None => Vec::new(),
+      };
+      let (minor, patch) = match (major, minor) {
+        (None, _) => (None, None),
+        (_, None) => (None, None),
+        _ => (minor, patch),
+      };
+      Some(Self { major, minor, patch, pre })
+    }
+
+    fn full(&self) -> Option<Version> {
+      Some(Version { major: self.major?, minor: self.minor?, patch: self.patch?, pre: self.pre.clone() })
+    }
+  }
+
+  /// Any number of comparator sets, one of which a version must satisfy whole.
+  #[derive(Debug, Clone, PartialEq, Eq)]
+  pub struct Range {
+    sets: Vec<Vec<Comparator>>,
+  }
+
+  impl Range {
+    /// `None` for what is not a range: a dist-tag, a URL, a path, a git or
+    /// `npm:` alias, `workspace:`, or a malformed comparator.
+    pub fn parse(text: &str) -> Option<Self> {
+      let sets = text.split("||").map(|part| set(part.trim())).collect::<Option<Vec<_>>>()?;
+      Some(Self { sets })
+    }
+
+    /// Whether `v` satisfies one comparator set whole. A prerelease does only
+    /// when a comparator in that set names the same `major.minor.patch` with a
+    /// prerelease of its own.
+    pub fn satisfies(&self, v: &Version) -> bool {
+      self.sets.iter().any(|set| {
+        set.iter().all(|c| c.test(v))
+          && (v.pre.is_empty() || set.iter().any(|c| matches!(c, Comparator::Cmp(_, c) if !c.pre.is_empty() && (c.major, c.minor, c.patch) == (v.major, v.minor, v.patch))))
+      })
+    }
+  }
+
+  fn set(text: &str) -> Option<Vec<Comparator>> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut pending: Option<String> = None;
+    for word in text.split_whitespace() {
+      let joined = match pending.take() {
+        Some(op) => format!("{op}{word}"),
+        None => word.to_owned(),
+      };
+      if matches!(joined.as_str(), "<" | "<=" | ">" | ">=" | "=" | "^" | "~" | "~>") {
+        pending = Some(joined);
+      } else {
+        tokens.push(joined);
+      }
+    }
+    if pending.is_some() {
+      return None;
+    }
+    if tokens.is_empty() {
+      return Some(vec![Comparator::Any]);
+    }
+    if tokens.len() == 3 && tokens[1] == "-" {
+      return hyphen(&Partial::parse(&tokens[0])?, &Partial::parse(&tokens[2])?);
+    }
+    let mut out = Vec::new();
+    for token in &tokens {
+      out.extend(comparator(token)?);
+    }
+    Some(out)
+  }
+
+  fn comparator(token: &str) -> Option<Vec<Comparator>> {
+    if let Some(rest) = token.strip_prefix("~>").or_else(|| token.strip_prefix('~')) {
+      return Some(tilde(&Partial::parse(rest)?));
+    }
+    if let Some(rest) = token.strip_prefix('^') {
+      return Some(caret(&Partial::parse(rest)?));
+    }
+    let (op, rest) = [("<=", Some(Op::Le)), (">=", Some(Op::Ge)), ("<", Some(Op::Lt)), (">", Some(Op::Gt)), ("=", None)]
+      .into_iter()
+      .find_map(|(prefix, op)| token.strip_prefix(prefix).map(|rest| (op, rest)))
+      .unwrap_or((None, token));
+    Some(xrange(op, &Partial::parse(rest)?))
+  }
+
+  fn between(from: Version, to: Version) -> Vec<Comparator> {
+    vec![Comparator::Cmp(Op::Ge, from), Comparator::Cmp(Op::Lt, to)]
+  }
+
+  fn tilde(p: &Partial) -> Vec<Comparator> {
+    match (p.major, p.minor, p.patch) {
+      (None, _, _) => vec![Comparator::Any],
+      (Some(m), None, _) => between(Version::new(m, 0, 0), Version::lowest(m + 1, 0, 0)),
+      (Some(m), Some(n), None) => between(Version::new(m, n, 0), Version::lowest(m, n + 1, 0)),
+      (Some(m), Some(n), Some(_)) => between(p.full().expect("all three are numbers"), Version::lowest(m, n + 1, 0)),
+    }
+  }
+
+  fn caret(p: &Partial) -> Vec<Comparator> {
+    match (p.major, p.minor, p.patch) {
+      (None, _, _) => vec![Comparator::Any],
+      (Some(m), None, _) => between(Version::new(m, 0, 0), Version::lowest(m + 1, 0, 0)),
+      (Some(0), Some(n), None) => between(Version::new(0, n, 0), Version::lowest(0, n + 1, 0)),
+      (Some(m), Some(n), None) => between(Version::new(m, n, 0), Version::lowest(m + 1, 0, 0)),
+      (Some(0), Some(0), Some(q)) => between(p.full().expect("all three are numbers"), Version::lowest(0, 0, q + 1)),
+      (Some(0), Some(n), Some(_)) => between(p.full().expect("all three are numbers"), Version::lowest(0, n + 1, 0)),
+      (Some(m), Some(_), Some(_)) => between(p.full().expect("all three are numbers"), Version::lowest(m + 1, 0, 0)),
+    }
+  }
+
+  /// A bare partial, or one after `<`, `<=`, `>`, `>=` or `=` (`op` `None`).
+  fn xrange(op: Option<Op>, p: &Partial) -> Vec<Comparator> {
+    let Some(m) = p.major else {
+      return vec![match op {
+        Some(Op::Lt | Op::Gt) => Comparator::None,
+        _ => Comparator::Any,
+      }];
+    };
+    match (op, p.minor, p.patch) {
+      (_, Some(_), Some(_)) => vec![Comparator::Cmp(op.unwrap_or(Op::Eq), p.full().expect("all three are numbers"))],
+      (None, None, _) => between(Version::new(m, 0, 0), Version::lowest(m + 1, 0, 0)),
+      (None, Some(n), None) => between(Version::new(m, n, 0), Version::lowest(m, n + 1, 0)),
+      (Some(op), minor, _) => {
+        let n = minor.unwrap_or(0);
+        let next = || match minor {
+          None => (m + 1, 0),
+          Some(n) => (m, n + 1),
+        };
+        vec![match op {
+          Op::Gt => {
+            let (m, n) = next();
+            Comparator::Cmp(Op::Ge, Version::new(m, n, 0))
+          }
+          Op::Ge => Comparator::Cmp(Op::Ge, Version::new(m, n, 0)),
+          Op::Lt => Comparator::Cmp(Op::Lt, Version::lowest(m, n, 0)),
+          Op::Le => {
+            let (m, n) = next();
+            Comparator::Cmp(Op::Lt, Version::lowest(m, n, 0))
+          }
+          Op::Eq => unreachable!("`=` reaches here as `None`"),
+        }]
+      }
+    }
+  }
+
+  fn hyphen(from: &Partial, to: &Partial) -> Option<Vec<Comparator>> {
+    let mut out = Vec::new();
+    if let Some(m) = from.major {
+      out.push(Comparator::Cmp(Op::Ge, from.full().unwrap_or(Version::new(m, from.minor.unwrap_or(0), 0))));
+    }
+    if let Some(m) = to.major {
+      out.push(match (to.minor, to.patch) {
+        (None, _) => Comparator::Cmp(Op::Lt, Version::lowest(m + 1, 0, 0)),
+        (Some(n), None) => Comparator::Cmp(Op::Lt, Version::lowest(m, n + 1, 0)),
+        _ => Comparator::Cmp(Op::Le, to.full().expect("all three are numbers")),
+      });
+    }
+    if out.is_empty() {
+      out.push(Comparator::Any);
+    }
+    Some(out)
+  }
+}
+
 #[cfg(test)]
 mod tests {
   #[test]
@@ -822,6 +1356,58 @@ mod tests {
   }
 
   use super::*;
+
+  /// Cases from node-semver's README and its range tests, `loose` ones left out.
+  #[test]
+  fn a_range_is_satisfied_as_node_semver_satisfies_it() {
+    use range::{Range, Version};
+    let yes = [
+      ("1.0.0 - 2.0.0", "1.2.3"), ("^1.2.3+build", "1.2.3"), ("^1.2.3+build", "1.3.0"), ("1.2.3-pre+asdf - 2.4.3-pre+asdf", "1.2.3"), ("*", "1.2.3"), ("", "1.0.0"),
+      (">=1.0.0", "1.0.0"), (">1.0.0", "1.0.1"), ("<=2.0.0", "2.0.0"), ("<2.0.0", "1.9999.9999"), (">= 1.0.0", "1.0.0"), ("<    2.0.0", "1.9999.9999"),
+      ("0.1.20 || 1.2.4", "1.2.4"), (">=0.2.3 || <0.0.1", "0.2.4"), ("||", "1.3.4"), ("2.x.x", "2.1.3"), ("1.2.x", "1.2.3"), ("1.2.x || 2.x", "2.1.3"), ("x", "1.2.3"),
+      ("2.*.*", "2.1.3"), ("2", "2.1.2"), ("2.3", "2.3.1"), ("~0.0.1", "0.0.2"), ("~x", "0.0.9"), ("~2", "2.0.9"), ("~2.4", "2.4.5"), ("~>3.2.1", "3.2.2"),
+      ("~> 1", "1.2.3"), ("~1.0", "1.0.2"), ("~ 1.0.3", "1.0.12"), (">=1", "1.0.0"), ("< 1.2", "1.1.1"), ("~v0.5.4-pre", "0.5.5"), ("~v0.5.4-pre", "0.5.4"),
+      ("=0.7.x", "0.7.2"), ("<=0.7.x", "0.7.2"), (">=0.7.x", "0.7.2"), ("<=0.7.x", "0.6.2"), ("~1.2.1 >=1.2.3", "1.2.3"), ("~1.2.1 =1.2.3", "1.2.3"),
+      ("~1.2.1 1.2.3", "1.2.3"), (">=1.2.1 1.2.3", "1.2.3"), (">=1.2", "1.2.8"), ("^1.2.3", "1.8.1"), ("^0.1.2", "0.1.2"), ("^0.1", "0.1.2"), ("^0.0.1", "0.0.1"),
+      ("^1.2", "1.4.2"), ("^1.2 ^1", "1.4.2"), ("^1.2.3-alpha", "1.2.3-pre"), ("^0.0.1-alpha", "0.0.1-beta"), ("^0.0.1-alpha", "0.0.1"), ("^x", "1.2.3"),
+      ("x - 1.0.0", "0.9.7"), ("x - 1.x", "0.9.7"), ("1.0.0 - x", "1.9.7"), ("1.x - x", "1.9.7"), ("<=7.x", "7.9.9"), ("3.5.42", "3.5.42"), ("^7.29.8", "7.29.9"),
+    ];
+    let no = [
+      ("1.0.0 - 2.0.0", "2.2.3"), ("1.2.3+asdf - 2.4.3+asdf", "1.2.3-pre.2"), ("^1.2.3+build", "2.0.0"), ("^1.2.3+build", "1.2.0"), ("^1.2.3", "1.2.3-pre"),
+      ("^1.2", "1.2.0-pre"), (">1.2", "1.3.0-beta"), ("<=1.2.3", "1.2.3-beta"), ("=0.7.x", "0.7.0-asdf"), (">=0.7.x", "0.7.0-asdf"), ("1.0.0", "1.0.1"),
+      (">=1.0.0", "0.1.0"), (">1.0.0", "0.0.1"), ("<=2.0.0", "2.2.9"), ("<2.0.0", "2.9999.9999"), (">=0.1.97", "0.1.93"), ("0.1.20 || 1.2.4", "1.2.3"),
+      (">=0.2.3 || <0.0.1", "0.0.3"), ("2.x.x", "3.1.3"), ("1.2.x || 2.x", "1.1.3"), ("2.*.*", "1.1.3"), ("2", "1.1.2"), ("2.3", "2.4.1"), ("~0.0.1", "0.1.0-alpha"),
+      ("~0.0.1", "0.1.0"), ("~2.4", "2.5.0"), ("~2.4", "2.3.9"), ("~>3.2.1", "3.3.2"), ("~>3.2.1", "3.2.0"), ("~1", "0.2.3"), ("~>1", "2.2.3"), ("~1.0", "1.1.0"),
+      ("<1", "1.0.0"), (">=1.2", "1.1.1"), ("=0.7.x", "0.8.2"), ("<0.7.x", "0.7.2"), ("<1.2.3", "1.2.3-beta"), ("=1.2.3", "1.2.3-beta"), (">1.2", "1.2.8"),
+      ("^0.0.1", "0.0.2"), ("^1.2.3", "2.0.0-alpha"), ("^1.2.3", "1.2.2"), ("^1.2", "1.1.9"), ("*", "1.2.3-foo"), ("^1.0.0", "2.0.0-rc1"), ("^1.2.3-rc2", "2.0.0"),
+      ("1 - 2", "3.0.0-pre"), ("1 - 2", "2.0.0-pre"), ("1 - 2", "1.0.0-pre"), ("1.1.x", "1.1.0-a"), ("1.x", "1.2.0-a"), (">=1.0.0 <1.1.0", "1.1.0"),
+      (">=1.0.0 <1.1.0-pre", "1.1.0-pre"), ("< 1", "1.0.0-beta"), ("<=0.7.x", "0.8.0"), (">7.x", "7.9.9"), ("3.5.42", "3.5.43"), ("^7.29.8", "8.0.7"),
+    ];
+    for (range, version) in yes {
+      assert!(Range::parse(range).unwrap().satisfies(&Version::parse(version).unwrap()), "{version} satisfies {range:?}");
+    }
+    for (range, version) in no {
+      assert!(!Range::parse(range).unwrap().satisfies(&Version::parse(version).unwrap()), "{version} does not satisfy {range:?}");
+    }
+  }
+
+  #[test]
+  fn what_is_not_a_range_parses_to_none() {
+    for text in ["latest", "next", "workspace:*", "npm:foo@^1", "file:../x", "git+https://x.org/a.git", "github:a/b", "https://x.org/a.tgz", ">=", "1.2.3.4", "01.2.3", "^", "~>", "1.2.3 -", "blerg", "1.2.3-", "1.2-pre"] {
+      assert_eq!(range::Range::parse(text), None, "{text:?}");
+    }
+  }
+
+  /// The order semver 2.0.0 section 11 lists.
+  #[test]
+  fn versions_order_by_semver_precedence() {
+    let order = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0"];
+    let parsed: Vec<range::Version> = order.iter().map(|v| range::Version::parse(v).unwrap()).collect();
+    for pair in parsed.windows(2) {
+      assert!(pair[0] < pair[1], "{} < {}", pair[0], pair[1]);
+    }
+    assert_eq!(range::Version::parse("1.0.0+build.7"), range::Version::parse("1.0.0"), "build metadata takes no part");
+  }
 
   #[test]
   fn a_site_with_nothing_vendored_takes_declarations_at_its_shells_major() {
@@ -844,7 +1430,6 @@ mod tests {
     assert!(is_ambient("declare module 'sweetalert2' { const Swal: any; export default Swal }"));
     assert!(!is_ambient("export = React;\nexport as namespace React;"));
     assert!(!is_ambient("import { App } from '@vue/runtime-core';\nexport * from '@vue/runtime-core';\ndeclare module '@vue/runtime-core' {\n  interface GlobalComponents {}\n}\n"), "an augmentation in a module leaves the package path-mapped");
-    assert_eq!(semver("18.3.1"), Some((18, 3, 1)));
-    assert_eq!(semver("19.0.0-rc.1"), None);
+    assert_eq!(wanted_major(Some("19.0.0-rc.1"), None), None, "a prerelease holds no major");
   }
 }
