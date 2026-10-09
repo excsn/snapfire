@@ -1540,10 +1540,14 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// React's `use(X)` or `useContext(X)` with `X` a `createContext` value: the nearest provider's value, else the default. `None` for any other call.
+  /// React's `use(X)` or `useContext(X)`, or the template dialect's `use(X)`, with `X` a `createContext` value: the nearest provider's value, else the default. `None` for any other call.
   fn context_read(&mut self, call: &js::CallExpr, callee: &js::Expr) -> Lowered<Option<Expr>> {
     let Some((source, imported)) = crate::component::imported_callee(self.parsed, callee) else { return Ok(None) };
-    if source != "react" || !(imported == "use" || imported == "useContext") {
+    let reads = match source.as_str() {
+      "react" => imported == "use" || imported == "useContext",
+      _ => crate::component::CONTEXT_MODULES.contains(&source.as_str()) && imported == "use",
+    };
+    if !reads {
       return Ok(None);
     }
     let context = match call.args.first().map(|a| &*a.expr) {

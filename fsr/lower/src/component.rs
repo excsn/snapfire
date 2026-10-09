@@ -301,6 +301,27 @@ impl ComponentSet {
     Ok(rows)
   }
 
+  /// Whether `file` writes a JSX element or fragment anywhere, which needs a
+  /// JSX runtime to compile. A file that does not parse writes none.
+  pub fn writes_jsx(&mut self, file: &str) -> bool {
+    use swc_core::ecma::visit::{Visit, VisitWith};
+    struct Found(bool);
+    impl Visit for Found {
+      fn visit_jsx_element(&mut self, _: &js::JSXElement) {
+        self.0 = true;
+      }
+      fn visit_jsx_fragment(&mut self, _: &js::JSXFragment) {
+        self.0 = true;
+      }
+    }
+    if self.load(file).is_err() {
+      return false;
+    }
+    let mut found = Found(false);
+    self.parsed[file].module.visit_with(&mut found);
+    found.0
+  }
+
   /// Whether `module`'s file imports a value from `source`. A `file#export`
   /// module is asked about its file.
   pub fn imports_value_from(&self, module: &str, source: &str) -> bool {
@@ -330,17 +351,26 @@ impl ComponentSet {
     reached
   }
 
-  /// The local script files `file` imports a value from or re-exports, in
-  /// source order; none when it does not parse. An imported asset is not a
+  /// The local script files and described foreign components `file`
+  /// imports a value from or re-exports, in source order: a described foreign
+  /// component's from its script. None when it does not parse. An imported asset is not a
   /// script and is left out.
   pub fn local_imports(&mut self, file: &str) -> Vec<String> {
-    if self.load(file).is_err() {
-      return Vec::new();
-    }
-    let parsed = self.parsed[file].clone();
+    let parsed = match self.described.get(file).and_then(|described| described.script.as_ref()) {
+      Some(script) => match parse_with(file, &script.content, false) {
+        Ok(parsed) => Rc::new(parsed),
+        Err(_) => return Vec::new(),
+      },
+      None => {
+        if self.load(file).is_err() {
+          return Vec::new();
+        }
+        self.parsed[file].clone()
+      }
+    };
     value_sources(&parsed.module)
       .filter_map(|src| self.resolve_import(file, src.value.to_atom_lossy().as_ref()))
-      .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)))
+      .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)) || self.described.contains_key(target))
       .collect()
   }
 
@@ -564,7 +594,13 @@ impl ComponentSet {
   /// not follow.
   fn resolve_import(&self, from: &str, source: &str) -> Option<String> {
     let joined = crate::resolve_specifier(from, source)?;
-    for candidate in [joined.clone(), format!("{joined}.tsx"), format!("{joined}.ts"), format!("{joined}/index.tsx"), format!("{joined}/index.ts")] {
+    // TypeScript resolves a `.js` or `.jsx` specifier to the source it compiles to that name.
+    let compiled: Vec<String> = match (joined.strip_suffix(".js"), joined.strip_suffix(".jsx")) {
+      (Some(stem), _) => vec![format!("{stem}.ts"), format!("{stem}.tsx")],
+      (_, Some(stem)) => vec![format!("{stem}.tsx")],
+      _ => Vec::new(),
+    };
+    for candidate in [joined.clone(), format!("{joined}.tsx"), format!("{joined}.ts"), format!("{joined}/index.tsx"), format!("{joined}/index.ts")].into_iter().chain(compiled) {
       if candidate.starts_with("generated/") && candidate != crate::HEAD_MODULE {
         continue;
       }
@@ -691,15 +727,17 @@ impl ComponentSet {
     // it has no browser twin and pulls no framework into the page. A component
     // it renders inline is part of its markup, so that component's state and
     // handlers are its own to hydrate; an island's are the island's.
-    let provides = !providers.is_empty();
+    let mut provides = false;
     for (name, (line, column)) in providers {
-      if !self.context_binding(file, &name)? {
+      let Some(source) = self.context_binding(file, &name)? else {
         return Err(LowerError::Residue(Residue { file: file.to_owned(), line, column, message: format!("`<{name}.Provider>`: `{name}` is not a `createContext` value this file declares or imports"), hint: None, via: Vec::new() }));
-      }
+      };
+      provides |= source == "react";
     }
     let render = rewrite_modules(component.render, &modules, &islands);
-    // A provider is React state the page's islands read, so the component
-    // is a root even when nothing else in it needs the browser.
+    // A React provider is React state the page's islands read, so the
+    // component is a root even when nothing else in it needs the browser. The
+    // server resolves a template dialect's whole.
     let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || provides || self.inline_hydrates(&render);
     let owner = if hydrates { Owner::React } else { Owner::Fsr };
     let render = match owner {
@@ -912,7 +950,7 @@ impl ComponentSet {
     }
     let Some(Global::Const(js::Expr::Call(call))) = find_value(&parsed, name) else { return None };
     let js::Callee::Expr(callee) = &call.callee else { return None };
-    if !imported_callee(&parsed, callee).is_some_and(|(source, imported)| source == "react" && imported == "createContext") {
+    if !imported_callee(&parsed, callee).is_some_and(|(source, imported)| CONTEXT_MODULES.contains(&source.as_str()) && imported == "createContext") {
       return None;
     }
     let defaults = self.defaults.clone();
@@ -956,16 +994,17 @@ impl ComponentSet {
     names.into_iter().filter_map(|name| self.context_of(file, &name).map(|found| (name, found))).collect()
   }
 
-  fn context_binding(&mut self, file: &str, name: &str) -> Result<bool, LowerError> {
+  /// The module whose `createContext` made `name` in `file`, followed through imports; `None` when it is not a context.
+  fn context_binding(&mut self, file: &str, name: &str) -> Result<Option<String>, LowerError> {
     let parsed = self.parsed[file].clone();
     if let Some((source, imported)) = find_import(&parsed, name) {
-      let Some(target) = self.resolve_import(file, &source) else { return Ok(false) };
+      let Some(target) = self.resolve_import(file, &source) else { return Ok(None) };
       self.load(&target)?;
       return self.context_binding(&target, &imported);
     }
-    let Some(Global::Const(js::Expr::Call(call))) = find_value(&parsed, name) else { return Ok(false) };
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(false) };
-    Ok(imported_callee(&parsed, callee).is_some_and(|(source, imported)| source == "react" && imported == "createContext"))
+    let Some(Global::Const(js::Expr::Call(call))) = find_value(&parsed, name) else { return Ok(None) };
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    Ok(imported_callee(&parsed, callee).filter(|(source, imported)| CONTEXT_MODULES.contains(&source.as_str()) && imported == "createContext").map(|(source, _)| source))
   }
 
   fn global(&mut self, file: &str, name: &str) -> Result<Option<(Expr, String)>, LowerError> {
@@ -1115,6 +1154,9 @@ fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, stat
 /// client's React module, which a React application also mounts with or the
 /// dialect's own declarations, which an application without React types
 /// against.
+/// The modules whose `createContext` makes a context the build lowers: React's, and the template dialect's, which has no hooks and reads one with `use`.
+pub(crate) const CONTEXT_MODULES: &[&str] = &["react", "@snapfire/fsr-authoring/template"];
+
 pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-authoring/template", "@snapfire/fsr-client/react", "@snapfire/fsr-client/vue", "@snapfire/fsr-client/jsx-runtime"];
 
 /// The client library's root, where `action` comes from.
@@ -5136,6 +5178,31 @@ export default function Order({ id }: { id: number }) {
     assert_eq!(tag.body[2], Stmt::Let { name: "c".to_owned(), expr: read });
     let reads = format!("{:?} {:?}", tag.body, tag.render).matches("Context(\"src/theme.ts#Theme\")").count();
     assert_eq!(reads, 6, "{:?} {:?}", tag.body, tag.render);
+  }
+
+  /// REQUESTS 11.42.
+  #[test]
+  fn a_template_context_lowers_like_reacts_and_leaves_the_page_to_the_server() {
+    let files = [
+      ("src/reserved.ts", "import { createContext } from \"@snapfire/fsr-authoring/template\";\nexport const Reserved = createContext<string[]>([]);\n"),
+      ("src/Row.tsx", "import { use } from \"@snapfire/fsr-authoring/template\";\nimport { Reserved } from \"./reserved\";\nexport function Row({ id }: { id: string }) {\n  return <li>{use(Reserved).includes(id) ? \"kept\" : \"free\"}</li>;\n}\n"),
+      ("routes/a/page.tsx", "import { Reserved } from \"../../src/reserved\";\nimport { Row } from \"../../src/Row\";\nexport default function A({ reserved }: { reserved: string[] }) {\n  return <Reserved.Provider value={reserved}><ul><Row id=\"a\" /></ul></Reserved.Provider>;\n}\n"),
+    ];
+    let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
+    let page = &lowered.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap().1;
+    let Tmpl::Let { name, .. } = &page.render else { panic!("{:?}", page.render) };
+    assert_eq!(name, "$ctx:src/reserved.ts#Reserved");
+    assert_eq!(page.owner, Owner::Fsr, "the server resolves a template context, so nothing mounts the page");
+    let row = &lowered.iter().find(|(m, _)| m == "src/Row.tsx#Row").unwrap().1;
+    assert!(format!("{:?}", row.render).contains("Context(\"src/reserved.ts#Reserved\")"), "{:?}", row.render);
+  }
+
+  /// REQUESTS 11.42.
+  #[test]
+  fn the_template_use_of_something_other_than_a_context_is_residue() {
+    let files = [("routes/a/page.tsx", "import { use } from \"@snapfire/fsr-authoring/template\";\nexport default function A({ theme }: { theme: string }) {\n  return <p>{use(theme)}</p>;\n}\n")];
+    let err = lower(&files, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`use` of something other than a `createContext`"), "{err}");
   }
 
   #[test]
