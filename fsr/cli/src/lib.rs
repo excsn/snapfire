@@ -42,6 +42,8 @@ use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
 pub enum BuildError {
   #[error("`{module}` does not lower ({at}: {reason}) and the application has no JSX framework to run it in the browser; make it lower or write it as a Vue or Svelte component or a custom element")]
   NoJsxFramework { module: String, at: String, reason: String },
+  #[error("`{file}` {reason} and `{root}` loads it in the browser, but the application has no JSX framework to compile it with; move what `{root}` uses from it into a file of its own")]
+  Unrendered { file: String, root: String, reason: &'static str },
   /// What `fsr doctor` found, when a bundle asked for it first. Carries the
   /// report so a caller prints the findings rather than a summary of them.
   #[error("{0}")]
@@ -525,6 +527,8 @@ pub struct Built {
   pub defaults: SessionDefaults,
   /// The route modules the browser mounts, as files, which is all of `routes/` a bundle compiles.
   pub browser_routes: Vec<String>,
+  /// Every file the browser loads: the ones it loads by name, the routes among them, and every local file they import. The bundle and `fsr test` compile these.
+  pub browser_files: Vec<String>,
   /// Files the bundle overlay holds alone: islands split out of pages and the copies a second JSX runtime compiles.
   pub added: Vec<String>,
   /// What the build derived from the images and fonts, written as `generated/assets.json`.
@@ -1269,6 +1273,18 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let islands_generated: Vec<&String> = report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file)).map(|file| generated.iter().find(|(f, _)| f == file).map(|(f, _)| f)).flatten().collect();
   let generated_files: Vec<String> = islands_generated.into_iter().cloned().collect();
   browser_route_files.retain(|file| !generated_files.contains(file));
+  let roots = browser_roots(app, &islands, &static_modules, &browser_route_files, &generated_files, &public_path);
+  if !uses_react {
+    refuse_unrendered(&mut set, &rewritten, &roots)?;
+  }
+  let mut browser_files: Vec<String> = Vec::new();
+  for root in &roots {
+    for file in set.local_reach(root) {
+      if !browser_files.contains(&file) {
+        browser_files.push(file);
+      }
+    }
+  }
   report.causes.sort_by(|a, b| (&a.at, &a.message).cmp(&(&b.at, &b.message)));
   for cause in &mut report.causes {
     cause.pages.sort();
@@ -1385,7 +1401,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
     ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some(), !vue_declarations.is_empty())?),
-    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_route_files, &generated_files, types::jsx_source(app, &layout)?)),
+    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_files, &generated_files, types::jsx_source(app, &layout)?)),
   ]);
   if let Some(shim) = shim {
     files.push((format!("{}/{}", layout.types.trim_end_matches('/'), types::FOREIGN_SHIM), shim));
@@ -1394,7 +1410,72 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let mut report = report;
   report.types = types::status(app)?;
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
-  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, added: generated_files, assets: assets_manifest, resolver })
+  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, browser_files, added: generated_files, assets: assets_manifest, resolver })
+}
+
+/// The files the browser loads by name: every island the registry mounts and
+/// every module an `<Island define>` names, the route modules it mounts and
+/// the islands split out of pages, the document's entry (`[document] entry`
+/// under `public_path`, else `src/main`) and each browser half under `ext/`.
+/// A server island and a template nothing mounts are not among them.
+fn browser_roots(app: &Path, islands: &[String], static_modules: &[String], route_files: &[String], generated: &[String], public_path: &str) -> Vec<String> {
+  let mut roots: Vec<String> = Vec::new();
+  let mut add = |file: String| {
+    if !roots.contains(&file) {
+      roots.push(file);
+    }
+  };
+  for module in islands.iter().filter(|m| !static_modules.contains(m)) {
+    if let Some((file, _)) = module.split_once('#') {
+      add(file.to_owned());
+    }
+  }
+  for file in route_files.iter().chain(generated) {
+    add(file.clone());
+  }
+  let configured = config_beside(app).and_then(|config| config.document.entry).and_then(|url| url.strip_prefix(public_path.trim_end_matches('/')).map(|rest| rest.trim_start_matches('/').to_owned()));
+  let entry = configured.as_deref().unwrap_or("src/main.js");
+  let stem = entry.strip_suffix(".js").unwrap_or(entry);
+  if let Some(file) = [".ts", ".tsx", ".js", ".jsx"].iter().map(|ext| format!("{stem}{ext}")).find(|file| app.join(file).is_file()) {
+    add(file);
+  }
+  let mut pending = vec![app.join("ext")];
+  let mut halves = Vec::new();
+  while let Some(dir) = pending.pop() {
+    for path in std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|entry| entry.path()) {
+      let name = path.to_string_lossy();
+      if path.is_dir() {
+        pending.push(path);
+      } else if [".ts", ".tsx", ".js", ".jsx"].iter().any(|ext| name.ends_with(ext)) && !name.ends_with(".d.ts") {
+        halves.push(path.strip_prefix(app).unwrap_or(&path).to_string_lossy().replace('\\', "/"));
+      }
+    }
+  }
+  halves.sort();
+  for half in halves {
+    add(half);
+  }
+  roots
+}
+
+/// In an application with no JSX framework, refuses a file the browser would
+/// load that writes JSX or imports the template dialect, which only the
+/// server resolves there, naming the root that reaches it.
+fn refuse_unrendered(set: &mut ComponentSet, rewritten: &[(String, String)], roots: &[String]) -> Result<(), BuildError> {
+  let dialect = format!("\"{TEMPLATE_SPECIFIER}\"");
+  for root in roots {
+    for file in set.local_reach(root) {
+      let reason = if set.writes_jsx(&file) {
+        "writes JSX"
+      } else if set.imports_value_from(&file, TEMPLATE_SPECIFIER) || rewritten.iter().any(|(f, text)| *f == file && text.contains(&dialect)) {
+        "imports the template dialect"
+      } else {
+        continue;
+      };
+      return Err(BuildError::Unrendered { file, root: root.clone(), reason });
+    }
+  }
+  Ok(())
 }
 
 /// Writes every generated file under `<app>` and returns their paths. The

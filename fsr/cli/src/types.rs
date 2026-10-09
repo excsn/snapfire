@@ -878,10 +878,10 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool) -> Resu
 
 /// `tsconfig.build.json` for snapfirec: the browser modules only, so the
 /// server-side bodies and their `@snapfire/fsr` import stay out of the bundle.
-/// `route_files` are the route modules the browser mounts; a template nothing
-/// mounts is not compiled, so it never asks the import map for a framework.
-/// `jsx` is the runtime a file compiles against when no island's owner names one.
-pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String], jsx: &str) -> String {
+/// `files` are the files the browser loads, by name or by import, so a
+/// template nothing mounts is never compiled and never asks the import map for
+/// a framework. `generated` are the ones the bundle overlay alone holds. `jsx` is the runtime the application's JSX compiles against.
+pub fn tsconfig_build(app: &Path, files: &[String], generated: &[String], jsx: &str) -> String {
   let compile = CompileOptions::of(app).lines();
   let mut out = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
   let paths = alias_paths();
@@ -889,17 +889,13 @@ pub fn tsconfig_build(app: &Path, route_files: &[String], generated: &[String], 
   for (i, (from, to)) in paths.iter().enumerate() {
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
   }
-  let mut include: Vec<String> = vec!["src/**/*".to_owned()];
-  if app.join("ext").is_dir() {
-    include.push("ext/**/*".to_owned());
-  }
+  let mut include: Vec<String> = files.iter().filter(|file| !generated.contains(file)).cloned().collect();
   // The stylesheets a page links compile beside the modules, so they are
   // minified with them and their `url()`s take the asset map's URLs.
   let styles = crate::assets::Sections::of(app).dirs.styles;
   if app.join(&styles).is_dir() {
     include.push(format!("{styles}/**/*.css"));
   }
-  include.extend(route_files.iter().cloned());
   include.extend(["generated/islands.ts".to_owned(), "generated/client.ts".to_owned()]);
   let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
   out.push_str(&format!("    }}\n  }},\n  \"include\": [{}]", include.join(", ")));
