@@ -34,4 +34,13 @@ describe("the hooks page", () => {
     await settle();
     expect(text(".label.inline")).toEqual("inline:light");
   });
+
+  test("reads a provider's value through use inside an expression", async () => {
+    await load("/hooks");
+    await settle();
+    expect(text(".tag")).toEqual("DARK");
+    await fireEvent.click(document.querySelector(".flip")!);
+    await settle();
+    expect(text(".tag")).toEqual("LIGHT");
+  });
 });

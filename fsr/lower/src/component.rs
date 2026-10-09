@@ -596,9 +596,10 @@ impl ComponentSet {
         lowerer.globals = globals.clone();
         lowerer.natives = self.natives.clone();
         lowerer.hoisting = (!element_template).then(Candidates::default);
+        lowerer.contexts = contexts;
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), contexts, hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new() };
         let result = cl.component(&function);
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
@@ -926,7 +927,7 @@ impl ComponentSet {
   fn contexts_in(&mut self, file: &str) -> HashMap<String, (String, Expr)> {
     let Some(parsed) = self.parsed.get(file).cloned() else { return HashMap::new() };
     let text = parsed.cm.files().first().map(|f| f.src.to_string()).unwrap_or_default();
-    if !text.contains("useContext") && !text.contains(".Provider") {
+    if !text.contains("useContext") && !text.contains("use(") && !text.contains(".Provider") {
       return HashMap::new();
     }
     let mut names: Vec<String> = Vec::new();
@@ -2495,8 +2496,6 @@ struct ComponentLowerer<'a, 'p> {
   lowered_handlers: Vec<Handler>,
   /// Custom element tags with a shadow template, to the template's module.
   elements: Rc<HashMap<String, String>>,
-  /// The contexts this file names, by local name: the id and the default value.
-  contexts: HashMap<String, (String, Expr)>,
   /// Custom hooks resolved so far: the name a call uses, the module that declares it and its export there.
   hooks: Vec<(String, &'p Parsed, String)>,
   /// A custom hook a call named that `hooks` does not hold yet, with the file the call is in, so the set can find it and lower again.
@@ -2932,21 +2931,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             return Err(self.lowerer.residue(decl.span, "`useStore` bound to one name; it is a pair, as `const [x, setX] = useStore(key, initial)`"))
           }
           Some(("useLocale", _)) => Expr::Locale,
-          Some(("useContext", call)) => {
-            let context = match call.args.first().map(|a| &*a.expr) {
-              Some(js::Expr::Ident(id)) => self.contexts.get(id.sym.as_ref()).cloned(),
-              _ => None,
-            };
-            let Some((id, default)) = context else {
-              return Err(self.lowerer.residue(decl.span, "`useContext` of something the build cannot follow to a `createContext`"));
-            };
-            Expr::Coalesce(Box::new(Expr::Context(id)), Box::new(default))
-          }
           Some(("useId", _)) => {
             return Err(self.lowerer.residue_with(decl.span, "`useId`, whose value React derives from the shape of the tree at hydration", "the server cannot write the id React will expect; take an id from a prop or the loader's data"));
           }
           Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(&decl.name)),
-          Some((hook, _)) if hook != "useState" => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
+          Some((hook, _)) if !matches!(hook, "useState" | "use" | "useContext") => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
           _ if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) => {
             match init {
               js::Expr::Arrow(arrow) => {
@@ -3227,7 +3216,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
           self.providers.push((obj.sym.to_string(), (loc.line, loc.col_display + 1)));
           let children = Tmpl::Fragment(self.children(&el.children)?);
-          let Some((id, _)) = self.contexts.get(obj.sym.as_ref()).cloned() else { return Ok(children) };
+          let Some((id, _)) = self.lowerer.contexts.get(obj.sym.as_ref()).cloned() else { return Ok(children) };
           let mut value = Expr::Lit(Lit::Null);
           for attr in &el.opening.attrs {
             if let js::JSXAttrOrSpread::JSXAttr(attr) = attr {
@@ -5128,6 +5117,35 @@ export default function Order({ id }: { id: number }) {
     assert_eq!(page.body, vec![Stmt::Let { name: "n".to_owned(), expr: Expr::Lit(Lit::Float(2.0)) }]);
     let label = &lowered.iter().find(|(m, _)| m == "src/Label.tsx#Label").unwrap().1;
     assert_eq!(label.body, vec![Stmt::Let { name: "theme".to_owned(), expr: Expr::Coalesce(Box::new(Expr::Context("src/theme.ts#Theme".to_owned())), Box::new(Expr::lit_str("light"))) }]);
+  }
+
+  #[test]
+  fn use_and_use_context_read_a_context_wherever_an_expression_stands() {
+    let files = [
+      ("src/theme.ts", "import { createContext } from \"react\";\nexport const Theme = createContext(\"light\");\n"),
+      (
+        "src/Tag.tsx",
+        "import * as React from \"react\";\nimport { use, useContext } from \"react\";\nimport { Theme } from \"./theme\";\nexport function Tag({ compact }: { compact: boolean }) {\n  const a = use(Theme);\n  const b = compact ? use(Theme) : \"plain\";\n  const c = React.use(Theme);\n  return <i className={useContext(Theme)} title={React.useContext(Theme)}>{a} {b} {c} {use(Theme)}</i>;\n}\n",
+      ),
+      ("routes/a/page.tsx", "import { Theme } from \"../../src/theme\";\nimport { Tag } from \"../../src/Tag\";\nexport default function A() {\n  return <Theme.Provider value=\"dark\"><Tag compact={true} /></Theme.Provider>;\n}\n"),
+    ];
+    let lowered = lower(&files, "routes/a/page.tsx#default").unwrap();
+    let tag = &lowered.iter().find(|(m, _)| m == "src/Tag.tsx#Tag").unwrap().1;
+    let read = Expr::Coalesce(Box::new(Expr::Context("src/theme.ts#Theme".to_owned())), Box::new(Expr::lit_str("light")));
+    assert_eq!(tag.body[0], Stmt::Let { name: "a".to_owned(), expr: read.clone() });
+    assert_eq!(tag.body[2], Stmt::Let { name: "c".to_owned(), expr: read });
+    let reads = format!("{:?} {:?}", tag.body, tag.render).matches("Context(\"src/theme.ts#Theme\")").count();
+    assert_eq!(reads, 6, "{:?} {:?}", tag.body, tag.render);
+  }
+
+  #[test]
+  fn use_of_something_other_than_a_context_stays_residue() {
+    let files = [("routes/a/page.tsx", "import { use } from \"react\";\nexport default function A({ pending }: { pending: Promise<string> }) {\n  const name = use(pending);\n  return <p>{name}</p>;\n}\n")];
+    let err = lower(&files, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`use` of something other than a `createContext`"), "{err}");
+    let inline = [("routes/a/page.tsx", "import { use } from \"react\";\nexport default function A({ pending }: { pending: Promise<string> }) {\n  return <p>{use(pending)}</p>;\n}\n")];
+    let err = lower(&inline, "routes/a/page.tsx#default").unwrap_err().to_string();
+    assert!(err.contains("`use` of something other than a `createContext`"), "{err}");
   }
 
   #[test]

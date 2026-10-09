@@ -3,6 +3,7 @@ import { Island } from "@snapfire/fsr-authoring/template";
 
 import { Theme } from "@src/theme";
 import Label from "@src/ui/Label";
+import Tag from "@src/ui/Tag";
 
 export default function Themed({ mode }: { mode: string }) {
   const [current, setCurrent] = useState(mode);
@@ -10,6 +11,7 @@ export default function Themed({ mode }: { mode: string }) {
     <Theme.Provider value={current}>
       <div className="themed">
         <Label name="inline" />
+        <Tag loud={true} />
         <Island>
           <Label name="island" />
         </Island>

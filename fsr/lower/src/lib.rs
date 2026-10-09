@@ -706,6 +706,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) temps: usize,
   /// Names bound to a `new Map(...)` or a `new Set(...)`, with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
   pub(crate) kinds: Vec<(String, Expr, Collection)>,
+  /// The React contexts a component's file names, by local name: the id and the default value.
+  pub(crate) contexts: std::collections::HashMap<String, (String, Expr)>,
 }
 
 /// What a `new Map` or a `new Set` lowered to: an object keyed by `String(key)` or an array without repeats.
@@ -719,7 +721,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), contexts: std::collections::HashMap::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1538,10 +1540,32 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// React's `use(X)` or `useContext(X)` with `X` a `createContext` value: the nearest provider's value, else the default. `None` for any other call.
+  fn context_read(&mut self, call: &js::CallExpr, callee: &js::Expr) -> Lowered<Option<Expr>> {
+    let Some((source, imported)) = crate::component::imported_callee(self.parsed, callee) else { return Ok(None) };
+    if source != "react" || !(imported == "use" || imported == "useContext") {
+      return Ok(None);
+    }
+    let context = match call.args.first().map(|a| &*a.expr) {
+      Some(js::Expr::Ident(id)) => self.contexts.get(id.sym.as_ref()).cloned(),
+      _ => None,
+    };
+    let Some((id, default)) = context else {
+      return Err(match imported.as_str() {
+        "use" => self.residue(call.span, "`use` of something other than a `createContext` value; a promise is awaited in the browser"),
+        _ => self.residue(call.span, "`useContext` of something the build cannot follow to a `createContext`"),
+      });
+    };
+    Ok(Some(Expr::Coalesce(Box::new(Expr::Context(id)), Box::new(default))))
+  }
+
   pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));
     };
+    if let Some(read) = self.context_read(call, callee)? {
+      return Ok(read);
+    }
     let math = matches!(&**callee, js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if id.sym.as_ref() == "Math"));
     for arg in &call.args {
       if arg.spread.is_some() && !math {
