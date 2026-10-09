@@ -25,6 +25,8 @@ const TONIGHT: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/Ton
 const PLAN: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/PlanRecipe.vue");
 const SCALER: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/Scaler.vue");
 const STORE: &str = include_str!("../../examples/recipes_vue_ts/app/src/store.ts");
+const AMOUNT: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/Amount.vue");
+const SCALE: &str = include_str!("../../examples/recipes_vue_ts/app/src/ui/scale.ts");
 
 fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr_vue_{}_{tag}", std::process::id()));
@@ -166,12 +168,13 @@ fn agree(compiler: &Compiler, dir: &Path, file: &str, source: &str, props: &Valu
 #[test]
 fn the_recipes_components_render_what_vue_renders() {
   let compiler = Compiler::new().expect("the compiler boots");
-  let dir = app("recipes", &[("src/store.ts", STORE)]);
+  let dir = app("recipes", &[("src/store.ts", STORE), ("src/ui/Amount.vue", AMOUNT), ("src/ui/scale.ts", SCALE)]);
   let ingredients = Value::seq(vec![
     Value::Map(props(&[("name", Value::str("flour")), ("quantity", Value::F64(1.5)), ("unit", Value::str("cups"))])),
     Value::Map(props(&[("name", Value::str("eggs")), ("quantity", Value::F64(2.0)), ("unit", Value::str(""))])),
   ]);
-  let scaler = agree(&compiler, &dir, "src/ui/Scaler.vue", SCALER, &props(&[("serves", Value::F64(4.0)), ("ingredients", ingredients)]), "");
+  let tree = [("src/ui/Scaler.vue", "", SCALER), ("src/ui/Amount.vue", "@src/ui/Amount.vue", AMOUNT), ("src/ui/scale.ts", "@src/ui/scale", SCALE)];
+  let scaler = agree_tree(&compiler, &dir, &tree, "src/ui/Scaler.vue", &props(&[("serves", Value::F64(4.0)), ("ingredients", ingredients)]));
   assert!(scaler.contains("<li data-v-"), "the scope stamp is on every element: {scaler}");
   assert!(scaler.contains("<span class=\"quantity\" data-v-"), "{scaler}");
   assert!(scaler.contains("1.5 cups"), "{scaler}");
@@ -675,13 +678,17 @@ fn regular_expressions_render_what_javascript_matches() {
 /// Lowers `root` with every file in `files` described, renders it in Rust and with Vue's server renderer, each child's server module given under the specifier the parent imports it by, and compares the two.
 fn agree_tree(compiler: &Compiler, dir: &Path, files: &[(&str, &str, &str)], root: &str, props: &ValueMap) -> String {
   let mut set = ComponentSet::new(dir);
-  for (file, _, source) in files {
+  for (file, _, source) in files.iter().filter(|(f, _, _)| f.ends_with(".vue")) {
     set.describe(*file, describe(compiler, file, source));
   }
   set.lower(&format!("{root}#default")).unwrap_or_else(|e| panic!("{root} lowers: {e}"));
   let rust = render_rust(&set, &format!("{root}#default"), props, Vec::new());
   let mut modules = runtime();
   for (file, specifier, source) in files.iter().filter(|(f, _, _)| *f != root) {
+    if !file.ends_with(".vue") {
+      modules.insert((*specifier).to_owned(), strip_types(source));
+      continue;
+    }
     let Outcome::Ok(module) = compiler.ssr_module(file, source, &Options::default(), &Default::default()).expect("the driver answers") else { panic!("{file} compiles for the server") };
     let js = match module.lang {
       Lang::Ts => strip_types(&module.js),
