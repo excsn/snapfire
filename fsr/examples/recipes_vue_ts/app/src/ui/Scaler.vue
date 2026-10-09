@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, provide, ref } from "vue";
+
+import Amount from "@src/ui/Amount.vue";
+import { scaleKey } from "@src/ui/scale";
 
 interface Ingredient {
   name: string;
@@ -10,12 +13,8 @@ interface Ingredient {
 const props = defineProps<{ serves: number; ingredients: Ingredient[] }>();
 const wanted = ref(props.serves);
 
-const scaled = computed(() =>
-  props.ingredients.map((i) => ({
-    ...i,
-    quantity: Math.round((i.quantity * wanted.value * 100) / props.serves) / 100,
-  })),
-);
+const scale = computed(() => wanted.value / props.serves);
+provide(scaleKey, scale);
 
 function fewer(): void {
   if (wanted.value > 1) wanted.value -= 1;
@@ -35,8 +34,8 @@ function more(): void {
       <span v-if="wanted !== serves" class="scaled-note">scaled from {{ serves }}</span>
     </p>
     <ul>
-      <li v-for="i in scaled" :key="i.name">
-        <span class="quantity">{{ i.quantity }}{{ i.unit ? " " + i.unit : "" }}</span>
+      <li v-for="i in ingredients" :key="i.name">
+        <Amount :quantity="i.quantity" :unit="i.unit" />
         <span class="name">{{ i.name }}</span>
       </li>
     </ul>
@@ -81,8 +80,5 @@ li {
   grid-template-columns: 110px 1fr;
   padding: 4px 0;
   border-bottom: 1px dotted #e3e5ea;
-}
-.quantity {
-  font-variant-numeric: tabular-nums;
 }
 </style>
