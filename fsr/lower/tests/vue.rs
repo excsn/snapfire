@@ -1104,3 +1104,54 @@ fn an_island_reading_a_key_the_build_cannot_follow_reads_nothing_it_knows() {
   assert!(set.store_reads("src/ui/Dynamic.tsx").is_empty());
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const ASYNC_PARENT: &str = r#"<script setup lang="ts">
+import { defineAsyncComponent } from "vue";
+const Heavy = defineAsyncComponent(() => import("./Heavy.vue"));
+defineProps<{ n: number }>();
+</script>
+<template>
+  <div class="parent"><Heavy :n="n" /></div>
+</template>
+"#;
+
+const HEAVY: &str = r#"<script setup lang="ts">
+defineProps<{ n: number }>();
+</script>
+<template>
+  <p class="heavy">{{ n }}</p>
+</template>
+"#;
+
+#[test]
+fn an_async_child_component_is_placed_and_lowered_like_a_static_import() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("async_child", &[("src/Parent.vue", ASYNC_PARENT), ("src/Heavy.vue", HEAVY)]);
+  let mut set = ComponentSet::new(&dir);
+  set.describe("src/Parent.vue", describe(&compiler, "src/Parent.vue", ASYNC_PARENT));
+  set.describe("src/Heavy.vue", describe(&compiler, "src/Heavy.vue", HEAVY));
+  set.lower("src/Parent.vue#default").expect("the parent lowers with its async child placed");
+  assert!(set.components.iter().any(|(m, _)| m == "src/Heavy.vue#default"), "{:?}", set.components.iter().map(|(m, _)| m).collect::<Vec<_>>());
+  let html = render_rust(&set, "src/Parent.vue#default", &props(&[("n", Value::Int(3))]), Vec::new());
+  assert!(html.contains("<p class=\"heavy\">3</p>"), "{html}");
+}
+
+#[test]
+fn a_top_level_await_in_setup_is_refused_with_the_loader_named() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("setup_await", &[]);
+  let source = "<script setup lang=\"ts\">\nconst rows = await load();\n</script>\n<template>\n  <p>{{ rows.length }}</p>\n</template>\n";
+  let message = match lower(&compiler, &dir, "src/Waits.vue", source) {
+    Err(LowerError::Residue(residue)) => residue.message,
+    Err(other) => panic!("should be residue: {other}"),
+    Ok(_) => panic!("a top-level await lowered"),
+  };
+  assert!(message.contains("top-level `await`") && message.contains("page.loader.ts"), "{message}");
+  let source = "<script setup lang=\"ts\">\nawait warm();\n</script>\n<template>\n  <p>ready</p>\n</template>\n";
+  let message = match lower(&compiler, &dir, "src/WaitsBare.vue", source) {
+    Err(LowerError::Residue(residue)) => residue.message,
+    Err(other) => panic!("should be residue: {other}"),
+    Ok(_) => panic!("a bare top-level await lowered"),
+  };
+  assert!(message.contains("top-level `await`") && message.contains("page.loader.ts"), "{message}");
+}

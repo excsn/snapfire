@@ -12,6 +12,9 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// What a top-level `await` in `<script setup>` is told: the IR has no await in a render and the route's loader runs before it.
+const SETUP_AWAIT: &str = "a top-level `await` in `<script setup>`; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders";
+
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Entry, Expr, Handler, Lit, LogicOp, ScopedStyle, Stmt, Tmpl};
@@ -407,6 +410,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             _ => {}
           }
         }
+        if let js::Expr::Await(a) = &*e.expr {
+          return Err(self.lowerer.residue(a.span, SETUP_AWAIT));
+        }
         Err(self.setup_residue(e.span))
       }
       other => Err(self.setup_residue(other.span())),
@@ -436,6 +442,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   fn setup_decl(&mut self, decl: &'p js::VarDeclarator) -> Lowered<()> {
     let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
     let init = unwrap_types(init);
+    if let js::Expr::Await(a) = init {
+      return Err(self.lowerer.residue(a.span, SETUP_AWAIT));
+    }
     match &decl.name {
       js::Pat::Ident(name) => self.setup_binding(name.id.sym.to_string(), init, decl.span),
       pattern @ (js::Pat::Object(_) | js::Pat::Array(_)) => {
@@ -495,6 +504,11 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       return Ok(());
     }
     if let js::Expr::Call(call) = init {
+      if let js::Callee::Expr(callee) = &call.callee {
+        if matches!(self.lowerer.meanings.as_ref().and_then(|m| m.of_expr(callee)), Some(crate::meaning::Meaning::Library(crate::meaning::Construct::AsyncComponent))) {
+          return Ok(());
+        }
+      }
       if let Some((callee, source)) = self.callee(call) {
         let from_vue = source.as_deref() == Some("vue");
         match callee.as_str() {

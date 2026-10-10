@@ -20,7 +20,7 @@ use snapfire_fsr_ir::render::{html_attr_name, CONTEXT_PREFIX, HANDLER_ATTR, KEY_
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::VisitWith;
+use swc_core::ecma::visit::{Visit, VisitWith};
 
 use crate::assets::{self, AssetResolver, ImageFacts, ImageRequest, NoAssets};
 use crate::hoist::{self, Candidates, Hook, Rewrite};
@@ -439,8 +439,10 @@ impl ComponentSet {
         self.parsed[file].clone()
       }
     };
-    value_sources(&parsed.module)
-      .filter_map(|src| self.resolve_import(file, src.value.to_atom_lossy().as_ref()))
+    let sources: Vec<String> = value_sources(&parsed.module).map(|src| src.value.to_atom_lossy().to_string()).chain(dynamic_sources(&parsed.module)).collect();
+    sources
+      .iter()
+      .filter_map(|src| self.resolve_import(file, src))
       .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)) || self.described.contains_key(target))
       .collect()
   }
@@ -706,6 +708,9 @@ impl ComponentSet {
         let parsed = self.parsed[file].clone();
         let function = find_function(&parsed, export).ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() })?;
         let defaults = self.defaults.clone();
+        if let Some(span) = async_function_span(&parsed, export) {
+          return Err(Lowerer::new(&parsed, &defaults).residue(span, ASYNC_COMPONENT).into());
+        }
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
         lowerer.natives = self.natives.clone();
@@ -1088,6 +1093,10 @@ impl ComponentSet {
                 };
                 Meaning::Context { id: format!("{file}#{}", name.id.sym), default, react }
               }
+              Some(Meaning::Library(meaning::Construct::AsyncComponent)) => match lazy_import_source(call) {
+                Some(source) => self.imported_meaning(file, &source, "default"),
+                None => Meaning::Own { file: file.to_owned(), name: name.id.sym.to_string() },
+              },
               _ => Meaning::Own { file: file.to_owned(), name: name.id.sym.to_string() },
             },
             _ => Meaning::Own { file: file.to_owned(), name: name.id.sym.to_string() },
@@ -1597,6 +1606,73 @@ pub(crate) enum Found<'a> {
   Arrow(&'a js::ArrowExpr),
 }
 
+/// What an `async` component is told: the IR has no await in a render and the route's loader runs before it.
+pub(crate) const ASYNC_COMPONENT: &str = "an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders";
+
+/// The span of `export`'s function when it is `async`, found the way [`find_function`] finds it.
+pub(crate) fn async_function_span(parsed: &Parsed, export: &str) -> Option<Span> {
+  for item in &parsed.module.body {
+    match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) if export == "default" => {
+        if let js::DefaultDecl::Fn(f) = &d.decl {
+          return f.function.is_async.then_some(f.function.span);
+        }
+      }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => match &*e.expr {
+        js::Expr::Arrow(arrow) => return arrow.is_async.then_some(arrow.span),
+        js::Expr::Ident(id) => return async_function_span(parsed, id.sym.as_ref()),
+        _ => {}
+      },
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => {
+        if let Some(span) = decl_async_span(&export_decl.decl, export) {
+          return Some(span);
+        }
+      }
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => {
+        if let Some(span) = decl_async_span(decl, export) {
+          return Some(span);
+        }
+      }
+      _ => {}
+    }
+  }
+  None
+}
+
+fn decl_async_span(decl: &js::Decl, name: &str) -> Option<Span> {
+  match decl {
+    js::Decl::Fn(f) if f.ident.sym.as_ref() == name => f.function.is_async.then_some(f.function.span),
+    js::Decl::Var(var) => {
+      let decl = var.decls.iter().find(|d| matches!(&d.name, js::Pat::Ident(id) if id.id.sym.as_ref() == name))?;
+      match decl.init.as_deref()? {
+        js::Expr::Arrow(arrow) => arrow.is_async.then_some(arrow.span),
+        _ => None,
+      }
+    }
+    _ => None,
+  }
+}
+
+/// The specifier a `lazy(() => import("x"))` or `defineAsyncComponent(() => import("x"))` loads, from an arrow whose body is the import or returns it.
+fn lazy_import_source(call: &js::CallExpr) -> Option<String> {
+  let js::Expr::Arrow(arrow) = &*call.args.first()?.expr else { return None };
+  let expr: &js::Expr = match &*arrow.body {
+    js::ArrowFunctionBody::Expr(e) => e,
+    js::ArrowFunctionBody::FunctionBody(body) => match body.stmts.as_slice() {
+      [js::Stmt::Return(ret)] => ret.arg.as_deref()?,
+      _ => return None,
+    },
+  };
+  let js::Expr::Call(import) = crate::meaning::bare(expr) else { return None };
+  if !matches!(import.callee, js::Callee::Import(_)) {
+    return None;
+  }
+  match &*import.args.first()?.expr {
+    js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_atom_lossy().to_string()),
+    _ => None,
+  }
+}
+
 /// A route module split by [`ComponentSet::extract_route`].
 pub struct Extracted {
   /// The island's module id.
@@ -1688,6 +1764,24 @@ fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
       _ => None,
     }
   })
+}
+
+/// Every `import("literal")` in `module`, wherever it sits: a module the browser loads on demand, which the build compiles like one it imports statically and never preloads.
+fn dynamic_sources(module: &js::Module) -> Vec<String> {
+  struct Dynamic(Vec<String>);
+  impl Visit for Dynamic {
+    fn visit_call_expr(&mut self, call: &js::CallExpr) {
+      if matches!(call.callee, js::Callee::Import(_)) {
+        if let Some(js::Expr::Lit(js::Lit::Str(s))) = call.args.first().map(|a| &*a.expr) {
+          self.0.push(s.value.to_atom_lossy().to_string());
+        }
+      }
+      call.visit_children_with(self);
+    }
+  }
+  let mut found = Dynamic(Vec::new());
+  module.visit_with(&mut found);
+  found.0
 }
 
 /// The name `local` was imported under when its source satisfies `source_is`,

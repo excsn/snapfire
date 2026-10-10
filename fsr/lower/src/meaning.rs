@@ -36,6 +36,8 @@ pub(crate) enum Construct {
   Vue(&'static str),
   /// The `actions` object of the client module the build generates, whose property paths are action ids.
   GeneratedActions,
+  /// React's `lazy` or Vue's `defineAsyncComponent`: a component the browser loads on demand, which the server renders like any other since the build knows the module.
+  AsyncComponent,
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -78,6 +80,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("react", "useSyncExternalStore", Construct::Hook("useSyncExternalStore")),
   ("react", "useOptimistic", Construct::Hook("useOptimistic")),
   ("react", "useActionState", Construct::Hook("useActionState")),
+  ("react", "lazy", Construct::AsyncComponent),
   ("react-dom", "useFormStatus", Construct::Hook("useFormStatus")),
   ("@snapfire/fsr-client/react", "useStore", Construct::Hook("useStore")),
   ("@snapfire/fsr-client/react", "useLocale", Construct::Hook("useLocale")),
@@ -109,6 +112,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("vue", "readonly", Construct::Vue("readonly")),
   ("vue", "provide", Construct::Vue("provide")),
   ("vue", "inject", Construct::Vue("inject")),
+  ("vue", "defineAsyncComponent", Construct::AsyncComponent),
 ];
 
 /// Whether `module` is one the table speaks for, so an export it does not list is a library value the build does not read rather than the application's.
