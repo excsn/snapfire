@@ -379,7 +379,11 @@ pub fn fetch(app: &Path, refresh: bool) -> Result<TypesReport, BuildError> {
 pub(crate) fn fetch_missing_from(app: &Path, registry: &str) -> Result<TypesReport, BuildError> {
   let layout = Layout::of(app)?;
   let mut report = TypesReport::default();
-  if layout.xwpm || (missing(app)?.is_empty() && unmet(app)?.is_empty()) {
+  if layout.xwpm {
+    return Ok(report);
+  }
+  let declarations = Declarations::read(app)?;
+  if declarations.missing().is_empty() && declarations.unmet().is_empty() {
     return Ok(report);
   }
   let mut manifest = TypesManifest::read(app, &layout)?;
@@ -744,49 +748,77 @@ pub fn declared_packages(app: &Path, layout: &Layout) -> Result<Vec<(String, Typ
   Ok(out)
 }
 
-/// The [`needed`] packages with no declarations under `types/`. tsc reports a
-/// wanted one as an unresolved module per import and then hundreds of untyped
-/// JSX elements; under `skipLibCheck` it reports nothing for a dependency, only
-/// the names it would have supplied once the application imports them.
-pub fn missing(app: &Path) -> Result<Vec<String>, BuildError> {
-  let layout = Layout::of(app)?;
-  let present = declared_packages(app, &layout)?;
-  Ok(closure(app, &layout, &present)?.order.into_iter().filter(|package| !present.iter().any(|(name, _)| name == package)).collect())
+/// One reading of the types directory against what the application needs:
+/// the closure walked once, which every check a build makes reads.
+pub struct Declarations {
+  app: PathBuf,
+  layout: Layout,
+  present: Vec<(String, TypedPackage)>,
+  manifest: TypesManifest,
+  closure: Closure,
 }
 
-/// Each package on disk whose version a range asked of it refuses: the package, the version it holds and the range.
-pub fn unmet(app: &Path) -> Result<Vec<(String, String, Asked)>, BuildError> {
-  let layout = Layout::of(app)?;
-  let present = declared_packages(app, &layout)?;
-  let manifest = TypesManifest::read(app, &layout)?;
-  let closure = closure(app, &layout, &present)?;
-  let mut out = Vec::new();
-  for package in &closure.order {
-    let (Some(asks), Some(holding)) = (closure.asked.get(package), held(app, &layout, package, &manifest)) else { continue };
-    out.extend(refusing(asks, &holding).map(|ask| (package.clone(), holding.1.to_string(), ask.clone())));
+impl Declarations {
+  pub fn read(app: &Path) -> Result<Self, BuildError> {
+    let layout = Layout::of(app)?;
+    let present = declared_packages(app, &layout)?;
+    let manifest = TypesManifest::read(app, &layout)?;
+    let closure = closure(app, &layout, &present)?;
+    Ok(Self { app: app.to_path_buf(), layout, present, manifest, closure })
   }
-  Ok(out)
-}
 
-/// The `types` rows of the build report: one per package [`closure`] needs,
-/// each naming a range asked of it that the version it holds does not meet.
-pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
-  let layout = Layout::of(app)?;
-  let present = declared_packages(app, &layout)?;
-  let unmet = unmet(app)?;
-  let mut rows = Vec::new();
-  for package in closure(app, &layout, &present)?.order {
-    let mut row = match present.iter().find(|(n, _)| *n == package) {
-      Some((_, typed)) if typed.from.is_empty() => format!("{}/{package}", layout.types),
-      Some((_, typed)) => format!("{}/{package}  {} {}", layout.types, typed.from, typed.version),
-      None => "missing; run `fsr types`".to_owned(),
-    };
-    for (_, _, ask) in unmet.iter().filter(|(p, _, _)| *p == package) {
-      row.push_str(&format!("; {} asks {}", ask.by, ask.range));
+  /// The needed packages with no declarations under `types/`. tsc reports a
+  /// wanted one as an unresolved module per import and then hundreds of
+  /// untyped JSX elements; under `skipLibCheck` it reports nothing for a
+  /// dependency, only the names it would have supplied once the application
+  /// imports them.
+  pub fn missing(&self) -> Vec<String> {
+    self.closure.order.iter().filter(|package| !self.present.iter().any(|(name, _)| name == *package)).cloned().collect()
+  }
+
+  /// Each package on disk whose version a range asked of it refuses: the package, the version it holds and the range.
+  pub fn unmet(&self) -> Vec<(String, String, Asked)> {
+    let mut out = Vec::new();
+    for package in &self.closure.order {
+      let (Some(asks), Some(holding)) = (self.closure.asked.get(package), held(&self.app, &self.layout, package, &self.manifest)) else { continue };
+      out.extend(refusing(asks, &holding).map(|ask| (package.clone(), holding.1.to_string(), ask.clone())));
     }
-    rows.push((package, row));
+    out
   }
-  Ok(rows)
+
+  /// The `types` rows of the build report: one per package the closure
+  /// needs, each naming a range asked of it that the version it holds does not meet.
+  pub fn status(&self) -> Vec<(String, String)> {
+    let unmet = self.unmet();
+    let mut rows = Vec::new();
+    for package in &self.closure.order {
+      let mut row = match self.present.iter().find(|(n, _)| n == package) {
+        Some((_, typed)) if typed.from.is_empty() => format!("{}/{package}", self.layout.types),
+        Some((_, typed)) => format!("{}/{package}  {} {}", self.layout.types, typed.from, typed.version),
+        None => "missing; run `fsr types`".to_owned(),
+      };
+      for (_, _, ask) in unmet.iter().filter(|(p, _, _)| p == package) {
+        row.push_str(&format!("; {} asks {}", ask.by, ask.range));
+      }
+      rows.push((package.clone(), row));
+    }
+    rows
+  }
+}
+
+/// [`Declarations::missing`] of one reading.
+pub fn missing(app: &Path) -> Result<Vec<String>, BuildError> {
+  Ok(Declarations::read(app)?.missing())
+}
+
+/// [`Declarations::unmet`] of one reading.
+pub fn unmet(app: &Path) -> Result<Vec<(String, String, Asked)>, BuildError> {
+  Ok(Declarations::read(app)?.unmet())
+}
+
+/// [`Declarations::status`] of one reading.
+pub fn status(app: &Path) -> Result<Vec<(String, String)>, BuildError> {
+  Ok(Declarations::read(app)?.status())
 }
 
 /// What `[build] target` and `[build] lib` in the configuration beside an application ask every generated tsconfig to carry.

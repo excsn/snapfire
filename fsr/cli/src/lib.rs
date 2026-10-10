@@ -529,6 +529,8 @@ pub struct Built {
   pub browser_routes: Vec<String>,
   /// Every file the browser loads: the ones it loads by name, the routes among them, and every local file they import. The bundle and `fsr test` compile these.
   pub browser_files: Vec<String>,
+  /// The packages the build needs declarations for that `types/` lacks, from the reading the report's `types` rows came from.
+  pub missing_declarations: Vec<String>,
   /// Files the bundle overlay holds alone: islands split out of pages and the copies a second JSX runtime compiles.
   pub added: Vec<String>,
   /// What the build derived from the images and fonts, written as `generated/assets.json`.
@@ -1408,9 +1410,11 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   files.extend(vue_declarations);
   let mut report = report;
-  report.types = types::status(app)?;
+  let declarations = types::Declarations::read(app)?;
+  report.types = declarations.status();
+  let missing_declarations = declarations.missing();
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
-  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, browser_files, added: generated_files, assets: assets_manifest, resolver })
+  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, browser_files, missing_declarations, added: generated_files, assets: assets_manifest, resolver })
 }
 
 /// The files the browser loads by name: every island the registry mounts and

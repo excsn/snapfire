@@ -755,7 +755,7 @@ pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Resu
   let mut built = crate::build_with(&app.dir, &app.options.build, &mut plugins)?;
   let rest = (|| -> Result<(Vec<PathBuf>, Option<Checked>), BuildError> {
     let mut written = write(&app.dir, &built)?;
-    let missing = crate::types::missing(&app.dir)?;
+    let missing = built.missing_declarations.clone();
     if !missing.is_empty() {
       let failure = match &fetched {
         Err(e) => format!(" ({e})"),

@@ -32,6 +32,12 @@ impl std::fmt::Display for Refusal {
 pub struct Plugins {
   workers: BTreeMap<String, Worker>,
   refused: BTreeMap<String, Refusal>,
+  /// Per extension and file, the last unit described, as its JSON, with the
+  /// plugin's answer: a plugin answers the same unit the same way, so a
+  /// rebuild asks only about the files that changed.
+  described: BTreeMap<(String, String), (String, Outcome)>,
+  /// How many units a worker has been asked to describe.
+  sent: usize,
 }
 
 impl Plugins {
@@ -57,18 +63,35 @@ impl Plugins {
     Ok(self.workers.get_mut(ext).expect("just started"))
   }
 
+  /// How many units the plugins have been asked to describe, an answer kept from before not among them.
+  pub fn units_described(&self) -> usize {
+    self.sent
+  }
+
   /// The plugin's name for `ext`, for a message about something it said.
   pub(crate) fn name(&mut self, ext: &str) -> String {
     self.worker(ext).map(|worker| worker.name().to_owned()).unwrap_or_else(|_| format!("the `.{ext}` plugin"))
   }
 
-  /// Each unit as the plugin reads it. A worker that dies is dropped, so the next request starts it again.
+  /// Each unit as the plugin reads it, from the last answer for that unit
+  /// when nothing in it changed. A worker that dies is dropped with the
+  /// answers it gave, so the next request starts it again.
   pub(crate) fn describe(&mut self, ext: &str, units: Vec<Unit>) -> Result<Vec<Outcome>, Refusal> {
-    let answered = self.worker(ext)?.describe(units);
-    answered.map_err(|e| {
-      self.workers.remove(ext);
-      Refusal::Failed(e.to_string())
-    })
+    let keyed: Vec<((String, String), String)> = units.iter().map(|unit| ((ext.to_owned(), unit.filename.clone()), serde_json::to_string(unit).expect("a unit serializes"))).collect();
+    let fresh: Vec<usize> = (0..units.len()).filter(|&i| !self.described.get(&keyed[i].0).is_some_and(|(held, _)| *held == keyed[i].1)).collect();
+    if !fresh.is_empty() {
+      let asked: Vec<Unit> = fresh.iter().map(|&i| units[i].clone()).collect();
+      self.sent += asked.len();
+      let answered = self.worker(ext)?.describe(asked).map_err(|e| {
+        self.workers.remove(ext);
+        self.described.retain(|(e, _), _| e != ext);
+        Refusal::Failed(e.to_string())
+      })?;
+      for (&i, outcome) in fresh.iter().zip(answered) {
+        self.described.insert(keyed[i].0.clone(), (keyed[i].1.clone(), outcome));
+      }
+    }
+    Ok(keyed.iter().map(|(key, _)| self.described[key].1.clone()).collect())
   }
 
   /// Answers one request the driven compiler made.
