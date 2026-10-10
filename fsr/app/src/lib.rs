@@ -1099,7 +1099,7 @@ impl AppBuilder {
             sources: row.sources.clone(),
             compute: row.body.clone().map(|body| {
               let interpreter = interpreter.clone();
-              Arc::new(move |store: &Data| interpreter.compute(&body, store)) as snapfire_fsr_runtime::store::Compute
+              Arc::new(move |ctx: &RequestCtx, store: &Data| interpreter.compute(ctx, &body, store)) as snapfire_fsr_runtime::store::Compute
             }),
           })
           .collect(),

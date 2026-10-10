@@ -467,9 +467,9 @@ struct Seeded {
 }
 
 impl Seeded {
-  fn new(contributions: Vec<Contribution>, slot_order: &[String], derives: &[Derived]) -> Self {
+  fn new(ctx: &RequestCtx, contributions: Vec<Contribution>, slot_order: &[String], derives: &[Derived]) -> Self {
     let mut merged = merge_contributions(&contributions, slot_order);
-    apply_derives(&mut merged, derives);
+    apply_derives(ctx, &mut merged, derives);
     let mut pending = pending_keys(&contributions, slot_order);
     derived_pending(&mut pending, derives);
     Self { contributions, merged, pending }
@@ -696,7 +696,7 @@ impl Session {
     own.extend(self.promise(plan, path.clone()));
     let mut all = around;
     all.extend(own.iter().cloned());
-    let seeded = Seeded::new(all, &self.runtime.slot_order, &self.runtime.derives);
+    let seeded = Seeded::new(&self.ctx, all, &self.runtime.slot_order, &self.runtime.derives);
     let mut pending = Vec::new();
     let (node, children, _used_head, digest) = self.build(plan, &path, &loaded, &mut pending, &meta, &seeded).await?;
     let failed = loaded.failed.get(&page_of(plan).id.0).map(|e| e.kind);

@@ -325,6 +325,7 @@ mod derived {
   use std::sync::Arc;
 
   use snapfire_fsr_core::{Data, Value};
+  use snapfire_fsr_runtime::RequestCtx;
   use snapfire_fsr_runtime::store::{apply_derives, derive_order, derived_pending, Derived};
 
   fn int(store: &Data, key: &str) -> Option<i64> {
@@ -337,7 +338,7 @@ mod derived {
   fn sum(key: &str, sources: &[&str]) -> Derived {
     let read: Vec<String> = sources.iter().map(|s| (*s).to_owned()).collect();
     let from = read.clone();
-    Derived { key: key.to_owned(), sources: read, compute: Some(Arc::new(move |store: &Data| Some(Value::Int(from.iter().map(|s| int(store, s).unwrap_or(0)).sum::<i64>() as i128)))) }
+    Derived { key: key.to_owned(), sources: read, compute: Some(Arc::new(move |_: &RequestCtx, store: &Data| Some(Value::Int(from.iter().map(|s| int(store, s).unwrap_or(0)).sum::<i64>() as i128)))) }
   }
 
   fn store(pairs: &[(&str, i64)]) -> Data {
@@ -349,7 +350,7 @@ mod derived {
   fn a_derived_key_is_computed_after_the_derived_keys_it_reads_whatever_order_they_are_declared_in() {
     let derives = derive_order(vec![sum("twice", &["total", "total"]), sum("total", &["price", "qty"])]);
     let mut merged = store(&[("price", 3), ("qty", 4)]);
-    apply_derives(&mut merged, &derives);
+    apply_derives(&RequestCtx::anonymous(Default::default()), &mut merged, &derives);
     assert_eq!((int(&merged, "total"), int(&merged, "twice")), (Some(7), Some(14)));
   }
 
@@ -357,7 +358,7 @@ mod derived {
   #[test]
   fn a_derived_value_replaces_what_a_segment_seeded_for_the_key() {
     let mut merged = store(&[("price", 3), ("qty", 4), ("total", 1)]);
-    apply_derives(&mut merged, &derive_order(vec![sum("total", &["price", "qty"])]));
+    apply_derives(&RequestCtx::anonymous(Default::default()), &mut merged, &derive_order(vec![sum("total", &["price", "qty"])]));
     assert_eq!(int(&merged, "total"), Some(7));
   }
 
@@ -384,7 +385,7 @@ mod derived {
   fn a_derived_key_without_a_compute_is_left_out_of_the_store_and_pending() {
     let derives = derive_order(vec![Derived { key: "now".to_owned(), sources: Vec::new(), compute: None }]);
     let mut merged = store(&[("now", 5)]);
-    apply_derives(&mut merged, &derives);
+    apply_derives(&RequestCtx::anonymous(Default::default()), &mut merged, &derives);
     let mut pending = BTreeSet::new();
     derived_pending(&mut pending, &derives);
     assert_eq!((merged.get("now"), pending.contains("now")), (None, true));

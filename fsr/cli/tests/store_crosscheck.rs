@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use snapfire_fsr_cli::{test, Options};
 use snapfire_fsr_core::{Data, Value};
+use snapfire_fsr_runtime::RequestCtx;
 use snapfire_fsr_runtime::store::{apply_derives, derive_order, derived_pending, merge_contributions, pending_keys, Contribution, Derived};
 
 const CASES: usize = 400;
@@ -89,13 +90,13 @@ fn server(case: &Case) -> (Data, BTreeSet<String>) {
         Derived {
           key: key.clone(),
           sources: sources.clone(),
-          compute: Some(Arc::new(move |store: &Data| Some(Value::Int(read.iter().map(|s| match store.get(s) { Some(Value::Int(n)) => *n, _ => 0 }).sum())))),
+          compute: Some(Arc::new(move |_: &RequestCtx, store: &Data| Some(Value::Int(read.iter().map(|s| match store.get(s) { Some(Value::Int(n)) => *n, _ => 0 }).sum())))),
         }
       })
       .collect(),
   );
   let mut store = merge_contributions(&case.contributions, &case.slot_order);
-  apply_derives(&mut store, &derives);
+  apply_derives(&RequestCtx::anonymous(Default::default()), &mut store, &derives);
   let mut pending = pending_keys(&case.contributions, &case.slot_order);
   derived_pending(&mut pending, &derives);
   (store, pending)

@@ -328,7 +328,7 @@ The frameworks an application vendors, each at the major whose server markup the
 * `Interpreter::with_frameworks(self, frameworks: Frameworks) -> Interpreter` and `Interpreter::frameworks(&self) -> Frameworks`.
 * `Interpreter::with_island_reads(self, reads: BTreeMap<String, Vec<String>>) -> Interpreter`: the plan's `reads`. An island the renderer has no body for carries `$aw` with those of its keys that are pending.
 * `Interpreter::with_derives(self, derives: Vec<Derive>) -> Interpreter`: the plan's derived keys, each after the derived keys it reads. `pub struct Derive { pub key: String, pub sources: Vec<String>, pub body: Option<Expr> }`, re-exported at the root. A server-mode island that reads a derived key asks the browser for its sources too. `island_step` computes each derived key with a body again after the handler's writes and before the render, except a key the handler wrote itself. A derived key is never answered in `Stepped.store`.
-* `Interpreter::compute(&self, body: &Expr, store: &ValueMap) -> Option<Value>`: `body` evaluated with `store` as the render's store, `None` when it fails. The host's derive compute.
+* `Interpreter::compute(&self, ctx: &RequestCtx, body: &Expr, store: &ValueMap) -> Option<Value>`: `body` evaluated under `ctx` with `store` as the render's store, so `t()` and the locale read the request's, `None` when it fails. The host's derive compute.
 * A component a vendored framework hydrates renders under that framework's rules at the vendored major. A component hydrated by a framework the application does not vendor renders as plain markup. An `Fsr` component keeps its caller's rules. At the top of a render those are plain markup.
 
 | Written | React 18.3 | React 19 | Plain |

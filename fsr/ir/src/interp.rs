@@ -151,10 +151,11 @@ impl Interpreter {
     self
   }
 
-  /// What `body` computes over `store`, as a derived key's compute: `None`
-  /// when it fails, where the browser's compute would throw.
-  pub fn compute(&self, body: &Expr, store: &ValueMap) -> Option<Value> {
+  /// What `body` computes over `store` under `ctx`, as a derived key's
+  /// compute: `None` when it fails, where the browser's compute would throw.
+  pub fn compute(&self, ctx: &RequestCtx, body: &Expr, store: &ValueMap) -> Option<Value> {
     let mut env = Env::detached(self, Vec::new());
+    env.ctx = ctx.clone();
     env.store = store.clone();
     env.eval_sync(body).ok()
   }

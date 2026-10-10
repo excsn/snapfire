@@ -97,10 +97,10 @@ pub fn pending_keys(contributions: &[Contribution], slot_order: &[String]) -> st
   pending
 }
 
-/// What computes a derived key from the store it reads: the host's evaluation
-/// of the lowered body. `None` when the body fails at run time, where the
+/// What computes a derived key from the store it reads under the request:
+/// the host's evaluation of the lowered body, which reads the request's locale. `None` when the body fails at run time, where the
 /// browser's compute would throw; the key is then left out.
-pub type Compute = std::sync::Arc<dyn Fn(&Data) -> Option<snapfire_fsr_core::Value> + Send + Sync>;
+pub type Compute = std::sync::Arc<dyn Fn(&RequestCtx, &Data) -> Option<snapfire_fsr_core::Value> + Send + Sync>;
 
 /// A store key the browser's `derive` computes from others, which the server
 /// computes the same way so the first paint holds it. Without a compute, one
@@ -134,9 +134,9 @@ pub fn derive_order(derives: Vec<Derived>) -> Vec<Derived> {
 /// The merged `store` completed by `derives`, each in [`derive_order`]: a
 /// derived value replaces what a segment seeded for the key, as it does in
 /// the browser, where a derived value reads ahead of the merge.
-pub fn apply_derives(store: &mut Data, derives: &[Derived]) {
+pub fn apply_derives(ctx: &RequestCtx, store: &mut Data, derives: &[Derived]) {
   for derived in derives {
-    match derived.compute.as_ref().and_then(|compute| compute(store)) {
+    match derived.compute.as_ref().and_then(|compute| compute(ctx, store)) {
       Some(value) => {
         store.insert(derived.key.clone(), value);
       }

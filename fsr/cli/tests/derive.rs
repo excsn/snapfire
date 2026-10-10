@@ -107,3 +107,27 @@ fn derived_keys_that_feed_each_other_fail_the_build() {
   let why = refused(&main);
   assert!(why.contains("cycle") && why.contains("order/total") && why.contains("order/price"), "{why}");
 }
+
+#[test]
+fn a_derive_computes_under_the_request_s_locale() {
+  let main = DERIVE.replace("import { derive } from \"@snapfire/fsr-client/store\";", "import { derive } from \"@snapfire/fsr-client/store\";\nimport { t } from \"@snapfire/fsr-client/std\";").replace("(read) => (read(price) ?? 0) * (read(qty) ?? 0)", "(read) => t(\"order.total\", { count: (read(price) ?? 0) * (read(qty) ?? 0) })");
+  let total = TOTAL.replace("useStore(total, 0)", "useStore(total, \"\")");
+  let root = project("locale", &main, LOADER);
+  let app = root.join("app");
+  std::fs::write(app.join("src/Total.tsx"), total).unwrap();
+  std::fs::create_dir_all(app.join("locales")).unwrap();
+  std::fs::write(app.join("locales/en_US.toml"), "[order]\ntotal = \"{count} in all\"\n").unwrap();
+  std::fs::write(app.join("locales/fr_FR.toml"), "[order]\ntotal = \"{count} au total\"\n").unwrap();
+  let config = root.join("config/app.toml");
+  let toml = std::fs::read_to_string(&config).unwrap();
+  std::fs::write(&config, format!("{toml}\n[locales]\nsupported = [\"en_US\", \"fr_FR\"]\n")).unwrap();
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  write(&app, &built).unwrap();
+  let host = Host::from_config(Config::load(&root).unwrap()).unwrap().build().unwrap_or_else(|e| panic!("boots: {e}"));
+  let runtime = tokio::runtime::Runtime::new().unwrap();
+  let english = runtime.block_on(host.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
+  let french = runtime.block_on(host.render_to_string("/fr_FR/", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(shown(&english).ends_with("Total: 60 in all"), "{}", shown(&english));
+  assert!(shown(&french).ends_with("Total: 60 au total"), "{}", shown(&french));
+  let _ = std::fs::remove_dir_all(&root);
+}
