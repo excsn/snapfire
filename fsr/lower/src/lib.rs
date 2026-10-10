@@ -212,8 +212,7 @@ pub fn lower_loader(file: &str, source: &str) -> Result<Body, LowerError> {
 }
 
 pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError> {
-  let parsed = parse(file, source)?;
-  lower_loader_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+  component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_loader(file)
 }
 
 pub(crate) fn lower_loader_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
@@ -252,14 +251,12 @@ pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) ->
 /// function of the context returning the parameter sets the route
 /// prerenders, one object per path. `None` when the module exports no `paths`.
 pub fn lower_paths_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError> {
-  let parsed = parse(file, source)?;
-  lower_paths_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+  component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_paths(file)
 }
 
 /// An export whose input is the loader's data, bound as `data`.
 fn lower_of_data(file: &str, source: &str, defaults: &SessionDefaults, export: &str) -> Result<Option<Body>, LowerError> {
-  let parsed = parse(file, source)?;
-  lower_of_data_in(&parsed, defaults, &Resolved::default(), export).map_err(|(e, _)| e)
+  component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_of_data(file, export)
 }
 
 pub(crate) fn lower_of_data_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved, export: &str) -> Result<Option<Body>, Unresolved> {
@@ -292,8 +289,7 @@ pub fn lower_actions(file: &str, source: &str) -> Result<Vec<LoweredAction>, Low
 }
 
 pub fn lower_actions_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredAction>, LowerError> {
-  let parsed = parse(file, source)?;
-  lower_actions_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+  component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_actions(file)
 }
 
 pub(crate) fn lower_actions_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Vec<LoweredAction>, Unresolved> {
@@ -325,8 +321,7 @@ pub fn lower_handlers(file: &str, source: &str) -> Result<Vec<LoweredHandler>, L
 }
 
 pub fn lower_handlers_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredHandler>, LowerError> {
-  let parsed = parse(file, source)?;
-  lower_handlers_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+  component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_handlers(file)
 }
 
 pub(crate) fn lower_handlers_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Vec<LoweredHandler>, Unresolved> {
@@ -360,8 +355,7 @@ pub fn lower_middleware(file: &str, source: &str) -> Result<Body, LowerError> {
 }
 
 pub fn lower_middleware_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError> {
-  let parsed = parse(file, source)?;
-  lower_middleware_in(&parsed, defaults, &Resolved::default()).map_err(|(e, _)| e)
+  component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_middleware(file)
 }
 
 pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
@@ -392,6 +386,8 @@ pub(crate) struct Parsed {
   pub(crate) top: SyntaxContext,
   /// The syntax context of a name nothing in the module binds.
   pub(crate) unresolved: SyntaxContext,
+  /// What the module's names mean, filled when a component set resolves the file.
+  pub(crate) meanings: std::cell::OnceCell<std::rc::Rc<meaning::Meanings>>,
 }
 
 pub(crate) enum Exported<'a> {
@@ -451,7 +447,7 @@ pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, 
     let js::Program::Module(module) = program else { unreachable!("a module resolves to a module") };
     (module, SyntaxContext::empty().apply_mark(top_level), SyntaxContext::empty().apply_mark(unresolved))
   });
-  Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved })
+  Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new() })
 }
 
 impl Parsed {
@@ -566,20 +562,14 @@ impl Parsed {
   }
 }
 
-/// The source `action` and `fail` are written by an application's server tier.
-pub(crate) const SERVER_SOURCE: &str = "@snapfire/fsr";
-
 impl Parsed {
   /// Whether `callee` names `want` from the server tier, however the module
-  /// spelled it: the bare name, an aliased import or a namespace member.
+  /// reaches it; with no meanings resolved, the bare name nothing binds.
   pub(crate) fn names_server(&self, callee: &js::Callee, want: &str) -> bool {
-    let js::Callee::Expr(expr) = callee else { return false };
-    if let js::Expr::Ident(id) = &**expr {
-      if id.sym.as_ref() == want {
-        return true;
-      }
+    match self.meanings.get() {
+      Some(meanings) => meanings.names_server(callee, want),
+      None => matches!(callee, js::Callee::Expr(expr) if matches!(&**expr, js::Expr::Ident(id) if id.ctxt == self.unresolved && id.sym.as_ref() == want)),
     }
-    crate::component::imported_callee(self, expr).is_some_and(|(source, name)| source == SERVER_SOURCE && name == want)
   }
 
   fn classify<'a>(&'a self, init: &'a js::Expr) -> Exported<'a> {
@@ -734,7 +724,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1455,12 +1445,6 @@ impl<'a> Lowerer<'a> {
       .map_err(|_| self.residue(b.span, "a bigint literal outside 128 bits"))
   }
 
-  /// True when `name` is the client library's store `key`, however this
-  /// module spelled it.
-  pub(crate) fn is_store_key(&self, name: &str) -> bool {
-    crate::component::imported_as(self.parsed, name, |source| source == STORE_SPECIFIER).as_deref() == Some("key")
-  }
-
   /// A member read. Context roots become reads; anything else is a field.
   fn member(&mut self, member: &js::MemberExpr) -> Lowered<Expr> {
     let prop = |this: &mut Self| -> Lowered<Result<String, Expr>> {
@@ -1576,6 +1560,30 @@ impl<'a> Lowerer<'a> {
     if let Some(read) = self.context_read(call, callee)? {
       return Ok(read);
     }
+    if let Some(module) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)).and_then(|meant| meant.std()).filter(|module| *module != "native") {
+      if module != "t" {
+        return Err(self.residue(callee.span(), format!("`{module}` from the standard library is a module; call one of its members")));
+      }
+      let mut args = Vec::with_capacity(call.args.len());
+      for a in &call.args {
+        args.push(self.expr(&a.expr)?);
+      }
+      return Ok(self.candidate(call.span, Expr::Ext { module: "i18n".to_owned(), name: "t".to_owned(), args }));
+    }
+    if let js::Expr::Member(member) = &**callee {
+      if let Some(module) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&member.obj)).and_then(|meant| meant.std()) {
+        let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
+        let key = format!("{module}.{method}");
+        let reach = standard_reach(module, &method).ok_or_else(|| self.residue(member.span, format!("`{key}` is not a member of the standard library")))?;
+        self.check_reach(call.span, &key, reach)?;
+        let mut args = Vec::with_capacity(call.args.len());
+        for a in &call.args {
+          args.push(self.expr(&a.expr)?);
+        }
+        let expr = Expr::Ext { module: module.to_owned(), name: method, args };
+        return Ok(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr });
+      }
+    }
     if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::StoreKey)) {
       let named = call.args.first().ok_or_else(|| self.residue(call.span, "`key` takes the key's name"))?;
       return self.expr(&named.expr);
@@ -1620,18 +1628,6 @@ impl<'a> Lowerer<'a> {
           }
           return Ok(self.candidate(call.span, Expr::Apply { f, args }));
         }
-        if let Some((source, imported)) = crate::component::find_import(self.parsed, name) {
-          if source == STD_SPECIFIER {
-            if imported != "t" {
-              return Err(self.residue(id.span, format!("`{imported}` from the standard library is a module; call one of its members")));
-            }
-            let mut args = Vec::with_capacity(call.args.len());
-            for a in &call.args {
-              args.push(self.expr(&a.expr)?);
-            }
-            return Ok(self.candidate(call.span, Expr::Ext { module: "i18n".to_owned(), name: "t".to_owned(), args }));
-          }
-        }
         let one = |this: &mut Self| -> Lowered<Box<Expr>> {
           let a = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{name}` takes one argument")))?;
           Ok(Box::new(this.expr(&a.expr)?))
@@ -1641,7 +1637,6 @@ impl<'a> Lowerer<'a> {
           "Number" => Ok(Expr::Num(one(self)?)),
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
-          _ if self.is_store_key(name) => Ok(*one(self)?),
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           _ => {
             self.unbound = Some(name.to_owned());
@@ -1663,19 +1658,6 @@ impl<'a> Lowerer<'a> {
     if let js::Expr::Ident(obj) = &*member.obj {
       let global = obj.sym.as_ref();
       if !self.scope.iter().any(|(n, _)| n == global) && !self.globals.iter().any(|(n, _)| n == global) {
-        if let Some((source, imported)) = crate::component::find_import(self.parsed, global) {
-          if source == STD_SPECIFIER {
-            let key = format!("{imported}.{method}");
-            let reach = standard_reach(&imported, &method).ok_or_else(|| self.residue(member.span, format!("`{key}` is not a member of the standard library")))?;
-            self.check_reach(call.span, &key, reach)?;
-            let mut args = Vec::with_capacity(call.args.len());
-            for a in &call.args {
-              args.push(self.expr(&a.expr)?);
-            }
-            let expr = Expr::Ext { module: imported, name: method, args };
-            return Ok(if reach == Reach::Render { self.candidate(call.span, expr) } else { expr });
-          }
-        }
         match global {
           "Object" => {
             let a = call.args.first().ok_or_else(|| self.residue(call.span, format!("`Object.{method}` takes one argument")))?;
@@ -2086,7 +2068,7 @@ impl<'a> Lowerer<'a> {
       return Err(self.residue(spread.expr.span(), "a spread argument"));
     }
     let global = match &*n.callee {
-      js::Expr::Ident(id) if !self.scope.iter().any(|(name, _)| name == id.sym.as_ref()) && crate::component::find_import(self.parsed, id.sym.as_ref()).is_none() => id.sym.to_string(),
+      js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
       _ if intl_formatter(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
       other => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`")),
     };

@@ -56,7 +56,12 @@ const PROVIDING_PAGE: &str = "import { Theme } from \"@src/theme\";\nimport { La
 const STORE: &str = "import { key } from \"@snapfire/fsr-client/store\";\nexport const count = key<number>(\"c\");\n";
 const CLOCK: &str = "import { useState } from \"react\";\nexport function Clock() {\n  const [n, setN] = useState(7);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n";
 
+const CARD: &str = "export function Card({ title }: { title: string }) {\n  return <h3>{title}</h3>;\n}\n";
+const COUNTER_HOOK: &str = "import { useState } from \"react\";\nexport function useCounter(start: number) {\n  const [n, setN] = useState(start);\n  return { n, bump: () => setN(n + 1) };\n}\n";
+
 const CONSTRUCTS: &[Construct] = &[
+  Construct { name: "app component", module: "@src/Card", export: "Card", at: PAGE, files: &[("src/Card.tsx", CARD), (PAGE, "HEADER\nexport default function A() {\n  return <main><REF title=\"x\" /></main>;\n}\n")] },
+  Construct { name: "app hook", module: "@src/counter", export: "useCounter", at: PAGE, files: &[("src/counter.ts", COUNTER_HOOK), (PAGE, "HEADER\nexport default function A() {\n  const { n, bump } = REF(3);\n  return <button onClick={bump}>{n}</button>;\n}\n")] },
   Construct { name: "useState", module: "react", export: "useState", at: PAGE, files: &[(PAGE, "HEADER\nexport default function A() {\n  const [n, setN] = REF(2);\n  return <button onClick={() => setN(n + 1)}>{n}</button>;\n}\n")] },
   Construct { name: "useMemo", module: "react", export: "useMemo", at: PAGE, files: &[(PAGE, "HEADER\nexport default function A() {\n  const v = REF(() => 3, []);\n  return <p>{v}</p>;\n}\n")] },
   Construct { name: "useRef", module: "react", export: "useRef", at: PAGE, files: &[(PAGE, "HEADER\nexport default function A() {\n  const r = REF(5);\n  return <p>{r.current}</p>;\n}\n")] },
@@ -194,6 +199,83 @@ fn a_local_that_shadows_an_import_lowers_as_the_local_it_is() {
       let twin = if *name == "Island" { "Twice" } else { "twice" };
       let reference = normal(outcome(&[(PAGE.to_owned(), (*renamed).to_owned())]), twin);
       (got != reference).then(|| format!("a local `{name}`: {} (renamed {})", short(&got), short(&reference)))
+    })
+    .collect();
+  assert!(differ.is_empty(), "{} of {}:\n{}", differ.len(), cases.len(), differ.join("\n"));
+}
+
+/// What a module lowers to, as text a spelling's run is compared by: the
+/// actions of an actions module, the page component's tree and handlers, or
+/// the rows of a module under `ext/`.
+fn lowered(files: &[(String, String)], what: &str, file: &str) -> String {
+  let dir = app(files);
+  let mut set = ComponentSet::new(&dir);
+  let text = match what {
+    "actions" => format!("{:?}", set.lower_actions(file).map(|actions| actions.iter().map(|a| format!("{} {:?} {:?}", a.export, a.input, a.body)).collect::<Vec<_>>())),
+    "extensions" => format!("{:?}", set.lower_extensions(file)),
+    _ => match set.lower(&format!("{file}#default")) {
+      Ok(()) => set.components.iter().find(|(m, _)| *m == format!("{file}#default")).map(|(_, c)| format!("{:?} {:?}", c.render, c.handlers)).unwrap_or_default(),
+      Err(e) => format!("refused: {e}"),
+    },
+  };
+  let _ = std::fs::remove_dir_all(&dir);
+  text
+}
+
+/// Server bodies, the standard library and the client's `action`, each spelled every way.
+#[test]
+fn every_spelling_of_a_server_construct_lowers_like_the_plainest() {
+  let server: &[(&str, &str, &str, &str, &str)] = &[
+    ("action", "@snapfire/fsr", "action", "actions", "HEADER\nimport type { ActionCtx } from \"@snapfire/fsr\";\ninterface AddInput { n: number }\nexport const add = REF(async ({ input }: ActionCtx<AddInput>) => ({ n: input.n }));\n"),
+    ("fail", "@snapfire/fsr", "fail", "actions", "HEADER\nimport { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\ninterface AddInput { n: number }\nexport const add = action(async ({ input }: ActionCtx<AddInput>) => {\n  if (input.n < 0) REF(\"invalid\", \"negative\");\n  return { n: input.n };\n});\n"),
+    ("t", "@snapfire/fsr-client/std", "t", "page", "HEADER\nexport default function A() {\n  return <p>{REF(\"greeting\")}</p>;\n}\n"),
+    ("std member", "@snapfire/fsr-client/std", "text", "page", "HEADER\nexport default function A() {\n  return <p>{REF.slug(\"A B\")}</p>;\n}\n"),
+    ("client action", "@snapfire/fsr-client", "action", "page", "HEADER\nconst save = REF(\"orders.save\");\nexport default function A() {\n  return <button onClick={() => void save({ id: 1 })}>save</button>;\n}\n"),
+    ("native", "@snapfire/fsr-client/std", "native", "extensions", "HEADER\nexport const label = REF(\"labels.label\");\n"),
+  ];
+  let mut differ = Vec::new();
+  let mut rows = 0;
+  for (name, module, export, what, source) in server {
+    let file = match *what {
+      "actions" => "routes/a/actions.ts",
+      "extensions" => "ext/labels.ts",
+      _ => PAGE,
+    };
+    let run = |spelling: Spelling| {
+      let (header, reference, extra) = spell(spelling, module, export);
+      let mut files = vec![(file.to_owned(), source.replace("HEADER", &header).replace("REF", &reference))];
+      files.extend(extra);
+      lowered(&files, what, file)
+    };
+    let reference = run(Spelling::Bare);
+    if reference.contains("refused") || reference.contains("Err(") {
+      differ.push(format!("{name} / Bare (the reference): {}", reference.chars().take(200).collect::<String>()));
+      continue;
+    }
+    for spelling in SPELLINGS.iter().skip(1) {
+      rows += 1;
+      let got = run(*spelling);
+      if got != reference {
+        differ.push(format!("{name} / {spelling:?}: {} (Bare {})", got.chars().take(200).collect::<String>(), reference.chars().take(120).collect::<String>()));
+      }
+    }
+  }
+  assert!(differ.is_empty(), "{} of {rows} spellings:\n{}", differ.len(), differ.join("\n"));
+}
+
+/// A local named like a server construct is the local.
+#[test]
+fn a_local_named_like_a_server_construct_is_the_local() {
+  let cases = [
+    ("fail", "actions", "routes/a/actions.ts", "import { action, fail } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\ninterface AddInput { n: number }\nexport const add = action(async ({ input }: ActionCtx<AddInput>) => {\n  const fail = (n: number) => n + 1;\n  return { n: fail(input.n) };\n});\n", "import { action, fail } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\ninterface AddInput { n: number }\nexport const add = action(async ({ input }: ActionCtx<AddInput>) => {\n  const bump = (n: number) => n + 1;\n  return { n: bump(input.n) };\n});\n", "bump"),
+    ("t", "page", PAGE, "import { t } from \"@snapfire/fsr-client/std\";\nexport default function A() {\n  return <ul>{[\"a\"].map((t) => <li>{t}</li>)}</ul>;\n}\n", "import { t } from \"@snapfire/fsr-client/std\";\nexport default function A() {\n  return <ul>{[\"a\"].map((bump) => <li>{bump}</li>)}</ul>;\n}\n", "bump"),
+  ];
+  let differ: Vec<String> = cases
+    .iter()
+    .filter_map(|(name, what, file, source, renamed, twin)| {
+      let got = lowered(&[((*file).to_owned(), (*source).to_owned())], what, file).replace(&format!("\"{name}\""), "\"LOCAL\"").replace(&format!("`{name}`"), "`LOCAL`");
+      let reference = lowered(&[((*file).to_owned(), (*renamed).to_owned())], what, file).replace(&format!("\"{twin}\""), "\"LOCAL\"").replace(&format!("`{twin}`"), "`LOCAL`");
+      (got != reference).then(|| format!("a local `{name}`: {} (renamed {})", got.chars().take(200).collect::<String>(), reference.chars().take(160).collect::<String>()))
     })
     .collect();
   assert!(differ.is_empty(), "{} of {}:\n{}", differ.len(), cases.len(), differ.join("\n"));

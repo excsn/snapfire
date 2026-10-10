@@ -12,7 +12,7 @@ use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
 use crate::assets::{self, AssetResolver, ImageFacts, ImageRequest};
-use crate::component::{asset_facts, asset_path, find_import, is_asset_record, HeadRow, RAW_ESCAPE};
+use crate::component::{asset_facts, asset_path, is_asset_record, HeadRow, RAW_ESCAPE};
 use crate::{prop_name, Lowered, Lowerer, Residue};
 
 /// Where an attribute was written, for the residue that refuses it.
@@ -315,11 +315,11 @@ fn asset_record(expr: &Expr) -> Option<Vec<(String, ImageFacts)>> {
 
 /// The app-relative path of the image `local` imports, when it is one.
 pub(crate) fn asset_import(lowerer: &Lowerer<'_>, local: &str) -> Option<String> {
-  let (source, imported) = find_import(lowerer.parsed, local)?;
-  if imported != "default" || assets::kind(&source) != Some(assets::Kind::Image) {
+  let Some(crate::meaning::Meaning::Asset { source }) = lowerer.meanings.as_ref()?.bindings.get(local) else { return None };
+  if assets::kind(source) != Some(assets::Kind::Image) {
     return None;
   }
-  asset_path(&lowerer.parsed.file, &source)
+  asset_path(&lowerer.parsed.file, source)
 }
 
 /// A `src`: the imported asset itself, its `.src`, an entry of an object

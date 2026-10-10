@@ -24,6 +24,16 @@ pub(crate) enum Construct {
   Placement(&'static str),
   /// The store's `key`, which names a store key by its string.
   StoreKey,
+  /// `action` or `fail` from the server tier.
+  Server(&'static str),
+  /// The client's `action("id")`, a handler's reference to an action by its id.
+  ClientAction,
+  /// An export of the standard library: `t`, `native`, `localeTag` or a member module such as `text`.
+  Std(&'static str),
+  /// A Vue composition function the Vue front end lowers: `ref`, `computed`, `provide`, `inject` and the rest.
+  Vue(&'static str),
+  /// The `actions` object of the client module the build generates, whose property paths are action ids.
+  GeneratedActions,
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -36,6 +46,10 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
     let mut rows: Vec<(&'static str, &'static str, Construct)> = LIBRARY.to_vec();
     for module in PLACEMENT_MODULES {
       rows.extend(PLACEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
+    }
+    let react_hooks: Vec<(&'static str, Construct)> = LIBRARY.iter().filter(|(m, _, c)| *m == "react" && matches!(c, Construct::Hook(_))).map(|(_, e, c)| (*e, *c)).collect();
+    for module in ["preact/hooks", "preact/compat"] {
+      rows.extend(react_hooks.iter().map(|(export, construct)| (module, *export, *construct)));
     }
     rows
   })
@@ -69,8 +83,28 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr-authoring/template", "createContext", Construct::CreateContext { react: false }),
   ("@snapfire/fsr-authoring/template", "use", Construct::Hook("use")),
   ("@snapfire/fsr-client/vue", "useStore", Construct::Hook("useStore")),
+  ("@snapfire/fsr-client/vue", "useLocale", Construct::Hook("useLocale")),
   ("@snapfire/fsr-client/store", "key", Construct::StoreKey),
   ("@snapfire/fsr-client", "key", Construct::StoreKey),
+  ("@snapfire/fsr-client", "action", Construct::ClientAction),
+  ("@snapfire/fsr", "action", Construct::Server("action")),
+  ("@snapfire/fsr", "fail", Construct::Server("fail")),
+  ("@snapfire/fsr-client/std", "t", Construct::Std("t")),
+  ("@snapfire/fsr-client/std", "native", Construct::Std("native")),
+  ("@snapfire/fsr-client/std", "localeTag", Construct::Std("localeTag")),
+  ("@snapfire/fsr-client/std", "intl", Construct::Std("intl")),
+  ("@snapfire/fsr-client/std", "text", Construct::Std("text")),
+  ("@snapfire/fsr-client/std", "time", Construct::Std("time")),
+  ("@snapfire/fsr-client/std", "crypto", Construct::Std("crypto")),
+  ("@snapfire/fsr-client/std", "id", Construct::Std("id")),
+  ("vue", "ref", Construct::Vue("ref")),
+  ("vue", "shallowRef", Construct::Vue("shallowRef")),
+  ("vue", "computed", Construct::Vue("computed")),
+  ("vue", "reactive", Construct::Vue("reactive")),
+  ("vue", "shallowReactive", Construct::Vue("shallowReactive")),
+  ("vue", "readonly", Construct::Vue("readonly")),
+  ("vue", "provide", Construct::Vue("provide")),
+  ("vue", "inject", Construct::Vue("inject")),
 ];
 
 /// Whether `module` is one the table speaks for, so an export it does not list is a library value the build does not read rather than the application's.
@@ -96,8 +130,10 @@ pub(crate) enum Meaning {
   Context { id: String, default: Expr, react: bool },
   /// The provider of the context `id`, as `X.Provider` or `const P = X.Provider` names it.
   Provider { id: String, react: bool },
-  /// A binding the module declares or imports from the application that is none of the above: a component, a helper, a value.
-  Own,
+  /// A binding the application declares that is none of the above, a component, a helper or a value, by the file that declares it and the name it is declared under there: `default` for a default export.
+  Own { file: String, name: String },
+  /// The default import of an image or a font, by the specifier it was imported from.
+  Asset { source: String },
   /// An import from a package the table does not speak for.
   Foreign,
 }
@@ -127,6 +163,28 @@ impl Meaning {
     }
   }
 
+  pub(crate) fn std(&self) -> Option<&'static str> {
+    match self {
+      Meaning::Library(Construct::Std(name)) => Some(name),
+      _ => None,
+    }
+  }
+
+  pub(crate) fn vue(&self) -> Option<&'static str> {
+    match self {
+      Meaning::Library(Construct::Vue(name)) => Some(name),
+      _ => None,
+    }
+  }
+
+  /// Where the application declares this: the file and the name there.
+  pub(crate) fn origin(&self) -> Option<(&str, &str)> {
+    match self {
+      Meaning::Own { file, name } => Some((file, name)),
+      _ => None,
+    }
+  }
+
   pub(crate) fn placement(&self) -> Option<&'static str> {
     match self {
       Meaning::Library(Construct::Placement(name)) => Some(name),
@@ -147,6 +205,15 @@ pub(crate) struct Meanings {
 }
 
 impl Meanings {
+  /// Whether `callee` is `want` from the server tier, or the bare name with nothing in the module binding it.
+  pub(crate) fn names_server(&self, callee: &js::Callee, want: &str) -> bool {
+    let js::Callee::Expr(expr) = callee else { return false };
+    if self.of_expr(expr).as_ref().is_some_and(|meant| matches!(meant, Meaning::Library(Construct::Server(name)) if *name == want)) {
+      return true;
+    }
+    matches!(&**expr, js::Expr::Ident(id) if id.ctxt == self.unresolved && id.sym.as_ref() == want)
+  }
+
   /// What `id` names where it is written: a module-level name's meaning, `None` for a local or a name nothing binds.
   pub(crate) fn of_ident(&self, id: &js::Ident) -> Option<&Meaning> {
     (id.ctxt == self.top).then(|| self.bindings.get(id.sym.as_ref())).flatten()

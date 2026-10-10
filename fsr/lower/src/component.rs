@@ -25,7 +25,7 @@ use swc_core::ecma::visit::VisitWith;
 use crate::assets::{self, AssetResolver, ImageFacts, ImageRequest, NoAssets};
 use crate::hoist::{self, Candidates, Hook, Rewrite};
 use crate::placements::{self, At, Attr, Placer, Value};
-use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, lower_paths_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Placement, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR, STD_SPECIFIER};
+use crate::{lower_actions_in, lower_handlers_in, lower_loader_in, lower_middleware_in, lower_of_data_in, lower_paths_in, parse_with, prop_name, Lowered, LowerError, Lowerer, LoweredAction, LoweredHandler, Parsed, Placement, Resolved, Residue, SessionDefaults, Unresolved, EXT_DIR};
 use snapfire_fsr_ir::Body;
 
 /// An import of components another framework mounts: the declaration as
@@ -185,12 +185,17 @@ impl ComponentSet {
 
   /// The loader module's `meta`, when it exports one.
   pub fn lower_meta(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
-    self.resolving_loop(file, |parsed, defaults, resolved| lower_of_data_in(parsed, defaults, resolved, "meta"))
+    self.lower_of_data(file, "meta")
+  }
+
+  /// The `meta` or `store` export of a loader module, as a function of `{ data }`.
+  pub(crate) fn lower_of_data(&mut self, file: &str, export: &str) -> Result<Option<Body>, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| lower_of_data_in(parsed, defaults, resolved, export))
   }
 
   /// The loader module's `store`, when it exports one.
   pub fn lower_store(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
-    self.resolving_loop(file, |parsed, defaults, resolved| lower_of_data_in(parsed, defaults, resolved, "store"))
+    self.lower_of_data(file, "store")
   }
 
   /// The store keys `file` reads through `useStore`, for an island the server
@@ -229,6 +234,9 @@ impl ComponentSet {
     if self.parsed.contains_key(file) {
       return Ok(());
     }
+    if self.parsed.contains_key(file) {
+      return Ok(());
+    }
     let (source, line) = match &described.script {
       Some(script) => (script.content.clone(), script.line as usize),
       None => (String::new(), 1),
@@ -261,6 +269,7 @@ impl ComponentSet {
   /// cannot be bound.
   fn resolving_loop<T>(&mut self, file: &str, lower: impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
     self.load(file)?;
+    self.meanings(file);
     let mut resolved = Resolved { globals: Vec::new(), natives: self.natives.clone() };
     loop {
       let parsed = self.parsed[file].clone();
@@ -285,6 +294,7 @@ impl ComponentSet {
   /// `native body`.
   pub fn lower_extensions(&mut self, file: &str) -> Result<Vec<(String, String)>, LowerError> {
     self.load(file)?;
+    self.meanings(file);
     let parsed = self.parsed[file].clone();
     let names: Vec<String> = parsed.exports().map(|(name, _)| name.to_owned()).collect();
     let mut rows = Vec::new();
@@ -433,7 +443,7 @@ impl ComponentSet {
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
     match crate::extract::extract(&parsed, &file, &slots, None) {
       Ok(Some(extraction)) => {
-        self.parsed.remove(&file);
+        self.forget(&file);
         self.provided.insert(file.clone(), extraction.page.clone());
         self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
         Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds }))
@@ -447,6 +457,14 @@ impl ComponentSet {
   /// lowerer cannot read, moves the part that holds it into an island beside
   /// it and lowers the page again. The island is then a component that does
   /// not lower, which the browser renders alone.
+  /// Drops what the set holds for `file` so it is read again: its parse, its
+  /// failure and every file's meanings, which copy what `file` exports.
+  fn forget(&mut self, file: &str) {
+    self.parsed.remove(file);
+    self.failed.remove(file);
+    self.meanings.clear();
+  }
+
   pub fn lower_route(&mut self, module: &str) -> Result<Option<Extracted>, LowerError> {
     let error = match self.lower(module) {
       Ok(()) => return Ok(None),
@@ -463,16 +481,14 @@ impl ComponentSet {
     let Ok(Some(extraction)) = crate::extract::extract(&parsed, &file, &slots, Some(offset)) else { return Err(error) };
     let forget = |set: &mut Self| {
       set.failed.remove(module);
-      set.failed.remove(&file);
-      set.parsed.remove(&file);
+      set.forget(&file);
     };
     forget(self);
     let before = self.provided.insert(file.clone(), extraction.page.clone());
     self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
     if self.lower(module).is_err() {
       forget(self);
-      self.failed.remove(&extraction.island_file);
-      self.parsed.remove(&extraction.island_file);
+      self.forget(&extraction.island_file);
       self.provided.remove(&extraction.island_file);
       match before {
         Some(source) => self.provided.insert(file.clone(), source),
@@ -655,10 +671,11 @@ impl ComponentSet {
       match result {
         Ok(done) => break (done, hoisting),
         Err(residue) => {
-          if let Some((name, from)) = wanted_hook {
-            if !hook_files.iter().any(|(n, _, _)| *n == name) {
-              if let Some(found) = self.hook_source(&from, &name) {
-                hook_files.push((name, found.0, found.1));
+          if let Some((name, origin)) = wanted_hook {
+            if let Some((declared, declared_name)) = origin.filter(|_| !hook_files.iter().any(|(n, _, _)| *n == name)) {
+              if self.load(&declared).is_ok() && find_function(&self.parsed[&declared].clone(), &declared_name).is_some() {
+                self.meanings(&declared);
+                hook_files.push((name, declared, declared_name));
                 continue;
               }
             }
@@ -805,6 +822,7 @@ impl ComponentSet {
     let module = format!("{file}#{export}");
     let described = self.described.get(file).cloned().expect("a described file");
     self.parse_described(file, &described)?;
+    self.meanings(file);
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let component = loop {
       let (result, unbound) = {
@@ -889,28 +907,30 @@ impl ComponentSet {
   /// local import, lowered as its own component; `Ns.Name` is `Name` from the
   /// file a namespace import binds as `Ns`.
   fn component_module(&mut self, file: &str, name: &str) -> Result<(String, Option<IslandTiming>), String> {
-    let parsed = self.parsed[file].clone();
-    if let Some((namespace, member)) = name.split_once('.') {
-      let source = find_namespace_import(&parsed, namespace).ok_or_else(|| format!("`{namespace}` is not a namespace import; `<{name}>` needs `import * as {namespace}`"))?;
-      let target = self.resolve_import(file, &source).ok_or_else(|| format!("`{namespace}` comes from `{source}`, which the build cannot follow"))?;
-      self.load(&target).map_err(|e| e.to_string())?;
-      return self.exported_component(&target, member);
-    }
-    if default_function_name(&parsed) == Some(name) {
-      return Ok((format!("{file}#default"), None));
-    }
-    if find_function(&parsed, name).is_some() {
-      return Ok((format!("{file}#{name}"), None));
-    }
-    if let Some((source, imported)) = find_import(&parsed, name) {
-      let target = self.resolve_import(file, &source).ok_or_else(|| format!("`{name}` comes from `{source}`, which the build cannot follow"))?;
-      if is_foreign(&target) {
-        return Ok((format!("{target}#{imported}"), None));
+    use crate::meaning::Meaning;
+    let meanings = self.meanings(file);
+    let (looked, meant) = match name.split_once('.') {
+      Some((namespace, member)) => match meanings.bindings.get(namespace) {
+        Some(ns @ Meaning::Namespace(_)) => (namespace, ns.member(member)),
+        Some(Meaning::Foreign) => (namespace, Some(Meaning::Foreign)),
+        _ => return Err(format!("`{namespace}` is not a namespace import; `<{name}>` needs `import * as {namespace}`")),
+      },
+      None => (name, meanings.bindings.get(name).cloned()),
+    };
+    match meant {
+      Some(Meaning::Own { file: declared, name: declared_name }) => {
+        if is_foreign(&declared) {
+          return Ok((format!("{declared}#{declared_name}"), None));
+        }
+        self.load(&declared).map_err(|e| e.to_string())?;
+        self.exported_component(&declared, &declared_name)
       }
-      self.load(&target).map_err(|e| e.to_string())?;
-      return self.exported_component(&target, &imported);
+      Some(Meaning::Foreign) => {
+        let source = find_import(&self.parsed[file].clone(), looked).map(|(source, _)| source).unwrap_or_default();
+        Err(format!("`{looked}` comes from `{source}`, which the build cannot follow"))
+      }
+      _ => Err(format!("`{name}` is not a component this file declares or imports")),
     }
-    Err(format!("`{name}` is not a component this file declares or imports"))
   }
 
   /// `export` of `file` as a component module: the function itself, or, when
@@ -928,18 +948,6 @@ impl ComponentSet {
       Ok(None) => Ok((format!("{file}#{export}"), None)),
       Err((_, message)) => Err(message),
     }
-  }
-
-  /// Where the custom hook `name`, called in `file`, is declared: the file and its export there.
-  fn hook_source(&mut self, file: &str, name: &str) -> Option<(String, String)> {
-    let parsed = self.parsed.get(file)?.clone();
-    if let Some((source, imported)) = find_import(&parsed, name) {
-      let target = self.resolve_import(file, &source)?;
-      self.load(&target).ok()?;
-      let held = self.parsed.get(&target)?.clone();
-      return find_function(&held, &imported).map(|_| (target, imported));
-    }
-    find_function(&parsed, name).map(|_| (file.to_owned(), name.to_owned()))
   }
 
   /// What every module-level name of `file` and every name it exports means,
@@ -977,6 +985,7 @@ impl ComponentSet {
           }
           js::ImportSpecifier::Named(_) => continue,
           js::ImportSpecifier::Default(d) if meaning::is_library(&source) => (&d.local, Meaning::Namespace(meaning::library_namespace(&source))),
+          js::ImportSpecifier::Default(d) if assets::kind(&source).is_some() => (&d.local, Meaning::Asset { source: source.clone() }),
           js::ImportSpecifier::Default(d) => (&d.local, self.imported_meaning(file, &source, "default")),
           js::ImportSpecifier::Namespace(ns) => (&ns.local, self.namespace_meaning(file, &source)),
         };
@@ -984,6 +993,17 @@ impl ComponentSet {
       }
     }
     for item in &parsed.module.body {
+      if let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) = item {
+        let named = match &d.decl {
+          js::DefaultDecl::Fn(f) => f.ident.as_ref(),
+          js::DefaultDecl::Class(c) => c.ident.as_ref(),
+          _ => None,
+        };
+        if let Some(id) = named {
+          meanings.bindings.insert(id.sym.to_string(), Meaning::Own { file: file.to_owned(), name: "default".to_owned() });
+        }
+        continue;
+      }
       let var = match item {
         js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) | js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) => var,
         js::ModuleItem::Stmt(js::Stmt::Decl(decl)) | js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl, .. })) => {
@@ -993,7 +1013,7 @@ impl ComponentSet {
             _ => None,
           };
           if let Some(name) = name {
-            meanings.bindings.insert(name, Meaning::Own);
+            meanings.bindings.insert(name.clone(), Meaning::Own { file: file.to_owned(), name });
           }
           continue;
         }
@@ -1012,12 +1032,12 @@ impl ComponentSet {
                 };
                 Meaning::Context { id: format!("{file}#{}", name.id.sym), default, react }
               }
-              _ => Meaning::Own,
+              _ => Meaning::Own { file: file.to_owned(), name: name.id.sym.to_string() },
             },
-            _ => Meaning::Own,
+            _ => Meaning::Own { file: file.to_owned(), name: name.id.sym.to_string() },
           },
-          Some(init @ (js::Expr::Ident(_) | js::Expr::Member(_))) => meanings.of_expr(init).unwrap_or(Meaning::Own),
-          _ => Meaning::Own,
+          Some(init @ (js::Expr::Ident(_) | js::Expr::Member(_))) => meanings.of_expr(init).unwrap_or_else(|| Meaning::Own { file: file.to_owned(), name: name.id.sym.to_string() }),
+          _ => Meaning::Own { file: file.to_owned(), name: name.id.sym.to_string() },
         };
         meanings.bindings.insert(name.id.sym.to_string(), meant);
       }
@@ -1033,7 +1053,7 @@ impl ComponentSet {
             _ => Vec::new(),
           };
           for name in names {
-            let meant = meanings.bindings.get(&name).cloned().unwrap_or(Meaning::Own);
+            let meant = meanings.bindings.get(&name).cloned().unwrap_or_else(|| Meaning::Own { file: file.to_owned(), name: name.clone() });
             meanings.exports.insert(name, meant);
           }
         }
@@ -1050,7 +1070,7 @@ impl ComponentSet {
                 let exported = n.exported.as_ref().map(export_name).unwrap_or_else(|| orig.clone());
                 let meant = match &source {
                   Some(source) => self.imported_meaning(file, source, &orig),
-                  None => meanings.bindings.get(&orig).cloned().unwrap_or(Meaning::Own),
+                  None => meanings.bindings.get(&orig).cloned().unwrap_or_else(|| Meaning::Own { file: file.to_owned(), name: orig.clone() }),
                 };
                 meanings.exports.insert(exported, meant);
               }
@@ -1061,7 +1081,7 @@ impl ComponentSet {
                 }
               }
               js::ExportSpecifier::Default(d) => {
-                let meant = meanings.bindings.get(d.exported.sym.as_ref()).cloned().unwrap_or(Meaning::Own);
+                let meant = meanings.bindings.get(d.exported.sym.as_ref()).cloned().unwrap_or_else(|| Meaning::Own { file: file.to_owned(), name: "default".to_owned() });
                 meanings.exports.insert("default".to_owned(), meant);
               }
               _ => {}
@@ -1077,10 +1097,14 @@ impl ComponentSet {
           }
         }
         js::ModuleDecl::ExportDefaultDecl(_) => {
-          meanings.exports.insert("default".to_owned(), Meaning::Own);
+          meanings.exports.insert("default".to_owned(), Meaning::Own { file: file.to_owned(), name: "default".to_owned() });
         }
         js::ModuleDecl::ExportDefaultExpr(e) => {
-          let meant = meanings.of_expr(&e.expr).unwrap_or(Meaning::Own);
+          let meant = match meanings.of_expr(&e.expr) {
+            Some(Meaning::Own { file: declared, .. }) if declared == file => Meaning::Own { file: file.to_owned(), name: "default".to_owned() },
+            Some(meant) => meant,
+            None => Meaning::Own { file: file.to_owned(), name: "default".to_owned() },
+          };
           meanings.exports.insert("default".to_owned(), meant);
         }
         _ => {}
@@ -1088,19 +1112,23 @@ impl ComponentSet {
     }
     self.meaning_in_progress.retain(|f| f != file);
     let meanings = Rc::new(meanings);
+    let _ = parsed.meanings.set(meanings.clone());
     self.meanings.insert(file.to_owned(), meanings.clone());
     meanings
   }
 
   /// What `export` of `source`, imported from `file`, means.
   fn imported_meaning(&mut self, file: &str, source: &str, export: &str) -> crate::meaning::Meaning {
-    use crate::meaning::{self, Meaning};
+    use crate::meaning::{self, Construct, Meaning};
+    if export == "actions" && is_generated_client(file, source) {
+      return Meaning::Library(Construct::GeneratedActions);
+    }
     if meaning::is_library(source) {
       return meaning::library(source, export).map(Meaning::Library).unwrap_or(Meaning::Foreign);
     }
     match self.resolve_import(file, source) {
-      Some(target) if is_foreign(&target) => Meaning::Own,
-      Some(target) => self.meanings(&target).exports.get(export).cloned().unwrap_or(Meaning::Own),
+      Some(target) if is_foreign(&target) => Meaning::Own { file: target, name: export.to_owned() },
+      Some(target) => self.meanings(&target).exports.get(export).cloned().unwrap_or(Meaning::Own { file: target, name: export.to_owned() }),
       None => Meaning::Foreign,
     }
   }
@@ -1125,20 +1153,29 @@ impl ComponentSet {
     if self.resolving.iter().any(|m| *m == key) {
       return Err(LowerError::Parse { file: file.to_owned(), message: format!("`{name}` is recursive, which the build cannot unroll") });
     }
+    let meanings = self.meanings(file);
     let parsed = self.parsed[file].clone();
-    if let Some((source, imported)) = find_import(&parsed, name) {
-      if imported == "default" {
-        if let Some(kind) = assets::kind(&source) {
-          let Some(path) = asset_path(file, &source) else { return Ok(None) };
-          return Ok(match kind {
-            assets::Kind::Image => self.assets.image(&path, &ImageRequest::default()).map(|facts| (asset_object(&facts), key)),
-            assets::Kind::Font => self.assets.font(&path).map(|url| (Expr::lit_str(url), key)),
-          });
-        }
+    match meanings.bindings.get(name) {
+      Some(crate::meaning::Meaning::Asset { source }) => {
+        let Some(path) = asset_path(file, source) else { return Ok(None) };
+        return Ok(match assets::kind(source) {
+          Some(assets::Kind::Image) => self.assets.image(&path, &ImageRequest::default()).map(|facts| (asset_object(&facts), key)),
+          Some(assets::Kind::Font) => self.assets.font(&path).map(|url| (Expr::lit_str(url), key)),
+          None => None,
+        });
       }
-      let Some(target) = self.resolve_import(file, &source) else { return Ok(None) };
-      self.load(&target)?;
-      return self.global(&target, &imported);
+      Some(crate::meaning::Meaning::Own { file: declared, name: declared_name }) if declared != file => {
+        let (declared, declared_name) = (declared.clone(), declared_name.clone());
+        self.load(&declared)?;
+        return self.global(&declared, &declared_name);
+      }
+      Some(crate::meaning::Meaning::Context { id, .. }) if !id.starts_with(&format!("{file}#")) => {
+        let Some((declared, declared_name)) = id.rsplit_once('#').map(|(f, n)| (f.to_owned(), n.to_owned())) else { return Ok(None) };
+        self.load(&declared)?;
+        return self.global(&declared, &declared_name);
+      }
+      Some(crate::meaning::Meaning::Library(_) | crate::meaning::Meaning::Foreign | crate::meaning::Meaning::Namespace(_)) => return Ok(None),
+      _ => {}
     }
     let Some(item) = find_value(&parsed, name) else { return Ok(None) };
     if let Global::Const(init) = &item {
@@ -1274,10 +1311,6 @@ pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-authoring/template", "@sn
 /// The client library's root, where `action` comes from.
 pub const CLIENT_SOURCE: &str = "@snapfire/fsr-client";
 
-pub(crate) fn is_template_source(source: &str) -> bool {
-  TEMPLATE_SOURCES.contains(&source)
-}
-
 /// Whether a file or a `file#export` module, is written in a language the
 /// build does not read. Such a component has no server body: a plugin
 /// compiles it for the browser and the page places it as an island.
@@ -1410,6 +1443,14 @@ fn island_alias_of(parsed: &Parsed, meanings: &crate::meaning::Meanings, name: &
 /// build generates: the property path is the id, `$root.blip` for
 /// `actions.$root.blip`. The generated module re-exports the client library's
 /// `action` under another name, so there is nothing here to follow by import.
+/// Whether `source`, imported from `file`, is the client module the build generates.
+fn is_generated_client(file: &str, source: &str) -> bool {
+  crate::resolve_specifier(file, source).is_some_and(|joined| {
+    let stem = joined.rsplit_once('.').filter(|(_, ext)| matches!(*ext, "ts" | "js")).map(|(stem, _)| stem).unwrap_or(&joined);
+    stem.ends_with("generated/client")
+  })
+}
+
 pub(crate) fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<String> {
   let mut path: Vec<String> = Vec::new();
   let mut cursor = callee;
@@ -1421,9 +1462,7 @@ pub(crate) fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<
         cursor = &member.obj;
       }
       js::Expr::Ident(root) => {
-        let source = find_import(parsed, root.sym.as_ref())?.0;
-        let file = source.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(&source);
-        if !file.ends_with("generated/client") {
+        if parsed.meanings.get()?.of_ident(root) != Some(&crate::meaning::Meaning::Library(crate::meaning::Construct::GeneratedActions)) {
           return None;
         }
         path.reverse();
@@ -1439,7 +1478,7 @@ pub(crate) fn generated_action_of(parsed: &Parsed, callee: &js::Expr) -> Option<
 pub(crate) fn action_alias_of(parsed: &Parsed, name: &str) -> Option<String> {
   let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
-  if imported_callee(parsed, callee).filter(|(source, _)| source == CLIENT_SOURCE).map(|(_, name)| name).as_deref() != Some("action") {
+  if parsed.meanings.get().and_then(|meanings| meanings.of_expr(callee)) != Some(crate::meaning::Meaning::Library(crate::meaning::Construct::ClientAction)) {
     return None;
   }
   match call.args.first().map(|a| &*a.expr) {
@@ -1515,18 +1554,6 @@ pub struct Extracted {
   pub holds: Vec<String>,
 }
 
-/// The name an `export default function Name` declaration gives itself, which
-/// is how the rest of its own file refers to it.
-fn default_function_name(parsed: &Parsed) -> Option<&str> {
-  parsed.module.body.iter().find_map(|item| match item {
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) => match &d.decl {
-      js::DefaultDecl::Fn(f) => f.ident.as_ref().map(|id| id.sym.as_ref()),
-      _ => None,
-    },
-    _ => None,
-  })
-}
-
 /// The span of `export default tree(...)` with `tree` from FSR's React
 /// module or its dialect, a spelling the build refuses.
 fn tree_call(parsed: &Parsed, meanings: &crate::meaning::Meanings) -> Option<Span> {
@@ -1593,24 +1620,6 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
   None
 }
 
-/// The source of `import * as local`.
-fn find_namespace_import(parsed: &Parsed, local: &str) -> Option<String> {
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
-    if import.type_only {
-      continue;
-    }
-    for spec in &import.specifiers {
-      if let js::ImportSpecifier::Namespace(ns) = spec {
-        if ns.local.sym.as_ref() == local {
-          return Some(import.src.value.to_atom_lossy().to_string());
-        }
-      }
-    }
-  }
-  None
-}
-
 /// The specifier string of every value import, `export * from` and
 /// `export { .. } from` in `module`.
 fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
@@ -1623,23 +1632,6 @@ fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
       _ => None,
     }
   })
-}
-
-/// `(source, imported name)` for whatever `expr` names, whether it is a local
-/// binding of a named import or a member of a namespace import. The imported
-/// name is what the build recognises a call by, so `import { action as act }`
-/// and `import * as fsr` reach the same place as `import { action }`.
-pub(crate) fn imported_callee(parsed: &Parsed, expr: &js::Expr) -> Option<(String, String)> {
-  match expr {
-    js::Expr::Ident(id) => find_import(parsed, id.sym.as_ref()),
-    js::Expr::Member(member) => {
-      let js::Expr::Ident(ns) = &*member.obj else { return None };
-      let js::MemberProp::Ident(name) = &member.prop else { return None };
-      let source = find_namespace_import(parsed, ns.sym.as_ref())?;
-      Some((source, name.sym.to_string()))
-    }
-    _ => None,
-  }
 }
 
 /// The name `local` was imported under when its source satisfies `source_is`,
@@ -1708,18 +1700,13 @@ pub(crate) fn is_asset_record(expr: &Expr) -> bool {
   !entries.is_empty() && entries.iter().all(|e| matches!(e, Entry::Field(_, value) if asset_facts(value).is_some()))
 }
 
-pub(crate) fn imported_as(parsed: &Parsed, local: &str, source_is: impl Fn(&str) -> bool) -> Option<String> {
-  find_import(parsed, local).filter(|(source, _)| source_is(source)).map(|(_, imported)| imported)
-}
-
 /// `native("module.member", f?)` from the standard library: the pair's
 /// name and its reach, `render` with a browser half and `body` without.
 /// `None` for any other initialiser.
 fn native_declaration(parsed: &Parsed, init: &js::Expr) -> Result<Option<(String, String, Reach)>, LowerError> {
   let js::Expr::Call(call) = init else { return Ok(None) };
   let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-  let Some((source, imported)) = imported_callee(parsed, callee) else { return Ok(None) };
-  if source != STD_SPECIFIER || imported != "native" {
+  if parsed.meanings.get().and_then(|meanings| meanings.of_expr(callee)).and_then(|meant| meant.std()) != Some("native") {
     return Ok(None);
   }
   let name = match call.args.first().map(|a| &*a.expr) {
@@ -2317,16 +2304,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// Whether a `use` call names one of the application's own hooks rather than React's or FSR client's.
   fn custom_hook(&self, name: &str) -> bool {
-    match find_import(self.lowerer.parsed, name) {
-      Some((source, _)) => !(source == "react" || source.starts_with("react-dom") || source.starts_with("@snapfire/") || source.starts_with("preact")),
-      None => !crate::meaning::LIBRARY.iter().any(|(_, _, construct)| matches!(construct, crate::meaning::Construct::Hook(hook) if *hook == name)),
+    use crate::meaning::{Construct, Meaning, LIBRARY};
+    match self.meanings().bindings.get(name) {
+      Some(Meaning::Own { .. } | Meaning::Foreign) => true,
+      Some(_) => false,
+      None => !LIBRARY.iter().any(|(_, _, construct)| matches!(construct, Construct::Hook(hook) if *hook == name)),
     }
   }
 
   /// A custom hook's call inlined: its body binds under a prefix of its own so two calls hold two sets of state. What it returns binds at the call site. A returned setter or function is a handler there, run by the browser.
   fn inline_hook(&mut self, hook: &str, call: &'p js::CallExpr, pattern: Option<&'p js::Pat>) -> Lowered<Option<Stmt>> {
     let Some((_, parsed, export)) = self.hooks.iter().find(|(n, _, _)| n == hook).cloned() else {
-      self.wanted_hook = Some((hook.to_owned(), self.lowerer.parsed.file.clone()));
+      let origin = match &call.callee {
+        js::Callee::Expr(callee) => self.meanings().of_expr(callee).and_then(|meant| meant.origin().map(|(f, n)| (f.to_owned(), n.to_owned()))),
+        _ => None,
+      };
+      self.wanted_hook = Some((hook.to_owned(), origin));
       return Err(self.lowerer.residue(call.span, format!("`{hook}`, a hook the build cannot follow")));
     };
     let Some(found) = find_function(parsed, &export) else { return Err(self.lowerer.residue(call.span, format!("`{hook}` is not a function the build can read"))) };
@@ -2344,8 +2337,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let hoisting = self.lowerer.hoisting.take();
     let depth = self.lowerer.scope.len();
     self.lowerer.parsed = parsed;
+    let outer_meanings = std::mem::replace(&mut self.lowerer.meanings, parsed.meanings.get().cloned());
     let returned = self.hook_body(&prefix, &params, body, args);
     self.lowerer.parsed = outer;
+    self.lowerer.meanings = outer_meanings;
     self.lowerer.hoisting = hoisting;
     self.lowerer.scope.truncate(depth);
     let returned = match returned {
@@ -2670,8 +2665,8 @@ struct ComponentLowerer<'a, 'p> {
   elements: Rc<HashMap<String, String>>,
   /// Custom hooks resolved so far: the name a call uses, the module that declares it and its export there.
   hooks: Vec<(String, &'p Parsed, String)>,
-  /// A custom hook a call named that `hooks` does not hold yet, with the file the call is in, so the set can find it and lower again.
-  wanted_hook: Option<(String, String)>,
+  /// A custom hook the body called that the set has not read yet, with where its meaning says it is declared.
+  wanted_hook: Option<(String, Option<(String, String)>)>,
   /// Lets an inlined custom hook bound, which the body places before the declaration that called it.
   pending_lets: Vec<Stmt>,
   /// How many custom hook calls have been inlined, which names each call's bindings apart.
@@ -2777,9 +2772,11 @@ const EFFECT_HOOKS: &[&str] = &["useEffect", "useLayoutEffect", "useInsertionEff
 fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Option<(&'a str, &'a js::CallExpr)> {
   let js::Expr::Call(call) = expr else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
-  if let Some(hook) = meanings.of_expr(callee).and_then(|meant| meant.hook()) {
+  let meant = meanings.of_expr(callee);
+  if let Some(hook) = meant.as_ref().and_then(|meant| meant.hook()) {
     return Some((hook, call));
   }
+  let declared_hook = meant.as_ref().and_then(|meant| meant.origin()).is_some_and(|(_, name)| name.starts_with("use"));
   let name = match &**callee {
     js::Expr::Ident(id) if id.ctxt == meanings.top || id.ctxt == meanings.unresolved => id.sym.as_ref(),
     js::Expr::Member(member) => {
@@ -2792,7 +2789,7 @@ fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Opt
     }
     _ => return None,
   };
-  name.starts_with("use").then_some((name, call))
+  (declared_hook || name.starts_with("use")).then_some((name, call))
 }
 
 impl<'a, 'p> ComponentLowerer<'a, 'p> {

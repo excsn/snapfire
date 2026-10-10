@@ -21,7 +21,7 @@ use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
 
 use crate::assets::AssetResolver;
-use crate::component::{action_alias_of, arrow_body, bind_object, bind_pattern, block_to_expr, find_import, generated_action_of, holds_act, imported_as, is_template_source, patterns, reach_under, FunctionBody, HandlerWalk, HeadRow};
+use crate::component::{action_alias_of, arrow_body, bind_object, bind_pattern, block_to_expr, generated_action_of, holds_act, patterns, reach_under, FunctionBody, HandlerWalk, HeadRow};
 use crate::placements::{self, At, Attr, Placer, Value};
 use crate::{Lowered, Lowerer, Residue};
 
@@ -417,16 +417,20 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     self.lowerer.residue_with(span, "a statement in `<script setup>` the build cannot follow", "a setup block the build reads is `const` bindings, `ref`, `computed`, `defineProps`, functions and the lifecycle calls the browser alone runs")
   }
 
-  /// The name a call's callee reaches, with the package it was imported from
-  /// when it was; a compiler macro like `defineProps` has no import.
+  /// The construct a call's callee is, by its library's name for it, with the
+  /// library: Vue's composition functions as `vue`, the client's `useStore` as
+  /// its Vue adapter. Any other binding is its own name with an empty library,
+  /// and a name nothing binds, a compiler macro like `defineProps`, has none.
   fn callee(&self, call: &js::CallExpr) -> Option<(String, Option<String>)> {
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Ident(id) = &**callee else { return None };
-    let name = id.sym.to_string();
-    match find_import(self.lowerer.parsed, &name) {
-      Some((source, imported)) => Some((imported, Some(source))),
-      None => Some((name, None)),
-    }
+    let meant = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id));
+    Some(match meant {
+      Some(meant) if meant.vue().is_some() => (meant.vue().unwrap_or_default().to_owned(), Some("vue".to_owned())),
+      Some(meant) if meant.hook().is_some() => (meant.hook().unwrap_or_default().to_owned(), Some(VUE_CLIENT.to_owned())),
+      Some(_) => (id.sym.to_string(), Some(String::new())),
+      None => (id.sym.to_string(), None),
+    })
   }
 
   fn setup_decl(&mut self, decl: &'p js::VarDeclarator) -> Lowered<()> {
@@ -641,7 +645,10 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   fn injection_key(&self, key: &js::Expr) -> Lowered<String> {
     match unwrap_types(key) {
       js::Expr::Lit(js::Lit::Str(s)) => Ok(format!("vue:{}", s.value.to_atom_lossy())),
-      js::Expr::Ident(id) => Ok(format!("vue:{}", find_import(self.lowerer.parsed, id.sym.as_ref()).map(|(_, imported)| imported).unwrap_or_else(|| id.sym.to_string()))),
+      js::Expr::Ident(id) => Ok(match self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).and_then(|meant| meant.origin()) {
+        Some((declared, name)) => format!("vue:{declared}#{name}"),
+        None => format!("vue:{}", id.sym),
+      }),
       other => Err(self.lowerer.residue(other.span(), "an injection key that is not a string or a name")),
     }
   }
@@ -746,7 +753,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// lowered the way every front end lowers it, or any other component,
   /// which the browser mounts.
   fn component_node(&mut self, node: &Node) -> Lowered<Tmpl> {
-    match imported_as(self.lowerer.parsed, &node.tag, is_template_source).as_deref() {
+    match self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(node.tag.as_str())).and_then(|meant| meant.placement()) {
       Some("Link") => {
         let attrs = self.placement_attrs(node)?;
         let children = self.children(&node.children)?;
@@ -839,8 +846,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// `<Child :prop="x">content</Child>` with `Child` a `.vue` file the script imports: a `Tmpl::Component` named by the import's local name, which the set resolves, lowers and checks the attributes of.
   fn child_component(&mut self, node: &Node) -> Lowered<Tmpl> {
     let local = pascal(&node.tag);
-    let source = find_import(self.lowerer.parsed, &local).map(|(source, _)| source);
-    if !source.as_deref().is_some_and(|s| s.ends_with(".vue")) {
+    let declared = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(&local)).and_then(|meant| meant.origin().map(|(f, _)| f.to_owned()));
+    let unfollowed = crate::component::find_import(self.lowerer.parsed, &local).is_some_and(|(source, _)| source.ends_with(".vue"));
+    if !declared.as_deref().is_some_and(|f| f.ends_with(".vue")) && !unfollowed {
       return Err(self.at(node.line, node.column, format!("`<{}>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else", node.tag)));
     }
     let mut props = Vec::new();
