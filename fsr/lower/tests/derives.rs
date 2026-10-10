@@ -27,7 +27,7 @@ fn derives(files: &[(&str, &str)]) -> Result<Vec<LoweredDerive>, String> {
 
 fn computed(row: &LoweredDerive) -> Option<Value> {
   let store: ValueMap = [("order/price", 12), ("order/qty", 5)].into_iter().map(|(k, v)| (k.to_owned(), Value::Int(v))).collect();
-  Interpreter::default().compute(row.body.as_ref()?, &store)
+  Interpreter::default().compute(&snapfire_fsr_runtime::RequestCtx::anonymous(Default::default()), row.body.as_ref()?, &store)
 }
 
 fn main_ts(header: &str, call: &str) -> String {
