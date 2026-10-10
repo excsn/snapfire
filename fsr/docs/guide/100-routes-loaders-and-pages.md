@@ -63,6 +63,8 @@ export const meta = ({ data }: MetaCtx<DataOf<typeof load>>) => ({
 });
 ```
 
+`[document] title_template` in `app.toml` writes a route's title around the application's, `"{page} · {title}"`, so the `meta` above returns `data.product.name` alone and every route stops repeating the suffix. A route whose title should stand alone, a sign-in page, returns `absolute: true` beside it. Both the title and the template take a message key with a literal fallback, `title = { key = "document.title", default = "Shopping" }`, read from the catalog of the request's locale, so a route with no `meta` is titled in the reader's language.
+
 The innermost route with a `meta` wins, so a layout's loader can set a default a page's overrides. A client-side navigation retitles the document from the payload and a page behind `loading.tsx` retitles it the moment its data arrives, since the meta rides with the streamed segment. Reading `params`, `query`, `session` or `now` inside `meta` is allowed and marks the route dynamic the way it would in `load`.
 
 ## Seeding the store

@@ -4,13 +4,13 @@ panels = "Every panel on this page is rendered by the server. The alert count in
 streaming = "Nothing here is fetched by the browser. The panels arrive as one server-rendered tree, and the parts that are slower than the rest stream in behind their own placeholders."
 
 [meta]
-summary.one = "{count} agent · Ops console"
-summary.other = "{count} agents · Ops console"
-agent = "{name} · Ops console"
+summary.one = "{count} agent"
+summary.other = "{count} agents"
+agent = "{name}"
 agent_description = "What {name} is running right now"
-account = "Account · Ops console"
-login = "Sign in · Ops console"
-settings = "Settings · Ops console"
+account = "Account"
+login = "Sign in"
+settings = "Settings"
 
 [header]
 agents = "Agents"
@@ -114,3 +114,7 @@ one_title = "Route one"
 one_body = "This page was rendered by the server and swapped in by the navigator. The counter above did not re-mount."
 two_title = "Route two"
 two_body = "Same layout, other page. Whatever the count was on route one, it still is."
+
+[document]
+title = "Ops console"
+title_template = "{page} · {title}"

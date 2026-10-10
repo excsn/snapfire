@@ -16,6 +16,7 @@ pub use c5store::SecretOptions;
 use ecies_25519::EciesX25519;
 use serde::Deserialize;
 
+use snapfire_fsr_core::ext::Catalogs;
 use snapfire_fsr_runtime::{HeadEl, Meta};
 
 use crate::HostError;
@@ -560,8 +561,15 @@ impl ClientBuild {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DocumentConfig {
+  /// The document's title, which a route's `meta` overrides.
   #[serde(default)]
-  pub title: String,
+  pub title: Text,
+  /// How a route's title is written into the document, `"{page} · {title}"`:
+  /// `{page}` is the route's title and `{title}` this document's. Absent, a
+  /// route's title is written as given. A `meta` returning `absolute: true`
+  /// is written as given either way.
+  #[serde(default)]
+  pub title_template: Option<Text>,
   #[serde(default)]
   pub entry: Option<String>,
   #[serde(default)]
@@ -649,11 +657,79 @@ impl DocumentConfig {
         children,
       });
     }
-    Ok(Meta {
-      title: None,
-      description: None,
-      head,
-    })
+    Ok(Meta { head, ..Meta::default() })
+  }
+}
+
+/// Text the document carries: a literal, or a message key read from the
+/// catalog of the request's locale with the literal it falls back to.
+/// `title = "Shop"` or `title = { key = "document.title", default = "Shop" }`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Text {
+  Literal(String),
+  Keyed { key: String, default: String },
+}
+
+impl Default for Text {
+  fn default() -> Self {
+    Text::Literal(String::new())
+  }
+}
+
+impl Text {
+  /// The literal: the text itself, or what a key falls back to.
+  pub fn literal(&self) -> &str {
+    match self {
+      Text::Literal(text) => text,
+      Text::Keyed { default, .. } => default,
+    }
+  }
+
+  pub fn is_keyed(&self) -> bool {
+    matches!(self, Text::Keyed { .. })
+  }
+
+  /// The text under `locale`: a key read from `catalogs`, which answers from
+  /// the default locale's table when `locale` has none, else the literal.
+  pub fn resolve(&self, catalogs: &Catalogs, locale: &str) -> String {
+    match self {
+      Text::Literal(text) => text.clone(),
+      Text::Keyed { key, default } => catalogs.lookup(locale, key).map(str::to_owned).unwrap_or_else(|| default.clone()),
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for Text {
+  fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+    struct Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for Visitor {
+      type Value = Text;
+
+      fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a string or a table with `key` and `default`")
+      }
+
+      fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<Text, E> {
+        Ok(Text::Literal(text.to_owned()))
+      }
+
+      fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Text, A::Error> {
+        let mut key = None;
+        let mut default = None;
+        while let Some(field) = map.next_key::<String>()? {
+          match field.as_str() {
+            "key" => key = Some(map.next_value::<String>()?),
+            "default" => default = Some(map.next_value::<String>()?),
+            other => return Err(serde::de::Error::unknown_field(other, &["key", "default"])),
+          }
+        }
+        let key = key.ok_or_else(|| serde::de::Error::missing_field("key"))?;
+        Ok(Text::Keyed { key, default: default.unwrap_or_default() })
+      }
+    }
+
+    deserializer.deserialize_any(Visitor)
   }
 }
 

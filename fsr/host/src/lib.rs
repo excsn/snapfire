@@ -942,6 +942,10 @@ pub type TopicRule = Arc<dyn Fn(&str, &SessionCell, Option<&Identity>) -> bool +
 struct Tables {
   app: App,
   head: Head,
+  /// `document.title` and `document.title_template` as configured; `head`
+  /// carries their literals and a keyed one is read per request under its locale.
+  title: config::Text,
+  title_template: Option<config::Text>,
   /// `[public]` as values, cloned into every request's `ctx.config`.
   public: ValueMap,
   /// `document.origin`, checked at boot, read by every request's `ctx.origin`.
@@ -1000,6 +1004,18 @@ struct SiteTables {
 }
 
 impl Tables {
+  /// The head with a keyed title or template read under `locale`; `None`
+  /// when neither is keyed and `head` already holds the text.
+  fn head_for(&self, locale: &str) -> Option<Head> {
+    if !self.title.is_keyed() && !self.title_template.as_ref().is_some_and(config::Text::is_keyed) {
+      return None;
+    }
+    let mut head = self.head.clone();
+    head.title = self.title.resolve(&self.catalogs, locale);
+    head.template = self.title_template.as_ref().map(|template| template.resolve(&self.catalogs, locale));
+    Some(head)
+  }
+
   /// The mounted site whose prefix covers `path`, longest first.
   fn site_for(&self, path: &str) -> Option<&SiteTables> {
     self.sites.iter().find(|s| s.covers(path))
@@ -1640,7 +1656,8 @@ impl Host {
         RenderMode::Fragment(_) => {}
       }
     }
-    if extra.is_empty() && styles.is_empty() && payload_catalog.is_none() {
+    let localized = t.head_for(&visit.locale.tag);
+    if extra.is_empty() && styles.is_empty() && payload_catalog.is_none() && localized.is_none() {
       return self
         .render_plan_with(
           t,
@@ -1655,7 +1672,7 @@ impl Host {
         )
         .await;
     }
-    let mut head = t.head.clone();
+    let mut head = localized.unwrap_or_else(|| t.head.clone());
     let mut parts = vec![t.head.rest.clone()];
     parts.extend(extra);
     head.rest = snapfire_fsr_core::Node::Seq(parts);
@@ -1870,7 +1887,7 @@ impl Host {
                 Incoming::anonymous(SessionCell::default()),
                 &served,
                 &locale,
-                &t.head,
+                t.head_for(&locale.tag).as_ref().unwrap_or(&t.head),
               )
               .await?;
             if let Some(kind) = rendered.failed {
@@ -4983,12 +5000,13 @@ impl HostBuilder {
     let styles = minified_urls(config.document.styles.clone().unwrap_or_default(), minified_bundle(&config));
     let entry = config.document.entry.as_deref().map(|entry| minified_url(entry, minified_bundle(&config)));
     let mut head = shell::head(
-      &config.document.title,
+      config.document.title.literal(),
       &styles,
       import_map.as_deref(),
       &preload,
       entry.as_deref(),
     );
+    head.template = config.document.title_template.as_ref().map(|template| template.literal().to_owned());
     head.head = config.document.head_meta()?.head;
     let font_css = assets_manifest.as_ref().map(|m| m.fonts.css.clone()).filter(|css| !css.is_empty());
     if let Some(manifest) = &assets_manifest {
@@ -5189,6 +5207,8 @@ impl HostBuilder {
       Tables {
         app,
         head,
+        title: config.document.title.clone(),
+        title_template: config.document.title_template.clone(),
         public,
         origin: config.origin()?,
         dev_bundle,

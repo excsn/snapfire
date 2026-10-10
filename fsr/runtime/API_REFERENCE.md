@@ -373,7 +373,7 @@ A deferred slot's eventual content.
 
 ### `Meta`
 
-`pub struct Meta { pub title: Option<String>, pub description: Option<String> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. A field left `None` keeps what the document has.
+`pub struct Meta { pub title: Option<String>, pub absolute: bool, pub description: Option<String>, pub head: Vec<HeadEl> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. A field left `None` keeps what the document has. `absolute` writes `title` as given rather than through the head's template.
 
 * `pub fn is_empty(&self) -> bool`
 
@@ -393,9 +393,11 @@ A deferred slot's eventual content.
 
 * `catalog: Option<String>`: the locale's message catalog as JSON when the browser needs it for this response; the payload carries it as a `D` row and the host sets it per request.
 
-`pub struct Head { pub title: String, pub description: Option<String>, pub rest: Node, pub entry: Option<String> }`. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `entry` names a module the browser must load for this response's islands beyond the document's own entry, a mounted site's; `Head::new` and the `From` conversions leave it `None`.
+`pub struct Head { pub title: String, pub template: Option<String>, pub description: Option<String>, pub rest: Node, pub entry: Option<String> }`. `template` is how a segment's title is written into the document, `{page}` the segment's title and `{title}` the default, each filled once; absent, a segment's title is written as given. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `entry` names a module the browser must load for this response's islands beyond the document's own entry, a mounted site's; `Head::new` and the `From` conversions leave it `None`.
 
-* `pub fn new(title: impl Into<String>, rest: Node) -> Self`: no default description.
+* `pub fn new(title: impl Into<String>, rest: Node) -> Self`: no default description and no template.
+* `pub fn title_for(&self, meta: &Meta) -> String`: the document's title under `meta`: the segment's title through the template unless `meta.absolute`, the default when it names none.
+* `pub fn settle(&self, meta: &mut Meta)`: writes `meta`'s title through the template and clears `absolute`, so what a payload or a streamed segment carries is the title as the document shows it.
 * `pub fn node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the chosen title is non-empty and `<meta name="description">` when a description was chosen, both escaped, then `head` with `meta` folded over it and the response's stylesheets; `rest` alone when none of those. The empty icon, a `link` with `rel="icon"` and `href="data:,"`, is dropped when the folded head carries any other icon. `HeadEl::is_icon` and `HeadEl::is_empty_icon` are those two tests.
 * `From<Node>`, `From<&Node>`: an empty title. `From<&Head>`: a clone.
 

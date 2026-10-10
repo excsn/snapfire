@@ -104,8 +104,9 @@ impl DataSource for IrSource {
 }
 
 /// A lowered `meta` describing the document from its loader's data, which
-/// the body reads as its input. It must return an object; `title` and
-/// `description` are read from it and anything else is ignored.
+/// the body reads as its input. It must return an object; `title`,
+/// `absolute`, `description` and `head` are read from it and anything else
+/// is ignored.
 pub struct IrMeta {
   source_id: String,
   body: Arc<Body>,
@@ -145,7 +146,12 @@ impl Metadata for IrMeta {
         Some(Value::Seq(items)) => items.iter().map(|item| head_element(&id, item)).collect::<Result<Vec<_>, _>>()?,
         Some(other) => return Err(LoadError { source_id: id, message: format!("meta.head must be a list, got {}", kind_name(other)), kind: FailureKind::Internal }),
       };
-      Ok(Meta { title: text("title")?, description: text("description")?, head })
+      let absolute = match map.get("absolute") {
+        Some(Value::Bool(absolute)) => *absolute,
+        None | Some(Value::Null) => false,
+        Some(other) => return Err(LoadError { source_id: id, message: format!("meta.absolute must be a boolean, got {}", kind_name(other)), kind: FailureKind::Internal }),
+      };
+      Ok(Meta { title: text("title")?, absolute, description: text("description")?, head })
     })
   }
 }

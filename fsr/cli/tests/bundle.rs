@@ -140,7 +140,7 @@ fn the_host_loads_the_configuration_the_bundle_wrote() {
   assert!(!layer.contains("document.head"), "an inferred value was written into the tree: {layer}");
 
   let bundled = Config::load(&out).expect("the host loads the tree it was handed");
-  assert_eq!(bundled.document.title, "t");
+  assert_eq!(bundled.document.title.literal(), "t");
   assert_eq!(
     bundled.document.head, project.document.head,
     "the tree's document differs from the project's"

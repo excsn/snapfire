@@ -659,15 +659,18 @@ impl Session {
       key,
       future: Box::pin(async move {
         match session.resolve_subtree(&child, path, around).await {
-          Ok((node, pending, segments, meta, contributions, _digest, _failed)) => Resolved {
-            slot,
-            key: resolved_key,
-            node,
-            segments,
-            pending,
-            meta,
-            contributions,
-          },
+          Ok((node, pending, segments, mut meta, contributions, _digest, _failed)) => {
+            session.head.settle(&mut meta);
+            Resolved {
+              slot,
+              key: resolved_key,
+              node,
+              segments,
+              pending,
+              meta,
+              contributions,
+            }
+          }
           Err(e) => Resolved {
             slot,
             key: resolved_key,
@@ -1204,9 +1207,8 @@ async fn assemble_in(
     keep: SegmentInfo::keep_of(plan),
   };
   let meta = Meta {
-    title: meta
-      .title
-      .or_else(|| (!head.title.is_empty()).then(|| head.title.clone())),
+    title: Some(head.title_for(&meta)).filter(|title| !title.is_empty()),
+    absolute: false,
     description: meta.description.or_else(|| head.description.clone()),
     head: meta.head,
   };

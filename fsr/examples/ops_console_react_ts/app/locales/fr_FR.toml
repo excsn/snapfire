@@ -4,13 +4,13 @@ panels = "Chaque panneau de cette page est rendu par le serveur. Le nombre d'ale
 streaming = "Le navigateur ne charge rien ici. Les panneaux arrivent en un seul arbre rendu par le serveur, et les parties plus lentes que les autres arrivent en flux derrière leurs propres attentes."
 
 [meta]
-summary.one = "{count} agent · Console ops"
-summary.other = "{count} agents · Console ops"
-agent = "{name} · Console ops"
+summary.one = "{count} agent"
+summary.other = "{count} agents"
+agent = "{name}"
 agent_description = "Ce que {name} exécute en ce moment"
-account = "Compte · Console ops"
-login = "Connexion · Console ops"
-settings = "Réglages · Console ops"
+account = "Compte"
+login = "Connexion"
+settings = "Réglages"
 
 [header]
 agents = "Agents"
@@ -118,3 +118,7 @@ one_title = "Route un"
 one_body = "Cette page a été rendue par le serveur et insérée par la navigation du client. Le compteur au-dessus n'a pas été remonté."
 two_title = "Route deux"
 two_body = "Même layout, autre page. Le compteur garde la valeur qu'il avait sur la route un."
+
+[document]
+title = "Console ops"
+title_template = "{page} · {title}"

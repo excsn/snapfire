@@ -662,14 +662,14 @@ fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
 
   let config = Loader::at(&root).deployment(deployment.clone()).config().unwrap();
   assert_eq!(
-    config.document.title, "Local",
+    config.document.title.literal(), "Local",
     "the app env overlay loads after the release env overlay"
   );
   assert_eq!(config.session.ttl, "4h", "the env-region file loads last");
   assert_eq!(config.sources.len(), 5);
 
   let config = Loader::at(&root).deployment(Deployment::default()).config().unwrap();
-  assert_eq!(config.document.title, "Local");
+  assert_eq!(config.document.title.literal(), "Local");
   assert_eq!(
     config.session.ttl, "1h",
     "no region and no development.toml, so app.toml's value stands"
@@ -677,7 +677,7 @@ fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
 
   let config = Loader::at(&root).deployment(deployment).extra("../override.toml").config().unwrap();
   assert_eq!(
-    config.document.title, "Extra",
+    config.document.title.literal(), "Extra",
     "an extra file loads last, relative to the config directory"
   );
   assert_eq!(config.session.ttl, "4h");
@@ -1837,8 +1837,7 @@ impl snapfire_fsr_runtime::Metadata for ItemsTitle {
     Box::pin(async move {
       Ok(snapfire_fsr_runtime::Meta {
         title: Some(format!("{count} items for {who}")),
-        description: None,
-        head: Vec::new(),
+        ..snapfire_fsr_runtime::Meta::default()
       })
     })
   }
@@ -2954,6 +2953,50 @@ async fn a_registered_native_pair_answers_a_lowered_body_and_an_unregistered_one
     "{}",
     host.report()
   );
+}
+
+#[tokio::test]
+async fn a_keyed_title_and_template_read_the_catalog_of_the_request_locale() {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("locales")).unwrap();
+  std::fs::write(dir.join("locales/en.toml"), "[document]\ntitle = \"Shop\"\ntemplate = \"{page} · {title}\"\n").unwrap();
+  std::fs::write(dir.join("locales/fr.toml"), "[document]\ntitle = \"Boutique\"\ntemplate = \"{title} : {page}\"\n").unwrap();
+  let toml = std::fs::read_to_string(dir.join("app.toml"))
+    .unwrap()
+    .replace(
+      "title = \"Test <app>\"",
+      "title = { key = \"document.title\", default = \"Test <app>\" }\ntitle_template = { key = \"document.template\", default = \"{page} - {title}\" }",
+    )
+    .replace("[session]", "[locales]\nsupported = [\"en\", \"fr\", \"de\"]\ndefault = \"en\"\n\n[session]");
+  std::fs::write(dir.join("app.toml"), toml).unwrap();
+  write_plan(
+    &dir,
+    r#"{ "version": 2, "routes": [
+      { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
+      { "pattern": "/named", "plan": { "id": 2, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 3, "module": "routes/index/page.tsx#default", "source": "named" } } ] } },
+      { "pattern": "/bare", "plan": { "id": 4, "module": "shell#document", "children": [ { "slot": "content", "node": { "id": 5, "module": "routes/index/page.tsx#default", "source": "bare" } } ] } } ],
+      "sources": [
+        { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts", "body": [ { "return": { "object": [] } } ] },
+        { "id": "named", "owner": "lowered", "module": "routes/named/page.loader.ts", "body": [ { "return": { "object": [] } } ], "meta": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Nozzle" } } ] } ] } } ] },
+        { "id": "bare", "owner": "lowered", "module": "routes/bare/page.loader.ts", "body": [ { "return": { "object": [] } } ], "meta": [ { "return": { "object": [ { "field": [ "title", { "lit": { "str": "Sign in" } } ] }, { "field": [ "absolute", { "lit": { "bool": true } } ] } ] } } ] } ] }"#,
+  );
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  let render = |path: &'static str| async { host.render_to_string(path, RenderMode::Html, SessionCell::default()).await.unwrap() };
+  assert!(render("/").await.contains("<title>Shop</title>"), "the key under the default locale");
+  assert!(render("/fr/").await.contains("<title>Boutique</title>"), "the key under the request's locale");
+  assert!(render("/de/").await.contains("<title>Shop</title>"), "a locale without a catalog reads the default locale's");
+  assert!(render("/named").await.contains("<title>Nozzle · Shop</title>"), "the template under the default locale");
+  assert!(render("/fr/named").await.contains("<title>Boutique : Nozzle</title>"), "the template under the request's locale");
+  assert!(render("/bare").await.contains("<title>Sign in</title>"), "an absolute title is written as given");
+  assert!(render("/fr/bare").await.contains("<title>Sign in</title>"));
+  let payload = host.render_to_string("/fr/named", RenderMode::Payload, SessionCell::default()).await.unwrap();
+  assert!(payload.contains("\nH {\"title\":\"Boutique : Nozzle\"}\n"), "the payload carries the title as the document shows it: {payload}");
+
+  std::fs::remove_file(dir.join("locales/en.toml")).unwrap();
+  std::fs::remove_file(dir.join("locales/fr.toml")).unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  let html = host.render_to_string("/named", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains("<title>Nozzle - Test &lt;app&gt;</title>"), "without catalogs both keys fall back to their literals: {html}");
 }
 
 #[tokio::test]
@@ -4942,10 +4985,10 @@ mod secrets {
     let loader = Loader::at(shell.join("app.toml"))
       .extra("extra.toml")
       .secrets(move |s| s.secret_keys_path = Some(keys.clone()));
-    assert_eq!(loader.config().unwrap().document.title, "Extra");
+    assert_eq!(loader.config().unwrap().document.title.literal(), "Extra");
     let mounted = loader.mount(site.join("app.toml")).config().unwrap();
     assert_eq!(mounted.session.key.as_deref(), Some("test-key"));
-    assert_eq!(mounted.document.title, "Test <app>");
+    assert_eq!(mounted.document.title.literal(), "Test <app>");
   }
 }
 

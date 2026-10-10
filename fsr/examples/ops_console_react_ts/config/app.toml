@@ -3,7 +3,8 @@ listen = "127.0.0.1:8090"
 prerender = "dist/prerender"
 
 [document]
-title = "Ops console"
+title = { key = "document.title", default = "Ops console" }
+title_template = { key = "document.title_template", default = "{page} · {title}" }
 
 [session]
 ttl = "1h"

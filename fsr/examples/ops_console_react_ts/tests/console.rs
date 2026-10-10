@@ -203,10 +203,12 @@ fn a_prefixed_locale_renders_the_help_page_in_french_and_the_default_is_unprefix
   assert!(french.contains("Comment ça marche"), "{french}");
   assert!(french.contains("<!--sf-g:routes/help/page.tsx#default@fr_FR-->"), "every segment key carries the locale: {french}");
   assert!(french.contains("<!--sf-g:routes/layout.tsx#default@fr_FR-->"), "{french}");
+  assert!(french.contains("<title>Console ops</title>"), "a route with no meta takes the document title from the French catalog: {french}");
 
   let english = block_on(app.render_to_string("/help", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(english.contains("<html lang=\"en-US\" data-sf-locale=\"en_US\">"), "{english}");
   assert!(english.contains("How this works"), "{english}");
+  assert!(english.contains("<title>Ops console</title>"), "{english}");
   assert!(english.contains("<!--sf-g:routes/help/page.tsx#default-->"), "the default locale leaves the key bare: {english}");
 
   let prefixed = block_on(app.render_to_string("/en_US/help", RenderMode::Html, SessionCell::default())).unwrap();

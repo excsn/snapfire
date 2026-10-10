@@ -48,7 +48,7 @@ impl Metadata for ProductMeta {
       Ok(Meta {
         title: Some(format!("{name} · Shop")),
         description: Some(format!("All about {name}")),
-        head: Vec::new(),
+        ..Meta::default()
       })
     })
   }
@@ -100,7 +100,7 @@ fn a_described_segment_titles_the_document_over_the_defaults() {
     Meta {
       title: Some("Nozzle <XL> · Shop".into()),
       description: Some("All about Nozzle <XL>".into()),
-      head: Vec::new()
+      ..Meta::default()
     }
   );
   let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
@@ -127,7 +127,7 @@ fn without_a_described_segment_the_head_keeps_its_defaults() {
     Meta {
       title: Some("Shop".into()),
       description: Some("A shop".into()),
-      head: Vec::new()
+      ..Meta::default()
     }
   );
   let wire: String = block_on(wire_stream(assembly).collect::<Vec<_>>()).concat();
@@ -177,6 +177,81 @@ fn a_deferred_segment_describes_the_document_when_it_resolves() {
   assert!(html[1].ends_with("<script>__sfFill(1);__sfHead({\"title\":\"Nozzle \\u003cXL> · Shop\",\"description\":\"All about Nozzle \\u003cXL>\"})</script>"), "{}", html[1]);
 }
 
+/// Titles the document after the product alone, leaving the suffix to the head's template.
+struct ProductName(bool);
+
+impl Metadata for ProductName {
+  fn describe(&self, _ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
+    let name = match data.get("name") {
+      Some(Value::Str(s)) => s.to_string(),
+      _ => String::new(),
+    };
+    let absolute = self.0;
+    Box::pin(async move { Ok(Meta { title: Some(name), absolute, ..Meta::default() }) })
+  }
+}
+
+fn runtime_titled(absolute: bool) -> Arc<Runtime> {
+  let mut sources = DataSources::new();
+  sources.insert_fn("product", |_p| async move {
+    let mut data = ValueMap::default();
+    data.insert("name".into(), Value::str("Nozzle {title}"));
+    Ok(data)
+  });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(Shell));
+  evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(Page));
+  Runtime::builder().sources(sources).evaluators(evaluators).meta("product", Arc::new(ProductName(absolute))).build()
+}
+
+fn templated_head() -> Head {
+  let mut head = head();
+  head.template = Some("{page} · {title}".to_owned());
+  head
+}
+
+#[test]
+fn a_template_writes_a_described_title_around_the_default_and_leaves_an_undescribed_one_alone() {
+  let assembly = block_on(assemble(&runtime_titled(false), &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
+  assert_eq!(assembly.meta.title.as_deref(), Some("Nozzle {title} · Shop"), "a token inside the page's title is not expanded");
+  let wire: String = block_on(wire_stream(assembly).collect::<Vec<_>>()).concat();
+  assert!(wire.contains("\nH {\"title\":\"Nozzle {title} · Shop\",\"description\":\"A shop\"}\n"), "{wire}");
+  let assembly = block_on(assemble(&runtime_titled(false), &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
+  let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
+  assert!(html.contains("<title>Nozzle {title} · Shop</title>"), "{html}");
+
+  let assembly = block_on(assemble(&runtime(), &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
+  assert_eq!(assembly.meta.title.as_deref(), Some("Nozzle <XL> · Shop · Shop"), "a title that carries its own suffix goes through the template as well");
+
+  let mut sources = DataSources::new();
+  sources.insert_fn("product", |_p| async move { Ok(ValueMap::default()) });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(Shell));
+  evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(Page));
+  let rt = Runtime::builder().sources(sources).evaluators(evaluators).build();
+  let assembly = block_on(assemble(&rt, &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
+  assert_eq!(assembly.meta.title.as_deref(), Some("Shop"), "without a described segment the default stands alone");
+}
+
+#[test]
+fn an_absolute_title_is_written_as_given() {
+  let assembly = block_on(assemble(&runtime_titled(true), &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
+  assert_eq!(assembly.meta, Meta { title: Some("Nozzle {title}".into()), description: Some("A shop".into()), ..Meta::default() });
+  let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
+  assert!(html.contains("<title>Nozzle {title}</title>"), "{html}");
+}
+
+#[test]
+fn a_deferred_segment_retitles_through_the_template() {
+  let assembly = block_on(assemble(&runtime_titled(false), &plan(true), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
+  let wire: Vec<String> = block_on(wire_stream(assembly).collect());
+  assert!(wire[0].contains("\nH {\"title\":\"Shop\",\"description\":\"A shop\"}\n"), "{}", wire[0]);
+  assert!(wire[1].ends_with("\nH {\"title\":\"Nozzle {title} · Shop\"}\n"), "{}", wire[1]);
+  let assembly = block_on(assemble(&runtime_titled(false), &plan(true), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
+  let html: Vec<String> = block_on(html_stream(assembly).collect());
+  assert!(html[1].ends_with("<script>__sfFill(1);__sfHead({\"title\":\"Nozzle {title} · Shop\"})</script>"), "{}", html[1]);
+}
+
 fn el(tag: &str, attrs: &[(&str, &str)]) -> HeadEl {
   HeadEl {
     tag: tag.to_owned(),
@@ -194,14 +269,15 @@ fn an_inner_segment_replaces_a_head_element_in_place_and_appends_the_rest() {
       el("meta", &[("property", "og:site_name"), ("content", "Shop")]),
       el("meta", &[("property", "og:type"), ("content", "website")]),
     ],
+    ..Meta::default()
   };
   outer.merge(Meta {
     title: Some("Nozzle".into()),
-    description: None,
     head: vec![
       el("meta", &[("property", "og:type"), ("content", "product")]),
       el("link", &[("rel", "canonical"), ("href", "/p/1")]),
     ],
+    ..Meta::default()
   });
 
   assert_eq!(outer.title.as_deref(), Some("Nozzle"));
@@ -232,17 +308,15 @@ fn an_inner_segment_replaces_a_head_element_in_place_and_appends_the_rest() {
 #[test]
 fn icons_of_different_sizes_are_different_elements() {
   let mut outer = Meta {
-    title: None,
-    description: None,
     head: vec![el("link", &[("rel", "icon"), ("sizes", "32x32"), ("href", "/a.png")])],
+    ..Meta::default()
   };
   outer.merge(Meta {
-    title: None,
-    description: None,
     head: vec![
       el("link", &[("rel", "icon"), ("sizes", "16x16"), ("href", "/b.png")]),
       el("link", &[("rel", "icon"), ("sizes", "32x32"), ("href", "/c.png")]),
     ],
+    ..Meta::default()
   });
   let hrefs: Vec<&str> = outer
     .head

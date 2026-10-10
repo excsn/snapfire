@@ -14,6 +14,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [ServerConfig](#serverconfig)
   * [TlsSection](#tlssection)
   * [socket](#socket)
+  * [Text](#text)
   * [DocumentConfig](#documentconfig)
   * [Csp](#csp)
   * [ClientBuild](#clientbuild)
@@ -143,9 +144,17 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `reload` (default `hup`): the signal that re-reads both files and swaps the certificate for the handshakes that follow. `hup`, `usr1`, `usr2` or `none`; anything else is a `HostError::Config` naming the four. Unix only: elsewhere a new certificate needs a restart.
 * `files(&self, root: &Path) -> (PathBuf, PathBuf)`: the two paths as resolved.
 
+### Text
+
+`pub enum Text { Literal(String), Keyed { key: String, default: String } }`. `Debug`, `Clone`, `PartialEq`, `Eq`, `Default` (an empty literal), `Deserialize` from a string or a table with `key` and `default`. Text the document carries: a literal or a message key read from the catalog of the request's locale with the literal it falls back to.
+
+* `pub fn literal(&self) -> &str`: the text itself or what a key falls back to.
+* `pub fn is_keyed(&self) -> bool`
+* `pub fn resolve(&self, catalogs: &Catalogs, locale: &str) -> String`: the text under `locale`; a key reads `catalogs`, which answers from the default locale's table when `locale` has none; absent there too, the literal.
+
 ### DocumentConfig
 
-* `title` (default empty), `entry: Option<String>`, `import_map: Option<String>` and `styles: Option<Vec<String>>`, stylesheet URLs linked in order, all three inferred when absent, `shell` (default `shell#document`), `origin: Option<String>`.
+* `title: Text` (default empty), `title_template: Option<Text>`, how a route's title is written into the document, `{page}` the route's and `{title}` the document's, absent meaning as given, `entry: Option<String>`, `import_map: Option<String>` and `styles: Option<Vec<String>>`, stylesheet URLs linked in order, all three inferred when absent, `shell` (default `shell#document`), `origin: Option<String>`.
 * `module_preload: bool` (default false): whether the head carries a `<link rel="modulepreload">` for every module the page fetches before the first island can mount, which is `entry`'s own static imports out of `Config::bundle`, the import map's answer for each bare specifier the bundle declares and whatever the embedded client reaches from those. A module an island pulls in with `import()` is left out, since which islands a document holds is not known until it renders. `entry` itself is left out too, being a `<script type="module">` already. A mounted site adds its own links beside its entry script, minus whatever the shell already covers.
 * `client: ClientBuild` (default `auto`): which build of the embedded client `/static/js/fsr/<name>.js` answers with.
 * `empty_icon: bool` (default true): when nothing under `icons/` gives the head an icon, `head` gains `<link rel="icon" href="data:,">`, so a browser does not request `/favicon.ico` and log the 404. The document drops it when a route's `meta` names any other icon. With a `csp` or `csp_report_only`, `data:` is added to `img-src` through `Csp::widen`. `false` turns it off.

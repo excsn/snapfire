@@ -96,6 +96,8 @@ impl HeadEl {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Meta {
   pub title: Option<String>,
+  /// `title` is written as given rather than through the head's template.
+  pub absolute: bool,
   pub description: Option<String>,
   pub head: Vec<HeadEl>,
 }
@@ -112,6 +114,7 @@ impl Meta {
   pub fn merge(&mut self, inner: Meta) {
     if inner.title.is_some() {
       self.title = inner.title;
+      self.absolute = inner.absolute;
     }
     if inner.description.is_some() {
       self.description = inner.description;
@@ -139,6 +142,10 @@ pub trait Metadata: Send + Sync {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Head {
   pub title: String,
+  /// How a segment's title is written into the document: `{page}` is the
+  /// segment's title and `{title}` the default. Absent, a segment's title is
+  /// written as given.
+  pub template: Option<String>,
   pub description: Option<String>,
   pub rest: Node,
   /// A module the browser must load for this response's islands beyond the
@@ -171,6 +178,7 @@ impl Head {
   pub fn new(title: impl Into<String>, rest: Node) -> Self {
     Self {
       title: title.into(),
+      template: None,
       description: None,
       rest,
       entry: None,
@@ -188,13 +196,38 @@ impl Head {
   /// The head node for a document: `rest`, then the title and description
   /// with `meta` overriding the defaults, then the response's own stylesheets
   /// last so they override what the document already links.
+  /// The document's title under `meta`: the segment's title through the
+  /// template unless it is absolute, the default when it names none.
+  pub fn title_for(&self, meta: &Meta) -> String {
+    match &meta.title {
+      Some(page) => self.titled(page, meta.absolute),
+      None => self.title.clone(),
+    }
+  }
+
+  /// Writes `meta`'s title through the template, so what the payload or a
+  /// streamed segment carries is the title as the document shows it.
+  pub fn settle(&self, meta: &mut Meta) {
+    if let Some(page) = &meta.title {
+      meta.title = Some(self.titled(page, meta.absolute));
+    }
+    meta.absolute = false;
+  }
+
+  fn titled(&self, page: &str, absolute: bool) -> String {
+    match &self.template {
+      Some(template) if !absolute => fill(template, page, &self.title),
+      _ => page.to_owned(),
+    }
+  }
+
   pub fn node(&self, meta: &Meta) -> Node {
-    let title = meta.title.as_deref().unwrap_or(&self.title);
+    let title = self.title_for(meta);
     let description = meta.description.as_deref().or(self.description.as_deref());
     let mut tail = String::new();
     if !title.is_empty() {
       tail.push_str("<title>");
-      tail.push_str(&escape(title));
+      tail.push_str(&escape(&title));
       tail.push_str("</title>");
     }
     if let Some(description) = description {
@@ -203,9 +236,8 @@ impl Head {
       tail.push_str("\">");
     }
     let mut merged = Meta {
-      title: None,
-      description: None,
       head: self.head.clone(),
+      ..Meta::default()
     };
     merged.merge(meta.clone());
     if merged.head.iter().any(|e| e.is_icon() && !e.is_empty_icon()) {
@@ -239,10 +271,34 @@ impl Head {
   }
 }
 
+/// `template` with `{page}` and `{title}` filled, each read once so a title
+/// holding either token is not expanded again.
+fn fill(template: &str, page: &str, title: &str) -> String {
+  let mut out = String::with_capacity(template.len() + page.len() + title.len());
+  let mut rest = template;
+  while let Some(at) = rest.find('{') {
+    out.push_str(&rest[..at]);
+    let tail = &rest[at..];
+    if let Some(after) = tail.strip_prefix("{page}") {
+      out.push_str(page);
+      rest = after;
+    } else if let Some(after) = tail.strip_prefix("{title}") {
+      out.push_str(title);
+      rest = after;
+    } else {
+      out.push('{');
+      rest = &tail[1..];
+    }
+  }
+  out.push_str(rest);
+  out
+}
+
 impl From<Node> for Head {
   fn from(rest: Node) -> Self {
     Self {
       title: String::new(),
+      template: None,
       description: None,
       rest,
       entry: None,
