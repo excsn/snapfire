@@ -68,3 +68,33 @@ fn nothing_runs_when_typechecking_is_off_or_no_checker_is_installed() {
   let no_tsconfig = Typecheck { enabled: true, checker: Some(checker), ..Typecheck::default() };
   assert!(typecheck::run(&bare, &no_tsconfig).unwrap().is_none());
 }
+
+/// `check` typechecks the `generated/` its own build produced, not what an earlier command left on disk.
+#[cfg(unix)]
+#[test]
+fn check_typechecks_the_generated_files_of_the_build_it_holds() {
+  use std::os::unix::fs::PermissionsExt;
+  use snapfire_fsr_cli::{build, check, write_generated, Options};
+  let dir = root("fresh");
+  let app = app_with_tsconfig(&dir);
+  std::fs::create_dir_all(app.join("routes/index")).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  std::fs::write(app.join("routes/index/page.tsx"), "export default function Page() {\n  return <p>page</p>;\n}\n").unwrap();
+  let loader = app.join("routes/index/page.loader.ts");
+  std::fs::write(&loader, "export async function load() {\n  return { count: 2 };\n}\n").unwrap();
+  let earlier = build(&app, &Options::default()).unwrap();
+  write_generated(&app, &earlier).unwrap();
+  assert!(std::fs::read_to_string(app.join("generated/client.ts")).unwrap().contains("count"));
+
+  std::fs::write(&loader, "export async function load() {\n  return { total: 2 };\n}\n").unwrap();
+  let checker = dir.join("snapfiretc");
+  std::fs::write(&checker, "#!/bin/sh\ncp \"$2/generated/client.ts\" \"$2/seen.ts\"\necho '{\"tsc\":\"/c/tsc\",\"version\":\"7.0.2\",\"source\":\"cache\",\"sha512\":null,\"pinned\":true,\"diagnostics\":[]}'\n").unwrap();
+  std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755)).unwrap();
+  let options = Typecheck { enabled: true, checker: Some(checker), ..Typecheck::default() };
+  let (built, checked) = check(&app, &Options::default(), &options, |_| {}).unwrap();
+  assert!(built.files.iter().any(|(name, text)| name == "generated/client.ts" && text.contains("total")));
+  assert_eq!(checked.expect("the checker ran").errors(), 0);
+  let seen = std::fs::read_to_string(app.join("seen.ts")).unwrap();
+  assert!(seen.contains("total") && !seen.contains("count"), "the checker read the build's own types: {seen}");
+}
+

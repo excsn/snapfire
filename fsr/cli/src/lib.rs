@@ -1580,6 +1580,17 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
   Ok(written)
 }
 
+/// `build`, then the typecheck over the build's own `generated/`, written
+/// first so the types the checker reads are the ones this build produced.
+/// `report` runs between the two, while the checker is still to come.
+pub fn check(app: &Path, options: &Options, typecheck: &typecheck::Typecheck, report: impl FnOnce(&Built)) -> Result<(Built, Option<typecheck::Checked>), BuildError> {
+  let built = build(app, options)?;
+  write_generated(app, &built)?;
+  report(&built);
+  let checked = typecheck::run(app, typecheck)?;
+  Ok((built, checked))
+}
+
 /// Writes the `generated/` files of `built` and nothing else: what the browser
 /// half of a test compiles against, so a run sees the build it was given
 /// rather than whatever the last `fsr build` left on disk.

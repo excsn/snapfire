@@ -10,7 +10,7 @@ use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::direction::{self, UseOptions};
-use snapfire_fsr_cli::{build, dev, emit, new, serve, sites, test, types, vendor, Options};
+use snapfire_fsr_cli::{check, dev, emit, new, serve, sites, test, types, vendor, Options};
 
 #[derive(Parser)]
 #[command(
@@ -640,14 +640,8 @@ fn run_check(args: Check) -> ExitCode {
   }
   let mut typecheck = Typecheck::beside(&args.app_dir);
   args.typecheck.apply(&mut typecheck);
-  match build(&args.app_dir, &options) {
-    Ok(built) => {
-      print!("{}", built.report);
-      match typecheck::run(&args.app_dir, &typecheck) {
-        Ok(checked) => types_row(checked.as_ref()),
-        Err(e) => failed(e),
-      }
-    }
+  match check(&args.app_dir, &options, &typecheck, |built| print!("{}", built.report)) {
+    Ok((_, checked)) => types_row(checked.as_ref()),
     Err(e) => failed(e),
   }
 }
