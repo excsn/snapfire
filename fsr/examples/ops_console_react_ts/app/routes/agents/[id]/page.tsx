@@ -21,9 +21,11 @@ export default function AgentPage({ agent, jobs, watched }: AgentsIdProps) {
       <p className="lede">
         {t("agent.lede", { region: agent.region, status: agent.status, queued: String(agent.queue_depth), cpu: agent.cpu.toFixed(1) })}
       </p>
-      <button className="btn" onClick={() => void (watched ? unwatch() : watch())}>
-        {watched ? t("agent.unwatch") : t("agent.watch")}
-      </button>
+      {watched ? (
+        <button className="btn" onClick={() => void unwatch()}>{t("agent.unwatch")}</button>
+      ) : (
+        <button className="btn" onClick={() => void watch()}>{t("agent.watch")}</button>
+      )}
       <h2>{t("agent.running")}</h2>
       <Island when="visible">
         <JobTimeline jobs={jobs} />

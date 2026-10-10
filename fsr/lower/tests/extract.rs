@@ -71,9 +71,45 @@ export default function List({ rows }: { rows: string[] }) {
 "#;
   let mut set = set(&[("routes/page.tsx", page)]);
   let extracted = set.extract_route("routes/page.tsx#default").unwrap().unwrap();
-  assert!(extracted.source.contains("<ul className=\"rows\">"), "the unit is the list, outside the callback: {}", extracted.source);
-  assert!(extracted.page.1.contains("<SfIsland rows={rows} />"), "{}", extracted.page.1);
+  assert!(extracted.source.contains("return (\n    rows.map((row) => <li key={row}>"), "the unit is the loop, outside the callback: {}", extracted.source);
+  assert!(!extracted.source.contains("<ul"), "the list stays on the page: {}", extracted.source);
+  assert!(extracted.page.1.contains("<ul className=\"rows\"><SfIsland rows={rows} /></ul>"), "{}", extracted.page.1);
   assert!(extracted.page.1.contains("<h1>rows</h1>"), "{}", extracted.page.1);
+}
+
+#[test]
+fn a_conditional_between_two_handled_buttons_moves_alone_and_the_element_around_it_stays() {
+  let page = r#"import { useState } from "react";
+export default function Agent({ name, watched }: { name: string; watched: boolean }) {
+  const [busy, setBusy] = useState(false);
+  function watch() {
+    setBusy(true);
+  }
+  function unwatch() {
+    setBusy(false);
+  }
+  return (
+    <article className="agent">
+      <h1>{name}</h1>
+      {watched ? <button onClick={unwatch}>Unwatch</button> : <button onClick={watch}>Watch</button>}
+      <h2>running</h2>
+    </article>
+  );
+}
+"#;
+  let mut set = set(&[("routes/page.tsx", page)]);
+  let extracted = set.extract_route("routes/page.tsx#default").unwrap().unwrap();
+  assert_eq!(extracted.holds, vec!["busy", "setBusy", "watch", "unwatch"]);
+  assert!(extracted.source.contains("export default function AgentIsland({ watched }: any)"), "{}", extracted.source);
+  assert!(extracted.source.contains("return (\n    watched ? <button onClick={unwatch}>Unwatch</button> : <button onClick={watch}>Watch</button>\n  );"), "the island returns the expression itself: {}", extracted.source);
+  assert!(!extracted.source.contains("<article"), "{}", extracted.source);
+  let page = &extracted.page.1;
+  assert!(page.contains("<h1>{name}</h1>\n      <SfIsland watched={watched} />\n      <h2>running</h2>"), "{page}");
+  set.lower("routes/page.tsx#default").unwrap();
+  let (_, page) = set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap();
+  assert!(!page.owner.hydrates(), "the page is composition");
+  let (_, island) = set.components.iter().find(|(m, _)| m == "routes/page.island0.tsx#default").unwrap();
+  assert!(island.owner.hydrates(), "the island is React's");
 }
 
 #[test]
@@ -111,8 +147,9 @@ fn what_the_lowerer_cannot_read_in_a_page_body_moves_with_the_markup_that_shows_
   let mut set = set(&[("routes/venue/page.tsx", page)]);
   let extracted = set.lower_route("routes/venue/page.tsx#default").unwrap().expect("the time zone moved");
   assert!(extracted.source.contains("const zone = Intl.DateTimeFormat()"), "{}", extracted.source);
-  assert!(extracted.source.contains("<p className=\"clock\">"), "{}", extracted.source);
-  assert!(!extracted.source.contains("<h2>"), "{}", extracted.source);
+  assert!(extracted.source.contains("return (\n    zone\n  );"), "the island shows the value alone: {}", extracted.source);
+  assert!(!extracted.source.contains("<p"), "{}", extracted.source);
+  assert!(extracted.page.1.contains("<p className=\"clock\">You are in <SfIsland />.</p>"), "{}", extracted.page.1);
   let (_, page) = set.components.iter().find(|(m, _)| m == "routes/venue/page.tsx#default").expect("the page lowered around it");
   assert!(!page.owner.hydrates());
   assert_eq!(set.browser_only.iter().map(|(m, _)| m.as_str()).collect::<Vec<_>>(), vec!["routes/venue/page.island0.tsx#default"], "the island is what the browser renders alone");

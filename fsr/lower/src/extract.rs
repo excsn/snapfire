@@ -90,29 +90,63 @@ fn is_event(attr: &js::JSXAttr) -> bool {
   event && matches!(&attr.value, Some(js::JSXAttrValue::JSXExprContainer(_)))
 }
 
-/// Where in the markup the browser half is used: for each use, the elements
-/// around it from the outermost in, each with whether a function inside the
-/// markup encloses it, whose parameters the island would not have.
+/// A node of the markup an island can be cut at: an element, a fragment or an
+/// expression container in child position, where a placement can stand.
+#[derive(Clone, Copy)]
+struct Cut {
+  span: Span,
+  /// What the island returns: the node itself or a container's expression without its braces.
+  body: Span,
+  /// A function inside the markup encloses it, whose parameters the island would not have.
+  inner: bool,
+}
+
+/// Where in the markup the browser half is used: for each use, the cuts
+/// around it from the outermost in.
 struct Uses<'a> {
   browser: &'a BTreeSet<String>,
-  stack: Vec<(Span, bool)>,
+  stack: Vec<Cut>,
   depth: usize,
-  found: Vec<Vec<(Span, bool)>>,
+  found: Vec<Vec<Cut>>,
   /// Where the lowerer stopped inside the markup, with the parsed file to read spans against.
   residue: Option<(usize, &'a Parsed)>,
-  /// The elements around the residue, the deepest holding it last.
-  at: Option<Vec<(Span, bool)>>,
+  /// The cuts around the residue, the deepest holding it last.
+  at: Option<Vec<Cut>>,
+}
+
+impl Uses<'_> {
+  fn enter(&mut self, span: Span, body: Span) {
+    self.stack.push(Cut { span, body, inner: self.depth > 0 });
+    if let Some((offset, parsed)) = self.residue {
+      if parsed.range(span).contains(&offset) {
+        self.at = Some(self.stack.clone());
+      }
+    }
+  }
 }
 
 impl Visit for Uses<'_> {
   fn visit_jsx_element(&mut self, el: &js::JSXElement) {
-    self.stack.push((el.span, self.depth > 0));
-    if let Some((offset, parsed)) = self.residue {
-      if parsed.range(el.span).contains(&offset) {
-        self.at = Some(self.stack.clone());
-      }
-    }
+    self.enter(el.span, el.span);
     el.visit_children_with(self);
+    self.stack.pop();
+  }
+
+  fn visit_jsx_element_child(&mut self, child: &js::JSXElementChild) {
+    let cut = match child {
+      js::JSXElementChild::JSXExprContainer(container) => match &container.expr {
+        js::JSXExpr::Expr(expr) => Some((container.span, expr.span())),
+        js::JSXExpr::JSXEmptyExpr(_) => None,
+      },
+      js::JSXElementChild::JSXFragment(fragment) => Some((fragment.span, fragment.span)),
+      _ => None,
+    };
+    let Some((span, body)) = cut else {
+      child.visit_children_with(self);
+      return;
+    };
+    self.enter(span, body);
+    child.visit_children_with(self);
     self.stack.pop();
   }
 
@@ -262,18 +296,18 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
     return Ok(None);
   }
 
-  // The unit: the deepest element every use sits in and no function inside
-  // the markup encloses; the whole tree when there is none or when an early
+  // The unit: the deepest cut every use sits in and no function inside the
+  // markup encloses; the whole tree when there is none or when an early
   // return chooses between trees.
-  let mut unit: Option<Span> = None;
+  let mut unit: Option<Cut> = None;
   if !early && !uses.found.is_empty() {
     let first = &uses.found[0];
-    let common = (0..first.len()).take_while(|&i| uses.found.iter().all(|stack| stack.get(i).map(|e| e.0) == Some(first[i].0))).count();
-    unit = first[..common].iter().rev().find(|(_, inner)| !inner).map(|(span, _)| *span);
+    let common = (0..first.len()).take_while(|&i| uses.found.iter().all(|stack| stack.get(i).map(|cut| cut.span) == Some(first[i].span))).count();
+    unit = first[..common].iter().rev().find(|cut| !cut.inner).copied();
   }
   let range_of = |span: Span| parsed.range(span);
   let unit_range: Range<usize> = match (unit, &found) {
-    (Some(span), _) => range_of(span),
+    (Some(cut), _) => range_of(cut.span),
     (None, _) if early => match &found {
       Found::Declared(_, stmts, _) => range_of(Span::new(stmts.first().map(|s| s.span().lo).unwrap_or_default(), stmts.last().map(|s| s.span().hi).unwrap_or_default())),
       Found::Arrow(arrow) => range_of(arrow.body.span()),
@@ -283,7 +317,7 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   let whole_body = unit.is_none() && early;
 
   let moved: Vec<&Line> = lines.iter().filter(|l| l.browser || whole_body).collect();
-  let unit_text = &source[unit_range.clone()];
+  let unit_text = &source[unit.map(|cut| range_of(cut.body)).unwrap_or(unit_range.clone())];
   let moved_text: Vec<&str> = moved.iter().map(|l| &source[range_of(l.stmt.span())]).collect();
 
   let mut scope: Vec<String> = Vec::new();
