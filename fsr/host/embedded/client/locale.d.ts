@@ -4,6 +4,8 @@ type LocaleListener = (tag: string) => void;
 export declare function currentLocale(): string;
 /** Calls `listener` whenever the document's locale changes; the returned function stops it. */
 export declare function subscribeLocale(listener: LocaleListener): () => void;
+/** Calls `listener` whenever what `t` answers may change: the locale changes or a catalog is held. The returned function stops it. */
+export declare function subscribeMessages(listener: () => void): () => void;
 /** Makes `tag` the document's locale: `<html lang>` in its BCP 47 spelling, `data-sf-locale` in the application's and every listener told. Same tag, nothing happens. */
 export declare function setLocale(tag: string): void;
 /** Reads the locale the server wrote on the document. Nothing written leaves the current one. */

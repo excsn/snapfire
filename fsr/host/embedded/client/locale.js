@@ -1,5 +1,6 @@
 let current = "";
 const listeners = new Set();
+const messageListeners = new Set();
 export function currentLocale() {
     return current;
 }
@@ -9,6 +10,15 @@ export function subscribeLocale(listener) {
         listeners.delete(listener);
     };
 }
+export function subscribeMessages(listener) {
+    messageListeners.add(listener);
+    return ()=>{
+        messageListeners.delete(listener);
+    };
+}
+function messagesChanged() {
+    for (const listener of Array.from(messageListeners))listener();
+}
 export function setLocale(tag) {
     if (tag === current) return;
     current = tag;
@@ -17,6 +27,7 @@ export function setLocale(tag) {
         document.documentElement.setAttribute("data-sf-locale", tag);
     }
     for (const listener of Array.from(listeners))listener(tag);
+    messagesChanged();
 }
 export function adoptLocale() {
     if (typeof document === "undefined") return;
@@ -29,6 +40,7 @@ export function catalog(tag) {
 }
 export function setCatalog(tag, table) {
     catalogs.set(tag, table);
+    messagesChanged();
 }
 export function adoptCatalog() {
     if (typeof document === "undefined") return;

@@ -1,3 +1,4 @@
+import { subscribeMessages } from "./locale.js";
 import { decodeValue } from "./values.js";
 export function key(id) {
     return id;
@@ -176,6 +177,11 @@ export function transaction(work) {
         for (const k of own)dispatch(k);
     }
 }
+subscribeMessages(()=>{
+    transaction(()=>{
+        for (const id of derived.keys())recompute(id);
+    });
+});
 export function derive(k, sources, compute) {
     derived.set(k, {
         sources: sources,

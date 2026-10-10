@@ -38,7 +38,7 @@ export declare function snapshot(): {
 export declare function subscribe(k: StoreKey<unknown> | string, listener: StoreListener): () => void;
 /** Runs `work` with notifications collapsed: a listener hears once per key however many times it was written. Nested calls defer to the outermost. A `work` that throws still notifies what it wrote, since the writes stay in the store. */
 export declare function transaction(work: () => void): void;
-/** A key computed from others, recomputed whenever one of them changes. */
+/** A key computed from others, recomputed whenever one of them or the locale's messages change. */
 export declare function derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[] | string[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void;
 /** Shows `guess` at once, runs `remote` and puts the key back as it was if it fails. What the server settles on arrives with the next payload, so a success leaves the guess in place for revalidation to replace. */
 export declare function optimistic<

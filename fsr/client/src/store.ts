@@ -1,3 +1,4 @@
+import { subscribeMessages } from "./locale.js";
 import { decodeValue, SfValue } from "./values.js";
 
 /** A store key: the string it is, carrying the type of what it holds. */
@@ -240,7 +241,14 @@ export function transaction(work: () => void): void {
   }
 }
 
-/** A key computed from others, recomputed whenever one of them changes. */
+/** A compute may read the locale and its messages, which the server computes under the request's, so every derived key is computed again when either changes. */
+subscribeMessages(() => {
+  transaction(() => {
+    for (const id of derived.keys()) recompute(id);
+  });
+});
+
+/** A key computed from others, recomputed whenever one of them or the locale's messages change. */
 export function derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[] | string[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void {
   derived.set(k, { sources: sources as string[], compute: compute as Derived["compute"] });
   recompute(k);

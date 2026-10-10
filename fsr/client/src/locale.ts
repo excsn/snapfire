@@ -4,6 +4,7 @@ type LocaleListener = (tag: string) => void;
 
 let current = "";
 const listeners = new Set<LocaleListener>();
+const messageListeners = new Set<() => void>();
 
 /** The locale the document is in or an empty string before any document says. */
 export function currentLocale(): string {
@@ -18,6 +19,18 @@ export function subscribeLocale(listener: LocaleListener): () => void {
   };
 }
 
+/** Calls `listener` whenever what `t` answers may change: the locale changes or a catalog is held. The returned function stops it. */
+export function subscribeMessages(listener: () => void): () => void {
+  messageListeners.add(listener);
+  return () => {
+    messageListeners.delete(listener);
+  };
+}
+
+function messagesChanged(): void {
+  for (const listener of Array.from(messageListeners)) listener();
+}
+
 /** Makes `tag` the document's locale: `<html lang>` in its BCP 47 spelling, `data-sf-locale` in the application's and every listener told. Same tag, nothing happens. */
 export function setLocale(tag: string): void {
   if (tag === current) return;
@@ -27,6 +40,7 @@ export function setLocale(tag: string): void {
     document.documentElement.setAttribute("data-sf-locale", tag);
   }
   for (const listener of Array.from(listeners)) listener(tag);
+  messagesChanged();
 }
 
 /** Reads the locale the server wrote on the document. Nothing written leaves the current one. */
@@ -49,6 +63,7 @@ export function catalog(tag: string): Catalog | null {
 /** Holds `table` as the messages of `tag`, replacing what was held. */
 export function setCatalog(tag: string, table: Catalog): void {
   catalogs.set(tag, table);
+  messagesChanged();
 }
 
 /** Reads the catalog the server embedded in the document, `<script type="application/json" data-sf-i18n="fr_FR">`. Nothing embedded leaves what is held. */
