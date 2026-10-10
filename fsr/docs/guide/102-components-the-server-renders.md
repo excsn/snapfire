@@ -183,6 +183,8 @@ The pages in the storefront were written as ordinary React and seven of eight lo
 
 The rule behind this is that **a component is a function of its props**. Data comes from the loader. A component that fetched its own data could not be rendered without running it.
 
+The build holds the rule at the door. An `async` component, `export default async function Page()` or an async arrow, is refused with the loader named: what it awaits belongs in `page.loader.ts`, which runs before the page renders. A top-level `await` in a Vue `<script setup>` gets the same answer. A component loaded on demand is a different thing and renders like any other: `const Heavy = lazy(() => import("./Heavy"))` in React or `defineAsyncComponent(() => import("./Heavy.vue"))` in Vue binds the name to that module, the server renders the placement with the rest of the page and the browser fetches the module when it hydrates, with the markup already in place.
+
 ## The lab
 
 Open [`Header.tsx`](../../examples/shopping_react_ts/app/src/ui/Header.tsx). It uses `useState` twice, has a `search` function and a form with `onSubmit`. Run `fsr check app` and it is `lowered`; load the catalog and view the source: the header is in the HTML with the search box's initial value and no handlers. Type in the box and submit; the browser owns that and it works.
