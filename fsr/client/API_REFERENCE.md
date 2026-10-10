@@ -77,6 +77,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
 * [9. The Locale](#9-the-locale)
   * [currentLocale](#currentlocale)
   * [subscribeLocale](#subscribelocale)
+  * [subscribeMessages](#subscribemessages)
   * [setLocale](#setlocale)
   * [catalog, setCatalog and adoptCatalog](#catalog-setcatalog-and-adoptcatalog)
   * [adoptLocale](#adoptlocale)
@@ -670,7 +671,7 @@ Runs `work` with notifications collapsed: each key dirtied fires once afterwards
 
 * `derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void`
 
-Registers a key computed from others and computes it once now. It recomputes whenever a source changes. A derived value beats a contribution for the same key and loses to an island's write. One called at module level in a file the browser loads, with a compute the build lowers, is computed by the server too.
+Registers a key computed from others and computes it once now. It recomputes whenever a source changes and whenever the locale or a catalog changes, since a compute may call `t`. A derived value beats a contribution for the same key and loses to an island's write. One called at module level in a file the browser loads, with a compute the build lowers, is computed by the server too.
 
 ### optimistic
 
@@ -744,6 +745,12 @@ The locale the document is in; an empty string before any document said.
 * `subscribeLocale(listener: (tag: string) => void): () => void`
 
 Calls `listener` whenever the locale changes. The returned function stops it.
+
+### subscribeMessages
+
+* `subscribeMessages(listener: () => void): () => void`
+
+Calls `listener` whenever what `t` answers may change: after `setLocale` changes the locale and after `setCatalog` holds a table. The store subscribes, so every derived key is computed again under the new messages. The returned function stops it.
 
 ### catalog, setCatalog and adoptCatalog
 
