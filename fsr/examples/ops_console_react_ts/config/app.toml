@@ -1,6 +1,5 @@
 [server]
 listen = "127.0.0.1:8090"
-prerender = "dist/prerender"
 
 [document]
 title = { key = "document.title", default = "Ops console" }

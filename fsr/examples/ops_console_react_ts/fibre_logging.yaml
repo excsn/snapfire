@@ -5,7 +5,7 @@ appenders:
     kind: console
     encoder:
       kind: pattern
-      pattern: "%d [%p] %t - %m%n"
+      pattern: "%d [%p] %t - %m %X%n"
 
 loggers:
   root:

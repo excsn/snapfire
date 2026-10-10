@@ -3,6 +3,7 @@ listen = "127.0.0.1:8080"
 prerender = "dist/prerender"
 
 [document]
+origin = "http://127.0.0.1:8080"
 title = "Shopping"
 
 [fonts.sans]
