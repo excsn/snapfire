@@ -1,0 +1,197 @@
+//! What a name in a module is, resolved once per file: a construct a library
+//! exports, a context the application created, that context's provider, the
+//! module's own binding or an import the build does not read. A site that
+//! recognises a construct asks what an expression means, so every spelling
+//! TypeScript allows for reaching it (an alias, a namespace, a re-export, a
+//! module-level `const`) is one meaning, and a local that shadows an import is
+//! none.
+
+use std::collections::HashMap;
+use std::rc::Rc;
+
+use snapfire_fsr_ir::ast::Expr;
+use swc_core::common::SyntaxContext;
+use swc_core::ecma::ast as js;
+
+/// A library construct the build lowers, under the name its library exports it as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Construct {
+  /// A hook, by React's name for it: `useState`, `useContext`, `use`.
+  Hook(&'static str),
+  /// `createContext`; `react` when it is React's, whose providers the browser mounts.
+  CreateContext { react: bool },
+  /// A placement the build lowers itself: `Island`, `island`, `Link`, `Slot`, `Picture`, `Mount` or the retired `tree`.
+  Placement(&'static str),
+  /// The store's `key`, which names a store key by its string.
+  StoreKey,
+}
+
+/// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
+const PLACEMENT_MODULES: [&str; 4] = ["@snapfire/fsr-authoring/template", "@snapfire/fsr-client/react", "@snapfire/fsr-client/vue", "@snapfire/fsr-client/jsx-runtime"];
+const PLACEMENTS: [&str; 7] = ["Island", "island", "Link", "Slot", "Picture", "Mount", "tree"];
+
+fn rows() -> &'static [(&'static str, &'static str, Construct)] {
+  static ROWS: std::sync::OnceLock<Vec<(&'static str, &'static str, Construct)>> = std::sync::OnceLock::new();
+  ROWS.get_or_init(|| {
+    let mut rows: Vec<(&'static str, &'static str, Construct)> = LIBRARY.to_vec();
+    for module in PLACEMENT_MODULES {
+      rows.extend(PLACEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
+    }
+    rows
+  })
+}
+
+/// Every library export the build gives a meaning, by module and export name.
+pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
+  ("react", "createContext", Construct::CreateContext { react: true }),
+  ("react", "useState", Construct::Hook("useState")),
+  ("react", "useReducer", Construct::Hook("useReducer")),
+  ("react", "useMemo", Construct::Hook("useMemo")),
+  ("react", "useRef", Construct::Hook("useRef")),
+  ("react", "useCallback", Construct::Hook("useCallback")),
+  ("react", "useContext", Construct::Hook("useContext")),
+  ("react", "use", Construct::Hook("use")),
+  ("react", "useEffect", Construct::Hook("useEffect")),
+  ("react", "useLayoutEffect", Construct::Hook("useLayoutEffect")),
+  ("react", "useInsertionEffect", Construct::Hook("useInsertionEffect")),
+  ("react", "useDebugValue", Construct::Hook("useDebugValue")),
+  ("react", "useImperativeHandle", Construct::Hook("useImperativeHandle")),
+  ("react", "useId", Construct::Hook("useId")),
+  ("react", "useTransition", Construct::Hook("useTransition")),
+  ("react", "useDeferredValue", Construct::Hook("useDeferredValue")),
+  ("react", "useSyncExternalStore", Construct::Hook("useSyncExternalStore")),
+  ("react", "useOptimistic", Construct::Hook("useOptimistic")),
+  ("react", "useActionState", Construct::Hook("useActionState")),
+  ("react-dom", "useFormStatus", Construct::Hook("useFormStatus")),
+  ("@snapfire/fsr-client/react", "useStore", Construct::Hook("useStore")),
+  ("@snapfire/fsr-client/react", "useLocale", Construct::Hook("useLocale")),
+  ("@snapfire/fsr-client/react", "useHoisted", Construct::Hook("useHoisted")),
+  ("@snapfire/fsr-authoring/template", "createContext", Construct::CreateContext { react: false }),
+  ("@snapfire/fsr-authoring/template", "use", Construct::Hook("use")),
+  ("@snapfire/fsr-client/vue", "useStore", Construct::Hook("useStore")),
+  ("@snapfire/fsr-client/store", "key", Construct::StoreKey),
+  ("@snapfire/fsr-client", "key", Construct::StoreKey),
+];
+
+/// Whether `module` is one the table speaks for, so an export it does not list is a library value the build does not read rather than the application's.
+pub(crate) fn is_library(module: &str) -> bool {
+  rows().iter().any(|(m, _, _)| *m == module)
+}
+
+pub(crate) fn library(module: &str, export: &str) -> Option<Construct> {
+  rows().iter().find(|(m, e, _)| *m == module && *e == export).map(|(_, _, c)| *c)
+}
+
+/// What a library module's namespace holds: each export the table lists.
+pub(crate) fn library_namespace(module: &str) -> Rc<HashMap<String, Meaning>> {
+  Rc::new(rows().iter().filter(|(m, _, _)| *m == module).map(|(_, e, c)| ((*e).to_owned(), Meaning::Library(*c))).collect())
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum Meaning {
+  Library(Construct),
+  /// A namespace import, or a library's default import read as one: what each member means.
+  Namespace(Rc<HashMap<String, Meaning>>),
+  /// A context the application created at `file#name`, with its default lowered and whether React's `createContext` made it.
+  Context { id: String, default: Expr, react: bool },
+  /// The provider of the context `id`, as `X.Provider` or `const P = X.Provider` names it.
+  Provider { id: String, react: bool },
+  /// A binding the module declares or imports from the application that is none of the above: a component, a helper, a value.
+  Own,
+  /// An import from a package the table does not speak for.
+  Foreign,
+}
+
+impl Meaning {
+  /// What `.name` of this means.
+  pub(crate) fn member(&self, name: &str) -> Option<Meaning> {
+    match self {
+      Meaning::Namespace(members) => members.get(name).cloned(),
+      Meaning::Context { id, react, .. } if name == "Provider" => Some(Meaning::Provider { id: id.clone(), react: *react }),
+      _ => None,
+    }
+  }
+
+  /// The provider a tag naming this is: a context's own, React 19's `<Theme value>`, or a provider itself.
+  pub(crate) fn as_provider(&self) -> Option<(&str, bool)> {
+    match self {
+      Meaning::Context { id, react, .. } | Meaning::Provider { id, react } => Some((id, *react)),
+      _ => None,
+    }
+  }
+
+  pub(crate) fn hook(&self) -> Option<&'static str> {
+    match self {
+      Meaning::Library(Construct::Hook(name)) => Some(name),
+      _ => None,
+    }
+  }
+
+  pub(crate) fn placement(&self) -> Option<&'static str> {
+    match self {
+      Meaning::Library(Construct::Placement(name)) => Some(name),
+      _ => None,
+    }
+  }
+}
+
+/// The meanings of one file's module-level names and exports.
+#[derive(Debug, Default)]
+pub(crate) struct Meanings {
+  /// The syntax context of the module's top level: an identifier with another names a local or nothing.
+  pub(crate) top: SyntaxContext,
+  /// The syntax context of a name nothing in the module binds.
+  pub(crate) unresolved: SyntaxContext,
+  pub(crate) bindings: HashMap<String, Meaning>,
+  pub(crate) exports: HashMap<String, Meaning>,
+}
+
+impl Meanings {
+  /// What `id` names where it is written: a module-level name's meaning, `None` for a local or a name nothing binds.
+  pub(crate) fn of_ident(&self, id: &js::Ident) -> Option<&Meaning> {
+    (id.ctxt == self.top).then(|| self.bindings.get(id.sym.as_ref())).flatten()
+  }
+
+  pub(crate) fn of_expr(&self, expr: &js::Expr) -> Option<Meaning> {
+    match expr {
+      js::Expr::Ident(id) => self.of_ident(id).cloned(),
+      js::Expr::Member(member) => {
+        let js::MemberProp::Ident(prop) = &member.prop else { return None };
+        self.of_expr(&member.obj)?.member(prop.sym.as_ref())
+      }
+      js::Expr::Paren(p) => self.of_expr(&p.expr),
+      js::Expr::TsAs(e) => self.of_expr(&e.expr),
+      js::Expr::TsNonNull(e) => self.of_expr(&e.expr),
+      js::Expr::TsSatisfies(e) => self.of_expr(&e.expr),
+      _ => None,
+    }
+  }
+
+  /// What a JSX tag names, an identifier or a member chain of any depth.
+  pub(crate) fn of_tag(&self, name: &js::JSXElementName) -> Option<Meaning> {
+    fn object(m: &Meanings, obj: &js::JSXObject) -> Option<Meaning> {
+      match obj {
+        js::JSXObject::Ident(id) => m.of_ident(id).cloned(),
+        js::JSXObject::JSXMemberExpr(inner) => object(m, &inner.obj)?.member(inner.prop.sym.as_ref()),
+      }
+    }
+    match name {
+      js::JSXElementName::Ident(id) => self.of_ident(id).cloned(),
+      js::JSXElementName::JSXMemberExpr(m) => object(self, &m.obj)?.member(m.prop.sym.as_ref()),
+      js::JSXElementName::JSXNamespacedName(_) => None,
+    }
+  }
+}
+
+/// `expr` without the parentheses and the TypeScript wrappers around it, `(x as T)` and `x satisfies T` read as `x`.
+pub(crate) fn bare(expr: &js::Expr) -> &js::Expr {
+  match expr {
+    js::Expr::Paren(p) => bare(&p.expr),
+    js::Expr::TsAs(e) => bare(&e.expr),
+    js::Expr::TsNonNull(e) => bare(&e.expr),
+    js::Expr::TsSatisfies(e) => bare(&e.expr),
+    js::Expr::TsConstAssertion(e) => bare(&e.expr),
+    js::Expr::TsTypeAssertion(e) => bare(&e.expr),
+    other => other,
+  }
+}

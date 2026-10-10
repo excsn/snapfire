@@ -6,6 +6,7 @@ pub mod assets;
 pub mod component;
 pub mod extract;
 pub mod hoist;
+mod meaning;
 mod placements;
 pub mod schema;
 pub mod testing;
@@ -14,7 +15,8 @@ pub mod vue;
 use component::FunctionBody;
 use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, CompareOp, Entry, Expr, Lit, LogicOp, Stmt};
 use snapfire_fsr_ir::{standard_reach, Reach};
-use swc_core::common::{sync::Lrc, FileName, SourceMap, Span, Spanned};
+use swc_core::common::{sync::Lrc, FileName, Globals, Mark, SourceMap, Span, Spanned, SyntaxContext, GLOBALS};
+use swc_core::ecma::transforms::base::resolver;
 use swc_core::ecma::ast as js;
 use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax};
 
@@ -386,6 +388,10 @@ pub(crate) struct Parsed {
   pub(crate) file: String,
   cm: Lrc<SourceMap>,
   pub(crate) module: js::Module,
+  /// The syntax context swc's resolver gave the module's top-level bindings: an identifier carrying it names an import or a module-level declaration, and one carrying any other names a local.
+  pub(crate) top: SyntaxContext,
+  /// The syntax context of a name nothing in the module binds.
+  pub(crate) unresolved: SyntaxContext,
 }
 
 pub(crate) enum Exported<'a> {
@@ -438,7 +444,14 @@ pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, 
     let loc = cm.lookup_char_pos(e.span().lo);
     LowerError::Parse { file: file.to_owned(), message: format!("{}:{}: {}", loc.line, loc.col_display + 1, e.kind().msg()) }
   })?;
-  Ok(Parsed { file: file.to_owned(), cm, module })
+  let (module, top, unresolved) = GLOBALS.set(&Globals::new(), || {
+    let unresolved = Mark::new();
+    let top_level = Mark::new();
+    let program = js::Program::Module(module).apply(resolver(unresolved, top_level, true));
+    let js::Program::Module(module) = program else { unreachable!("a module resolves to a module") };
+    (module, SyntaxContext::empty().apply_mark(top_level), SyntaxContext::empty().apply_mark(unresolved))
+  });
+  Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved })
 }
 
 impl Parsed {
@@ -706,8 +719,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) temps: usize,
   /// Names bound to a `new Map(...)` or a `new Set(...)`, with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
   pub(crate) kinds: Vec<(String, Expr, Collection)>,
-  /// The React contexts a component's file names, by local name: the id and the default value.
-  pub(crate) contexts: std::collections::HashMap<String, (String, Expr)>,
+  /// What the module-level names of a component's file mean, set by the component lowerer.
+  pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
 }
 
 /// What a `new Map` or a `new Set` lowered to: an object keyed by `String(key)` or an array without repeats.
@@ -721,7 +734,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), contexts: std::collections::HashMap::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: None }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1540,27 +1553,20 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// React's `use(X)` or `useContext(X)`, or the template dialect's `use(X)`, with `X` a `createContext` value: the nearest provider's value, else the default. `None` for any other call.
+  /// `use(X)` or `useContext(X)`, however the call names them, with `X` a context: the nearest provider's value, else the default. `None` for any other call.
   fn context_read(&mut self, call: &js::CallExpr, callee: &js::Expr) -> Lowered<Option<Expr>> {
-    let Some((source, imported)) = crate::component::imported_callee(self.parsed, callee) else { return Ok(None) };
-    let reads = match source.as_str() {
-      "react" => imported == "use" || imported == "useContext",
-      _ => crate::component::CONTEXT_MODULES.contains(&source.as_str()) && imported == "use",
-    };
-    if !reads {
+    let Some(meanings) = self.meanings.clone() else { return Ok(None) };
+    let Some(hook) = meanings.of_expr(callee).and_then(|meant| meant.hook()) else { return Ok(None) };
+    if hook != "use" && hook != "useContext" {
       return Ok(None);
     }
-    let context = match call.args.first().map(|a| &*a.expr) {
-      Some(js::Expr::Ident(id)) => self.contexts.get(id.sym.as_ref()).cloned(),
-      _ => None,
-    };
-    let Some((id, default)) = context else {
-      return Err(match imported.as_str() {
+    match call.args.first().and_then(|a| meanings.of_expr(&a.expr)) {
+      Some(meaning::Meaning::Context { id, default, .. }) => Ok(Some(Expr::Coalesce(Box::new(Expr::Context(id)), Box::new(default)))),
+      _ => Err(match hook {
         "use" => self.residue(call.span, "`use` of something other than a `createContext` value; a promise is awaited in the browser"),
         _ => self.residue(call.span, "`useContext` of something the build cannot follow to a `createContext`"),
-      });
-    };
-    Ok(Some(Expr::Coalesce(Box::new(Expr::Context(id)), Box::new(default))))
+      }),
+    }
   }
 
   pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
@@ -1569,6 +1575,10 @@ impl<'a> Lowerer<'a> {
     };
     if let Some(read) = self.context_read(call, callee)? {
       return Ok(read);
+    }
+    if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::StoreKey)) {
+      let named = call.args.first().ok_or_else(|| self.residue(call.span, "`key` takes the key's name"))?;
+      return self.expr(&named.expr);
     }
     let math = matches!(&**callee, js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if id.sym.as_ref() == "Math"));
     for arg in &call.args {

@@ -87,6 +87,10 @@ pub struct ComponentSet {
   /// `file#export`: lowered to the empty region `Mount` writes, which the
   /// browser fills through the module's registry entry.
   pub mounted: Vec<String>,
+  /// Each file's module-level names and exports resolved, built once per file.
+  meanings: HashMap<String, Rc<crate::meaning::Meanings>>,
+  /// Files whose meanings are being built, so an import cycle resolves to the module's own bindings.
+  meaning_in_progress: Vec<String>,
   /// Foreign components the plugin described, by file, which the set lowers
   /// through the framework's own front end instead of leaving foreign.
   described: HashMap<String, Described>,
@@ -119,7 +123,7 @@ pub struct ComponentSet {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -199,8 +203,9 @@ impl ComponentSet {
         return Vec::new();
       }
     }
+    let meanings = self.meanings(file);
     let read = self.resolving_loop(file, |parsed, defaults, resolved| {
-      let mut calls = StoreCalls { parsed, args: Vec::new() };
+      let mut calls = StoreCalls { meanings: &meanings, args: Vec::new() };
       parsed.module.visit_with(&mut calls);
       let mut keys = Vec::new();
       for arg in &calls.args {
@@ -617,12 +622,13 @@ impl ComponentSet {
     // An element template has no browser half, so nothing would read what
     // hoisting records or rewrites.
     let element_template = self.elements.values().any(|m| *m == module);
-    if let Some(span) = tree_call(&self.parsed[file].clone()).filter(|_| export == "default") {
+    let meanings = self.meanings(file);
+    if let Some(span) = tree_call(&self.parsed[file].clone(), &meanings).filter(|_| export == "default") {
       return Err(LowerError::Retired(self.parsed[file].residue(span, "`tree(...)` is gone: a layout is composition and its page renders in a region of its own, so `export default` the layout itself and share state with the page through the store")));
     }
     let mut hook_files: Vec<(String, String, String)> = Vec::new();
     let ((component, refs, providers, own_heads), hoisting) = loop {
-      let contexts = self.contexts_in(file);
+      let meanings = self.meanings(file);
       let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed[at].clone(), export.clone())).collect();
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
@@ -632,7 +638,7 @@ impl ComponentSet {
         lowerer.globals = globals.clone();
         lowerer.natives = self.natives.clone();
         lowerer.hoisting = (!element_template).then(Candidates::default);
-        lowerer.contexts = contexts;
+        lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
         let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new() };
@@ -728,11 +734,11 @@ impl ComponentSet {
     // it renders inline is part of its markup, so that component's state and
     // handlers are its own to hydrate; an island's are the island's.
     let mut provides = false;
-    for (name, (line, column)) in providers {
-      let Some(source) = self.context_binding(file, &name)? else {
+    for (name, (line, column), react) in providers {
+      let Some(react) = react else {
         return Err(LowerError::Residue(Residue { file: file.to_owned(), line, column, message: format!("`<{name}.Provider>`: `{name}` is not a `createContext` value this file declares or imports"), hint: None, via: Vec::new() }));
       };
-      provides |= source == "react";
+      provides |= react;
     }
     let render = rewrite_modules(component.render, &modules, &islands);
     // A React provider is React state the page's islands read, so the
@@ -913,7 +919,8 @@ impl ComponentSet {
   /// places the island the way the aliasing module declared it.
   fn exported_component(&mut self, file: &str, export: &str) -> Result<(String, Option<IslandTiming>), String> {
     let parsed = self.parsed[file].clone();
-    match island_alias_of(&parsed, export) {
+    let meanings = self.meanings(file);
+    match island_alias_of(&parsed, &meanings, export) {
       Ok(Some(alias)) => {
         let (module, _) = self.component_module(file, &alias.target)?;
         Ok((module, Some((alias.when, alias.mode))))
@@ -923,11 +930,6 @@ impl ComponentSet {
     }
   }
 
-  /// A module-level name as an expression: a `const` inlined, a function as a
-  /// lambda, an import resolved in its own file. `None` when the file has no
-  /// such name.
-  /// Whether `name` in `file` is a module-level `createContext(...)` from
-  /// `react`, followed through imports.
   /// Where the custom hook `name`, called in `file`, is declared: the file and its export there.
   fn hook_source(&mut self, file: &str, name: &str) -> Option<(String, String)> {
     let parsed = self.parsed.get(file)?.clone();
@@ -940,73 +942,184 @@ impl ComponentSet {
     find_function(&parsed, name).map(|_| (file.to_owned(), name.to_owned()))
   }
 
-  /// The `createContext` value `name` in `file` is, followed through imports: its id (`file#name` where it is declared) and its default value lowered, null when that does not lower.
-  fn context_of(&mut self, file: &str, name: &str) -> Option<(String, Expr)> {
-    let parsed = self.parsed.get(file)?.clone();
-    if let Some((source, imported)) = find_import(&parsed, name) {
-      let target = self.resolve_import(file, &source)?;
-      self.load(&target).ok()?;
-      return self.context_of(&target, &imported);
+  /// What every module-level name of `file` and every name it exports means,
+  /// resolved through imports, namespaces, re-exports and module-level `const`
+  /// aliases, once per file.
+  pub(crate) fn meanings(&mut self, file: &str) -> Rc<crate::meaning::Meanings> {
+    use crate::meaning::{self, Meaning, Meanings};
+    if let Some(found) = self.meanings.get(file) {
+      return found.clone();
     }
-    let Some(Global::Const(js::Expr::Call(call))) = find_value(&parsed, name) else { return None };
-    let js::Callee::Expr(callee) = &call.callee else { return None };
-    if !imported_callee(&parsed, callee).is_some_and(|(source, imported)| CONTEXT_MODULES.contains(&source.as_str()) && imported == "createContext") {
-      return None;
+    if let Some(described) = self.described.get(file).cloned() {
+      let _ = self.parse_described(file, &described);
     }
-    let defaults = self.defaults.clone();
-    let default = match call.args.first() {
-      Some(arg) => Lowerer::new(&parsed, &defaults).expr(&arg.expr).unwrap_or(Expr::Lit(Lit::Null)),
-      None => Expr::Lit(Lit::Null),
-    };
-    Some((format!("{file}#{name}"), default))
-  }
-
-  /// The contexts a file names, by local name, for a file that provides or reads one.
-  fn contexts_in(&mut self, file: &str) -> HashMap<String, (String, Expr)> {
-    let Some(parsed) = self.parsed.get(file).cloned() else { return HashMap::new() };
-    let text = parsed.cm.files().first().map(|f| f.src.to_string()).unwrap_or_default();
-    if !text.contains("useContext") && !text.contains("use(") && !text.contains(".Provider") {
-      return HashMap::new();
+    if self.load(file).is_err() || self.meaning_in_progress.iter().any(|f| f == file) {
+      return Rc::new(Meanings::default());
     }
-    let mut names: Vec<String> = Vec::new();
+    self.meaning_in_progress.push(file.to_owned());
+    let parsed = self.parsed[file].clone();
+    let mut meanings = Meanings { top: parsed.top, unresolved: parsed.unresolved, ..Meanings::default() };
     for item in &parsed.module.body {
-      match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
-          for spec in &import.specifiers {
-            let local = match spec {
-              js::ImportSpecifier::Named(n) => &n.local,
-              js::ImportSpecifier::Default(d) => &d.local,
-              js::ImportSpecifier::Namespace(_) => continue,
+      let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+      if import.type_only {
+        continue;
+      }
+      let source = import.src.value.to_atom_lossy().to_string();
+      for spec in &import.specifiers {
+        let (local, meant) = match spec {
+          js::ImportSpecifier::Named(named) if !named.is_type_only => {
+            let imported = match &named.imported {
+              Some(js::ModuleExportName::Ident(id)) => id.sym.to_string(),
+              Some(js::ModuleExportName::Str(s)) => s.value.to_atom_lossy().to_string(),
+              None => named.local.sym.to_string(),
             };
-            names.push(local.sym.to_string());
+            (&named.local, self.imported_meaning(file, &source, &imported))
+          }
+          js::ImportSpecifier::Named(_) => continue,
+          js::ImportSpecifier::Default(d) if meaning::is_library(&source) => (&d.local, Meaning::Namespace(meaning::library_namespace(&source))),
+          js::ImportSpecifier::Default(d) => (&d.local, self.imported_meaning(file, &source, "default")),
+          js::ImportSpecifier::Namespace(ns) => (&ns.local, self.namespace_meaning(file, &source)),
+        };
+        meanings.bindings.insert(local.sym.to_string(), meant);
+      }
+    }
+    for item in &parsed.module.body {
+      let var = match item {
+        js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) | js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) => var,
+        js::ModuleItem::Stmt(js::Stmt::Decl(decl)) | js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl, .. })) => {
+          let name = match decl {
+            js::Decl::Fn(f) => Some(f.ident.sym.to_string()),
+            js::Decl::Class(c) => Some(c.ident.sym.to_string()),
+            _ => None,
+          };
+          if let Some(name) = name {
+            meanings.bindings.insert(name, Meaning::Own);
+          }
+          continue;
+        }
+        _ => continue,
+      };
+      for decl in &var.decls {
+        let js::Pat::Ident(name) = &decl.name else { continue };
+        let meant = match decl.init.as_deref().map(crate::meaning::bare) {
+          Some(js::Expr::Call(call)) => match &call.callee {
+            js::Callee::Expr(callee) => match meanings.of_expr(callee) {
+              Some(Meaning::Library(meaning::Construct::CreateContext { react })) => {
+                let defaults = self.defaults.clone();
+                let default = match call.args.first() {
+                  Some(arg) => Lowerer::new(&parsed, &defaults).expr(&arg.expr).unwrap_or(Expr::Lit(Lit::Null)),
+                  None => Expr::Lit(Lit::Null),
+                };
+                Meaning::Context { id: format!("{file}#{}", name.id.sym), default, react }
+              }
+              _ => Meaning::Own,
+            },
+            _ => Meaning::Own,
+          },
+          Some(init @ (js::Expr::Ident(_) | js::Expr::Member(_))) => meanings.of_expr(init).unwrap_or(Meaning::Own),
+          _ => Meaning::Own,
+        };
+        meanings.bindings.insert(name.id.sym.to_string(), meant);
+      }
+    }
+    for item in &parsed.module.body {
+      let js::ModuleItem::ModuleDecl(decl) = item else { continue };
+      match decl {
+        js::ModuleDecl::ExportDecl(export) => {
+          let names: Vec<String> = match &export.decl {
+            js::Decl::Fn(f) => vec![f.ident.sym.to_string()],
+            js::Decl::Class(c) => vec![c.ident.sym.to_string()],
+            js::Decl::Var(var) => var.decls.iter().filter_map(|d| if let js::Pat::Ident(id) = &d.name { Some(id.id.sym.to_string()) } else { None }).collect(),
+            _ => Vec::new(),
+          };
+          for name in names {
+            let meant = meanings.bindings.get(&name).cloned().unwrap_or(Meaning::Own);
+            meanings.exports.insert(name, meant);
           }
         }
-        js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) | js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) => {
-          for decl in &var.decls {
-            if let js::Pat::Ident(id) = &decl.name {
-              names.push(id.id.sym.to_string());
+        js::ModuleDecl::ExportNamed(named) if !named.type_only => {
+          let source = named.src.as_ref().map(|s| s.value.to_atom_lossy().to_string());
+          for spec in &named.specifiers {
+            let export_name = |n: &js::ModuleExportName| match n {
+              js::ModuleExportName::Ident(id) => id.sym.to_string(),
+              js::ModuleExportName::Str(s) => s.value.to_atom_lossy().to_string(),
+            };
+            match spec {
+              js::ExportSpecifier::Named(n) if !n.is_type_only => {
+                let orig = export_name(&n.orig);
+                let exported = n.exported.as_ref().map(export_name).unwrap_or_else(|| orig.clone());
+                let meant = match &source {
+                  Some(source) => self.imported_meaning(file, source, &orig),
+                  None => meanings.bindings.get(&orig).cloned().unwrap_or(Meaning::Own),
+                };
+                meanings.exports.insert(exported, meant);
+              }
+              js::ExportSpecifier::Namespace(ns) => {
+                if let Some(source) = &source {
+                  let meant = self.namespace_meaning(file, source);
+                  meanings.exports.insert(export_name(&ns.name), meant);
+                }
+              }
+              js::ExportSpecifier::Default(d) => {
+                let meant = meanings.bindings.get(d.exported.sym.as_ref()).cloned().unwrap_or(Meaning::Own);
+                meanings.exports.insert("default".to_owned(), meant);
+              }
+              _ => {}
             }
           }
+        }
+        js::ModuleDecl::ExportAll(all) if !all.type_only => {
+          let source = all.src.value.to_atom_lossy().to_string();
+          if let Meaning::Namespace(members) = self.namespace_meaning(file, &source) {
+            for (name, meant) in members.iter() {
+              meanings.exports.entry(name.clone()).or_insert_with(|| meant.clone());
+            }
+          }
+        }
+        js::ModuleDecl::ExportDefaultDecl(_) => {
+          meanings.exports.insert("default".to_owned(), Meaning::Own);
+        }
+        js::ModuleDecl::ExportDefaultExpr(e) => {
+          let meant = meanings.of_expr(&e.expr).unwrap_or(Meaning::Own);
+          meanings.exports.insert("default".to_owned(), meant);
         }
         _ => {}
       }
     }
-    names.into_iter().filter_map(|name| self.context_of(file, &name).map(|found| (name, found))).collect()
+    self.meaning_in_progress.retain(|f| f != file);
+    let meanings = Rc::new(meanings);
+    self.meanings.insert(file.to_owned(), meanings.clone());
+    meanings
   }
 
-  /// The module whose `createContext` made `name` in `file`, followed through imports; `None` when it is not a context.
-  fn context_binding(&mut self, file: &str, name: &str) -> Result<Option<String>, LowerError> {
-    let parsed = self.parsed[file].clone();
-    if let Some((source, imported)) = find_import(&parsed, name) {
-      let Some(target) = self.resolve_import(file, &source) else { return Ok(None) };
-      self.load(&target)?;
-      return self.context_binding(&target, &imported);
+  /// What `export` of `source`, imported from `file`, means.
+  fn imported_meaning(&mut self, file: &str, source: &str, export: &str) -> crate::meaning::Meaning {
+    use crate::meaning::{self, Meaning};
+    if meaning::is_library(source) {
+      return meaning::library(source, export).map(Meaning::Library).unwrap_or(Meaning::Foreign);
     }
-    let Some(Global::Const(js::Expr::Call(call))) = find_value(&parsed, name) else { return Ok(None) };
-    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-    Ok(imported_callee(&parsed, callee).filter(|(source, imported)| CONTEXT_MODULES.contains(&source.as_str()) && imported == "createContext").map(|(source, _)| source))
+    match self.resolve_import(file, source) {
+      Some(target) if is_foreign(&target) => Meaning::Own,
+      Some(target) => self.meanings(&target).exports.get(export).cloned().unwrap_or(Meaning::Own),
+      None => Meaning::Foreign,
+    }
   }
 
+  /// What a namespace import of `source` from `file` holds.
+  fn namespace_meaning(&mut self, file: &str, source: &str) -> crate::meaning::Meaning {
+    use crate::meaning::{self, Meaning};
+    if meaning::is_library(source) {
+      return Meaning::Namespace(meaning::library_namespace(source));
+    }
+    match self.resolve_import(file, source) {
+      Some(target) if !is_foreign(&target) => Meaning::Namespace(Rc::new(self.meanings(&target).exports.clone())),
+      _ => Meaning::Foreign,
+    }
+  }
+
+  /// A module-level name as an expression: a `const` inlined, a function as a
+  /// lambda, an import resolved in its own file. `None` when the file has no
+  /// such name.
   fn global(&mut self, file: &str, name: &str) -> Result<Option<(Expr, String)>, LowerError> {
     let key = format!("{file}#{name}");
     if self.resolving.iter().any(|m| *m == key) {
@@ -1064,7 +1177,9 @@ impl ComponentSet {
     loop {
       let parsed = self.parsed[file].clone();
       let defaults = self.defaults.clone();
+      let meanings = self.meanings(file);
       let mut lowerer = Lowerer::new(&parsed, &defaults);
+      lowerer.meanings = Some(meanings);
       lowerer.globals = globals.clone();
       lowerer.natives = self.natives.clone();
       let result = match &item {
@@ -1154,9 +1269,6 @@ fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, stat
 /// client's React module, which a React application also mounts with or the
 /// dialect's own declarations, which an application without React types
 /// against.
-/// The modules whose `createContext` makes a context the build lowers: React's, and the template dialect's, which has no hooks and reads one with `use`.
-pub(crate) const CONTEXT_MODULES: &[&str] = &["react", "@snapfire/fsr-authoring/template"];
-
 pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-authoring/template", "@snapfire/fsr-client/react", "@snapfire/fsr-client/vue", "@snapfire/fsr-client/jsx-runtime"];
 
 /// The client library's root, where `action` comes from.
@@ -1257,10 +1369,10 @@ pub(crate) struct IslandAlias {
 
 /// The alias `name` is in `parsed`, when it is one: `island` must come from
 /// the client's React package and the options are string literals.
-fn island_alias_of(parsed: &Parsed, name: &str) -> Result<Option<IslandAlias>, (Span, String)> {
+fn island_alias_of(parsed: &Parsed, meanings: &crate::meaning::Meanings, name: &str) -> Result<Option<IslandAlias>, (Span, String)> {
   let Some(Global::Const(js::Expr::Call(call))) = find_value(parsed, name) else { return Ok(None) };
   let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-  if imported_callee(parsed, callee).filter(|(source, _)| is_template_source(source)).map(|(_, name)| name).as_deref() != Some("island") {
+  if meanings.of_expr(callee).and_then(|meant| meant.placement()) != Some("island") {
     return Ok(None);
   }
   let Some(js::Expr::Ident(target)) = call.args.first().map(|a| &*a.expr) else {
@@ -1417,12 +1529,12 @@ fn default_function_name(parsed: &Parsed) -> Option<&str> {
 
 /// The span of `export default tree(...)` with `tree` from FSR's React
 /// module or its dialect, a spelling the build refuses.
-fn tree_call(parsed: &Parsed) -> Option<Span> {
+fn tree_call(parsed: &Parsed, meanings: &crate::meaning::Meanings) -> Option<Span> {
   parsed.module.body.iter().find_map(|item| {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) = item else { return None };
     let js::Expr::Call(call) = &*e.expr else { return None };
     let js::Callee::Expr(callee) = &call.callee else { return None };
-    (imported_callee(parsed, callee).filter(|(source, _)| is_template_source(source)).map(|(_, name)| name).as_deref() == Some("tree")).then_some(call.span)
+    (meanings.of_expr(callee).and_then(|meant| meant.placement()) == Some("tree")).then_some(call.span)
   })
 }
 
@@ -1626,6 +1738,22 @@ fn native_declaration(parsed: &Parsed, init: &js::Expr) -> Result<Option<(String
 }
 
 /// `(source, imported name)` for a value import binding `local`.
+/// A JSX tag's name as written, `Ns.Theme.Provider` for a member chain.
+fn jsx_tag_name(name: &js::JSXElementName) -> String {
+  match name {
+    js::JSXElementName::Ident(id) => id.sym.to_string(),
+    js::JSXElementName::JSXMemberExpr(m) => format!("{}.{}", jsx_object_name(&m.obj), m.prop.sym),
+    js::JSXElementName::JSXNamespacedName(n) => format!("{}:{}", n.ns.sym, n.name.sym),
+  }
+}
+
+fn jsx_object_name(obj: &js::JSXObject) -> String {
+  match obj {
+    js::JSXObject::Ident(id) => id.sym.to_string(),
+    js::JSXObject::JSXMemberExpr(m) => format!("{}.{}", jsx_object_name(&m.obj), m.prop.sym),
+  }
+}
+
 pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, String)> {
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
@@ -2181,15 +2309,17 @@ enum Part {
   Handler(String),
 }
 
-/// React's own hooks and FSR client's; any other `use` call is the application's.
-const LIBRARY_HOOKS: &[&str] = &["useState", "useStore", "useMemo", "useRef", "useCallback", "useLocale", "useContext", "useReducer", "useEffect", "useLayoutEffect", "useInsertionEffect", "useDebugValue", "useImperativeHandle", "useId", "useTransition", "useDeferredValue", "useSyncExternalStore", "useOptimistic", "useActionState", "useFormStatus", "useHoisted", "use"];
-
 impl<'a, 'p> ComponentLowerer<'a, 'p> {
+  /// What the file's module-level names mean.
+  fn meanings(&self) -> Rc<crate::meaning::Meanings> {
+    self.lowerer.meanings.clone().unwrap_or_default()
+  }
+
   /// Whether a `use` call names one of the application's own hooks rather than React's or FSR client's.
   fn custom_hook(&self, name: &str) -> bool {
     match find_import(self.lowerer.parsed, name) {
       Some((source, _)) => !(source == "react" || source.starts_with("react-dom") || source.starts_with("@snapfire/") || source.starts_with("preact")),
-      None => !LIBRARY_HOOKS.contains(&name),
+      None => !crate::meaning::LIBRARY.iter().any(|(_, _, construct)| matches!(construct, crate::meaning::Construct::Hook(hook) if *hook == name)),
     }
   }
 
@@ -2259,9 +2389,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           self.handlers.push(bound.clone());
           renames.push((f.ident.sym.to_string(), bound));
         }
-        js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
-        js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
-          let (hook, call) = hook_call(self.lowerer.parsed, &e.expr).expect("checked");
+        js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
+        js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
+          let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
           self.inline_hook(hook, call, None)?;
         }
         js::Stmt::Return(ret) => {
@@ -2552,7 +2682,7 @@ struct ComponentLowerer<'a, 'p> {
   inlining: Vec<String>,
   /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
   /// set after to be `createContext` values.
-  providers: Vec<(String, (usize, usize))>,
+  providers: Vec<(String, (usize, usize), Option<bool>)>,
   assets: Rc<dyn AssetResolver>,
   rewrite_images: bool,
   /// The head rows this component asks for, a priority image's preload.
@@ -2641,15 +2771,23 @@ impl ComponentLowerer<'_, '_> {
 const EFFECT_HOOKS: &[&str] = &["useEffect", "useLayoutEffect", "useInsertionEffect", "useDebugValue", "useImperativeHandle"];
 
 /// The hook a call names when its callee is a bare identifier.
-fn hook_call<'a>(parsed: &Parsed, expr: &'a js::Expr) -> Option<(&'a str, &'a js::CallExpr)> {
+/// The hook `expr` calls: a library's by the library's own name, however the
+/// file reaches it, and an application's by the name the file calls it. `None`
+/// for a call that is no hook, a local that shadows a hook's name among them.
+fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Option<(&'a str, &'a js::CallExpr)> {
   let js::Expr::Call(call) = expr else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
+  if let Some(hook) = meanings.of_expr(callee).and_then(|meant| meant.hook()) {
+    return Some((hook, call));
+  }
   let name = match &**callee {
-    js::Expr::Ident(id) => id.sym.as_ref(),
+    js::Expr::Ident(id) if id.ctxt == meanings.top || id.ctxt == meanings.unresolved => id.sym.as_ref(),
     js::Expr::Member(member) => {
       let js::Expr::Ident(ns) = &*member.obj else { return None };
       let js::MemberProp::Ident(name) = &member.prop else { return None };
-      find_namespace_import(parsed, ns.sym.as_ref())?;
+      if !matches!(meanings.of_ident(ns), Some(crate::meaning::Meaning::Namespace(_))) {
+        return None;
+      }
       name.sym.as_ref()
     }
     _ => return None,
@@ -2715,7 +2853,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             js::Stmt::Decl(js::Decl::Var(var)) if !early.is_empty() => {
               for decl in &var.decls {
                 if let Some(init) = decl.init.as_deref() {
-                  if let Some((hook, _)) = hook_call(self.lowerer.parsed, init) {
+                  if let Some((hook, _)) = hook_call(&self.meanings(), init) {
                     return Err(self.lowerer.residue(decl.span, format!("`{hook}` after an early `return`, which React refuses since the hooks would change between renders")));
                   }
                 }
@@ -2730,12 +2868,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 }
               }
             }
-            js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
-              let (hook, call) = hook_call(self.lowerer.parsed, &e.expr).expect("checked");
+            js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
+              let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
               self.inline_hook(hook, call, None)?;
               lets.append(&mut self.pending_lets);
             }
-            js::Stmt::Expr(e) if !hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => self.rebound(stmt, floor, &early, &mut lets, &guarded)?,
+            js::Stmt::Expr(e) if !hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => self.rebound(stmt, floor, &early, &mut lets, &guarded)?,
             js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) => self.rebound(stmt, floor, &early, &mut lets, &guarded)?,
             js::Stmt::Decl(js::Decl::Fn(f)) => {
               self.handlers.push(f.ident.sym.to_string());
@@ -2743,7 +2881,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
               }
             }
-            js::Stmt::Expr(e) if hook_call(self.lowerer.parsed, &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
+            js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
             js::Stmt::Decl(js::Decl::Var(var)) => {
               for decl in &var.decls {
                 let stmt = self.let_stmt(decl)?;
@@ -2831,7 +2969,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let mut lets = Vec::new();
         for decl in &var.decls {
           let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
-          if let Some((hook, _)) = hook_call(self.lowerer.parsed, init) {
+          if let Some((hook, _)) = hook_call(&self.meanings(), init) {
             return Err(self.lowerer.residue(decl.span, format!("`{hook}` after a `return`, which React refuses since the hooks would change between renders")));
           }
           let expr = self.lowerer.expr(init)?;
@@ -2944,7 +3082,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     match &decl.name {
       js::Pat::Ident(name) => {
         let local = name.id.sym.to_string();
-        let expr = match hook_call(self.lowerer.parsed, init) {
+        let expr = match hook_call(&self.meanings(), init) {
           Some(("useCallback", call)) => {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
               self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
@@ -3000,7 +3138,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(Some(Stmt::Let { name: local, expr }))
       }
       js::Pat::Array(arr) => {
-        let called = hook_call(self.lowerer.parsed, init).map(|(name, _)| name).unwrap_or_default();
+        let called = hook_call(&self.meanings(), init).map(|(name, _)| name).unwrap_or_default();
         let js::Expr::Call(call) = init else { return self.pattern_stmt(&decl.name, init) };
         if called == "useStore" {
           return self.store_stmt(decl, arr, call);
@@ -3075,7 +3213,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A destructuring in a component body: the value under a temporary each name reads a part of.
   fn pattern_stmt(&mut self, pattern: &'p js::Pat, init: &'p js::Expr) -> Lowered<Option<Stmt>> {
-    if let Some((hook, call)) = hook_call(self.lowerer.parsed, init) {
+    if let Some((hook, call)) = hook_call(&self.meanings(), init) {
       if self.custom_hook(hook) {
         return self.inline_hook(hook, call, Some(pattern));
       }
@@ -3244,6 +3382,28 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// `as_child` says the element sits directly among JSX children, where a
   /// rewrite of it must be braced, rather than in an expression.
   fn element(&mut self, el: &'p js::JSXElement, as_child: bool) -> Lowered<Tmpl> {
+    let tagged = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_tag(&el.opening.name));
+    let provider = tagged.as_ref().and_then(|meant| meant.as_provider().map(|(id, react)| (id.to_owned(), react)));
+    let named_provider = match &el.opening.name {
+      js::JSXElementName::JSXMemberExpr(m) if m.prop.sym.as_ref() == "Provider" => Some(jsx_object_name(&m.obj)),
+      _ => None,
+    };
+    if provider.is_some() || named_provider.is_some() {
+      let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
+      let shown = named_provider.unwrap_or_else(|| jsx_tag_name(&el.opening.name));
+      self.providers.push((shown, (loc.line, loc.col_display + 1), provider.as_ref().map(|(_, react)| *react)));
+      let children = Tmpl::Fragment(self.children(&el.children)?);
+      let Some((id, _)) = provider else { return Ok(children) };
+      let mut value = Expr::Lit(Lit::Null);
+      for attr in &el.opening.attrs {
+        if let js::JSXAttrOrSpread::JSXAttr(attr) = attr {
+          if attr_name(&attr.name) == "value" {
+            value = self.attr_value(attr)?;
+          }
+        }
+      }
+      return Ok(Tmpl::Let { name: format!("{CONTEXT_PREFIX}{id}"), expr: value, then: Box::new(children) });
+    }
     let (name, member) = match &el.opening.name {
       js::JSXElementName::Ident(id) => (id.sym.to_string(), false),
       js::JSXElementName::JSXMemberExpr(m) => match &m.obj {
@@ -3252,25 +3412,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       },
       js::JSXElementName::JSXNamespacedName(n) => return Err(self.lowerer.residue(n.span, "a namespaced tag")),
     };
-    if let js::JSXElementName::JSXMemberExpr(m) = &el.opening.name {
-      if let (js::JSXObject::Ident(obj), "Provider") = (&m.obj, m.prop.sym.as_ref()) {
-        if find_namespace_import(self.lowerer.parsed, obj.sym.as_ref()).is_none() {
-          let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
-          self.providers.push((obj.sym.to_string(), (loc.line, loc.col_display + 1)));
-          let children = Tmpl::Fragment(self.children(&el.children)?);
-          let Some((id, _)) = self.lowerer.contexts.get(obj.sym.as_ref()).cloned() else { return Ok(children) };
-          let mut value = Expr::Lit(Lit::Null);
-          for attr in &el.opening.attrs {
-            if let js::JSXAttrOrSpread::JSXAttr(attr) = attr {
-              if attr_name(&attr.name) == "value" {
-                value = self.attr_value(attr)?;
-              }
-            }
-          }
-          return Ok(Tmpl::Let { name: format!("{CONTEXT_PREFIX}{id}"), expr: value, then: Box::new(children) });
-        }
-      }
-    }
     let is_component = member || name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
     if is_component {
       return self.component_ref(&name, el, as_child);
@@ -3366,8 +3507,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// True when `name` is imported from the client library's React adapter.
   /// The dialect tag `name` stands for, whatever it was imported as.
-  fn template_tag(&self, name: &str) -> Option<String> {
-    imported_as(self.lowerer.parsed, name, is_template_source)
+  /// The placement a tag names, however the file reaches it; `None` for a component, a local among them.
+  fn placement(&self, el: &js::JSXElement) -> Option<&'static str> {
+    self.meanings().of_tag(&el.opening.name).and_then(|meant| meant.placement())
   }
 
   /// `<Mount module=… props=… />`: the empty region the adapter's `Mount`
@@ -3696,7 +3838,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// `const Lazy = island(Chart, { when: "visible" })` at module scope, when
   /// `name` is such a `Lazy`: the component and the timing.
   fn island_alias(&mut self, name: &str) -> Lowered<Option<(String, Option<String>, Option<String>)>> {
-    match island_alias_of(self.lowerer.parsed, name) {
+    match island_alias_of(self.lowerer.parsed, &self.meanings(), name) {
       Ok(alias) => Ok(alias.map(|a| (a.target, a.when, a.mode))),
       Err((span, message)) => Err(self.lowerer.residue(span, message)),
     }
@@ -3796,13 +3938,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if name == "Fragment" || name == "React.Fragment" {
       return Ok(Tmpl::Fragment(self.children(&el.children)?));
     }
-    match self.template_tag(name).as_deref() {
+    match self.placement(el) {
       Some("Island") => return self.island_element(el),
       Some("Slot") => return self.slot_element(el),
       Some("Link") => return self.link_element(el),
       Some("Picture") => return self.picture_element(el, false),
       Some("Mount") => return self.mount_element(el),
       _ => {}
+    }
+    if let js::JSXElementName::Ident(id) = &el.opening.name {
+      let meanings = self.meanings();
+      if id.ctxt != meanings.top && id.ctxt != meanings.unresolved {
+        return Err(self.lowerer.residue(el.opening.name.span(), format!("`{name}` is not a component this file declares or imports")));
+      }
     }
     if let Some((target, when, mode)) = self.island_alias(name)? {
       let lowered = self.component_ref(&target, el, false)?;
@@ -5276,19 +5424,16 @@ fn weight(expr: &Expr) -> usize {
 
 /// The first argument of every call to the client's `useStore`, however the module named it.
 struct StoreCalls<'a> {
-  parsed: &'a Parsed,
+  meanings: &'a crate::meaning::Meanings,
   args: Vec<js::Expr>,
 }
 
 impl swc_core::ecma::visit::Visit for StoreCalls<'_> {
   fn visit_call_expr(&mut self, call: &js::CallExpr) {
     if let js::Callee::Expr(callee) = &call.callee {
-      if let js::Expr::Ident(name) = &**callee {
-        let client = |source: &str| source == "@snapfire/fsr-client/react" || source == crate::vue::VUE_CLIENT;
-        if imported_as(self.parsed, &name.sym, client).as_deref() == Some("useStore") {
-          if let Some(first) = call.args.first() {
-            self.args.push((*first.expr).clone());
-          }
+      if self.meanings.of_expr(callee).and_then(|meant| meant.hook()) == Some("useStore") {
+        if let Some(first) = call.args.first() {
+          self.args.push((*first.expr).clone());
         }
       }
     }
