@@ -24,7 +24,7 @@ test("two layouts seed the store, the inner one wins the region, and the derived
   expect(get(openAlerts)).toEqual(2);
   expect(get(watching)).toEqual(1);
   expect(get(region), "the agents layout's seed replaced the root layout's `all`").toEqual("eu");
-  expect(get(headline), "seeded by the server; the browser derives it again from src/main.ts, which the runner does not load").toEqual("2 to look at, watching 1");
+  expect(get(headline), "the server computed it from the derive in src/main.ts").toEqual("2 to look at, watching 1");
   expect(screen.getByLabelText("2 open alerts")).toBeTruthy();
   expect(screen.getByText("2 to look at, watching 1")).toBeTruthy();
   await settle();

@@ -5,7 +5,7 @@ import { headline, openAlerts, watching } from "./store.js";
 
 registerIslands();
 
-/** The same string the root layout's `store` seeds, so registering this costs no re-render at hydration and every later change to either key updates the header. */
+/** The server computes `fleet/headline` from this derive too, so registering it costs no re-render at hydration and every later change to either key updates the header. */
 derive(headline, [openAlerts, watching], (read) => {
   const open = read(openAlerts) ?? 0;
   const held = read(watching) ?? 0;

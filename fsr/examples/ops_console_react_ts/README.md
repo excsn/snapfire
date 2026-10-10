@@ -8,7 +8,7 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | --- | --- |
 | A store the whole document shares, seeded by two layouts, the inner one winning a key both set | `routes/layout.loader.ts`, `routes/agents/layout.loader.ts`, `src/store.ts` |
 | A key nothing seeds, written in one root and read in another | `fleet/selected`, written by the list, shown in the header |
-| A derived key the server seeds and the browser keeps recomputing | `fleet/headline` in `src/main.ts` and the root loader |
+| A derived key the server computes and the browser keeps recomputing | `fleet/headline` in `src/main.ts` |
 | A setting held in the session, written optimistically, seeded back on every request | row density in `routes/settings/`, read by `src/ui/AgentRows.tsx` |
 | A nested layout with a parallel slot beside it and a slot of its own | `routes/agents/layout.tsx` under `routes/layout.tsx`, `routes/slots/alerts/` |
 | Both fallback spellings for a slot | `{alerts ?? …}` in the root layout, `<Slot name="peek">…</Slot>` in the agents layout |
