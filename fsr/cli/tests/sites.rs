@@ -152,7 +152,7 @@ fn pinnable() -> PathBuf {
 #[test]
 fn pinning_writes_the_hash_into_the_mount() {
   let shell = pinnable();
-  let pinned = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  let pinned = snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins");
   assert_eq!(pinned.len(), 1);
   assert_eq!(pinned[0].name, "billing");
   assert!(pinned[0].was.is_none());
@@ -163,12 +163,49 @@ fn pinning_writes_the_hash_into_the_mount() {
   assert!(toml.contains("[sites.billing]"), "{toml}");
 }
 
+/// A pin written into a layer leaves the committed table as it is and is read
+/// back through the configuration ladder, so the host and the doctor see it.
+#[test]
+fn pinning_into_a_layer_leaves_the_table_alone_and_the_ladder_reads_it() {
+  let shell = pinnable();
+  let pinned = snapfire_fsr_cli::sites::pin(&shell, None, Some("local")).expect("pins");
+  assert_eq!(pinned.len(), 1);
+  assert!(pinned[0].moved());
+  assert_eq!(pinned[0].file, shell.join("local.toml"));
+  let layer = std::fs::read_to_string(shell.join("local.toml")).unwrap();
+  assert_eq!(layer, format!("[sites.billing]\nhash = \"{}\"\n", pinned[0].hash), "{layer}");
+  assert!(!std::fs::read_to_string(shell.join("app.toml")).unwrap().contains("hash"), "the table is untouched");
+
+  let config = snapfire_fsr_host::config::Loader::at(&shell)
+    .deployment(snapfire_fsr_host::config::Deployment { release_env: "development".to_owned(), app_env: "local".to_owned(), region: None })
+    .config()
+    .unwrap();
+  assert_eq!(config.sites.unwrap().mounts["billing"].hash.as_deref(), Some(pinned[0].hash.as_str()));
+
+  let again = snapfire_fsr_cli::sites::pin(&shell, None, Some("local")).expect("pins");
+  assert!(!again[0].moved(), "a pin the ladder already reads is held");
+
+  std::fs::write(shell.join("staging.toml"), "[server]\ndev = false\n").unwrap();
+  snapfire_fsr_cli::sites::pin(&shell, None, Some("staging")).expect("pins");
+  let staging = std::fs::read_to_string(shell.join("staging.toml")).unwrap();
+  assert_eq!(staging, format!("[server]\ndev = false\n\n[sites.billing]\nhash = \"{}\"\n", pinned[0].hash), "a layer that exists gains the section: {staging}");
+}
+
+#[test]
+fn a_pin_refuses_a_layer_that_is_not_one() {
+  let shell = pinnable();
+  for layer in ["app", "bundle", "config/local", "local.toml"] {
+    let e = snapfire_fsr_cli::sites::pin(&shell, None, Some(layer)).unwrap_err().to_string();
+    assert!(e.contains(layer), "{e}");
+  }
+}
+
 /// Pinning twice is one pin: the second run has nothing to write.
 #[test]
 fn pinning_again_holds_when_nothing_moved() {
   let shell = pinnable();
-  let first = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
-  let again = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  let first = snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins");
+  let again = snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins");
   assert_eq!(again[0].was.as_deref(), Some(first[0].hash.as_str()));
   assert!(!again[0].moved(), "the hash moved without the artifact moving");
   assert_eq!(std::fs::read_to_string(shell.join("app.toml")).unwrap().matches("hash = ").count(), 1);
@@ -178,9 +215,9 @@ fn pinning_again_holds_when_nothing_moved() {
 #[test]
 fn repinning_replaces_the_hash_it_had() {
   let shell = pinnable();
-  let before = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins")[0].hash.clone();
+  let before = snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins")[0].hash.clone();
   std::fs::write(shell.join("sites/billing/1.0.0/app/generated/plan.sexp"), "(plan 2)\n(route / (node 0 shell#document))\n").unwrap();
-  let after = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  let after = snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins");
   assert_eq!(after[0].was.as_deref(), Some(before.as_str()));
   assert_ne!(after[0].hash, before);
   let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
@@ -194,7 +231,7 @@ fn a_path_mount_is_not_pinned() {
   let shell = pinnable();
   let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
   std::fs::write(shell.join("app.toml"), toml.replace("artifact = \"billing@1.0.0\"", "artifact = \"sites/billing/1.0.0\"")).unwrap();
-  assert!(snapfire_fsr_cli::sites::pin(&shell, None).expect("pins").is_empty());
+  assert!(snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins").is_empty());
   assert!(!std::fs::read_to_string(shell.join("app.toml")).unwrap().contains("hash = "));
 }
 
@@ -208,7 +245,7 @@ fn pinning_one_mount_leaves_the_others() {
   std::fs::write(site.join("app.toml"), "[app]\ndir = \"app\"\n[document]\ntitle = \"o\"\n[session]\nkey = \"k\"\n[site]\nname = \"other\"\nat = \"/other\"\n").unwrap();
   std::fs::write(site.join("app/generated/plan.sexp"), "(plan 2)\n").unwrap();
 
-  let pinned = snapfire_fsr_cli::sites::pin(&shell, Some("billing")).expect("pins");
+  let pinned = snapfire_fsr_cli::sites::pin(&shell, Some("billing"), None).expect("pins");
   assert_eq!(pinned.len(), 1);
   let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
   assert_eq!(toml.matches("hash = ").count(), 1, "{toml}");
@@ -217,7 +254,7 @@ fn pinning_one_mount_leaves_the_others() {
 #[test]
 fn pinning_a_name_the_table_does_not_mount_says_so() {
   let shell = pinnable();
-  let e = snapfire_fsr_cli::sites::pin(&shell, Some("nope")).unwrap_err().to_string();
+  let e = snapfire_fsr_cli::sites::pin(&shell, Some("nope"), None).unwrap_err().to_string();
   assert!(e.contains("`nope` is not mounted"), "{e}");
 }
 
@@ -344,7 +381,7 @@ fn a_missing_route_says_the_host_was_not_built_for_it() {
 #[test]
 fn the_table_is_compared_against_every_instance() {
   let shell = pinnable();
-  let hash = snapfire_fsr_cli::sites::pin(&shell, None).expect("pins")[0].hash.clone();
+  let hash = snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins")[0].hash.clone();
   let agrees = format!(r#"{{"sites":[{{"name":"billing","at":"/billing","version":"1.0.0","hash":"{hash}"}}]}}"#);
   let lags = r#"{"sites":[{"name":"billing","at":"/billing","version":"0.9.0","hash":"old"}]}"#;
   let (a, _x) = serving(vec![(200, agrees)]);
@@ -359,7 +396,7 @@ fn the_table_is_compared_against_every_instance() {
 #[test]
 fn an_instance_missing_the_site_does_not_agree() {
   let shell = pinnable();
-  snapfire_fsr_cli::sites::pin(&shell, None).expect("pins");
+  snapfire_fsr_cli::sites::pin(&shell, None, None).expect("pins");
   let (addr, _x) = serving(vec![(200, r#"{"sites":[]}"#.to_owned())]);
   let rows = snapfire_fsr_cli::sites::compare(&shell, &[addr], &[]).expect("compares");
   assert!(!rows[0].agrees());

@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_host::config::Config;
+use snapfire_fsr_host::config::{Config, Deployment, Loader};
 
 use crate::BuildError;
 
@@ -56,6 +56,8 @@ pub struct Pinned {
   /// The hash the mount carried before, when it carried one.
   pub was: Option<String>,
   pub artifact: PathBuf,
+  /// The configuration file the pin was written into.
+  pub file: PathBuf,
 }
 
 impl Pinned {
@@ -414,7 +416,7 @@ pub struct Installation {
 /// it. Install is the one moment when computing the hash and meaning to ship
 /// that version are the same act, so the pin is written here rather than left
 /// as a step someone remembers.
-pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<usize>, pin_it: bool) -> Result<Installation, BuildError> {
+pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<usize>, pin_it: bool, layer: Option<&str>) -> Result<Installation, BuildError> {
   let config = Config::load(shell).map_err(|e| BuildError::Sites(e.to_string()))?;
   let root = config
     .sites
@@ -437,7 +439,7 @@ pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<us
     .and_then(|section| section.mounts.get(&name))
     .is_some_and(|mount| mount.artifact == format!("{name}@{}", installed.version));
   let pinned = match pin_it && names_it {
-    true => pin(shell, Some(&name))?.into_iter().next(),
+    true => pin(shell, Some(&name), layer)?.into_iter().next(),
     false => None,
   };
   Ok(Installation { installed, pinned })
@@ -450,8 +452,21 @@ pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<us
 /// Only a `name@version` artifact is pinned. A mount naming a path is a linked
 /// working tree that changes on every build and a pin there would be stale by
 /// the next one.
-pub fn pin(shell: &Path, only: Option<&str>) -> Result<Vec<Pinned>, BuildError> {
-  let config = load(shell)?;
+///
+/// `layer` names a configuration file on the ladder, `config/<layer>.toml`,
+/// to write the pin into instead of `app.toml`, created when absent: the
+/// table stays as committed and the pin lives with the deployment that
+/// installed the artifact.
+pub fn pin(shell: &Path, only: Option<&str>, layer: Option<&str>) -> Result<Vec<Pinned>, BuildError> {
+  // The hash a mount carries now is read the way that layer's deployment
+  // reads it, so a pin already held by another layer is not taken as this one's.
+  let config = match layer {
+    Some(layer) => Loader::at(shell)
+      .deployment(Deployment { release_env: layer.to_owned(), app_env: layer.to_owned(), region: None })
+      .config()
+      .map_err(|e| refuse(e.to_string()))?,
+    None => load(shell)?,
+  };
   let Some(section) = &config.sites else {
     return Err(refuse(format!("{} mounts no sites", config.root.display())));
   };
@@ -460,7 +475,10 @@ pub fn pin(shell: &Path, only: Option<&str>) -> Result<Vec<Pinned>, BuildError> 
       return Err(refuse(format!("`{name}` is not mounted by {}", config.root.display())));
     }
   }
-  let file = writable(&config)?;
+  let file = match layer {
+    Some(layer) => layer_file(&config, layer)?,
+    None => writable(&config)?,
+  };
   let mut pinned = Vec::new();
   for (name, mount) in &section.mounts {
     if only.is_some_and(|wanted| wanted != name) {
@@ -480,23 +498,50 @@ pub fn pin(shell: &Path, only: Option<&str>) -> Result<Vec<Pinned>, BuildError> 
       return Err(refuse(format!("sites.{name}: {} is not a directory", artifact.display())));
     }
     let hash = snapfire_fsr_sites::hash_dir(&artifact).map_err(|e| BuildError::Sites(e.to_string()))?;
-    let entry = Pinned { name: name.clone(), hash: hash.clone(), was: mount.hash.clone(), artifact };
+    let entry = Pinned { name: name.clone(), hash: hash.clone(), was: mount.hash.clone(), artifact, file: file.clone() };
     if entry.moved() {
-      set_key(&file, &format!("sites.{name}"), "hash", &hash)?;
+      set_key(&file, &format!("sites.{name}"), "hash", &hash, layer.is_some())?;
     }
     pinned.push(entry);
   }
   Ok(pinned)
 }
 
+/// `config/<layer>.toml` for a pin: a plain name on the ladder, never `app`,
+/// which is the table itself, and never `bundle`, which a deploy tree owns.
+fn layer_file(config: &Config, layer: &str) -> Result<PathBuf, BuildError> {
+  let plain = !layer.is_empty() && layer.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+  if !plain {
+    return Err(refuse(format!("`{layer}` is not a layer name; a layer is `config/<name>.toml`, named without the directory or the extension")));
+  }
+  if layer == "app" || layer == "bundle" {
+    return Err(refuse(format!("`{layer}` is not a layer a pin goes into: `app.toml` is the table itself, written without `--layer`, and `bundle.toml` is a deploy tree's own")));
+  }
+  Ok(config.config_dir().join(format!("{layer}.toml")))
+}
+
 /// Sets `key = "value"` inside `[header]`, replacing the line when it is there
-/// and adding it under the header when it is not.
-fn set_key(path: &Path, header: &str, key: &str, value: &str) -> Result<(), BuildError> {
-  let text = std::fs::read_to_string(path).map_err(|e| BuildError::Io(path.to_path_buf(), e))?;
+/// and adding it under the header when it is not. With `create`, a missing
+/// file is started and a missing header is appended; without, either is a
+/// refusal, since the table the header belongs to is written by hand.
+fn set_key(path: &Path, header: &str, key: &str, value: &str, create: bool) -> Result<(), BuildError> {
+  let text = match std::fs::read_to_string(path) {
+    Ok(text) => text,
+    Err(e) if create && e.kind() == std::io::ErrorKind::NotFound => String::new(),
+    Err(e) => return Err(BuildError::Io(path.to_path_buf(), e)),
+  };
   let wanted = format!("[{header}]");
   let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
-  let Some(start) = lines.iter().position(|l| l.trim() == wanted) else {
-    return Err(refuse(format!("{}: no [{header}] to set `{key}` in", path.display())));
+  let start = match lines.iter().position(|l| l.trim() == wanted) {
+    Some(start) => start,
+    None if create => {
+      if lines.last().is_some_and(|l| !l.trim().is_empty()) {
+        lines.push(String::new());
+      }
+      lines.push(wanted.clone());
+      lines.len() - 1
+    }
+    None => return Err(refuse(format!("{}: no [{header}] to set `{key}` in", path.display()))),
   };
   let end = lines[start + 1..]
     .iter()

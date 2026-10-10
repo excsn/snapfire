@@ -308,6 +308,9 @@ enum SitesCommand {
     /// Installs without pinning the mount to the hash.
     #[arg(long)]
     no_pin: bool,
+    /// Writes the pin into `config/<layer>.toml`, created when absent, instead of `app.toml`.
+    #[arg(long)]
+    layer: Option<String>,
   },
   /// Pins every mount to the hash its artifact has now.
   Pin {
@@ -315,6 +318,9 @@ enum SitesCommand {
     shell_dir: PathBuf,
     /// Pins only this mount.
     name: Option<String>,
+    /// Writes the pin into `config/<layer>.toml`, created when absent, instead of `app.toml`.
+    #[arg(long)]
+    layer: Option<String>,
   },
   /// Writes both halves of a mount: the site's [site] and the shell's [sites.<name>].
   Link {
@@ -839,9 +845,10 @@ fn run_sites(command: SitesCommand) -> ExitCode {
       name,
       keep,
       no_pin,
+      layer,
     } => {
       let keep = keep.and_then(|n| n.parse::<usize>().ok());
-      match sites::install(&shell_dir, &archive, name.as_deref(), keep, !no_pin) {
+      match sites::install(&shell_dir, &archive, name.as_deref(), keep, !no_pin, layer.as_deref()) {
         Ok(out) => {
           let installed = &out.installed;
           if installed.held {
@@ -855,7 +862,7 @@ fn run_sites(command: SitesCommand) -> ExitCode {
             println!("removed   {} {version}", installed.name);
           }
           match &out.pinned {
-            Some(pinned) if pinned.moved() => println!("pinned    [sites.{}] hash = \"{}\"", pinned.name, pinned.hash),
+            Some(pinned) if pinned.moved() => println!("pinned    [sites.{}] hash = \"{}\" in {}", pinned.name, pinned.hash, pinned.file.display()),
             Some(pinned) => println!("pinned    [sites.{}] already {}", pinned.name, pinned.hash),
             None => println!("next      artifact = \"{}@{}\" in [sites.{}]", installed.name, installed.version, installed.name),
           }
@@ -864,15 +871,15 @@ fn run_sites(command: SitesCommand) -> ExitCode {
         Err(e) => failed(e),
       }
     }
-    SitesCommand::Pin { shell_dir, name } => match sites::pin(&shell_dir, name.as_deref()) {
+    SitesCommand::Pin { shell_dir, name, layer } => match sites::pin(&shell_dir, name.as_deref(), layer.as_deref()) {
       Ok(pinned) => {
         if pinned.is_empty() {
           println!("pinned    nothing: a mount naming a path is a working tree and is never pinned");
         }
         for entry in &pinned {
           match (&entry.was, entry.moved()) {
-            (Some(was), true) => println!("repinned  [sites.{}] {was} -> {}", entry.name, entry.hash),
-            (_, true) => println!("pinned    [sites.{}] hash = \"{}\"", entry.name, entry.hash),
+            (Some(was), true) => println!("repinned  [sites.{}] {was} -> {} in {}", entry.name, entry.hash, entry.file.display()),
+            (_, true) => println!("pinned    [sites.{}] hash = \"{}\" in {}", entry.name, entry.hash, entry.file.display()),
             (_, false) => println!("held      [sites.{}] already {}", entry.name, entry.hash),
           }
         }

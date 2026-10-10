@@ -36,10 +36,10 @@ Install billing the way an operator would: pack a release and install it into th
 
 ```sh
 fsr sites pack sites/billing --version 1.0.0 --out deploy/archives/billing-1.0.0.tar.gz
-fsr sites install . deploy/archives/billing-1.0.0.tar.gz --no-pin
+fsr sites install . deploy/archives/billing-1.0.0.tar.gz --layer local
 ```
 
-`install` verifies every file against the archive's manifest before renaming it into `deploy/sites/billing/1.0.0`. Without `--no-pin` it writes the hash into `[sites.billing]`, which is what a production table does. It is left off here because the hash changes on every rebuild.
+`install` verifies every file against the archive's manifest before renaming it into `deploy/sites/billing/1.0.0`, then writes the hash into `[sites.billing]`, which is what a production table does. `--layer local` puts that pin in `config/local.toml`, which the host reads under the default `APP_ENV` and this checkout ignores: the hash is of what your `fsr` built, so it belongs with your checkout and not in the committed table.
 
 Publish status to the store and serve the store:
 
@@ -56,7 +56,11 @@ Then run the portal in another terminal:
 cargo run -p portal_react_ts
 ```
 
-The first boot logs `fetched status@1.0.0 from http://127.0.0.1:8199` and the report lists all three under `sites`. Open `http://127.0.0.1:8100/`, sign in as `alice` / `wonder` and follow Billing, Blog and Status. `GET /__fsr/sites` shows billing and status at `1.0.0` and blog at `path`.
+The first boot logs `fetched status@1.0.0 from http://127.0.0.1:8199` and the report lists all three under `sites`. Open `http://127.0.0.1:8100/`, sign in as `alice` / `wonder` and follow Billing, Blog and Status. `GET /__fsr/sites` shows billing and status at `1.0.0` and blog at `path`. Status is now in the cache, so pin it the same way and `fsr doctor .` reports nothing:
+
+```sh
+fsr sites pin . status --layer local
+```
 
 To ship status 1.1.0, pack it into the store and move `[sites.status] artifact` to `status@1.1.0`. The poll notices the row moved, fetches the version and swaps the tables. A request in flight finishes on the old ones.
 

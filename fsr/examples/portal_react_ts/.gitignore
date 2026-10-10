@@ -11,3 +11,5 @@ app/.fsr-test/
 app/.fsr-bundle/
 # the site cache, the archives the walkthrough packs and the store it serves
 deploy/
+# the pins `fsr sites install --layer local` and `fsr sites pin --layer local` write for the artifacts this checkout built
+config/local.toml
