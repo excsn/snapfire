@@ -647,7 +647,7 @@ Sixteen checks, each answering from something the build already computed, so non
 | `shadow` | a `[[static]]` route swallows an application route, which then never runs |
 | `bearer` | a client carries a bearer token while `[auth]`, the only thing that writes one, is unset |
 | `cache.tags` | a call drops a cache tag no cached method names, so it invalidates nothing |
-| `links` | a literal internal link matches no route, static root or mounted site |
+| `links` | a literal internal link matches no route, declared Rust route, static root or mounted site |
 | `tree` | a deploy tree would carry a file the project does not hold; a setting no tree can express |
 | `sites` | a mounted `name@version` site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its routes, plus artifacts under the root no mount names |
 | `csp` | a policy names `'unsafe-inline'` in `script-src` beside the import map's hash, which makes the browser ignore it; or it names `'strict-dynamic'`, which makes it ignore `'self'` and so the entry module |

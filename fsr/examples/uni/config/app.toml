@@ -23,3 +23,12 @@ dir = "styles"
 [[static]]
 route = "/static/js/vendor"
 dir = "js/vendor"
+
+[[route]]
+pattern = "/"
+
+[[route]]
+pattern = "/board"
+
+[[route]]
+pattern = "/news"

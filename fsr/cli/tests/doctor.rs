@@ -481,6 +481,12 @@ fn a_link_to_a_path_nothing_answers_is_reported() {
   let (found, out) = of("", "/product/9", &[]);
   assert!(!found.contains(&"links".to_owned()), "{out}");
 
+  // A route the application registers in Rust is declared, so the doctor answers it.
+  let (found, out) = of("[[route]]\npattern = \"/about\"\n", "/about", &[]);
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+  let (found, out) = of("[[route]]\npattern = \"/about/{section}\"\n", "/about/team", &[]);
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+
   // A path under a static root is answered from the directory.
   let (found, out) = of(
     "[[static]]\nroute = \"/assets\"\ndir = \"public\"\n",

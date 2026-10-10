@@ -24,7 +24,7 @@ Evaluators can be replaced the same way. `.evaluator(predicate, evaluator)` answ
 
 A name can be claimed by the plan file and by Rust and the host does not guess which wins. Three rules decide it. Breaking one is a boot error that names the name, never a silent choice.
 
-**A new name binds directly.** `.source("pricing", f)` on a name the plan file does not lower simply binds it. A route added with `.route` on a pattern the plan file does not have is a new route.
+**A new name binds directly.** `.source("pricing", f)` on a name the plan file does not lower simply binds it. A route added with `.route` on a pattern the plan file does not have is a new route, declared in `app.toml` as `[[route]] pattern = "/about"` so the doctor can tell a link to it from a dead one; a declaration nothing registers is a boot error.
 
 **Replacing a lowered name needs `_override`.** `.source("cart", f)` on a name the plan file lowered is refused: "claimed by the plan file and by Rust; mark the Rust one as an override". Write `.source_override("cart", f)` and the override is what runs. The `_override` suffix lets a reader of `main.rs` find every place Rust replaced TypeScript.
 

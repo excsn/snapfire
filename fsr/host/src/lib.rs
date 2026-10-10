@@ -4989,6 +4989,14 @@ impl HostBuilder {
       _ => (app, None),
     };
     let app = app.evaluator(move |m: &ModuleId| m.path == shell_path, shell).build()?;
+    for declared in &config.routes {
+      if !app.report.routes.iter().any(|(pattern, _)| pattern == &declared.pattern) {
+        return Err(HostError::Config(
+          config.sources.first().cloned().unwrap_or_else(|| config.root.clone()),
+          format!("[[route]] declares `{}` and nothing registers it; add `.route(\"{0}\", plan)` to the builder or take the declaration out", declared.pattern),
+        ));
+      }
+    }
     for (index, _) in app.patterns.iter().enumerate() {
       let Some(plan) = app.resolver.resolve(snapfire_fsr_runtime::EntryId(index as u32), &Params::new()) else { continue };
       templates_answered(&plan, &app.runtime.evaluators, stock_templates.as_deref())?;

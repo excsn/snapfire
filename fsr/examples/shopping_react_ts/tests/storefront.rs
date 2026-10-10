@@ -428,12 +428,14 @@ fn the_middleware_redirects_rewrites_and_adds_a_header() {
 fn middleware_written_in_rust_must_override_the_lowered_one() {
   let refused = storefront()
     .services_over(Arc::new(MockTransport::new()))
+    .route("/about", about_plan())
     .middleware(|_ctx, _request| async { Ok(Value::Null) })
     .build();
   let Err(err) = refused else { panic!("the plan lowers middleware.ts") };
   assert!(matches!(err, snapfire_fsr_host::HostError::Bind(snapfire_fsr::BindError::MiddlewareClaimed)), "{err}");
   let app = storefront()
     .services_over(Arc::new(MockTransport::new()))
+    .route("/about", about_plan())
     .middleware_override(|_ctx, _request| async { Ok(Value::Null) })
     .build()
     .unwrap();
@@ -545,12 +547,14 @@ fn a_page_and_its_layout_are_cached_by_module_once_per_distinct_params() {
 fn a_handler_written_in_rust_sits_beside_the_lowered_ones() {
   let app = storefront()
     .services_over(Arc::new(MockTransport::new()))
+    .route("/about", about_plan())
     .handler("GET", "/api/health", |_ctx, _input| async { Ok(Value::str("ok")) })
     .build()
     .unwrap();
   assert_eq!(block_on(app.call_handler("GET", "/api/health", SessionCell::default(), Value::Null)).unwrap(), Value::str("ok"));
   let refused = storefront()
     .services_over(Arc::new(MockTransport::new()))
+    .route("/about", about_plan())
     .handler("GET", "/api/cart", |_ctx, _input| async { Ok(Value::Null) })
     .build();
   let Err(err) = refused else { panic!("the plan lowers GET /api/cart") };

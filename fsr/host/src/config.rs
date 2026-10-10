@@ -39,6 +39,9 @@ pub struct Config {
   pub store: StoreSection,
   pub clients: BTreeMap<String, ClientConfig>,
   pub statics: Vec<StaticRoot>,
+  /// `[[route]]`: the patterns the application registers in Rust, so a reader
+  /// of the configuration knows the deployment answers them before it boots.
+  pub routes: Vec<RouteDecl>,
   /// The locales the application serves; absent means one, `en`, with no
   /// prefix, cookie or header consulted.
   pub locales: Option<LocalesSection>,
@@ -1005,6 +1008,14 @@ pub struct StaticRoot {
   pub dir: String,
 }
 
+/// A route the application registers with `.route` rather than through the
+/// file tree. Boot refuses a declared pattern nothing registers.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RouteDecl {
+  pub pattern: String,
+}
+
 const SECTIONS: &[&str] = &[
   "app",
   "server",
@@ -1013,6 +1024,7 @@ const SECTIONS: &[&str] = &[
   "cache",
   "clients",
   "static",
+  "route",
   "locales",
   "auth",
   "typecheck",
@@ -1518,6 +1530,13 @@ impl Config {
       Some(value) => {
         let json = to_json(&value);
         serde_json::from_value(json).map_err(|e| HostError::Config(at.clone(), format!("static: {e}")))?
+      }
+      None => Vec::new(),
+    };
+    let routes: Vec<RouteDecl> = match store.get("route") {
+      Some(value) => {
+        let json = to_json(&value);
+        serde_json::from_value(json).map_err(|e| HostError::Config(at.clone(), format!("route: {e}")))?
       }
       None => Vec::new(),
     };
@@ -2051,6 +2070,7 @@ impl Config {
       store: store_section,
       clients,
       statics,
+      routes,
       locales,
       auth,
       typecheck,

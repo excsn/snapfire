@@ -47,7 +47,7 @@ Each check answers from something a build already computed, so none of it needs 
 | `shadow` | a `[[static]]` root whose route swallows an application route | A matched static prefix answers from the directory and returns, so the page underneath it never runs |
 | `bearer` | a client carries a bearer token while `[auth]` is unset | An `[auth]` provider is the only thing that writes a token into custody, so the call goes out with no `Authorization` header |
 | `cache.tags` | a call drops a cache tag no cached method names | The two sides are strings that have to agree; a typo either way leaves a write that invalidates nothing |
-| `links` | a literal internal link matching no route, static root or mounted site | The plan already holds the link and the routes, so a 404 you would otherwise find only by clicking shows up without a crawler |
+| `links` | a literal internal link matching no route, declared Rust route, static root or mounted site | The plan already holds the link and the routes, so a 404 you would otherwise find only by clicking shows up without a crawler |
 | `render` | a `[server] render` line | Every page renders on the server and every island in the browser, so no host accepts the setting and the boot stops until the line is taken out |
 | `tree` | a file a deploy tree would carry that the project does not hold; a setting no tree can express | The host reads each of these at boot, so a tree without one starts on the machine that built it and fails on the machine it was copied to |
 | `csp` | a policy naming `'unsafe-inline'` in `script-src` beside an import map; a policy naming `'strict-dynamic'` | The host adds the import map's hash to that directive; a hash makes the browser ignore `'unsafe-inline'`. `'strict-dynamic'` makes it ignore `'self'` and every host, leaving the entry module with nothing to allow it |
@@ -69,7 +69,7 @@ Four of the checks compare two artifacts that were written separately and have t
 
 `bearer` and `cache.tags` are both a name that only works if two places spell it the same. A bearer client reads a token out of custody and an `[auth]` provider is the only thing that puts one there. A cache tag is dropped by whatever names it in `writes`. Only the write side of a tag is asked about, because a cached tag nothing writes is how a read-only service says it expires by its own ttl. A typo in either direction leaves a written tag nothing caches.
 
-`links` reads the literal `href` of every anchor the build lowered and asks whether this deployment answers it, against its routes, its static roots, the prefixes of the sites it mounts and the framework's own paths. A locale prefix is stripped first, the way the host strips one. Only a literal is asked about, since the build cannot know every value a computed href takes. A site is exempt: its links reach into a shell it cannot see, so the shell it was built against need not be the one it runs in.
+`links` reads the literal `href` of every anchor the build lowered and asks whether this deployment answers it, against its routes, the routes `[[route]]` declares for the ones Rust registers, its static roots, the prefixes of the sites it mounts and the framework's own paths. A locale prefix is stripped first, the way the host strips one. Only a literal is asked about, since the build cannot know every value a computed href takes. A site is exempt: its links reach into a shell it cannot see, so the shell it was built against need not be the one it runs in.
 
 ### Deploy tree checks
 

@@ -24,3 +24,18 @@ login = "/login"
 [[static]]
 route = "/static/js/app"
 dir = "js/dist"
+
+[[route]]
+pattern = "/"
+
+[[route]]
+pattern = "/login"
+
+[[route]]
+pattern = "/hydrate"
+
+[[route]]
+pattern = "/dash/{section}"
+
+[[route]]
+pattern = "/slow/{section}"

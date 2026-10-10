@@ -28,3 +28,6 @@ base_url = "http://127.0.0.1:8082"
 
 [typecheck]
 version = "7.0.2"
+
+[[route]]
+pattern = "/about"

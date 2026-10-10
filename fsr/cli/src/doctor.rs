@@ -523,9 +523,9 @@ fn cache_tags(config: &Config) -> Vec<Finding> {
 }
 
 /// A literal internal link in a render tree, against everything this
-/// deployment answers: its own routes, its static roots, the sites it mounts
-/// and the framework's own prefixes. A link matching none of them is a 404
-/// nobody sees until someone clicks it.
+/// deployment answers: its own routes, the routes `[[route]]` declares, its
+/// static roots, the sites it mounts and the framework's own prefixes. A link
+/// matching none of them is a 404 nobody sees until someone clicks it.
 ///
 /// A site is exempt. Its links reach into a shell it is mounted under, and
 /// the shell it was built against is not necessarily the shell it runs in, so
@@ -548,7 +548,7 @@ fn links(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
     .as_ref()
     .map(|l| l.supported.iter().map(String::as_str).collect())
     .unwrap_or_default();
-  let patterns: Vec<&str> = manifest.routes.iter().map(|r| r.pattern.as_str()).collect();
+  let patterns: Vec<&str> = manifest.routes.iter().map(|r| r.pattern.as_str()).chain(config.routes.iter().map(|r| r.pattern.as_str())).collect();
   let prefixes: Vec<String> = config
     .statics
     .iter()
@@ -571,7 +571,7 @@ fn links(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
       "{} is linked to and matches no route, static root or mounted site",
       dead.join(", ")
     ),
-    "correct the link or add the route it names; a path this deployment does not answer is a 404 at the moment someone clicks it",
+    "correct the link, add the route it names or declare it under [[route]] when Rust registers it; a path this deployment does not answer is a 404 at the moment someone clicks it",
   )]
 }
 
