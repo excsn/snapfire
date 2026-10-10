@@ -319,3 +319,74 @@ fn a_promise_makes_a_key_pending_only_where_it_outranks_every_seed_of_it() {
   assert!(pending(vec![promise("alpha", &["alpha"]), seed("beta", &["beta"])], &[]).is_empty(), "by name, beta wins the tie");
   assert_eq!(pending(vec![promise("alpha", &["alpha"]), seed("beta", &["beta"])], &["beta", "alpha"]), ["k"], "the slot order makes alpha win it");
 }
+
+mod derived {
+  use std::collections::BTreeSet;
+  use std::sync::Arc;
+
+  use snapfire_fsr_core::{Data, Value};
+  use snapfire_fsr_runtime::store::{apply_derives, derive_order, derived_pending, Derived};
+
+  fn int(store: &Data, key: &str) -> Option<i64> {
+    match store.get(key) {
+      Some(Value::Int(n)) => i64::try_from(*n).ok(),
+      _ => None,
+    }
+  }
+
+  fn sum(key: &str, sources: &[&str]) -> Derived {
+    let read: Vec<String> = sources.iter().map(|s| (*s).to_owned()).collect();
+    let from = read.clone();
+    Derived { key: key.to_owned(), sources: read, compute: Some(Arc::new(move |store: &Data| Some(Value::Int(from.iter().map(|s| int(store, s).unwrap_or(0)).sum::<i64>() as i128)))) }
+  }
+
+  fn store(pairs: &[(&str, i64)]) -> Data {
+    pairs.iter().map(|(k, v)| ((*k).to_owned(), Value::Int(*v as i128))).collect()
+  }
+
+  /// GAPS 9.63.
+  #[test]
+  fn a_derived_key_is_computed_after_the_derived_keys_it_reads_whatever_order_they_are_declared_in() {
+    let derives = derive_order(vec![sum("twice", &["total", "total"]), sum("total", &["price", "qty"])]);
+    let mut merged = store(&[("price", 3), ("qty", 4)]);
+    apply_derives(&mut merged, &derives);
+    assert_eq!((int(&merged, "total"), int(&merged, "twice")), (Some(7), Some(14)));
+  }
+
+  /// GAPS 9.63: the browser reads a derived value ahead of the merge.
+  #[test]
+  fn a_derived_value_replaces_what_a_segment_seeded_for_the_key() {
+    let mut merged = store(&[("price", 3), ("qty", 4), ("total", 1)]);
+    apply_derives(&mut merged, &derive_order(vec![sum("total", &["price", "qty"])]));
+    assert_eq!(int(&merged, "total"), Some(7));
+  }
+
+  /// GAPS 9.63: a reader of a derived key waits for a pending source as a reader of the source does.
+  #[test]
+  fn a_derived_key_is_pending_while_a_source_it_reads_is_even_through_another_derived_key() {
+    let derives = derive_order(vec![sum("twice", &["total"]), sum("total", &["price"]), sum("other", &["qty"])]);
+    let mut pending: BTreeSet<String> = ["price".to_owned()].into_iter().collect();
+    derived_pending(&mut pending, &derives);
+    assert_eq!(pending.into_iter().collect::<Vec<_>>(), vec!["price".to_owned(), "total".to_owned(), "twice".to_owned()]);
+  }
+
+  /// The browser reads a derived key as its derived value whatever a promise seeds for it, so the promise does not hold its readers.
+  #[test]
+  fn a_promise_seeding_a_derived_key_whose_sources_are_settled_does_not_hold_it() {
+    let derives = derive_order(vec![sum("total", &["price"])]);
+    let mut pending: BTreeSet<String> = ["total".to_owned()].into_iter().collect();
+    derived_pending(&mut pending, &derives);
+    assert!(pending.is_empty(), "{pending:?}");
+  }
+
+  /// GAPS 9.63: a derive the build could not lower is never painted from what a segment seeded for it.
+  #[test]
+  fn a_derived_key_without_a_compute_is_left_out_of_the_store_and_pending() {
+    let derives = derive_order(vec![Derived { key: "now".to_owned(), sources: Vec::new(), compute: None }]);
+    let mut merged = store(&[("now", 5)]);
+    apply_derives(&mut merged, &derives);
+    let mut pending = BTreeSet::new();
+    derived_pending(&mut pending, &derives);
+    assert_eq!((merged.get("now"), pending.contains("now")), (None, true));
+  }
+}

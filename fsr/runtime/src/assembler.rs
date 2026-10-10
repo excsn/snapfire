@@ -16,7 +16,7 @@ use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
 use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
-use crate::store::{Contribution, Seeds, merge_contributions, pending_keys};
+use crate::store::{apply_derives, derive_order, derived_pending, merge_contributions, pending_keys, Contribution, Derived, Seeds};
 
 #[derive(Debug, thiserror::Error)]
 pub enum AssembleError {
@@ -101,6 +101,8 @@ pub struct Runtime {
   /// What each subtree reads of the request, by its shape. A subtree with no
   /// entry is taken to read everything.
   pub reads: Reads,
+  /// The derived store keys, in [`derive_order`].
+  pub derives: Vec<Derived>,
 }
 
 pub struct RuntimeBuilder {
@@ -115,9 +117,16 @@ pub struct RuntimeBuilder {
   stores: HashMap<String, Arc<dyn Seeds>>,
   reads: Reads,
   slot_order: Vec<String>,
+  derives: Vec<Derived>,
 }
 
 impl RuntimeBuilder {
+  /// The store keys the browser's `derive` computes, which every subtree's store is completed with after its seeds merge.
+  pub fn derives(mut self, derives: Vec<Derived>) -> Self {
+    self.derives = derive_order(derives);
+    self
+  }
+
   /// The slot names that settle a store key two parallel slots both seed, the later winning; see `contribution_order`.
   pub fn slot_order(mut self, slot_order: Vec<String>) -> Self {
     self.slot_order = slot_order;
@@ -191,6 +200,7 @@ impl RuntimeBuilder {
       stores: self.stores,
       reads: self.reads,
       slot_order: self.slot_order,
+      derives: self.derives,
       head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
     })
   }
@@ -210,6 +220,7 @@ impl Runtime {
       stores: HashMap::new(),
       reads: Reads::new(),
       slot_order: Vec::new(),
+      derives: Vec::new(),
     }
   }
 
@@ -447,7 +458,7 @@ fn promising_nodes<'p>(
 }
 
 /// The store a subtree renders from: what the segments around it already
-/// seeded plus its own, merged by position.
+/// seeded plus its own, merged by position and completed by the derived keys.
 struct Seeded {
   contributions: Vec<Contribution>,
   merged: Data,
@@ -456,9 +467,11 @@ struct Seeded {
 }
 
 impl Seeded {
-  fn new(contributions: Vec<Contribution>, slot_order: &[String]) -> Self {
-    let merged = merge_contributions(&contributions, slot_order);
-    let pending = pending_keys(&contributions, slot_order);
+  fn new(contributions: Vec<Contribution>, slot_order: &[String], derives: &[Derived]) -> Self {
+    let mut merged = merge_contributions(&contributions, slot_order);
+    apply_derives(&mut merged, derives);
+    let mut pending = pending_keys(&contributions, slot_order);
+    derived_pending(&mut pending, derives);
     Self { contributions, merged, pending }
   }
 }
@@ -683,7 +696,7 @@ impl Session {
     own.extend(self.promise(plan, path.clone()));
     let mut all = around;
     all.extend(own.iter().cloned());
-    let seeded = Seeded::new(all, &self.runtime.slot_order);
+    let seeded = Seeded::new(all, &self.runtime.slot_order, &self.runtime.derives);
     let mut pending = Vec::new();
     let (node, children, _used_head, digest) = self.build(plan, &path, &loaded, &mut pending, &meta, &seeded).await?;
     let failed = loaded.failed.get(&page_of(plan).id.0).map(|e| e.kind);

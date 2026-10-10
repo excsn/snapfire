@@ -96,3 +96,66 @@ pub fn pending_keys(contributions: &[Contribution], slot_order: &[String]) -> st
   }
   pending
 }
+
+/// What computes a derived key from the store it reads: the host's evaluation
+/// of the lowered body. `None` when the body fails at run time, where the
+/// browser's compute would throw; the key is then left out.
+pub type Compute = std::sync::Arc<dyn Fn(&Data) -> Option<snapfire_fsr_core::Value> + Send + Sync>;
+
+/// A store key the browser's `derive` computes from others, which the server
+/// computes the same way so the first paint holds it. Without a compute, one
+/// the build could not lower, the server never holds the key and treats it as
+/// pending, so every reader is held rather than painted from a fallback.
+#[derive(Clone)]
+pub struct Derived {
+  pub key: String,
+  pub sources: Vec<String>,
+  pub compute: Option<Compute>,
+}
+
+impl std::fmt::Debug for Derived {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.debug_struct("Derived").field("key", &self.key).field("sources", &self.sources).field("computed", &self.compute.is_some()).finish()
+  }
+}
+
+/// `derives` ordered so a key comes after every derived key it reads. A cycle,
+/// which the build refuses, keeps its declaration order.
+pub fn derive_order(derives: Vec<Derived>) -> Vec<Derived> {
+  let mut pending = derives;
+  let mut ordered: Vec<Derived> = Vec::with_capacity(pending.len());
+  while !pending.is_empty() {
+    let ready = pending.iter().position(|d| d.sources.iter().all(|source| !pending.iter().any(|other| other.key == *source && other.key != d.key))).unwrap_or(0);
+    ordered.push(pending.remove(ready));
+  }
+  ordered
+}
+
+/// The merged `store` completed by `derives`, each in [`derive_order`]: a
+/// derived value replaces what a segment seeded for the key, as it does in
+/// the browser, where a derived value reads ahead of the merge.
+pub fn apply_derives(store: &mut Data, derives: &[Derived]) {
+  for derived in derives {
+    match derived.compute.as_ref().and_then(|compute| compute(store)) {
+      Some(value) => {
+        store.insert(derived.key.clone(), value);
+      }
+      None => {
+        store.shift_remove(&derived.key);
+      }
+    }
+  }
+}
+
+/// `pending` with a derived key in it exactly when its value is not known yet:
+/// it has no compute or a pending key feeds it. A promise seeding a derived
+/// key does not hold it, since the derived value beats the seed.
+pub fn derived_pending(pending: &mut std::collections::BTreeSet<String>, derives: &[Derived]) {
+  for derived in derives {
+    if derived.compute.is_none() || derived.sources.iter().any(|source| pending.contains(source)) {
+      pending.insert(derived.key.clone());
+    } else {
+      pending.remove(&derived.key);
+    }
+  }
+}
