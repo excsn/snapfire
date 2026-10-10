@@ -47,6 +47,10 @@ export declare function Slot(props: {
 }): FsrElement;
 /** The template dialect's context as a description. The server resolves a provider and every read under it, so this runs only in a file nothing mounts and answers the default. */
 export interface FsrContext<T> {
+	(props: {
+		value: T;
+		children?: FsrNode;
+	}): FsrElement;
 	readonly __sfContext: T;
 	Provider: (props: {
 		value: T;

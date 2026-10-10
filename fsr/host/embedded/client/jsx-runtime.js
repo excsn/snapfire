@@ -36,12 +36,13 @@ export function Slot(props) {
     });
 }
 export function createContext(defaultValue) {
-    return {
+    const provide = (props)=>jsx(Fragment, {
+            children: props.children
+        });
+    return Object.assign(provide, {
         __sfContext: defaultValue,
-        Provider: (props)=>jsx(Fragment, {
-                children: props.children
-            })
-    };
+        Provider: provide
+    });
 }
 export function use(context) {
     return context.__sfContext;

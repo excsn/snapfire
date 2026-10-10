@@ -552,8 +552,10 @@ export function Picture(props: PictureProps): TemplateNode;
 
 /** A value a template provides to every component it renders inline, read with `use`. Lowered by the build: the server resolves it whole, so nothing reads it in the browser. An island is a root of its own and reads the default. */
 export interface Context<T> {
+  /** Provides `value` to the components rendered inside it, in place of the default: `<Theme value="dark">`. */
+  (props: { value: T; children?: Children }): TemplateNode;
   readonly __sfContext: T;
-  /** Provides `value` to the components rendered inside it, in place of the default. */
+  /** The same provider, as `<Theme.Provider value="dark">`. */
   Provider: Component<{ value: T; children?: Children }>;
 }
 

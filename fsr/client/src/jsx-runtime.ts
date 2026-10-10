@@ -68,12 +68,14 @@ export function Slot(props: { children?: FsrNode }): FsrElement {
 
 /** The template dialect's context as a description. The server resolves a provider and every read under it, so this runs only in a file nothing mounts and answers the default. */
 export interface FsrContext<T> {
+  (props: { value: T; children?: FsrNode }): FsrElement;
   readonly __sfContext: T;
   Provider: (props: { value: T; children?: FsrNode }) => FsrElement;
 }
 
 export function createContext<T>(defaultValue: T): FsrContext<T> {
-  return { __sfContext: defaultValue, Provider: (props) => jsx(Fragment, { children: props.children }) };
+  const provide = (props: { value: T; children?: FsrNode }): FsrElement => jsx(Fragment, { children: props.children });
+  return Object.assign(provide, { __sfContext: defaultValue, Provider: provide });
 }
 
 export function use<T>(context: FsrContext<T>): T {
