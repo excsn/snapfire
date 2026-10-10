@@ -24,13 +24,13 @@ export default function ToolsPage({ category, categories, tools, reserved }: Roo
           </a>
         ))}
       </nav>
-      <Reserved.Provider value={reserved}>
+      <Reserved value={reserved}>
         <ol className="tool-list">
           {tools.map((tool) => (
             <ToolRow key={tool.id} tool={tool} />
           ))}
         </ol>
-      </Reserved.Provider>
+      </Reserved>
       {tools.length === 0 ? <p className="quiet">Nothing on that shelf.</p> : null}
       <p className="note">The shelf chips are htmx: each one fetches this page as a fragment and swaps it in place. The tool names are links the navigator handles.</p>
     </section>

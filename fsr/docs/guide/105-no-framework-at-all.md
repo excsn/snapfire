@@ -81,13 +81,13 @@ export const Reserved = createContext<string[]>([]);
 
 ```tsx
 // routes/page.tsx
-<Reserved.Provider value={reserved}>
+<Reserved value={reserved}>
   <ol className="tool-list">
     {tools.map((tool) => (
       <ToolRow key={tool.id} tool={tool} />
     ))}
   </ol>
-</Reserved.Provider>
+</Reserved>
 ```
 
 ```tsx
@@ -95,7 +95,7 @@ export const Reserved = createContext<string[]>([]);
 {use(Reserved).includes(tool.id) ? <span className="kept">reserved</span> : <span className="kept kept-off" />}
 ```
 
-The server resolves the provider and every read under it, so the page and `ToolRow` stay `static` and neither is in the bundle. `use` is an ordinary call here, not a hook, so it can sit in a ternary or a condition. A fragment renders the page with its provider inside it, so a shelf chip's htmx swap shows the same marks. A read with no provider around it gets the default. So does a read inside an island, which is a root of its own. A provider in a layout does not reach the page under it: the page renders in a region of its own and a fragment has no layout at all, so put the provider in the template whose components read it.
+`<Reserved.Provider value={reserved}>` provides the same way. The server resolves the provider and every read under it, so the page and `ToolRow` stay `static` and neither is in the bundle. `use` is an ordinary call here, not a hook, so it can sit in a ternary or a condition. A fragment renders the page with its provider inside it, so a shelf chip's htmx swap shows the same marks. A read with no provider around it gets the default. So does a read inside an island, which is a root of its own. A provider in a layout does not reach the page under it: the page renders in a region of its own and a fragment has no layout at all, so put the provider in the template whose components read it.
 
 This is the server's half only. An element's script still reads its attributes and the store; a context reaches what the server writes, not the element's code. In an application with React the same `createContext` and `use` are React's, so a template that an island renders reads them as React does.
 

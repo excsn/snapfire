@@ -8,7 +8,7 @@ import Tag from "@src/ui/Tag";
 export default function Themed({ mode }: { mode: string }) {
   const [current, setCurrent] = useState(mode);
   return (
-    <Theme.Provider value={current}>
+    <Theme value={current}>
       <div className="themed">
         <Label name="inline" />
         <Tag loud={true} />
@@ -19,6 +19,6 @@ export default function Themed({ mode }: { mode: string }) {
           flip
         </button>
       </div>
-    </Theme.Provider>
+    </Theme>
   );
 }
