@@ -15,6 +15,6 @@
       "@ext/*": ["./ext/*"]
     }
   },
-  "include": ["src/ui/Header.tsx", "src/store.ts", "src/ui/categories.ts", "src/ui/ProductCard.tsx", "src/ui/feedback.ts", "src/ui/money.ts", "src/ui/Thumb.tsx", "src/ui/photos.ts", "src/ui/Stars.tsx", "src/main.ts", "ext/labels.ts", "styles/**/*.css", "generated/islands.ts", "generated/client.ts"],
+  "include": ["src/ui/Header.tsx", "src/store.ts", "src/ui/categories.ts", "src/ui/ProductCard.tsx", "src/ui/feedback.ts", "src/ui/money.ts", "src/ui/Thumb.tsx", "src/ui/photos.ts", "src/ui/Stars.tsx", "src/main.ts", "src/About.tsx", "ext/labels.ts", "styles/**/*.css", "generated/islands.ts", "generated/client.ts"],
   "files": ["routes/cart/page.island0.tsx", "routes/product/[id]/page.island0.tsx", "routes/product/[id]/page.modal.island0.tsx"]
 }
