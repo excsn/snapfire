@@ -1,4 +1,4 @@
-import { createApp, createSSRApp, defineComponent, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref } from "vue";
+import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref } from "vue";
 
 import { islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
@@ -15,7 +15,7 @@ const held = new WeakMap<Element, Record<string, unknown>>();
 /** What the server rides on an island's props for the runtime rather than the component: the hoisted table, the region key, a server-mode island's state and the store values the island was rendered from. */
 const RUNTIME_PROPS = ["$h", "$k", "$s", "$sv"];
 
-/** What an app's markup was rendered from, provided to it so `useStore` hydrates against it: `values` is `$sv`, the keys the server held, and every other key was rendered from its `initial`. `hydrating` holds only while `app.mount` runs, the one pass that hydrates, so a component created after it renders from the store. */
+/** What an app's markup was rendered from, provided to it so `useStore` hydrates against it: `values` is `$sv`, the keys the server held, and every other key was rendered from its `initial`. `hydrating` holds only while `app.mount` runs, the pass that hydrates everything loaded, so a component created after it renders from the store. An async component's subtree hydrates after `mount` returns, once its module lands, and is told apart by its vnode carrying the element it hydrates over. */
 interface Rendered {
   values: { [key: string]: unknown };
   hydrating: boolean;
@@ -133,7 +133,8 @@ export const vuePatcher: Patcher = (handle, module, props, el) => {
 /** The neutral store as a Vue ref: `const region = useStore(regionKey, "all")`, readable and writable, following every other island that shares the key. A hydrating island starts from the value the server rendered it from, which its props carry, or from `initial` for a key the server held none of, and moves to the store's once mounted, so a key that moved in the meantime never fails the hydration. Call it in `setup`, so the subscription ends with the component. */
 export function useStore<T>(key: StoreKey<T>, initial: T): { value: T } {
   const rendered = inject(RENDERED_STORE, null);
-  const values = rendered !== null && rendered.hydrating ? rendered.values : null;
+  const hydrating = rendered !== null && (rendered.hydrating || getCurrentInstance()?.vnode.el != null);
+  const values = hydrating ? rendered.values : null;
   const live = () => get(key) ?? initial;
   const state = reactive({ value: values === null ? live() : key in values ? (values[key] as T) : initial }) as { value: T };
   let ours = false;

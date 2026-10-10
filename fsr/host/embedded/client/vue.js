@@ -1,4 +1,4 @@
-import { createApp, createSSRApp, defineComponent, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch } from "vue";
+import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch } from "vue";
 import { islandState, patchIsland, scan } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -125,7 +125,8 @@ export const vuePatcher = (handle, module, props, el)=>{
 };
 export function useStore(key, initial) {
     const rendered = inject(RENDERED_STORE, null);
-    const values = rendered !== null && rendered.hydrating ? rendered.values : null;
+    const hydrating = rendered !== null && (rendered.hydrating || getCurrentInstance()?.vnode.el != null);
+    const values = hydrating ? rendered.values : null;
     const live = ()=>get(key) ?? initial;
     const state = reactive({
         value: values === null ? live() : key in values ? values[key] : initial
