@@ -703,7 +703,7 @@ dir = "../serve/static/js/app"
 route = "/static/js/app"
 ```
 
-Because destinations are derived, bundling a tree reproduces it byte for byte, which is what lets a site artifact be verified against the hash of the bundle that produced it. `config/` ships whole, since a tree is deployed under a `RELEASE_ENV` the bundle need not have run under. The binary and the logging file are what a deploy places beside it:
+Because destinations are derived, bundling a tree reproduces it byte for byte, which is what lets a site artifact be verified against the hash of the bundle that produced it. `config/` ships whole, since a tree is deployed under a `RELEASE_ENV` the bundle need not have run under. The tree is laid out for every file in it: a client document, a mock's responses, a prerender directory, an import map or a static root that only `mock.toml` or `staging.toml` names ships too. A layer that does not load stops the bundle and is named, as are two layers that send different files to one path. The binary and the logging file are what a deploy places beside it:
 
 ```sh
 fsr bundle app --out dist
@@ -733,7 +733,7 @@ An `xwpm.wmf` in the app directory marks it as an application xwpm manages. `fsr
 
 ## Building
 
-`build` writes `generated/` and the two tsconfigs; `check` prints the report and writes nothing. Both exit non-zero on residue, a parse error, a missing `load`, a document that does not import, a duplicate type name or an action input no schema declares.
+`build` writes `generated/` and the two tsconfigs; `check` prints the report and writes `generated/` alone, so the typecheck reads the types this build produced and the editor sees them too. Both exit non-zero on residue, a parse error, a missing `load`, a document that does not import, a duplicate type name or an action input no schema declares.
 
 ```sh
 fsr build app
@@ -1024,7 +1024,7 @@ fsr dev app
 
 Both print a second banner line, `fsr traces on <addr>/__fsr/traces`, when the host is a development one. `GET` it for the last fifty requests, each as a flat list of spans carrying their own depth: the `source` span per loader with `memo` when it is memoizable, a `call` span per service method under the loader that made it and a `render` span per node with `cache` when the render cache was consulted. No second line means nothing is collecting, which is what `server.dev = false` or a `RELEASE_ENV` other than `development` gives you. Nothing reaches the endpoint in production and an application that wants its traces there registers a listener through `snapfire_fsr_host::trace`.
 
-To serve with no backend at all, an overlay names a client's transport as `mock` and `clients/<name>.mock.json` holds the responses, an object of method name to value with `{"$fail": {"kind": "unavailable", "message": "..."}}` for a failure. `APP_ENV=mock fsr serve app` picks the overlay up through the configuration ladder and the report shows `mock` and the file beside the client.
+To serve with no backend at all, an overlay names a client's transport as `mock` and `clients/<name>.mock.json` holds the responses, an object of method name to value with `{"$fail": {"kind": "unavailable", "message": "..."}}` for a failure. `APP_ENV=mock fsr serve app` picks the overlay up through the configuration ladder and the report shows `mock` and the file beside the client. A bundle carries the responses file whether or not it was made under that overlay.
 
 ```toml
 # config/mock.toml

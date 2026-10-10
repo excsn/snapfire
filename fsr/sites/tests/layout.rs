@@ -356,3 +356,49 @@ fn every_template_the_host_reads_ships_and_none_it_skips() {
     laid.places
   );
 }
+
+/// The tree carries every layer under `config/`, so a file only an overlay names has to ship too.
+#[test]
+fn a_client_that_is_mock_only_in_an_overlay_ships_its_responses() {
+  let at = project("overlay-mock", "[clients.stub]\nbase_url = \"https://s\"\n");
+  write(&at.join("config/mock.toml"), "[clients.stub]\ntransport = \"mock\"\n");
+  write(&at.join("app/clients/stub.openapi.json"), "{}");
+  write(&at.join("app/clients/stub.mock.json"), "{}");
+  let (_, laid) = laid(&at);
+  let rows: Vec<String> = laid.rows().unwrap().into_iter().map(|r| r.path).collect();
+  assert!(rows.contains(&"config/mock.toml".to_owned()), "{rows:?}");
+  assert!(rows.contains(&"app/clients/stub.mock.json".to_owned()), "{rows:?}");
+  assert!(layer(&laid).contains(r#"responses = "clients/stub.mock.json""#), "{}", layer(&laid));
+}
+
+#[test]
+fn a_static_root_only_an_overlay_names_ships_with_its_route() {
+  let at = project("overlay-static", "");
+  write(&at.join("config/staging.toml"), "[[static]]\nroute = \"/extra\"\ndir = \"../extra\"\n");
+  write(&at.join("extra/x.txt"), "x");
+  let (_, laid) = laid(&at);
+  let rows: Vec<String> = laid.rows().unwrap().into_iter().map(|r| r.path).collect();
+  assert!(rows.contains(&"serve/extra/x.txt".to_owned()), "{rows:?}");
+  assert!(layer(&laid).contains(r#"dir = "../serve/extra""#), "{}", layer(&laid));
+}
+
+#[test]
+fn two_layers_that_send_different_files_to_one_tree_path_are_refused() {
+  let at = project("overlay-disagree", "[[static]]\nroute = \"/x\"\ndir = \"a\"\n");
+  write(&at.join("config/staging.toml"), "[[static]]\nroute = \"/x\"\ndir = \"b\"\n");
+  write(&at.join("app/a/one.txt"), "1");
+  write(&at.join("app/b/one.txt"), "2");
+  let config = Config::load(&at).unwrap();
+  let e = layout::layout(&at, &config).unwrap_err().to_string();
+  assert!(e.contains("serve/x") && e.contains("app.toml") && e.contains("staging.toml"), "{e}");
+}
+
+#[test]
+fn an_overlay_that_does_not_load_stops_the_layout_and_is_named() {
+  let at = project("overlay-broken", "");
+  write(&at.join("config/broken.toml"), "[clients.stub]\nbase_url = 5\n");
+  let config = Config::load(&at).unwrap();
+  let e = layout::layout(&at, &config).unwrap_err().to_string();
+  assert!(e.contains("broken.toml"), "{e}");
+}
+

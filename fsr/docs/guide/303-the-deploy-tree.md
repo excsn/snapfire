@@ -110,7 +110,7 @@ cp target/release/snapfire_www dist/
 cp fibre_logging.production.yaml dist/fibre_logging.yaml
 ```
 
-`config/` does ship, whole. A tree is deployed under a `RELEASE_ENV` the bundle did not necessarily run under, so it carries every environment file in the directory rather than the ones this run happened to load.
+`config/` does ship, whole. A tree is deployed under a `RELEASE_ENV` the bundle did not necessarily run under, so it carries every environment file in the directory rather than the ones this run happened to load. It is laid out for each of them: a file that only an overlay names, a mock client's responses or a static root a `staging.toml` adds, ships as well. An overlay that does not load stops the bundle and is named. Two overlays sending different files to one tree path are refused the same way.
 
 ## Pointing a web server at it
 

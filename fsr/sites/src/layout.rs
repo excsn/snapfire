@@ -20,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
 
-use snapfire_fsr_host::config::Config;
+use snapfire_fsr_host::config::{Config, Deployment, Loader};
 
 /// The configuration directory, the one place a tree keeps settings.
 pub const CONFIG: &str = "config";
@@ -46,6 +46,10 @@ pub enum LayoutError {
   Io(PathBuf, #[source] std::io::Error),
   #[error("the configuration layer does not serialize: {0}")]
   Layer(String),
+  #[error("`{0}` is placed from two files: {1} names one and {2} another")]
+  Disagree(String, String, String),
+  #[error("config/{0} does not load, so the tree cannot carry it: {1}")]
+  Overlay(String, String),
 }
 
 /// What a placed file is made of: something in the project or something the
@@ -182,108 +186,80 @@ fn name_of(path: &str) -> Option<String> {
   Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned())
 }
 
-/// The deploy tree for `config`, whose project sits at `root`.
-pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
-  let mut places: Vec<Placement> = Vec::new();
-  let mut layer = Layer::default();
-  let mut place = |to: String, from: Source, required: bool| -> Result<(), LayoutError> {
+/// Placements so far, each with the configuration file that asked for it.
+#[derive(Default)]
+struct Placer {
+  places: Vec<Placement>,
+  origins: Vec<String>,
+}
+
+impl Placer {
+  /// Places `from` at `to`. The same file asked for twice is placed once; two
+  /// files sent to one path are refused, naming the layers when they differ.
+  fn place(&mut self, to: String, from: Source, required: bool, origin: &str) -> Result<(), LayoutError> {
     inside(&to)?;
-    if places.iter().any(|p: &Placement| p.to == to) {
-      return Err(LayoutError::Collides(to));
+    if let Some(at) = self.places.iter().position(|p| p.to == to) {
+      if self.places[at].from == from {
+        return Ok(());
+      }
+      if self.origins[at] == origin {
+        return Err(LayoutError::Collides(to));
+      }
+      return Err(LayoutError::Disagree(to, self.origins[at].clone(), origin.to_owned()));
     }
-    places.push(Placement { to, from, required });
+    self.places.push(Placement { to, from, required });
+    self.origins.push(origin.to_owned());
     Ok(())
-  };
-
-  if config.sources.is_empty() {
-    return Err(LayoutError::NoConfig);
   }
-  let config_dir = config.config_dir();
-  let mut written = BTreeSet::new();
-  if config_dir != root && config_dir.is_dir() {
-    // The whole directory, not the files this run loaded: a tree deployed
-    // under one `RELEASE_ENV` carries the overlays of every other.
-    place(CONFIG.to_owned(), Source::Path(config_dir.clone()), true)?;
-    if let Ok(entries) = std::fs::read_dir(&config_dir) {
-      written.extend(entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()));
-    }
-  } else {
-    for source in &config.sources {
-      let Some(name) = source.file_name().map(|n| n.to_string_lossy().into_owned()) else {
-        continue;
-      };
-      place(format!("{CONFIG}/{name}"), Source::Path(source.clone()), true)?;
-      written.insert(name);
+}
+
+/// The configuration files in `dir` other than `app` and the tree's own
+/// layer: the overlays a deployment may load, each of which can name files.
+fn overlays(dir: &Path) -> Result<Vec<PathBuf>, LayoutError> {
+  let mut found = Vec::new();
+  for entry in std::fs::read_dir(dir).map_err(|e| LayoutError::Io(dir.to_path_buf(), e))? {
+    let path = entry.map_err(|e| LayoutError::Io(dir.to_path_buf(), e))?.path();
+    let is_config = path.extension().is_some_and(|ext| ext == "toml" || ext == "yaml");
+    let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    if path.is_file() && is_config && stem != "app" && stem != "bundle" {
+      found.push(path);
     }
   }
+  found.sort();
+  Ok(found)
+}
 
-  layer.app_dir = APP.to_owned();
-
+/// Places every file `config` names and records where each went in the
+/// layer. `base` is the configuration the tree was asked for; an overlay
+/// adds what it names and fills in what the base left unsaid.
+fn place_named(config: &Config, origin: &str, base: bool, placer: &mut Placer, layer: &mut Layer) -> Result<(), LayoutError> {
   let plan = name_of(&config.server.plan).unwrap_or_else(|| "plan.sexp".to_owned());
   let plan_at = format!("{GENERATED}/{plan}");
-  place(
-    format!("{APP}/{plan_at}"),
-    Source::Path(config.resolve(&config.server.plan)),
-    true,
-  )?;
-  layer.plan = plan_at;
+  placer.place(format!("{APP}/{plan_at}"), Source::Path(config.resolve(&config.server.plan)), true, origin)?;
+  if base {
+    layer.plan = plan_at;
+  }
 
   let contracts = format!("{GENERATED}/contracts");
-  place(
-    format!("{APP}/{contracts}"),
-    Source::Path(config.resolve(&config.server.contracts)),
-    false,
-  )?;
-  layer.contracts = contracts;
+  placer.place(format!("{APP}/{contracts}"), Source::Path(config.resolve(&config.server.contracts)), false, origin)?;
+  if base {
+    layer.contracts = contracts;
+  }
 
   if let Some(prerender) = &config.server.prerender {
     let at = format!("{GENERATED}/prerender");
-    place(format!("{APP}/{at}"), Source::Path(config.resolve(prerender)), false)?;
-    layer.prerender = Some(at);
+    placer.place(format!("{APP}/{at}"), Source::Path(config.resolve(prerender)), false, origin)?;
+    layer.prerender.get_or_insert(at);
   }
 
   if let Some(map) = &config.document.import_map {
     let name = name_of(map).unwrap_or_else(|| "importmap.json".to_owned());
-    place(format!("{APP}/{name}"), Source::Path(config.resolve(map)), true)?;
-    layer.import_map = Some(name);
+    placer.place(format!("{APP}/{name}"), Source::Path(config.resolve(map)), true, origin)?;
+    layer.import_map.get_or_insert(name);
   }
-  layer.entry = config.document.entry.clone();
-  layer.styles = config.document.styles.clone();
-
-  // `build_facts` and the leak check read this by name. It also ships inside
-  // whichever static root `dist/` serves and both copies are wanted: one
-  // answers a request, this one answers the host at boot.
-  // The host reads it at boot for the image policy, the font CSS and the
-  // preloads; the variants and the font copies it names ship inside the
-  // static root `dist/` serves.
-  let assets = config.app.join(snapfire_fsr_host::assets::ASSETS_FILE);
-  if assets.is_file() {
-    place(format!("{APP}/{}", snapfire_fsr_host::assets::ASSETS_FILE), Source::Path(assets), false)?;
-  }
-
-  let facts = config.app.join("dist/.snapfire-build.json");
-  if facts.is_file() {
-    place(
-      format!("{APP}/dist/.snapfire-build.json"),
-      Source::Path(facts),
-      false,
-    )?;
-  }
-
-  // `load_catalogs` reads this directory by name rather than through a
-  // setting, so nothing else names it and a tree without it serves keys.
-  let locales = config.app.join("locales");
-  if locales.is_dir() {
-    place(format!("{APP}/locales"), Source::Path(locales), false)?;
-  }
-
-  let templates = snapfire_fsr_host::template_files(&config.app).map_err(|e| match e {
-    snapfire_fsr_host::HostError::Io(path, e) => LayoutError::Io(path, e),
-    other => LayoutError::Io(config.app.clone(), std::io::Error::other(other.to_string())),
-  })?;
-  for file in templates {
-    let rel = file.strip_prefix(&config.app).unwrap_or(&file).to_string_lossy().replace('\\', "/");
-    place(format!("{APP}/{rel}"), Source::Path(file), true)?;
+  if base {
+    layer.entry = config.document.entry.clone();
+    layer.styles = config.document.styles.clone();
   }
 
   for (name, client) in &config.clients {
@@ -298,18 +274,28 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     } else {
       format!("clients/{name}.openapi.json")
     };
-    place(format!("{APP}/{at}"), Source::Path(config.resolve(&document)), true)?;
+    placer.place(format!("{APP}/{at}"), Source::Path(config.resolve(&document)), true, origin)?;
     let responses = client.is_mock().then(|| {
       let at = format!("clients/{name}.mock.json");
       (at, config.resolve(&client.responses_file(name)))
     });
     if let Some((at, from)) = &responses {
-      place(format!("{APP}/{at}"), Source::Path(from.clone()), true)?;
+      placer.place(format!("{APP}/{at}"), Source::Path(from.clone()), true, origin)?;
     }
-    layer.clients.insert(
-      name.clone(),
-      (at, responses.map(|(at, _)| at)),
-    );
+    let responses = responses.map(|(at, _)| at);
+    match layer.clients.get_mut(name) {
+      Some((held, held_responses)) => {
+        if *held != at {
+          return Err(LayoutError::Disagree(format!("{APP}/{at}"), origin.to_owned(), format!("another layer, as {held}")));
+        }
+        if held_responses.is_none() {
+          *held_responses = responses;
+        }
+      }
+      None => {
+        layer.clients.insert(name.clone(), (at, responses));
+      }
+    }
   }
 
   for served in &config.statics {
@@ -319,8 +305,85 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     } else {
       format!("{SERVE}/{route}")
     };
-    place(at.clone(), Source::Path(config.resolve(&served.dir)), false)?;
-    layer.statics.push((served.route.clone(), format!("../{at}")));
+    placer.place(at.clone(), Source::Path(config.resolve(&served.dir)), false, origin)?;
+    if !layer.statics.iter().any(|(held, _)| *held == served.route) {
+      layer.statics.push((served.route.clone(), format!("../{at}")));
+    }
+  }
+  Ok(())
+}
+
+/// The deploy tree for `config`, whose project sits at `root`. The tree
+/// carries every configuration file under `config/`, so it is laid out for
+/// every overlay there and not only for the deployment this run loaded.
+pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
+  let mut placer = Placer::default();
+  let mut layer = Layer::default();
+
+  if config.sources.is_empty() {
+    return Err(LayoutError::NoConfig);
+  }
+  let config_dir = config.config_dir();
+  let mut written = BTreeSet::new();
+  let base = config.sources.first().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "app.toml".to_owned());
+  let whole_dir = config_dir != root && config_dir.is_dir();
+  if whole_dir {
+    placer.place(CONFIG.to_owned(), Source::Path(config_dir.clone()), true, &base)?;
+    if let Ok(entries) = std::fs::read_dir(&config_dir) {
+      written.extend(entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()));
+    }
+  } else {
+    for source in &config.sources {
+      let Some(name) = source.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+        continue;
+      };
+      placer.place(format!("{CONFIG}/{name}"), Source::Path(source.clone()), true, &base)?;
+      written.insert(name);
+    }
+  }
+
+  layer.app_dir = APP.to_owned();
+  place_named(config, &base, true, &mut placer, &mut layer)?;
+  if whole_dir {
+    for file in overlays(&config_dir)? {
+      let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+      let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+      let deployment = Deployment { release_env: stem.clone(), app_env: stem, region: None };
+      let overlay = Loader::at(&config_dir).deployment(deployment).config().map_err(|e| LayoutError::Overlay(name.clone(), e.to_string()))?;
+      place_named(&overlay, &name, false, &mut placer, &mut layer)?;
+    }
+  }
+
+  // `build_facts` and the leak check read this by name. It also ships inside
+  // whichever static root `dist/` serves and both copies are wanted: one
+  // answers a request, this one answers the host at boot.
+  // The host reads it at boot for the image policy, the font CSS and the
+  // preloads; the variants and the font copies it names ship inside the
+  // static root `dist/` serves.
+  let assets = config.app.join(snapfire_fsr_host::assets::ASSETS_FILE);
+  if assets.is_file() {
+    placer.place(format!("{APP}/{}", snapfire_fsr_host::assets::ASSETS_FILE), Source::Path(assets), false, &base)?;
+  }
+
+  let facts = config.app.join("dist/.snapfire-build.json");
+  if facts.is_file() {
+    placer.place(format!("{APP}/dist/.snapfire-build.json"), Source::Path(facts), false, &base)?;
+  }
+
+  // `load_catalogs` reads this directory by name rather than through a
+  // setting, so nothing else names it and a tree without it serves keys.
+  let locales = config.app.join("locales");
+  if locales.is_dir() {
+    placer.place(format!("{APP}/locales"), Source::Path(locales), false, &base)?;
+  }
+
+  let templates = snapfire_fsr_host::template_files(&config.app).map_err(|e| match e {
+    snapfire_fsr_host::HostError::Io(path, e) => LayoutError::Io(path, e),
+    other => LayoutError::Io(config.app.clone(), std::io::Error::other(other.to_string())),
+  })?;
+  for file in templates {
+    let rel = file.strip_prefix(&config.app).unwrap_or(&file).to_string_lossy().replace('\\', "/");
+    placer.place(format!("{APP}/{rel}"), Source::Path(file), true, &base)?;
   }
 
   // The host answers this prefix out of its own binary, so the tree carries it
@@ -341,12 +404,12 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     let minified = config.document.client.minified(false);
     for (name, _) in client::FILES {
       let body = client::get(name, minified).unwrap_or_default();
-      place(format!("{SERVE}/{under}/{name}"), Source::Text(body.to_owned()), false)?;
+      placer.place(format!("{SERVE}/{under}/{name}"), Source::Text(body.to_owned()), false, &base)?;
     }
     if minified {
       for (name, body) in client::MINIFIED {
         let name = name.replace(".js", ".min.js");
-        place(format!("{SERVE}/{under}/{name}"), Source::Text((*body).to_owned()), false)?;
+        placer.place(format!("{SERVE}/{under}/{name}"), Source::Text((*body).to_owned()), false, &base)?;
       }
     }
   }
@@ -355,9 +418,10 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
   // opinion about paths that are already the tree's own.
   if !written.contains(LAYER) {
     let text = layer.render()?;
-    place(format!("{CONFIG}/{LAYER}"), Source::Text(text), true)?;
+    placer.place(format!("{CONFIG}/{LAYER}"), Source::Text(text), true, &base)?;
   }
 
+  let mut places = placer.places;
   places.sort_by(|a, b| a.to.cmp(&b.to));
   Ok(Layout { places })
 }
