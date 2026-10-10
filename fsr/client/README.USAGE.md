@@ -839,7 +839,7 @@ transaction(() => {
 });
 ```
 
-A derived key a component reads at first paint has to be seeded by the server too using the same formula. Otherwise the first client render disagrees with the markup React is hydrating and React reports a mismatch. Register the derivation before `boot`: computing the value the seed already holds notifies nobody and from then on every change to a source updates it. The ops console's headline is written this way, once in the root layout's `store` and once in `src/main.ts`.
+Write the `derive` at module level in a file the browser loads, such as `src/main.ts`, with its key and sources as `key()` constants or strings and its compute as a function written in the call. The build lowers that compute and the server computes the key the same way after the loaders' seeds merge, so the markup React hydrates against already holds the derived value. A derive inside a function runs in the browser only, as does one whose compute does not lower. The build report names its line and the server holds every island that reads the key. Register the derivation before `boot`: computing the value the first paint already holds notifies nobody and from then on every change to a source updates it.
 
 The store lives as long as the document. A soft navigation keeps it and writes whatever the new route seeded; a full load starts it again from that document's seed. Anything that must outlive a reload belongs in the session.
 

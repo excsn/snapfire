@@ -19,6 +19,8 @@ The plan file: routes, source rows, action rows and component rows as a build ar
   * [ActionEntry](#actionentry)
   * [HandlerEntry](#handlerentry)
   * [ComponentEntry](#componententry)
+  * [ClientEntry](#cliententry)
+  * [DeriveEntry](#deriveentry)
 * [5. The S-Expression Form](#5-the-s-expression-form)
   * [sexpr](#sexpr)
 * [6. Error Handling](#6-error-handling)
@@ -28,7 +30,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 ### FORMAT_VERSION
 
-* `pub const FORMAT_VERSION: u32 = 5`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows; format 4 adds a node's per-kind error modules; format 5 adds a component's `head` rows, makes every component name its owner, `(owner fsr|react|vue)`, and adds a source's `(store-keys ...)` and the `(reads module key ...)` rows.
+* `pub const FORMAT_VERSION: u32 = 6`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows; format 4 adds a node's per-kind error modules; format 5 adds a component's `head` rows, makes every component name its owner, `(owner fsr|react|vue)`, and adds a source's `(store-keys ...)` and the `(reads module key ...)` rows; format 6 adds the `derive` rows.
 * A component in a file older than format 5 that names no owner reads as `Owner::React`; `(static)` reads as `Owner::Fsr`, `(tree)` as `Owner::React` and `(vue)` as `Owner::Vue`.
 * A file from version 1 up to `FORMAT_VERSION` reads; anything else is `PlanError::Version`. A format 1 file's bare action ids read as `rust` rows.
 
@@ -38,7 +40,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub clients: Vec<ClientEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String>, pub reads: BTreeMap<String, Vec<String>> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package. `reads` is, per island module the server does not render, the store keys the build read from its source, written as one `(reads module "key" ...)` form each and prefixed by `namespaced` like any module.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub clients: Vec<ClientEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String>, pub reads: BTreeMap<String, Vec<String>>, pub derives: Vec<DeriveEntry> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package. `reads` is, per island module the server does not render, the store keys the build read from its source, written as one `(reads module "key" ...)` form each and prefixed by `namespaced` like any module. `derives` is every store key a `derive` in the browser's files computes, absent from the file when empty.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
@@ -133,6 +135,10 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 ### ClientEntry
 
 * `pub struct ClientEntry { pub module: String, pub at: String, pub message: String, pub hint: Option<String> }`: a module the build read and could not lower, so the browser renders it; `at` is the `file:line:column` of the residue that decided it, the file alone when the module did not parse, `message` what the build said about it and `hint` what it suggested, when it did. `Manifest::with_clients(self, Vec<ClientEntry>) -> Self` sets them. In the s-expression form each is `(client <module> "<at>" "<message>")` with the hint as a fourth string when there is one.
+
+### DeriveEntry
+
+* `pub struct DeriveEntry { pub key: String, pub sources: Vec<String>, pub body: Option<Expr>, pub at: Option<String>, pub why: Option<String> }`: a store key the browser's `derive` computes and the keys it reads. `body` is the lowered compute, which reads each source as `Expr::Store`; a host computes the key from it after the seeds merge. `None` is a derive the browser alone runs, with `at` its `file:line:column` and `why` what kept it there; a host never paints that key and holds its readers. `namespaced` prefixes what the body calls, never the keys. In the s-expression form each is `(derive "<key>" (sources "<key>" ...) <expr>)`. A browser-only one has `(browser "<at>" "<why>")` in place of the expression.
 
 ## 5. The S-Expression Form
 

@@ -246,6 +246,7 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn heads(self, heads: HashMap<String, Vec<HeadEl>>) -> Self`
 * `pub fn store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`: `Seeds` has `seed(&self, ctx, data)`, the values a segment seeds from its data. Its `keys(&self) -> Option<Vec<String>>` is every key a seed can hold before the data is known, `None` by default. A segment with no keys promises nothing while it is deferred.
 * `pub fn slot_order(self, slot_order: Vec<String>) -> Self`: the list `contribution_order` ranks parallel slots by, `Runtime::slot_order`; empty by default.
+* `pub fn derives(self, derives: Vec<Derived>) -> Self`: the derived keys, kept in `derive_order` as `Runtime::derives`. Every render applies them after the contributions merge and adds them to the pending keys by `derived_pending`.
 * `pub fn reads(self, reads: Reads) -> Self`
 * `pub fn build(self) -> Arc<Runtime>`
 
@@ -330,6 +331,10 @@ pub async fn assemble_under(
 * `pub fn contribution_order(a: &[String], b: &[String], slot_order: &[String]) -> Ordering`: by depth, then at the first slot name the paths differ on, by `slot_order`: a name it lists comes after every name it does not and the later listed name is later; names it leaves out compare as strings. The browser merges by the same rule with the same list, so the two agree whatever order contributions arrive in.
 * `pub fn merge_contributions(contributions: &[Contribution], slot_order: &[String]) -> Data`: the store they merge to, each applied in that order.
 * `pub fn pending_keys(contributions: &[Contribution], slot_order: &[String]) -> BTreeSet<String>`: the keys a promise awaits and outranks every seed of, by `contribution_order`. A promise whose segment has seeded is kept and makes nothing pending. The browser store's `isPending` applies the same rule.
+* `pub struct Derived { pub key: String, pub sources: Vec<String>, pub compute: Option<Compute> }`, with `pub type Compute = Arc<dyn Fn(&Data) -> Option<Value> + Send + Sync>`: a store key the browser's `derive` computes from `sources`. `compute` answers `None` where the browser's compute would throw. A derived key with no compute is one the build could not lower. `Debug`.
+* `pub fn derive_order(derives: Vec<Derived>) -> Vec<Derived>`: each derived key after the derived keys it reads.
+* `pub fn apply_derives(store: &mut Data, derives: &[Derived])`: computes each key in order over the merged store and writes it, so a derived value replaces a seed for the same key. A key whose compute is missing or answers `None` is removed.
+* `pub fn derived_pending(pending: &mut BTreeSet<String>, derives: &[Derived])`: a derived key is pending exactly when it has no compute or a key it reads is pending. A promise for a derived key whose sources are settled holds nothing, as in the browser.
 * `PENDING_PROP`, `"$pending"`: the prop a node's pending keys ride in beside `$store`, the ones its subtree reads when that is known, every one otherwise. The memo key carries them, so a subtree rendered while a key was pending is not served once it is not.
 
 ### `Assembly`

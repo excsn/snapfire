@@ -670,7 +670,7 @@ Runs `work` with notifications collapsed: each key dirtied fires once afterwards
 
 * `derive<T>(k: StoreKey<T>, sources: StoreKey<unknown>[], compute: (read: <V>(source: StoreKey<V>) => V | undefined) => T): void`
 
-Registers a key computed from others and computes it once now. It recomputes whenever a source changes.
+Registers a key computed from others and computes it once now. It recomputes whenever a source changes. A derived value beats a contribution for the same key and loses to an island's write. One called at module level in a file the browser loads, with a compute the build lowers, is computed by the server too.
 
 ### optimistic
 
@@ -691,7 +691,7 @@ A contribution with `w` is a promise: the keys a deferred segment will seed, wit
 * `isPending(k: string): boolean`
 * `whenSettled(keys: string[]): Promise<void>`
 
-A key is pending while a promise awaits it and outranks, by the merge order, every contribution holding it; the server holds an island reading one by the same rule. `whenSettled` resolves once none of `keys` is pending, at once when none is. While it waits it hands back one promise per set of pending keys, which is what a component suspending on it needs. `boot` waits on it for an island whose props carry `$aw` before mounting it.
+A key is pending while a promise awaits it and outranks, by the merge order, every contribution holding it. A derived key is pending exactly while one of its sources is. The server holds an island reading one by the same rule. `whenSettled` resolves once none of `keys` is pending, at once when none is. While it waits it hands back one promise per set of pending keys, which is what a component suspending on it needs. `boot` waits on it for an island whose props carry `$aw` before mounting it.
 
 ### setSlotOrder
 
