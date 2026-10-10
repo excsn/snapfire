@@ -1647,6 +1647,7 @@ impl<'a> Lowerer<'a> {
           "String" => Ok(Expr::Str(one(self)?)),
           "Number" => Ok(Expr::Num(one(self)?)),
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
+          "Boolean" => Ok(Expr::Not(Box::new(Expr::Not(one(self)?)))),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           _ => {

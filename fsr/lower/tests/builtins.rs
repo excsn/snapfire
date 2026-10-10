@@ -291,3 +291,16 @@ fn a_body_writes_its_local_map_and_set() {
   assert!(matches!(&inner[0], Stmt::Set { name, .. } if name == "seen"), "{inner:?}");
   assert!(matches!(&inner[1], Stmt::Set { name, expr: Expr::Object(_) } if name == "totals"), "{inner:?}");
 }
+
+#[test]
+fn boolean_lowers_as_a_double_negation() {
+  let loader = |expr: &str| format!("export async function load({{ session, params }}) {{\n  return {{ watched: {expr} }};\n}}\n");
+  let lowered = |tag: &str, expr: &str| {
+    let dir = app(tag, &[("routes/a/page.loader.ts", &loader(expr))]);
+    let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{expr}: {e}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    body
+  };
+  assert_eq!(lowered("boolean", "Boolean(session.watching[params.id])"), lowered("bangs", "!!session.watching[params.id]"));
+}
+
