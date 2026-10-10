@@ -15,6 +15,10 @@ export function AgentRows({ agents, watching: held }: { agents: Agent[]; watchin
     await optimistic(watching, (get(watching) ?? 0) + 1, () => actions.agents.watchAgent({ agent_id: id }));
   }
 
+  async function unwatch(id: bigint | number): Promise<void> {
+    await optimistic(watching, (get(watching) ?? 1) - 1, () => actions.settings.unwatchAgent({ agent_id: id }));
+  }
+
   return (
     <ul className={rows === "compact" ? "agent-rows agent-rows-compact" : "agent-rows"}>
       {agents.map((a) => (
@@ -29,7 +33,9 @@ export function AgentRows({ agents, watching: held }: { agents: Agent[]; watchin
             peek
           </Link>
           {held.includes(String(a.id)) ? (
-            <span className="watching">watching</span>
+            <button className="btn btn-small" onClick={() => void unwatch(a.id)}>
+              unwatch
+            </button>
           ) : (
             <button className="btn btn-small" onClick={() => void watch(a.id)}>
               watch
