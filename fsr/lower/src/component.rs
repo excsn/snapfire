@@ -228,6 +228,62 @@ impl ComponentSet {
     read.unwrap_or_default()
   }
 
+  /// The `derive` calls of `file`. One written at module level whose compute
+  /// lowers is the host's to apply. One inside a function is the browser's
+  /// alone and says where and why, as is one whose compute does not lower. A
+  /// key or a source the build cannot read fails the build, since no island
+  /// reading the key could be held for it.
+  pub fn lower_derives(&mut self, file: &str) -> Result<Vec<LoweredDerive>, LowerError> {
+    self.load(file)?;
+    let meanings = self.meanings(file);
+    let parsed = self.parsed[file].clone();
+    let module_level: Vec<Span> = parsed
+      .module
+      .body
+      .iter()
+      .filter_map(|item| match item {
+        js::ModuleItem::Stmt(js::Stmt::Expr(stmt)) => match &*stmt.expr {
+          js::Expr::Call(call) => Some(call.span),
+          _ => None,
+        },
+        _ => None,
+      })
+      .collect();
+    let mut calls = DeriveCalls { meanings: &meanings, calls: Vec::new() };
+    parsed.module.visit_with(&mut calls);
+    let mut resolved = Resolved { globals: Vec::new(), natives: self.natives.clone() };
+    let mut rows = Vec::new();
+    for call in &calls.calls {
+      let at = parsed.residue(call.span, "");
+      let at = format!("{}:{}:{}", at.file, at.line, at.column);
+      let nested = !module_level.contains(&call.span);
+      loop {
+        let defaults = self.defaults.clone();
+        match lower_derive(&parsed, &defaults, &resolved, call, nested) {
+          Ok(row) => {
+            rows.push(LoweredDerive { at: (row.body.is_none()).then(|| at.clone()), ..row });
+            break;
+          }
+          Err(failed) => {
+            if let Some(name) = failed.unbound.filter(|name| meanings.bindings.contains_key(name) && !resolved.globals.iter().any(|(n, _)| n == name)) {
+              if let Some((expr, key)) = self.global(file, &name)? {
+                resolved.globals.push((name, self.name_if_large(key, expr)));
+                resolved.natives = self.natives.clone();
+                continue;
+              }
+            }
+            match failed.compute {
+              Some((key, sources)) => rows.push(LoweredDerive { key, sources, body: None, at: Some(at.clone()), why: Some(failed.residue.message) }),
+              None => return Err(failed.residue.into()),
+            }
+            break;
+          }
+        }
+      }
+    }
+    Ok(rows)
+  }
+
   /// A described component's script, parsed under its own file name with its
   /// lines where the file has them.
   fn parse_described(&mut self, file: &str, described: &Described) -> Result<(), LowerError> {
@@ -5420,6 +5476,91 @@ fn weight(expr: &Expr) -> usize {
 }
 
 /// The first argument of every call to the client's `useStore`, however the module named it.
+/// A `derive` call the build read: the key, its sources and the compute
+/// lowered over `Expr::Store` of each. One the browser alone runs has no
+/// compute and carries `at` and `why`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoweredDerive {
+  pub key: String,
+  pub sources: Vec<String>,
+  pub body: Option<Expr>,
+  pub at: Option<String>,
+  pub why: Option<String>,
+}
+
+struct DeriveFailure {
+  residue: Residue,
+  unbound: Option<String>,
+  /// The key and sources, when only the compute failed.
+  compute: Option<(String, Vec<String>)>,
+}
+
+fn lower_derive(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved, call: &js::CallExpr, nested: bool) -> Result<LoweredDerive, DeriveFailure> {
+  let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+  let refused = |lowerer: &mut Lowerer<'_>, residue: Residue, compute: Option<(String, Vec<String>)>| DeriveFailure { residue, unbound: lowerer.unbound.take(), compute };
+  let ([k, s, c], false) = (&call.args[..], call.args.iter().any(|a| a.spread.is_some())) else {
+    return Err(refused(&mut lowerer, parsed.residue(call.span, "`derive` takes a key, its sources and a compute"), None));
+  };
+  let key = match lowerer.expr(&k.expr) {
+    Ok(Expr::Lit(Lit::Str(key))) => key,
+    Ok(_) => return Err(refused(&mut lowerer, parsed.residue(k.expr.span(), "a derived key the build cannot read; name it with `key()` or a string"), None)),
+    Err(residue) => return Err(refused(&mut lowerer, residue, None)),
+  };
+  let js::Expr::Array(list) = &*s.expr else {
+    return Err(refused(&mut lowerer, parsed.residue(s.expr.span(), "a derive's sources the build cannot read; list them in the call"), None));
+  };
+  let mut sources = Vec::new();
+  for element in &list.elems {
+    let Some(element) = element.as_ref().filter(|e| e.spread.is_none()) else {
+      return Err(refused(&mut lowerer, parsed.residue(list.span, "a derive's sources the build cannot read; list them in the call"), None));
+    };
+    match lowerer.expr(&element.expr) {
+      Ok(Expr::Lit(Lit::Str(source))) => sources.push(source),
+      Ok(_) => return Err(refused(&mut lowerer, parsed.residue(element.expr.span(), "a derive source the build cannot read; name it with `key()` or a string"), None)),
+      Err(residue) => return Err(refused(&mut lowerer, residue, None)),
+    }
+  }
+  let known = Some((key.clone(), sources.clone()));
+  if nested {
+    return Ok(LoweredDerive { key, sources, body: None, at: None, why: Some("written inside a function, so it runs only when the browser calls that function".to_owned()) });
+  }
+  let (params, stmts): (Vec<&js::Pat>, FunctionBody<'_>) = match &*c.expr {
+    js::Expr::Arrow(arrow) if !arrow.is_async && !arrow.is_generator => (arrow.params.iter().collect(), arrow_body(arrow)),
+    js::Expr::Fn(f) if !f.function.is_async && !f.function.is_generator && f.function.body.is_some() => (f.function.params.iter().map(|p| &p.pat).collect(), FunctionBody::Block(&f.function.body.as_ref().unwrap().stmts)),
+    other => return Err(refused(&mut lowerer, parsed.residue(other.span(), "a compute that is not a function written in the call"), known)),
+  };
+  lowerer.render_path = true;
+  match &params[..] {
+    [] => {}
+    [js::Pat::Ident(read)] => lowerer.reader = Some(read.id.to_id()),
+    _ => return Err(refused(&mut lowerer, parsed.residue(c.expr.span(), "a compute whose parameters are not one `read`"), known)),
+  }
+  let body = match stmts {
+    FunctionBody::Expr(e) => lowerer.expr(e),
+    FunctionBody::Block(b) => block_to_expr(&mut lowerer, b),
+  };
+  match body {
+    Ok(body) => Ok(LoweredDerive { key, sources, body: Some(body), at: None, why: None }),
+    Err(residue) => Err(refused(&mut lowerer, residue, known)),
+  }
+}
+
+struct DeriveCalls<'a> {
+  meanings: &'a crate::meaning::Meanings,
+  calls: Vec<js::CallExpr>,
+}
+
+impl swc_core::ecma::visit::Visit for DeriveCalls<'_> {
+  fn visit_call_expr(&mut self, call: &js::CallExpr) {
+    if let js::Callee::Expr(callee) = &call.callee {
+      if self.meanings.of_expr(callee) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Derive)) {
+        self.calls.push(call.clone());
+      }
+    }
+    call.visit_children_with(self);
+  }
+}
+
 struct StoreCalls<'a> {
   meanings: &'a crate::meaning::Meanings,
   args: Vec<js::Expr>,

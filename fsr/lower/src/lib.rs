@@ -711,6 +711,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) kinds: Vec<(String, Expr, Collection)>,
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
+  /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
+  pub(crate) reader: Option<js::Id>,
 }
 
 /// What a `new Map` or a `new Set` lowered to: an object keyed by `String(key)` or an array without repeats.
@@ -724,7 +726,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1554,6 +1556,15 @@ impl<'a> Lowerer<'a> {
   }
 
   pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+    if let (Some(reader), js::Callee::Expr(callee)) = (&self.reader, &call.callee) {
+      if matches!(&**callee, js::Expr::Ident(id) if id.sym == reader.0 && id.ctxt == reader.1) {
+        let named = call.args.first().ok_or_else(|| self.residue(call.span, "a compute's `read` takes the source key"))?;
+        return match self.expr(&named.expr)? {
+          Expr::Lit(Lit::Str(key)) => Ok(Expr::Store(key)),
+          _ => Err(self.residue(named.expr.span(), "a source key the build cannot read")),
+        };
+      }
+    }
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));
     };
