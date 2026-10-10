@@ -71,10 +71,45 @@ export default function List({ rows }: { rows: string[] }) {
 "#;
   let mut set = set(&[("routes/page.tsx", page)]);
   let extracted = set.extract_route("routes/page.tsx#default").unwrap().unwrap();
-  assert!(extracted.source.contains("return (\n    rows.map((row) => <li key={row}>"), "the unit is the loop, outside the callback: {}", extracted.source);
-  assert!(!extracted.source.contains("<ul"), "the list stays on the page: {}", extracted.source);
-  assert!(extracted.page.1.contains("<ul className=\"rows\"><SfIsland rows={rows} /></ul>"), "{}", extracted.page.1);
-  assert!(extracted.page.1.contains("<h1>rows</h1>"), "{}", extracted.page.1);
+  assert!(extracted.source.contains("return (\n    <ul className=\"rows\">{rows.map((row) => <li key={row}>"), "the unit is the list, outside the callback: {}", extracted.source);
+  assert!(!extracted.source.contains("<main"), "{}", extracted.source);
+  assert!(extracted.page.1.contains("<h1>rows</h1>\n      <SfIsland rows={rows} />"), "the island stands where the list stood, since a list admits only items: {}", extracted.page.1);
+}
+
+#[test]
+fn a_handled_row_takes_the_table_since_a_table_body_admits_only_rows() {
+  let page = r#"import { useState } from "react";
+export default function Grid({ rows }: { rows: string[] }) {
+  const [picked, setPicked] = useState("");
+  return (
+    <section>
+      <table className="grid"><tbody>{rows.map((row) => <tr key={row} onClick={() => setPicked(row)} className={picked === row ? "picked" : ""}><td>{row}</td></tr>)}</tbody></table>
+    </section>
+  );
+}
+"#;
+  let mut set = set(&[("routes/page.tsx", page)]);
+  let extracted = set.extract_route("routes/page.tsx#default").unwrap().unwrap();
+  assert!(extracted.source.contains("return (\n    <table className=\"grid\"><tbody>"), "the unit walks past the body and the table: {}", extracted.source);
+  assert!(extracted.page.1.contains("<section>\n      <SfIsland rows={rows} />\n    </section>"), "{}", extracted.page.1);
+}
+
+#[test]
+fn a_handled_item_behind_a_conditional_takes_the_list_around_the_conditional() {
+  let page = r#"import { useState } from "react";
+export default function Menu({ open }: { open: boolean }) {
+  const [picked, setPicked] = useState("");
+  return (
+    <nav>
+      <ul>{open ? <li onClick={() => setPicked("a")}>a</li> : null}</ul>
+    </nav>
+  );
+}
+"#;
+  let mut set = set(&[("routes/page.tsx", page)]);
+  let extracted = set.extract_route("routes/page.tsx#default").unwrap().unwrap();
+  assert!(extracted.source.contains("return (\n    <ul>{open ?"), "the nearest element above the conditional is the list: {}", extracted.source);
+  assert!(extracted.page.1.contains("<nav>\n      <SfIsland open={open} />\n    </nav>"), "{}", extracted.page.1);
 }
 
 #[test]
