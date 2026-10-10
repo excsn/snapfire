@@ -78,9 +78,11 @@ impl std::fmt::Display for Report {
 pub fn run(app: &Path) -> Result<Report, DoctorError> {
   let config = Config::load(app).map_err(|e| DoctorError::Config(e.to_string()))?;
   let manifest = read_plan(&config)?;
+  let prerenderable = prerenderable(&config);
   let mut report = Report::default();
   for (check, findings) in [
-    ("canonical", canonical(&config)),
+    ("canonical", canonical(&config, prerenderable.as_deref())),
+    ("prerender", prerender(&config, prerenderable.as_deref())),
     ("ctx.host", host_reads(&config, manifest.as_ref())),
     ("ctx.config", config_reads(&config, manifest.as_ref())),
     ("locales", catalogs(&config)),
@@ -146,14 +148,39 @@ fn read_plan(config: &Config) -> Result<Option<Manifest>, DoctorError> {
     .map_err(|e| DoctorError::Plan(path, e.to_string()))
 }
 
+/// The patterns the host would prerender, read the way the host reads them:
+/// the plan bound as an application. `None` when there is no plan to bind or
+/// it does not bind here, which `stale` or a boot reports on its own.
+fn prerenderable(config: &Config) -> Option<Vec<String>> {
+  let text = std::fs::read_to_string(config.resolve(&config.server.plan)).ok()?;
+  let app = snapfire_fsr::App::from_manifest(&text).ok()?.build().ok()?;
+  let report = &app.report;
+  Some(report.prerenderable.iter().chain(&report.prerenderable_anonymous).cloned().collect())
+}
+
+/// `server.prerender` names a directory the host would write nothing into:
+/// every route reads something of the request, so no render serves twice.
+fn prerender(config: &Config, prerenderable: Option<&[String]>) -> Vec<Finding> {
+  let Some(dir) = &config.server.prerender else { return Vec::new() };
+  if prerenderable.is_none_or(|patterns| !patterns.is_empty()) {
+    return Vec::new();
+  }
+  vec![Finding::new(
+    "prerender",
+    format!("`server.prerender` names `{dir}` and no route is prerenderable, since every route reads the session, the identity, the query, the params or the time"),
+    "remove `[server] prerender`, or keep one route free of request reads so the host has a page to write there",
+  )]
+}
+
 /// A canonical link is absolute only when the document names an origin and a
-/// relative one is what an audit reports.
-fn canonical(config: &Config) -> Vec<Finding> {
+/// relative one is what an audit reports. An application prerenders when it
+/// names a directory and has a route to write there.
+fn canonical(config: &Config, prerenderable: Option<&[String]>) -> Vec<Finding> {
   if config.document.origin.is_some() {
     return Vec::new();
   }
   let hosts = config.server.hosts.len();
-  let prerendered = config.server.prerender.is_some();
+  let prerendered = config.server.prerender.is_some() && prerenderable.is_none_or(|patterns| !patterns.is_empty());
   if hosts == 0 && !prerendered {
     return Vec::new();
   }

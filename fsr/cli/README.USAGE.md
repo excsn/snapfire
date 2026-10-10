@@ -635,7 +635,8 @@ Sixteen checks, each answering from something the build already computed, so non
 
 | Check | Fires when |
 | --- | --- |
-| `canonical` | `[document] origin` is unset while the deployment names hosts or prerenders, which leaves every canonical link relative |
+| `canonical` | `[document] origin` is unset while the deployment names hosts or has a route to prerender, which leaves every canonical link relative |
+| `prerender` | `[server] prerender` names a directory and no route is prerenderable, since every route reads the session, the identity, the query, the params or the time |
 | `ctx.host` | a body reads `ctx.host` while `[server] hosts` is empty, so the read answers null for ever |
 | `ctx.config` | a body reads `ctx.config.<key>` while `[public]` does not declare it, so the read answers null for ever |
 | `locales` | `[locales] supported` names a locale with no catalog under `locales/` |

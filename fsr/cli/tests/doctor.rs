@@ -50,7 +50,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 17, "{out}");
+  assert_eq!(out.clean.len(), 18, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -79,6 +79,20 @@ fn an_origin_is_wanted_once_the_application_prerenders() {
   let dir = app("[server]\nprerender = \"dist\"\n", &[]);
   assert_eq!(findings(&dir), vec!["canonical"]);
   assert!(report(&dir).contains("prerenders"), "{}", report(&dir));
+}
+
+/// A prerender directory on an application whose every route reads the
+/// request is dead configuration, and not a reason to want an origin.
+#[test]
+fn a_prerender_directory_nothing_can_be_written_into_is_reported_and_wants_no_origin() {
+  let dir = app("[server]\nprerender = \"dist/prerender\"\nhosts = [\"example.com\"]\n[document]\ntitle = \"t\"\norigin = \"https://example.com\"\n", &[("app/generated/plan.sexp", HOST_PLAN)]);
+  assert_eq!(findings(&dir), vec!["prerender"]);
+  assert!(report(&dir).contains("`dist/prerender`") && report(&dir).contains("no route is prerenderable"), "{}", report(&dir));
+
+  let unset = app("[server]\nprerender = \"dist/prerender\"\nhosts = [\"example.com\"]\n", &[("app/generated/plan.sexp", HOST_PLAN)]);
+  let found = findings(&unset);
+  assert!(found.contains(&"prerender".to_owned()) && found.contains(&"canonical".to_owned()), "{found:?}");
+  assert!(report(&unset).contains("`server.hosts` names example.com"), "the origin is wanted for the hosts, not for a prerender that writes nothing: {}", report(&unset));
 }
 
 #[test]
@@ -176,7 +190,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 17 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 18 checks"), "{out}");
   assert!(!out.is_clean());
 }
 

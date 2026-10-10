@@ -36,7 +36,8 @@ Each check answers from something a build already computed, so none of it needs 
 
 | Check | What it reports | Why it matters |
 | --- | --- | --- |
-| `canonical` | `[document] origin` is unset while the deployment names hosts or prerenders | Without an origin the canonical and alternate links are relative, which an audit reports and a crawler resolves against whatever host it arrived on |
+| `canonical` | `[document] origin` is unset while the deployment names hosts or has a route to prerender | Without an origin the canonical and alternate links are relative, which an audit reports and a crawler resolves against whatever host it arrived on |
+| `prerender` | `[server] prerender` names a directory and no route is prerenderable | Every route reads the session, the identity, the query, the params or the time, so the host would write nothing there; the setting is left over from an application that did prerender |
 | `ctx.host` | a body reads `ctx.host` while `[server] hosts` is empty | The list is the only opt-in, so an empty one means the read answers null for ever rather than the host the request carried |
 | `ctx.config` | a body reads `ctx.config.<key>` while `[public]` does not declare the key | The declaration is what types the read and what an overlay sets, so a key missing from it answers null on every deployment |
 | `locales` | a locale in `[locales] supported` with no catalog under `locales/` | The application says it serves that language and every message falls back |
