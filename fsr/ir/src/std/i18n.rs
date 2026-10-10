@@ -60,8 +60,8 @@ fn t(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
     Some(other) => return Err(crate::interp::type_error(what, "an arguments object", other)),
   };
   let category = match options.and_then(|o| o.get("count")) {
-    Some(count) => Some(super::intl::category(ambient, count)?),
-    None => None,
+    Some(count @ (Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_))) => Some(super::intl::category(ambient, count)?),
+    _ => None,
   };
   let found = ambient.catalogs.as_ref().and_then(|catalogs| candidates(key, category.as_deref()).into_iter().find_map(|k| catalogs.lookup(&ambient.locale, &k).map(str::to_owned)));
   let text = found.unwrap_or_else(|| key.to_owned());

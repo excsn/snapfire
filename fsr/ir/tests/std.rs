@@ -171,6 +171,8 @@ fn t_reads_the_catalog_under_the_locale_with_plurals_and_placeholders() {
   assert_eq!(call("en_US", vec![s("items"), named(vec![("count", Value::Int(12))])]), Ok(s("12 items")));
   assert_eq!(call("en_US", vec![s("missing.key")]), Ok(s("missing.key")));
   assert_eq!(registry.call("i18n.t", &Ambient::default(), &[s("hi")]).unwrap(), s("hi"), "no catalogs at all answers the key");
+  assert_eq!(call("en_US", vec![s("hi"), named(vec![("name", s("Norm")), ("count", s("5"))])]), Ok(s("Hello Norm")), "a count that is not a number picks no plural form, as the browser's t does");
+  assert_eq!(call("en_US", vec![s("items"), named(vec![("count", s("5"))])]), Ok(s("items")), "so only the bare key is looked up");
 }
 
 #[test]
