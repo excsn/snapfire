@@ -5,6 +5,8 @@ import { tally } from "@src/probes";
 import { probeCount, probeOther } from "@src/store";
 import HeldProbe from "@src/ui/HeldProbe";
 import HeldVueProbe from "@src/ui/HeldVueProbe.vue";
+import LazyProbe from "@src/ui/LazyProbe";
+import LazyVueProbe from "@src/ui/LazyVueProbe.vue";
 import ReactProbe from "@src/ui/ReactProbe";
 import VueProbe from "@src/ui/VueProbe.vue";
 
@@ -12,8 +14,8 @@ const REACT = "src/ui/ReactProbe.tsx#default";
 const VUE = "src/ui/VueProbe.vue#default";
 
 const FRAMEWORKS = [
-  { owner: "react", module: REACT, other: VUE, Probe: ReactProbe, Held: HeldProbe },
-  { owner: "vue", module: VUE, other: REACT, Probe: VueProbe, Held: HeldVueProbe },
+  { owner: "react", module: REACT, other: VUE, Probe: ReactProbe, Held: HeldProbe, Lazy: LazyProbe },
+  { owner: "vue", module: VUE, other: REACT, Probe: VueProbe, Held: HeldVueProbe, Lazy: LazyVueProbe },
 ] as const;
 
 const page = async (path = "/", locale?: string) => {
@@ -41,7 +43,7 @@ async function hydrationWarnings(body: () => Promise<unknown>): Promise<string[]
   }
 }
 
-describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, Held }) => {
+describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, Held, Lazy }) => {
   test("mounts the island and hydrates over the server's markup", async () => {
     const before = tally().renders[owner] ?? 0;
     const r = await render(<Probe label="alone" nest={[]} />);
@@ -129,6 +131,19 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, 
       expect(renders, "one render, of the store's value, with no hydration to agree with").toEqual(1);
     });
   }
+
+  test("hydrates a lazily loaded child against the values the server rendered it from", async () => {
+    set(probeCount, 7);
+    let r: Awaited<ReturnType<typeof render>> | undefined;
+    const warnings = await hydrationWarnings(async () => {
+      r = await render(<Lazy label="lazy" {...renderedFrom({ "probe/count": 0 })} />);
+      await waitFor(() => expect(r!.container.querySelector(".lazy-part")).toBeTruthy());
+      await settle();
+    });
+    clear(probeCount);
+    expect(warnings, "the server rendered the lazy part from the held value and the browser hydrated it against the same").toEqual([]);
+    expect([".held", ".lazy-part"].map((at) => r!.container.querySelector(at)?.textContent), "then both move to the store's value").toEqual(["7", "7"]);
+  });
 
   test("binds the locale the request chose", async () => {
     await page();
