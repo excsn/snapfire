@@ -6,7 +6,7 @@
 
 ## What is measured
 
-The three storefront pages with realistic props: the catalog with twelve products, one product page, a cart with three lines. Every group renders the same props to the same HTML; the bench prints whether the two outputs are byte-identical, which they must be for hydration to be clean, so a `DIFFERENT` line is a finding before any number is.
+The three storefront pages with realistic props: the catalog with twelve products, one product page, a cart with three lines. Every group renders the same props to the same HTML; the bench prints whether the two outputs are identical once what legitimately differs is taken out, so a `DIFFERENT` line is a finding before any number is. The IR's islands are spliced into their markers first. Then React's `<!-- -->` between adjacent text expressions goes, a custom element's declarative shadow root goes, since React writes the element empty where the IR writes the shadow root, a void element's closing slash goes and each tag's attributes are lower-cased and sorted.
 
 | Group | One iteration is |
 | --- | --- |

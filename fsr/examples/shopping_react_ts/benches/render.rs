@@ -155,6 +155,61 @@ fn flatten(rendered: &Rendered) -> String {
   out
 }
 
+/// Both renderings with what legitimately differs taken out: React writes `<!-- -->` between adjacent text expressions, leaves a custom element empty where the IR writes its declarative shadow root and closes a void element with `/`; the two order attributes differently. Tags are rewritten without the slash and with their attributes lower-cased and sorted.
+fn normalised(html: &str) -> String {
+  let mut text = html.replace("<!-- -->", "");
+  while let Some(start) = text.find("<template shadowrootmode=\"open\">") {
+    let Some(len) = text[start..].find("</template>") else { break };
+    text.replace_range(start..start + len + "</template>".len(), "");
+  }
+  let mut out = String::with_capacity(text.len());
+  let mut rest = text.as_str();
+  while let Some(lt) = rest.find('<') {
+    out.push_str(&rest[..lt]);
+    let Some(gt) = rest[lt..].find('>') else { break };
+    let tag = &rest[lt + 1..lt + gt];
+    rest = &rest[lt + gt + 1..];
+    if tag.starts_with('/') || tag.starts_with('!') {
+      out.push('<');
+      out.push_str(tag);
+      out.push('>');
+      continue;
+    }
+    let tag = tag.trim_end_matches('/');
+    let (name, attrs) = tag.split_once(' ').unwrap_or((tag, ""));
+    let mut attrs = split_attrs(attrs).into_iter().filter(|a| a != "/").map(|a| match a.split_once('=') {
+      Some((k, v)) => format!("{}={v}", k.to_ascii_lowercase()),
+      None => a.to_ascii_lowercase(),
+    }).collect::<Vec<_>>();
+    attrs.sort();
+    out.push('<');
+    out.push_str(name);
+    for attr in attrs {
+      out.push(' ');
+      out.push_str(&attr);
+    }
+    out.push('>');
+  }
+  out.push_str(rest);
+  out
+}
+
+/// A tag's attributes split on the spaces outside quotes.
+fn split_attrs(attrs: &str) -> Vec<String> {
+  let mut out = Vec::new();
+  let mut current = String::new();
+  let mut quoted = false;
+  for ch in attrs.chars() {
+    match ch {
+      '"' => { quoted = !quoted; current.push(ch) }
+      ' ' if !quoted => { if !current.is_empty() { out.push(std::mem::take(&mut current)) } }
+      _ => current.push(ch),
+    }
+  }
+  if !current.is_empty() { out.push(current) }
+  out
+}
+
 fn engine_for(resolution: &Resolution, dom: &Path, module: &Path, rt: &tokio::runtime::Runtime) -> Engine {
   let engine = Engine::new(resolution.clone(), dom, Rc::new(NoHooks { interpreter: Interpreter::default() }), JsCalls::new()).expect("engine");
   let local = tokio::task::LocalSet::new();
@@ -210,7 +265,7 @@ fn bench(c: &mut Criterion) {
     let json = value_to_json(&Value::Map(page.props.clone())).to_string();
     engine.eval_string(&format!("globalThis.__json = {}; globalThis.__props = __decode(__json); ''", serde_json::to_string(&json).expect("a JSON string"))).expect("props set");
     let js_html = engine.eval_string("__render(__props)").expect("react renders");
-    eprintln!("{}: ir {} bytes, react {} bytes, {}", page.name, ir_html.len(), js_html.len(), if ir_html == js_html { "identical" } else { "DIFFERENT" });
+    eprintln!("{}: ir {} bytes, react {} bytes, {}", page.name, ir_html.len(), js_html.len(), if normalised(&ir_html) == normalised(&js_html) { "identical" } else { "DIFFERENT" });
     std::fs::write(prepared.test_dir.join(format!("render-{}.ir.html", page.name)), &ir_html).expect("dump");
     std::fs::write(prepared.test_dir.join(format!("render-{}.react.html", page.name)), &js_html).expect("dump");
     // What `benches/render.node.mjs` needs to render the same page with the
