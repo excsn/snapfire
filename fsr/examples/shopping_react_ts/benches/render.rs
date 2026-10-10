@@ -20,7 +20,7 @@ use snapfire_fsr_cli::{Options, build};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
 use snapfire_fsr_ir::Interpreter;
-use snapfire_fsr_ir::render::Components;
+use snapfire_fsr_ir::render::{Components, ISLAND_MARK, Rendered};
 use snapfire_fsr_payload::value_to_json;
 
 #[cfg(feature = "mimalloc")]
@@ -86,7 +86,7 @@ fn product(id: i128, name: &str, category: &str, stock: i128) -> Value {
     ("category", Value::str(category)),
     ("price_cents", Value::Int(2400 + id * 100)),
     ("list_price_cents", Value::Int(2900 + id * 100)),
-    ("image", map(vec![("color", Value::str("#e8d5b5")), ("emoji", Value::str("🧵"))])),
+    ("image", map(vec![("file", Value::str(&format!("{id}.png"))), ("color", Value::str("#e8d5b5")), ("emoji", Value::str("🧵"))])),
     ("rating", Value::F64(4.5)),
     ("reviews", Value::Int(12 * id)),
     ("stock", Value::Int(stock)),
@@ -139,6 +139,22 @@ fn bench_module(prepared: &Prepared, page: &Page) -> std::path::PathBuf {
   path
 }
 
+/// The page's markup with every island's body spliced into its marker, which is what React writes, since it renders the islands inline and knows no boundary.
+fn flatten(rendered: &Rendered) -> String {
+  let mut out = String::with_capacity(rendered.html.len());
+  let mut rest = rendered.html.as_str();
+  while let Some(start) = rest.find(ISLAND_MARK) {
+    out.push_str(&rest[..start]);
+    let after = &rest[start + ISLAND_MARK.len()..];
+    let end = after.find('\0').expect("a marker is closed");
+    let index: usize = after[..end].parse().expect("a marker carries its index");
+    out.push_str(&flatten(&rendered.islands[index].body));
+    rest = &after[end + 1..];
+  }
+  out.push_str(rest);
+  out
+}
+
 fn engine_for(resolution: &Resolution, dom: &Path, module: &Path, rt: &tokio::runtime::Runtime) -> Engine {
   let engine = Engine::new(resolution.clone(), dom, Rc::new(NoHooks { interpreter: Interpreter::default() }), JsCalls::new()).expect("engine");
   let local = tokio::task::LocalSet::new();
@@ -155,7 +171,9 @@ fn bench(c: &mut Criterion) {
   }
   let built = build(&app, &Options::default()).expect("fsr build app");
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
-  let prepared = prepare(&app, &built.browser_routes).expect("fsr test's preparation");
+  let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
+  let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
+  let prepared = prepare(&app, &built.browser_files, &compositions, &built.added, &mut plugins).expect("fsr test's preparation");
   let layout = Layout::of(&app).expect("layout");
   let react_dom = VendorManifest::read(&app, &layout).expect("vendor manifest").packages.get("react-dom").map(|p| p.version.clone()).expect("react-dom is vendored");
   let server = test_bundle(&app, "react-dom/server", &react_dom, &format!("{ESM_HOST}/react-dom@{react_dom}/server?target=es2022&bundle&external=react")).expect("react-dom/server");
@@ -186,7 +204,7 @@ fn bench(c: &mut Criterion) {
 
   for page in pages() {
     let component = components.get(page.module).cloned().expect("the page lowered");
-    let ir_html = interpreter.render(&component, &page.props, &components).expect("ir renders").html;
+    let ir_html = flatten(&interpreter.render(&component, &page.props, &components).expect("ir renders"));
     let module = bench_module(&prepared, &page);
     let engine = engine_for(&resolution, &prepared.dom, &module, &rt);
     let json = value_to_json(&Value::Map(page.props.clone())).to_string();
