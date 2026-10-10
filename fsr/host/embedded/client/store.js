@@ -60,6 +60,13 @@ function samePath(a, b) {
     return a.length === b.length && a.every((name, i)=>name === b[i]);
 }
 export function isPending(k) {
+    return pendingIn(k, new Set());
+}
+function pendingIn(k, seen) {
+    if (seen.has(k)) return false;
+    seen.add(k);
+    const entry = derived.get(k);
+    if (entry) return entry.sources.some((source)=>pendingIn(source, seen));
     for (const promise of contributions.values()){
         if (!promise.w?.includes(k)) continue;
         const outranked = Array.from(contributions.values()).some((c)=>c.k !== promise.k && k in c.v && order(c, promise) >= 0);

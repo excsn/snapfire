@@ -96,8 +96,16 @@ function samePath(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((name, i) => name === b[i]);
 }
 
-/** Whether a deferred segment has yet to seed `k`: a promise awaits it and outranks every contribution holding it, so the value the store holds now is about to be replaced. The server decides the same way which islands to hold. */
+/** Whether a deferred segment has yet to seed `k`: a promise awaits it and outranks every contribution holding it, so the value the store holds now is about to be replaced. A derived key is pending exactly while a source it reads is. The server decides the same way which islands to hold. */
 export function isPending(k: string): boolean {
+  return pendingIn(k, new Set());
+}
+
+function pendingIn(k: string, seen: Set<string>): boolean {
+  if (seen.has(k)) return false;
+  seen.add(k);
+  const entry = derived.get(k);
+  if (entry) return entry.sources.some((source) => pendingIn(source, seen));
   for (const promise of contributions.values()) {
     if (!promise.w?.includes(k)) continue;
     const outranked = Array.from(contributions.values()).some((c) => c.k !== promise.k && k in c.v && order(c, promise) >= 0);
