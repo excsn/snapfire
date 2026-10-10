@@ -270,7 +270,7 @@ fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
   assert_eq!(response.status(), 200);
   let html = text(response);
   assert!(html.contains("action=\"/auth/callback\""), "{html}");
-  assert!(html.contains("Sign in") && !html.contains("Sign out"), "{html}");
+  assert!(html.contains("pill-who signin\">Sign in</a>") && !html.contains("<button class=\"signout\">"), "{html}");
 
   let response = block_on(app.handle(
     Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap(),
@@ -282,7 +282,7 @@ fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
   assert_eq!(response.status(), 200);
   let html = text(response);
   assert!(html.contains("alice") && html.contains("admin"), "{html}");
-  assert!(html.contains("Sign out"), "the header shows the session: {html}");
+  assert!(html.contains("<button class=\"signout\">Sign out</button>"), "the header shows the session: {html}");
   assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer svc-token-alice"), "the loader's fleet call carried the token the identity service issued");
   let start = html.find("name=\"_csrf\" value=\"").map(|i| i + 20).expect("the sign-out form carries the token");
   let token = &html[start..start + html[start..].find('"').unwrap()];

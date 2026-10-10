@@ -1,4 +1,5 @@
 import type { Ctx } from "@snapfire/fsr";
+import { t } from "@snapfire/fsr-client/std";
 
 export async function load({ session, services }: Ctx) {
   const agents = await services.fleet.listAgents({ region: "all" });
@@ -6,4 +7,4 @@ export async function load({ session, services }: Ctx) {
   return { watched, density: session.density };
 }
 
-export const meta = () => ({ title: "Settings · Ops console" });
+export const meta = () => ({ title: t("meta.settings") });

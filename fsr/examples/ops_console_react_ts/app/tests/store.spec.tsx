@@ -52,7 +52,7 @@ test("watching an agent is optimistic in the header and the revalidation keeps i
   expect(get(watching), "written before the action answered").toEqual(1);
   await settle();
   expect(c.session.watching).toEqual({ "1": true });
-  expect(screen.getByLabelText("watching 1 agents")).toBeTruthy();
+  expect(screen.getByLabelText("watching 1 agent")).toBeTruthy();
   expect(get(headline)).toEqual("2 to look at, watching 1");
   await settle();
 });
@@ -61,7 +61,7 @@ test("unwatching from the list is optimistic in the header and the row offers wa
   const c = ctx({ session: { watching: { "1": true } }, services: services() });
   await load("/agents", { ctx: c });
 
-  expect(screen.getByLabelText("watching 1 agents")).toBeTruthy();
+  expect(screen.getByLabelText("watching 1 agent")).toBeTruthy();
   await fireEvent.click(screen.getByText("unwatch"));
   expect(get(watching), "written before the action answered").toEqual(0);
   await settle();

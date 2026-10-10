@@ -1,16 +1,18 @@
+import { t } from "@snapfire/fsr-client/std";
+
 import type { AccountProps } from "@generated/client";
 
 export default function AccountPage({ subject, role, agents }: AccountProps) {
   return (
     <div className="page account">
-      <h1>Your account</h1>
-      <p className="lede">The loader read the identity the host holds for this session; the fleet call it made carried your token.</p>
+      <h1>{t("account.title")}</h1>
+      <p className="lede">{t("account.lede")}</p>
       <dl className="facts">
-        <dt>Signed in as</dt>
+        <dt>{t("account.signed_in")}</dt>
         <dd className="subject">{subject}</dd>
-        <dt>Role</dt>
+        <dt>{t("account.role")}</dt>
         <dd className="role">{role}</dd>
-        <dt>Agents visible</dt>
+        <dt>{t("account.agents")}</dt>
         <dd>{Number(agents)}</dd>
       </dl>
     </div>

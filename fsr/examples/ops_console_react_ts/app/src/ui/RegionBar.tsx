@@ -1,4 +1,5 @@
 import { Link } from "@snapfire/fsr-client/react";
+import { t } from "@snapfire/fsr-client/std";
 
 const REGIONS = ["all", "eu", "us", "ap"];
 
@@ -7,10 +8,10 @@ export function RegionBar({ region, shown }: { region: string; shown: bigint }) 
     <div className="region-bar">
       {REGIONS.map((r) => (
         <Link key={r} href={r === "all" ? "/agents" : `/agents?region=${r}`} className={r === region ? "chip chip-on" : "chip"}>
-          {r}
+          {r === "all" ? t("agents.all") : r}
         </Link>
       ))}
-      <span className="region-count">{String(shown)} shown</span>
+      <span className="region-count">{t("agents.shown", { count: shown })}</span>
     </div>
   );
 }

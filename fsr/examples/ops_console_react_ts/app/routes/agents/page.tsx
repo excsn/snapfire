@@ -1,7 +1,9 @@
+import { t } from "@snapfire/fsr-client/std";
+
 export default function PickOne() {
   return (
     <div className="pick">
-      <p>Pick an agent from the list.</p>
+      <p>{t("agents.pick")}</p>
     </div>
   );
 }

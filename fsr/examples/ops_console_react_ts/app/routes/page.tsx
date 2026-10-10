@@ -1,4 +1,5 @@
 import { island, Link } from "@snapfire/fsr-client/react";
+import { t } from "@snapfire/fsr-client/std";
 
 import type { RootProps } from "@generated/client";
 import { TipList } from "@src/ui/Tips";
@@ -9,9 +10,9 @@ const Tips = island(TipList, { when: "idle" });
 export default function Summary({ total, busy, regions }: RootProps) {
   return (
     <div className="page summary">
-      <h1>Fleet</h1>
+      <h1>{t("summary.title")}</h1>
       <p className="lede">
-        {String(total)} agents, {String(busy)} with work queued.
+        {t("summary.lede", { total: String(total), busy: String(busy) })}
       </p>
       <ul className="region-cards">
         {regions.map((r) => (
@@ -23,7 +24,7 @@ export default function Summary({ total, busy, regions }: RootProps) {
         ))}
       </ul>
       <p>
-        <Link href="/agents">Every agent</Link> · <Link href="/help">How this works</Link> · <Link href="/state/one">Island state</Link>
+        <Link href="/agents">{t("summary.every")}</Link> · <Link href="/help">{t("summary.help")}</Link> · <Link href="/state/one">{t("summary.state")}</Link>
       </p>
       <Tips />
     </div>

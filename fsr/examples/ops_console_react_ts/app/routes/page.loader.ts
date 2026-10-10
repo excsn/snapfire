@@ -1,4 +1,5 @@
 import type { Ctx } from "@snapfire/fsr";
+import { t } from "@snapfire/fsr-client/std";
 
 export async function load({ services }: Ctx) {
   const agents = await services.fleet.listAgents({ region: "all" });
@@ -7,4 +8,4 @@ export async function load({ services }: Ctx) {
   return { total: BigInt(agents.length), busy: BigInt(busy.length), regions };
 }
 
-export const meta = ({ data }: { data: { total: bigint } }) => ({ title: `${data.total} agents \u00b7 Ops console` });
+export const meta = ({ data }: { data: { total: bigint } }) => ({ title: t("meta.summary", { count: data.total }) });

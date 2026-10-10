@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Identity } from "@snapfire/fsr-authoring";
 import { Slot } from "@snapfire/fsr-client/react";
+import { t } from "@snapfire/fsr-client/std";
 
 import { Header } from "@src/ui/Header";
 
@@ -13,7 +14,7 @@ export default function Layout({ children, alerts, identity, csrf_token }: { chi
         <aside className="shell-side">{alerts}</aside>
       </div>
       <Slot name="drawer">
-        <p className="drawer-hint">Settings open here.</p>
+        <p className="drawer-hint">{t("layout.drawer_hint")}</p>
       </Slot>
     </>
   );

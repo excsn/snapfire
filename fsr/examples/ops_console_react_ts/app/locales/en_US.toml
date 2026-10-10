@@ -3,6 +3,114 @@ title = "How this works"
 panels = "Every panel on this page is rendered by the server. The alert count in the header, the region in the bar and the number of agents you watch are one store the whole document shares, seeded by the loaders and written by whichever panel changes them."
 streaming = "Nothing here is fetched by the browser. The panels arrive as one server-rendered tree, and the parts that are slower than the rest stream in behind their own placeholders."
 
+[meta]
+summary.one = "{count} agent · Ops console"
+summary.other = "{count} agents · Ops console"
+agent = "{name} · Ops console"
+agent_description = "What {name} is running right now"
+account = "Account · Ops console"
+login = "Sign in · Ops console"
+settings = "Settings · Ops console"
+
+[header]
+agents = "Agents"
+help = "Help"
+open = "{count} open"
+open_label.one = "{count} open alert"
+open_label.other = "{count} open alerts"
+watching = "watching {count}"
+sign_in = "Sign in"
+sign_out = "Sign out"
+settings = "Settings"
+
+[headline]
+quiet = "quiet"
+open = "{count} to look at"
+watching = ", watching {count}"
+
+[layout]
+drawer_hint = "Settings open here."
+
+[summary]
+title = "Fleet"
+lede = "{total} agents, {busy} with work queued."
+every = "Every agent"
+help = "How this works"
+state = "Island state"
+
+[tips]
+title = "What to try"
+agent = "Click an agent: its page renders under the list, which stays as it is."
+peek = "Click peek: the same route renders into the panel beside the list."
+drawer = "Open the settings gear: the settings route renders into a drawer over the console."
+alert = "Open an agent from an alert: from the list it peeks, from anywhere else it navigates."
+ack = "Acknowledge an alert: the header count moves before the server answers."
+
 [agents]
 watching.one = "watching {count} agent"
 watching.other = "watching {count} agents"
+all = "all"
+shown = "{count} shown"
+pick = "Pick an agent from the list."
+peek_hint = "Peek at an agent without leaving the list."
+peek = "peek"
+watch = "watch"
+unwatch = "unwatch"
+already_watching = "already watching that agent"
+not_watching = "not watching that agent"
+
+[agent]
+lede = "{region} · {status} · {queued} queued · {cpu}% cpu"
+peek = "{queued} queued · {cpu}% cpu"
+watch = "Watch this agent"
+unwatch = "Stop watching this agent"
+running = "Running"
+error_title = "That agent did not answer"
+error_body = "The fleet service refused the read. The rest of the console is still live."
+
+[alerts]
+title = "Alerts"
+none = "Nothing is on fire."
+open = "open"
+open_title = "Open the agent"
+ack = "ack"
+
+[settings]
+title = "Settings"
+lede = "Held in your session, so they follow you across pages and a reload."
+language = "Language"
+rows = "Rows"
+rows_label = "Row density"
+comfortable = "Comfortable"
+compact = "Compact"
+watching = "Watching"
+none = "Nothing yet. Watch an agent from the list."
+open_page = "Open as a page"
+density_invalid = "density is comfortable or compact"
+
+[account]
+title = "Your account"
+lede = "The loader read the identity the host holds for this session; the fleet call it made carried your token."
+signed_in = "Signed in as"
+role = "Role"
+agents = "Agents visible"
+
+[login]
+title = "Sign in"
+accounts = "Dev accounts:"
+or = "or"
+denied = "Unknown user or wrong password."
+user = "User"
+password = "Password"
+submit = "Sign in"
+
+[state]
+title = "Island state across navigation"
+lede = "The counter lives in this layout. Click it, then move between the two routes beneath it: the page region is replaced and the layout, with its state, is kept."
+clicked = "clicked {count}"
+one = "route one"
+two = "route two"
+one_title = "Route one"
+one_body = "This page was rendered by the server and swapped in by the navigator. The counter above did not re-mount."
+two_title = "Route two"
+two_body = "Same layout, other page. Whatever the count was on route one, it still is."

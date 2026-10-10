@@ -1,5 +1,6 @@
 import { get, optimistic, set } from "@snapfire/fsr-client";
 import { Link, useStore } from "@snapfire/fsr-client/react";
+import { t } from "@snapfire/fsr-client/std";
 
 import { queueLabel } from "@ext/fleet";
 import { actions, type Agent } from "@generated/client";
@@ -30,15 +31,15 @@ export function AgentRows({ agents, watching: held }: { agents: Agent[]; watchin
           <span className="agent-region">{a.region}</span>
           <span className="agent-queue">{queueLabel(Number(a.queue_depth))}</span>
           <Link href={`/agents/${a.id}${tail}`} into="peek" className="btn btn-small">
-            peek
+            {t("agents.peek")}
           </Link>
           {held.includes(String(a.id)) ? (
             <button className="btn btn-small" onClick={() => void unwatch(a.id)}>
-              unwatch
+              {t("agents.unwatch")}
             </button>
           ) : (
             <button className="btn btn-small" onClick={() => void watch(a.id)}>
-              watch
+              {t("agents.watch")}
             </button>
           )}
         </li>

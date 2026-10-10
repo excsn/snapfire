@@ -1,6 +1,8 @@
 import { boot, derive, enableNavigation, get } from "@snapfire/fsr-client";
 import { registerIslands } from "@generated/islands.js";
 
+import { t } from "@snapfire/fsr-client/std";
+
 import { headline, openAlerts, watching } from "./store.js";
 
 registerIslands();
@@ -9,7 +11,7 @@ registerIslands();
 derive(headline, [openAlerts, watching], (read) => {
   const open = read(openAlerts) ?? 0;
   const held = read(watching) ?? 0;
-  return `${open === 0 ? "quiet" : `${open} to look at`}${held === 0 ? "" : `, watching ${held}`}`;
+  return `${open === 0 ? t("headline.quiet") : t("headline.open", { count: open })}${held === 0 ? "" : t("headline.watching", { count: held })}`;
 });
 
 boot();

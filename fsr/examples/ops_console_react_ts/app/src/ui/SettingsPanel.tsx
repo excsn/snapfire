@@ -1,5 +1,6 @@
 import { get, optimistic } from "@snapfire/fsr-client";
 import { useStore } from "@snapfire/fsr-client/react";
+import { t } from "@snapfire/fsr-client/std";
 
 import { actions, type Agent } from "@generated/client";
 import { density, watching } from "@src/store";
@@ -19,30 +20,30 @@ export function SettingsPanel({ watched }: { watched: Agent[] }) {
   return (
     <div className="settings">
       <section>
-        <h2>Language</h2>
+        <h2>{t("settings.language")}</h2>
         <LanguagePicker />
       </section>
       <section>
-        <h2>Rows</h2>
-        <div className="segmented" role="radiogroup" aria-label="Row density">
+        <h2>{t("settings.rows")}</h2>
+        <div className="segmented" role="radiogroup" aria-label={t("settings.rows_label")}>
           <button className={rows === "comfortable" ? "seg seg-on" : "seg"} onClick={() => void choose("comfortable")}>
-            Comfortable
+            {t("settings.comfortable")}
           </button>
           <button className={rows === "compact" ? "seg seg-on" : "seg"} onClick={() => void choose("compact")}>
-            Compact
+            {t("settings.compact")}
           </button>
         </div>
       </section>
       <section>
-        <h2>Watching</h2>
-        {watched.length === 0 ? <p className="quiet">Nothing yet. Watch an agent from the list.</p> : null}
+        <h2>{t("settings.watching")}</h2>
+        {watched.length === 0 ? <p className="quiet">{t("settings.none")}</p> : null}
         <ul className="watch-list">
           {watched.map((a) => (
             <li key={String(a.id)}>
               <span className="agent-name">{a.name}</span>
               <span className="agent-region">{a.region}</span>
               <button className="btn btn-small" onClick={() => void unwatch(a.id)}>
-                unwatch
+                {t("agents.unwatch")}
               </button>
             </li>
           ))}

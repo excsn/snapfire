@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Slot } from "@snapfire/fsr-client/react";
+import { t } from "@snapfire/fsr-client/std";
 
 import type { AgentsLayoutProps } from "@generated/client";
 import { AgentRows } from "@src/ui/AgentRows";
@@ -16,7 +17,7 @@ export default function AgentsLayout({ region, agents, watching, children }: Age
         <div className="agents-detail">{children}</div>
         <div className="agents-peek">
           <Slot name="peek">
-            <p className="peek-hint">Peek at an agent without leaving the list.</p>
+            <p className="peek-hint">{t("agents.peek_hint")}</p>
           </Slot>
         </div>
       </div>

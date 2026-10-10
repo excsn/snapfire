@@ -1,5 +1,6 @@
 import type { Identity } from "@snapfire/fsr-authoring";
 import { Link, useStore } from "@snapfire/fsr-client/react";
+import { t } from "@snapfire/fsr-client/std";
 
 import { headline, openAlerts, region, selected, watching } from "@src/store";
 
@@ -17,19 +18,19 @@ export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken
       </Link>
       <nav className="topnav">
         <Link href="/agents" match="prefix" current="document">
-          Agents
+          {t("header.agents")}
         </Link>
         <Link href="/help" prefetch="none" current="document">
-          Help
+          {t("header.help")}
         </Link>
       </nav>
       <p className="headline">{line}</p>
-      <span className="pill pill-region">{shown}</span>
-      <span className={open > 0 ? "pill pill-alert" : "pill"} aria-label={`${open} open alerts`}>
-        {open} open
+      <span className="pill pill-region">{shown === "all" ? t("agents.all") : shown}</span>
+      <span className={open > 0 ? "pill pill-alert" : "pill"} aria-label={t("header.open_label", { count: open })}>
+        {t("header.open", { count: open })}
       </span>
-      <span className="pill" aria-label={`watching ${held} agents`}>
-        watching {held}
+      <span className="pill" aria-label={t("agents.watching", { count: held })}>
+        {t("header.watching", { count: held })}
       </span>
       {chosen ? <span className="pill pill-selected">#{chosen}</span> : null}
       {identity ? (
@@ -38,14 +39,14 @@ export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken
             {identity.subject}
           </Link>
           <input type="hidden" name="_csrf" value={csrfToken ?? ""} />
-          <button className="signout">Sign out</button>
+          <button className="signout">{t("header.sign_out")}</button>
         </form>
       ) : (
         <a href="/auth/login" data-sf-native className="pill pill-who signin">
-          Sign in
+          {t("header.sign_in")}
         </a>
       )}
-      <Link href="/settings" into="drawer" className="gear" aria-label="Settings" title="Settings">
+      <Link href="/settings" into="drawer" className="gear" aria-label={t("header.settings")} title={t("header.settings")}>
         ⚙
       </Link>
     </header>

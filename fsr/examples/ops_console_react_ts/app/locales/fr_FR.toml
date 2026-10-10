@@ -3,6 +3,118 @@ title = "Comment ça marche"
 panels = "Chaque panneau de cette page est rendu par le serveur. Le nombre d'alertes dans l'en-tête, la région dans la barre et le nombre d'agents suivis sont un seul store partagé par tout le document, alimenté par les loaders et écrit par le panneau qui les change."
 streaming = "Le navigateur ne charge rien ici. Les panneaux arrivent en un seul arbre rendu par le serveur, et les parties plus lentes que les autres arrivent en flux derrière leurs propres attentes."
 
+[meta]
+summary.one = "{count} agent · Console ops"
+summary.other = "{count} agents · Console ops"
+agent = "{name} · Console ops"
+agent_description = "Ce que {name} exécute en ce moment"
+account = "Compte · Console ops"
+login = "Connexion · Console ops"
+settings = "Réglages · Console ops"
+
+[header]
+agents = "Agents"
+help = "Aide"
+open.one = "{count} ouverte"
+open.other = "{count} ouvertes"
+open_label.one = "{count} alerte ouverte"
+open_label.other = "{count} alertes ouvertes"
+watching = "suivis : {count}"
+sign_in = "Se connecter"
+sign_out = "Se déconnecter"
+settings = "Réglages"
+
+[headline]
+quiet = "calme"
+open = "{count} à examiner"
+watching.one = ", {count} suivi"
+watching.other = ", {count} suivis"
+
+[layout]
+drawer_hint = "Les réglages s'ouvrent ici."
+
+[summary]
+title = "Flotte"
+lede = "{total} agents, dont {busy} avec du travail en attente."
+every = "Tous les agents"
+help = "Comment ça marche"
+state = "État des îlots"
+
+[tips]
+title = "À essayer"
+agent = "Cliquez sur un agent : sa page s'affiche sous la liste, qui reste en place."
+peek = "Cliquez sur aperçu : la même route s'affiche dans le panneau à côté de la liste."
+drawer = "Ouvrez l'engrenage des réglages : la route des réglages s'affiche dans un tiroir au-dessus de la console."
+alert = "Ouvrez un agent depuis une alerte : depuis la liste, il s'affiche en aperçu ; ailleurs, la page change."
+ack = "Acquittez une alerte : le compteur de l'en-tête bouge avant que le serveur réponde."
+
 [agents]
 watching.one = "{count} agent suivi"
 watching.other = "{count} agents suivis"
+all = "toutes"
+shown.one = "{count} affiché"
+shown.other = "{count} affichés"
+pick = "Choisissez un agent dans la liste."
+peek_hint = "Jetez un œil à un agent sans quitter la liste."
+peek = "aperçu"
+watch = "suivre"
+unwatch = "ne plus suivre"
+already_watching = "cet agent est déjà suivi"
+not_watching = "cet agent n'est pas suivi"
+
+[agent]
+lede = "{region} · {status} · {queued} en attente · {cpu} % CPU"
+peek = "{queued} en attente · {cpu} % CPU"
+watch = "Suivre cet agent"
+unwatch = "Ne plus suivre cet agent"
+running = "En cours"
+error_title = "Cet agent n'a pas répondu"
+error_body = "Le service de la flotte a refusé la lecture. Le reste de la console fonctionne toujours."
+
+[alerts]
+title = "Alertes"
+none = "Rien ne brûle."
+open = "ouvrir"
+open_title = "Ouvrir l'agent"
+ack = "acquitter"
+
+[settings]
+title = "Réglages"
+lede = "Conservés dans votre session : ils vous suivent d'une page à l'autre et après un rechargement."
+language = "Langue"
+rows = "Lignes"
+rows_label = "Densité des lignes"
+comfortable = "Confortable"
+compact = "Compacte"
+watching = "Suivis"
+none = "Rien pour l'instant. Suivez un agent depuis la liste."
+open_page = "Ouvrir comme une page"
+density_invalid = "la densité est confortable ou compacte"
+
+[account]
+title = "Votre compte"
+lede = "Le loader a lu l'identité que l'hôte garde pour cette session ; l'appel à la flotte qu'il a fait portait votre jeton."
+signed_in = "Connecté en tant que"
+role = "Rôle"
+agents = "Agents visibles"
+
+[login]
+title = "Connexion"
+accounts = "Comptes de développement :"
+or = "ou"
+denied = "Utilisateur inconnu ou mot de passe incorrect."
+user = "Utilisateur"
+password = "Mot de passe"
+submit = "Se connecter"
+
+[state]
+title = "L'état d'un îlot pendant la navigation"
+lede = "Le compteur vit dans ce layout. Cliquez dessus, puis passez d'une route à l'autre en dessous : la région de la page est remplacée et le layout, avec son état, est conservé."
+clicked.one = "{count} clic"
+clicked.other = "{count} clics"
+one = "route un"
+two = "route deux"
+one_title = "Route un"
+one_body = "Cette page a été rendue par le serveur et insérée par la navigation du client. Le compteur au-dessus n'a pas été remonté."
+two_title = "Route deux"
+two_body = "Même layout, autre page. Le compteur garde la valeur qu'il avait sur la route un."

@@ -1,8 +1,10 @@
+import { t } from "@snapfire/fsr-client/std";
+
 export default function AgentError() {
   return (
     <article className="page agent">
-      <h1>That agent did not answer</h1>
-      <p>The fleet service refused the read. The rest of the console is still live.</p>
+      <h1>{t("agent.error_title")}</h1>
+      <p>{t("agent.error_body")}</p>
     </article>
   );
 }
