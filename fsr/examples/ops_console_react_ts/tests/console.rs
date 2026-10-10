@@ -200,24 +200,24 @@ fn a_prefixed_locale_renders_the_help_page_in_french_and_the_default_is_unprefix
 
   let french = block_on(app.render_to_string("/fr_FR/help", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(french.contains("<html lang=\"fr-FR\" data-sf-locale=\"fr_FR\">"), "{french}");
-  assert!(french.contains("Comment ça marche"), "{french}");
+  assert!(french.contains("<h1>Comment ça marche</h1>"), "{french}");
   assert!(french.contains("<!--sf-g:routes/help/page.tsx#default@fr_FR-->"), "every segment key carries the locale: {french}");
   assert!(french.contains("<!--sf-g:routes/layout.tsx#default@fr_FR-->"), "{french}");
   assert!(french.contains("<title>Console ops</title>"), "a route with no meta takes the document title from the French catalog: {french}");
 
   let english = block_on(app.render_to_string("/help", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(english.contains("<html lang=\"en-US\" data-sf-locale=\"en_US\">"), "{english}");
-  assert!(english.contains("How this works"), "{english}");
+  assert!(english.contains("<h1>How this works</h1>"), "{english}");
   assert!(english.contains("<title>Ops console</title>"), "{english}");
   assert!(english.contains("<!--sf-g:routes/help/page.tsx#default-->"), "the default locale leaves the key bare: {english}");
 
   let prefixed = block_on(app.render_to_string("/en_US/help", RenderMode::Html, SessionCell::default())).unwrap();
-  assert!(prefixed.contains("How this works"), "{prefixed}");
+  assert!(prefixed.contains("<h1>How this works</h1>"), "{prefixed}");
   assert!(prefixed.contains("<link rel=\"canonical\" href=\"/help\">"), "{prefixed}");
 
   let payload = block_on(app.render_to_string("/fr-fr/help", RenderMode::Payload, SessionCell::default())).unwrap();
   assert!(payload.contains("\nL \"fr_FR\"\n"), "{payload}");
-  assert!(payload.contains("Comment ça marche"), "{payload}");
+  assert!(payload.contains("<h1>Comment ça marche</h1>"), "{payload}");
 }
 
 #[test]
@@ -233,11 +233,11 @@ fn the_edge_remembers_a_chosen_locale_and_an_action_takes_the_documents() {
 
   let response = block_on(app.handle(Request::get("/help").header(header::COOKIE, "sf_locale=fr_FR").body(Bytes::new()).unwrap()));
   let html = block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
-  assert!(html.contains("Comment ça marche"), "an unprefixed link keeps the chosen language: {html}");
+  assert!(html.contains("<h1>Comment ça marche</h1>"), "an unprefixed link keeps the chosen language: {html}");
 
   let response = block_on(app.handle(Request::get("/help").header(header::ACCEPT_LANGUAGE, "fr-CA, en;q=0.5").body(Bytes::new()).unwrap()));
   let html = block_on(async { String::from_utf8(http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
-  assert!(html.contains("Comment ça marche"), "the header's language: {html}");
+  assert!(html.contains("<h1>Comment ça marche</h1>"), "the header's language: {html}");
 
   let session = SessionCell::default();
   watching(&session, &[]);
