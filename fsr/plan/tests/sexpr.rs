@@ -323,6 +323,16 @@ fn every_manifest() -> Manifest {
     intercepts: vec![RouteEntry { pattern: "/modal".to_owned(), plan: node }],
     frameworks: [("react".to_owned(), "18.3.1".to_owned())].into_iter().collect(),
     reads: [("src/ui/Box.vue#default".to_owned(), vec!["cart/count".to_owned(), "user/name".to_owned()])].into_iter().collect(),
+    derives: vec![
+      snapfire_fsr_plan::DeriveEntry {
+        key: "order/total".to_owned(),
+        sources: vec!["order/price".to_owned(), "order/qty".to_owned()],
+        body: Some(Expr::Arith(ArithOp::Mul, Box::new(Expr::Coalesce(Box::new(Expr::Store("order/price".to_owned())), Box::new(Expr::Lit(Lit::Float(0.0))))), Box::new(Expr::Coalesce(Box::new(Expr::Store("order/qty".to_owned())), Box::new(Expr::Lit(Lit::Float(0.0))))))),
+        at: None,
+        why: None,
+      },
+      snapfire_fsr_plan::DeriveEntry { key: "clock/now".to_owned(), sources: Vec::new(), body: None, at: Some("src/main.ts:4:1".to_owned()), why: Some("`Date.now`".to_owned()) },
+    ],
   }
 }
 
@@ -541,6 +551,7 @@ fn manifest() -> BoxedStrategy<Manifest> {
       intercepts: intercepts.into_iter().map(|(pattern, plan)| RouteEntry { pattern, plan }).collect(),
       frameworks: Default::default(),
       reads: Default::default(),
+      derives: Vec::new(),
     })
     .boxed()
 }
@@ -661,26 +672,43 @@ fn malformed_plan_terms_are_refused() {
 /// changes has been published, that comes with a bump of `FORMAT_VERSION`
 /// and a reader that still takes the old spelling, which the earlier format's
 /// file below keeps pinned; when it has not, the number stays.
-const GOLDEN: &str = include_str!("golden/format-5.sexp");
+const GOLDEN: &str = include_str!("golden/format-6.sexp");
 
 #[test]
-fn the_printed_bytes_are_the_ones_format_5_promises() {
+fn the_printed_bytes_are_the_ones_format_6_promises() {
   let printed = every_manifest().to_sexpr();
   if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-5.sexp"), &printed)
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-6.sexp"), &printed)
       .expect("the golden file is writable");
     return;
   }
-  assert_eq!(printed, GOLDEN, "the printer no longer writes format 5");
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 6");
 }
 
 /// The same file read back: a reader that stops accepting what earlier builds
 /// wrote fails here rather than at someone's boot.
 #[test]
 fn the_promised_bytes_still_read() {
-  let read = Manifest::from_sexpr(GOLDEN).expect("format 5 still reads");
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 6 still reads");
   assert_eq!(read, every_manifest());
   assert_eq!(read.to_sexpr(), GOLDEN);
+}
+
+/// Format 5, as the builds before `derive` rows wrote it.
+const GOLDEN_5: &str = include_str!("golden/format-5.sexp");
+
+#[test]
+fn a_format_5_plan_still_reads() {
+  let read = Manifest::from_sexpr(GOLDEN_5).expect("format 5 still reads");
+  let mut expected = every_manifest();
+  forget_derives(&mut expected);
+  assert_eq!(read, expected);
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+}
+
+/// Every `derive` row dropped, which is what a plan written before format 6 carries.
+fn forget_derives(manifest: &mut Manifest) {
+  manifest.derives.clear();
 }
 
 /// Every source's `store-keys` and every island's `reads` dropped, which is
@@ -701,8 +729,9 @@ fn a_plan_whose_components_name_no_owner_still_reads() {
   let read = Manifest::from_sexpr(UNOWNED).expect("a plan without owners still reads");
   let mut expected = every_manifest();
   forget_store_reads(&mut expected);
+  forget_derives(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 5");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
 
 /// Format 4, as the builds before a component's head rows wrote it.
@@ -714,8 +743,9 @@ fn a_format_4_plan_still_reads() {
   let mut expected = every_manifest();
   forget_heads(&mut expected);
   forget_store_reads(&mut expected);
+  forget_derives(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 5");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
 
 /// Every component's head rows dropped, which is what a plan written before
@@ -736,8 +766,9 @@ fn a_format_3_plan_still_reads() {
   forget_error_kinds(&mut expected);
   forget_heads(&mut expected);
   forget_store_reads(&mut expected);
+  forget_derives(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 5");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
 
 /// Every node's per-kind error modules dropped, which is what a plan written
@@ -770,6 +801,7 @@ fn a_format_2_plan_still_reads() {
   forget_error_kinds(&mut expected);
   forget_heads(&mut expected);
   forget_store_reads(&mut expected);
+  forget_derives(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 5");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }

@@ -17,12 +17,17 @@ pub mod sexpr;
 /// a source's `store-keys` and the `reads` of islands the server does not
 /// render; in an older file a component that names none is React's.
 ///
+/// Format 6 adds `derive` rows: a store key the browser's `derive` computes,
+/// its source keys and the lowered compute, which the host applies after the
+/// seeds merge. A host reading format 5 would render without them, painting
+/// a derived key's fallback where the browser shows its value.
+///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of
 /// the format this number already names: add it to that format's line above
 /// and regenerate its golden file. Check the number in the last published
 /// release before raising it.
-pub const FORMAT_VERSION: u32 = 5;
+pub const FORMAT_VERSION: u32 = 6;
 /// The first format in which a component must name its owner.
 pub(crate) const OWNERS_NAMED: u32 = 5;
 const OLDEST_READABLE: u32 = 1;
@@ -96,6 +101,27 @@ pub struct Manifest {
   /// what the first wave holds its mount on while one of them is pending.
   #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
   pub reads: std::collections::BTreeMap<String, Vec<String>>,
+  /// One row per store key a module-level `derive` computes in the browser,
+  /// in the order the browser files declare them.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub derives: Vec<DeriveEntry>,
+}
+
+/// A derived store key: what it is computed from and how. A row without a
+/// body is one the build could not lower, with where and why: the host holds
+/// every reader of the key rather than paint a value the browser replaces.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DeriveEntry {
+  pub key: String,
+  pub sources: Vec<String>,
+  /// The compute, reading each source as `Expr::Store`.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub body: Option<snapfire_fsr_ir::ast::Expr>,
+  /// `file:line:column` of the `derive` that did not lower.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub at: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub why: Option<String>,
 }
 
 /// A handler row: `method` and `pattern` are what the host matches, `id` is
@@ -470,7 +496,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new() }
   }
 
   /// The constants bodies read by name.
@@ -747,6 +773,11 @@ impl Manifest {
     }
     if let Some(middleware) = json.get_mut("middleware") {
       namespace_body(middleware, &prefix);
+    }
+    for row in json.get_mut("derives").and_then(|r| r.as_array_mut()).into_iter().flatten() {
+      if let Some(body) = row.get_mut("body") {
+        namespace_body(body, &prefix);
+      }
     }
     if let Some(reads) = json.get_mut("reads").and_then(|r| r.as_object_mut()) {
       let taken = std::mem::take(reads);

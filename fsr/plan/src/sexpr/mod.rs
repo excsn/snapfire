@@ -62,6 +62,16 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
     }
     out.push(form("component", rest));
   }
+  for entry in &manifest.derives {
+    let mut sources = vec![sym("sources".to_owned())];
+    sources.extend(entry.sources.iter().map(|key| Sx::Str(key.clone())));
+    let mut rest = vec![Sx::Str(entry.key.clone()), Sx::List(sources)];
+    match &entry.body {
+      Some(body) => rest.push(expr_to_sx(body)),
+      None => rest.push(form("browser", vec![Sx::Str(entry.at.clone().unwrap_or_default()), Sx::Str(entry.why.clone().unwrap_or_default())])),
+    }
+    out.push(form("derive", rest));
+  }
   for entry in &manifest.clients {
     let mut rest = vec![sym(entry.module.clone()), Sx::Str(entry.at.clone()), Sx::Str(entry.message.clone())];
     if let Some(hint) = &entry.hint {
@@ -87,6 +97,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     intercepts: Vec::new(),
     frameworks: Default::default(),
     reads: Default::default(),
+    derives: Vec::new(),
   };
   let mut versioned = false;
   for sx in forms {
@@ -162,6 +173,27 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
           body: component_from_sections(&sections)?,
           head,
         });
+      }
+      "derive" => {
+        if items.len() != 4 {
+          return Err(err("a derive is `(derive \"key\" (sources \"key\" ...) expr)` or ends in `(browser \"at\" \"why\")`"));
+        }
+        let sources = as_list(&items[2])?;
+        if head_of(&items[2])? != "sources" {
+          return Err(err("a derive's second term is `(sources \"key\" ...)`"));
+        }
+        let sources = sources[1..].iter().map(as_sym).collect::<Res<Vec<_>>>()?;
+        let (body, at, why) = match head_of(&items[3]).ok().as_deref() {
+          Some("browser") => {
+            let terms = as_list(&items[3])?;
+            if terms.len() != 3 {
+              return Err(err("a derive the build did not lower ends in `(browser \"at\" \"why\")`"));
+            }
+            (None, Some(as_sym(&terms[1])?), Some(as_sym(&terms[2])?))
+          }
+          _ => (Some(expr_from_sx(&items[3])?), None, None),
+        };
+        manifest.derives.push(crate::DeriveEntry { key: as_sym(&items[1])?, sources, body, at, why });
       }
       "client" => {
         if !(4..=5).contains(&items.len()) {
