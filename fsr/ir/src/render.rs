@@ -433,6 +433,9 @@ impl Interpreter {
       }
     }
     env.state = Some(state);
+    if !written.is_empty() {
+      recompute_derived(&mut env, &written);
+    }
     let mut out = Out::default();
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
@@ -1088,7 +1091,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
-    let reads = if mode.as_deref() == Some(SERVER_MODE) { store_keys(component, library) } else { Vec::new() };
+    let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources(store_keys(component, library), &env.derives) } else { Vec::new() };
     let index = out.islands.len();
     let body = Rendered { html: held.html, islands: held.islands, hoisted: ValueMap::default(), whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body });
@@ -1127,7 +1130,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   let index = out.islands.len();
   let read = store_keys(component, library);
   let rendered_store = rendered_store(&env.store, &read);
-  let reads = if mode.as_deref() == Some(SERVER_MODE) { read } else { Vec::new() };
+  let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources(read, &env.derives) } else { Vec::new() };
   if unrendered {
     let mut held = Out::default();
     if !children.is_empty() {
@@ -1140,6 +1143,40 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   }
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
   Ok(())
+}
+
+/// `keys` with the sources of each derived key among them, followed through
+/// derived sources, sorted: what a server-mode island needs from the
+/// browser's store to compute a derived key it reads after a step's writes.
+fn with_sources(keys: Vec<String>, derives: &[crate::interp::Derive]) -> Vec<String> {
+  let mut out: std::collections::BTreeSet<String> = keys.into_iter().collect();
+  loop {
+    let more: Vec<String> = derives.iter().filter(|d| out.contains(&d.key)).flat_map(|d| d.sources.iter().cloned()).filter(|s| !out.contains(s)).collect();
+    if more.is_empty() {
+      break;
+    }
+    out.extend(more);
+  }
+  out.into_iter().collect()
+}
+
+/// The derived keys of `env`'s store computed again from it, sources first:
+/// what a step's writes change before it renders. One without a body, which
+/// the build could not lower, keeps what the browser sent. One the step wrote
+/// keeps the write, which the browser reads ahead of a derived value.
+fn recompute_derived(env: &mut Env, written: &ValueMap) {
+  let derives = env.derives.clone();
+  for derived in derives.iter() {
+    let Some(body) = derived.body.as_ref().filter(|_| !written.contains_key(&derived.key)) else { continue };
+    match env.eval_sync(body) {
+      Ok(value) => {
+        env.store.insert(derived.key.clone(), value);
+      }
+      Err(_) => {
+        env.store.shift_remove(&derived.key);
+      }
+    }
+  }
 }
 
 /// Of `keys`, the ones `store` holds, with their values: what an island's
@@ -2705,6 +2742,39 @@ mod markup_tests {
     let followed = step(9, None);
     assert_eq!(followed.rendered.html, "<button data-sf-on=\"click:0\">9</button>", "a step with no handler renders what the store holds now");
     assert!(followed.store.is_empty());
+  }
+
+  #[test]
+  fn a_server_island_step_renders_the_derive_its_write_changes() {
+    use crate::ast::{ArithOp, Handler};
+    use crate::interp::Derive;
+    let store = |key: &str| Expr::Coalesce(Box::new(Expr::Store(key.to_owned())), Box::new(Expr::Lit(Lit::Int(0))));
+    let order = Component {
+      body: vec![Stmt::Let { name: "q".to_owned(), expr: store("order/qty") }, Stmt::Let { name: "t".to_owned(), expr: store("order/total") }],
+      render: Tmpl::Element { tag: "button".to_owned(), attrs: vec![Entry::Field(format!("{HANDLER_ATTR}click"), Expr::Lit(Lit::Int(0)))], children: vec![Tmpl::Expr(Expr::var("t"))] },
+      state: vec!["q".to_owned()],
+      stores: vec![("q".to_owned(), "order/qty".to_owned())],
+      handlers: vec![Handler { event: "click".to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field("q".to_owned(), Expr::Arith(ArithOp::Add, Box::new(Expr::var("q")), Box::new(Expr::Lit(Lit::Int(1)))))]))] }],
+      owner: crate::ast::Owner::React,
+      shadow: None, scope: None,
+    };
+    let derives = || vec![Derive { key: "order/total".to_owned(), sources: vec!["order/price".to_owned(), "order/qty".to_owned()], body: Some(Expr::Arith(ArithOp::Mul, Box::new(store("order/price")), Box::new(store("order/qty")))) }];
+    let mut library = Components::new();
+    library.insert("src/Order.tsx#Order".to_owned(), Arc::new(order.clone()));
+    let page = Component::new(crate::ast::Owner::Fsr, Vec::new(), Tmpl::Island { module: "src/Order.tsx#Order".to_owned(), props: Vec::new(), children: Vec::new(), when: None, mode: Some(SERVER_MODE.to_owned()), id: 0, define: false });
+    let seeded_store: ValueMap = [("order/price", 12), ("order/qty", 5), ("order/total", 60)].into_iter().map(|(key, value)| (key.to_owned(), Value::Int(value))).collect();
+    let mut seeded = ValueMap::default();
+    seeded.insert("$store".to_owned(), Value::Map(seeded_store.clone()));
+    let placed = Interpreter::default().with_derives(derives()).render_module("routes/page.tsx#default", &page, &seeded, &library).unwrap();
+    let reads = placed.islands[0].mount_props().get(READS_PROP).cloned();
+    assert_eq!(reads, Some(Value::seq(vec![Value::str("order/price"), Value::str("order/qty"), Value::str("order/total")])), "the browser sends the sources a derived read needs");
+
+    let mut props = ValueMap::default();
+    props.insert("$store".to_owned(), Value::Map(seeded_store));
+    let clicked = Interpreter::default().with_derives(derives()).island_step("src/Order.tsx#Order", &order, &props, &ValueMap::default(), Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+    assert_eq!(clicked.rendered.html, "<button data-sf-on=\"click:0\">72</button>", "the render reads the derive recomputed from the write");
+    assert_eq!(clicked.store.get("order/qty"), Some(&Value::Int(6)));
+    assert!(!clicked.store.contains_key("order/total"), "a derived key is not a write the browser takes: {:?}", clicked.store);
   }
 
   #[test]

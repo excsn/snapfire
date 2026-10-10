@@ -47,6 +47,18 @@ pub struct Interpreter {
   frameworks: Frameworks,
   /// The store keys each island the server does not render reads, by module.
   island_reads: Arc<std::collections::BTreeMap<String, Vec<String>>>,
+  /// The derived store keys, sources before the keys they feed.
+  derives: Arc<Vec<Derive>>,
+}
+
+/// A store key the browser's `derive` computes: its sources and the lowered
+/// compute, reading each source as `Expr::Store`; no body for one the build
+/// could not lower.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Derive {
+  pub key: String,
+  pub sources: Vec<String>,
+  pub body: Option<Expr>,
 }
 
 /// The value of each constant that reads nothing from a request and calls
@@ -107,13 +119,13 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default() }
+    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default() }
+    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
   }
 
   /// The frameworks the application vendors. A component one of them
@@ -129,6 +141,22 @@ impl Interpreter {
   pub fn with_island_reads(mut self, reads: std::collections::BTreeMap<String, Vec<String>>) -> Self {
     self.island_reads = Arc::new(reads);
     self
+  }
+
+  /// The derived store keys, sources before the keys they feed: a step
+  /// recomputes them after its writes and a server-mode island asks the
+  /// browser for their sources as well as for them.
+  pub fn with_derives(mut self, derives: Vec<Derive>) -> Self {
+    self.derives = Arc::new(derives);
+    self
+  }
+
+  /// What `body` computes over `store`, as a derived key's compute: `None`
+  /// when it fails, where the browser's compute would throw.
+  pub fn compute(&self, body: &Expr, store: &ValueMap) -> Option<Value> {
+    let mut env = Env::detached(self, Vec::new());
+    env.store = store.clone();
+    env.eval_sync(body).ok()
   }
 
   pub fn frameworks(&self) -> Frameworks {
@@ -198,6 +226,7 @@ impl Interpreter {
       calls: 0,
       frameworks: self.frameworks,
       island_reads: self.island_reads.clone(),
+      derives: self.derives.clone(),
       markup: Markup::Plain,
       in_svg: false,
       in_noscript: false,
@@ -305,6 +334,7 @@ pub(crate) struct Env {
   /// The frameworks the application vendors, read on entering each component.
   pub(crate) frameworks: Frameworks,
   pub(crate) island_reads: Arc<std::collections::BTreeMap<String, Vec<String>>>,
+  pub(crate) derives: Arc<Vec<Derive>>,
   /// The rules the markup being written is under.
   pub(crate) markup: Markup,
   /// Inside `<svg>` short of a `<foreignObject>`, where React 19 leaves those tags in place.
@@ -466,6 +496,7 @@ impl Env {
       calls: 0,
       frameworks: interpreter.frameworks,
       island_reads: interpreter.island_reads.clone(),
+      derives: interpreter.derives.clone(),
       markup: Markup::Plain,
       in_svg: false,
       in_noscript: false,
@@ -602,6 +633,7 @@ impl Env {
       calls: self.calls,
       frameworks: self.frameworks,
       island_reads: self.island_reads.clone(),
+      derives: self.derives.clone(),
       markup: self.markup,
       in_svg: self.in_svg,
       in_noscript: self.in_noscript,
