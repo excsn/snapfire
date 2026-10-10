@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use snapfire_fsr_core::{Data, ModuleId, Params, PlanNode};
 use snapfire_fsr_ir::{body_visit, Component, Entry, Expr, Extensions, Interpreter, IrAction, IrEvaluator, IrMeta, IrPaths, IrSource, IrStore, Tmpl};
+use snapfire_fsr_runtime::store::Derived;
 use snapfire_fsr_runtime::{
   ActionError, ActionHandler, ActionRegistry, DataSource, DataSources, Evaluator, Evaluators,
   HandlerMatch, HandlerMatcher, LoadCache, LoadError, Matcher, MatchitMatcher, Metadata, NodeCache, Paths, Reads, RequestCtx, Runtime, Static, SubtreeReads, TableResolver, subtree_shape,
@@ -343,6 +344,7 @@ pub struct AppBuilder {
   cache: Option<Arc<dyn NodeCache>>,
   loads: Option<Arc<dyn LoadCache>>,
   slot_order: Vec<String>,
+  derives: Vec<snapfire_fsr_plan::DeriveEntry>,
   extensions: Extensions,
   catalogs: Option<Arc<Catalogs>>,
   /// The plan's named constants, which `Expr::Const` reads.
@@ -406,6 +408,7 @@ impl App {
       cache: None,
       loads: None,
       slot_order: Vec::new(),
+      derives: Vec::new(),
       frameworks: snapfire_fsr_ir::Frameworks::default(),
     }
   }
@@ -430,6 +433,7 @@ impl App {
       .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.store_keys.clone())))
       .collect();
     builder.island_reads = parsed.reads.clone();
+    builder.derives = parsed.derives.clone();
     builder.lowered_paths = parsed
       .lowered_sources()
       .filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths)))
@@ -474,6 +478,7 @@ impl AppBuilder {
     self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta))));
     self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.store_keys.clone()))));
     self.island_reads.extend(parsed.reads.clone());
+    self.derives.extend(parsed.derives.iter().cloned());
     self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
     self.lowered_actions.extend(parsed.lowered_actions().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), row.input.clone(), body))));
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
@@ -773,8 +778,14 @@ impl AppBuilder {
         return Err(BindError::UnknownExtension { owner: module.clone(), name });
       }
     }
-    let interpreter =
-      Interpreter::default().with_extensions(Arc::new(self.extensions.clone())).with_catalogs(self.catalogs.clone()).with_consts(self.consts.clone()).with_frameworks(self.frameworks).with_island_reads(self.island_reads.clone());
+    let derives = derive_order(std::mem::take(&mut self.derives));
+    let interpreter = Interpreter::default()
+      .with_extensions(Arc::new(self.extensions.clone()))
+      .with_catalogs(self.catalogs.clone())
+      .with_consts(self.consts.clone())
+      .with_frameworks(self.frameworks)
+      .with_island_reads(self.island_reads.clone())
+      .with_derives(derives.iter().map(|row| snapfire_fsr_ir::Derive { key: row.key.clone(), sources: row.sources.clone(), body: row.body.clone() }).collect());
 
     for name in &self.overrides {
       if !declared.contains(name) {
@@ -991,6 +1002,9 @@ impl AppBuilder {
       for plan in all {
         subtree_reads(plan, &source_class, &self.lowered_components, &self.island_reads, &mut reads);
       }
+      for entry in reads.values_mut() {
+        derived_sources(&mut entry.store_keys, &derives);
+      }
     }
     let seeders: HashMap<String, Option<Vec<String>>> = self.lowered_stores.iter().map(|(name, body, keys)| (name.clone(), keys.clone().or_else(|| seeded_keys(body)))).collect();
     let mut renderable: Vec<(String, PlanNode)> = Vec::new();
@@ -1077,6 +1091,19 @@ impl AppBuilder {
       .heads(heads)
       .keyer(Arc::new(ReadsKeyer { reads: params_read }))
       .slot_order(self.slot_order.clone())
+      .derives(
+        derives
+          .iter()
+          .map(|row| Derived {
+            key: row.key.clone(),
+            sources: row.sources.clone(),
+            compute: row.body.clone().map(|body| {
+              let interpreter = interpreter.clone();
+              Arc::new(move |store: &Data| interpreter.compute(&body, store)) as snapfire_fsr_runtime::store::Compute
+            }),
+          })
+          .collect(),
+      )
       .load_keyer(Arc::new(ClassKeyer {
         fixed: warm_fixed,
         anonymous: warm_anonymous,
@@ -1375,6 +1402,30 @@ fn renderable_subtrees(node: &PlanNode, pattern: &str, on_route: &[String], seed
   for (_, child) in &node.children {
     renderable_subtrees(child, pattern, on_route, seeders, reads, out);
   }
+}
+
+/// The plan's derive rows, each derived source before the key it feeds.
+fn derive_order(rows: Vec<snapfire_fsr_plan::DeriveEntry>) -> Vec<snapfire_fsr_plan::DeriveEntry> {
+  let order = snapfire_fsr_runtime::store::derive_order(rows.iter().map(|row| Derived { key: row.key.clone(), sources: row.sources.clone(), compute: None }).collect());
+  let mut rows = rows;
+  order.iter().filter_map(|derived| rows.iter().position(|row| row.key == derived.key).map(|at| rows.remove(at))).collect()
+}
+
+/// Adds to `keys` the sources of every derived key in it, transitively: a
+/// derived value is computed from them, so a render reading it reads them.
+fn derived_sources(keys: &mut Vec<String>, derives: &[snapfire_fsr_plan::DeriveEntry]) {
+  let mut at = 0;
+  while at < keys.len() {
+    if let Some(row) = derives.iter().find(|row| row.key == keys[at]) {
+      for source in &row.sources {
+        if !keys.contains(source) {
+          keys.push(source.clone());
+        }
+      }
+    }
+    at += 1;
+  }
+  keys.sort();
 }
 
 /// The keys a `store` body seeds, when the build can read them: every field

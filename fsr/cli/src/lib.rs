@@ -60,6 +60,10 @@ pub enum BuildError {
   Lower(#[from] LowerError),
   #[error("{document}: {error}")]
   Import { document: String, error: ImportError },
+  #[error("`{key}` is derived in both {first} and {second}; the browser keeps whichever registers last")]
+  DerivedTwice { key: String, first: String, second: String },
+  #[error("derived keys feed each other in a cycle: {}", keys.join(" -> "))]
+  DeriveCycle { keys: Vec<String> },
   #[error("type `{name}` is declared in both {first} and {second}")]
   DuplicateType { name: String, first: String, second: String },
   #[error("two {kind} rows claim `{id}`: {first} and {second}")]
@@ -218,6 +222,8 @@ pub struct Report {
   pub kept: Vec<(String, String)>,
   /// Each export under `ext/` as `file#name` and whether it is `lowered`, `native render` or `native body`.
   pub extensions: Vec<(String, String)>,
+  /// Each derived key with `lowered` and the file deriving it, else with `browser` and `file:line:column: reason`.
+  pub derives: Vec<(String, String, String)>,
   /// Per module, a render-path call the browser still makes after hoisting, as `file:line:column`, or a handler it runs as written, as `file:line:column: reason`.
   pub browser: Vec<(String, String)>,
   /// A policy in the configuration that breaks the page outright, and what to do about it: the CSP findings `fsr doctor` reports.
@@ -304,6 +310,10 @@ impl fmt::Display for Report {
     for (i, (module, handlers)) in self.islands.iter().enumerate() {
       let label = if i == 0 { "islands" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {:<11} {handlers} handler{}", "server", if *handlers == 1 { "" } else { "s" })?;
+    }
+    for (i, (key, owner, detail)) in self.derives.iter().enumerate() {
+      let label = if i == 0 { "derived" } else { "" };
+      writeln!(f, "{label:<9} {key:<34} {owner:<11} {detail}")?;
     }
     section(f, "extensions", &self.extensions, "")?;
     for (i, (module, site)) in self.browser.iter().enumerate() {
@@ -1287,6 +1297,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       }
     }
   }
+  let derives = browser_derives(&mut set, &browser_files, &mut report)?;
   report.causes.sort_by(|a, b| (&a.at, &a.message).cmp(&(&b.at, &b.message)));
   for cause in &mut report.causes {
     cause.pages.sort();
@@ -1336,6 +1347,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   let mut manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
   manifest.reads = reads;
+  manifest.derives = derives;
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
   let (manifest, contract, contracts) = match &options.site {
@@ -1422,6 +1434,59 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
 /// the islands split out of pages, the document's entry (`[document] entry`
 /// under `public_path`, else `src/main`) and each browser half under `ext/`.
 /// A server island and a template nothing mounts are not among them.
+/// The `derive` calls the browser's files make, as plan rows, each listed in
+/// the report. A key derived twice or derived keys that feed each other fail
+/// the build.
+fn browser_derives(set: &mut ComponentSet, browser_files: &[String], report: &mut Report) -> Result<Vec<snapfire_fsr_plan::DeriveEntry>, BuildError> {
+  let mut rows: Vec<(String, snapfire_fsr_plan::DeriveEntry)> = Vec::new();
+  for file in browser_files.iter().filter(|file| [".ts", ".tsx", ".js", ".jsx"].iter().any(|ext| file.ends_with(ext))) {
+    for lowered in set.lower_derives(file)? {
+      if let Some((first, _)) = rows.iter().find(|(_, row)| row.key == lowered.key) {
+        return Err(BuildError::DerivedTwice { key: lowered.key, first: first.clone(), second: file.clone() });
+      }
+      rows.push((file.clone(), snapfire_fsr_plan::DeriveEntry { key: lowered.key, sources: lowered.sources, body: lowered.body, at: lowered.at, why: lowered.why }));
+    }
+  }
+  if let Some(keys) = derive_cycle(rows.iter().map(|(_, row)| row)) {
+    return Err(BuildError::DeriveCycle { keys });
+  }
+  rows.sort_by(|a, b| a.1.key.cmp(&b.1.key));
+  for (file, row) in &rows {
+    report.derives.push(match (&row.at, &row.why) {
+      (Some(at), Some(why)) => (row.key.clone(), "browser".to_owned(), format!("{at}: {why}")),
+      _ => (row.key.clone(), "lowered".to_owned(), file.clone()),
+    });
+  }
+  Ok(rows.into_iter().map(|(_, row)| row).collect())
+}
+
+/// A chain of derived keys that comes back to its first, when one does.
+fn derive_cycle<'a>(rows: impl Iterator<Item = &'a snapfire_fsr_plan::DeriveEntry> + Clone) -> Option<Vec<String>> {
+  fn walk<'a>(key: &str, rows: &[&'a snapfire_fsr_plan::DeriveEntry], path: &mut Vec<String>, done: &mut std::collections::HashSet<String>) -> Option<Vec<String>> {
+    if let Some(at) = path.iter().position(|k| k == key) {
+      let mut cycle = path[at..].to_vec();
+      cycle.push(key.to_owned());
+      return Some(cycle);
+    }
+    if done.contains(key) {
+      return None;
+    }
+    let row = rows.iter().find(|row| row.key == key)?;
+    path.push(key.to_owned());
+    for source in &row.sources {
+      if let Some(cycle) = walk(source, rows, path, done) {
+        return Some(cycle);
+      }
+    }
+    path.pop();
+    done.insert(key.to_owned());
+    None
+  }
+  let rows: Vec<&snapfire_fsr_plan::DeriveEntry> = rows.collect();
+  let mut done = std::collections::HashSet::new();
+  rows.iter().find_map(|row| walk(&row.key, &rows, &mut Vec::new(), &mut done))
+}
+
 fn browser_roots(app: &Path, islands: &[String], static_modules: &[String], route_files: &[String], generated: &[String], public_path: &str) -> Vec<String> {
   let mut roots: Vec<String> = Vec::new();
   let mut add = |file: String| {
