@@ -1495,8 +1495,8 @@ pub(crate) fn truthy(value: &Value) -> bool {
     Value::Bool(b) => *b,
     Value::Int(n) => *n != 0,
     Value::UInt(n) => *n != 0,
-    Value::F32(f) => *f != 0.0,
-    Value::F64(f) => *f != 0.0,
+    Value::F32(f) => *f != 0.0 && !f.is_nan(),
+    Value::F64(f) => *f != 0.0 && !f.is_nan(),
     Value::Str(s) => !s.is_empty(),
     _ => true,
   }

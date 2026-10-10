@@ -134,3 +134,14 @@ async fn an_invalid_date_has_no_parts_and_no_iso_string() {
   let err = Interpreter::default().evaluate(&Expr::Builtin { name: Builtin::IsoString, args: vec![invalid] }, Vec::new()).await.unwrap_err();
   assert!(err.message.contains("invalid date"), "{}", err.message);
 }
+
+#[tokio::test]
+async fn nan_is_falsy() {
+  let interp = Interpreter::default();
+  let not = |name: &str| Expr::Not(Box::new(Expr::Var(name.to_owned())));
+  let scope = vec![("wide".to_owned(), Value::F64(f64::NAN)), ("narrow".to_owned(), Value::F32(f32::NAN))];
+  assert_eq!(interp.evaluate(&not("wide"), scope.clone()).await.unwrap(), Value::Bool(true));
+  assert_eq!(interp.evaluate(&not("narrow"), scope.clone()).await.unwrap(), Value::Bool(true));
+  assert_eq!(interp.evaluate(&Expr::Not(Box::new(Expr::Lit(Lit::Float(f64::NAN)))), Vec::new()).await.unwrap(), Value::Bool(true));
+  assert_eq!(interp.evaluate(&Expr::Not(Box::new(not("wide"))), scope).await.unwrap(), Value::Bool(false));
+}
