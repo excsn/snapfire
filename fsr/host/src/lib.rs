@@ -15,6 +15,7 @@ pub mod locale;
 mod mount;
 mod prerender;
 mod remote;
+mod remote_site;
 mod render;
 mod report;
 mod serve;
@@ -78,6 +79,7 @@ pub use locale::{Locales, LocalesSection, Resolution};
 pub use mount::{Artifact, Mount};
 pub use prerender::{LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use remote::{ServiceProvider, ServiceSessionStore};
+pub use remote_site::{RemoteSite, PAYLOAD_TYPE};
 pub use report::{HostReport, SiteReport, TlsReport};
 pub use serve::HostService;
 pub use upstreams::{Lease, Upstreams};
@@ -363,7 +365,17 @@ struct Tables {
   auth: Option<Mounted>,
   /// The mounted sites, longest prefix first.
   sites: Vec<SiteTables>,
+  /// This host's own `[site]`, as its status answer describes it to a shell.
+  own: Option<OwnSite>,
   report: Arc<HostReport>,
+}
+
+/// What a site host tells a shell about itself at `/__fsr/sites`.
+struct OwnSite {
+  name: String,
+  at: String,
+  entry: Option<String>,
+  styles: Vec<String>,
 }
 
 /// What a request under a site's prefix reads beyond the merged tables: the
@@ -377,6 +389,8 @@ struct SiteTables {
   entry: Option<String>,
   /// The site's own modules to preload, minus what the shell already covers.
   preload: Vec<String>,
+  /// The site's hosts when it runs in its own process; `None` for one in this process.
+  remote: Option<RemoteSite>,
 }
 
 impl Tables {
@@ -401,6 +415,19 @@ impl Tables {
 impl SiteTables {
   fn covers(&self, path: &str) -> bool {
     path == self.at || path.strip_prefix(&self.at).is_some_and(|rest| rest.starts_with('/'))
+  }
+
+  /// The module the site's islands need: the artifact's, or what a remote's
+  /// first wave named.
+  fn entry(&self) -> Option<String> {
+    self.entry.clone().or_else(|| self.remote.as_ref().and_then(RemoteSite::entry))
+  }
+
+  fn styles(&self) -> Vec<String> {
+    match &self.remote {
+      Some(remote) if self.styles.is_empty() => remote.styles(),
+      _ => self.styles.clone(),
+    }
   }
 }
 

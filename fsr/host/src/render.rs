@@ -284,10 +284,9 @@ impl Host {
         extra.push(snapfire_fsr_core::Node::raw(shell::preload_link(href)));
       }
     }
-    if let Some(entry) = site.and_then(|s| s.entry.as_deref()) {
-      extra.push(snapfire_fsr_core::Node::raw(shell::site_entry(entry)));
-    }
-    let styles: Vec<String> = site.map(|s| s.styles.clone()).unwrap_or_default();
+    let own = t.own.as_ref().filter(|_| incoming.mounted);
+    let entry = site.and_then(SiteTables::entry).or_else(|| own.and_then(|own| own.entry.clone()));
+    let styles: Vec<String> = site.map(SiteTables::styles).or_else(|| own.map(|own| own.styles.clone())).unwrap_or_default();
     let catalog = t.catalogs.json(&visit.locale.tag);
     let mut payload_catalog = None;
     if let Some(json) = &catalog {
@@ -305,7 +304,7 @@ impl Host {
       }
     }
     let localized = t.head_for(&visit.locale.tag);
-    if extra.is_empty() && styles.is_empty() && payload_catalog.is_none() && localized.is_none() {
+    if extra.is_empty() && styles.is_empty() && entry.is_none() && payload_catalog.is_none() && localized.is_none() {
       return self
         .render_plan_with(
           t,
@@ -324,7 +323,7 @@ impl Host {
     let mut parts = vec![t.head.rest.clone()];
     parts.extend(extra);
     head.rest = snapfire_fsr_core::Node::Seq(parts);
-    head.entry = site.and_then(|s| s.entry.clone());
+    head.entry = entry;
     head.styles = styles;
     head.catalog = payload_catalog;
     self

@@ -15,7 +15,7 @@ use crate::data::{DataSources, LoadError, LoadKeyer, NoLoadKey};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
 use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
-use crate::remote::{RemoteOut, RemoteSegment};
+use crate::remote::{RemoteOut, RemoteSegment, RemoteWave};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 use crate::store::{apply_derives, derive_order, derived_pending, merge_contributions, pending_keys, Contribution, Derived, Seeds};
 
@@ -386,10 +386,14 @@ pub(crate) struct Session {
   pub(crate) runtime: Arc<Runtime>,
   pub(crate) ctx: RequestCtx,
   pub(crate) origin: Option<Origin>,
-  pub(crate) head: Head,
+  /// Written once by the remote prefetch, with the module and stylesheets
+  /// the remote nodes need, before the document's head renders.
+  pub(crate) head: parking_lot::RwLock<Head>,
   pub(crate) next_slot: AtomicU32,
   /// What the remote nodes said beyond their markup, folded into the assembly.
   pub(crate) remote_out: parking_lot::Mutex<RemoteOut>,
+  /// The waves the prefetch fetched, by plan node, taken when the node builds.
+  pub(crate) waves: parking_lot::Mutex<HashMap<u32, Result<RemoteWave, LoadError>>>,
 }
 
 impl Session {
@@ -683,7 +687,7 @@ impl Session {
       future: Box::pin(async move {
         match session.resolve_subtree(&child, path, around).await {
           Ok((node, pending, segments, mut meta, contributions, _digest, _failed)) => {
-            session.head.settle(&mut meta);
+            session.head.read().settle(&mut meta);
             Resolved {
               slot,
               key: resolved_key,
@@ -716,8 +720,10 @@ impl Session {
     path: Vec<String>,
     around: Vec<Contribution>,
   ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Vec<Contribution>, u64, Option<FailureKind>), AssembleError> {
-    let loaded = self.load_eager(plan).await?;
-    let meta = self.describe(plan, &loaded).await;
+    let (loaded, remote_ids) = futures_util::join!(self.load_eager(plan), self.prefetch_remotes(plan));
+    let loaded = loaded?;
+    let mut meta = self.describe(plan, &loaded).await;
+    self.remote_meta(&remote_ids, &mut meta);
     let mut own = self.seed(plan, path.clone(), &loaded).await;
     own.extend(self.promise(plan, path.clone()));
     let mut all = around;
@@ -1098,7 +1104,7 @@ impl Session {
           }
           Chunk::Slot(slot) if slot.0 == "head" => {
             used_head = true;
-            let head = self.head.node(meta);
+            let head = self.head.read().node(meta);
             head.write_canonical(&mut own);
             parts.push(head);
           }
@@ -1229,17 +1235,16 @@ async fn assemble_in(
     runtime: Arc::clone(runtime),
     ctx: ctx.clone(),
     origin,
-    head: head.clone(),
+    head: parking_lot::RwLock::new(head.clone()),
     next_slot: AtomicU32::new(1),
     remote_out: parking_lot::Mutex::new(RemoteOut::default()),
+    waves: parking_lot::Mutex::new(HashMap::new()),
   });
-  let (tree, pending, children, mut meta, mut contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
+  let (tree, pending, children, meta, mut contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
   let remote = std::mem::take(&mut *session.remote_out.lock());
-  meta.merge(remote.meta);
   contributions.extend(remote.contributions);
   let failed = failed.or(remote.failed);
-  let mut styles = head.styles.clone();
-  styles.extend(remote.styles);
+  let head = session.head.read().clone();
   let store = merge_contributions(&contributions, &runtime.slot_order);
   let segments = SegmentInfo {
     key: session.segment_key(plan),
@@ -1264,8 +1269,8 @@ async fn assemble_in(
     contributions,
     store,
     locale: ctx.locale.clone(),
-    entry: remote.entry.or_else(|| head.entry.clone()),
-    styles,
+    entry: head.entry.clone(),
+    styles: head.styles.clone(),
     catalog: head.catalog.clone(),
     failed,
   })

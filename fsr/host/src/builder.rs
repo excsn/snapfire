@@ -715,6 +715,7 @@ impl HostBuilder {
         artifact: mount.artifact.config.root.clone(),
         version: mount.version.clone(),
         hash: mount.hash.clone(),
+        over: Vec::new(),
         ignored,
       });
       let site_bundle = minified_under(mount.artifact.config.bundle.as_ref(), config.dev());
@@ -732,7 +733,50 @@ impl HostBuilder {
           }
           false => Vec::new(),
         },
+        remote: None,
       });
+    }
+    for (name, row) in config.sites.iter().flat_map(|section| section.mounts.iter()).filter(|(_, row)| row.is_remote()) {
+      let remote = RemoteSite::new(name, row)?;
+      let at = remote.at().to_owned();
+      if sites.iter().any(|s: &SiteTables| s.at == at) || taken.iter().any(|r| *r == at || r.starts_with(&format!("{at}/"))) {
+        return Err(HostError::Mount(name.clone(), format!("`{at}` is already served")));
+      }
+      let module = remote_module(name);
+      let mut plan = PlanFileNode {
+        id: 0,
+        module: shell_module.clone(),
+        source: None,
+        deferred: false,
+        fallback: None,
+        error: None,
+        error_kinds: Vec::new(),
+        cache_key: None,
+        children: vec![PlanChild { slot: "content".to_owned(), node: remote_plan(&manifest, &shell_module, &module) }],
+        keep: Vec::new(),
+      };
+      renumber(&mut plan, &mut 0);
+      let routes = Manifest::new(vec![
+        RouteEntry { pattern: at.clone(), plan: plan.clone() },
+        RouteEntry { pattern: format!("{at}/{{*rest}}"), plan },
+      ])
+      .routes()
+      .map_err(|e| HostError::Mount(name.clone(), e.to_string()))?;
+      for (pattern, plan) in routes {
+        taken.push(pattern.clone());
+        app = app.route(pattern, plan);
+      }
+      app = app.remote(module, Arc::new(remote.clone()));
+      site_reports.push(SiteReport {
+        name: name.clone(),
+        at: at.clone(),
+        artifact: PathBuf::new(),
+        version: "-".to_owned(),
+        hash: "-".to_owned(),
+        over: remote.addresses().to_vec(),
+        ignored: Vec::new(),
+      });
+      sites.push(SiteTables { name: name.clone(), at, middleware: None, styles: Vec::new(), entry: None, preload: Vec::new(), remote: Some(remote) });
     }
     sites.sort_by(|a, b| b.at.len().cmp(&a.at.len()).then(a.at.cmp(&b.at)));
     let app_contract = if site_reports.is_empty() {
@@ -1086,10 +1130,45 @@ impl HostBuilder {
         catalogs,
         auth,
         sites,
+        own: config.site.as_ref().map(|site| OwnSite { name: site.name.clone(), at: site.at.clone(), entry: entry.clone(), styles: styles.clone() }),
         report: Arc::new(report),
       },
       config,
     ))
+  }
+}
+
+/// The module id the shell's plan gives a site in its own process, which no
+/// artifact can carry: `<name>:@remote#site`.
+pub(crate) fn remote_module(name: &str) -> String {
+  format!("{name}:@remote#site")
+}
+
+/// The site's node under the shell's root layout, as `graft` nests a site in
+/// this process; under the document directly without one.
+fn remote_plan(shell: &Manifest, shell_module: &str, module: &str) -> PlanFileNode {
+  let node = PlanFileNode {
+    id: 0,
+    module: module.to_owned(),
+    source: None,
+    deferred: false,
+    fallback: None,
+    error: None,
+    error_kinds: Vec::new(),
+    cache_key: None,
+    children: Vec::new(),
+    keep: Vec::new(),
+  };
+  match shell_root_layout(shell, shell_module) {
+    Some(mut layout) => {
+      for child in &mut layout.children {
+        if child.slot == "content" {
+          child.node = node.clone();
+        }
+      }
+      layout
+    }
+    None => node,
   }
 }
 

@@ -184,11 +184,22 @@ fn group_fills(source: String, rows: BoxStream<'static, Result<Row, DecodeError>
 /// while the tree builds and folded into the assembly after.
 #[derive(Default)]
 pub(crate) struct RemoteOut {
-  pub(crate) meta: Meta,
   pub(crate) contributions: Vec<Contribution>,
-  pub(crate) entry: Option<String>,
-  pub(crate) styles: Vec<String>,
   pub(crate) failed: Option<FailureKind>,
+}
+
+/// Every remote node of `plan` outside its deferred subtrees, which fetch on
+/// their own wave.
+fn collect_remotes<'p>(node: &'p PlanNode, is_root: bool, remotes: &HashMap<String, Arc<dyn RemoteSegment>>, out: &mut Vec<&'p PlanNode>) {
+  if node.deferred && !is_root {
+    return;
+  }
+  if remotes.contains_key(&node.module.to_string()) {
+    out.push(node);
+  }
+  for (_, child) in &node.children {
+    collect_remotes(child, false, remotes, out);
+  }
 }
 
 struct Fills {
@@ -296,6 +307,47 @@ impl Splicer {
 }
 
 impl Session {
+  /// Fetches every remote node of `plan` at once, beside the eager loads, and
+  /// gives the head what their islands need before the document renders.
+  /// Returns the ids fetched, whose waves [`Session::remote_meta`] reads.
+  pub(crate) async fn prefetch_remotes(self: &Arc<Self>, plan: &PlanNode) -> Vec<u32> {
+    let mut nodes = Vec::new();
+    collect_remotes(plan, true, &self.runtime.remotes, &mut nodes);
+    if nodes.is_empty() {
+      return Vec::new();
+    }
+    let fetches = nodes.iter().map(|node| {
+      let remote = &self.runtime.remotes[&node.module.to_string()];
+      let ctx = self.ctx_of(node.id.0);
+      let id = node.id.0;
+      async move { (id, remote.fetch(ctx).await) }
+    });
+    let fetched = futures_util::future::join_all(fetches).await;
+    let mut head = self.head.write();
+    let mut waves = self.waves.lock();
+    for (id, wave) in fetched {
+      if let Ok(wave) = &wave {
+        if wave.entry.is_some() {
+          head.entry = wave.entry.clone();
+        }
+        head.styles.extend(wave.styles.iter().cloned());
+      }
+      waves.insert(id, wave);
+    }
+    nodes.iter().map(|node| node.id.0).collect()
+  }
+
+  /// What the prefetched waves of `ids` say about the document, folded in
+  /// order so the eager wave's head carries a remote page's title.
+  pub(crate) fn remote_meta(&self, ids: &[u32], meta: &mut Meta) {
+    let waves = self.waves.lock();
+    for id in ids {
+      if let Some(Ok(wave)) = waves.get(id) {
+        meta.merge(wave.meta.clone());
+      }
+    }
+  }
+
   /// The plan node rendered by `remote`, spliced in: its subtree and sidecar
   /// under this assembly's slot ids, its fills pending, what it described,
   /// seeded and needs loaded recorded for the assembly. A remote that fails
@@ -307,8 +359,12 @@ impl Session {
     plan_path: &[String],
     out_pending: &mut Vec<PendingResolution>,
   ) -> Result<(Node, Vec<SegmentInfo>, bool, u64, Option<String>), AssembleError> {
-    let ctx = self.ctx_of(node.id.0).clone();
-    let wave = match remote.fetch(&ctx).await {
+    let prefetched = self.waves.lock().remove(&node.id.0);
+    let fetched = match prefetched {
+      Some(fetched) => fetched,
+      None => remote.fetch(self.ctx_of(node.id.0)).await,
+    };
+    let wave = match fetched {
       Ok(wave) => wave,
       Err(failure) => {
         tracing::warn!(target: "fsr::remote", node = node.id.0, error = %failure, "remote segment failed");
@@ -326,15 +382,7 @@ impl Session {
       fills: AsyncMutex::new(Fills { stream: wave.fills, stash: HashMap::new(), ended: false }),
     });
     let (rendered, children) = splicer.adopt(wave.node, wave.segment.children, out_pending);
-    {
-      let mut out = self.remote_out.lock();
-      out.meta.merge(wave.meta);
-      out.contributions.extend(splicer.prefixed(wave.contributions));
-      if wave.entry.is_some() {
-        out.entry = wave.entry;
-      }
-      out.styles.extend(wave.styles);
-    }
+    self.remote_out.lock().contributions.extend(splicer.prefixed(wave.contributions));
     Ok((rendered, children, false, wave.segment.digest, Some(wave.segment.key)))
   }
 }

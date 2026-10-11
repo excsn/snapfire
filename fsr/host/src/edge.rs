@@ -17,6 +17,9 @@ pub(crate) struct Incoming {
   pub(crate) host: Option<String>,
   /// Set on an intercepted render.
   pub(crate) intercept: Option<Intercept>,
+  /// Whether a shell asked for this render to splice into its own document,
+  /// `x-sf-mount`, so the answer names what the site's islands need loaded.
+  pub(crate) mounted: bool,
 }
 
 impl Incoming {
@@ -28,6 +31,7 @@ impl Incoming {
       held_catalog: None,
       host: None,
       intercept: None,
+      mounted: false,
     }
   }
 }
@@ -135,9 +139,10 @@ impl Host {
   /// What a request at the edge carries: the session, its custody and, once
   /// the session is identified, a CSRF token. An anonymous request carries no
   /// token so its renders share the memo; the token joins the memo key.
-  pub(crate) fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>) -> Incoming {
+  pub(crate) fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>, mounted: bool) -> Incoming {
     let mut incoming = self.incoming(opened, host);
     incoming.held_catalog = held_catalog;
+    incoming.mounted = mounted;
     incoming
   }
 
@@ -168,6 +173,7 @@ impl Host {
       held_catalog: None,
       host,
       intercept: None,
+      mounted: false,
     }
   }
 
@@ -208,9 +214,25 @@ impl Host {
         .report
         .sites
         .iter()
-        .map(|s| serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash }))
+        .map(|s| {
+          let mut row = serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash });
+          if let Some(remote) = t.sites.iter().find(|site| site.name == s.name).and_then(|site| site.remote.as_ref()) {
+            let down = remote.down();
+            row["over"] = remote.addresses().iter().enumerate().map(|(i, address)| serde_json::json!({ "address": address, "up": !down.contains(&i) })).collect();
+          }
+          row
+        })
         .collect();
-      return json_response(StatusCode::OK, &serde_json::json!({ "sites": sites }));
+      let mut answer = serde_json::json!({ "sites": sites });
+      if let Some(own) = &t.own {
+        answer["site"] = serde_json::json!({ "name": own.name, "at": own.at, "entry": own.entry, "styles": own.styles, "fsr": env!("CARGO_PKG_VERSION") });
+      }
+      return json_response(StatusCode::OK, &answer);
+    }
+    if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
+      if remote.covers_static(&path) && (req.method() == Method::GET || req.method() == Method::HEAD) {
+        return remote.forward(req, None).await;
+      }
     }
     // The route exists only for an application that installed a sites mounter;
     // for any other host it is not a route at all.
@@ -330,6 +352,18 @@ impl Host {
     #[cfg(feature = "ws")]
     if path == "/_sf/socket" && req.method() == Method::GET {
       return self.upgrade(req, &opened);
+    }
+    if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
+      if remote.forwards(req.method(), req.headers(), req.uri().query().unwrap_or("")) {
+        let subject = opened.cell.identity().map(|identity| identity.subject);
+        return remote.forward(req, subject.as_deref()).await;
+      }
+    }
+    if let Some(id) = path.strip_prefix("/_sf/action/").map(percent_decoded) {
+      if let Some(remote) = t.sites.iter().filter_map(|site| site.remote.as_ref()).find(|remote| remote.owns_action(&id)) {
+        let subject = opened.cell.identity().map(|identity| identity.subject);
+        return remote.forward(req, subject.as_deref()).await;
+      }
     }
     if path == "/_sf/live" && req.method() == Method::GET {
       let topics: Vec<String> = req
@@ -723,6 +757,7 @@ impl Host {
       RenderMode::Html | RenderMode::Fragment(_) => (None, None),
     };
     let held_catalog = header("x-sf-catalog");
+    let mounted = header("x-sf-mount").is_some();
     let intercepted = (from.is_some() || into.is_some())
       && self
         .intercept_in(
@@ -770,7 +805,7 @@ impl Host {
           target_query,
           from.as_deref(),
           into.as_deref(),
-          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
+          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted),
         )
         .await
     } else {
@@ -780,7 +815,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
+          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted),
         )
         .await
     };
@@ -792,7 +827,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers())),
+          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted),
         )
         .await
       {

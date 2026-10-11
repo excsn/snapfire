@@ -174,6 +174,10 @@ pub struct Head {
 /// it must not take away on a navigation.
 pub const STYLE_OPEN: &str = "<link rel=\"stylesheet\" data-sf-css=\"\" href=\"";
 
+/// How a response's `entry`, the module its islands need beyond the
+/// document's own, is written into a document.
+pub const ENTRY_OPEN: &str = "<script type=\"module\" src=\"";
+
 impl Head {
   pub fn new(title: impl Into<String>, rest: Node) -> Self {
     Self {
@@ -263,6 +267,11 @@ impl Head {
       tail.push_str(STYLE_OPEN);
       tail.push_str(&escape(href));
       tail.push_str("\">");
+    }
+    if let Some(entry) = &self.entry {
+      tail.push_str(ENTRY_OPEN);
+      tail.push_str(&escape(entry));
+      tail.push_str("\"></script>");
     }
     if tail.is_empty() {
       return self.rest.clone();
