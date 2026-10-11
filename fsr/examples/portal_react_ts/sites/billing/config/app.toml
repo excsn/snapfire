@@ -8,6 +8,8 @@ listen = "127.0.0.1:8101"
 name = "billing"
 at = "/billing"
 shell = "../../app/generated/shell.json"
+# What the portal renders against a candidate holding this site before it swaps in; a page that fails refuses the reload.
+probe = ["/billing", "/billing/invoice/1", { path = "/billing/overdue", as = "probe" }]
 
 [document]
 title = "Billing"

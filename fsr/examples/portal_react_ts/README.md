@@ -24,6 +24,7 @@ Each site reaches the portal a different way, which is the point of having four:
 | A header whose section link stays marked while a page under it is shown, across the mount | `match="prefix"` in `app/src/ui/Header.tsx`, `a[aria-current]` in `app/styles/app.css` |
 | A site in its own process rendered inside the portal's document, with a client the portal cannot reach and a deferred segment streamed through | `[sites.reports]` in `config/app.toml`, `sites/reports`, the `over` row of the report |
 | The portal's session reaching that process under a shared secret | `secret` in `[sites.reports]` and in `sites/reports/config/app.toml` |
+| A release whose loader fails refused before it swaps in, the running version kept | `probe` in `sites/billing/config/app.toml`, `TeamsListed` in `src/main.rs`, the `409` from `fsr sites reload` |
 
 ## Run it
 
@@ -72,6 +73,8 @@ fsr sites pin . status --layer local
 ```
 
 To ship status 1.1.0, pack it into the store and move `[sites.status] artifact` to `status@1.1.0`. The poll notices the row moved, fetches the version and swaps the tables. A request in flight finishes on the old ones.
+
+Before the swap the portal renders the candidate: every route that reads nothing of the request, billing's `probe` list from its own configuration, `/billing/overdue` as a signed-in `probe` among them, then its own `TeamsListed` check from `src/main.rs`. To see a release refused, copy `sites/billing` aside, make `listInvoices` in its `ledger.mock.json` answer `{"$fail": {"kind": "unavailable", "message": "the ledger is down"}}`, pack it as `billing-1.1.0.tar.gz` into the store and move `[sites.billing] artifact` to `billing@1.1.0`. The poll logs `reload refused by a probe: source billing:$root: unavailable the ledger is down`, `/billing` keeps answering from `1.0.0` and `fsr sites list . --host 127.0.0.1:8100` shows the instance lagging behind the table on purpose. Fix the mock, pack `1.1.1` and the next poll swaps it in. `fsr sites reload --host` reads the artifacts the booted table names again, so replacing an installed version's files in place and posting it answers the same reason as a `409`.
 
 `cargo test -p portal_react_ts` does the same install and fetch in process, with the store on a free port. It serves the reports site on another to mount it over.
 

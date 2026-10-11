@@ -395,6 +395,11 @@ pub struct SiteSection {
   /// unset, every request opens its own session from its cookie.
   #[serde(default)]
   pub secret: Option<String>,
+  /// Paths a shell renders against a candidate holding this site before the
+  /// candidate swaps in: a path alone, anonymously, or `{ path, as }` signed
+  /// in as that subject. A page that fails refuses the reload.
+  #[serde(default)]
+  pub probe: Vec<crate::Probe>,
 }
 
 impl SiteSection {
@@ -1756,7 +1761,7 @@ impl Config {
       || !store.key_paths_with_prefix(Some("site")).is_empty()
     {
       let mut json = serde_json::Map::new();
-      for key in ["name", "at", "shell", "secret"] {
+      for key in ["name", "at", "shell", "secret", "probe"] {
         if let Some(value) = store.get(&format!("site.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }

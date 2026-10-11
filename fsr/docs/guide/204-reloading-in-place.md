@@ -23,6 +23,8 @@ A reload whose `[session]` differs from the one the running store was built from
 
 Everything else a boot refuses, a reload refuses the same way: a name nothing binds, a contract two files define, a bundle carrying a loader, a site that does not fit.
 
+A boot check cannot see a loader that fails on every request, so the reloads a deploy drives, `SIGHUP`, the sites poll and `POST /__fsr/sites/reload`, render the candidate before the swap: every warmable source is loaded, every route that reads nothing of the request is rendered and each mounted site's `[site] probe` list is rendered as the visitor it names, then the checks a Rust host registered with `reload_check` run. A backend that is down, a timeout or a crash refuses the candidate with the source or the path named and the running tables keep serving; a page's own `not_found` or `unauthorized` passes unless a named probe asked for that page. Chapter 205 has the site's side. The dev loop's reload stays unchecked, since a developer wants the broken page on screen with its error.
+
 ## The dev loop
 
 When the generated files change, `fsr dev` posts `POST /__fsr/reload` to the running server and prints the report that comes back; the process restarts only when the reload is refused or when the Rust project itself changed. A page edit keeps every session and every open document, which then hears on `/__fsr/events` that something moved and refreshes its route in place.

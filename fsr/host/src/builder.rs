@@ -29,6 +29,7 @@ pub struct HostBuilder {
   pub(crate) identity: Option<Arc<dyn IdentityProvider>>,
   pub(crate) reloader: Option<Reloader>,
   pub(crate) sites_mounter: Option<SitesMounter>,
+  pub(crate) reload_checks: Vec<Arc<dyn ReloadCheck>>,
   pub(crate) topic_rule: Option<TopicRule>,
   #[cfg(feature = "ws")]
   pub(crate) sockets: Option<Arc<socket::Sockets>>,
@@ -360,6 +361,14 @@ impl HostBuilder {
   /// handed a builder the host made from the shell's boot inputs and returns it
   /// with the sites of the moment mounted; it never makes a builder of its own,
   /// so it cannot reread the shell's configuration or plan.
+  /// A check run over every candidate a reload produces, after the host's own
+  /// probes and before the swap; `Err` refuses the candidate with the reason.
+  /// Kept by the host across reloads; a builder a reloader returns carries none.
+  pub fn reload_check(mut self, check: Arc<dyn ReloadCheck>) -> Self {
+    self.reload_checks.push(check);
+    self
+  }
+
   pub fn sites_mounter<F>(mut self, f: F) -> Self
   where
     F: Fn(HostBuilder) -> Result<HostBuilder, HostError> + Send + Sync + 'static,
@@ -377,6 +386,7 @@ impl HostBuilder {
   }
 
   pub fn build(mut self) -> Result<Host, HostError> {
+    let reload_checks = std::mem::take(&mut self.reload_checks);
     let traces = self.traces.take();
     let reloader = self.reloader.take();
     let chosen_csrf = self.csrf.take();
@@ -505,7 +515,8 @@ impl HostBuilder {
       mounted,
       sites_mounter,
       #[cfg(feature = "sites_reload")]
-      sites_reload: parking_lot::Mutex::new(()),
+      sites_reload: tokio::sync::Mutex::new(()),
+      reload_checks,
       csrf_always: config.session.csrf == "always",
       mount_secret: config.site.as_ref().and_then(|site| site.secret.clone()),
       session_shape: session_shape(&config),
@@ -571,6 +582,7 @@ impl HostBuilder {
     let mut app = self.app.take().expect("the builder holds its app until build");
     let mut taken: Vec<String> = manifest.routes.iter().map(|r| r.pattern.clone()).collect();
     let mut sites = Vec::new();
+    let mut probes: Vec<(String, Probe)> = Vec::new();
     let mut site_reports = Vec::new();
     let mut statics: Vec<StaticRootResolved> = config
       .statics
@@ -720,6 +732,7 @@ impl HostBuilder {
         ignored,
       });
       let site_bundle = minified_under(mount.artifact.config.bundle.as_ref(), config.dev());
+      probes.extend(site.probe.iter().cloned().map(|probe| (mount.name.clone(), probe)));
       sites.push(SiteTables {
         name: mount.name.clone(),
         at: site.at.clone(),
@@ -1132,6 +1145,7 @@ impl HostBuilder {
         catalogs,
         auth,
         sites,
+        probes,
         own: config.site.as_ref().map(|site| OwnSite { name: site.name.clone(), at: site.at.clone(), entry: entry.clone(), styles: styles.clone() }),
         report: Arc::new(report),
       },

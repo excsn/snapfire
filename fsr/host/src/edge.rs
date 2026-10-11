@@ -254,7 +254,7 @@ impl Host {
     // for any other host it is not a route at all.
     #[cfg(feature = "sites_reload")]
     if path == "/__fsr/sites/reload" && req.method() == Method::POST && self.sites_mounter.is_some() {
-      return self.sites_reload_response();
+      return self.sites_reload_response().await;
     }
     if let Some(token) = path.strip_prefix("/__fsr/trace/")
       && req.method() == Method::GET

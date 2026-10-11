@@ -236,7 +236,7 @@ pub fn watch(host: Arc<Host>, root: PathBuf, poll: Option<Duration>) {
         return;
       };
       while signal.recv().await.is_some() {
-        match sighup.reload() {
+        match sighup.reload_checked().await {
           Ok(report) => tracing::info!(target: "fsr::sites", "reloaded on SIGHUP\n{report}"),
           Err(e) => tracing::warn!(target: "fsr::sites", error = %e, "reload on SIGHUP refused"),
         }
@@ -250,7 +250,7 @@ pub fn watch(host: Arc<Host>, root: PathBuf, poll: Option<Duration>) {
       tokio::time::sleep(every).await;
       let now = table_shape(&root);
       if now != last {
-        match host.reload() {
+        match host.reload_checked().await {
           Ok(report) => {
             tracing::info!(target: "fsr::sites", "the sites table moved; reloaded\n{report}");
             last = table_shape(&root).or(now);

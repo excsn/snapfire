@@ -57,8 +57,14 @@ fn deployed() -> &'static Deployed {
     pack(&root.join("sites/status"), "1.0.0", &scratch.join("store/status-1.0.0.tar.gz")).unwrap();
     let _ = std::fs::remove_dir_all(cache.path("status", "1.0.0"));
     let store = HttpStore::new(serve(scratch.join("store")));
+    // The pins `fsr sites install --layer local` writes, for the artifacts this
+    // run packed, so the table holds against what the cache holds.
+    let billing_hash = snapfire_fsr_sites::hash_dir(&cache.path("billing", "1.0.0")).unwrap();
+    std::fs::write(root.join("config/local.toml"), format!("[sites.billing]\nhash = \"{billing_hash}\"\n")).unwrap();
     snapfire_fsr_sites::mount_all_with(Host::from(&root).unwrap(), &store).unwrap().build().unwrap();
     let fetched = cache.holds("status", "1.0.0");
+    let status_hash = snapfire_fsr_sites::hash_dir(&cache.path("status", "1.0.0")).unwrap();
+    std::fs::write(root.join("config/local.toml"), format!("[sites.billing]\nhash = \"{billing_hash}\"\n\n[sites.status]\nhash = \"{status_hash}\"\n")).unwrap();
     Deployed { store, fetched }
   })
 }
@@ -276,4 +282,70 @@ async fn the_portal_degrades_a_reports_page_while_the_process_is_down() {
   assert!(html.contains("class=\"brand\"") && html.contains("data-sf-error"), "the portal's layout around the error: {html}");
   let response = portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK, "the other sites are untouched");
+}
+
+/// A candidate holding a billing whose ledger is down is refused by billing's
+/// own probe list before it swaps in; a candidate whose directory lists no
+/// teams by the portal's own check. The running tables serve on either way.
+#[tokio::test]
+async fn a_reload_is_refused_by_a_sites_probe_or_the_portals_check_and_the_running_version_serves_on() {
+  use snapfire_fsr_core::Value;
+  use snapfire_fsr_service::MockTransport;
+
+  let portal = portal();
+  let root: &Path = Path::new(env!("CARGO_MANIFEST_DIR"));
+  let deployed = deployed();
+  let before = body_of(portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await).await;
+  assert!(before.contains("Northwind"));
+
+  let candidate = || snapfire_fsr_sites::mount_all_with(Host::from(root).unwrap(), &deployed.store).unwrap();
+  let ledger_down = Arc::new(
+    MockTransport::new()
+      .returns("directory.listTeams", Value::seq(vec![Value::str("one")]))
+      .fails("billing:ledger.listInvoices", snapfire_fsr_core::ext::FailureKind::Unavailable, "the ledger is down"),
+  );
+  let e = portal.reload_with_checked(candidate().services_over(ledger_down)).await.unwrap_err().to_string();
+  assert!(e.contains("reload refused by a probe") && e.contains("billing") && e.contains("the ledger is down"), "{e}");
+  let after = body_of(portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await).await;
+  assert!(after.contains("Northwind"), "the running version serves on");
+
+  let shell_host = Arc::new(snapfire_fsr_sites::mount_all_with(Host::from(root).unwrap(), &deployed.store).unwrap().reload_check(Arc::new(portal_react_ts_check::TeamsListed)).build().unwrap());
+  let invoice = || {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("id".to_owned(), Value::int(1));
+    map.insert("customer".to_owned(), Value::str("Northwind"));
+    map.insert("total".to_owned(), Value::F64(1250.5));
+    map.insert("status".to_owned(), Value::str("open"));
+    Value::Map(map)
+  };
+  let no_teams = Arc::new(
+    MockTransport::new()
+      .returns("directory.listTeams", Value::seq(Vec::new()))
+      .returns("billing:ledger.listInvoices", Value::seq(vec![invoice()]))
+      .returns("billing:ledger.getInvoice", invoice()),
+  );
+  let e = shell_host.reload_with_checked(candidate().services_over(no_teams)).await.unwrap_err().to_string();
+  assert!(e.contains("listing no teams"), "the portal's own check names its reason: {e}");
+}
+
+/// The portal's check, as `src/main.rs` registers it.
+mod portal_react_ts_check {
+  use futures_util::future::BoxFuture;
+  use http::StatusCode;
+  use snapfire_fsr_host::{Candidate, ReloadCheck};
+  use snapfire_fsr_runtime::SessionCell;
+
+  pub struct TeamsListed;
+
+  impl ReloadCheck for TeamsListed {
+    fn check<'a>(&'a self, candidate: &'a Candidate<'a>) -> BoxFuture<'a, Result<(), String>> {
+      Box::pin(async move {
+        let (status, html) = candidate.render("/", SessionCell::default()).await.map_err(|e| e.to_string())?;
+        if status != StatusCode::OK || html.contains("0 teams") {
+          return Err(format!("/ answered {status} listing no teams"));
+        }
+        Ok(())
+      })
+    }
+  }
 }

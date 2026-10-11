@@ -1008,6 +1008,27 @@ let report = host.reload()?;
 print!("{report}");
 ```
 
+`reload` swaps whatever assembles. `reload_checked`, which the sites watcher and `POST /__fsr/sites/reload` use, renders the candidate first: every warmable source is loaded, every route that reads nothing of the request is rendered, a pattern with a parameter once per set its `paths` export returns, then each mounted site's `[site] probe` list and the checks the builder registered. A backend that is down, a timeout or a crash refuses the candidate and the running tables keep serving; a `not_found` or an `unauthorized` is a page's own answer and passes, unless a probe someone named asked for that page. The error names the source, the path or the check. The dev loop's `POST /__fsr/reload` stays unchecked, so a broken page shows in the browser with its error rather than being refused.
+
+```rust
+use snapfire_fsr_host::{Candidate, ReloadCheck};
+
+struct TeamsListed;
+
+impl ReloadCheck for TeamsListed {
+  fn check<'a>(&'a self, candidate: &'a Candidate<'a>) -> BoxFuture<'a, Result<(), String>> {
+    Box::pin(async move {
+      let (status, html) = candidate.render("/", SessionCell::default()).await.map_err(|e| e.to_string())?;
+      (status == StatusCode::OK && html.contains("teams")).then_some(()).ok_or_else(|| format!("/ answered {status} with no teams"))
+    })
+  }
+}
+
+let host = Host::from(".")?.reload_check(Arc::new(TeamsListed)).build()?;
+```
+
+A check renders through the candidate, `render` anonymously or `render_as` signed in as a subject, reads its report and answers `Ok` or the reason. Middleware does not run under a candidate render, so a guarded page is probed as the page itself.
+
 A host given services, a session store, a CSRF scheme, an evaluator, an identity provider, a prerendered directory or a mount by hand cannot be rebuilt from the artifact, since a reread would drop them; it names a reloader, a builder for the application as it now stands with those added again:
 
 ```rust
@@ -1056,7 +1077,7 @@ let host = Host::from(shell)?.mount(billing).build()?;
 
 `Loader::mount` reads the site under the shell's deployment and with the shell's secrets options, so a site's own `config/private_keys` and the same decryptors apply to it. What a mount does, in order: it reads the artifact's configuration through the shell's ladder and refuses one whose `[site]` names another site; it refuses an artifact with engine-owned rows unless `allow_engine` is set and one whose bundle carries a server module; it takes the site's middleware aside; it nests every route and intercept of the site under the shell's `routes/layout.tsx#default` or under the document alone when the shell has no root layout; it adds the site's rows to the shell's tables under their prefixed ids and merges the site's contract; it registers the site's clients under `<name>:<client>` and their bearer keys; it serves the site's static roots that sit under its prefix and skips the rest, since the shell serves `/static/js/fsr` and the vendor tree itself; it adds the site's import map entries the shell lacks; and it ignores the site's `[session]`, `[auth]`, `[locales]` and `[cache]`, which are the shell's. The report prints one `sites` row per mount with its prefix, artifact, version and hash and one more naming what was ignored.
 
-A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table. A site's cache tags take its prefix at mount, `billing:invoices`, so one site's drop never reaches another's answers; a tag written `@catalog` keeps that spelling in every site and the shell, so a write in one site drops what another cached under it, and the boot report lists each such tag under `shared` with who caches and who drops.
+A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table. A site names the pages a shell renders before a candidate holding the site swaps in with `[site] probe = ["/billing", { path = "/billing/overdue", as = "probe" }]`, a path alone rendered anonymously and `{ path, as }` by a visitor signed in as that subject; any failure of a probed page refuses the reload and names the site and the path, so a release whose loader breaks never replaces the one serving. A site's cache tags take its prefix at mount, `billing:invoices`, so one site's drop never reaches another's answers; a tag written `@catalog` keeps that spelling in every site and the shell, so a write in one site drops what another cached under it. The boot report lists each such tag under `shared` with who caches and who drops.
 
 `snapfire_fsr_sites` turns the `[sites]` table into mounts, fetches a version the cache lacks from `[sites] store`, hashes each artifact, refuses a pinned hash that differs and rereads the table on `SIGHUP` or a poll, so `fsr serve` and a Rust shell built with it need no code beyond `mount_all` and `watch`.
 

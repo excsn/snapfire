@@ -14,6 +14,7 @@ mod live;
 pub mod locale;
 mod mount;
 mod prerender;
+mod probe;
 mod remote;
 mod remote_site;
 mod render;
@@ -78,6 +79,7 @@ pub use edge::percent_decoded;
 pub use locale::{Locales, LocalesSection, Resolution};
 pub use mount::{Artifact, Mount};
 pub use prerender::{LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
+pub use probe::{Candidate, Probe, ReloadCheck};
 pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use remote_site::{RemoteSite, PAYLOAD_TYPE};
 pub use report::{HostReport, SiteReport, TlsReport};
@@ -176,6 +178,8 @@ pub enum HostError {
   Leak(String),
   #[error("site `{0}`: {1}")]
   Mount(String, String),
+  #[error("reload refused by a probe: {0}")]
+  Probe(String),
   #[error("`{0}`: paths: {1}")]
   Paths(String, String),
   #[error("the plan names `{0}`, a template no evaluator answers; build with the `tera` feature or register one with `HostBuilder::evaluator`")]
@@ -263,7 +267,9 @@ pub struct Host {
   /// Held across a `/__fsr/sites/reload`, so repeating the request waits on the
   /// reload in flight rather than reading every artifact a second time.
   #[cfg(feature = "sites_reload")]
-  sites_reload: parking_lot::Mutex<()>,
+  sites_reload: tokio::sync::Mutex<()>,
+  /// What a Rust host checks a candidate with before a reload swaps it in.
+  reload_checks: Vec<Arc<dyn ReloadCheck>>,
   csrf_always: bool,
   /// `[site] secret`: what a shell's signed requests are checked against.
   mount_secret: Option<String>,
@@ -367,6 +373,8 @@ struct Tables {
   auth: Option<Mounted>,
   /// The mounted sites, longest prefix first.
   sites: Vec<SiteTables>,
+  /// Every mounted site's `[site] probe` list, by site name.
+  probes: Vec<(String, Probe)>,
   /// This host's own `[site]`, as its status answer describes it to a shell.
   own: Option<OwnSite>,
   report: Arc<HostReport>,
@@ -510,6 +518,7 @@ impl Host {
       identity: None,
       reloader: None,
       sites_mounter: None,
+      reload_checks: Vec::new(),
       topic_rule: None,
       #[cfg(feature = "ws")]
       sockets: None,

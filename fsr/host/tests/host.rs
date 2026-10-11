@@ -2465,8 +2465,9 @@ async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
   let response = host
     .handle(Request::post("/__fsr/reload").body(Bytes::new()).unwrap())
     .await;
-  assert_eq!(response.status(), StatusCode::OK);
+  let status = response.status();
   let printed = body_of(response).await;
+  assert_eq!(status, StatusCode::OK, "{printed}");
   assert!(
     printed.contains("lowered"),
     "the reload answers with the new report: {printed}"

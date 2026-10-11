@@ -400,8 +400,15 @@ impl Host {
   /// evaluator, an identity provider, a prerendered directory or a mount by
   /// hand needs a reloader that adds those again.
   pub fn reload(&self) -> Result<Arc<HostReport>, HostError> {
+    let builder = self.rebuilt()?;
+    self.reload_with(builder)
+  }
+
+  /// The builder `reload` rebuilds from: the reloader's, else the artifact
+  /// read again through the loader with the sites mounted over it.
+  fn rebuilt(&self) -> Result<HostBuilder, HostError> {
     if let Some(reloader) = &self.reloader {
-      return self.reload_with(reloader()?);
+      return reloader();
     }
     let refuse = |why: &str| HostError::Value("reload".to_owned(), why.to_owned());
     let loader = self.loader.as_ref().ok_or_else(|| {
@@ -421,7 +428,7 @@ impl Host {
     if let Some(mounter) = &self.sites_mounter {
       builder = mounter(builder)?;
     }
-    self.reload_with(builder)
+    Ok(builder)
   }
 
   /// Rebuilds the tables with the sites read again and the shell left exactly
@@ -440,6 +447,13 @@ impl Host {
   /// hand has none, since those cannot be rebuilt from the shell's artifact;
   /// such a host reloads through a reloader instead.
   pub fn reload_sites(&self) -> Result<Arc<HostReport>, HostError> {
+    let builder = self.sites_rebuilt()?;
+    self.reload_with(builder)
+  }
+
+  /// The builder `reload_sites` rebuilds from: the shell as it booted with
+  /// the sites mounted over it again.
+  fn sites_rebuilt(&self) -> Result<HostBuilder, HostError> {
     let refuse = |why: &str| HostError::Value("sites.reload".to_owned(), why.to_owned());
     let mounter = self
       .sites_mounter
@@ -451,7 +465,7 @@ impl Host {
       )
     })?;
     let builder = Host::from_artifact((**inputs).clone())?;
-    self.reload_with(mounter(builder)?)
+    mounter(builder)
   }
 
   /// `POST /__fsr/sites/reload`: [`Host::reload_sites`] as an answer. One
@@ -462,9 +476,9 @@ impl Host {
   /// `/__fsr/` off the public internet is the deployment's job, at whatever
   /// sits in front of the host.
   #[cfg(feature = "sites_reload")]
-  pub(crate) fn sites_reload_response(&self) -> Response<Body> {
-    let _turn = self.sites_reload.lock();
-    match self.reload_sites() {
+  pub(crate) async fn sites_reload_response(&self) -> Response<Body> {
+    let _turn = self.sites_reload.lock().await;
+    match self.reload_sites_checked().await {
       Ok(report) => {
         let sites: Vec<serde_json::Value> = report
           .sites
@@ -484,6 +498,35 @@ impl Host {
 
   /// `reload` over a builder the caller made.
   pub fn reload_with(&self, builder: HostBuilder) -> Result<Arc<HostReport>, HostError> {
+    let tables = self.candidate(builder)?;
+    Ok(self.swap(tables))
+  }
+
+  /// `reload_with` with every probe run over the candidate first: the warm
+  /// pass, a render of every route that reads nothing of the request, each
+  /// mounted site's `[site] probe` list and the checks `HostBuilder::reload_check`
+  /// registered. A refused candidate leaves the running tables serving and
+  /// the error names the probe.
+  pub async fn reload_with_checked(&self, builder: HostBuilder) -> Result<Arc<HostReport>, HostError> {
+    let tables = self.candidate(builder)?;
+    self.probe(&tables).await?;
+    Ok(self.swap(tables))
+  }
+
+  /// `reload` with every probe run over the candidate first.
+  pub async fn reload_checked(&self) -> Result<Arc<HostReport>, HostError> {
+    let builder = self.rebuilt()?;
+    self.reload_with_checked(builder).await
+  }
+
+  /// `reload_sites` with every probe run over the candidate first.
+  pub async fn reload_sites_checked(&self) -> Result<Arc<HostReport>, HostError> {
+    let builder = self.sites_rebuilt()?;
+    self.reload_with_checked(builder).await
+  }
+
+  /// The candidate's tables, assembled and checked the way a boot checks them.
+  fn candidate(&self, builder: HostBuilder) -> Result<Tables, HostError> {
     let (tables, config) = builder.assemble()?;
     let shape = session_shape(&config);
     if shape != self.session_shape {
@@ -502,9 +545,13 @@ impl Host {
         None => return Err(missing_session_key(&config)),
       }
     }
+    Ok(tables)
+  }
+
+  fn swap(&self, tables: Tables) -> Arc<HostReport> {
     let report = tables.report.clone();
     *self.live.write() = Arc::new(tables);
     self.changed();
-    Ok(report)
+    report
   }
 }
