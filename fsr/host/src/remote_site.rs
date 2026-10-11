@@ -60,7 +60,7 @@ struct Inner {
   learned: RwLock<Learned>,
 }
 
-/// `x-sf-mount`: the site's name, and with a secret a dot and the HMAC-SHA256
+/// `x-sf-mount`: the site's name; with a secret, a dot and the HMAC-SHA256
 /// over the request's path, session id and subject, hex, so the site knows
 /// the identity headers came from its shell.
 fn mount_header(name: &str, secret: Option<&str>, path: &str, session: Option<&str>, subject: Option<&str>) -> String {
@@ -141,7 +141,7 @@ impl RemoteSite {
 
   /// Whether a request under the site's prefix is one the site answers
   /// itself rather than a page the shell renders: anything but a `GET` or
-  /// `HEAD`, and a `GET` that asks for neither a document nor a payload.
+  /// `HEAD` and a `GET` that asks for neither a document nor a payload.
   pub fn forwards(&self, method: &Method, headers: &HeaderMap, raw_query: &str) -> bool {
     if method != Method::GET && method != Method::HEAD {
       return true;

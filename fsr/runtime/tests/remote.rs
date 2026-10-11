@@ -36,7 +36,7 @@ impl Evaluator for Leaf {
   }
 }
 
-/// A remote answering with recorded rows, or refusing.
+/// A remote answering with recorded rows or refusing.
 struct Recorded(Result<&'static str, FailureKind>);
 
 impl RemoteSegment for Recorded {

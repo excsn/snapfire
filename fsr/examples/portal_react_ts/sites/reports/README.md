@@ -1,6 +1,6 @@
 # reports_site_react_ts
 
-A site that runs in its own process. It is built with a `[site]` section like `billing`, so every id it emits is prefixed `reports:` and every route sits under `/reports`, but the portal never holds its artifact: `[sites.reports]` in the portal names the prefix and this process's address, and the portal renders each page from the payload rows this process answers with, inside the portal's own document.
+A site that runs in its own process. It is built with a `[site]` section like `billing`, so every id it emits is prefixed `reports:` and every route sits under `/reports`, but the portal never holds its artifact: `[sites.reports]` in the portal names the prefix and this process's address. The portal renders each page from the payload rows this process answers with, inside the portal's own document.
 
 | It shows | Where |
 | --- | --- |

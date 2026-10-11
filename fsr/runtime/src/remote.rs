@@ -82,7 +82,7 @@ fn strip_content(mut contributions: Vec<Contribution>) -> Vec<Contribution> {
 impl RemoteWave {
   /// The wave out of a remote host's payload rows: the eager rows up to the
   /// sidecar, then its fills. `source` names the remote in an error. A remote
-  /// whose root has no content segment, or whose rows do not read, is an
+  /// whose root has no content segment or whose rows do not read is an
   /// internal failure; the transport's are the caller's to name.
   pub async fn from_rows(source: &str, mut rows: BoxStream<'static, Result<Row, DecodeError>>) -> Result<Self, LoadError> {
     let fail = |message: String| LoadError::new(source, message);
@@ -209,7 +209,7 @@ struct Fills {
 }
 
 /// One remote's fills shared by every slot it left pending: the slot ids it
-/// used mapped to this assembly's, and its stream read by whichever slot is
+/// used mapped to this assembly's and its stream read by whichever slot is
 /// waiting, the others' fills stashed until they ask.
 struct Splicer {
   session: Arc<Session>,

@@ -73,4 +73,4 @@ fsr sites pin . status --layer local
 
 To ship status 1.1.0, pack it into the store and move `[sites.status] artifact` to `status@1.1.0`. The poll notices the row moved, fetches the version and swaps the tables. A request in flight finishes on the old ones.
 
-`cargo test -p portal_react_ts` does the same install and fetch in process, with the store on a free port, and serves the reports site on another to mount it over.
+`cargo test -p portal_react_ts` does the same install and fetch in process, with the store on a free port. It serves the reports site on another to mount it over.
