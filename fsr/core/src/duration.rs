@@ -9,6 +9,7 @@ pub fn parse_duration(raw: &str) -> Option<Duration> {
   // Checked: `9999999999999999d` parses as a `u64` and then leaves the range,
   // which panics a debug build and silently wraps a release one.
   let seconds = match unit.trim() {
+    "ms" => return Some(Duration::from_millis(n)),
     "" | "s" => Some(n),
     "m" => n.checked_mul(60),
     "h" => n.checked_mul(3600),

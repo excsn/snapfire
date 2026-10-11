@@ -289,17 +289,95 @@ pub struct SitesSection {
   pub mounts: BTreeMap<String, MountConfig>,
 }
 
-/// `[sites.<name>]`: `artifact` is `name@version` under the root or a path,
-/// `hash` the content hash the mount is pinned to and `allow_engine` whether
-/// an artifact carrying engine-owned rows may be mounted.
+/// `[sites.<name>]`. A site in this process names `artifact`, `name@version`
+/// under the root or a path, with `hash` the content hash the mount is pinned
+/// to and `allow_engine` whether an artifact carrying engine-owned rows may be
+/// mounted. A site in its own process names `at`, the prefix the shell mounts
+/// it under, and `over`, the addresses of its hosts, with `timeout` per call,
+/// `retry` how long an address that failed rests and `secret` what signs the
+/// identity the shell forwards.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MountConfig {
-  pub artifact: String,
+  #[serde(default)]
+  pub artifact: Option<String>,
   #[serde(default)]
   pub hash: Option<String>,
   #[serde(default)]
   pub allow_engine: bool,
+  #[serde(default)]
+  pub at: Option<String>,
+  #[serde(default)]
+  pub over: Vec<String>,
+  #[serde(default)]
+  pub timeout: Option<String>,
+  #[serde(default)]
+  pub retry: Option<String>,
+  #[serde(default)]
+  pub secret: Option<String>,
+}
+
+impl MountConfig {
+  pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
+  pub const DEFAULT_RETRY: Duration = Duration::from_secs(5);
+
+  /// Whether the site runs in its own process, reached over `over`.
+  pub fn is_remote(&self) -> bool {
+    !self.over.is_empty()
+  }
+
+  pub fn timeout(&self) -> Duration {
+    self.timeout.as_deref().and_then(parse_duration).unwrap_or(Self::DEFAULT_TIMEOUT)
+  }
+
+  pub fn retry(&self) -> Duration {
+    self.retry.as_deref().and_then(parse_duration).unwrap_or(Self::DEFAULT_RETRY)
+  }
+
+  /// What the table refuses: a row naming both homes or neither, an address
+  /// without a prefix, an artifact's keys on an address row, a malformed
+  /// prefix or address and a duration that does not parse.
+  fn check(&self, name: &str) -> Result<(), String> {
+    let remote = self.is_remote();
+    match (&self.artifact, remote) {
+      (Some(_), true) => return Err(format!("sites.{name} names both artifact and over; a site has one home")),
+      (None, false) => return Err(format!("sites.{name} needs artifact or over")),
+      _ => {}
+    }
+    if remote {
+      let Some(at) = &self.at else {
+        return Err(format!("sites.{name}.over needs at, the prefix the shell mounts the site under"));
+      };
+      if !at.starts_with('/') || at.len() < 2 || at.ends_with('/') {
+        return Err(format!("sites.{name}.at `{at}` is not a prefix: it starts with `/` and does not end with one"));
+      }
+      if self.hash.is_some() || self.allow_engine {
+        return Err(format!("sites.{name}: hash and allow_engine belong to an artifact; the site over an address carries its own"));
+      }
+      for address in &self.over {
+        if !(address.starts_with("http://") || address.starts_with("https://")) || address.ends_with('/') {
+          return Err(format!("sites.{name}.over `{address}` is not an address: `http://host:port` or `https://host`, no trailing slash"));
+        }
+      }
+      if self.secret.as_deref().is_some_and(str::is_empty) {
+        return Err(format!("sites.{name}.secret is empty"));
+      }
+    } else {
+      for (key, value) in [("at", &self.at), ("timeout", &self.timeout), ("retry", &self.retry), ("secret", &self.secret)] {
+        if value.is_some() {
+          return Err(format!("sites.{name}.{key} belongs to a site over an address; an artifact carries its own"));
+        }
+      }
+    }
+    for (key, value) in [("timeout", &self.timeout), ("retry", &self.retry)] {
+      if let Some(raw) = value {
+        if parse_duration(raw).is_none() {
+          return Err(format!("sites.{name}.{key} `{raw}` is not a duration"));
+        }
+      }
+    }
+    Ok(())
+  }
 }
 
 /// `[site]`: `name` prefixes every id the build emits, `<name>:` and `at` is
@@ -1756,14 +1834,14 @@ impl Config {
         let mut mounts = BTreeMap::new();
         for name in names {
           let mount: MountConfig = store.get_into_struct(&format!("sites.{name}")).map_err(fail)?;
-          if mount.artifact.contains('@') && !mount.artifact.contains('/') && root.is_none() {
-            return Err(HostError::Config(
-              at.clone(),
-              format!(
-                "sites.{name}.artifact `{}` names a version, which needs sites.root",
-                mount.artifact
-              ),
-            ));
+          mount.check(&name).map_err(|message| HostError::Config(at.clone(), message))?;
+          if let Some(artifact) = &mount.artifact {
+            if artifact.contains('@') && !artifact.contains('/') && root.is_none() {
+              return Err(HostError::Config(
+                at.clone(),
+                format!("sites.{name}.artifact `{artifact}` names a version, which needs sites.root"),
+              ));
+            }
           }
           mounts.insert(name, mount);
         }

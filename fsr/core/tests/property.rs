@@ -175,6 +175,7 @@ proptest! {
     prop_assert_eq!(parse_duration(&format!("{n}m")).map(|d| d.as_secs()), Some(n * 60));
     prop_assert_eq!(parse_duration(&format!("{n}h")).map(|d| d.as_secs()), Some(n * 3600));
     prop_assert_eq!(parse_duration(&format!("{n}d")).map(|d| d.as_secs()), Some(n * 86_400));
+    prop_assert_eq!(parse_duration(&format!("{n}ms")).map(|d| d.as_millis()), Some(u128::from(n)));
   }
 }
 

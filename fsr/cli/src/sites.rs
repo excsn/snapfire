@@ -79,17 +79,19 @@ pub fn list(shell: &Path) -> Result<Vec<Row>, BuildError> {
       Some(r) => (Some(r.artifact.clone()), r.version.clone(), r.hash.clone()),
       None => (None, "-".to_owned(), "-".to_owned()),
     };
-    let (at, note) = match &resolved_path {
-      Some(path) => match Config::load(path) {
+    let (at, note) = match (&resolved_path, &mount.artifact) {
+      (Some(path), _) => match Config::load(path) {
         Ok(site) => match site.site {
           Some(s) => (Some(s.at), None),
           None => (None, Some("the artifact has no [site]".to_owned())),
         },
         Err(e) => (None, Some(e.to_string())),
       },
-      None => (None, Some(format!("{} does not resolve", mount.artifact))),
+      (None, Some(artifact)) => (None, Some(format!("{artifact} does not resolve"))),
+      (None, None) => (mount.at.clone(), None),
     };
-    rows.push(Row { name: name.clone(), artifact: mount.artifact.clone(), resolved: resolved_path, at, version, hash, note });
+    let artifact = mount.artifact.clone().unwrap_or_else(|| format!("over {}", mount.over.join(" ")));
+    rows.push(Row { name: name.clone(), artifact, resolved: resolved_path, at, version, hash, note });
   }
   Ok(rows)
 }
@@ -186,7 +188,7 @@ pub fn unlink(shell: &Path, name: &str, keep_site: bool) -> Result<Unlinked, Bui
     return Err(refuse(format!("`{name}` is not mounted; the table holds {}", if known.is_empty() { "nothing".to_owned() } else { known.join(", ") })));
   };
 
-  let artifact = shell_config.root.join(&mount.artifact);
+  let artifact = shell_config.root.join(mount.artifact.as_deref().unwrap_or_default());
   let shell_file = writable(&shell_config)?;
   remove_section(&shell_file, &format!("sites.{name}"))?;
 
@@ -437,7 +439,7 @@ pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<us
     .sites
     .as_ref()
     .and_then(|section| section.mounts.get(&name))
-    .is_some_and(|mount| mount.artifact == format!("{name}@{}", installed.version));
+    .is_some_and(|mount| mount.artifact.as_deref() == Some(format!("{name}@{}", installed.version).as_str()));
   let pinned = match pin_it && names_it {
     true => pin(shell, Some(&name), layer)?.into_iter().next(),
     false => None,
@@ -484,11 +486,9 @@ pub fn pin(shell: &Path, only: Option<&str>, layer: Option<&str>) -> Result<Vec<
     if only.is_some_and(|wanted| wanted != name) {
       continue;
     }
-    let versioned = mount.artifact.contains('@') && !mount.artifact.contains('/');
-    if !versioned {
+    let Some((artifact_name, version)) = mount.artifact.as_deref().and_then(|spec| spec.split_once('@').filter(|_| !spec.contains('/'))) else {
       continue;
-    }
-    let (artifact_name, version) = mount.artifact.split_once('@').expect("an @");
+    };
     let root = section
       .root
       .as_deref()

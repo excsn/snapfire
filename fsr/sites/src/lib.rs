@@ -44,24 +44,26 @@ pub struct Resolved {
   pub allow_engine: bool,
 }
 
-/// Resolves every `[sites.<name>]` row: `name@version` under `sites.root`,
-/// anything else a path against the configuration's root. Hashes each
-/// directory and refuses one whose pinned `hash` differs.
+/// Resolves every `[sites.<name>]` row naming an artifact: `name@version`
+/// under `sites.root`, anything else a path against the configuration's root.
+/// Hashes each directory and refuses one whose pinned `hash` differs. A row
+/// over an address has nothing to resolve and is left out.
 pub fn resolve(config: &Config) -> Result<Vec<Resolved>, SitesError> {
   let Some(section) = &config.sites else {
     return Ok(Vec::new());
   };
   let mut out = Vec::new();
   for (name, mount) in &section.mounts {
-    let (artifact, version) = if mount.artifact.contains('@') && !mount.artifact.contains('/') {
-      let (artifact_name, version) = mount.artifact.split_once('@').expect("an @");
+    let Some(spec) = &mount.artifact else { continue };
+    let (artifact, version) = if spec.contains('@') && !spec.contains('/') {
+      let (artifact_name, version) = spec.split_once('@').expect("an @");
       let root = section.root.as_deref().expect("the configuration checked the root");
       (
         config.root.join(root).join(artifact_name).join(version),
         version.to_owned(),
       )
     } else {
-      (config.root.join(&mount.artifact), "path".to_owned())
+      (config.root.join(spec), "path".to_owned())
     };
     if !artifact.is_dir() {
       return Err(SitesError::Artifact {
@@ -143,7 +145,7 @@ pub fn fetch_missing(config: &Config, store: &dyn Store) -> Result<Vec<Installed
   let cache = Cache::new(config.root.join(root));
   let mut fetched = Vec::new();
   for (name, mount) in &section.mounts {
-    let Some((package, version)) = mount.artifact.split_once('@').filter(|_| !mount.artifact.contains('/')) else {
+    let Some((package, version)) = mount.artifact.as_deref().and_then(|spec| spec.split_once('@').filter(|_| !spec.contains('/'))) else {
       continue;
     };
     if cache.holds(package, version) {
