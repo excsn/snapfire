@@ -18,6 +18,7 @@ mod remote;
 mod render;
 mod report;
 mod serve;
+mod upstreams;
 pub mod shell;
 pub mod trace;
 
@@ -79,6 +80,7 @@ pub use prerender::{LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use report::{HostReport, SiteReport, TlsReport};
 pub use serve::HostService;
+pub use upstreams::{Lease, Upstreams};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 
 use actions::*;
