@@ -72,6 +72,7 @@ One request's session as the layer sees it.
 * `pub csrf: TokenCell` is the CSRF scheme's state, read and written by the scheme alone and persisted with the record.
 * `pub fresh: bool` is `true` only when no valid cookie arrived. A cookie that verifies but whose record is gone yields `fresh == false` with empty cells.
 * `pub stale: bool` is `true` when the cookie decoded but `CookieCodec::current` said it is not what `encode` writes now, a value signed under a key that is no longer the ring's first; `persist` and `establish` then return a `Set-Cookie` whether or not anything was saved.
+* `pub borrowed: bool` is `true` when the id came from a caller that holds the cookie, through `open_id`, so the edge writes no `Set-Cookie` for it.
 
 `Clone` shares the cells. Passed by reference to `persist` and `destroy`.
 
@@ -83,6 +84,7 @@ The session layer facade. Holds the store, the config, the codec and the CSRF sc
 * `Sessions::with_codec(store, key: &[u8], codec: Arc<dyn CookieCodec>, config) -> Sessions`: over a codec of the caller's; `key` is ignored.
 * `fn with_csrf(self, scheme: Arc<dyn CsrfScheme>) -> Self`: the same layer over another scheme.
 * `async fn open(&self, cookie_header: Option<&str>) -> Opened`. Infallible. A missing, malformed, tampered or foreign-signed cookie yields a fresh session.
+* `async fn open_id(&self, id: SessionId) -> Opened`. The session another host opened from its cookie and forwarded: its record when the store holds one and it has not expired, else an empty cell under that id, `fresh`, so a write lands where the other host reads; `borrowed` either way and never a cookie.
 * `async fn persist(&self, opened: &Opened) -> Option<String>`. Returns without touching the store when none of `opened.cell`, `opened.tokens` and `opened.csrf` is dirty and the cell was not extended, with `Some(set_cookie)` when `opened.stale` is set and `None` otherwise. Otherwise it saves the record with the cell's end as `expires` and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true` or the cell was extended, `None` otherwise.
 * `async fn establish(&self, opened: &Opened) -> Option<String>`. Saves the record whether or not anything is dirty and returns `Some(set_cookie)` when `opened.fresh` or `opened.stale` is `true` or the cell was extended; for a host that bound something to the id, such as a CSRF token, before the session held anything.
 * `async fn destroy(&self, opened: &Opened) -> String`. Deletes the record, clears `opened.cell` and `opened.tokens` for the rest of the request and always returns the expiring cookie.
