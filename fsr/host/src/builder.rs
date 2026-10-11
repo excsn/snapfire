@@ -1082,6 +1082,7 @@ impl HostBuilder {
             .collect()
         })
         .unwrap_or_default(),
+      shared: app.services.data_cache().map(shared_tags).unwrap_or_default(),
       statics: static_rows,
       client: serve_client.then(|| (client::ROUTE, client::FILES.len(), client::bytes(client_minified), client_minified)),
       prerender: prerendered.clone(),
@@ -1137,6 +1138,23 @@ impl HostBuilder {
       config,
     ))
   }
+}
+
+/// Every `@` tag in the cache's policies and writers, each with the methods
+/// cached under it and the methods that drop it, in tag order.
+fn shared_tags(cache: &snapfire_fsr_service::DataCache) -> Vec<(String, Vec<String>, Vec<String>)> {
+  let mut by_tag: std::collections::BTreeMap<String, (Vec<String>, Vec<String>)> = Default::default();
+  for (method, freshness) in cache.policies() {
+    for tag in freshness.tags.iter().filter(|tag| tag.starts_with('@')) {
+      by_tag.entry(tag.clone()).or_default().0.push(method.clone());
+    }
+  }
+  for (method, tags) in cache.writers() {
+    for tag in tags.iter().filter(|tag| tag.starts_with('@')) {
+      by_tag.entry(tag.clone()).or_default().1.push(method.clone());
+    }
+  }
+  by_tag.into_iter().map(|(tag, (cached, dropped))| (tag, cached, dropped)).collect()
 }
 
 /// The module id the shell's plan gives a site in its own process, which no

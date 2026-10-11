@@ -506,6 +506,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `bearer: Vec<(String, String)>`: client and custody key for every client whose `bearer` names one; `Display` prints a `bearer` row per client.
 * `session: Option<String>`: the client the sessions live behind when `session.store` is `service`; `Display` prints one `session` row, `service via <client>`.
 * `cached: Vec<(String, String)>`: `service.method` and its policy as text, `ttl 15s shared, stale 2m [tags]`; `Display` prints a `cached` row per method. `writers: Vec<(String, String)>`: `service.method` and `[tags]`; a `writes` row per method. The `auth` name for a `service` provider reads `service via <client>`.
+* `shared: Vec<(String, Vec<String>, Vec<String>)>`: every `@` tag, the one spelling a site's prefix leaves alone, with the methods cached under it and the methods that drop it across the shell and every site; `Display` prints a `shared` row per tag as `cached by [a:cat.list], dropped by [b:ledger.pay]`.
 
 ### ServiceSessionStore
 

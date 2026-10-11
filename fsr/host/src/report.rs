@@ -20,6 +20,9 @@ pub struct HostReport {
   pub cached: Vec<(String, String)>,
   /// Method and tags for every method that drops cached answers.
   pub writers: Vec<(String, String)>,
+  /// Every `@` tag, which no site's prefix touches: the methods cached under
+  /// it and the methods that drop it, across the shell and every site.
+  pub shared: Vec<(String, Vec<String>, Vec<String>)>,
   pub statics: Vec<(String, PathBuf)>,
   /// Patterns `[[route]]` declares that nothing registered on this host: the stock host registers no Rust route, so an application's declarations show here until its own binary answers them.
   pub unanswered_routes: Vec<String>,
@@ -202,6 +205,10 @@ impl std::fmt::Display for HostReport {
     for (i, (method, tags)) in self.writers.iter().enumerate() {
       let label = if i == 0 { "writes" } else { "" };
       writeln!(f, "{label:<9} {method:<22} {tags}")?;
+    }
+    for (i, (tag, cached, dropped)) in self.shared.iter().enumerate() {
+      let label = if i == 0 { "shared" } else { "" };
+      writeln!(f, "{label:<9} {tag:<22} cached by [{}], dropped by [{}]", cached.join(", "), dropped.join(", "))?;
     }
     if let Some(client) = &self.session {
       writeln!(f, "{:<9} service via {client}", "session")?;

@@ -83,6 +83,8 @@ A mounted site therefore vendors no framework of its own. Its build reads the Re
 
 Store keys are the exception and the only place a site and the shell can genuinely collide: nothing namespaces them, the map is flat and shared. A site prefixes its own by hand, `billing/draft` rather than `draft`, the way the shell's own keys already are.
 
+Cache tags go the other way: a site's tags take its prefix at mount, so `invoices` in billing's contract is `billing:invoices` in the shell's one data cache and a write in another site never drops it. Two sites that mean to share a tag write it with an `@`, `tags = ["@catalog"]`, which every prefix leaves alone, so a write in one site drops what the other cached under it. The boot report lists each `@` tag under `shared` with the methods that cache under it and the ones that drop it, since a shared tag is a coupling two teams agreed to and should be visible to both.
+
 ## What a version is
 
 An artifact is a deploy tree: the files the host reads and nothing more, laid out the way chapter 303 describes. The configuration goes under `config/`. The plan, the contracts, the service documents, the message catalogs and every `.tera` template go under `app/`. Every static root goes under `serve/` at the route it answers. The TypeScript in routes and sources, types and a site's own markdown are build inputs and stay out.
