@@ -15,6 +15,7 @@ use crate::data::{DataSources, LoadError, LoadKeyer, NoLoadKey};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
 use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
+use crate::remote::{RemoteOut, RemoteSegment};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 use crate::store::{apply_derives, derive_order, derived_pending, merge_contributions, pending_keys, Contribution, Derived, Seeds};
 
@@ -103,6 +104,9 @@ pub struct Runtime {
   pub reads: Reads,
   /// The derived store keys, in [`derive_order`].
   pub derives: Vec<Derived>,
+  /// By module id: the plan nodes another host renders, spliced in by
+  /// [`RemoteSegment`].
+  pub remotes: HashMap<String, Arc<dyn RemoteSegment>>,
 }
 
 pub struct RuntimeBuilder {
@@ -118,9 +122,16 @@ pub struct RuntimeBuilder {
   reads: Reads,
   slot_order: Vec<String>,
   derives: Vec<Derived>,
+  remotes: HashMap<String, Arc<dyn RemoteSegment>>,
 }
 
 impl RuntimeBuilder {
+  /// The plan nodes of module `module` render in another process, through `segment`.
+  pub fn remote(mut self, module: impl Into<String>, segment: Arc<dyn RemoteSegment>) -> Self {
+    self.remotes.insert(module.into(), segment);
+    self
+  }
+
   /// The store keys the browser's `derive` computes, which every subtree's store is completed with after its seeds merge.
   pub fn derives(mut self, derives: Vec<Derived>) -> Self {
     self.derives = derive_order(derives);
@@ -201,6 +212,7 @@ impl RuntimeBuilder {
       reads: self.reads,
       slot_order: self.slot_order,
       derives: self.derives,
+      remotes: self.remotes,
       head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
     })
   }
@@ -221,6 +233,7 @@ impl Runtime {
       reads: Reads::new(),
       slot_order: Vec::new(),
       derives: Vec::new(),
+      remotes: HashMap::new(),
     }
   }
 
@@ -337,7 +350,7 @@ fn store_read(store: &Data, keys: &[String]) -> Data {
   out
 }
 
-fn error_node(message: &str) -> Node {
+pub(crate) fn error_node(message: &str) -> Node {
   Node::Seq(vec![
     Node::raw("<div data-sf-error>"),
     Node::text(message.to_owned()),
@@ -369,18 +382,24 @@ pub struct Origin {
   pub nodes: Vec<u32>,
 }
 
-struct Session {
-  runtime: Arc<Runtime>,
-  ctx: RequestCtx,
-  origin: Option<Origin>,
-  head: Head,
-  next_slot: AtomicU32,
+pub(crate) struct Session {
+  pub(crate) runtime: Arc<Runtime>,
+  pub(crate) ctx: RequestCtx,
+  pub(crate) origin: Option<Origin>,
+  pub(crate) head: Head,
+  pub(crate) next_slot: AtomicU32,
+  /// What the remote nodes said beyond their markup, folded into the assembly.
+  pub(crate) remote_out: parking_lot::Mutex<RemoteOut>,
 }
 
 impl Session {
+  pub(crate) fn allocate_slot(&self) -> SlotId {
+    SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed))
+  }
+
   /// The request node `id` loads and is keyed under: the document's for a node
   /// the origin names, the navigation's own otherwise.
-  fn ctx_of(&self, id: u32) -> &RequestCtx {
+  pub(crate) fn ctx_of(&self, id: u32) -> &RequestCtx {
     match &self.origin {
       Some(origin) if origin.nodes.contains(&id) => &origin.ctx,
       _ => &self.ctx,
@@ -497,6 +516,10 @@ fn has_slot(node: &Node) -> bool {
   }
 }
 
+fn has_remote_descendant(node: &PlanNode, remotes: &HashMap<String, Arc<dyn RemoteSegment>>) -> bool {
+  !remotes.is_empty() && (remotes.contains_key(&node.module.to_string()) || node.children.iter().any(|(_, c)| has_remote_descendant(c, remotes)))
+}
+
 fn has_deferred_descendant(node: &PlanNode) -> bool {
   node
     .children
@@ -586,7 +609,7 @@ impl Session {
   /// The degraded rendering of a segment whose loader failed: the module the
   /// plan names for that failure kind, else its error module, else the
   /// built-in error node. Rendered with params plus the message and the kind.
-  async fn error_segment(&self, node: &PlanNode, failure: &LoadError) -> Result<Node, AssembleError> {
+  pub(crate) async fn error_segment(&self, node: &PlanNode, failure: &LoadError) -> Result<Node, AssembleError> {
     let kind = failure.kind.as_str();
     let for_kind = node.error_kinds.iter().find(|(named, _)| named == kind).map(|(_, module)| module);
     let Some(module) = for_kind.or(node.error.as_ref()) else {
@@ -701,7 +724,7 @@ impl Session {
     all.extend(own.iter().cloned());
     let seeded = Seeded::new(&self.ctx, all, &self.runtime.slot_order, &self.runtime.derives);
     let mut pending = Vec::new();
-    let (node, children, _used_head, digest) = self.build(plan, &path, &loaded, &mut pending, &meta, &seeded).await?;
+    let (node, children, _used_head, digest, _key) = self.build(plan, &path, &loaded, &mut pending, &meta, &seeded).await?;
     let failed = loaded.failed.get(&page_of(plan).id.0).map(|e| e.kind);
     Ok((node, pending, children, meta, own, digest, failed))
   }
@@ -789,7 +812,7 @@ impl Session {
   fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, seeded: &Seeded, shape: u64, reads: Option<&SubtreeReads>) -> Option<String> {
     let store = &seeded.merged;
     let plan_key = node.cache_key.as_ref()?;
-    if has_deferred_descendant(node) || subtree_has_failure(node, &loaded.failed) {
+    if has_deferred_descendant(node) || has_remote_descendant(node, &self.runtime.remotes) || subtree_has_failure(node, &loaded.failed) {
       return None;
     }
     let data = &loaded.data;
@@ -928,10 +951,10 @@ impl Session {
               false,
             ))
           } else {
-            let (child_node, grandchildren, child_used_head, digest) =
+            let (child_node, grandchildren, child_used_head, digest, own_key) =
               self.build(child, &child_path, loaded, out_pending, meta, seeded).await?;
             segments.push(SegmentInfo {
-              key,
+              key: own_key.unwrap_or(key),
               digest,
               name: slot.0,
               path: path.clone(),
@@ -994,12 +1017,15 @@ impl Session {
     out_pending: &'a mut Vec<PendingResolution>,
     meta: &'a Meta,
     seeded: &'a Seeded,
-  ) -> BoxFuture<'a, Result<(Node, Vec<SegmentInfo>, bool, u64), AssembleError>> {
+  ) -> BoxFuture<'a, Result<(Node, Vec<SegmentInfo>, bool, u64, Option<String>), AssembleError>> {
     Box::pin(async move {
       if let Some(failure) = loaded.failed.get(&node.id.0) {
         let node = self.error_segment(node, failure).await?;
         let digest = node.fingerprint();
-        return Ok((node, Vec::new(), false, digest));
+        return Ok((node, Vec::new(), false, digest, None));
+      }
+      if let Some(remote) = self.runtime.remotes.get(&node.module.to_string()) {
+        return self.build_remote(node, remote, plan_path, out_pending).await;
       }
       let data = &loaded.data;
       let shape = subtree_shape(node);
@@ -1015,7 +1041,7 @@ impl Session {
         if let Some(entry) = self.runtime.cache.get(key).await {
           render.record("cache", "hit");
           tracing::debug!(target: "fsr::cache", key = %key, "hit");
-          return Ok((entry.node, entry.segments, false, entry.digest));
+          return Ok((entry.node, entry.segments, false, entry.digest, None));
         }
         render.record("cache", "miss");
         tracing::debug!(target: "fsr::cache", key = %key, "miss");
@@ -1106,7 +1132,7 @@ impl Session {
                 },
               ));
             } else {
-              let (child_node, grandchildren, child_used_head, child_digest) =
+              let (child_node, grandchildren, child_used_head, child_digest, own_key) =
                 self.build(child, &child_path, loaded, out_pending, meta, seeded).await?;
               used_head |= child_used_head;
               let idx = parts.len();
@@ -1114,7 +1140,7 @@ impl Session {
               segments.push((
                 idx,
                 SegmentInfo {
-                  key,
+                  key: own_key.unwrap_or(key),
                   digest: child_digest,
                   name: slot.0,
                   path: Vec::new(),
@@ -1162,7 +1188,7 @@ impl Session {
             .await;
         }
       }
-      Ok((out, segments, used_head, digest))
+      Ok((out, segments, used_head, digest, None))
     })
   }
 }
@@ -1205,8 +1231,15 @@ async fn assemble_in(
     origin,
     head: head.clone(),
     next_slot: AtomicU32::new(1),
+    remote_out: parking_lot::Mutex::new(RemoteOut::default()),
   });
-  let (tree, pending, children, meta, contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
+  let (tree, pending, children, mut meta, mut contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
+  let remote = std::mem::take(&mut *session.remote_out.lock());
+  meta.merge(remote.meta);
+  contributions.extend(remote.contributions);
+  let failed = failed.or(remote.failed);
+  let mut styles = head.styles.clone();
+  styles.extend(remote.styles);
   let store = merge_contributions(&contributions, &runtime.slot_order);
   let segments = SegmentInfo {
     key: session.segment_key(plan),
@@ -1231,8 +1264,8 @@ async fn assemble_in(
     contributions,
     store,
     locale: ctx.locale.clone(),
-    entry: head.entry.clone(),
-    styles: head.styles.clone(),
+    entry: remote.entry.or_else(|| head.entry.clone()),
+    styles,
     catalog: head.catalog.clone(),
     failed,
   })
