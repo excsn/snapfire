@@ -228,7 +228,7 @@ fn bench(c: &mut Criterion) {
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
   let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
-  let prepared = prepare(&app, &built.browser_files, &compositions, &built.added, &mut plugins).expect("fsr test's preparation");
+  let prepared = prepare(&app, &built.browser_files, &compositions, &built.composition_files, &built.added, &mut plugins).expect("fsr test's preparation");
   let layout = Layout::of(&app).expect("layout");
   let react_dom = VendorManifest::read(&app, &layout).expect("vendor manifest").packages.get("react-dom").map(|p| p.version.clone()).expect("react-dom is vendored");
   let server = test_bundle(&app, "react-dom/server", &react_dom, &format!("{ESM_HOST}/react-dom@{react_dom}/server?target=es2022&bundle&external=react")).expect("react-dom/server");

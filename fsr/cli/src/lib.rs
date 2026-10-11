@@ -543,6 +543,8 @@ pub struct Built {
   pub missing_declarations: Vec<String>,
   /// Files the bundle overlay holds alone: islands split out of pages and the copies a second JSX runtime compiles.
   pub added: Vec<String>,
+  /// By route composition file: the local files it imports that the browser never loads, such as a server-mode island it places. `fsr test` compiles them with the composition.
+  pub composition_files: Vec<(String, Vec<String>)>,
   /// What the build derived from the images and fonts, written as `generated/assets.json`.
   pub assets: snapfire_fsr_host::assets::AssetsManifest,
   /// What answered the lowerer's asset questions and defines the map the bundle is compiled by;
@@ -1347,6 +1349,15 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   let mut manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
   manifest.reads = reads;
+  let mut composition_files: Vec<(String, Vec<String>)> = Vec::new();
+  for component in manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")) {
+    let Some((file, _)) = component.module.split_once('#') else { continue };
+    if composition_files.iter().any(|(f, _)| f == file) {
+      continue;
+    }
+    let reached: Vec<String> = set.local_reach(file).into_iter().filter(|f| f != file && !browser_files.contains(f)).collect();
+    composition_files.push((file.to_owned(), reached));
+  }
   manifest.derives = derives;
   debug_assert!(manifest.sources.iter().all(|s| s.owner == RowOwner::Lowered));
   let declarations = typescript::declarations(&contract);
@@ -1426,7 +1437,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   report.types = declarations.status();
   let missing_declarations = declarations.missing();
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
-  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, browser_files, missing_declarations, added: generated_files, assets: assets_manifest, resolver })
+  Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, browser_files, missing_declarations, added: generated_files, composition_files, assets: assets_manifest, resolver })
 }
 
 /// The files the browser loads by name: every island the registry mounts and

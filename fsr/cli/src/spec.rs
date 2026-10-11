@@ -60,7 +60,7 @@ pub struct Prepared {
 }
 
 /// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
-pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], generated: &[String], plugins: &mut crate::plugins::Plugins) -> Result<Prepared, BuildError> {
+pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], composition_files: &[(String, Vec<String>)], generated: &[String], plugins: &mut crate::plugins::Plugins) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
   let site = crate::site_beside(&app);
@@ -73,8 +73,15 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], ge
   std::fs::create_dir_all(&test_dir).map_err(|e| BuildError::Io(test_dir.clone(), e))?;
   let overrides = test_vendor(&app, &layout, &test_dir, shell.as_ref())?;
   let dom = overrides.get("linkedom").cloned().expect("linkedom is vendored");
-  let composition_files: Vec<String> = compositions.iter().filter_map(|module| module.split_once('#').map(|(file, _)| file.to_owned())).filter(|file| !browser_files.contains(file)).collect();
-  let roots: Vec<String> = browser_files.iter().cloned().chain(composition_files).collect();
+  let mut roots: Vec<String> = browser_files.to_vec();
+  for file in compositions.iter().filter_map(|module| module.split_once('#').map(|(file, _)| file)) {
+    let imported = composition_files.iter().find(|(f, _)| f == file).map(|(_, imported)| imported.as_slice()).unwrap_or_default();
+    for file in std::iter::once(file).chain(imported.iter().map(String::as_str)) {
+      if !roots.iter().any(|root| root == file) {
+        roots.push(file.to_owned());
+      }
+    }
+  }
   write_config(&app, &layout, &test_dir, &roots, generated)?;
   compile(&app, &test_dir, &bundle, plugins)?;
 
@@ -168,7 +175,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     specs.iter().any(|source| source.contains(&specifier))
   };
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/") && imported(&c.module)).map(|c| c.module.clone()).collect();
-  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_files, &compositions, &built.added, plugins)?;
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_files, &compositions, &built.composition_files, &built.added, plugins)?;
 
   let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
