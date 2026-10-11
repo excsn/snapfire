@@ -793,7 +793,7 @@ impl Expr {
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host | Expr::Address => true,
       Expr::Locale | Expr::Path | Expr::Document | Expr::Origin | Expr::Config(_) | Expr::Handler(_) => false,
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
-      Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Folded(_) => false,
+      Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.reads_request(),
         Entry::Baked(_) => false,
