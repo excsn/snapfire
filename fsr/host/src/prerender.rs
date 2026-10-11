@@ -1,0 +1,413 @@
+use super::*;
+
+/// What a warm pass writes into the prerender directory and a boot reads back:
+/// every memoizable source's data under the key a request composes for it.
+pub const LOADS_FILE: &str = "loads.json";
+
+/// Beside the prerendered documents: every file the last run wrote, relative
+/// to the directory, which the next run removes before writing its own.
+pub const WRITTEN_FILE: &str = "prerendered.json";
+
+/// Beside `loads.json`: every subtree a build rendered ahead of a request,
+/// under the memo key a request composes for it, which a boot reads into the
+/// render memo in front of whatever `[cache]` configured.
+pub const RENDERS_FILE: &str = "renders.json";
+
+pub(crate) fn renders_to_json(entries: &HashMap<String, CacheEntry>) -> String {
+  let mut rows: Vec<(&String, &CacheEntry)> = entries.iter().collect();
+  rows.sort_by(|a, b| a.0.cmp(b.0));
+  let obj: serde_json::Map<String, serde_json::Value> = rows
+    .into_iter()
+    .map(|(key, entry)| {
+      (
+        key.clone(),
+        serde_json::json!({
+          "node": snapfire_fsr_payload::node_to_row_json(&entry.node),
+          "segments": entry.segments.iter().map(snapfire_fsr_runtime::segments_to_json).collect::<Vec<_>>(),
+          "digest": format!("{:016x}", entry.digest),
+        }),
+      )
+    })
+    .collect();
+  serde_json::to_string(&serde_json::Value::Object(obj)).expect("a render map serializes")
+}
+
+/// What a build rendered or nothing when the file is absent or unreadable: a
+/// render pass is an optimization, so a bad entry costs a render rather than
+/// a boot.
+pub(crate) fn renders_from_file(path: &Path) -> HashMap<String, CacheEntry> {
+  let Ok(text) = std::fs::read_to_string(path) else {
+    return HashMap::new();
+  };
+  let Ok(serde_json::Value::Object(obj)) = serde_json::from_str::<serde_json::Value>(&text) else {
+    tracing::warn!(target: "fsr::cache", file = %path.display(), "warmed renders are not an object");
+    return HashMap::new();
+  };
+  let mut out = HashMap::new();
+  for (key, json) in obj {
+    let read = || -> Result<CacheEntry, snapfire_fsr_payload::DecodeError> {
+      let fail = |m: &str| snapfire_fsr_payload::DecodeError(m.to_owned());
+      let node = snapfire_fsr_payload::row_json_to_node(json.get("node").ok_or_else(|| fail("a render needs `node`"))?)?;
+      let mut segments = Vec::new();
+      for item in json.get("segments").and_then(|s| s.as_array()).ok_or_else(|| fail("a render needs `segments`"))? {
+        segments.push(snapfire_fsr_runtime::segments_from_json(item)?);
+      }
+      let digest = json.get("digest").and_then(|d| d.as_str()).and_then(|d| u64::from_str_radix(d, 16).ok()).ok_or_else(|| fail("a render needs a hex `digest`"))?;
+      Ok(CacheEntry { node, segments, digest })
+    };
+    match read() {
+      Ok(entry) => {
+        out.insert(key, entry);
+      }
+      Err(e) => tracing::warn!(target: "fsr::cache", key = %key, error = %e, "warmed render is unreadable"),
+    }
+  }
+  out
+}
+
+pub(crate) fn warm_to_json(warmed: &HashMap<String, Data>) -> String {
+  let mut rows: Vec<(&String, &Data)> = warmed.iter().collect();
+  rows.sort_by(|a, b| a.0.cmp(b.0));
+  let obj: serde_json::Map<String, serde_json::Value> = rows
+    .into_iter()
+    .map(|(key, data)| {
+      (
+        key.clone(),
+        snapfire_fsr_payload::value_to_json(&Value::Map(data.clone())),
+      )
+    })
+    .collect();
+  serde_json::to_string(&serde_json::Value::Object(obj)).expect("a value map serializes")
+}
+
+/// What a build warmed or nothing when the file is absent or unreadable: a
+/// warm pass is an optimization, so a bad file costs loads rather than a boot.
+pub(crate) fn warm_from_file(path: &Path) -> HashMap<String, Data> {
+  let Ok(text) = std::fs::read_to_string(path) else {
+    return HashMap::new();
+  };
+  let Ok(serde_json::Value::Object(obj)) = serde_json::from_str::<serde_json::Value>(&text) else {
+    tracing::warn!(target: "fsr::load", file = %path.display(), "warmed loads are not an object");
+    return HashMap::new();
+  };
+  let mut out = HashMap::new();
+  for (key, json) in obj {
+    match snapfire_fsr_payload::json_to_value(&json) {
+      Ok(Value::Map(data)) => {
+        out.insert(key, data);
+      }
+      _ => tracing::warn!(target: "fsr::load", key = %key, "warmed load is not a value map"),
+    }
+  }
+  out
+}
+
+/// Refuses a plan node naming a template module nothing renders: one no
+/// evaluator covers, or one the stock evaluator covers with no template of
+/// that name under the app.
+pub(crate) fn templates_answered(plan: &PlanNode, evaluators: &snapfire_fsr_runtime::Evaluators, stock: Option<&[String]>) -> Result<(), HostError> {
+  if is_template_module(&plan.module) {
+    if !evaluators.covers(&plan.module) {
+      return Err(HostError::Uncovered(plan.module.to_string()));
+    }
+    if let Some(names) = stock {
+      if !names.iter().any(|n| *n == plan.module.path) {
+        return Err(HostError::TemplateMissing(plan.module.to_string()));
+      }
+    }
+  }
+  for (_, child) in &plan.children {
+    templates_answered(child, evaluators, stock)?;
+  }
+  Ok(())
+}
+
+/// `pattern` with each `{name}` or `{*name}` replaced by `set[name]`; every
+/// parameter must be present and no value may be empty.
+pub(crate) fn fill_pattern(pattern: &str, set: &Params) -> Result<String, HostError> {
+  let mut out = String::with_capacity(pattern.len());
+  let mut rest = pattern;
+  while let Some(open) = rest.find('{') {
+    out.push_str(&rest[..open]);
+    let Some(close) = rest[open..].find('}') else {
+      return Err(HostError::Paths(pattern.to_owned(), "an unclosed parameter in the pattern".to_owned()));
+    };
+    let name = rest[open + 1..open + close].trim_start_matches('*');
+    match set.get(name) {
+      Some(value) if !value.is_empty() => out.push_str(value),
+      Some(_) => return Err(HostError::Paths(pattern.to_owned(), format!("a set gives `{name}` an empty value"))),
+      None => return Err(HostError::Paths(pattern.to_owned(), format!("a set names no `{name}`: {}", set.keys().map(|k| format!("`{k}`")).collect::<Vec<_>>().join(", ")))),
+    }
+    rest = &rest[open + close + 1..];
+  }
+  out.push_str(rest);
+  Ok(out)
+}
+
+/// Removes every file the last prerender listed in `prerendered.json` under
+/// `out`, then the directories that emptied, then the list itself.
+pub(crate) fn clear_written(out: &Path) -> Result<(), HostError> {
+  let list = out.join(WRITTEN_FILE);
+  let Ok(text) = std::fs::read_to_string(&list) else {
+    return Ok(());
+  };
+  let files: Vec<String> = serde_json::from_str(&text).map_err(|e| HostError::Config(list.clone(), e.to_string()))?;
+  for rel in &files {
+    let file = out.join(rel);
+    match std::fs::remove_file(&file) {
+      Ok(()) => {}
+      Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+      Err(e) => return Err(HostError::Io(file, e)),
+    }
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+      if d == out || std::fs::remove_dir(d).is_err() {
+        break;
+      }
+      dir = d.parent();
+    }
+  }
+  match std::fs::remove_file(&list) {
+    Ok(()) => Ok(()),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+    Err(e) => Err(HostError::Io(list, e)),
+  }
+}
+
+impl Host {
+  /// The patterns one render serves for every request: no parameter, every
+  /// source lowered and reading nothing of the request, no page or layout
+  /// reading its `identity` or `csrf_token` prop.
+  pub fn prerenderable(&self) -> Vec<String> {
+    self.tables().app.prerenderable.clone()
+  }
+
+  /// The patterns one anonymous render serves for every anonymous request:
+  /// their only request reads are the identity, a page or layout's `identity`
+  /// prop or a call through a client whose `bearer` is set. `prerender`
+  /// writes them too; the file serves a visitor with no identity and a
+  /// signed-in one is rendered live.
+  pub fn prerenderable_anonymous(&self) -> Vec<String> {
+    self.tables().app.prerenderable_anonymous.clone()
+  }
+
+  /// Warms every memoizable load, then renders every prerenderable route once
+  /// per locale, anonymously, writing the document as `<out>/<path>/index.html`
+  /// and the payload beside it as `index.payload`; `/` lands at the top of
+  /// `out`. A locale other than the default lands under its tag,
+  /// `<out>/fr_FR/about/index.html`. A route with a parameter is rendered once
+  /// per set its `paths` returns for the locale, at the path the set fills the
+  /// pattern to. Returns what was written, each path with its prefix.
+  ///
+  /// The warm pass runs first and its result replaces whatever an earlier one
+  /// left, so a rerun writes documents from the loads it just took rather than
+  /// from the file it booted with. Every file the last run wrote is removed
+  /// first, from the list it left in `prerendered.json`, so a path that
+  /// dropped out of `paths` is not served from a stale file; a file nothing
+  /// recorded is left alone.
+  pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
+    let t = self.tables();
+    let mut written = Vec::new();
+    clear_written(out)?;
+    let warmed = self.warm(&t).await?;
+    t.warm.replace(warmed.clone());
+    if !warmed.is_empty() {
+      std::fs::create_dir_all(out).map_err(|e| HostError::Io(out.to_path_buf(), e))?;
+      let file = out.join(LOADS_FILE);
+      std::fs::write(&file, warm_to_json(&warmed)).map_err(|e| HostError::Io(file.clone(), e))?;
+      written.push((LOADS_FILE.to_owned(), file));
+    }
+    for pattern in t
+      .app
+      .prerenderable
+      .iter()
+      .chain(t.app.prerenderable_anonymous.iter())
+      .cloned()
+      .collect::<Vec<_>>()
+    {
+      for tag in t.locales.supported.clone() {
+        let locale = t.locales.locale(&tag);
+        let root = if locale.is_default {
+          out.to_path_buf()
+        } else {
+          out.join(&tag)
+        };
+        let paths = match t.app.paths.get(&pattern) {
+          Some(enumerated) => {
+            let ctx = self.ctx(&t, Incoming::anonymous(SessionCell::default()), Params::new(), Params::new(), "/", locale.clone());
+            let sets = enumerated.paths(&ctx).await.map_err(|e| HostError::Paths(pattern.clone(), e.message))?;
+            sets.iter().map(|set| fill_pattern(&pattern, set)).collect::<Result<Vec<_>, _>>()?
+          }
+          None => vec![pattern.clone()],
+        };
+        for path in paths {
+          let dir = root.join(path.trim_matches('/'));
+          std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
+          let served = if locale.is_default {
+            path.clone()
+          } else {
+            format!("/{tag}{}", path.trim_end_matches('/'))
+          };
+          for (mode, name) in [(RenderMode::Html, "index.html"), (RenderMode::Payload, "index.payload")] {
+            let (plan, params) = self
+              .plan_for(&t, &path)
+              .ok_or_else(|| HostError::NotFound(path.clone()))?;
+            let rendered = self
+              .render_plan_with(
+                &t,
+                &plan,
+                params,
+                Params::new(),
+                mode,
+                Incoming::anonymous(SessionCell::default()),
+                &served,
+                &locale,
+                t.head_for(&locale.tag).as_ref().unwrap_or(&t.head),
+              )
+              .await?;
+            if let Some(kind) = rendered.failed {
+              tracing::warn!(target: "fsr::host", path = %served, kind = kind.as_str(), "prerender: the page's loader failed, so no file is written for it");
+              break;
+            }
+            let text: String = rendered.chunks.collect::<Vec<_>>().await.concat();
+            let file = dir.join(name);
+            std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
+            written.push((served.clone(), file));
+          }
+        }
+      }
+    }
+    if !t.app.renderable.is_empty() {
+      t.renders.replace(HashMap::new());
+      t.renders.record(true);
+      for (pattern, subtree) in &t.app.renderable {
+        for tag in t.locales.supported.clone() {
+          let locale = t.locales.locale(&tag);
+          let paths = match t.app.paths.get(pattern) {
+            Some(enumerated) => {
+              let ctx = self.ctx(&t, Incoming::anonymous(SessionCell::default()), Params::new(), Params::new(), "/", locale.clone());
+              let sets = enumerated.paths(&ctx).await.map_err(|e| HostError::Paths(pattern.clone(), e.message))?;
+              sets.iter().map(|set| fill_pattern(pattern, set)).collect::<Result<Vec<_>, _>>()?
+            }
+            None => vec![pattern.clone()],
+          };
+          for path in paths {
+            let Some((_, params)) = self.plan_for(&t, &path) else { continue };
+            let ctx = self.ctx(&t, Incoming::anonymous(SessionCell::default()), params, Params::new(), &path, locale.clone());
+            if let Err(e) = assemble(&t.app.runtime, subtree, &ctx, &t.head).await {
+              tracing::warn!(target: "fsr::cache", pattern = %pattern, module = %subtree.module, error = %e, "warm render failed");
+            }
+          }
+        }
+      }
+      t.renders.record(false);
+      let entries = t.renders.entries();
+      if !entries.is_empty() {
+        std::fs::create_dir_all(out).map_err(|e| HostError::Io(out.to_path_buf(), e))?;
+        let file = out.join(RENDERS_FILE);
+        std::fs::write(&file, renders_to_json(&entries)).map_err(|e| HostError::Io(file.clone(), e))?;
+        written.push((RENDERS_FILE.to_owned(), file));
+      }
+    }
+    // The documents' import map names the client under `client::ROUTE`, which
+    // this host answers from the binary; a directory served by anything else
+    // needs the files, so they go beside the documents whenever a document was written.
+    if t.client && written.iter().any(|(_, file)| file.extension().is_some_and(|e| e == "html")) {
+      let dir = out.join(client::ROUTE.trim_start_matches('/'));
+      std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
+      for (name, _) in client::FILES {
+        let Some(body) = client::get(name, t.client_minified) else { continue };
+        let file = dir.join(name);
+        std::fs::write(&file, body).map_err(|e| HostError::Io(file.clone(), e))?;
+        written.push((format!("{}/{name}", client::ROUTE), file));
+      }
+    }
+    if !written.is_empty() {
+      let listed: Vec<String> = written.iter().filter_map(|(_, file)| file.strip_prefix(out).ok()).map(|rel| rel.to_string_lossy().replace('\\', "/")).collect();
+      let file = out.join(WRITTEN_FILE);
+      std::fs::write(&file, serde_json::to_string_pretty(&listed).expect("a list of paths serializes")).map_err(|e| HostError::Io(file.clone(), e))?;
+      written.push((WRITTEN_FILE.to_owned(), file));
+    }
+    Ok(written)
+  }
+
+  /// Runs every warmable source once per locale with nothing of a request
+  /// behind it, keyed the way a request will key it. A source that fails is
+  /// left out rather than written as a failure: a request loads it live and
+  /// degrades to its error node the way it does without a warm pass.
+  pub(crate) async fn warm(&self, t: &Tables) -> Result<HashMap<String, Data>, HostError> {
+    let mut warmed = HashMap::new();
+    for name in &t.app.warmable {
+      let id = snapfire_fsr_core::DataSourceId(name.clone());
+      let Some(source) = t.app.runtime.sources.get(&id) else {
+        continue;
+      };
+      for tag in t.locales.supported.clone() {
+        let locale = t.locales.locale(&tag);
+        let ctx = self.ctx(
+          t,
+          Incoming::anonymous(SessionCell::default()),
+          Params::new(),
+          Params::new(),
+          "/",
+          locale,
+        );
+        let Some(key) = t.app.runtime.load_keyer.key(&id, &ctx) else {
+          continue;
+        };
+        if warmed.contains_key(&key) {
+          continue;
+        }
+        match source.load(&ctx).await {
+          Ok(data) => {
+            warmed.insert(key, data);
+          }
+          Err(e) => tracing::warn!(target: "fsr::load", source = %name, error = %e, "warm load failed"),
+        }
+      }
+    }
+    Ok(warmed)
+  }
+
+  /// The prerendered text for `path` in `mode`, when the prerender directory
+  /// holds one. `path` may carry a locale prefix. The query string is
+  /// ignored: a prerenderable route reads none.
+  pub fn prerendered(&self, path: &str, mode: RenderMode) -> Option<String> {
+    let t = self.tables();
+    let path = path.split_once('?').map(|(p, _)| p).unwrap_or(path);
+    let visit = t.locales.resolve(path, None, None);
+    self.prerendered_in(&t, &visit.path, &mode, &visit.locale, true)
+  }
+
+  /// `anonymous` says the request carries no identity; a route prerendered
+  /// for anonymous visitors only serves its file then. The route is found by
+  /// matching, since a pattern with `paths` covers many files.
+  pub(crate) fn prerendered_in(
+    &self,
+    t: &Tables,
+    path: &str,
+    mode: &RenderMode,
+    locale: &Locale,
+    anonymous: bool,
+  ) -> Option<String> {
+    let dir = t.prerendered.as_ref()?;
+    if !anonymous {
+      let matched = t.app.matcher.match_path(path).or_else(|| t.app.matcher.match_path(path.trim_end_matches('/')));
+      let pattern = matched.and_then(|m| t.app.patterns.get(m.entry.0 as usize));
+      if pattern.is_some_and(|pattern| t.app.prerenderable_anonymous.contains(pattern)) {
+        return None;
+      }
+    }
+    let root = if locale.is_default {
+      dir.clone()
+    } else {
+      dir.join(&locale.tag)
+    };
+    let name = match mode {
+      RenderMode::Html => "index.html",
+      RenderMode::Payload => "index.payload",
+      RenderMode::Fragment(_) => return None,
+    };
+    std::fs::read_to_string(root.join(path.trim_matches('/')).join(name)).ok()
+  }
+}
