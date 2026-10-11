@@ -26,6 +26,8 @@ pub(crate) enum Construct {
   StoreKey,
   /// The store's `derive`, which computes a key from its sources.
   Derive,
+  /// A call the store exports that a handler may make: `set`, `clear`, `transaction` or `optimistic`.
+  StoreCall(&'static str),
   /// `action` or `fail` from the server tier.
   Server(&'static str),
   /// The client's `action("id")`, a handler's reference to an action by its id.
@@ -93,6 +95,14 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr-client", "key", Construct::StoreKey),
   ("@snapfire/fsr-client/store", "derive", Construct::Derive),
   ("@snapfire/fsr-client", "derive", Construct::Derive),
+  ("@snapfire/fsr-client/store", "set", Construct::StoreCall("set")),
+  ("@snapfire/fsr-client", "set", Construct::StoreCall("set")),
+  ("@snapfire/fsr-client/store", "clear", Construct::StoreCall("clear")),
+  ("@snapfire/fsr-client", "clear", Construct::StoreCall("clear")),
+  ("@snapfire/fsr-client/store", "transaction", Construct::StoreCall("transaction")),
+  ("@snapfire/fsr-client", "transaction", Construct::StoreCall("transaction")),
+  ("@snapfire/fsr-client/store", "optimistic", Construct::StoreCall("optimistic")),
+  ("@snapfire/fsr-client", "optimistic", Construct::StoreCall("optimistic")),
   ("@snapfire/fsr-client", "action", Construct::ClientAction),
   ("@snapfire/fsr", "action", Construct::Server("action")),
   ("@snapfire/fsr", "fail", Construct::Server("fail")),
@@ -167,6 +177,14 @@ impl Meaning {
   pub(crate) fn hook(&self) -> Option<&'static str> {
     match self {
       Meaning::Library(Construct::Hook(name)) => Some(name),
+      _ => None,
+    }
+  }
+
+  /// The store's handler call this is: `set`, `clear`, `transaction` or `optimistic`.
+  pub(crate) fn store_call(&self) -> Option<&'static str> {
+    match self {
+      Meaning::Library(Construct::StoreCall(name)) => Some(name),
       _ => None,
     }
   }

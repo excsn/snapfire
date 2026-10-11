@@ -198,6 +198,11 @@ impl ComponentSet {
     self.lower_of_data(file, "store")
   }
 
+  /// The loader module's `defaults`, when it exports one: seeds a browser write outranks.
+  pub fn lower_defaults(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
+    self.lower_of_data(file, "defaults")
+  }
+
   /// The store keys `file` reads through `useStore`, for an island the server
   /// does not render, so a first wave can hold its mount while a key it reads
   /// is pending. A key is a literal or a `key()` the build follows through an
@@ -718,7 +723,7 @@ impl ComponentSet {
         lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new() };
         let result = cl.component(&function);
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
@@ -2805,6 +2810,8 @@ struct ComponentLowerer<'a, 'p> {
   state_bindings: Vec<String>,
   /// The `useStore` bindings among `state_bindings`, with the key each reads.
   store_bindings: Vec<(String, String)>,
+  /// A `let` per store key a handler writes without the component reading it: bound to the key the way a `useStore` is, so the patch carries it.
+  store_lets: Vec<Stmt>,
   /// Each setter and the state it sets.
   setters: Vec<(String, String)>,
   /// Handler functions declared in the component, by name, for `onClick={add}`.
@@ -3046,6 +3053,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
+    let mut lets = lets;
+    lets.extend(std::mem::take(&mut self.store_lets));
     Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None, scope: None }, std::mem::take(&mut self.refs)))
   }
 
@@ -3597,7 +3606,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         match self.handler_attr(attr) {
           Ok(index) => attrs.push(Entry::Field(format!("{HANDLER_ATTR}{event}"), Expr::Lit(Lit::Int(index as i128)))),
+          Err(residue) if self.unbound_is_followable() => return Err(residue),
           Err(residue) => {
+            self.lowerer.unbound = None;
             if !attrs.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
               attrs.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{}:{}: {}", residue.line, residue.column, residue.message))));
             }
@@ -3865,7 +3876,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         js::Stmt::Return(r) if r.arg.is_none() => return Ok(true),
         js::Stmt::If(branch) => self.handler_if(branch, walk)?,
-        other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")),
+        js::Stmt::Try(t) => {
+          if t.finalizer.is_some() {
+            return Err(self.lowerer.residue(t.span, "a `finally` in a handler"));
+          }
+          if self.handler_block(&t.block.stmts, walk)? {
+            return Ok(true);
+          }
+        }
+        other => return Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters, writes to the store and calls to actions")),
       }
     }
     Ok(false)
@@ -3955,7 +3974,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               walk.act(action, input);
               return Ok(());
             }
-            Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter, an action or a handler this component declares")))
+            if let Some(store_call) = self.meanings().of_expr(callee).and_then(|meant| meant.store_call()) {
+              return self.store_call(store_call, call, walk);
+            }
+            Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter, a write to the store, an action or a handler this component declares")))
           }
           js::Expr::Member(m) => {
             let method = match &m.prop {
@@ -3980,6 +4002,86 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")),
     }
+  }
+
+  /// Whether the name a handler's residue left unbound is one the set can
+  /// read, an import of the application's own, so the residue is worth
+  /// returning for the resolving loop to follow rather than recording as the
+  /// browser's handler.
+  fn unbound_is_followable(&self) -> bool {
+    let Some(name) = &self.lowerer.unbound else { return false };
+    matches!(self.meanings().bindings.get(name), Some(crate::meaning::Meaning::Own { .. }))
+  }
+
+  /// `set(key, value)`, `clear(key)`, `transaction(() => { … })` and
+  /// `optimistic(key, guess, () => act(input))` in a handler. A write goes
+  /// into the patch under the state bound to the key, the `useStore` binding
+  /// when the component reads the key and a `let` of its own otherwise. A
+  /// transaction is its closure's statements, since a patch is applied whole.
+  /// `optimistic` is the write and the action; the host refuses the patch
+  /// when the action fails, which is the restore the browser does by hand.
+  fn store_call(&mut self, name: &'static str, call: &'p js::CallExpr, walk: &mut HandlerWalk) -> Lowered<()> {
+    match name {
+      "set" | "clear" => {
+        let key = self.store_key_arg(call)?;
+        let value = match (name, call.args.get(1)) {
+          ("set", Some(arg)) => self.lowerer.expr(&arg.expr)?,
+          ("set", None) => return Err(self.lowerer.residue(call.span, "`set` without a value")),
+          _ => Expr::Lit(Lit::Null),
+        };
+        let state = self.store_state(&key);
+        walk.set(state, value);
+        Ok(())
+      }
+      "transaction" => {
+        let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`transaction` without a function")) };
+        match &*arg.expr {
+          js::Expr::Arrow(arrow) => {
+            let params = arrow.params.clone();
+            self.handler_fn_into(&params, arrow_body(arrow), walk)
+          }
+          other => Err(self.lowerer.residue(other.span(), "a `transaction` whose work is not an arrow")),
+        }
+      }
+      _ => {
+        let key = self.store_key_arg(call)?;
+        let Some(guess) = call.args.get(1) else { return Err(self.lowerer.residue(call.span, "`optimistic` without a guess")) };
+        let guess = self.lowerer.expr(&guess.expr)?;
+        let state = self.store_state(&key);
+        walk.set(state, guess);
+        let Some(remote) = call.args.get(2) else { return Err(self.lowerer.residue(call.span, "`optimistic` without the action it runs")) };
+        match &*remote.expr {
+          js::Expr::Arrow(arrow) => {
+            let params = arrow.params.clone();
+            self.handler_fn_into(&params, arrow_body(arrow), walk)
+          }
+          other => Err(self.lowerer.residue(other.span(), "an `optimistic` whose remote is not an arrow calling an action")),
+        }
+      }
+    }
+  }
+
+  /// The key a store call names, a string the build can read.
+  fn store_key_arg(&mut self, call: &'p js::CallExpr) -> Lowered<String> {
+    let Some(first) = call.args.first() else { return Err(self.lowerer.residue(call.span, "a store call without a key")) };
+    match self.lowerer.expr(&first.expr)? {
+      Expr::Lit(Lit::Str(key)) => Ok(key),
+      _ => Err(self.lowerer.residue(first.expr.span(), "a store key that is not a string the build can read")),
+    }
+  }
+
+  /// The state name bound to `key`: the `useStore` binding reading it, else a
+  /// binding made here so the handler's patch has a name the key rides under.
+  fn store_state(&mut self, key: &str) -> String {
+    if let Some((name, _)) = self.store_bindings.iter().find(|(_, k)| k == key) {
+      return name.clone();
+    }
+    let name = format!("$store{}", self.store_bindings.len());
+    self.state.push(name.clone());
+    self.state_bindings.push(name.clone());
+    self.store_bindings.push((name.clone(), key.to_owned()));
+    self.store_lets.push(Stmt::Let { name: name.clone(), expr: Expr::Store(key.to_owned()) });
+    name
   }
 
   /// `const Lazy = island(Chart, { when: "visible" })` at module scope, when
@@ -4122,7 +4224,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if let Some(lowered) = self.handler_prop(attr, &raw) {
         match lowered {
           Ok(index) => props.push(Entry::Field(raw, Expr::Handler(index as u32))),
+          Err(residue) if self.unbound_is_followable() => return Err(residue),
           Err(residue) => {
+            self.lowerer.unbound = None;
             if !props.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
               props.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{}:{}: {}", residue.line, residue.column, residue.message))));
             }
@@ -4664,7 +4768,7 @@ export function Lot({ size }: { size: number }) {
       Entry::Field(n, Expr::Lit(Lit::Str(why))) if n == UNLOWERED_ATTR => Some(why.clone()),
       _ => None,
     });
-    assert!(unlowered.is_some_and(|why| why.contains("not a state setter, an action or a handler")), "a call to something else is still residue: {attrs:?}");
+    assert!(unlowered.is_some_and(|why| why.contains("not a state setter, a write to the store, an action or a handler")), "a call to something else is still residue: {attrs:?}");
   }
 
   #[test]
@@ -4773,6 +4877,76 @@ export function Gate({ limit }: { limit: number }) {
       _ => None,
     });
     assert!(unlowered.is_some_and(|why| why.contains("sets no state")), "a branch that sets nothing is still a handler that sets nothing: {attrs:?}");
+  }
+
+  #[test]
+  fn a_react_handler_writes_the_store_through_set_transaction_and_optimistic() {
+    let files = [
+      (
+        "routes/index/page.tsx",
+        r#"
+import { Island } from "@snapfire/fsr-client/react";
+import { Sizes } from "@src/Sizes";
+import { Stepper } from "@src/Stepper";
+export default function Page() {
+  return <main><Island mode="server"><Sizes /></Island><Island mode="server"><Stepper /></Island></main>;
+}
+"#,
+      ),
+      (
+        "src/keys.ts",
+        r#"
+import { key } from "@snapfire/fsr-client/store";
+export const size = key<string>("order/size");
+export const price = key<number>("order/price");
+export const qty = key<number>("order/qty");
+"#,
+      ),
+      (
+        "src/Sizes.tsx",
+        r#"
+import { useStore } from "@snapfire/fsr-client/react";
+import { set, transaction } from "@snapfire/fsr-client/store";
+import { price, size } from "@src/keys";
+export function Sizes() {
+  const [chosen] = useStore(size, "250g");
+  return <button className={chosen} onClick={() => transaction(() => { set(size, "1kg"); set(price, 40); })}>1kg</button>;
+}
+"#,
+      ),
+      (
+        "src/Stepper.tsx",
+        r#"
+import { useStore } from "@snapfire/fsr-client/react";
+import { optimistic } from "@snapfire/fsr-client/store";
+import { action } from "@snapfire/fsr-client";
+import { qty } from "@src/keys";
+const setQty = action("order.setQty");
+export function Stepper() {
+  const [count] = useStore(qty, 1);
+  return (
+    <div>
+      <button onClick={() => optimistic(qty, count + 1, () => setQty({ qty: count + 1 }))}>+</button>
+      <button onClick={async () => { try { await optimistic(qty, count - 1, () => setQty({ qty: count - 1 })); } catch (e) { console.error(e); } }}>-</button>
+    </div>
+  );
+}
+"#,
+      ),
+    ];
+    let set = set(&files, "routes/index/page.tsx#default");
+    let sizes = &set.components.iter().find(|(m, _)| m == "src/Sizes.tsx#Sizes").unwrap().1;
+    assert_eq!(sizes.stores, [("chosen".to_owned(), "order/size".to_owned()), ("$store1".to_owned(), "order/price".to_owned())], "the key the component does not read gets a binding of its own: {:?}", sizes.stores);
+    assert_eq!(sizes.body.last(), Some(&Stmt::Let { name: "$store1".to_owned(), expr: Expr::Store("order/price".to_owned()) }));
+    assert_eq!(sizes.handlers.len(), 1);
+    assert_eq!(sizes.handlers[0].body, vec![Stmt::Return(Expr::Object(vec![Entry::Field("chosen".to_owned(), Expr::lit_str("1kg")), Entry::Field("$store1".to_owned(), Expr::Lit(Lit::Float(40.0)))]))]);
+    let stepper = &set.components.iter().find(|(m, _)| m == "src/Stepper.tsx#Stepper").unwrap().1;
+    assert_eq!(stepper.stores, [("count".to_owned(), "order/qty".to_owned())]);
+    assert_eq!(stepper.handlers.len(), 2);
+    let up = Expr::Arith(snapfire_fsr_ir::ArithOp::Add, Box::new(Expr::var("count")), Box::new(Expr::Lit(Lit::Float(1.0))));
+    assert_eq!(stepper.handlers[0].body, vec![Stmt::Act { action: "order.setQty".to_owned(), input: Expr::Object(vec![Entry::Field("qty".to_owned(), up.clone())]) }, Stmt::Return(Expr::Object(vec![Entry::Field("count".to_owned(), up)]))]);
+    let down = Expr::Arith(snapfire_fsr_ir::ArithOp::Sub, Box::new(Expr::var("count")), Box::new(Expr::Lit(Lit::Float(1.0))));
+    assert_eq!(stepper.handlers[1].body, vec![Stmt::Act { action: "order.setQty".to_owned(), input: Expr::Object(vec![Entry::Field("qty".to_owned(), down.clone())]) }, Stmt::Return(Expr::Object(vec![Entry::Field("count".to_owned(), down)]))], "the try's catch is the browser's; the server refuses the patch when the action fails");
   }
 
   #[test]
