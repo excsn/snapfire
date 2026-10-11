@@ -11,6 +11,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
   let two = |head: &str, a: &Expr, b: &Expr| form(head, vec![expr_to_sx(a), expr_to_sx(b)]);
   match expr {
     Expr::Lit(lit) => lit_to_sx(lit),
+    Expr::Folded(_) => unreachable!("a folded value is never written to a plan"),
     Expr::Var(name) => {
       if reserved_atom(name) {
         form("var", vec![Sx::Sym(name.clone())])

@@ -529,11 +529,20 @@ impl Env {
       .ok_or_else(|| Fail::internal(format!("`{name}` is not bound")))
   }
 
+  /// Whether `expr` is truthy, read through its place when it has one.
+  pub(crate) fn truth_of(&mut self, expr: &Expr) -> Result<bool, Fail> {
+    match self.place(expr) {
+      Some(value) => Ok(truthy(value)),
+      None => Ok(truthy(&self.eval_sync(expr)?)),
+    }
+  }
+
   /// `None` is always safe: it means the caller must evaluate the expression,
   /// never that the expression has no value.
-  pub(crate) fn place(&self, expr: &Expr) -> Option<&Value> {
+  pub(crate) fn place<'a>(&'a self, expr: &'a Expr) -> Option<&'a Value> {
     match expr {
       Expr::Var(name) => self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, v)| v),
+      Expr::Folded(value) => Some(value),
       Expr::Store(key) => self.store.get(key),
       Expr::Session(key) => self.session.get(key),
       Expr::Const(key) => self.held.get(key),
@@ -543,7 +552,9 @@ impl Env {
       },
       Expr::Index(target, key) => match (self.place(target)?, &**key) {
         (Value::Map(map), Expr::Lit(Lit::Str(k))) => map.get(k.as_str()),
+        (Value::Map(map), Expr::Folded(Value::Str(k))) => map.get(k.as_str()),
         (Value::Seq(items), Expr::Lit(Lit::Int(i))) => usize::try_from(*i).ok().and_then(|i| items.get(i)),
+        (Value::Seq(items), Expr::Folded(Value::Int(i))) => usize::try_from(*i).ok().and_then(|i| items.get(i)),
         _ => None,
       },
       _ => None,
@@ -775,6 +786,7 @@ impl Env {
       Expr::Input => Ok(self.input.clone()),
       Expr::Now => Ok(Value::Int(self.clock.now())),
       Expr::Var(name) => self.lookup(name),
+      Expr::Folded(value) => Ok(value.clone()),
       Expr::Lit(lit) => Ok(match lit {
         Lit::Null => Value::Null,
         Lit::Bool(b) => Value::Bool(*b),
@@ -843,24 +855,33 @@ impl Env {
         arith(*op, l, r)
       }
       Expr::Compare(op, l, r) => {
+        if let (Some(lv), Some(rv)) = (self.place(l), self.place(r)) {
+          return compare(*op, lv, rv).map(Value::Bool);
+        }
         let l = self.eval_sync(l)?;
         let r = self.eval_sync(r)?;
         compare(*op, &l, &r).map(Value::Bool)
       }
       Expr::Logic(op, l, r) => {
+        if let Some(lv) = self.place(l) {
+          return match (op, truthy(lv)) {
+            (LogicOp::And, false) | (LogicOp::Or, true) => Ok(lv.clone()),
+            _ => self.eval_sync(r),
+          };
+        }
         let l = self.eval_sync(l)?;
         match (op, truthy(&l)) {
           (LogicOp::And, false) | (LogicOp::Or, true) => Ok(l),
           _ => self.eval_sync(r),
         }
       }
-      Expr::Not(e) => Ok(Value::Bool(!truthy(&self.eval_sync(e)?))),
+      Expr::Not(e) => Ok(Value::Bool(!self.truth_of(e)?)),
       Expr::Coalesce(l, r) => match self.eval_sync(l)? {
         Value::Null => self.eval_sync(r),
         v => Ok(v),
       },
       Expr::Ternary(c, t, e) => {
-        if truthy(&self.eval_sync(c)?) {
+        if self.truth_of(c)? {
           self.eval_sync(t)
         } else {
           self.eval_sync(e)
@@ -869,7 +890,10 @@ impl Env {
       Expr::Template(parts) => {
         let mut out = String::new();
         for part in parts {
-          out.push_str(&stringify(&self.eval_sync(part)?)?);
+          match self.place(part) {
+            Some(value) => out.push_str(&scalar_str(value)?),
+            None => out.push_str(&stringify(&self.eval_sync(part)?)?),
+          }
         }
         Ok(Value::str(out))
       }
@@ -967,7 +991,7 @@ impl Env {
             let (mut a, mut b) = (start, mid);
             while a < mid && b < end {
               let order = match &**f {
-                Expr::Lit(Lit::Null) => default_order(&items[a], &items[b])?,
+                Expr::Lit(Lit::Null) | Expr::Folded(Value::Null) => default_order(&items[a], &items[b])?,
                 f => comparator_order(&self.apply_sync(f, vec![items[a].clone(), items[b].clone()])?),
               };
               if order > 0.0 {
@@ -1138,6 +1162,7 @@ impl Env {
         Expr::Input => Ok(self.input.clone()),
         Expr::Now => Ok(Value::Int(self.clock.now())),
         Expr::Var(name) => self.lookup(name),
+        Expr::Folded(value) => Ok(value.clone()),
         Expr::Lit(lit) => Ok(match lit {
           Lit::Null => Value::Null,
           Lit::Bool(b) => Value::Bool(*b),
@@ -1330,7 +1355,7 @@ impl Env {
               let (mut a, mut b) = (start, mid);
               while a < mid && b < end {
                 let order = match &**f {
-                  Expr::Lit(Lit::Null) => default_order(&items[a], &items[b])?,
+                  Expr::Lit(Lit::Null) | Expr::Folded(Value::Null) => default_order(&items[a], &items[b])?,
                   f => comparator_order(&self.apply(f, vec![items[a].clone(), items[b].clone()]).await?),
                 };
                 if order > 0.0 {

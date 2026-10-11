@@ -700,8 +700,14 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
   match tmpl {
     Tmpl::Text(text) => out.text(text, env.markup),
     Tmpl::Expr(expr) => {
-      let value = env.eval_sync(expr)?;
-      interpolate(&value, out, env.markup)?;
+      let markup = env.markup;
+      match env.place(expr) {
+        Some(value) => interpolate(value, out, markup)?,
+        None => {
+          let value = env.eval_sync(expr)?;
+          interpolate(&value, out, markup)?;
+        }
+      }
     }
     Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
@@ -722,8 +728,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
       }
     }
     Tmpl::If { cond, then, r#else } => {
-      let value = env.eval_sync(cond)?;
-      if truthy(&value) {
+      if env.truth_of(cond)? {
         render_vue_wrapped(env, then, library, slots, out)?;
       } else if let Some(other) = r#else {
         render_vue_wrapped(env, other, library, slots, out)?;
@@ -1020,7 +1025,7 @@ fn stamped(attrs: &[Entry], root: &[String], slotted: &[String]) -> Vec<Entry> {
   let present = |name: &str| Entry::Field(name.to_owned(), crate::ast::Expr::Lit(crate::ast::Lit::Bool(true)));
   let mut attrs = attrs.to_vec();
   if !root.is_empty() {
-    let at = attrs.iter().rposition(|a| matches!(a, Entry::Field(n, crate::ast::Expr::Lit(crate::ast::Lit::Bool(true))) if n.starts_with("data-v-"))).unwrap_or(attrs.len());
+    let at = attrs.iter().rposition(|a| matches!(a, Entry::Field(n, crate::ast::Expr::Lit(crate::ast::Lit::Bool(true)) | crate::ast::Expr::Folded(Value::Bool(true))) if n.starts_with("data-v-"))).unwrap_or(attrs.len());
     for (i, name) in root.iter().enumerate() {
       attrs.insert(at + i, present(name));
     }
@@ -1490,27 +1495,138 @@ pub fn css_name(key: &str) -> String {
 /// when a component is put into a [`Components`] library and an element it
 /// cannot bake is left exactly as it was.
 pub fn prepare(component: &Component) -> Component {
-  Component { body: component.body.clone(), render: prepare_tmpl(&component.render), state: component.state.clone(), stores: component.stores.clone(), handlers: component.handlers.clone(), owner: component.owner, shadow: component.shadow, scope: component.scope.clone() }
+  let mut body = component.body.clone();
+  for stmt in &mut body {
+    if let Stmt::Let { expr, .. } = stmt {
+      fold_expr(expr);
+    }
+  }
+  Component { body, render: prepare_tmpl(&component.render), state: component.state.clone(), stores: component.stores.clone(), handlers: component.handlers.clone(), owner: component.owner, shadow: component.shadow, scope: component.scope.clone() }
 }
 
+/// `tmpl` with its literal open tags baked and every constant expression folded.
 fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
   match tmpl {
     Tmpl::Element { tag, attrs, children } => {
       let children: Vec<Tmpl> = children.iter().map(prepare_tmpl).collect();
       match baked_open(tag, attrs) {
         Some(open) => Tmpl::Baked { open, tag: Some(tag.clone()), children },
-        None => Tmpl::Element { tag: tag.clone(), attrs: baked_attrs(tag, attrs), children },
+        None => {
+          let mut attrs = baked_attrs(tag, attrs);
+          fold_entries(&mut attrs);
+          Tmpl::Element { tag: tag.clone(), attrs, children }
+        }
       }
     }
+    Tmpl::Expr(expr) => Tmpl::Expr(folded(expr)),
     Tmpl::Fragment(children) => Tmpl::Fragment(children.iter().map(prepare_tmpl).collect()),
-    Tmpl::If { cond, then, r#else } => Tmpl::If { cond: cond.clone(), then: Box::new(prepare_tmpl(then)), r#else: r#else.as_ref().map(|other| Box::new(prepare_tmpl(other))) },
-    Tmpl::For { over, params, body } => Tmpl::For { over: over.clone(), params: params.clone(), body: Box::new(prepare_tmpl(body)) },
-    Tmpl::Let { name, expr, then } => Tmpl::Let { name: name.clone(), expr: expr.clone(), then: Box::new(prepare_tmpl(then)) },
-    Tmpl::Component { module, props, children, id, keyed } => Tmpl::Component { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), id: *id, keyed: *keyed },
-    Tmpl::Island { module, props, children, when, mode, id, define } => {
-      Tmpl::Island { module: module.clone(), props: props.clone(), children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id, define: *define }
+    Tmpl::If { cond, then, r#else } => Tmpl::If { cond: folded(cond), then: Box::new(prepare_tmpl(then)), r#else: r#else.as_ref().map(|other| Box::new(prepare_tmpl(other))) },
+    Tmpl::For { over, params, body } => Tmpl::For { over: folded(over), params: params.clone(), body: Box::new(prepare_tmpl(body)) },
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name: name.clone(), expr: folded(expr), then: Box::new(prepare_tmpl(then)) },
+    Tmpl::Component { module, props, children, id, keyed } => {
+      let mut props = props.clone();
+      fold_entries(&mut props);
+      Tmpl::Component { module: module.clone(), props, children: children.iter().map(prepare_tmpl).collect(), id: *id, keyed: *keyed }
     }
-    other => other.clone(),
+    Tmpl::Island { module, props, children, when, mode, id, define } => {
+      let mut props = props.clone();
+      fold_entries(&mut props);
+      Tmpl::Island { module: module.clone(), props, children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id, define: *define }
+    }
+    Tmpl::Baked { open, tag, children } => Tmpl::Baked { open: open.clone(), tag: tag.clone(), children: children.iter().map(prepare_tmpl).collect() },
+    Tmpl::Text(_) | Tmpl::Slot(_) => tmpl.clone(),
+  }
+}
+
+fn folded(expr: &crate::ast::Expr) -> crate::ast::Expr {
+  let mut expr = expr.clone();
+  fold_expr(&mut expr);
+  expr
+}
+
+fn fold_entries(entries: &mut [Entry]) {
+  for entry in entries {
+    match entry {
+      Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => fold_expr(e),
+      Entry::Computed(k, v) => {
+        fold_expr(k);
+        fold_expr(v);
+      }
+      Entry::Baked(_) => {}
+    }
+  }
+}
+
+fn lit_value(lit: &crate::ast::Lit) -> Value {
+  use crate::ast::Lit;
+  match lit {
+    Lit::Null => Value::Null,
+    Lit::Bool(b) => Value::Bool(*b),
+    Lit::Int(n) => Value::Int(*n),
+    Lit::Float(f) => Value::F64(*f),
+    Lit::Str(s) => Value::str(s.clone()),
+  }
+}
+
+/// Folds `expr` bottom up: a literal becomes its value; an object or array
+/// whose entries are all folded becomes the value they build; a template
+/// whose parts are all folded becomes the string they print. Anything else
+/// keeps its shape with its children folded.
+fn fold_expr(expr: &mut crate::ast::Expr) {
+  use crate::ast::Expr;
+  match expr {
+    Expr::Lit(lit) => *expr = Expr::Folded(lit_value(lit)),
+    Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) | Expr::Lambda { .. } => {}
+    Expr::Object(entries) => {
+      fold_entries(entries);
+      if entries.iter().all(|entry| matches!(entry, Entry::Field(_, Expr::Folded(_)))) {
+        let mut map = ValueMap::default();
+        for entry in entries.iter() {
+          if let Entry::Field(name, Expr::Folded(value)) = entry {
+            map.insert(name.clone(), value.clone());
+          }
+        }
+        *expr = Expr::Folded(Value::Map(map));
+      }
+    }
+    Expr::Array(entries) => {
+      fold_entries(entries);
+      if entries.iter().all(|entry| matches!(entry, Entry::Item(Expr::Folded(_)))) {
+        let items: Vec<Value> = entries.iter().filter_map(|entry| match entry { Entry::Item(Expr::Folded(value)) => Some(value.clone()), _ => None }).collect();
+        *expr = Expr::Folded(Value::seq(items));
+      }
+    }
+    Expr::Template(parts) => {
+      parts.iter_mut().for_each(fold_expr);
+      if parts.iter().all(|part| matches!(part, Expr::Folded(_))) {
+        let mut text = String::new();
+        for part in parts.iter() {
+          if let Expr::Folded(value) = part {
+            match crate::interp::stringify(value) {
+              Ok(piece) => text.push_str(&piece),
+              Err(_) => return,
+            }
+          }
+        }
+        *expr = Expr::Folded(Value::str(text));
+      }
+    }
+    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } => fold_expr(e),
+    Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b) | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b) | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => {
+      fold_expr(a);
+      fold_expr(b);
+    }
+    Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) | Expr::ReplaceWith(a, b, c) => {
+      fold_expr(a);
+      fold_expr(b);
+      fold_expr(c);
+    }
+    Expr::Builtin { args: items, .. } | Expr::Ext { args: items, .. } => items.iter_mut().for_each(fold_expr),
+    Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| fold_expr(e)),
+    Expr::Apply { f, args } => {
+      fold_expr(f);
+      args.iter_mut().for_each(fold_expr);
+    }
   }
 }
 
@@ -1684,7 +1800,7 @@ pub const UNLOWERED_ATTR: &str = "$unlowered";
 
 fn chunk_id(attrs: &[Entry]) -> Option<u32> {
   attrs.iter().find_map(|entry| match entry {
-    Entry::Field(name, crate::ast::Expr::Lit(crate::ast::Lit::Int(id))) if name == CHUNK_ATTR => Some(*id as u32),
+    Entry::Field(name, crate::ast::Expr::Lit(crate::ast::Lit::Int(id))) | Entry::Field(name, crate::ast::Expr::Folded(Value::Int(id))) if name == CHUNK_ATTR => Some(*id as u32),
     _ => None,
   })
 }
@@ -1881,6 +1997,42 @@ fn unset_property(tag: &str, name: &str, value: &Value) -> Fail {
 mod tests {
   use super::*;
   use crate::ast::{Builtin, Expr, Lit, Stmt};
+
+  #[test]
+  fn prepare_folds_what_is_constant_and_leaves_what_reads_the_scope() {
+    let object = Expr::Object(vec![Entry::Field("a".to_owned(), Expr::Lit(Lit::Str("x".to_owned()))), Entry::Field("n".to_owned(), Expr::Lit(Lit::Int(1)))]);
+    let template = Expr::Template(vec![Expr::Lit(Lit::Str("p-".to_owned())), Expr::Lit(Lit::Str("q".to_owned()))]);
+    let read = Expr::Field(Box::new(Expr::Var("s".to_owned())), "a".to_owned());
+    let test = Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::Var("$props".to_owned()).field("k")), Box::new(Expr::Lit(Lit::Str("v".to_owned()))));
+    let component = Component {
+      body: Vec::new(),
+      render: Tmpl::Let {
+        name: "s".to_owned(),
+        expr: object,
+        then: Box::new(Tmpl::Fragment(vec![Tmpl::Expr(template), Tmpl::Expr(read.clone()), Tmpl::If { cond: test, then: Box::new(Tmpl::Text("yes".to_owned())), r#else: Some(Box::new(Tmpl::Text("no".to_owned()))) }])),
+      },
+      state: Vec::new(),
+      stores: Vec::new(),
+      handlers: Vec::new(),
+      owner: crate::ast::Owner::Fsr,
+      shadow: None,
+      scope: None,
+    };
+    let prepared = prepare(&component);
+    let Tmpl::Let { expr, then, .. } = &prepared.render else { panic!() };
+    let mut folded = ValueMap::default();
+    folded.insert("a".to_owned(), Value::str("x"));
+    folded.insert("n".to_owned(), Value::Int(1));
+    assert_eq!(*expr, Expr::Folded(Value::Map(folded)));
+    let Tmpl::Fragment(children) = &**then else { panic!() };
+    assert_eq!(children[0], Tmpl::Expr(Expr::Folded(Value::str("p-q"))));
+    assert_eq!(children[1], Tmpl::Expr(read), "a read of the scope keeps its shape");
+    let Tmpl::If { cond: Expr::Compare(_, _, literal), .. } = &children[2] else { panic!() };
+    assert_eq!(**literal, Expr::Folded(Value::str("v")));
+    let mut props = ValueMap::default();
+    props.insert("k".to_owned(), Value::str("v"));
+    assert_eq!(Interpreter::default().render(&prepared, &props, &Components::new()).unwrap().html, "p-qxyes");
+  }
   fn props(entries: &[(&str, Value)]) -> ValueMap {
     entries.iter().map(|(k, v)| ((*k).to_owned(), v.clone())).collect()
   }
