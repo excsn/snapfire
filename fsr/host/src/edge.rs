@@ -8,6 +8,8 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct Incoming {
   pub(crate) session: SessionCell,
+  /// The opened session's id, forwarded to a site in its own process.
+  pub(crate) session_id: Option<String>,
   pub(crate) csrf: CsrfHandle,
   pub(crate) credentials: Arc<dyn Credentials>,
   /// The locale whose catalog the navigator already holds, `x-sf-catalog`,
@@ -26,6 +28,7 @@ impl Incoming {
   pub(crate) fn anonymous(session: SessionCell) -> Self {
     Self {
       session,
+      session_id: None,
       csrf: CsrfHandle::default(),
       credentials: Arc::new(NoCredentials),
       held_catalog: None,
@@ -102,6 +105,17 @@ pub fn percent_decoded(segment: &str) -> String {
 }
 
 impl Host {
+  /// The session a shell forwarded, when this host is a site with a secret and
+  /// the request's `x-sf-mount` signs its path, session and subject with it.
+  fn shared_session(&self, headers: &header::HeaderMap, path: &str) -> Option<SessionId> {
+    let secret = self.mount_secret.as_deref()?;
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    let (_, signature) = header("x-sf-mount")?.rsplit_once('.')?;
+    let session = header("x-sf-session")?;
+    let subject = header("x-sf-subject").unwrap_or("");
+    crate::remote_site::mount_signature_verifies(secret, path, session, subject, signature).then(|| SessionId(session.to_owned()))
+  }
+
   /// The context a body runs in: the services bound to the session's identity
   /// and the request's custody, the token as `csrf`.
   pub(crate) fn ctx(
@@ -126,6 +140,7 @@ impl Host {
     // Taken rather than read, so the next render does not show it again.
     ctx.failure = incoming.session.remove(snapfire_fsr_runtime::FAILURE_KEY);
     ctx.session = incoming.session;
+    ctx.session_id = incoming.session_id;
     ctx.locale = locale;
     ctx.host = incoming.host;
     ctx.origin = t.origin.clone();
@@ -168,6 +183,7 @@ impl Host {
     };
     Incoming {
       session: opened.cell.clone(),
+      session_id: Some(opened.id.0.clone()),
       csrf,
       credentials: Arc::new(opened.tokens.clone()),
       held_catalog: None,
@@ -231,7 +247,7 @@ impl Host {
     }
     if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
       if remote.covers_static(&path) && (req.method() == Method::GET || req.method() == Method::HEAD) {
-        return remote.forward(req, None).await;
+        return remote.forward(req, None, None).await;
       }
     }
     // The route exists only for an application that installed a sites mounter;
@@ -343,11 +359,10 @@ impl Host {
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let cookie = header("cookie");
     let accept_language = header("accept-language");
-    let opened = tracing::Instrument::instrument(
-      self.sessions.open(cookie.as_deref()),
-      tracing::info_span!(target: "fsr::trace", "session", op = "open"),
-    )
-    .await;
+    let opened = match self.shared_session(req.headers(), &path) {
+      Some(id) => tracing::Instrument::instrument(self.sessions.open_id(id), tracing::info_span!(target: "fsr::trace", "session", op = "open", shared = true)).await,
+      None => tracing::Instrument::instrument(self.sessions.open(cookie.as_deref()), tracing::info_span!(target: "fsr::trace", "session", op = "open")).await,
+    };
 
     #[cfg(feature = "ws")]
     if path == "/_sf/socket" && req.method() == Method::GET {
@@ -356,13 +371,13 @@ impl Host {
     if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
       if remote.forwards(req.method(), req.headers(), req.uri().query().unwrap_or("")) {
         let subject = opened.cell.identity().map(|identity| identity.subject);
-        return remote.forward(req, subject.as_deref()).await;
+        return remote.forward(req, Some(&opened.id.0), subject.as_deref()).await;
       }
     }
     if let Some(id) = path.strip_prefix("/_sf/action/").map(percent_decoded) {
       if let Some(remote) = t.sites.iter().filter_map(|site| site.remote.as_ref()).find(|remote| remote.owns_action(&id)) {
         let subject = opened.cell.identity().map(|identity| identity.subject);
-        return remote.forward(req, subject.as_deref()).await;
+        return remote.forward(req, Some(&opened.id.0), subject.as_deref()).await;
       }
     }
     if path == "/_sf/live" && req.method() == Method::GET {
@@ -878,6 +893,9 @@ impl Host {
         return;
       }
     };
+    if opened.borrowed {
+      return;
+    }
     if let Some(set_cookie) = set_cookie {
       if let Ok(value) = HeaderValue::from_str(&set_cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);

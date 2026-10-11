@@ -507,6 +507,7 @@ impl HostBuilder {
       #[cfg(feature = "sites_reload")]
       sites_reload: parking_lot::Mutex::new(()),
       csrf_always: config.session.csrf == "always",
+      mount_secret: config.site.as_ref().and_then(|site| site.secret.clone()),
       session_shape: session_shape(&config),
       keyring: owned_ring,
       trace_ring: ring,

@@ -58,6 +58,7 @@ hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 serde = { version = "1", features = ["derive"] }
 sha2 = "0.10"
+hmac = "0.12"
 base64 = "0.22"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 thiserror = "2"

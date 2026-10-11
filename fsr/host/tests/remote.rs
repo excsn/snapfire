@@ -50,7 +50,12 @@ const SITE_PLAN: &str = r#"{
   ],
   "actions": [
     { "id": "reports:index.where", "owner": "lowered", "module": "routes/actions.ts",
-      "body": [ { "return": "locale" } ] }
+      "body": [ { "return": "locale" } ] },
+    { "id": "reports:index.bump", "owner": "lowered", "module": "routes/actions.ts", "input": "Bump",
+      "body": [
+        { "session_set": { "key": "count", "value": { "arith": [ "add", { "coalesce": [ { "session": "count" }, { "lit": { "int": 0 } } ] }, { "field": [ "input", "by" ] } ] } } },
+        { "return": { "session": "count" } }
+      ] }
   ]
 }"#;
 
@@ -68,7 +73,7 @@ const SHELL_PLAN: &str = r#"{
   ]
 }"#;
 
-fn site_dir() -> PathBuf {
+fn site_dir_with(extra: &str) -> PathBuf {
   let dir = dir("site");
   write_plan(&dir, SITE_PLAN);
   std::fs::write(dir.join("generated/contracts/reports.json"), CONTRACT).unwrap();
@@ -82,10 +87,6 @@ dir = "."
 [server]
 listen = "127.0.0.1:0"
 
-[site]
-name = "reports"
-at = "/reports"
-
 [document]
 title = "Reports"
 entry = "/reports/static/app.js"
@@ -97,13 +98,19 @@ ttl = "10m"
 [[static]]
 route = "/reports/static"
 dir = "public"
-"#,
+
+[site]
+name = "reports"
+at = "/reports"
+"#
+    .to_owned()
+      + extra,
   )
   .unwrap();
   dir
 }
 
-fn shell_dir(over: &[String]) -> PathBuf {
+fn shell_dir_with(over: &[String], extra: &str) -> PathBuf {
   let dir = dir("shell");
   write_plan(&dir, SHELL_PLAN);
   let addresses: Vec<String> = over.iter().map(|a| format!("\"{a}\"")).collect();
@@ -123,12 +130,14 @@ title = "Acme"
 [session]
 key = "shell-key"
 ttl = "10m"
+csrf = "always"
 
 [sites.reports]
 at = "/reports"
 over = [{}]
 timeout = "2s"
 retry = "1s"
+{extra}
 "#,
       addresses.join(", ")
     ),
@@ -139,7 +148,11 @@ retry = "1s"
 
 /// The site served on a port of its own, as its own process would.
 async fn site_host() -> (Arc<Host>, String) {
-  let host = Arc::new(Host::from(site_dir().join("app.toml")).unwrap().build().unwrap());
+  site_host_with("").await
+}
+
+async fn site_host_with(extra: &str) -> (Arc<Host>, String) {
+  let host = Arc::new(Host::from(site_dir_with(extra).join("app.toml")).unwrap().build().unwrap());
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
   let address = format!("http://{}", listener.local_addr().unwrap());
   tokio::spawn(host.clone().serve_listener(listener));
@@ -147,7 +160,11 @@ async fn site_host() -> (Arc<Host>, String) {
 }
 
 fn shell_over(addresses: &[String]) -> Arc<Host> {
-  Arc::new(Host::from(shell_dir(addresses).join("app.toml")).unwrap().build().unwrap())
+  shell_over_with(addresses, "")
+}
+
+fn shell_over_with(addresses: &[String], extra: &str) -> Arc<Host> {
+  Arc::new(Host::from(shell_dir_with(addresses, extra).join("app.toml")).unwrap().build().unwrap())
 }
 
 async fn text(response: http::Response<Body>) -> String {
@@ -225,6 +242,36 @@ async fn a_site_whose_every_address_is_down_renders_the_error_node_and_answers_5
   assert!(html.contains("routes/layout.tsx#default"), "the shell's own layout still renders: {html}");
   let status = text(shell.handle(get("/__fsr/sites", "*/*")).await).await;
   assert!(status.contains("\"up\":false"), "{status}");
+}
+
+/// The session crosses the seam only under a shared secret: the shell signs
+/// its session id into the request and the site opens that id, so what the
+/// site's action writes is read back by the next call.
+async fn counted_twice(shell: &Arc<Host>) -> (String, String) {
+  let page = shell.handle(get("/", "text/html")).await;
+  let cookie = page.headers().get(header::SET_COOKIE).expect("csrf = always establishes the session").to_str().unwrap().split(';').next().unwrap().to_owned();
+  let bump = || {
+    let mut request = post("/_sf/action/reports:index.bump", r#"{"by":1}"#);
+    request.headers_mut().insert(header::COOKIE, cookie.parse().unwrap());
+    request
+  };
+  let first = shell.handle(bump()).await;
+  assert_eq!(first.status(), StatusCode::OK);
+  assert!(first.headers().get(header::SET_COOKIE).is_none(), "the shell holds the cookie");
+  (text(first).await, text(shell.handle(bump()).await).await)
+}
+
+#[tokio::test]
+async fn a_shells_session_reaches_a_site_that_shares_its_secret_and_no_other() {
+  let (_site, address) = site_host_with("secret = \"between-us\"\n").await;
+  let shell = shell_over_with(&[address], "secret = \"between-us\"\n");
+  let (one, two) = counted_twice(&shell).await;
+  assert!(one.contains('1') && two.contains('2'), "the site counts in the shell's session: {one} then {two}");
+
+  let (_site, address) = site_host_with("").await;
+  let shell = shell_over_with(&[address], "secret = \"between-us\"\n");
+  let (one, again) = counted_twice(&shell).await;
+  assert!(one.contains('1') && again.contains('1'), "a site without the secret opens a session of its own each time: {one} then {again}");
 }
 
 #[tokio::test]

@@ -54,9 +54,35 @@ struct Learned {
 struct Inner {
   name: String,
   at: String,
+  secret: Option<String>,
   upstreams: Upstreams,
   client: reqwest::Client,
   learned: RwLock<Learned>,
+}
+
+/// `x-sf-mount`: the site's name, and with a secret a dot and the HMAC-SHA256
+/// over the request's path, session id and subject, hex, so the site knows
+/// the identity headers came from its shell.
+fn mount_header(name: &str, secret: Option<&str>, path: &str, session: Option<&str>, subject: Option<&str>) -> String {
+  match secret {
+    Some(secret) => format!("{name}.{}", mount_signature(secret, path, session.unwrap_or(""), subject.unwrap_or(""))),
+    None => name.to_owned(),
+  }
+}
+
+fn mount_signature(secret: &str, path: &str, session: &str, subject: &str) -> String {
+  use hmac::Mac;
+  let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes()).expect("any key length");
+  mac.update(path.as_bytes());
+  mac.update(b"\n");
+  mac.update(session.as_bytes());
+  mac.update(b"\n");
+  mac.update(subject.as_bytes());
+  mac.finalize().into_bytes().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+pub(crate) fn mount_signature_verifies(secret: &str, path: &str, session: &str, subject: &str, signature: &str) -> bool {
+  snapfire_fsr_session::constant_time_eq(&mount_signature(secret, path, session, subject), signature)
 }
 
 #[derive(Clone)]
@@ -75,6 +101,7 @@ impl RemoteSite {
     Ok(Self(Arc::new(Inner {
       name: name.to_owned(),
       at,
+      secret: mount.secret.clone(),
       upstreams: Upstreams::new(mount.over.clone(), mount.retry()),
       client,
       learned: RwLock::new(Learned::default()),
@@ -134,7 +161,7 @@ impl RemoteSite {
   /// The request as bytes to one of the site's hosts and its answer as
   /// bytes back, streamed. A host that does not answer rests and the next
   /// is not tried on the same request, so a client sees the failure.
-  pub async fn forward(&self, req: Request<Bytes>, subject: Option<&str>) -> Response<Body> {
+  pub async fn forward(&self, req: Request<Bytes>, session: Option<&str>, subject: Option<&str>) -> Response<Body> {
     let Some(lease) = self.0.upstreams.pick() else {
       return text_response(StatusCode::BAD_GATEWAY, format!("site {}: no address", self.0.name));
     };
@@ -154,7 +181,11 @@ impl RemoteSite {
     if let Some(subject) = subject {
       outbound = outbound.header("x-sf-subject", subject);
     }
-    outbound = outbound.header("x-sf-mount", self.0.name.as_str());
+    if let Some(session) = session {
+      outbound = outbound.header("x-sf-session", session);
+    }
+    let path = req.uri().path().to_owned();
+    outbound = outbound.header("x-sf-mount", mount_header(&self.0.name, self.0.secret.as_deref(), &path, session, subject));
     let body = req.into_body();
     if !body.is_empty() {
       outbound = outbound.body(body);
@@ -248,6 +279,7 @@ impl RemoteSegment for RemoteSite {
     let locale = ctx.locale.tag.clone();
     let document = ctx.document.clone();
     let subject = ctx.session.identity().map(|identity| identity.subject);
+    let session = ctx.session_id.clone();
     Box::pin(async move {
       let inner = &site.0;
       let Some(lease) = inner.upstreams.pick() else {
@@ -257,12 +289,15 @@ impl RemoteSegment for RemoteSite {
         .client
         .get(format!("{}{path}?{query}", lease.address))
         .header("x-sf-catalog", locale.as_str())
-        .header("x-sf-mount", inner.name.as_str());
+        .header("x-sf-mount", mount_header(&inner.name, inner.secret.as_deref(), &path, session.as_deref(), subject.as_deref()));
       if let Some(from) = &document {
         request = request.header("x-sf-from", from.as_str());
       }
       if let Some(subject) = &subject {
         request = request.header("x-sf-subject", subject.as_str());
+      }
+      if let Some(session) = &session {
+        request = request.header("x-sf-session", session.as_str());
       }
       let answer = match request.send().await {
         Ok(answer) => answer,

@@ -390,6 +390,11 @@ pub struct SiteSection {
   /// What the site was built against: a path to the shell's `generated/shell.json` or a hand-written one.
   #[serde(default)]
   pub shell: Option<String>,
+  /// What a shell mounting this site over an address signs its requests
+  /// with. Set, a signed request's session and identity are honoured;
+  /// unset, every request opens its own session from its cookie.
+  #[serde(default)]
+  pub secret: Option<String>,
 }
 
 impl SiteSection {
@@ -1751,7 +1756,7 @@ impl Config {
       || !store.key_paths_with_prefix(Some("site")).is_empty()
     {
       let mut json = serde_json::Map::new();
-      for key in ["name", "at", "shell"] {
+      for key in ["name", "at", "shell", "secret"] {
         if let Some(value) = store.get(&format!("site.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }

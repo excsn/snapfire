@@ -265,6 +265,8 @@ pub struct Host {
   #[cfg(feature = "sites_reload")]
   sites_reload: parking_lot::Mutex<()>,
   csrf_always: bool,
+  /// `[site] secret`: what a shell's signed requests are checked against.
+  mount_secret: Option<String>,
   report_listen: String,
   /// The most bytes a request body may carry, `server.max_body`.
   max_body: usize,
