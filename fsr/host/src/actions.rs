@@ -1,3 +1,5 @@
+//! Actions, route handlers and template islands: the middleware preflight, the call paths a request and a Rust caller share and the form and multipart bodies they read.
+
 use super::*;
 
 /// What the middleware decided for a request. `headers` join the response

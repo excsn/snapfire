@@ -1,3 +1,5 @@
+//! The listener: hyper over TCP or TLS and the `tower::Service` other servers nest.
+
 use super::*;
 
 /// What the handshake offers when `server.tls.alpn` says nothing: HTTP/2

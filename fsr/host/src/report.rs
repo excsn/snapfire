@@ -1,3 +1,5 @@
+//! `HostReport`: what the host bound, printed at boot.
+
 use super::*;
 
 /// What the host bound: the application's report plus the services it reaches

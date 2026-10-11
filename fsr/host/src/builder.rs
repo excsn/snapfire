@@ -1,3 +1,5 @@
+//! `HostBuilder`: what a host is given before `build` and `assemble`, which turns the configuration, the plan, the contracts and the mounts into the tables a host serves from.
+
 use super::*;
 
 /// A `#[service]` block the builder was given: its contract, merged with

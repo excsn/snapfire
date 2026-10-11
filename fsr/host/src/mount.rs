@@ -1,3 +1,5 @@
+//! Artifacts and mounts: reading a built application, grafting a site under the shell and reloading the tables.
+
 use super::*;
 
 /// A built application as the host reads it: its configuration, its plan and

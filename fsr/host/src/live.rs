@@ -1,3 +1,5 @@
+//! Development reloads, `/_sf/live` events, topics and the socket upgrade.
+
 use super::*;
 
 /// The publish half and the receiver every `/_sf/live` stream clones. A

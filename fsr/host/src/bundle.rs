@@ -1,3 +1,5 @@
+//! The bundle as the document names it: minified twins, client URLs, the preload set, the CSP and the asset head rows.
+
 use super::*;
 
 /// Every module the page fetches before an island can mount, as URLs: the

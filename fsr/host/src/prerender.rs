@@ -1,3 +1,5 @@
+//! Prerendering: the routes that read nothing, the files `fsr prerender` writes and the warm loads a boot reads back.
+
 use super::*;
 
 /// What a warm pass writes into the prerender directory and a boot reads back:

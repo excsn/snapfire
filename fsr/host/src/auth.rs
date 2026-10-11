@@ -1,3 +1,5 @@
+//! The `/auth/` routes: sign-in, callback and logout over the identity provider.
+
 use super::*;
 
 pub(crate) fn see_other(location: &str) -> Response<Body> {

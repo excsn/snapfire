@@ -1,3 +1,5 @@
+//! The request edge: `handle` through `respond`, the session cookie and the responses every route shares.
+
 use super::*;
 
 /// What a request carries into a body beyond its session: the CSRF token

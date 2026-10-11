@@ -2,20 +2,20 @@
 //! become a `tower::Service` over `http` types. hyper serves it, axum nests
 //! it, actix reaches it through the `actix` feature's shim.
 
+mod actions;
 pub mod assets;
+mod auth;
+mod builder;
+mod bundle;
 pub mod client;
 pub mod config;
-pub mod locale;
-mod bundle;
-mod live;
-mod prerender;
-mod render;
-mod auth;
-mod actions;
 mod edge;
+mod live;
+pub mod locale;
 mod mount;
-mod builder;
+mod prerender;
 mod remote;
+mod render;
 mod report;
 mod serve;
 pub mod shell;
@@ -69,27 +69,27 @@ pub use config::{
   AuthSection, BearerKey, ClientConfig, Config, DataCacheSection, Loader, MountConfig, SecretOptions, SiteSection,
   SitesSection,
 };
+pub use actions::{IslandBody, IslandStep, Preflight, PreflightAction, island_body, island_step};
+pub use auth::referer_path;
+pub use builder::HostBuilder;
+pub use edge::percent_decoded;
 pub use locale::{Locales, LocalesSection, Resolution};
+pub use mount::{Artifact, Mount};
+pub use prerender::{LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use report::{HostReport, SiteReport, TlsReport};
 pub use serve::HostService;
-pub use builder::{HostBuilder};
-pub use mount::{Artifact, Mount};
-pub use edge::{percent_decoded};
-pub use actions::{IslandBody, IslandStep, Preflight, PreflightAction, island_body, island_step};
-pub use auth::{referer_path};
-pub use prerender::{LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 
-use bundle::*;
-use builder::*;
-use mount::*;
-use edge::*;
 use actions::*;
 use auth::*;
-use render::*;
-use prerender::*;
+use builder::*;
+use bundle::*;
+use edge::*;
 use live::*;
+use mount::*;
+use prerender::*;
+use render::*;
 use serve::*;
 
 /// The encodings a payload request may name in `enc`; the wire's `V` row

@@ -1,3 +1,5 @@
+//! The render pipeline: a route or an intercept to its assembled stream, in HTML, payload or fragment mode.
+
 use super::*;
 
 /// An intercepted render: the page the document is showing, as the navigator
