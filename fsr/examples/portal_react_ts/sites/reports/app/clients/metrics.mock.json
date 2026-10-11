@@ -1,0 +1,18 @@
+{
+  "listReports": [
+    { "id": 1, "name": "Revenue by region", "period": "Q3", "total": 48210.5 },
+    { "id": 2, "name": "Sign-ups by channel", "period": "Q3", "total": 1844 },
+    { "id": 3, "name": "Support load", "period": "September", "total": 312 }
+  ],
+  "getReport": {
+    "id": 1,
+    "name": "Revenue by region",
+    "period": "Q3",
+    "total": 48210.5,
+    "rows": [
+      { "label": "North", "value": 21100 },
+      { "label": "South", "value": 15340.5 },
+      { "label": "West", "value": 11770 }
+    ]
+  }
+}

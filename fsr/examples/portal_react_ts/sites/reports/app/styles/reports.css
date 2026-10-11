@@ -1,0 +1,59 @@
+.reports {
+  border: 1px solid #dde3ea;
+  border-radius: 12px;
+  background: #fff;
+  padding: 20px 24px;
+}
+
+.reports-nav {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #dde3ea;
+}
+
+.reports-nav a {
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: #1f6feb;
+  text-decoration: none;
+}
+
+.reports-nav a[aria-current] {
+  background: #1f6feb;
+  color: #fff;
+  font-weight: 600;
+}
+
+.reports-who {
+  margin-left: auto;
+  color: #5b6b7c;
+  font-size: 13px;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.report-table th,
+.report-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid #eef1f5;
+}
+
+.report-table .total {
+  text-align: right;
+  font-family: ui-monospace, Menlo, monospace;
+}
+
+.report-table .sum td {
+  font-weight: 600;
+}
+
+.loading {
+  color: #5b6b7c;
+}

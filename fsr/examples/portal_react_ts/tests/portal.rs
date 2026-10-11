@@ -93,7 +93,7 @@ async fn the_portal_mounts_billing_under_its_root_layout() {
   let html = body_of(response).await;
   assert!(html.contains("class=\"brand\"") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
   assert!(html.contains("Northwind") && html.contains("<!--sf-g:billing:routes/page.tsx#default-->") && html.contains("data-sf-module=\"billing:routes/layout.tsx#default\""), "{html}");
-  assert!(html.contains("href=\"/billing/static/css/billing.css\""), "the site's stylesheet rides under its prefix: {html}");
+  assert!(html.contains("href=\"/billing/static/js/app/styles/billing.css\""), "the site's stylesheet rides under its prefix: {html}");
 
   let response = portal.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.headers().get("x-portal").unwrap(), "portal");
@@ -195,7 +195,7 @@ async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
   let response = portal.handle(Request::get("/blog").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
   let html = body_of(response).await;
-  assert!(html.contains("href=\"/blog/post/why-a-plan-file\"") && html.contains("href=\"/blog/static/css/blog.css\""), "{html}");
+  assert!(html.contains("href=\"/blog/post/why-a-plan-file\"") && html.contains("href=\"/blog/static/js/app/styles/blog.css\""), "{html}");
   assert!(html.contains("portal-main"), "under the portal's layout: {html}");
 
   let response = portal.handle(Request::get("/blog/post/static-under-a-shell").body(Bytes::new()).unwrap()).await;
@@ -214,3 +214,66 @@ async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
   std::fs::remove_dir_all(&out).unwrap();
 }
 
+
+/// The reports site served on a port of its own and the portal mounting it
+/// over that address, as the two processes would.
+async fn portal_over_reports() -> (Arc<Host>, Arc<Host>) {
+  let root: &Path = Path::new(env!("CARGO_MANIFEST_DIR"));
+  let reports = Arc::new(Host::from(root.join("sites/reports")).unwrap().build().unwrap());
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let address = format!("http://{}", listener.local_addr().unwrap());
+  tokio::spawn(reports.clone().serve_listener(listener));
+  let deployed = deployed();
+  let mut config = snapfire_fsr_host::Config::load(root).unwrap();
+  config.sites.as_mut().unwrap().mounts.get_mut("reports").unwrap().over = vec![address];
+  let builder = snapfire_fsr_sites::mount_all_with(Host::from_config(config).unwrap(), &deployed.store).unwrap();
+  (Arc::new(builder.build().unwrap()), reports)
+}
+
+#[tokio::test]
+async fn the_portal_renders_the_reports_site_from_its_own_process() {
+  let (portal, _reports) = portal_over_reports().await;
+  let report = portal.report().to_string();
+  assert!(report.contains("reports                at /reports over http://127.0.0.1:"), "{report}");
+
+  let response = portal.handle(Request::get("/reports").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("x-portal").unwrap(), "reports", "the portal's middleware saw the site");
+  let html = body_of(response).await;
+  assert!(html.contains("class=\"brand\"") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
+  assert!(html.contains("<title>Reports</title>"), "the site's title: {html}");
+  assert!(html.contains("Revenue by region") && html.contains("data-sf-module=\"reports:routes/layout.tsx#default\""), "rendered by the other process from its own client: {html}");
+  assert!(html.contains("href=\"/reports/static/js/app/styles/reports.css\"") && html.contains("src=\"/reports/static/js/app/src/main.js\""), "the site's stylesheet and entry in the portal's head: {html}");
+  assert!(html.contains("<!--sf-g:reports:routes/page.tsx#default-->"), "the site's segment keys in the portal's document: {html}");
+
+  let css = portal.handle(Request::get("/reports/static/js/app/styles/reports.css").body(Bytes::new()).unwrap()).await;
+  assert_eq!(css.status(), StatusCode::OK);
+  assert!(body_of(css).await.contains(".reports-nav"), "the site's static file forwarded from its process");
+
+  let html = body_of(portal.handle(Request::get("/reports/1").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains("Adding up the rows") && html.contains("<template data-sf-fill="), "the deferred segment streams through: {html}");
+  assert!(html.contains("21100.00"), "{html}");
+
+  let payload = body_of(portal.handle(Request::get("/reports?__payload").body(Bytes::new()).unwrap()).await).await;
+  assert!(payload.contains("E \"/reports/static/js/app/src/main.js\"") && payload.contains("\"k\":\"reports:routes/layout.tsx#default\""), "a navigation into the site carries its entry and keys: {payload}");
+
+  let status = body_of(portal.handle(Request::get("/__fsr/sites").body(Bytes::new()).unwrap()).await).await;
+  let json: serde_json::Value = serde_json::from_str(&status).unwrap();
+  let reports = json["sites"].as_array().unwrap().iter().find(|s| s["name"] == "reports").unwrap();
+  assert_eq!(reports["over"][0]["up"], true, "{status}");
+}
+
+#[tokio::test]
+async fn the_portal_degrades_a_reports_page_while_the_process_is_down() {
+  let root: &Path = Path::new(env!("CARGO_MANIFEST_DIR"));
+  let deployed = deployed();
+  let mut config = snapfire_fsr_host::Config::load(root).unwrap();
+  config.sites.as_mut().unwrap().mounts.get_mut("reports").unwrap().over = vec!["http://127.0.0.1:1".to_owned()];
+  let portal = Arc::new(snapfire_fsr_sites::mount_all_with(Host::from_config(config).unwrap(), &deployed.store).unwrap().build().unwrap());
+  let response = portal.handle(Request::get("/reports").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+  let html = body_of(response).await;
+  assert!(html.contains("class=\"brand\"") && html.contains("data-sf-error"), "the portal's layout around the error: {html}");
+  let response = portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "the other sites are untouched");
+}

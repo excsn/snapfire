@@ -1,14 +1,15 @@
 # portal_react_ts
 
-The shell of a company site: a header, a team directory and a sign-in, with three sites other teams own mounted under it at `/billing`, `/blog` and `/status`. One document, one session, one navigation across all of them.
+The shell of a company site: a header, a team directory and a sign-in, with four sites other teams own mounted under it at `/billing`, `/blog`, `/status` and `/reports`. One document, one session, one navigation across all of them.
 
-Each site reaches the portal a different way, which is the point of having three:
+Each site reaches the portal a different way, which is the point of having four:
 
 | Site | `[sites.<name>] artifact` | How it gets there |
 | --- | --- | --- |
 | `blog` | `sites/blog` | A linked working tree. Rebuilt in place, mounted as version `path`, never pinned. The development shape. |
 | `billing` | `billing@1.0.0` | A versioned install. Packed into an archive, installed into the cache under `[sites] root` by an operator, then mounted from there. |
 | `status` | `status@1.0.0` | Fetched by the portal. The cache lacks the version, so the portal takes it from `[sites] store`, an HTTP server over a directory of archives, verifies it and mounts it. |
+| `reports` | none, `over = ["http://127.0.0.1:8104"]` | Its own process. The portal holds no artifact for it: it asks `reports_site_react_ts` for each page as payload rows and renders them inside its own document, forwarding the site's statics, actions and handlers as bytes. |
 
 | It shows | Where |
 | --- | --- |
@@ -21,6 +22,8 @@ Each site reaches the portal a different way, which is the point of having three
 | A deploy that is a pointer moved: the artifact table reread on `SIGHUP` or the poll, the mounted versions on `/__fsr/sites` | `[sites] poll` in `config/app.toml`, `snapfire_fsr_sites::watch` in `src/main.rs` |
 | A second site with no binary, whose fixed pages the portal's prerender renders ahead under its session-reading layout | `[sites.blog]`, `sites/blog`, `renders.json` after `fsr prerender app` |
 | A header whose section link stays marked while a page under it is shown, across the mount | `match="prefix"` in `app/src/ui/Header.tsx`, `a[aria-current]` in `app/styles/app.css` |
+| A site in its own process rendered inside the portal's document, with a client the portal cannot reach and a deferred segment streamed through | `[sites.reports]` in `config/app.toml`, `sites/reports`, the `over` row of the report |
+| The portal's session reaching that process under a shared secret | `secret` in `[sites.reports]` and in `sites/reports/config/app.toml` |
 
 ## Run it
 
@@ -50,13 +53,19 @@ python3 -m http.server 8199 --bind 127.0.0.1 --directory deploy/store
 
 Any server that answers `GET /<name>-<version>.tar.gz` is a store: nginx over the directory, a bucket, an Artifactory generic repository. `FSR_SITES_STORE_HEADER="Authorization: Bearer <token>"` adds a header to every fetch.
 
+Run reports as its own process, which is all a site over an address needs:
+
+```sh
+cargo run -p reports_site_react_ts
+```
+
 Then run the portal in another terminal:
 
 ```sh
 cargo run -p portal_react_ts
 ```
 
-The first boot logs `fetched status@1.0.0 from http://127.0.0.1:8199` and the report lists all three under `sites`. Open `http://127.0.0.1:8100/`, sign in as `alice` / `wonder` and follow Billing, Blog and Status. `GET /__fsr/sites` shows billing and status at `1.0.0` and blog at `path`. Status is now in the cache, so pin it the same way and `fsr doctor .` reports nothing:
+The first boot logs `fetched status@1.0.0 from http://127.0.0.1:8199` and the report lists the three artifacts under `sites` and reports as `at /reports over http://127.0.0.1:8104`. Open `http://127.0.0.1:8100/`, sign in as `alice` / `wonder` and follow Billing, Blog, Status and Reports. Reports is rendered by the other process inside the portal's header; stop that process and `/reports` answers `503` with the portal's layout around an error, start it again and the next request renders. `GET /__fsr/sites` shows billing and status at `1.0.0` and blog at `path`. Status is now in the cache, so pin it the same way and `fsr doctor .` reports nothing:
 
 ```sh
 fsr sites pin . status --layer local
@@ -64,4 +73,4 @@ fsr sites pin . status --layer local
 
 To ship status 1.1.0, pack it into the store and move `[sites.status] artifact` to `status@1.1.0`. The poll notices the row moved, fetches the version and swaps the tables. A request in flight finishes on the old ones.
 
-`cargo test -p portal_react_ts` does the same install and fetch in process, with the store on a free port.
+`cargo test -p portal_react_ts` does the same install and fetch in process, with the store on a free port, and serves the reports site on another to mount it over.

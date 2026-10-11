@@ -33,3 +33,9 @@ artifact = "sites/blog"
 
 [sites.status]
 artifact = "status@1.0.0"
+
+# A site in its own process: no artifact here, a prefix and the address of `reports_site_react_ts`.
+[sites.reports]
+at = "/reports"
+over = ["http://127.0.0.1:8104"]
+secret = "portal-reports"

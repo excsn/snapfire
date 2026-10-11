@@ -1,0 +1,99 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Metrics",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/reports": {
+      "get": {
+        "operationId": "listReports",
+        "responses": {
+          "200": {
+            "description": "every report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Report"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "x-sf-cache": {
+          "ttl": "15s",
+          "scope": "shared",
+          "tags": [
+            "reports"
+          ]
+        }
+      }
+    },
+    "/reports/{id}": {
+      "get": {
+        "operationId": "getReport",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "one report with its rows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Detail"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Report": {
+        "type": "object",
+        "required": ["id", "name", "period", "total"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "name": { "type": "string" },
+          "period": { "type": "string" },
+          "total": { "type": "number" }
+        }
+      },
+      "Detail": {
+        "type": "object",
+        "required": ["id", "name", "period", "total", "rows"],
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "name": { "type": "string" },
+          "period": { "type": "string" },
+          "total": { "type": "number" },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["label", "value"],
+              "properties": {
+                "label": { "type": "string" },
+                "value": { "type": "number" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

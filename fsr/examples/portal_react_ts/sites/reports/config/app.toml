@@ -1,0 +1,24 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8104"
+
+[site]
+name = "reports"
+at = "/reports"
+shell = "../../app/generated/shell.json"
+# The portal signs its requests with the same value, so its session reaches this process.
+secret = "portal-reports"
+
+[document]
+title = "Reports"
+
+[session]
+ttl = "1h"
+
+[clients.metrics]
+transport = "mock"
+
+[typecheck]
+version = "7.0.2"
