@@ -1084,14 +1084,14 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   };
   let awaits: Vec<String> = match env.pending.is_empty() {
     true => Vec::new(),
-    false => store_keys(component, library).into_iter().filter(|key| env.pending.contains(key)).collect(),
+    false => cached_store_keys(env, component, library).iter().filter(|key| env.pending.contains(*key)).cloned().collect(),
   };
   if !awaits.is_empty() {
     let mut held = Out::default();
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
-    let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources(store_keys(component, library), &env.derives) } else { Vec::new() };
+    let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources((*cached_store_keys(env, component, library)).clone(), &env.derives) } else { Vec::new() };
     let index = out.islands.len();
     let body = Rendered { html: held.html, islands: held.islands, hoisted: ValueMap::default(), whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body });
@@ -1128,9 +1128,9 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   env.scope.truncate(depth);
   result?;
   let index = out.islands.len();
-  let read = store_keys(component, library);
+  let read = cached_store_keys(env, component, library);
   let rendered_store = rendered_store(&env.store, &read);
-  let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources(read, &env.derives) } else { Vec::new() };
+  let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources((*read).clone(), &env.derives) } else { Vec::new() };
   if unrendered {
     let mut held = Out::default();
     if !children.is_empty() {
@@ -1189,6 +1189,17 @@ pub fn rendered_store(store: &ValueMap, keys: &[String]) -> ValueMap {
 /// component it renders inline, sorted: what a server-mode island needs from
 /// the browser's store on each step and what a hydrating one is told it was
 /// rendered from.
+/// [`store_keys`] of a prepared component, walked once per interpreter and held by the component's address, since the keys depend on the component and the library alone and a render places the same components every time.
+fn cached_store_keys(env: &Env, component: &Arc<Component>, library: &Components) -> Arc<Vec<String>> {
+  let key = Arc::as_ptr(component) as usize;
+  if let Some((_, keys)) = env.store_keys.lock().get(&key) {
+    return keys.clone();
+  }
+  let keys = Arc::new(store_keys(component, library));
+  env.store_keys.lock().insert(key, (component.clone(), keys.clone()));
+  keys
+}
+
 pub fn store_keys(component: &Component, library: &Components) -> Vec<String> {
   fn walk(component: &Component, library: &Components, seen: &mut Vec<String>, keys: &mut std::collections::BTreeSet<String>) {
     component.visit(&mut |expr| {

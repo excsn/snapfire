@@ -37,9 +37,13 @@ impl Clock for SystemClock {
   }
 }
 
+/// The store keys each prepared component reads, by the component's address, which the entry pins by holding the component so the address names it for as long as the cache lives.
+pub(crate) type StoreKeyCache = parking_lot::Mutex<std::collections::HashMap<usize, (Arc<crate::ast::Component>, Arc<Vec<String>>)>>;
+
 #[derive(Clone)]
 pub struct Interpreter {
   clock: Arc<dyn Clock>,
+  store_keys: Arc<StoreKeyCache>,
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
   consts: Option<Arc<Consts>>,
@@ -119,13 +123,13 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
+    Self { clock: Arc::new(SystemClock), store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
+    Self { clock, store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
   }
 
   /// The frameworks the application vendors. A component one of them
@@ -216,6 +220,7 @@ impl Interpreter {
   pub async fn run(&self, body: &Body, ctx: &RequestCtx, input: Option<Value>) -> Result<Outcome, Fail> {
     let (data, identity) = ctx.session.snapshot();
     let mut env = Env {
+      store_keys: self.store_keys.clone(),
       ctx: ctx.clone(),
       store: ValueMap::default(),
       pending: Default::default(),
@@ -301,6 +306,7 @@ pub(crate) enum Flow {
 
 pub(crate) struct Env {
   pub(crate) ctx: RequestCtx,
+  pub(crate) store_keys: Arc<StoreKeyCache>,
   input: Value,
   identity: Option<Value>,
   session: ValueMap,
@@ -475,6 +481,7 @@ impl Env {
   /// the scope a component's props make.
   pub(crate) fn detached(interpreter: &Interpreter, scope: Vec<(String, Value)>) -> Self {
     Self {
+      store_keys: interpreter.store_keys.clone(),
       ctx: RequestCtx::anonymous(Default::default()),
       input: Value::Null,
       identity: None,
@@ -612,6 +619,7 @@ impl Env {
   /// statements, never expressions, so a copy cannot diverge from the draft.
   fn snapshot(&self) -> Env {
     Env {
+      store_keys: self.store_keys.clone(),
       ctx: self.ctx.clone(),
       input: self.input.clone(),
       identity: self.identity.clone(),
