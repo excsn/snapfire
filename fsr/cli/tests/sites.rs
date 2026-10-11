@@ -392,6 +392,28 @@ fn the_table_is_compared_against_every_instance() {
   assert_eq!(rows[0].against.iter().map(|(h, _)| h.clone()).collect::<Vec<_>>(), vec![a, b]);
 }
 
+/// A site in its own process has no artifact to agree on; the instance
+/// reports each of its addresses and whether it reached it.
+#[test]
+fn a_site_over_addresses_is_listed_with_each_address_up_or_down() {
+  let shell = pinnable();
+  let toml = std::fs::read_to_string(shell.join("app.toml")).unwrap();
+  std::fs::write(shell.join("app.toml"), toml + "\n[sites.reports]\nat = \"/reports\"\nover = [\"http://127.0.0.1:8104\", \"http://127.0.0.1:8105\"]\n").unwrap();
+  let rows = snapfire_fsr_cli::sites::list(&shell).expect("lists");
+  let reports = rows.iter().find(|r| r.name == "reports").expect("the row");
+  assert_eq!(reports.artifact, "over http://127.0.0.1:8104 http://127.0.0.1:8105");
+  assert_eq!(reports.at.as_deref(), Some("/reports"));
+  assert_eq!(reports.version, "-");
+  let answer = r#"{"sites":[{"name":"reports","at":"/reports","version":"-","hash":"-","over":[{"address":"http://127.0.0.1:8104","up":true},{"address":"http://127.0.0.1:8105","up":false}]}]}"#;
+  let (addr, _x) = serving(vec![(200, answer.to_owned())]);
+  let compared = snapfire_fsr_cli::sites::compare(&shell, &[addr], &[]).expect("compares");
+  let row = compared.iter().find(|c| c.row.name == "reports").expect("the row");
+  assert!(row.agrees(), "an address row has nothing to lag behind");
+  let mounted = row.against[0].1.as_ref().expect("mounted");
+  assert_eq!(mounted.over.len(), 2);
+  assert!(mounted.over[0].up && !mounted.over[1].up);
+}
+
 /// An instance that does not mount the site at all does not agree either.
 #[test]
 fn an_instance_missing_the_site_does_not_agree() {

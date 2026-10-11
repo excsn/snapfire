@@ -447,6 +447,9 @@ fn list_against(shell: &Path, hosts: &[String], headers: &[(String, String)]) ->
             Some(m) => println!("          {:<20} {:<24} {:<8} {:<18} lags", host, m.at, m.version, m.hash),
             None => println!("          {:<20} {:<24} {:<8} {:<18} absent", host, "-", "-", "-"),
           }
+          for address in mounted.iter().flat_map(|m| m.over.iter()) {
+            println!("          {:<20} {:<24} {}", "", address.address, if address.up { "up" } else { "down" });
+          }
         }
         if !row.agrees() {
           lagging += 1;

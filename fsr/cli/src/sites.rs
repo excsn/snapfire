@@ -587,6 +587,17 @@ pub struct Mounted {
   pub at: String,
   pub version: String,
   pub hash: String,
+  /// The addresses of a site in its own process, each with whether the
+  /// instance reached it last; empty for a site in the instance's process.
+  #[serde(default)]
+  pub over: Vec<Address>,
+}
+
+/// One address a site over a transport is reached at, as an instance sees it.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct Address {
+  pub address: String,
+  pub up: bool,
 }
 
 /// What one instance answered.
