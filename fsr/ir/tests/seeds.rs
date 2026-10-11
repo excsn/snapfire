@@ -19,6 +19,13 @@ fn an_object_of_named_fields_names_its_keys() {
 }
 
 #[test]
+fn the_defaults_export_names_its_keys_beside_the_store_s() {
+  let store = vec![Stmt::Return(Expr::Object(vec![field("cart/count")]))];
+  let defaults = vec![Stmt::Return(Expr::Object(vec![field("cart/tip")]))];
+  assert_eq!(IrStore::new("page", store).with_defaults(Some(defaults)).keys(), Some(vec!["cart/count".to_owned(), "cart/tip".to_owned()]));
+}
+
+#[test]
 fn every_branch_contributes_the_keys_it_can_return() {
   let body = vec![
     Stmt::If { cond: Expr::Lit(Lit::Bool(true)), then: vec![Stmt::Return(Expr::Object(vec![field("a")]))], r#else: Vec::new() },

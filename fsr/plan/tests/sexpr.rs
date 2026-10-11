@@ -276,6 +276,7 @@ fn every_manifest() -> Manifest {
         body: Some(body.clone()),
         meta: Some(body.clone()),
         store: Some(body.clone()),
+        defaults: Some(body.clone()),
         store_keys: Some(vec!["cart/count".to_owned(), "a key with spaces".to_owned()]),
         paths: Some(body.clone()),
       },
@@ -528,7 +529,7 @@ fn manifest() -> BoxedStrategy<Manifest> {
         .map(|(id, owner, module, export, reason, body, meta, store, paths)| SourceEntry {
           // a `lowered` row must carry a body, which is what the reader checks
           owner: if body.is_none() && owner == RowOwner::Lowered { RowOwner::Rust } else { owner },
-          id, module, export, reason, body, meta, store, store_keys: None, paths,
+          id, module, export, reason, body, meta, store, defaults: None, store_keys: None, paths,
         })
         .collect(),
       actions: actions
@@ -706,9 +707,12 @@ fn a_format_5_plan_still_reads() {
   assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
 
-/// Every `derive` row dropped, which is what a plan written before format 6 carries.
+/// Every `derive` row and every source's `defaults` dropped, which is what a plan written before format 6 carries.
 fn forget_derives(manifest: &mut Manifest) {
   manifest.derives.clear();
+  for source in &mut manifest.sources {
+    source.defaults = None;
+  }
 }
 
 /// Every source's `store-keys` and every island's `reads` dropped, which is

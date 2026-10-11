@@ -716,17 +716,28 @@ impl Session {
     let mut out = Vec::new();
     for (node, path) in nodes {
       let source = node.data_source.as_ref().expect("a seeding node has a source");
-      let values = match loaded.data.get(&node.id.0) {
-        Some(data) => match self.runtime.stores[&source.0].seed(self.ctx_of(node.id.0), data).await {
-          Ok(values) => values,
-          Err(e) => {
-            tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment store failed");
-            Data::default()
-          }
-        },
-        None => Data::default(),
+      let (values, defaults) = match loaded.data.get(&node.id.0) {
+        Some(data) => {
+          let seeds = &self.runtime.stores[&source.0];
+          let values = match seeds.seed(self.ctx_of(node.id.0), data).await {
+            Ok(values) => values,
+            Err(e) => {
+              tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment store failed");
+              Data::default()
+            }
+          };
+          let defaults = match seeds.defaults(self.ctx_of(node.id.0), data).await {
+            Ok(defaults) => defaults,
+            Err(e) => {
+              tracing::warn!(target: "fsr::load", node = node.id.0, error = %e, "segment defaults failed");
+              Data::default()
+            }
+          };
+          (values, defaults)
+        }
+        None => (Data::default(), Data::default()),
       };
-      out.push(Contribution::seeded(self.segment_key(node), path, values));
+      out.push(Contribution::seeded(self.segment_key(node), path, values).with_defaults(defaults));
     }
     out
   }

@@ -20,7 +20,9 @@ pub mod sexpr;
 /// Format 6 adds `derive` rows: a store key the browser's `derive` computes,
 /// its source keys and the lowered compute, which the host applies after the
 /// seeds merge. A host reading format 5 would render without them, painting
-/// a derived key's fallback where the browser shows its value.
+/// a derived key's fallback where the browser shows its value. It also adds
+/// a source's `defaults`, a second seed body whose keys a browser write
+/// outranks.
 ///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of
@@ -228,7 +230,10 @@ pub struct SourceEntry {
   /// The module's `store`, seeding the browser's store from this source's data.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub store: Option<Body>,
-  /// The keys `store` can return, inferred from its type at build: what the
+  /// The module's `defaults`, seeding the browser's store the way `store` does with values a write the browser holds outranks.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub defaults: Option<Body>,
+  /// The keys `store` and `defaults` can return, inferred from their types at build: what the
   /// segment promises a first wave it is deferred from.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub store_keys: Option<Vec<String>>,
@@ -248,6 +253,7 @@ impl SourceEntry {
       body: Some(body),
       meta: None,
       store: None,
+      defaults: None,
       store_keys: None,
       paths: None,
     }
@@ -255,6 +261,11 @@ impl SourceEntry {
 
   pub fn with_meta(mut self, meta: Option<Body>) -> Self {
     self.meta = meta;
+    self
+  }
+
+  pub fn with_defaults(mut self, defaults: Option<Body>) -> Self {
+    self.defaults = defaults;
     self
   }
 
@@ -269,7 +280,7 @@ impl SourceEntry {
   }
 
   pub fn rust(id: impl Into<String>) -> Self {
-    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None, store: None, store_keys: None, paths: None }
+    Self { id: id.into(), owner: RowOwner::Rust, module: None, export: None, reason: None, body: None, meta: None, store: None, defaults: None, store_keys: None, paths: None }
   }
 }
 
@@ -764,7 +775,7 @@ impl Manifest {
             row["pattern"] = serde_json::Value::String(under(at, &pattern));
           }
         }
-        for field in ["body", "meta", "store", "paths"] {
+        for field in ["body", "meta", "store", "defaults", "paths"] {
           if let Some(body) = row.get_mut(field) {
             namespace_body(body, &prefix);
           }

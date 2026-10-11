@@ -247,6 +247,14 @@ pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) ->
   lower_of_data(file, source, defaults, "store")
 }
 
+/// Lowers the exported `defaults` of a loader module when there is one: a
+/// function of `{ data }` returning store keys the route seeds as defaults,
+/// which a value an island wrote in the browser keeps winning. `None` when
+/// the module exports no `defaults`.
+pub fn lower_defaults_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError> {
+  lower_of_data(file, source, defaults, "defaults")
+}
+
 /// Lowers the exported `paths` of a page loader module when there is one: a
 /// function of the context returning the parameter sets the route
 /// prerenders, one object per path. `None` when the module exports no `paths`.

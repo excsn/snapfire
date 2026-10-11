@@ -203,6 +203,8 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
 pub struct IrStore {
   source_id: String,
   body: Arc<Body>,
+  /// The lowered `defaults` export, when the module has one.
+  defaults: Option<Arc<Body>>,
   /// The keys the build inferred the body returns, which win over reading its returns.
   keys: Option<Vec<String>>,
   interpreter: Interpreter,
@@ -210,7 +212,12 @@ pub struct IrStore {
 
 impl IrStore {
   pub fn new(source_id: impl Into<String>, body: Body) -> Self {
-    Self { source_id: source_id.into(), body: Arc::new(body), keys: None, interpreter: Interpreter::default() }
+    Self { source_id: source_id.into(), body: Arc::new(body), defaults: None, keys: None, interpreter: Interpreter::default() }
+  }
+
+  pub fn with_defaults(mut self, defaults: Option<Body>) -> Self {
+    self.defaults = defaults.map(Arc::new);
+    self
   }
 
   pub fn with_interpreter(mut self, interpreter: Interpreter) -> Self {
@@ -232,12 +239,29 @@ impl Seeds for IrStore {
     }
     let mut keys = std::collections::BTreeSet::new();
     returned_keys(&self.body, &mut keys)?;
+    if let Some(defaults) = &self.defaults {
+      returned_keys(defaults, &mut keys)?;
+    }
     Some(keys.into_iter().collect())
   }
 
   fn seed(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
+    self.run_map(&self.body, "store", ctx, data)
+  }
+
+  fn defaults(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
+    match &self.defaults {
+      Some(defaults) => self.run_map(defaults, "defaults", ctx, data),
+      None => Box::pin(async { Ok(Data::default()) }),
+    }
+  }
+}
+
+impl IrStore {
+  /// `body` run over the segment's data, which must return an object.
+  fn run_map(&self, body: &Arc<Body>, export: &'static str, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
     let id = self.source_id.clone();
-    let body = self.body.clone();
+    let body = body.clone();
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
@@ -245,7 +269,7 @@ impl Seeds for IrStore {
       let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
       match outcome.value {
         Value::Map(map) => Ok(map),
-        other => Err(LoadError { source_id: id, message: format!("store must return an object, got {}", kind_name(&other)), kind: FailureKind::Internal }),
+        other => Err(LoadError { source_id: id, message: format!("{export} must return an object, got {}", kind_name(&other)), kind: FailureKind::Internal }),
       }
     })
   }

@@ -16,6 +16,8 @@ export interface Contribution {
   k: string;
   p: string[];
   v: { [key: string]: unknown };
+  /** The segment's defaults: under every segment's `v` in the merge and under a write an island holds, so a visitor's choice survives the route seeding again. */
+  d?: { [key: string]: unknown };
   /** On a promise, the keys a deferred segment will seed once it resolves; its `v` is empty and its seed replaces it. */
   w?: string[];
 }
@@ -160,7 +162,11 @@ function remerge(touched: Set<string>): void {
   const before = new Map<string, unknown>();
   for (const k of touched) before.set(k, effective(k));
   const next = new Map<string, unknown>();
-  for (const c of Array.from(contributions.values()).sort(order)) {
+  const ordered = Array.from(contributions.values()).sort(order);
+  for (const c of ordered) {
+    for (const [k, value] of Object.entries(c.d ?? {})) next.set(k, value);
+  }
+  for (const c of ordered) {
     for (const [k, value] of Object.entries(c.v)) next.set(k, value);
   }
   merged = next;
@@ -186,7 +192,10 @@ export function clear<T>(k: StoreKey<T>): void {
   if (!has(k)) return;
   writes.delete(k);
   derivedValues.delete(k);
-  for (const c of contributions.values()) delete c.v[k];
+  for (const c of contributions.values()) {
+    delete c.v[k];
+    if (c.d) delete c.d[k];
+  }
   merged.delete(k);
   notify(k);
 }
@@ -271,25 +280,32 @@ export async function optimistic<T, R>(k: StoreKey<T>, guess: T, remote: () => P
   }
 }
 
-/** Takes what the segments of a response seeded, each contribution replacing the one its segment held before, in one transaction. The server is authoritative: a key a contribution names loses whatever an island wrote to it. */
+/** Takes what the segments of a response seeded, each contribution replacing the one its segment held before, in one transaction. The server is authoritative for a value: a key a contribution's `v` names loses whatever an island wrote to it. A key only its `d` names keeps the island's write. */
 export function contribute(list: Contribution[]): void {
   transaction(() => {
     const touched = new Set<string>();
     for (const c of list) {
       const old = contributions.get(c.k);
-      if (old) for (const k of Object.keys(old.v)) touched.add(k);
+      if (old) for (const k of keysOf(old)) touched.add(k);
       for (const k of Object.keys(c.v)) {
         touched.add(k);
         writes.delete(k);
       }
+      for (const k of Object.keys(c.d ?? {})) touched.add(k);
       // A promise keeps what its slot last held, under its own key or the one a navigation is replacing at the same path, so a mounted island goes on showing that until the seed lands.
       const before = old ?? Array.from(contributions.values()).find((held) => held.k !== c.k && samePath(held.p, c.p));
       const values = c.w && before ? before.v : c.v;
-      contributions.set(c.k, { k: c.k, p: c.p.slice(), v: { ...values }, ...(c.w ? { w: c.w.slice() } : {}) });
+      const defaults = c.w && before ? before.d : c.d;
+      contributions.set(c.k, { k: c.k, p: c.p.slice(), v: { ...values }, ...(defaults && Object.keys(defaults).length > 0 ? { d: { ...defaults } } : {}), ...(c.w ? { w: c.w.slice() } : {}) });
     }
     remerge(touched);
   });
   release();
+}
+
+/** Every key a contribution holds, a value or a default. */
+function keysOf(c: Contribution): string[] {
+  return Object.keys(c.v).concat(Object.keys(c.d ?? {}));
 }
 
 /** Drops the contribution of every segment not in `segments`, which the navigator calls once a payload's tree is in: a segment leaves and its keys go with it, so a page that seeds nothing does not inherit what the page before it seeded. The plain contribution `seed()` writes stays. */
@@ -300,7 +316,7 @@ export function retain(segments: Iterable<string>): void {
     const touched = new Set<string>();
     for (const [segment, c] of Array.from(contributions)) {
       if (keep.has(segment)) continue;
-      for (const k of Object.keys(c.v)) touched.add(k);
+      for (const k of keysOf(c)) touched.add(k);
       contributions.delete(segment);
     }
     if (touched.size > 0) remerge(touched);
@@ -323,11 +339,12 @@ interface SeedGlobal {
 export function decodeContributions(encoded: unknown): Contribution[] {
   if (!Array.isArray(encoded)) return [];
   return encoded.map((item) => {
-    const entry = item as { k?: unknown; p?: unknown; v?: unknown; w?: unknown };
+    const entry = item as { k?: unknown; p?: unknown; v?: unknown; d?: unknown; w?: unknown };
     return {
       k: String(entry.k ?? ""),
       p: Array.isArray(entry.p) ? entry.p.map(String) : [],
       v: (decodeValue((entry.v ?? {}) as SfValue) ?? {}) as { [key: string]: unknown },
+      ...(entry.d !== undefined ? { d: (decodeValue(entry.d as SfValue) ?? {}) as { [key: string]: unknown } } : {}),
       ...(Array.isArray(entry.w) ? { w: entry.w.map(String) } : {}),
     };
   });

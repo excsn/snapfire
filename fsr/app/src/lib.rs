@@ -322,7 +322,7 @@ pub struct AppBuilder {
   lowered_metas: Vec<(String, snapfire_fsr_ir::Body)>,
   /// By source id: metadata a Rust host describes a segment with.
   rust_metas: Vec<(String, Arc<dyn Metadata>)>,
-  lowered_stores: Vec<(String, snapfire_fsr_ir::Body, Option<Vec<String>>)>,
+  lowered_stores: Vec<(String, snapfire_fsr_ir::Body, Option<snapfire_fsr_ir::Body>, Option<Vec<String>>)>,
   /// The plan's `reads`: the store keys each island the server does not render reads.
   island_reads: std::collections::BTreeMap<String, Vec<String>>,
   /// By source id: the page loader module's `paths` body.
@@ -430,7 +430,7 @@ impl App {
       .collect();
     builder.lowered_stores = parsed
       .lowered_sources()
-      .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.store_keys.clone())))
+      .filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.defaults.clone(), row.store_keys.clone())))
       .collect();
     builder.island_reads = parsed.reads.clone();
     builder.derives = parsed.derives.clone();
@@ -476,7 +476,7 @@ impl AppBuilder {
     self.declared_actions.extend(parsed.action_ids());
     self.lowered_sources.extend(parsed.lowered_sources().filter_map(|row| row.body.clone().map(|body| (row.id.clone(), body))));
     self.lowered_metas.extend(parsed.lowered_sources().filter_map(|row| row.meta.clone().map(|meta| (row.id.clone(), meta))));
-    self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.store_keys.clone()))));
+    self.lowered_stores.extend(parsed.lowered_sources().filter_map(|row| row.store.clone().map(|store| (row.id.clone(), store, row.defaults.clone(), row.store_keys.clone()))));
     self.island_reads.extend(parsed.reads.clone());
     self.derives.extend(parsed.derives.iter().cloned());
     self.lowered_paths.extend(parsed.lowered_sources().filter_map(|row| row.paths.clone().map(|paths| (row.id.clone(), paths))));
@@ -746,7 +746,7 @@ impl AppBuilder {
         None => Ok(()),
       }
     };
-    let stores = self.lowered_stores.iter().map(|(name, body, _)| (name, body));
+    let stores = self.lowered_stores.iter().flat_map(|(name, body, defaults, _)| std::iter::once((name, body)).chain(defaults.iter().map(move |defaults| (name, defaults))));
     for (name, body) in self.lowered_sources.iter().chain(&self.lowered_metas).chain(&self.lowered_paths).map(|(name, body)| (name, body)).chain(stores) {
       check(name, body)?;
     }
@@ -1006,7 +1006,7 @@ impl AppBuilder {
         derived_sources(&mut entry.store_keys, &derives);
       }
     }
-    let seeders: HashMap<String, Option<Vec<String>>> = self.lowered_stores.iter().map(|(name, body, keys)| (name.clone(), keys.clone().or_else(|| seeded_keys(body)))).collect();
+    let seeders: HashMap<String, Option<Vec<String>>> = self.lowered_stores.iter().map(|(name, body, _, keys)| (name.clone(), keys.clone().or_else(|| seeded_keys(body)))).collect();
     let mut renderable: Vec<(String, PlanNode)> = Vec::new();
     for (pattern, plan, _) in &resolved {
       if prerenderable.contains(pattern) || (pattern.contains('{') && !paths.contains_key(pattern)) {
@@ -1122,9 +1122,9 @@ impl AppBuilder {
     for (name, meta) in std::mem::take(&mut self.rust_metas) {
       runtime = runtime.meta(name, meta);
     }
-    for (name, store, keys) in std::mem::take(&mut self.lowered_stores) {
+    for (name, store, defaults, keys) in std::mem::take(&mut self.lowered_stores) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {
-        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store).with_keys(keys).with_interpreter(interpreter.clone())));
+        runtime = runtime.store(name.clone(), Arc::new(IrStore::new(name, store).with_defaults(defaults).with_keys(keys).with_interpreter(interpreter.clone())));
       }
     }
 

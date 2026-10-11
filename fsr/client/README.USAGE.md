@@ -769,6 +769,15 @@ export const store = ({ data }: { data: { cartCount: bigint } }) => ({ "cart/cou
 
 Every segment on the route may export one. They merge outermost first, so a page wins a key its layout also sets. A `store` export names its keys as literal strings, never through an imported `key`.
 
+A `store` seed is authoritative: an action's answer revalidates the route, every seeded key is seeded again and a value an island wrote in the browser is replaced. A key the visitor owns, a quantity they stepped or a size they picked, goes under `defaults` instead. It has the same shape as `store` and the server renders the first paint from it the same way, but in the browser it sits under an island's write, so the visitor's choice survives the route seeding again and the server's value takes the key only while nothing in the browser holds it:
+
+```ts
+export const store = ({ data }: { data: Order }) => ({ "order/name": data.name });
+export const defaults = ({ data }: { data: Order }) => ({ "order/qty": data.qty, "order/size": data.sizes[0].label });
+```
+
+A `store` value wins a key a `defaults` of any segment also names.
+
 ### Reading a Key in a Component
 
 `useStore` is the React binding. It reads like `useState` and returns the store's value or the initial one while nothing has set the key:

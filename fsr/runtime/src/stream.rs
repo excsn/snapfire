@@ -28,6 +28,9 @@ pub fn contributions_to_json(contributions: &[Contribution]) -> Json {
           "p": c.path,
           "v": snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(c.values.clone())),
         });
+        if !c.defaults.is_empty() {
+          row["d"] = snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(c.defaults.clone()));
+        }
         if !c.awaits.is_empty() {
           row["w"] = json!(c.awaits);
         }

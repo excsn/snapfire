@@ -111,7 +111,11 @@ function remerge(touched) {
     const before = new Map();
     for (const k of touched)before.set(k, effective(k));
     const next = new Map();
-    for (const c of Array.from(contributions.values()).sort(order)){
+    const ordered = Array.from(contributions.values()).sort(order);
+    for (const c of ordered){
+        for (const [k, value] of Object.entries(c.d ?? {}))next.set(k, value);
+    }
+    for (const c of ordered){
         for (const [k, value] of Object.entries(c.v))next.set(k, value);
     }
     merged = next;
@@ -131,7 +135,10 @@ export function clear(k) {
     if (!has(k)) return;
     writes.delete(k);
     derivedValues.delete(k);
-    for (const c of contributions.values())delete c.v[k];
+    for (const c of contributions.values()){
+        delete c.v[k];
+        if (c.d) delete c.d[k];
+    }
     merged.delete(k);
     notify(k);
 }
@@ -209,19 +216,26 @@ export function contribute(list) {
         const touched = new Set();
         for (const c of list){
             const old = contributions.get(c.k);
-            if (old) for (const k of Object.keys(old.v))touched.add(k);
+            if (old) for (const k of keysOf(old))touched.add(k);
             for (const k of Object.keys(c.v)){
                 touched.add(k);
                 writes.delete(k);
             }
+            for (const k of Object.keys(c.d ?? {}))touched.add(k);
             const before = old ?? Array.from(contributions.values()).find((held)=>held.k !== c.k && samePath(held.p, c.p));
             const values = c.w && before ? before.v : c.v;
+            const defaults = c.w && before ? before.d : c.d;
             contributions.set(c.k, {
                 k: c.k,
                 p: c.p.slice(),
                 v: {
                     ...values
                 },
+                ...defaults && Object.keys(defaults).length > 0 ? {
+                    d: {
+                        ...defaults
+                    }
+                } : {},
                 ...c.w ? {
                     w: c.w.slice()
                 } : {}
@@ -231,6 +245,9 @@ export function contribute(list) {
     });
     release();
 }
+function keysOf(c) {
+    return Object.keys(c.v).concat(Object.keys(c.d ?? {}));
+}
 export function retain(segments) {
     const keep = new Set(segments);
     keep.add(PLAIN);
@@ -238,7 +255,7 @@ export function retain(segments) {
         const touched = new Set();
         for (const [segment, c] of Array.from(contributions)){
             if (keep.has(segment)) continue;
-            for (const k of Object.keys(c.v))touched.add(k);
+            for (const k of keysOf(c))touched.add(k);
             contributions.delete(segment);
         }
         if (touched.size > 0) remerge(touched);
@@ -266,6 +283,9 @@ export function decodeContributions(encoded) {
             k: String(entry.k ?? ""),
             p: Array.isArray(entry.p) ? entry.p.map(String) : [],
             v: decodeValue(entry.v ?? {}) ?? {},
+            ...entry.d !== undefined ? {
+                d: decodeValue(entry.d) ?? {}
+            } : {},
             ...Array.isArray(entry.w) ? {
                 w: entry.w.map(String)
             } : {}

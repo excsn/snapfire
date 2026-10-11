@@ -1,4 +1,5 @@
 import { clear, derive, get, key, optimistic, seed, set, snapshot, subscribe, transaction } from "@snapfire/fsr-client";
+import { contribute } from "@snapfire/fsr-client/store";
 import { expect, test } from "@snapfire/fsr-client/testing";
 
 let n = 0;
@@ -158,4 +159,19 @@ test("seed writes a whole map in one transaction and the server's value wins a l
   expect(seen).toEqual(["a", "a", "b"]);
   seed({ [a]: 1 });
   expect(seen, "a seed equal to what is held notifies nobody").toEqual(["a", "a", "b"]);
+});
+
+test("a default seeds a key the browser holds nothing for and yields to a write when the segment seeds again", () => {
+  const qty = fresh<number>();
+  const name = fresh<string>();
+  contribute([{ k: "spec/order", p: [], v: { [name]: "Kiambu" }, d: { [qty]: 1 } }]);
+  expect(get(qty)).toEqual(1);
+  expect(get(name)).toEqual("Kiambu");
+  set(qty, 3);
+  set(name, "Nyeri");
+  contribute([{ k: "spec/order", p: [], v: { [name]: "Kiambu" }, d: { [qty]: 1 } }]);
+  expect(get(qty)).toEqual(3);
+  expect(get(name)).toEqual("Kiambu");
+  contribute([{ k: "spec/order", p: [], v: { [name]: "Kiambu", [qty]: 2 } }]);
+  expect(get(qty)).toEqual(2);
 });

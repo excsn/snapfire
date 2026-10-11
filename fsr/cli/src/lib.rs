@@ -823,10 +823,11 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       let body = lowered!(set.lower_loader(&loader_module));
       let meta = lowered!(set.lower_meta(&loader_module));
       let store = lowered!(set.lower_store(&loader_module));
+      let defaults = lowered!(set.lower_defaults(&loader_module));
       if lowered!(set.lower_paths(&loader_module)).is_some() {
         return Err(BuildError::PathsOffPage(loader_module));
       }
-      sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
+      sources.push(SourceEntry::lowered(id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store).with_defaults(defaults));
       report.sources.push((id.clone(), loader_module));
       Some(id.clone())
     } else {
@@ -860,10 +861,11 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
         let body = lowered!(set.lower_loader(&loader_module));
         let meta = lowered!(set.lower_meta(&loader_module));
         let store = lowered!(set.lower_store(&loader_module));
+      let defaults = lowered!(set.lower_defaults(&loader_module));
         if lowered!(set.lower_paths(&loader_module)).is_some() {
           return Err(BuildError::PathsOffPage(loader_module));
         }
-        sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store));
+        sources.push(SourceEntry::lowered(slot_id.clone(), loader_module.clone(), body).with_meta(meta).with_store(store).with_defaults(defaults));
         report.sources.push((slot_id.clone(), loader_module));
         Some(slot_id.clone())
       } else {
@@ -932,11 +934,12 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       let body = lowered!(set.lower_loader(&module));
       let meta = lowered!(set.lower_meta(&module));
       let store = lowered!(set.lower_store(&module));
+      let defaults = lowered!(set.lower_defaults(&module));
       let paths = lowered!(set.lower_paths(&module));
       if paths.is_some() && !route.pattern.contains('{') {
         return Err(BuildError::PathsWithoutParameter { module, pattern: route.pattern.clone() });
       }
-      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta).with_store(store).with_paths(paths));
+      sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta).with_store(store).with_defaults(defaults).with_paths(paths));
       report.sources.push((route.id.clone(), module));
       Some(route.id.clone())
     } else {
@@ -1334,9 +1337,22 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   // inferred to return.
   let mut sources = sources;
   for source in &mut sources {
-    if let (Some(loader), Some(store)) = (&source.body, &source.store) {
-      source.store_keys = seeded(&contract, session_type, &set.consts, &config, loader, store).map(|fields| fields.into_iter().map(|(key, _)| key).collect());
+    let Some(loader) = &source.body else { continue };
+    let mut keys: Option<Vec<String>> = None;
+    for body in [&source.store, &source.defaults].into_iter().flatten() {
+      match seeded(&contract, session_type, &set.consts, &config, loader, body) {
+        Some(fields) => keys.get_or_insert_with(Vec::new).extend(fields.into_iter().map(|(key, _)| key)),
+        None => {
+          keys = None;
+          break;
+        }
+      }
     }
+    if let Some(keys) = &mut keys {
+      keys.sort();
+      keys.dedup();
+    }
+    source.store_keys = keys;
   }
   let lowered: std::collections::HashSet<&str> = components.iter().map(|entry| entry.module.as_str()).collect();
   let mut reads = std::collections::BTreeMap::new();
@@ -1662,9 +1678,11 @@ fn seeded(contract: &Contract, session: Option<&str>, consts: &Consts, config: &
 fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, sources: &[SourceEntry], consts: &Consts, config: &[(String, infer::Ts)], frameworks: &std::collections::BTreeMap<String, String>) -> Result<ShellContract, BuildError> {
   let mut store = std::collections::BTreeMap::new();
   for source in sources {
-    let (Some(loader), Some(body)) = (&source.body, &source.store) else { continue };
-    for (key, ty) in seeded(contract, session, consts, config, loader, body).unwrap_or_default() {
-      store.insert(key, ty.print(Flavour::Client));
+    let Some(loader) = &source.body else { continue };
+    for body in [&source.store, &source.defaults].into_iter().flatten() {
+      for (key, ty) in seeded(contract, session, consts, config, loader, body).unwrap_or_default() {
+        store.insert(key, ty.print(Flavour::Client));
+      }
     }
   }
   let imports = std::fs::read_to_string(app.join("importmap.json"))

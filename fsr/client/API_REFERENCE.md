@@ -621,9 +621,9 @@ A route seeds it from its loaders, one contribution per segment. The store is th
 
 ### Contribution
 
-* `interface Contribution { k: string; p: string[]; v: { [key: string]: unknown } }`
+* `interface Contribution { k: string; p: string[]; v: { [key: string]: unknown }; d?: { [key: string]: unknown }; w?: string[] }`
 
-What one segment seeded: `k` its segment key, `p` the slot names from the root down to it and `v` the values, decoded.
+What one segment seeded: `k` its segment key, `p` the slot names from the root down to it and `v` the values, decoded. `d` is what the segment's `defaults` export seeded: laid under every segment's `v` in the merge and under a write an island holds, so a key only `d` names keeps the island's write when the segment seeds again.
 
 ### StoreKey
 
@@ -683,7 +683,7 @@ Sets the key to `guess`, awaits `remote` and returns its result. A rejection res
 
 * `contribute(list: Contribution[]): void`
 
-Takes what a response's segments seeded, each contribution replacing the one its segment held, in one transaction. A key a contribution names loses whatever an island wrote to it. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value.
+Takes what a response's segments seeded, each contribution replacing the one its segment held, in one transaction. A key a contribution names loses whatever an island wrote to it. The navigator calls it for every `T` row of a payload before it patches the DOM, so a kept island renders once with the new value. A key named in a contribution's `d` alone keeps whatever an island wrote to it.
 
 A contribution with `w` is a promise: the keys a deferred segment will seed, with no values of its own. It keeps the values its segment last seeded or, when a navigation replaces the segment, those of the contribution at the same slot path, so a mounted island goes on showing them until the seed lands and replaces the promise.
 

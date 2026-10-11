@@ -13,6 +13,10 @@ export interface Contribution {
 	v: {
 		[key: string]: unknown;
 	};
+	/** The segment's defaults: under every segment's `v` in the merge and under a write an island holds, so a visitor's choice survives the route seeding again. */
+	d?: {
+		[key: string]: unknown;
+	};
 	/** On a promise, the keys a deferred segment will seed once it resolves; its `v` is empty and its seed replaces it. */
 	w?: string[];
 }
@@ -45,7 +49,7 @@ export declare function optimistic<
 	T,
 	R
 >(k: StoreKey<T>, guess: T, remote: () => Promise<R>): Promise<R>;
-/** Takes what the segments of a response seeded, each contribution replacing the one its segment held before, in one transaction. The server is authoritative: a key a contribution names loses whatever an island wrote to it. */
+/** Takes what the segments of a response seeded, each contribution replacing the one its segment held before, in one transaction. The server is authoritative for a value: a key a contribution's `v` names loses whatever an island wrote to it. A key only its `d` names keeps the island's write. */
 export declare function contribute(list: Contribution[]): void;
 /** Drops the contribution of every segment not in `segments`, which the navigator calls once a payload's tree is in: a segment leaves and its keys go with it, so a page that seeds nothing does not inherit what the page before it seeded. The plain contribution `seed()` writes stays. */
 export declare function retain(segments: Iterable<string>): void;

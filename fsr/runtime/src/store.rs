@@ -12,6 +12,11 @@ use crate::data::LoadError;
 pub trait Seeds: Send + Sync {
   fn seed(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Data, LoadError>>;
 
+  /// The keys the segment seeds as defaults: laid under every segment's seed in the merge and, in the browser, under a write an island holds, so a visitor's choice survives the route seeding again. Empty unless the seed has defaults.
+  fn defaults(&self, _ctx: &RequestCtx, _data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
+    Box::pin(async { Ok(Data::default()) })
+  }
+
   /// Every key a seed can hold, known before the data is: what a deferred segment promises the
   /// first wave. `None` when the keys depend on the data; such a segment promises nothing.
   fn keys(&self) -> Option<Vec<String>> {
@@ -28,6 +33,8 @@ pub struct Contribution {
   pub segment: String,
   pub path: Vec<String>,
   pub values: Data,
+  /// The segment's defaults: under every segment's `values` in the merge and, in the browser, under a write an island holds.
+  pub defaults: Data,
   /// The keys a deferred segment will seed once it resolves, on a promise, which carries no
   /// values; empty on a seed. The seed that lands for the segment replaces it.
   pub awaits: Vec<String>,
@@ -35,11 +42,16 @@ pub struct Contribution {
 
 impl Contribution {
   pub fn seeded(segment: impl Into<String>, path: Vec<String>, values: Data) -> Self {
-    Self { segment: segment.into(), path, values, awaits: Vec::new() }
+    Self { segment: segment.into(), path, values, defaults: Data::default(), awaits: Vec::new() }
+  }
+
+  pub fn with_defaults(mut self, defaults: Data) -> Self {
+    self.defaults = defaults;
+    self
   }
 
   pub fn promised(segment: impl Into<String>, path: Vec<String>, awaits: Vec<String>) -> Self {
-    Self { segment: segment.into(), path, values: Data::default(), awaits }
+    Self { segment: segment.into(), path, values: Data::default(), defaults: Data::default(), awaits }
   }
 }
 
@@ -64,12 +76,15 @@ fn slot_rank<'a>(name: &'a str, slot_order: &[String]) -> (Option<usize>, &'a st
   (slot_order.iter().position(|s| s == name), name)
 }
 
-/// The store `contributions` merge to, each applied in [`contribution_order`].
+/// The store `contributions` merge to: every segment's defaults in [`contribution_order`], then every segment's values in the same order, so a value wins a key a default also holds wherever each sits.
 pub fn merge_contributions(contributions: &[Contribution], slot_order: &[String]) -> Data {
   let mut ordered: Vec<&Contribution> = contributions.iter().collect();
   ordered.sort_by(|a, b| contribution_order(&a.path, &b.path, slot_order));
   let mut out = Data::default();
-  for contribution in ordered {
+  for contribution in &ordered {
+    out.extend(contribution.defaults.clone());
+  }
+  for contribution in &ordered {
     out.extend(contribution.values.clone());
   }
   out
@@ -157,5 +172,25 @@ pub fn derived_pending(pending: &mut std::collections::BTreeSet<String>, derives
     } else {
       pending.remove(&derived.key);
     }
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use snapfire_fsr_core::Value;
+
+  fn data(pairs: &[(&str, i64)]) -> Data {
+    pairs.iter().map(|(k, v)| ((*k).to_owned(), Value::Int(*v as i128))).collect()
+  }
+
+  #[test]
+  fn a_default_sits_under_every_value_wherever_each_segment_stands() {
+    let layout = Contribution::seeded("layout", vec![], data(&[("a", 1)])).with_defaults(data(&[("b", 10), ("c", 10)]));
+    let page = Contribution::seeded("page", vec!["main".to_owned()], data(&[("b", 2)])).with_defaults(data(&[("a", 20), ("c", 20)]));
+    let merged = merge_contributions(&[page, layout], &[]);
+    assert_eq!(merged.get("a"), Some(&Value::Int(1)), "the layout's value wins over the page's default although the page is deeper");
+    assert_eq!(merged.get("b"), Some(&Value::Int(2)), "the page's value wins over the layout's default");
+    assert_eq!(merged.get("c"), Some(&Value::Int(20)), "two defaults merge by position, the deeper winning");
   }
 }
