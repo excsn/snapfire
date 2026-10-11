@@ -19,7 +19,7 @@ use snapfire_fsr_cli::spec::prepare;
 use snapfire_fsr_cli::{Options, build};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::render::Components;
-use snapfire_fsr_ir::{ArithOp, Component, Entry, Expr, Interpreter, Lit, Tmpl};
+use snapfire_fsr_ir::{ArithOp, Component, Entry, Expr, Interpreter, Lit, Owner, Tmpl};
 use snapfire_fsr_payload::value_to_json;
 
 #[cfg(feature = "mimalloc")]
@@ -82,7 +82,11 @@ fn nested(depth: usize) -> (Components, Arc<Component>) {
       children: vec![Tmpl::Expr(Expr::var("$props").field("label"))],
     },
     state: Vec::new(),
+    stores: Vec::new(),
     handlers: Vec::new(),
+    owner: Owner::Fsr,
+    shadow: None,
+    scope: None,
   };
   library.insert("depth/leaf".to_owned(), Arc::new(leaf));
   let mut inner = "depth/leaf".to_owned();
@@ -102,7 +106,11 @@ fn nested(depth: usize) -> (Components, Arc<Component>) {
         }],
       },
       state: Vec::new(),
+      stores: Vec::new(),
       handlers: Vec::new(),
+      owner: Owner::Fsr,
+      shadow: None,
+      scope: None,
     };
     library.insert(name.clone(), Arc::new(component));
     inner = name;
@@ -123,7 +131,11 @@ fn arithmetic(ops: usize) -> (Components, Arc<Component>) {
     body: Vec::new(),
     render: Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![Tmpl::Expr(expr)] },
     state: Vec::new(),
+    stores: Vec::new(),
     handlers: Vec::new(),
+    owner: Owner::Fsr,
+    shadow: None,
+    scope: None,
   };
   (Components::new(), Arc::new(component))
 }
@@ -145,7 +157,9 @@ fn bench(c: &mut Criterion) {
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let catalogue = components.get(CATALOGUE).cloned().expect("the catalogue page lowered");
   let interpreter = Interpreter::default();
-  let prepared = prepare(&app).expect("fsr test's preparation");
+  let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
+  let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
+  let prepared = prepare(&app, &built.browser_files, &compositions, &built.composition_files, &built.added, &mut plugins).expect("fsr test's preparation");
 
   for &n in LIST_LENGTHS {
     let props = catalogue_props(n);

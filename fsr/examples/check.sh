@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Runs `fsr check` on every example app. Extra arguments go to each check (--no-typecheck, --tsc-version).
+# Compiles every example crate with its tests and benches, then runs `fsr check` on every example app.
+# Extra arguments go to each check (--no-typecheck, --tsc-version).
 # $FSR names the binary; without it the workspace CLI is built first.
 set -u
 cd "$(dirname "$0")"
@@ -10,6 +11,8 @@ if [ -z "${FSR:-}" ]; then
 fi
 
 failed=()
+echo "== every example crate, its tests and its benches"
+cargo build --workspace --all-targets || failed+=("the examples workspace: a crate, a test or a bench does not compile")
 for config in */config/app.toml conformance/*/config/app.toml; do
   ex=${config%/config/app.toml}
   [ -d "$ex/app" ] || continue
