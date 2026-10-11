@@ -389,6 +389,7 @@ impl Host {
     Ok(chunks.concat())
   }
 
+  /// Renders to one string, for tests.
   pub async fn render_to_string(
     &self,
     path: &str,
