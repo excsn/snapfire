@@ -493,6 +493,8 @@ pub struct HostReport {
   /// Method and tags for every method that drops cached answers.
   pub writers: Vec<(String, String)>,
   pub statics: Vec<(String, PathBuf)>,
+  /// Patterns `[[route]]` declares that nothing registered on this host: the stock host registers no Rust route, so an application's declarations show here until its own binary answers them.
+  pub unanswered_routes: Vec<String>,
   /// The prefix the embedded client answers, how many modules it holds, what
   /// they come to and whether the build served is the minified one.
   /// `None` when a static root claims the prefix instead.
@@ -574,6 +576,9 @@ pub struct SiteReport {
 impl std::fmt::Display for HostReport {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.app)?;
+    for pattern in &self.unanswered_routes {
+      writeln!(f, "{:<9} {pattern:<22} declared by [[route]], registered by nothing here", "routes")?;
+    }
     if let Some((name, at)) = &self.site {
       writeln!(f, "{:<9} {name:<22} at {at}", "site")?;
     }
@@ -4989,14 +4994,7 @@ impl HostBuilder {
       _ => (app, None),
     };
     let app = app.evaluator(move |m: &ModuleId| m.path == shell_path, shell).build()?;
-    for declared in &config.routes {
-      if !app.report.routes.iter().any(|(pattern, _)| pattern == &declared.pattern) {
-        return Err(HostError::Config(
-          config.sources.first().cloned().unwrap_or_else(|| config.root.clone()),
-          format!("[[route]] declares `{}` and nothing registers it; add `.route(\"{0}\", plan)` to the builder or take the declaration out", declared.pattern),
-        ));
-      }
-    }
+    let unanswered_routes: Vec<String> = config.routes.iter().filter(|declared| !app.report.routes.iter().any(|(pattern, _)| pattern == &declared.pattern)).map(|declared| declared.pattern.clone()).collect();
     for (index, _) in app.patterns.iter().enumerate() {
       let Some(plan) = app.resolver.resolve(snapfire_fsr_runtime::EntryId(index as u32), &Params::new()) else { continue };
       templates_answered(&plan, &app.runtime.evaluators, stock_templates.as_deref())?;
@@ -5141,6 +5139,7 @@ impl HostBuilder {
     let auth = auth.map(|(mounted, _)| mounted);
     let report = HostReport {
       app: app.report.clone(),
+      unanswered_routes,
       http2: self.http2.unwrap_or(config.server.http2),
       tls: config.server.tls.as_ref().map(|section| {
         let (cert, key) = section.files(&config.root);

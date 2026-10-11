@@ -506,16 +506,15 @@ fn an_unknown_key_refuses_to_start() {
 }
 
 #[test]
-fn a_declared_route_nothing_registers_refuses_to_start() {
+fn a_declared_route_nothing_registers_is_named_by_the_report() {
   let dir = app_dir();
   let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   std::fs::write(dir.join("app.toml"), format!("{toml}\n[[route]]\npattern = \"/about\"\n")).unwrap();
-  let err = match Host::from(dir.join("app.toml")).unwrap().build() {
-    Err(err) => err.to_string(),
-    Ok(_) => panic!("a declared route nothing registers boots"),
-  };
-  assert!(err.contains("/about") && err.contains("nothing registers it"), "{err}");
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  assert_eq!(host.report().unanswered_routes, vec!["/about".to_owned()]);
+  assert!(host.report().to_string().contains("/about                 declared by [[route]], registered by nothing here"), "{}", host.report());
   let host = Host::from(dir.join("app.toml")).unwrap().route("/about", snapfire_fsr::Plan::of("shell#document")).build().unwrap();
+  assert!(host.report().unanswered_routes.is_empty());
   assert!(host.report().app.routes.iter().any(|(pattern, _)| pattern == "/about"), "{:?}", host.report().app.routes);
 }
 

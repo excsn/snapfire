@@ -218,7 +218,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### RouteDecl
 
-* `pattern: String`, a `[[route]]` entry: a pattern the application registers with `HostBuilder::route`. `build` refuses a declared pattern no route registers, naming it.
+* `pattern: String`, a `[[route]]` entry: a pattern the application registers with `HostBuilder::route`. A declared pattern no route registers is listed in `HostReport::unanswered_routes` and printed on a `routes` row.
 
 ### client
 
@@ -463,7 +463,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ### HostReport
 
-* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub extensions: Vec<String>, pub site: Option<(String, String)>, pub sites: Vec<SiteReport>, pub config: Vec<PathBuf>, pub inferred: Vec<String>, pub public: Vec<(String, String)>, pub ignored: Vec<String> }`
+* `pub struct HostReport { pub app: snapfire_fsr::Report, pub services: Vec<(String, String, String)>, pub statics: Vec<(String, PathBuf)>, pub unanswered_routes: Vec<String>, pub cache: Option<(u64, String)>, pub locales: Vec<String>, pub auth: Option<(String, String)>, pub bearer: Vec<(String, String)>, pub extensions: Vec<String>, pub site: Option<(String, String)>, pub sites: Vec<SiteReport>, pub config: Vec<PathBuf>, pub inferred: Vec<String>, pub public: Vec<(String, String)>, pub ignored: Vec<String> }`
 * `extensions: Vec<String>`: the native pairs registered beside the standard library, by name; `Display` prints them as `natives` rows labelled `rust`, after `bearer`.
 * `catalogs: Vec<(String, usize)>`: each locale with a file under `locales/` and how many keys it holds; `Display` prints one `catalogs` row, `en_US 5 keys, fr_FR 5 keys`.
 * `client: Option<(&'static str, usize, usize, bool)>`: the prefix the embedded client answers, how many modules it holds, what they come to and whether the build served is the minified one; `None` when a static root claims the prefix. `Display` prints one `client` row after the `static` rows, naming the build as `minified` or `readable`.
