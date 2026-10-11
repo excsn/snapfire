@@ -55,6 +55,8 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 * `Manifest::from_text(source: &str) -> Result<Self, PlanError>`: reads either form, told apart by the file's first term: `(` is s-expressions, `{` the JSON an older build wrote. What a host should call.
 * `Manifest::from_sexpr(source: &str) -> Result<Self, PlanError>`: parses `plan.sexp`, checks the version and refuses a `lowered` source or action row with no body.
 * `Manifest::to_sexpr(&self) -> String`: the text of a `plan.sexp`, one form per row, wrapped at 100 columns.
+* `Manifest::view(&self, id: &str, section: Option<&str>) -> Result<String, ViewError>`: one row printed as `to_sexpr` writes it: a source, action or handler by `id`, a component by `module`, a derive by `key`, tried in that order. `section` names one of a source row's `SOURCE_SECTIONS` and prints that form alone; on any other row it is `ViewError::OneBody`.
+* `Manifest::row_ids(&self) -> Vec<String>`: every id `view` answers, sources then actions, handlers, components and derives, each in file order.
 * `Manifest::from_json(source: &str) -> Result<Self, PlanError>`: the same over the JSON form. A non-finite float has no JSON term, so a plan carrying one only round-trips through `to_sexpr`.
 * `Manifest::to_json(&self) -> String`: pretty-printed, in field order.
 * `Manifest::routes(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the runtime's trees in file order; refuses an empty pattern, a malformed module id, a node id used twice within one route and a slot used twice on one node.
@@ -148,6 +150,8 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 
 * `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then one `(framework <package> <version>)` per vendored framework, then routes, intercepts, the not-found tree, middleware, rows, consts, components and clients.
 * `manifest_from_sx(&[Sx]) -> Result<Manifest, SexprError>`: the same in reverse, with no version check; `Manifest::from_sexpr` adds it.
+* `SOURCE_SECTIONS: [&str; 5]`: `body`, `meta`, `store`, `defaults` and `paths`, the exports a source row carries as sections.
+* `ViewError`: `Unknown { id }`, `OneBody { id }`, `NoSuchSection { section }` and `Absent { id, section, present }`, `present` naming the sections the row carries or `no sections`. `Display` is the message `fsr ir view` prints.
 
 ## 6. Error Handling
 

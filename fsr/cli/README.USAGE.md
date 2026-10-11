@@ -48,6 +48,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Writing an Extension](#writing-an-extension)
 * [Reading the Report](#reading-the-report)
 * [Reading the Plan File](#reading-the-plan-file)
+* [Viewing One Body](#viewing-one-body)
 * [Naming the Shell](#naming-the-shell)
 * [Answering a Residue Diagnostic](#answering-a-residue-diagnostic)
 * [Counting What Does Not Lower](#counting-what-does-not-lower)
@@ -1366,6 +1367,37 @@ kept      routes/shop/layout.tsx#default     its state reaches the slot `modal`,
 ```
 
 The host reads it with `snapfire_fsr::App::from_manifest`, which binds every lowered row unless Rust overrides the name. It takes the merged `generated/contracts/` through `contract()` so a lowered action's input is checked before its body runs.
+
+## Viewing One Body
+
+`fsr ir view <app dir> <id>` prints one row of the plan the last build wrote, as the file holds it, so a developer sees what the server runs for one piece of TypeScript without opening the whole file. It reads `generated/plan.sexp` and builds nothing; without a plan it says to build first. A source, action or handler goes by its id, a component by its module id and a derive by its key.
+
+```sh
+$ fsr ir view app product.$id
+(source product.$id
+  lowered
+  (module routes/product/[id]/page.loader.ts)
+  (body
+    (let product (call shopping getProduct (id (bigint (param id)))))
+    ...
+  (meta
+    ...))
+$ fsr ir view app cart.addToCart
+$ fsr ir view app routes/cart/page.tsx#default
+```
+
+A source row carries one section per export of its loader module: `body` for `load`, then `meta`, `store`, `defaults` and `paths`. A third argument prints one of them alone, which is the one to reach for when a loader's `meta` runs to hundreds of lines above a four-line `load`.
+
+```sh
+$ fsr ir view app product.$id body
+(body
+  (let product (call shopping getProduct (id (bigint (param id)))))
+  (let stock (call inventory getStock (product_id (bigint (param id)))))
+  (let inCart (?? (idx (?? (session cart) (obj)) (param id)) 0))
+  (ret (obj (product product) (stock stock) (inCart inCart))))
+```
+
+A section the row does not carry is an error naming the ones it does. An action, handler, component or derive has one body and takes no section. An id the plan does not hold is an error listing every id it does, in file order.
 
 ## Naming the Shell
 

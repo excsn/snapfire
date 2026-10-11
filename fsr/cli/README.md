@@ -25,6 +25,7 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | See what a build would emit without writing | `fsr check <app>` |
 | Check a deployment for what the host will not refuse to start over | `fsr doctor <app>` |
 | Count what the build refuses or leaves to the browser across applications | `fsr census <app>...` |
+| See what the server runs for one loader, action, handler or component | `fsr ir view <app> <id> [section]` |
 | Write the deploy tree, checked first | `fsr bundle <app> [--out <dir>]` |
 | Vendor a package for the browser | `fsr add <app> react@19.1.0` |
 | Fetch declarations for the editor and `tsc` | `fsr types <app>` |

@@ -10,7 +10,7 @@ use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
 use snapfire_fsr_cli::vendor::Spec;
 use snapfire_fsr_cli::direction::{self, UseOptions};
-use snapfire_fsr_cli::{check, dev, emit, new, serve, sites, test, types, vendor, Options};
+use snapfire_fsr_cli::{check, dev, emit, ir, new, serve, sites, test, types, vendor, Options};
 
 #[derive(Parser)]
 #[command(
@@ -60,6 +60,27 @@ enum Command {
   Sites(Sites),
   /// The fonts an application serves.
   Fonts(Fonts),
+  /// The lowered form the server runs, as the build wrote it.
+  Ir(Ir),
+}
+
+#[derive(Args)]
+struct Ir {
+  #[command(subcommand)]
+  command: IrCommand,
+}
+
+#[derive(Subcommand)]
+enum IrCommand {
+  /// Prints one body from the last build's plan: a source, action or handler by id, a component by module id or a derive by key.
+  View {
+    /// The application directory.
+    app_dir: PathBuf,
+    /// The row: `product.$id`, `cart.addToCart`, `api.cart.GET`, `routes/page.tsx#default` or `"order/total"`.
+    id: String,
+    /// One export of a source row: body, meta, store, defaults or paths.
+    section: Option<String>,
+  },
 }
 
 #[derive(Args)]
@@ -552,6 +573,15 @@ fn main() -> ExitCode {
       Err(e) => failed(e),
     },
     Command::Sites(args) => run_sites(args.command),
+    Command::Ir(args) => match args.command {
+      IrCommand::View { app_dir, id, section } => match ir::view(&app_dir, &id, section.as_deref()) {
+        Ok(row) => {
+          print!("{row}");
+          ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+      },
+    },
     Command::Fonts(args) => match args.command {
       FontsCommand::Add { app_dir, spec } => match snapfire_fsr_cli::assets::add(&app_dir, &spec) {
         Ok(written) => {

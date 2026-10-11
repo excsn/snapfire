@@ -809,3 +809,23 @@ fn a_format_2_plan_still_reads() {
   assert_eq!(read, expected);
   assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
+
+/// One row printed alone is the same bytes the whole file holds for it.
+#[test]
+fn a_row_views_as_the_file_writes_it_and_a_source_section_alone() {
+  use snapfire_fsr_plan::sexpr::ViewError;
+  let manifest = Manifest::from_sexpr(GOLDEN).unwrap();
+  for id in ["index", "declared", "cart.add", "route.GET", "routes/page.tsx#default", "order/total"] {
+    let row = manifest.view(id, None).unwrap();
+    assert!(GOLDEN.contains(row.trim_end()), "{id} prints as the file holds it:\n{row}");
+    assert!(row.ends_with(")\n"), "{id} is one form");
+  }
+  let meta = manifest.view("index", Some("meta")).unwrap();
+  assert!(meta.starts_with("(meta\n  (let n $props)\n") && meta.ends_with("  (do side))\n"), "{meta}");
+  assert!(!meta.contains("(body"), "the section prints without its neighbours:\n{meta}");
+  assert_eq!(manifest.view("declared", Some("store")), Err(ViewError::Absent { id: "declared".into(), section: "store".into(), present: "no sections".into() }));
+  assert_eq!(manifest.view("index", Some("head")), Err(ViewError::NoSuchSection { section: "head".into() }));
+  assert_eq!(manifest.view("cart.add", Some("body")), Err(ViewError::OneBody { id: "cart.add".into() }));
+  assert_eq!(manifest.view("nothing", None), Err(ViewError::Unknown { id: "nothing".into() }));
+  assert_eq!(manifest.row_ids(), ["index", "declared", "cart.add", "cart.clear", "route.GET", "route.POST", "routes/page.tsx#default", "routes/layout.tsx#default", "order/total", "clock/now"]);
+}

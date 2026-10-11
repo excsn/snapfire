@@ -13,6 +13,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr check](#fsr-check)
   * [fsr doctor](#fsr-doctor)
   * [fsr census](#fsr-census)
+  * [fsr ir view](#fsr-ir-view)
   * [fsr bundle](#fsr-bundle)
   * [fsr serve](#fsr-serve)
   * [Sites](#sites)
@@ -110,6 +111,13 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * Builds each application in full, recording every residue in a loader, an action, a handler, middleware or an extension where `fsr build` stops at the first. It prints each cause with its count and up to three places, ranked within three kinds: `refused` (the residue a build stops on), `client` (a component left to render in the browser) and `foreign` (a component another framework renders). Writes nothing. Exit 0 whatever it found.
 * `census::run(apps: &[PathBuf]) -> Census`: the same census as a value. `Census { apps: usize, refused, client, foreign: BTreeMap<String, Vec<Sighting>>, failed: Vec<(String, String)> }`, each map keyed by the cause, `failed` naming an application whose build failed for something other than residue. `Sighting { app, at, message }`, `at` as `file:line:column`. `Display` writes the table.
 * `census::cause_of(message: &str) -> String`: the cause a message counts under, each backticked span written `` `…` ``, so one construct met under different names counts once.
+
+### fsr ir view
+
+* `fsr ir view <app dir> <id> [section]`
+* Prints one row of `generated/plan.sexp` as the file holds it: a source, action or handler by id, a component by module id or a derive by key. `section`, one of `body`, `meta`, `store`, `defaults` and `paths`, prints that export of a source row alone. Reads the plan the last build wrote and builds nothing. Exit 0 when printed, 1 when there is no plan, the plan does not read, the id names no row (the message lists every id), the section is not one of the five, the row does not carry it or the row has one body and a section was given.
+* `ir::view(app: &Path, id: &str, section: Option<&str>) -> Result<String, IrError>`: the same as a value, the row's text ending in a newline.
+* `IrError`: `NoPlan(PathBuf)`, `Plan(PathBuf, String)`, `Unknown { why: ViewError, rows: Vec<String> }` and `View(ViewError)`, over `snapfire_fsr_plan::sexpr::ViewError`.
 
 ### fsr bundle
 

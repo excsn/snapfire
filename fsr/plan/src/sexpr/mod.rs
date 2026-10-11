@@ -16,7 +16,7 @@ use shape::*;
 
 use crate::HeadRow;
 use crate::{
-  ClientEntry, ComponentEntry, Manifest, RouteEntry, RowOwner, FORMAT_VERSION, OLDEST_READABLE,
+  ClientEntry, ComponentEntry, DeriveEntry, Manifest, RouteEntry, RowOwner, FORMAT_VERSION, OLDEST_READABLE,
 };
 
 /// The manifest as forms: the version, then routes, then the rows that fill
@@ -49,29 +49,8 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
   for (name, expr) in &manifest.consts {
     out.push(form("const", vec![sym(name.clone()), expr_to_sx(expr)]));
   }
-  for entry in &manifest.components {
-    let mut rest = vec![sym(entry.module.clone())];
-    rest.extend(component_sections(&entry.body));
-    for row in &entry.head {
-      let mut terms = vec![sym(row.tag.clone())];
-      for (name, value) in &row.attrs {
-        terms.push(Sx::Str(name.clone()));
-        terms.push(Sx::Str(value.clone()));
-      }
-      rest.push(form("head", terms));
-    }
-    out.push(form("component", rest));
-  }
-  for entry in &manifest.derives {
-    let mut sources = vec![sym("sources".to_owned())];
-    sources.extend(entry.sources.iter().map(|key| Sx::Str(key.clone())));
-    let mut rest = vec![Sx::Str(entry.key.clone()), Sx::List(sources)];
-    match &entry.body {
-      Some(body) => rest.push(expr_to_sx(body)),
-      None => rest.push(form("browser", vec![Sx::Str(entry.at.clone().unwrap_or_default()), Sx::Str(entry.why.clone().unwrap_or_default())])),
-    }
-    out.push(form("derive", rest));
-  }
+  out.extend(manifest.components.iter().map(component_to_sx));
+  out.extend(manifest.derives.iter().map(derive_to_sx));
   for entry in &manifest.clients {
     let mut rest = vec![sym(entry.module.clone()), Sx::Str(entry.at.clone()), Sx::Str(entry.message.clone())];
     if let Some(hint) = &entry.hint {
@@ -80,6 +59,47 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
     out.push(form("client", rest));
   }
   out
+}
+
+fn component_to_sx(entry: &ComponentEntry) -> Sx {
+  let mut rest = vec![sym(entry.module.clone())];
+  rest.extend(component_sections(&entry.body));
+  for row in &entry.head {
+    let mut terms = vec![sym(row.tag.clone())];
+    for (name, value) in &row.attrs {
+      terms.push(Sx::Str(name.clone()));
+      terms.push(Sx::Str(value.clone()));
+    }
+    rest.push(form("head", terms));
+  }
+  form("component", rest)
+}
+
+fn derive_to_sx(entry: &DeriveEntry) -> Sx {
+  let mut sources = vec![sym("sources".to_owned())];
+  sources.extend(entry.sources.iter().map(|key| Sx::Str(key.clone())));
+  let mut rest = vec![Sx::Str(entry.key.clone()), Sx::List(sources)];
+  match &entry.body {
+    Some(body) => rest.push(expr_to_sx(body)),
+    None => rest.push(form("browser", vec![Sx::Str(entry.at.clone().unwrap_or_default()), Sx::Str(entry.why.clone().unwrap_or_default())])),
+  }
+  form("derive", rest)
+}
+
+/// The sections a source row can carry, each one export of its loader module.
+pub const SOURCE_SECTIONS: [&str; 5] = ["body", "meta", "store", "defaults", "paths"];
+
+/// Why a row or one section of a source row cannot be printed alone.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ViewError {
+  #[error("no row is named `{id}`")]
+  Unknown { id: String },
+  #[error("`{id}` has one body and no sections")]
+  OneBody { id: String },
+  #[error("a source's sections are body, meta, store, defaults and paths, not `{section}`")]
+  NoSuchSection { section: String },
+  #[error("`{id}` has no `{section}` section; it carries {present}")]
+  Absent { id: String, section: String, present: String },
 }
 
 pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
@@ -216,6 +236,64 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
 }
 
 impl Manifest {
+  /// One row as `plan.sexp` writes it: a source, action or handler by its id,
+  /// a component by its module id or a derive by its key. `section` names one
+  /// export of a source row and prints that section alone.
+  pub fn view(&self, id: &str, section: Option<&str>) -> Result<String, ViewError> {
+    let unknown = || ViewError::Unknown { id: id.to_owned() };
+    if let Some(row) = self.sources.iter().find(|row| row.id == id) {
+      let Some(section) = section else { return Ok(print(&[source_to_sx(row)])) };
+      if !SOURCE_SECTIONS.contains(&section) {
+        return Err(ViewError::NoSuchSection { section: section.to_owned() });
+      }
+      let body = match section {
+        "body" => &row.body,
+        "meta" => &row.meta,
+        "store" => &row.store,
+        "defaults" => &row.defaults,
+        _ => &row.paths,
+      };
+      return match body_form(section, body) {
+        Some(sx) => Ok(print(&[sx])),
+        None => {
+          let present: Vec<&str> = SOURCE_SECTIONS
+            .iter()
+            .zip([&row.body, &row.meta, &row.store, &row.defaults, &row.paths])
+            .filter(|(_, body)| body.is_some())
+            .map(|(name, _)| *name)
+            .collect();
+          let present = if present.is_empty() { "no sections".to_owned() } else { present.join(", ") };
+          Err(ViewError::Absent { id: id.to_owned(), section: section.to_owned(), present })
+        }
+      };
+    }
+    let sx = if let Some(row) = self.actions.iter().find(|row| row.id == id) {
+      action_to_sx(row)
+    } else if let Some(row) = self.handlers.iter().find(|row| row.id == id) {
+      handler_to_sx(row)
+    } else if let Some(row) = self.components.iter().find(|row| row.module == id) {
+      component_to_sx(row)
+    } else if let Some(row) = self.derives.iter().find(|row| row.key == id) {
+      derive_to_sx(row)
+    } else {
+      return Err(unknown());
+    };
+    if section.is_some() {
+      return Err(ViewError::OneBody { id: id.to_owned() });
+    }
+    Ok(print(&[sx]))
+  }
+
+  /// Every id [`Manifest::view`] answers, in file order.
+  pub fn row_ids(&self) -> Vec<String> {
+    let mut ids: Vec<String> = self.sources.iter().map(|row| row.id.clone()).collect();
+    ids.extend(self.actions.iter().map(|row| row.id.clone()));
+    ids.extend(self.handlers.iter().map(|row| row.id.clone()));
+    ids.extend(self.components.iter().map(|row| row.module.clone()));
+    ids.extend(self.derives.iter().map(|row| row.key.clone()));
+    ids
+  }
+
   /// Reads a plan file of either form, told apart by its first term: a plan in
   /// s-expressions opens with `(`, the JSON it replaced with `{`.
   pub fn from_text(source: &str) -> Result<Self, crate::PlanError> {
