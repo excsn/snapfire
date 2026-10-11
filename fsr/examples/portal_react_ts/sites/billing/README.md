@@ -20,3 +20,11 @@ cargo run -p billing_site_react_ts
 ```
 
 `http://127.0.0.1:8101/billing` is the site with its own layout as the page and React served from the portal's `app/vendor/`. There is no sign-in, so `/billing/overdue` redirects to a `/auth/login` that only the portal answers. `cargo test -p billing_site_react_ts` drives the standalone host.
+
+## Run it under the portal
+
+```sh
+fsr dev app
+```
+
+From this directory, that finds the portal through `[site] shell` and serves it on the portal's address with this working tree mounted at `/billing` in place of `billing@1.0.0`, the other sites as the table says. Sign in as `alice` and open `/billing/overdue`: the guard lets you through on the portal's session. Edit a page and the portal reloads it. The portal's files are never written to. A site team outside this repository runs the same with `--under <dir>`, where `<dir>` is the portal's deploy tree from `fsr bundle`.

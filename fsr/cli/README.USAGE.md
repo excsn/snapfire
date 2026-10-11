@@ -1024,6 +1024,12 @@ fsr serve app --listen 127.0.0.1:8080
 fsr dev app
 ```
 
+On a site, `fsr dev app` serves the site under its shell when `[site] shell` points into a shell tree with a configuration, which it does inside a repository that holds both. `--under <shell>` names one elsewhere: the shell's project directory or the deploy tree its `fsr bundle` wrote, handed over as a directory. The site is the one application built and watched and the shell is served as it stands with the site mounted from its working tree in place of the table's row, so the shell's files are never written to. `--alone` serves the site by itself, with its own layout as the page.
+
+```sh
+fsr dev app --under ../portal-tree
+```
+
 Both print a second banner line, `fsr traces on <addr>/__fsr/traces`, when the host is a development one. `GET` it for the last fifty requests, each as a flat list of spans carrying their own depth: the `source` span per loader with `memo` when it is memoizable, a `call` span per service method under the loader that made it and a `render` span per node with `cache` when the render cache was consulted. No second line means nothing is collecting, which is what `server.dev = false` or a `RELEASE_ENV` other than `development` gives you. Nothing reaches the endpoint in production and an application that wants its traces there registers a listener through `snapfire_fsr_host::trace`.
 
 To serve with no backend at all, an overlay names a client's transport as `mock` and `clients/<name>.mock.json` holds the responses, an object of method name to value with `{"$fail": {"kind": "unavailable", "message": "..."}}` for a failure. `APP_ENV=mock fsr serve app` picks the overlay up through the configuration ladder and the report shows `mock` and the file beside the client. A bundle carries the responses file whether or not it was made under that overlay.

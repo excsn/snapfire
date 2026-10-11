@@ -25,6 +25,8 @@ Its frameworks still come from the shell. The site's import map names React at t
 
 Running alone is for development and tests. A site is deployed by mounting it: a deploy tree has no shell beside it, so a site deployed by itself has no framework to import.
 
+Running under the real shell is one command too. `fsr dev app` on a site finds the shell through `[site] shell` when that contract sits in a shell tree with a configuration. It serves the shell as it stands with the site mounted from its working tree in place of whatever the shell's table says; `--under <shell>` names a shell elsewhere, its project directory or the deploy tree its `fsr bundle` wrote. The site team sees their routes inside the real header with the real sign-in, rebuilt on every save. The shell's files are never written to. `--alone` is the standalone shape above. A shell handed over as a deploy tree carries its development overlay, its mock files and its users file, so its sign-in and its mocked clients work from the copy; a shell whose development clients are real services needs its own `local.toml`, which the site team does not have, so that client fails on its first request rather than at boot.
+
 ## Mounting sites in the shell
 
 The shell is an application the platform team owns: the root layout, the sign-in, the locales, the vendor tree. Its configuration names the sites it mounts.

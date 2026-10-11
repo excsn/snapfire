@@ -74,3 +74,5 @@ fsr sites pin . status --layer local
 To ship status 1.1.0, pack it into the store and move `[sites.status] artifact` to `status@1.1.0`. The poll notices the row moved, fetches the version and swaps the tables. A request in flight finishes on the old ones.
 
 `cargo test -p portal_react_ts` does the same install and fetch in process, with the store on a free port. It serves the reports site on another to mount it over.
+
+A site team works the other way round: `fsr dev sites/billing/app` finds the portal through billing's `[site] shell`, serves the portal as it stands and mounts billing from its working tree in place of the installed version, rebuilding billing on every save. `--under <dir>` does the same from a copy of the portal's deploy tree, for a team that holds the site alone.

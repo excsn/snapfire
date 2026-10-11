@@ -59,11 +59,17 @@ pub struct DevOptions {
   pub snapfirec: Option<PathBuf>,
   /// Which TypeScript checks the application and whether it is checked at all.
   pub typecheck: Typecheck,
+  /// A shell to serve the application under when it is a site: its project
+  /// directory, an unpacked artifact or an archive. Absent, the shell `[site]
+  /// shell` points into is used when it has a configuration.
+  pub under: Option<PathBuf>,
+  /// Serves a site by itself even when a shell is found for it.
+  pub alone: bool,
 }
 
 impl Default for DevOptions {
   fn default() -> Self {
-    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() } }
+    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false }
   }
 }
 
@@ -73,7 +79,7 @@ impl DevOptions {
   pub fn beside(app: &Path) -> Self {
     let build = Options::beside(app);
     let public_path = crate::bundle_base(build.site.as_ref());
-    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app) }
+    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false }
   }
 }
 
@@ -97,6 +103,8 @@ struct App {
   options: DevOptions,
   /// Minified, with plugins compiling for production. [`emit`] sets it unless the configuration writes `server.dev = true`.
   production: bool,
+  /// Served as it stands and never built or watched: a shell artifact a site runs under.
+  served: bool,
 }
 
 impl App {
@@ -104,7 +112,14 @@ impl App {
     let dir = dir.canonicalize().map_err(|e| BuildError::Io(dir.to_path_buf(), e))?;
     let layout = Layout::of(&dir)?;
     let snapfirec = find_snapfirec(options.snapfirec.as_deref());
-    Ok(Self { dir, layout, snapfirec, options, production: false })
+    Ok(Self { dir, layout, snapfirec, options, production: false, served: false })
+  }
+
+  /// A shell served from `root` as it stands, its app directory from its configuration.
+  fn served(root: &Path) -> Result<Self, BuildError> {
+    let config = Config::load(root).map_err(|e| BuildError::Dev(format!("{}: {e}", root.display())))?;
+    let dir = config.app.canonicalize().map_err(|e| BuildError::Io(config.app.clone(), e))?;
+    Ok(Self { dir, layout: Layout::default(), snapfirec: PathBuf::from("snapfirec"), options: DevOptions::default(), production: false, served: true })
   }
 
   /// Builds and writes, with `adopted` the asset paths earlier bundles reported, so the map the
@@ -234,10 +249,23 @@ struct Project {
   /// The shell first, then each site.
   apps: Vec<App>,
   cargo: Option<PathBuf>,
+  /// A site served under a shell artifact: the site's name and its project
+  /// root, which the shell is told to mount for the run.
+  mount: Option<(String, PathBuf)>,
 }
 
 impl Project {
   fn open(app: &Path, options: DevOptions) -> Result<Self, BuildError> {
+    if let Some(root) = shell_under(app, &options)? {
+      let site = crate::site_beside(app).expect("a shell is found for a site alone");
+      let site_root = crate::serve::project_root(app);
+      let shell = App::served(&root)?;
+      let mut site_options = options;
+      site_options.under = None;
+      let site_app = App::open(app, site_options)?;
+      println!("dev: serving {} under the shell at {}", site.name, root.display());
+      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)) });
+    }
     let shell = App::open(app, options)?;
     let cargo = shell.dir.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file());
     let sites = site_apps(&shell.dir);
@@ -247,7 +275,19 @@ impl Project {
       options.snapfirec = Some(apps[0].snapfirec.clone());
       apps.push(App::open(&dir, options)?);
     }
-    Ok(Self { apps, cargo })
+    Ok(Self { apps, cargo, mount: None })
+  }
+
+  /// The arguments `fsr serve` takes for the run: the shell's app directory
+  /// and, for a site under a shell, the mount that puts the site's tree in
+  /// the shell's table.
+  fn serve_args(&self) -> Vec<std::ffi::OsString> {
+    let mut args = vec![std::ffi::OsString::from("serve"), self.shell().dir.clone().into_os_string()];
+    if let Some((name, root)) = &self.mount {
+      args.push("--mount".into());
+      args.push(format!("{name}={}", root.display()).into());
+    }
+    args
   }
 
   fn shell(&self) -> &App {
@@ -298,7 +338,7 @@ impl Project {
       (Some(cargo), None) => Command::new("cargo").arg("run").env(OWNS_BUILD, "1").current_dir(cargo).spawn().map_err(|e| BuildError::Dev(format!("cargo run: {e}"))),
       (None, _) => {
         let exe = std::env::current_exe().map_err(|e| BuildError::Dev(format!("fsr serve: {e}")))?;
-        Command::new(exe).arg("serve").arg(&self.shell().dir).spawn().map_err(|e| BuildError::Dev(format!("fsr serve: {e}")))
+        Command::new(exe).args(self.serve_args()).spawn().map_err(|e| BuildError::Dev(format!("fsr serve: {e}")))
       }
     }
   }
@@ -320,6 +360,7 @@ impl Project {
     for path in changed {
       let owner = self.apps.iter().enumerate().filter(|(_, app)| path.starts_with(&app.dir)).max_by_key(|(_, app)| app.dir.as_os_str().len());
       match owner {
+        Some((_, app)) if app.served => {}
         Some((i, app)) => {
           let rel = path.strip_prefix(&app.dir).expect("a prefix");
           if !ignored(rel) {
@@ -336,6 +377,43 @@ impl Project {
 fn ignored(rel: &Path) -> bool {
   let first = rel.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned()).unwrap_or_default();
   IGNORED.contains(&first.as_str()) || first.starts_with(".fsr-") || first == "tests" || rel.to_string_lossy().ends_with(".test.ts")
+}
+
+/// The shell a site runs under, when it runs under one: `--under` as given, a
+/// directory holding a shell's configuration, which a project and a deploy
+/// tree both are, or a shell's app directory; else the shell `[site] shell`
+/// points into when that is a tree with a configuration. `None` for an
+/// application that is not a site, for `--alone` and for a site whose shell is
+/// a bare `shell.json`.
+fn shell_under(app: &Path, options: &DevOptions) -> Result<Option<PathBuf>, BuildError> {
+  if options.alone {
+    return Ok(None);
+  }
+  let Some(site) = crate::site_beside(app) else {
+    if options.under.is_some() {
+      return Err(BuildError::Dev(format!("{} is not a site; --under runs a site under a shell", app.display())));
+    }
+    return Ok(None);
+  };
+  let given = match &options.under {
+    Some(under) => under.clone(),
+    None => {
+      let Some(root) = site.shell.as_deref().and_then(|json| json.parent()).and_then(|generated| generated.parent()).map(crate::serve::project_root) else {
+        return Ok(None);
+      };
+      let shell_root = root.canonicalize().unwrap_or(root);
+      if !Config::load(&shell_root).is_ok() {
+        return Ok(None);
+      }
+      return Ok(Some(shell_root));
+    }
+  };
+  if !given.is_dir() {
+    return Err(BuildError::Dev(format!("--under {}: not a directory; a shell's project or the deploy tree `fsr bundle` writes", given.display())));
+  }
+  let root = if given.join("config").is_dir() || given.join("app.toml").is_file() { given.clone() } else { crate::serve::project_root(&given) };
+  Config::load(&root).map_err(|e| BuildError::Dev(format!("--under {}: {e}", given.display())))?;
+  Ok(Some(root.canonicalize().unwrap_or(root)))
 }
 
 /// The app directory of every site the shell's configuration mounts from a path: those are
@@ -806,7 +884,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   }, notify::Config::default())
   .map_err(|e| BuildError::Dev(format!("watcher: {e}")))?;
   let mut watching: HashSet<PathBuf> = HashSet::new();
-  for app in &project.apps {
+  for app in project.apps.iter().filter(|app| !app.served) {
     watch(&mut watcher, &mut watching, app.dir.clone())?;
   }
   for path in project.watched() {
@@ -818,6 +896,7 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   let sites: Vec<String> = project.apps[1..].iter().map(|app| app.dir.strip_prefix(&root).unwrap_or(&app.dir).display().to_string()).collect();
   let shell = project.shell().dir.display();
   match (&project.cargo, sites.is_empty()) {
+    _ if project.mount.is_some() => println!("dev: watching {}, served under the shell at {shell} by the stock host; press Ctrl-C to stop", sites.join(", ")),
     (Some(cargo), true) => println!("dev: watching {shell} and the project at {}; press Ctrl-C to stop", cargo.display()),
     (Some(cargo), false) => println!("dev: watching {shell}, the sites {} and the project at {}; press Ctrl-C to stop", sites.join(", "), cargo.display()),
     (None, true) => println!("dev: watching {shell} and its configuration, served by the stock host; press Ctrl-C to stop"),
@@ -836,6 +915,9 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       let mut refusals: Vec<String> = Vec::new();
       for (state, sources) in tracked.iter_mut().zip(want.apps.iter_mut()) {
         let Some(sources) = sources.take() else { continue };
+        if state.app.served {
+          continue;
+        }
         match state.rebuild(sources) {
           Ok(changed) => reload |= changed,
           Err(e) => {
@@ -1040,7 +1122,7 @@ mod tests {
   use super::*;
 
   fn app(dir: &Path) -> App {
-    App { dir: dir.to_path_buf(), layout: Layout::default(), snapfirec: PathBuf::from("snapfirec"), options: DevOptions::default(), production: false }
+    App { dir: dir.to_path_buf(), layout: Layout::default(), snapfirec: PathBuf::from("snapfirec"), options: DevOptions::default(), production: false, served: false }
   }
 
   fn scaffold(tag: &str, server: &str) -> PathBuf {
@@ -1078,11 +1160,11 @@ mod tests {
   }
 
   fn project(shell: &Path) -> Project {
-    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()) }
+    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None }
   }
 
   fn with_site(shell: &Path, site: &Path) -> Project {
-    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()) }
+    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None }
   }
 
   #[test]
@@ -1473,4 +1555,74 @@ mod tests {
     }
   }
 
+}
+
+#[cfg(test)]
+mod under_tests {
+  use super::*;
+
+  fn fresh(tag: &str) -> PathBuf {
+    let root = std::env::temp_dir().join(format!("fsr-cli-under-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    root
+  }
+
+  /// A shell scaffold and a site scaffold linked into it, both with no fetch.
+  fn shell_and_site(tag: &str) -> (PathBuf, PathBuf) {
+    let shell = fresh(&format!("{tag}-shell"));
+    crate::new::create(&shell, crate::new::NewOptions { fetch: false, shell: true, ..crate::new::NewOptions::default() }).unwrap();
+    std::fs::create_dir_all(shell.join("app/generated")).unwrap();
+    std::fs::write(shell.join("app/generated/shell.json"), r#"{"version":1}"#).unwrap();
+    let site = fresh(&format!("{tag}-site"));
+    crate::new::create(
+      &site,
+      crate::new::NewOptions { fetch: false, site: Some(crate::new::SiteScaffold { at: "/billing".to_owned(), name: Some("billing".to_owned()), into: Some(shell.clone()) }), ..crate::new::NewOptions::default() },
+    )
+    .unwrap();
+    (shell, site)
+  }
+
+  #[test]
+  fn a_site_finds_its_shell_through_the_contract_it_was_built_against_unless_told_to_run_alone() {
+    let (shell, site) = shell_and_site("infer");
+    let app = site.join("app");
+    let found = shell_under(&app, &DevOptions::default()).unwrap().expect("the shell beside the contract");
+    assert_eq!(found, shell.canonicalize().unwrap());
+    let alone = DevOptions { alone: true, ..DevOptions::default() };
+    assert_eq!(shell_under(&app, &alone).unwrap(), None);
+    assert_eq!(shell_under(&shell.join("app"), &DevOptions::default()).unwrap(), None, "a shell is not under anything");
+    let e = shell_under(&shell.join("app"), &DevOptions { under: Some(shell.clone()), ..DevOptions::default() }).unwrap_err().to_string();
+    assert!(e.contains("is not a site"), "{e}");
+  }
+
+  #[test]
+  fn under_takes_a_shells_root_or_its_app_directory_and_refuses_anything_else() {
+    let (shell, site) = shell_and_site("given");
+    let app = site.join("app");
+    let by_root = shell_under(&app, &DevOptions { under: Some(shell.clone()), ..DevOptions::default() }).unwrap().unwrap();
+    let by_app = shell_under(&app, &DevOptions { under: Some(shell.join("app")), ..DevOptions::default() }).unwrap().unwrap();
+    assert_eq!(by_root, shell.canonicalize().unwrap());
+    assert_eq!(by_app, by_root);
+    let e = shell_under(&app, &DevOptions { under: Some(shell.join("app/importmap.json")), ..DevOptions::default() }).unwrap_err().to_string();
+    assert!(e.contains("not a directory"), "{e}");
+    let e = shell_under(&app, &DevOptions { under: Some(fresh("given-empty")), ..DevOptions::default() }).unwrap_err().to_string();
+    assert!(e.contains("--under"), "{e}");
+  }
+
+  #[test]
+  fn a_site_under_a_shell_is_the_one_app_built_and_the_shell_is_told_to_mount_it() {
+    let (shell, site) = shell_and_site("project");
+    let project = Project::open(&site.join("app"), DevOptions { under: Some(shell.clone()), ..DevOptions::default() }).unwrap();
+    assert_eq!(project.apps.len(), 2);
+    assert!(project.apps[0].served && !project.apps[1].served);
+    assert_eq!(project.apps[0].dir, shell.join("app").canonicalize().unwrap());
+    assert!(project.cargo.is_none());
+    let args: Vec<String> = project.serve_args().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    assert_eq!(args[0], "serve");
+    assert_eq!(args[2], "--mount");
+    assert_eq!(args[3], format!("billing={}", site.canonicalize().unwrap().display()));
+    let change = project.classify(&[project.apps[0].dir.join("routes/page.tsx"), project.apps[1].dir.join("routes/page.tsx")]);
+    assert!(change.apps[0].is_none(), "nothing under a served shell is a change");
+    assert!(change.apps[1].is_some() && !change.project);
+  }
 }

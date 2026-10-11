@@ -4,9 +4,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use snapfire_fsr_host::config::Config;
+use snapfire_fsr_host::config::{Config, MountConfig};
 use snapfire_fsr_host::trace::Traces;
-use snapfire_fsr_host::Host;
+use snapfire_fsr_host::{Host, HostBuilder};
 
 use crate::BuildError;
 
@@ -14,6 +14,10 @@ use crate::BuildError;
 pub struct ServeOptions {
   /// Overrides the configured `server.listen`.
   pub listen: Option<String>,
+  /// Sites mounted from these paths for this run, by name, each replacing the
+  /// table's row of that name or adding one: `fsr dev` serves a site under a
+  /// shell artifact this way, with nothing written into the artifact.
+  pub mounts: Vec<(String, PathBuf)>,
 }
 
 /// Where the host reads its configuration from: the directory beside the app
@@ -28,7 +32,7 @@ pub fn project_root(app: &Path) -> PathBuf {
 
 /// Builds the host for `app` and serves it until the process ends.
 pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
-  let (host, traces) = host_of(app, true)?;
+  let (host, traces) = host_of(app, true, &options.mounts)?;
   let host = Arc::new(host);
   print!("{}", host.report());
   let listen = options.listen.unwrap_or_else(|| host.listen().to_owned());
@@ -65,17 +69,40 @@ pub fn prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)
 }
 
 pub fn host_for(app: &Path) -> Result<Host, BuildError> {
-  host_of(app, false).map(|(host, _)| host)
+  host_of(app, false, &[]).map(|(host, _)| host)
+}
+
+/// The builder `fsr serve` would build from, with `mounts` laid over the
+/// configuration's `[sites]` table: a row per name, naming the path, the
+/// table's own row of that name replaced. The builder reloads the same way.
+pub fn builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<HostBuilder, BuildError> {
+  let build = {
+    let root = root.to_path_buf();
+    let mounts = mounts.to_vec();
+    move || -> Result<HostBuilder, snapfire_fsr_host::HostError> {
+      let mut config = Config::load(&root)?;
+      let section = config.sites.get_or_insert_with(Default::default);
+      for (name, path) in &mounts {
+        section.mounts.insert(name.clone(), MountConfig { artifact: Some(path.display().to_string()), hash: None, allow_engine: false, at: None, over: Vec::new(), timeout: None, retry: None, secret: None });
+      }
+      Host::from_config(config)
+    }
+  };
+  let builder = build().map_err(|e| BuildError::Serve(e.to_string()))?;
+  Ok(builder.reloader(move || build().map(snapfire_fsr_sites::mountable).and_then(|b| snapfire_fsr_sites::mount_all(b).map_err(|e| snapfire_fsr_host::HostError::Mount("sites".to_owned(), e.to_string())))))
 }
 
 /// `host_for`, with the handle to the collector when one was installed.
 /// Only a development host collects. A span costs an atomic load and a branch
 /// while nothing keeps it; the endpoint that serves them back is not registered
 /// outside development.
-fn host_of(app: &Path, collect: bool) -> Result<(Host, Option<Traces>), BuildError> {
+fn host_of(app: &Path, collect: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>), BuildError> {
   let given = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let root = project_root(&given);
-  let builder = Host::from(&root).map_err(|e| BuildError::Serve(e.to_string()))?;
+  let builder = match mounts.is_empty() {
+    true => Host::from(&root).map_err(|e| BuildError::Serve(e.to_string()))?,
+    false => builder_with_mounts(&root, mounts)?,
+  };
   let config = builder.config();
   let configured = config.app.canonicalize().unwrap_or_else(|_| config.app.clone());
   if configured != given {

@@ -33,7 +33,7 @@ enum Command {
   /// Scaffolds a bare project: configuration, routes and an import map, no framework; --with react adds React.
   New(New),
   /// Builds and serves an application, rebuilding what changed as it changes.
-  Dev(Build),
+  Dev(Dev),
   /// Runs the application's tests.
   Test(Test),
   /// Serves an application that is already built.
@@ -134,6 +134,18 @@ struct Build {
 }
 
 #[derive(Args)]
+struct Dev {
+  #[command(flatten)]
+  build: Build,
+  /// A shell to serve this site under: its project directory, an unpacked artifact or an archive. Found from `[site] shell` when absent.
+  #[arg(long, value_name = "SHELL")]
+  under: Option<PathBuf>,
+  /// Serves a site by itself even when `[site] shell` names a shell it could run under.
+  #[arg(long)]
+  alone: bool,
+}
+
+#[derive(Args)]
 struct Check {
   /// The application directory.
   app_dir: PathBuf,
@@ -181,6 +193,9 @@ struct Serve {
   /// The address to listen on, over the configured one.
   #[arg(long)]
   listen: Option<String>,
+  /// Mounts a site from a path for this run, replacing the table's row of that name; repeatable.
+  #[arg(long = "mount", value_name = "NAME=PATH")]
+  mount: Vec<String>,
 }
 
 #[derive(Args)]
@@ -409,6 +424,15 @@ impl TypecheckFlags {
   }
 }
 
+impl Dev {
+  fn options(&self) -> DevOptions {
+    let mut options = self.build.options();
+    options.under = self.under.clone();
+    options.alone = self.alone;
+    options
+  }
+}
+
 impl Build {
   fn options(&self) -> DevOptions {
     let mut options = DevOptions::beside(&self.app_dir);
@@ -490,7 +514,7 @@ fn refused(message: &str) -> ExitCode {
 fn main() -> ExitCode {
   match Cli::parse().command {
     Command::New(args) => run_new(args),
-    Command::Dev(args) => match dev::run(&args.app_dir, args.options()) {
+    Command::Dev(args) => match dev::run(&args.build.app_dir, args.options()) {
       Ok(()) => ExitCode::SUCCESS,
       Err(e) => failed(e),
     },
@@ -502,9 +526,16 @@ fn main() -> ExitCode {
       Err(e) => failed(e),
     },
     Command::Serve(args) => {
+      let mut mounts = Vec::new();
+      for spec in &args.mount {
+        let Some((name, path)) = spec.split_once('=').filter(|(name, path)| !name.is_empty() && !path.is_empty()) else {
+          return refused(&format!("--mount takes NAME=PATH, not `{spec}`"));
+        };
+        mounts.push((name.to_owned(), PathBuf::from(path)));
+      }
       let options = ServeOptions {
         listen: args.listen,
-        ..ServeOptions::default()
+        mounts,
       };
       match serve::run(&args.app_dir, options) {
         Ok(()) => ExitCode::SUCCESS,
