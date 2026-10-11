@@ -268,6 +268,17 @@ pub fn native(name: &str, args: &str) -> Result<String, String> {
   context.with(|ctx| call_native(&ctx, name, args))
 }
 
+impl Drop for Engine {
+  fn drop(&mut self) {
+    NATIVE_CONTEXT.with(|slot| {
+      let mut slot = slot.borrow_mut();
+      if slot.as_ref().is_some_and(|held| held.as_raw() == self.context.as_raw()) {
+        *slot = None;
+      }
+    });
+  }
+}
+
 impl Engine {
   /// A context with the prelude, the DOM at `dom` (linkedom's worker bundle)
   /// and the hooks bound as globals.
@@ -564,6 +575,15 @@ mod tests {
     let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
     let local = tokio::task::LocalSet::new();
     rt.block_on(local.run_until(f))
+  }
+
+  #[test]
+  fn a_dropped_engine_leaves_no_context_on_its_thread() {
+    let e = engine();
+    assert!(e.eval_string("typeof __sf").unwrap() == "object");
+    drop(e);
+    let err = native("pair", "[]").unwrap_err();
+    assert_eq!(err, "pair: no engine runs on this thread");
   }
 
   #[test]
