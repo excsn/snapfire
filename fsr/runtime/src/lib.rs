@@ -15,6 +15,7 @@ pub mod services;
 pub mod islands;
 pub mod store;
 pub mod stream;
+pub mod wire;
 
 pub use actions::{ActionError, ActionHandler, ActionRegistry, FailureKind};
 pub use assembler::{
