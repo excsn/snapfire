@@ -786,6 +786,7 @@ impl Env {
         let mut map = ValueMap::default();
         for entry in entries {
           match entry {
+            Entry::Baked(_) => {}
             Entry::Field(name, e) => {
               let v = self.eval_sync(e)?;
               map.insert(name.clone(), v);
@@ -812,6 +813,7 @@ impl Env {
         let mut items = Vec::new();
         for entry in entries {
           match entry {
+            Entry::Baked(_) => {}
             Entry::Item(e) => items.push(self.eval_sync(e)?),
             Entry::Spread(e) => match self.eval_sync(e)? {
               Value::Seq(inner) => items.extend(inner),
@@ -1147,6 +1149,7 @@ impl Env {
           let mut map = ValueMap::default();
           for entry in entries {
             match entry {
+              Entry::Baked(_) => {}
               Entry::Field(name, e) => {
                 let v = self.eval(e).await?;
                 map.insert(name.clone(), v);
@@ -1173,6 +1176,7 @@ impl Env {
           let mut items = Vec::new();
           for entry in entries {
             match entry {
+              Entry::Baked(_) => {}
               Entry::Item(e) => items.push(self.eval(e).await?),
               Entry::Spread(e) => match self.eval(e).await? {
                 Value::Seq(inner) => items.extend(inner),

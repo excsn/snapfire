@@ -95,6 +95,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
 
 pub(super) fn entry_to_sx(entry: &Entry) -> Sx {
   match entry {
+    Entry::Baked(_) => unreachable!("a baked entry is never written to a plan"),
     Entry::Field(name, value) => {
       if ENTRY_MARKERS.contains(&name.as_str()) {
         form("=", vec![Sx::Sym(name.clone()), expr_to_sx(value)])

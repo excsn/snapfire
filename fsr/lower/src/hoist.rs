@@ -230,6 +230,7 @@ fn tmpl(t: &mut Tmpl, tainted: &mut Vec<String>, kept: &mut Vec<u32>) {
 fn entries(entries: &mut [Entry], tainted: &[String], kept: &mut Vec<u32>) {
   for entry in entries {
     match entry {
+      Entry::Baked(_) => {}
       Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => strip(e, tainted, kept, false, false),
       Entry::Computed(k, v) => {
         strip(k, tainted, kept, false, false);
@@ -273,6 +274,7 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
     Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => {}
     Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| strip(e, tainted, kept, in_lambda, in_hoist)),
     Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| match entry {
+      Entry::Baked(_) => {}
       Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => strip(e, tainted, kept, in_lambda, in_hoist),
       Entry::Computed(k, v) => {
         strip(k, tainted, kept, in_lambda, in_hoist);
@@ -303,6 +305,7 @@ fn entry_exprs(entries: &[Entry]) -> impl Iterator<Item = &Expr> {
   entries.iter().flat_map(|entry| match entry {
     Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => vec![e],
     Entry::Computed(k, v) => vec![k, v],
+    Entry::Baked(_) => Vec::new(),
   })
 }
 

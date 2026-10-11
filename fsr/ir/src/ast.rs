@@ -532,6 +532,7 @@ impl Tmpl {
       for entry in entries {
         match entry {
           Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
+          Entry::Baked(_) => {}
           Entry::Computed(k, v) => {
             k.visit(f);
             v.visit(f);
@@ -575,6 +576,8 @@ impl Tmpl {
 #[serde(rename_all = "snake_case")]
 pub enum Entry {
   Field(String, Expr),
+  /// Attributes already printed, ` name="value"` runs a prepared element carries for the literal attributes every markup prints the same way; never in a plan.
+  Baked(String),
   /// `{ [key]: value }`; the key must evaluate to a string.
   Computed(Expr, Expr),
   Item(Expr),
@@ -697,6 +700,7 @@ impl Expr {
         for entry in entries {
           match entry {
             Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.free_vars(out),
+            Entry::Baked(_) => {}
             Entry::Computed(k, v) => {
               k.free_vars(out);
               v.free_vars(out);
@@ -745,6 +749,7 @@ impl Expr {
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
+          Entry::Baked(_) => {}
         Entry::Computed(k, v) => {
           k.visit(f);
           v.visit(f);
@@ -787,6 +792,7 @@ impl Expr {
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.reads_request(),
+        Entry::Baked(_) => false,
         Entry::Computed(k, v) => k.reads_request() || v.reads_request(),
       }),
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
@@ -809,6 +815,7 @@ impl Expr {
       Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
+        Entry::Baked(_) => false,
         Entry::Computed(k, v) => k.has_call() || v.has_call(),
       }),
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)

@@ -233,7 +233,7 @@ impl<'a> Inferer<'a> {
             Entry::Field(k, e) => fields.push((k.clone(), self.expr(e, env))),
             Entry::Computed(_, e) => computed = Some(self.expr(e, env)),
             Entry::Spread(e) => parts.push(self.expr(e, env)),
-            Entry::Item(_) => {}
+            Entry::Item(_) | Entry::Baked(_) => {}
           }
         }
         if let Some(v) = computed {

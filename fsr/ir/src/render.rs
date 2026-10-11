@@ -622,6 +622,7 @@ fn props(env: &mut Env, entries: &[Entry]) -> Result<ValueMap, Fail> {
   let mut map = snapfire_fsr_core::Fields::with_capacity_and_hasher(entries.len(), Default::default());
   for entry in entries {
     match entry {
+      Entry::Baked(_) => {}
       Entry::Field(name, _) if name == UNLOWERED_ATTR => {}
       Entry::Field(name, expr) => {
         let value = env.eval_sync(expr)?;
@@ -671,6 +672,7 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
   };
   for entry in entries {
     match entry {
+      Entry::Baked(text) => put(Cow::Borrowed(text.as_str()), Value::Null),
       Entry::Field(name, expr) => put(Cow::Borrowed(name.as_str()), env.eval_sync(expr)?),
       Entry::Spread(expr) => match env.eval_sync(expr)? {
         Value::Map(map) => {
@@ -767,6 +769,10 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
     None => None,
   };
   for (name, value) in evaluated {
+    if name.starts_with(' ') || name.is_empty() {
+      open.push_str(&name);
+      continue;
+    }
     if shadow.is_some() && !is_scalar(&value) {
       continue;
     }
@@ -1493,7 +1499,7 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
       let children: Vec<Tmpl> = children.iter().map(prepare_tmpl).collect();
       match baked_open(tag, attrs) {
         Some(open) => Tmpl::Baked { open, tag: Some(tag.clone()), children },
-        None => Tmpl::Element { tag: tag.clone(), attrs: attrs.clone(), children },
+        None => Tmpl::Element { tag: tag.clone(), attrs: baked_attrs(tag, attrs), children },
       }
     }
     Tmpl::Fragment(children) => Tmpl::Fragment(children.iter().map(prepare_tmpl).collect()),
@@ -1555,6 +1561,68 @@ fn baked_open(tag: &str, attrs: &[Entry]) -> Option<String> {
   }
   open.push('>');
   Some(open)
+}
+
+/// `attrs` with each run of literal attributes every markup prints the same way printed once, as `Entry::Baked`, when nothing on the element could reorder or override one: no spread, no computed name, no repeated name, no `$` attribute and a tag no markup hoists.
+fn baked_attrs(tag: &str, attrs: &[Entry]) -> Vec<Entry> {
+  if Markup::every().any(|markup| markup.may_hoist(tag)) {
+    return attrs.to_vec();
+  }
+  let mut names: Vec<&str> = Vec::new();
+  for entry in attrs {
+    let Entry::Field(name, _) = entry else { return attrs.to_vec() };
+    let name = html_attr_name(name);
+    if name.starts_with('$') || names.contains(&name) {
+      return attrs.to_vec();
+    }
+    names.push(name);
+  }
+  let mut out: Vec<Entry> = Vec::with_capacity(attrs.len());
+  for entry in attrs {
+    let Entry::Field(name, crate::ast::Expr::Lit(lit)) = entry else {
+      out.push(entry.clone());
+      continue;
+    };
+    let name = html_attr_name(name);
+    let piece = if skipped_attr(name) {
+      String::new()
+    } else {
+      let value = match lit {
+        crate::ast::Lit::Null => Value::Null,
+        crate::ast::Lit::Bool(b) => Value::Bool(*b),
+        crate::ast::Lit::Int(n) => Value::Int(*n),
+        crate::ast::Lit::Float(f) => Value::F64(*f),
+        crate::ast::Lit::Str(text) => Value::str(text.as_str()),
+      };
+      let mut agreed: Option<String> = None;
+      let mut same = true;
+      for markup in Markup::every() {
+        let mut piece = String::new();
+        if attribute(markup, tag, name, &value, &mut piece).is_err() {
+          same = false;
+          break;
+        }
+        match &agreed {
+          Some(first) if *first != piece => {
+            same = false;
+            break;
+          }
+          Some(_) => {}
+          None => agreed = Some(piece),
+        }
+      }
+      if !same {
+        out.push(entry.clone());
+        continue;
+      }
+      agreed.unwrap_or_default()
+    };
+    match out.last_mut() {
+      Some(Entry::Baked(run)) => run.push_str(&piece),
+      _ => out.push(Entry::Baked(piece)),
+    }
+  }
+  out
 }
 
 /// Attribute keys the browser owns or that name no attribute: handlers, `key`, `ref`, `children` and a spread's `dangerouslySetInnerHTML`.
