@@ -356,6 +356,16 @@ impl Host {
       }
     }
 
+    if let Some(crawl) = &t.crawl {
+      if crawl.is_remote(&path) {
+        if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
+          return remote.forward(req, None, None).await;
+        }
+      }
+      if let Some(response) = self.crawl_response(&t, &req, &path).await {
+        return response;
+      }
+    }
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let cookie = header("cookie");
     let accept_language = header("accept-language");

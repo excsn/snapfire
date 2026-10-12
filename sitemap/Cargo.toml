@@ -1,0 +1,16 @@
+[package]
+name = "snapfire_sitemap"
+version = "0.1.0"
+description = "Sitemap and sitemap index writer with the protocol limits enforced"
+keywords = ["snapfire", "sitemap", "sitemapindex", "seo", "xml"]
+categories = ["web-programming"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+repository = "https://github.com/excsn/snapfire"
+homepage = "https://github.com/excsn/snapfire/tree/main/sitemap"
+readme = "README.md"
+
+[dependencies]
+chrono = "0.4"

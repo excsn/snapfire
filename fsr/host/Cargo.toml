@@ -44,6 +44,7 @@ snapfire_fsr_plan.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_service = { workspace = true, features = ["grpc"] }
 snapfire_fsr_session.workspace = true
+snapfire_sitemap = { path = "../../sitemap", version = "0.1.0" }
 bytes = "1"
 c5store = { version = "^0", features = ["toml"] }
 ecies_25519 = "^0"

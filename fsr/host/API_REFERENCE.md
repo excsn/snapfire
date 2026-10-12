@@ -33,6 +33,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [TypecheckSection](#typechecksection)
   * [BuildSection](#buildsection)
   * [TraceSection](#tracesection)
+  * [CrawlSection](#crawlsection)
   * [MountConfig](#mountconfig)
   * [SiteSection](#sitesection)
   * [SitesSection](#sitessection)
@@ -59,6 +60,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [ServiceProvider](#serviceprovider)
   * [ServiceSessionStore](#servicesessionstore)
   * [SiteReport](#sitereport)
+  * [CrawlReport](#crawlreport)
   * [RemoteSite](#remotesite)
   * [Upstreams](#upstreams)
   * [Assets](#assets)
@@ -113,7 +115,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Config
 
-* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub store: StoreSection, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub routes: Vec<RouteDecl>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub build: Option<BuildSection>, pub trace: Option<TraceSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub dirs: DirsSection, pub images: ImagesSection, pub fonts: FontsSection, pub shell_vendor: Option<PathBuf>, pub favicon: Option<String>, pub public: BTreeMap<String, PublicValue>, pub bundle: Option<Bundle>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store, `bundle` the module graph read out of the build facts, `shell_vendor` the shell's `app/vendor/` when `[site] shell` names a `generated/shell.json` beside one, which a host built from this configuration serves at `/static/js/vendor` and a mount never reads, `favicon` the static path `/favicon.ico` is answered from, `<icons route>/favicon.ico`, when the icons directory holds that file.
+* `pub struct Config { pub root: PathBuf, pub app: PathBuf, pub sources: Vec<PathBuf>, pub server: ServerConfig, pub document: DocumentConfig, pub session: SessionSection, pub cache: Option<CacheSection>, pub store: StoreSection, pub clients: BTreeMap<String, ClientConfig>, pub statics: Vec<StaticRoot>, pub routes: Vec<RouteDecl>, pub locales: Option<LocalesSection>, pub auth: Option<AuthSection>, pub typecheck: Option<TypecheckSection>, pub build: Option<BuildSection>, pub trace: Option<TraceSection>, pub crawl: Option<CrawlSection>, pub site: Option<SiteSection>, pub sites: Option<SitesSection>, pub dirs: DirsSection, pub images: ImagesSection, pub fonts: FontsSection, pub shell_vendor: Option<PathBuf>, pub favicon: Option<String>, pub public: BTreeMap<String, PublicValue>, pub bundle: Option<Bundle>, pub inferred: Vec<String>, pub ignored: Vec<String> }`: `public` is `[public]` as written, `ignored` the top-level keys outside the host's sections, left for the application's own store, `bundle` the module graph read out of the build facts, `shell_vendor` the shell's `app/vendor/` when `[site] shell` names a `generated/shell.json` beside one, which a host built from this configuration serves at `/static/js/vendor` and a mount never reads, `favicon` the static path `/favicon.ico` is answered from, `<icons route>/favicon.ico`, when the icons directory holds that file.
 * `Config::load(path) -> Result<Config, HostError>`: `Loader::at(path).config()`.
 * `Config::from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Config, HostError>`: the same over a store the caller loaded and a root it names, for an application running the host inside itself: `Config::from_store_at(&store.branch("fsr"), root)`. Nothing here reads the filesystem for configuration.
 * `Config::from_store<S: C5Store>(store: &S, located: Located) -> Result<Config, HostError>`: `from_store_at` over `located.root`, keeping `located.sources` as the configuration's provenance and the path its errors report. Reads the sections `app`, `server`, `document`, `session`, `cache`, `clients`, `static`, `locales`, `auth`, `typecheck`, `build`, `trace`, `site`, `sites`, `public`, `dirs`, `images` and `fonts`, leaving any other top-level key alone and naming it in `ignored`, requires `session`, refuses a `public` value that is not a scalar or a `public` key that is not an identifier, refuses an `auth.provider` outside `PROVIDERS`, an `auth.login` that is not a path and a `trace.expose` entry that is not a path, then infers: a static root for `dist` at the build facts' `publicPath`, `document.entry` as `<publicPath>src/main.js` when the facts list that entry, `document.import_map` from `importmap.json`, `/static/js/vendor` from `vendor/`, under the site's prefix when `site` is set, `/static/css` and `/static/icons` from the directories `dirs` names, `/favicon.ico` from `favicon.ico` under the icons directory, `shell_vendor` from the shell's `app/vendor/` when `site.shell` names a `generated/shell.json` beside one, `/static/css` from `styles/` with `document.styles` as every `.css` file in it sorted by name, plus each client's `document` as `clients/<name>.openapi.json`. Written values win; every inference is listed in `inferred`.
@@ -263,6 +265,10 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 ### TraceSection
 
 * `pub struct config::TraceSection { pub expose: Vec<String> }`, the `[trace]` section. `expose` lists the path prefixes whose requests carry an `x-sf-request` token and whose trace `GET /__fsr/trace/{token}` reads back. `/` covers every path; a prefix covers itself and the paths beneath it. Empty when written without `expose`.
+
+### CrawlSection
+
+* `pub struct config::CrawlSection { pub robots: Option<String>, pub sitemap: Option<String>, pub disallow: Vec<String> }`, the `[crawl]` section. `robots` and `sitemap` are the paths each file is served at, absent when it is not served; `disallow` the paths `robots.txt` disallows beside `/__fsr/`, `/_sf/` and `/auth/` when `[auth]` is set. Loading refuses a value that is not a path, a section naming neither file and a section without `document.origin`. On a host with `[site]` the sitemap is served under the prefix and `robots` is not served.
 
 ### SiteSection
 
@@ -486,11 +492,16 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `client: Option<(&'static str, usize, usize, bool)>`: the prefix the embedded client answers, how many modules it holds, what they come to and whether the build served is the minified one; `None` when a static root claims the prefix. `Display` prints one `client` row after the `static` rows, naming the build as `minified` or `readable`.
 * `import_map_csp: Option<String>`: the `script-src` source covering the document's inline import map, `'sha256-<base64>'`, which is the only executable inline script a page carries; `None` without an import map. The host merges the shell's map with each mounted site's, so it matches no single file on disk and a deployment writing a Content-Security-Policy reads it from a boot rather than hashing a file. `Display` prints it as a `csp` row after the `client` row.
 * `csp: Option<String>`: `document.csp` with that source already substituted, the header an HTML response carries; `None` when none is set. `Display` prints it on the line under the `csp` row, which says so outright when it is unset.
+* `crawl: Option<CrawlReport>`: `[crawl]` when configured, see [CrawlReport](#crawlreport).
 * `site: Option<(String, String)>`: the application's own `[site]`, name and prefix; `Display` prints one `site` row. `sites: Vec<SiteReport>`: the mounted sites; `Display` prints a `sites` row per mount, `billing at /billing from <artifact> <version> <hash>` and a row naming what the mount ignored.
 
 ### SiteReport
 
 * `pub struct SiteReport { pub name: String, pub at: String, pub artifact: PathBuf, pub version: String, pub hash: String, pub over: Vec<String>, pub ignored: Vec<String> }`: one mounted site; `ignored` lists the site's configuration the shell did not take, `static <route>` for a root outside the prefix or one the shell serves and `session`, `auth`, `locales`, `cache` when the site set them. A site in its own process has an empty `artifact`, `-` for `version` and `hash` and its addresses in `over`; `Display` prints it as `at <prefix> over <addresses>`.
+
+### CrawlReport
+
+* `pub struct CrawlReport { pub robots: Option<String>, pub sitemap: Option<String>, pub unlisted: Vec<String> }`: where `[crawl]` answers (the sitemap path already under a site's prefix) and the patterns with a parameter and no `paths` export, which the sitemap cannot list. `Display` prints a `crawl` row per file and one row per unlisted pattern.
 
 ### RemoteSite
 

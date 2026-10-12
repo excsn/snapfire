@@ -75,6 +75,25 @@ This is a deployment's one preferred origin, not the host a request arrived on. 
 
 A body reads this value as `ctx.origin`, `string | null`, for a URL the host does not rewrite: a JSON-LD block, a feed, an absolute link in the page. It is the same checked value, so nothing has to be copied into `[public]` to reach a loader.
 
+## Robots and the sitemap
+
+A `[crawl]` section has the host answer `robots.txt` and a sitemap at the paths it names. A file with no key is not served:
+
+```toml
+[crawl]
+robots = "/robots.txt"
+sitemap = "/sitemap.xml"
+disallow = ["/drafts/"]
+```
+
+`robots.txt` allows everything and names the sitemap. It disallows the framework's `/__fsr/` and `/_sf/`, `/auth/` when `[auth]` mounts the identity routes and every path under `disallow`. The section needs `document.origin`, since a sitemap holds absolute URLs. The host refuses to boot without it.
+
+The sitemap lists every page an anonymous visitor is served. The first request for it makes the host ask itself for each candidate page, through the same front door a browser uses, with no cookie. The middleware, the loaders and the head all run. A page is listed when it answers 200 with an HTML document whose head has no `robots` meta saying `noindex` or `none` and whose response has no `X-Robots-Tag` saying either. So a route the middleware redirects a signed-out visitor away from stays out, as does a page whose `meta` returns `robots("noindex")`, a 404 and a handler's JSON. The result is kept until the next reload.
+
+The candidates are the fixed routes plus one path per value of a route's `paths` export, the one `fsr prerender` reads. A route with a parameter and no `paths` has nothing to list. The boot report names it on the `crawl` rows. With `[locales]` serving prefixes, each page is listed once per locale with `xhtml:link` alternates naming the others, `fr_FR` written as `fr-FR` and the default locale as `x-default`.
+
+Past 50,000 URLs or when the shell mounts a site in its own process, the sitemap becomes an index. The host's own pages go in `sitemap-1.xml`, `sitemap-2.xml` and so on beside it. Each such site's own sitemap is listed under its prefix, `/reports/sitemap.xml`. That site answers it and the shell forwards the request. Its `[crawl]` names only `sitemap`, since only the origin's root has a `robots.txt`. A site mounted in this process is part of the shell's routes and needs nothing of its own.
+
 ## The host this deployment answers on
 
 A body reads `ctx.host`. It is null until `[server]` lists the hosts the deployment answers on:

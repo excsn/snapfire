@@ -58,4 +58,7 @@ toml = "0.8"
 
 [dev-dependencies]
 bolero = "0.13"
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
 proptest = "1"

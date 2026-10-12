@@ -24,6 +24,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Prerendering the Routes That Never Change](#prerendering-the-routes-that-never-change)
 * [Warming the Loads a Route Cannot Prerender](#warming-the-loads-a-route-cannot-prerender)
 * [Rendering a Template Route](#rendering-a-template-route)
+* [Serving robots.txt and a Sitemap](#serving-robotstxt-and-a-sitemap)
 * [Serving Images and Fonts](#serving-images-and-fonts)
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
@@ -175,6 +176,11 @@ lib = ["es2023", "dom"]           # optional: the tsconfig lib; left to the targ
 
 [trace]                           # optional: without it no client reads a trace outside dev
 expose = ["/"]                    # path prefixes whose requests a page may read its own trace of
+
+[crawl]                           # optional: needs document.origin, see Serving robots.txt and a Sitemap
+robots = "/robots.txt"            # served here; no key, no robots.txt
+sitemap = "/sitemap.xml"          # served here; no key, no sitemap
+disallow = ["/drafts/"]           # beside /__fsr/, /_sf/ and /auth/ when [auth] is set
 
 [public]                          # optional: the deployment's own values, read by a body as ctx.config.<key>
 analytics_id = ""                 # a scalar under an identifier; an overlay sets the deployment's own
@@ -601,6 +607,41 @@ let host = Host::from("config")?
   .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
   .build()?;
 ```
+
+## Serving robots.txt and a Sitemap
+
+Name a path for each file under `[crawl]` and set the origin the URLs are absolute against:
+
+```toml
+[document]
+origin = "https://example.com"
+
+[crawl]
+robots = "/robots.txt"
+sitemap = "/sitemap.xml"
+```
+
+`/robots.txt` then answers:
+
+```text
+User-agent: *
+Allow: /
+Disallow: /__fsr/
+Disallow: /_sf/
+Sitemap: https://example.com/sitemap.xml
+```
+
+The first `GET /sitemap.xml` asks the host for every fixed route and every path a `paths` export lists, as an anonymous visitor through `Host::handle`. It keeps the pages that answer 200 with HTML that says no `noindex`. The answer is held until a reload builds new tables. A Rust host gets the same files with no code of its own, since the edge answers them before the middleware.
+
+The boot report shows where they are and what cannot be listed:
+
+```text
+crawl     /robots.txt            robots
+          /sitemap.xml           sitemap of every page an anonymous visitor is served
+          /item/{id}             not in the sitemap: no `paths` export lists its values
+```
+
+A shell mounting a site in its own process serves an index instead, naming `/sitemap-1.xml` for its own pages and `<at>/sitemap.xml` for the site, which the site host answers under its prefix from its own `[crawl] sitemap`.
 
 ## Serving Images and Fonts
 

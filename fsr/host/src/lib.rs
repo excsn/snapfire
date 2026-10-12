@@ -7,6 +7,7 @@ pub mod assets;
 mod auth;
 mod builder;
 mod bundle;
+mod crawl;
 pub mod client;
 pub mod config;
 mod edge;
@@ -82,7 +83,7 @@ pub use prerender::{LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use probe::{Candidate, Probe, ReloadCheck};
 pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use remote_site::{RemoteSite, PAYLOAD_TYPE};
-pub use report::{HostReport, SiteReport, TlsReport};
+pub use report::{CrawlReport, HostReport, SiteReport, TlsReport};
 pub use serve::HostService;
 pub use upstreams::{Lease, Upstreams};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
@@ -373,6 +374,8 @@ struct Tables {
   auth: Option<Mounted>,
   /// The mounted sites, longest prefix first.
   sites: Vec<SiteTables>,
+  /// `[crawl]` against this host, when configured.
+  crawl: Option<crawl::Crawl>,
   /// Every mounted site's `[site] probe` list, by site name.
   probes: Vec<(String, Probe)>,
   /// This host's own `[site]`, as its status answer describes it to a shell.

@@ -50,6 +50,8 @@ pub struct HostReport {
   pub hosts: Vec<String>,
   /// `document.origin`, which a canonical or alternate href is absolute against.
   pub origin: Option<String>,
+  /// `[crawl]`, when configured.
+  pub crawl: Option<CrawlReport>,
   /// The identity provider and its login page, when one is mounted.
   pub auth: Option<(String, String)>,
   /// Client, custody key: which clients send a bearer token.
@@ -90,6 +92,15 @@ pub struct TlsReport {
   pub alpn: Vec<String>,
   /// The signal that re-reads the files; `None` for `none`.
   pub reload: Option<String>,
+}
+
+/// Where `[crawl]` answers and which routes its sitemap cannot list.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CrawlReport {
+  pub robots: Option<String>,
+  pub sitemap: Option<String>,
+  /// Patterns with a parameter and no `paths` export, which nothing enumerates.
+  pub unlisted: Vec<String>,
 }
 
 /// One mounted site in the report.
@@ -193,6 +204,18 @@ impl std::fmt::Display for HostReport {
         (0, 0) => writeln!(f, "{label:<9} {pattern:<22} {module} not rendered")?,
         (0, n) => writeln!(f, "{label:<9} {pattern:<22} {module} {n} renders memoized")?,
         _ => writeln!(f, "{label:<9} {pattern:<22} {module}")?,
+      }
+    }
+    if let Some(crawl) = &self.crawl {
+      if let Some(path) = &crawl.robots {
+        writeln!(f, "{:<9} {path:<22} robots", "crawl")?;
+      }
+      if let Some(path) = &crawl.sitemap {
+        let label = if crawl.robots.is_some() { "" } else { "crawl" };
+        writeln!(f, "{label:<9} {path:<22} sitemap of every page an anonymous visitor is served")?;
+      }
+      for pattern in &crawl.unlisted {
+        writeln!(f, "{:<9} {pattern:<22} not in the sitemap: no `paths` export lists its values", "")?;
       }
     }
     if let Some((capacity, ttl)) = &self.cache {

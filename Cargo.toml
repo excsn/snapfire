@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "compiler",
   "media",
+  "sitemap",
   "web",
   "web/examples/basic_site",
   "typecheck",

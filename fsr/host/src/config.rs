@@ -55,6 +55,9 @@ pub struct Config {
   /// `[trace]`: which requests a client may read its own trace of; absent
   /// means none outside development.
   pub trace: Option<TraceSection>,
+  /// `[crawl]`: the `robots.txt` and `sitemap.xml` the host answers; absent
+  /// means neither.
+  pub crawl: Option<CrawlSection>,
   /// The application as a site: its name and the prefix its routes sit
   /// under, both fixed at build. Absent, the application is whole.
   pub site: Option<SiteSection>,
@@ -1085,6 +1088,21 @@ pub struct TraceSection {
   pub expose: Vec<String>,
 }
 
+/// `[crawl]`. Each file is served at the path its key names and not at all
+/// without one. A site in its own process serves its sitemap under its prefix
+/// and no `robots.txt`, which only the origin's root may answer.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CrawlSection {
+  #[serde(default)]
+  pub robots: Option<String>,
+  #[serde(default)]
+  pub sitemap: Option<String>,
+  /// Paths `robots.txt` disallows beside the framework's own `/__fsr/` and `/_sf/`.
+  #[serde(default)]
+  pub disallow: Vec<String>,
+}
+
 fn default_login() -> String {
   "/login".to_owned()
 }
@@ -1118,6 +1136,7 @@ const SECTIONS: &[&str] = &[
   "typecheck",
   "build",
   "trace",
+  "crawl",
   "site",
   "sites",
   "public",
@@ -1739,6 +1758,34 @@ impl Config {
       None
     };
 
+    let crawl: Option<CrawlSection> = if store.path_exists("crawl") || !store.key_paths_with_prefix(Some("crawl")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["robots", "sitemap", "disallow"] {
+        if let Some(value) = store.get(&format!("crawl.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      let section: CrawlSection = serde_json::from_value(serde_json::Value::Object(json))
+        .map_err(|e| HostError::Config(at.clone(), format!("crawl: {e}")))?;
+      for (key, path) in [("robots", &section.robots), ("sitemap", &section.sitemap)] {
+        if let Some(path) = path.as_deref().filter(|p| !p.starts_with('/')) {
+          return Err(HostError::Config(at.clone(), format!("crawl.{key} `{path}` must be a path")));
+        }
+      }
+      if let Some(bad) = section.disallow.iter().find(|p| !p.starts_with('/')) {
+        return Err(HostError::Config(at.clone(), format!("crawl.disallow `{bad}` must be a path")));
+      }
+      if section.robots.is_none() && section.sitemap.is_none() {
+        return Err(HostError::Config(at.clone(), "crawl names neither `robots` nor `sitemap`, so it serves nothing".to_owned()));
+      }
+      if document.origin.is_none() {
+        return Err(HostError::Config(at.clone(), "crawl needs `document.origin`: a sitemap names absolute URLs and `robots.txt` names the sitemap's".to_owned()));
+      }
+      Some(section)
+    } else {
+      None
+    };
+
     if session.store == "service" {
       match &session.client {
         Some(client) if clients.contains_key(client) => {}
@@ -2164,6 +2211,7 @@ impl Config {
       typecheck,
       build,
       trace,
+      crawl,
       site,
       sites,
       dirs,

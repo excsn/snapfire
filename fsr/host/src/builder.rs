@@ -1050,6 +1050,13 @@ impl HostBuilder {
       .as_ref()
       .map(|(mounted, name)| (name.clone(), mounted.login_path.clone()));
     let auth = auth.map(|(mounted, _)| mounted);
+    let crawl = match (&config.crawl, config.origin()?) {
+      (Some(section), Some(origin)) => {
+        let remote_at: Vec<String> = sites.iter().filter(|site| site.remote.is_some()).map(|site| site.at.clone()).collect();
+        Some(crawl::Crawl::new(section, &origin, config.site.as_ref().map(|site| site.at.as_str()), &remote_at, auth.is_some()))
+      }
+      _ => None,
+    };
     let report = HostReport {
       app: app.report.clone(),
       unanswered_routes,
@@ -1111,6 +1118,19 @@ impl HostBuilder {
       hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
       origin: config.origin()?,
       catalogs: catalog_rows,
+      crawl: crawl.as_ref().map(|crawl| CrawlReport {
+        robots: config.crawl.as_ref().and_then(|c| c.robots.clone()).filter(|_| config.site.is_none()),
+        sitemap: crawl.sitemap_path().map(str::to_owned),
+        unlisted: app
+          .report
+          .routes
+          .iter()
+          .map(|(pattern, _)| pattern)
+          .filter(|pattern| pattern.contains('{') && !app.paths.contains_key(*pattern))
+          .filter(|pattern| !sites.iter().any(|site| site.remote.is_some() && (**pattern == site.at || pattern.starts_with(&format!("{}/", site.at)))))
+          .cloned()
+          .collect(),
+      }),
       auth: auth_row,
       bearer: bearer_rows,
       extensions: extension_rows,
@@ -1149,6 +1169,7 @@ impl HostBuilder {
         catalogs,
         auth,
         sites,
+        crawl,
         probes,
         own: config.site.as_ref().map(|site| OwnSite { name: site.name.clone(), at: site.at.clone(), entry: entry.clone(), styles: styles.clone() }),
         report: Arc::new(report),

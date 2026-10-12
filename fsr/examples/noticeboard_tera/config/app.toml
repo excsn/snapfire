@@ -9,6 +9,10 @@ prerender = "dist/prerender"
 origin = "http://127.0.0.1:8190"
 title = "Noticeboard"
 
+[crawl]
+robots = "/robots.txt"
+sitemap = "/sitemap.xml"
+
 [session]
 ttl = "1h"
 
