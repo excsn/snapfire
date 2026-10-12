@@ -980,6 +980,45 @@ pub struct HeadScript {
   pub inline: bool,
 }
 
+/// The `src` of every `video`, `audio`, `source` and `track` in `tmpl` the
+/// build can read as a string, in the order written.
+pub fn media_sources(tmpl: &Tmpl) -> Vec<String> {
+  fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
+    match tmpl {
+      Tmpl::Element { tag, attrs, children } => {
+        if matches!(tag.as_str(), "video" | "audio" | "source" | "track") {
+          for entry in attrs {
+            if let Entry::Field(name, expr) = entry {
+              let text = match expr {
+                Expr::Lit(Lit::Str(s)) => Some(s.clone()),
+                Expr::Folded(snapfire_fsr_core::value::Value::Str(s)) => Some(s.to_string()),
+                _ => None,
+              };
+              if let Some(text) = text.filter(|_| name == "src") {
+                out.push(text);
+              }
+            }
+          }
+        }
+        children.iter().for_each(|child| walk(child, out));
+      }
+      Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|child| walk(child, out)),
+      Tmpl::If { then, r#else, .. } => {
+        walk(then, out);
+        if let Some(other) = r#else {
+          walk(other, out);
+        }
+      }
+      Tmpl::For { body, .. } => walk(body, out),
+      Tmpl::Let { then, .. } => walk(then, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+  let mut out = Vec::new();
+  walk(tmpl, &mut out);
+  out
+}
+
 /// Every script row in `body`. A helper the lowerer inlined,
 /// `scriptTag("/x.js")`, is a lambda applied to its arguments, so a
 /// parameter is read as the literal it was given.

@@ -1,4 +1,4 @@
-//! What the lowerer asks about an image or a font a component imports. The
+//! What the lowerer asks about an image, a font or a media file a component imports. The
 //! build answers from the files; the lowerer only writes what it is told.
 
 use std::collections::BTreeMap;
@@ -13,6 +13,11 @@ pub trait AssetResolver {
   fn image(&self, path: &str, request: &ImageRequest) -> Option<ImageFacts>;
   /// A font file's served URL.
   fn font(&self, path: &str) -> Option<String>;
+  /// A video, an audio file or a caption track's served URL: the file as it
+  /// is, under its content hash.
+  fn media(&self, _path: &str) -> Option<String> {
+    None
+  }
   /// The URL template of a named remote source, `{src}` and `{width}` in it.
   fn source(&self, name: &str) -> Option<String>;
   /// The policy's widths, for a remote image whose own width is unknown.
@@ -58,11 +63,14 @@ impl AssetResolver for NoAssets {
 
 const IMAGES: [&str; 9] = ["png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "ico", "bmp"];
 const FONTS: [&str; 4] = ["woff2", "woff", "ttf", "otf"];
+/// What a `<video>`, an `<audio>` or a `<track>` plays: the containers browsers decode and WebVTT captions.
+const MEDIA: [&str; 13] = ["mp4", "m4v", "webm", "ogv", "mov", "mp3", "m4a", "aac", "oga", "ogg", "opus", "wav", "vtt"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
   Image,
   Font,
+  Media,
 }
 
 /// What a relative specifier names by its extension, if an asset.
@@ -76,6 +84,8 @@ pub fn kind(specifier: &str) -> Option<Kind> {
     Some(Kind::Image)
   } else if FONTS.contains(&ext.as_str()) {
     Some(Kind::Font)
+  } else if MEDIA.contains(&ext.as_str()) {
+    Some(Kind::Media)
   } else {
     None
   }

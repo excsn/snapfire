@@ -35,8 +35,8 @@ pub type Components = HashMap<String, Arc<Component>>;
 const VOID: &[&str] = &["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"];
 
 /// Attributes that are present or absent rather than valued under every React
-/// major. React 19 adds `inert`.
-const BOOLEAN: &[&str] = &["disabled", "checked", "selected", "readonly", "required", "hidden", "multiple", "open", "autofocus", "autoplay", "controls", "loop", "muted", "novalidate", "defer", "async"];
+/// major, React DOM's own list lowercased. React 19 adds `inert`.
+const BOOLEAN: &[&str] = &["disabled", "checked", "selected", "readonly", "required", "hidden", "multiple", "open", "autofocus", "autoplay", "controls", "loop", "muted", "novalidate", "defer", "async", "default", "playsinline", "disablepictureinpicture", "disableremoteplayback", "allowfullscreen", "formnovalidate", "nomodule", "reversed", "scoped", "seamless", "itemscope"];
 
 fn escape_into(input: &str, out: &mut String, quotes: bool) {
   let bytes = input.as_bytes();
@@ -1941,6 +1941,14 @@ pub fn html_attr_name(name: &str) -> &str {
     "acceptCharset" => "accept-charset",
     "httpEquiv" => "http-equiv",
     "crossOrigin" => "crossorigin",
+    "autoPlay" => "autoplay",
+    "playsInline" => "playsinline",
+    "disablePictureInPicture" => "disablepictureinpicture",
+    "disableRemotePlayback" => "disableremoteplayback",
+    "allowFullScreen" => "allowfullscreen",
+    "formNoValidate" => "formnovalidate",
+    "noModule" => "nomodule",
+    "itemScope" => "itemscope",
     "spellCheck" => "spellcheck",
     "encType" => "enctype",
     "formAction" => "formaction",
@@ -2347,6 +2355,22 @@ mod tests {
     let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
     assert_eq!(react.render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
     assert_eq!(Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"><br>", "plain markup closes no void element");
+  }
+
+  #[test]
+  fn a_video_and_its_track_take_react_doms_spellings() {
+    let field = |name: &str, expr: Expr| Entry::Field(name.to_owned(), expr);
+    let component = Component {
+      body: Vec::new(),
+      render: Tmpl::Element {
+        tag: "video".to_owned(),
+        attrs: vec![field("playsInline", Expr::Lit(Lit::Bool(true))), field("autoPlay", Expr::Lit(Lit::Bool(true))), field("controls", Expr::Lit(Lit::Bool(true))), field("disablePictureInPicture", Expr::Lit(Lit::Bool(false)))],
+        children: vec![Tmpl::Element { tag: "track".to_owned(), attrs: vec![field("srcLang", Expr::lit_str("en")), field("default", Expr::Lit(Lit::Bool(true)))], children: Vec::new() }],
+      },
+      state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
+    };
+    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V18), vue: None });
+    assert_eq!(react.render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<video playsinline=\"\" autoplay=\"\" controls=\"\"><track srcLang=\"en\" default=\"\"/></video>");
   }
 
   #[test]

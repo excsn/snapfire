@@ -1,5 +1,5 @@
 //! `generated/assets.json`: what the build derived from the application's
-//! images and fonts. The build writes it; the host reads it at boot for the
+//! images, fonts and media files. The build writes it; the host reads it at boot for the
 //! policy a page's `Picture` runtime needs, the font CSS, the preloads and a
 //! Tera template's image lookups.
 
@@ -19,6 +19,8 @@ pub struct AssetsManifest {
   pub entries: Vec<ImageEntry>,
   #[serde(default)]
   pub fonts: Fonts,
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub media: Vec<MediaFile>,
 }
 
 /// The policy as the page's `Picture` runtime reads it, so the browser writes
@@ -122,6 +124,17 @@ pub struct Face {
 /// A font file served under its hash, with no face read for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FontFile {
+  /// The file under the app.
+  pub source: String,
+  pub url: String,
+  /// Where the hashed copy sits under the bundle's output directory.
+  pub path: String,
+}
+
+/// A video, an audio file or a caption track a component imports, served as
+/// it is under its hash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MediaFile {
   /// The file under the app.
   pub source: String,
   pub url: String,

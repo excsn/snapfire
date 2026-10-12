@@ -4,6 +4,10 @@ import AskDesk from "@src/ui/AskDesk";
 import Floors from "@src/ui/Floors.vue";
 import LocalClock from "@src/ui/LocalClock";
 import type { VenueProps } from "@generated/client";
+import walkMp4 from "@src/media/walk.mp4";
+import walkWebm from "@src/media/walk.webm";
+import walkCaptions from "@src/media/walk.vtt";
+import walkPoster from "@src/media/walk-poster.png";
 
 export default function VenuePage({ venue, talks }: VenueProps) {
   return (
@@ -11,6 +15,11 @@ export default function VenuePage({ venue, talks }: VenueProps) {
       <h2>{venue}</h2>
       <LocalClock />
       <div className="venue-map" data-venue-map={venue} />
+      <video className="venue-walk" controls preload="metadata" playsInline width={480} height={270} poster={walkPoster.src}>
+        <source src={walkWebm} type="video/webm" />
+        <source src={walkMp4} type="video/mp4" />
+        <track kind="captions" src={walkCaptions} srcLang="en" label="English" default />
+      </video>
       <Island when="visible">
         <Floors talks={talks} />
       </Island>
@@ -20,7 +29,7 @@ export default function VenuePage({ venue, talks }: VenueProps) {
       <Island mode="server">
         <AskDesk desk="help" />
       </Island>
-      <p className="note">The time zone is the visitor's, which only a browser knows, so the clock renders in the browser. The rooms are a Vue island, the talk count a custom element and the help desk a server island.</p>
+      <p className="note">The time zone is the visitor's, which only a browser knows, so the clock renders in the browser. The rooms are a Vue island, the talk count a custom element and the help desk a server island. The walk from the station is a plain video element whose files the page imports.</p>
     </section>
   );
 }

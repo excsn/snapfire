@@ -55,3 +55,16 @@ test("the clock renders on its own through React, with nothing from the server t
   expect(r.container.querySelector("sf-i")?.hasAttribute("data-sf-mounted"), "React's mounter ran").toEqual(true);
   expect(r.getByText(/You are in/).textContent).toMatch(/Times are the venue's\. You are in .+\./);
 });
+
+test("the walk from the station is a video whose sources, captions and poster the page imports", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  const video = document.querySelector<HTMLVideoElement>("video.venue-walk")!;
+  expect(video.hasAttribute("playsinline") && video.hasAttribute("controls"), video.outerHTML).toEqual(true);
+  expect(video.getAttribute("poster")!.match(/^\/static\/js\/app\/src\/media\/walk-poster\.[0-9a-f]{8}\.png$/), "the poster is the image's hashed original").toBeTruthy();
+  const sources = Array.from(video.querySelectorAll("source"), (s) => `${s.getAttribute("type")} ${s.getAttribute("src")}`);
+  expect(sources.length).toEqual(2);
+  expect(sources[0].match(/^video\/webm \/static\/js\/app\/src\/media\/walk\.[0-9a-f]{8}\.webm$/) && sources[1].match(/^video\/mp4 \/static\/js\/app\/src\/media\/walk\.[0-9a-f]{8}\.mp4$/), sources.join("\n")).toBeTruthy();
+  const track = video.querySelector("track")!;
+  expect(track.getAttribute("src")!.endsWith(".vtt") && track.hasAttribute("default"), track.outerHTML).toEqual(true);
+});

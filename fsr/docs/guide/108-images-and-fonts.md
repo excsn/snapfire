@@ -131,6 +131,27 @@ remote = "https://fonts.googleapis.com/css2?family=Fraunces&display=swap"
 
 That key gets no fallback metrics, since there is no file to read, so its text reflows when the face arrives. Every visitor's IP goes to the provider on every page. Vendor when you can.
 
+## A video or an audio file
+
+A video is a plain `<video>` element. Import its files and the build serves each as it is under a content hash, the way it serves a font:
+
+```tsx
+import walkMp4 from "@src/media/walk.mp4";
+import walkWebm from "@src/media/walk.webm";
+import walkCaptions from "@src/media/walk.vtt";
+import walkPoster from "@src/media/walk-poster.png";
+
+<video controls preload="metadata" playsInline width={480} height={270} poster={walkPoster.src}>
+  <source src={walkWebm} type="video/webm" />
+  <source src={walkMp4} type="video/mp4" />
+  <track kind="captions" src={walkCaptions} srcLang="en" label="English" default />
+</video>
+```
+
+The conference app's venue page has this one. The import is the URL, so it works the same in a lowered component and in an island. `mp4`, `m4v`, `webm`, `ogv` and `mov` are video, `mp3`, `m4a`, `aac`, `oga`, `ogg`, `opus` and `wav` are audio and `vtt` is a caption track. The host answers a `Range` request with `206`, which a browser needs to seek and Safari needs to play at all. Nothing is transcoded and no poster is cut from the file: encode the sources you want, WebM first and MP4 as the fallback. The poster is an image you give.
+
+Set `width` and `height` so the page does not move when the video loads. Set `preload="metadata"` so a visitor who never plays it does not download it. A video that plays on its own needs `muted` and `playsInline` as well as `autoPlay`, since browsers refuse to autoplay sound. A `src` written as a literal URL on another origin, a CDN or a hosting service, is added to the policy's `media-src`.
+
 ## A card image beside a route
 
 A link pasted into a chat or a post shows a card. The card's picture is the page's `og:image`. Put the picture beside the route it stands for:

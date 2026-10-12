@@ -1250,6 +1250,7 @@ impl ComponentSet {
         return Ok(match assets::kind(source) {
           Some(assets::Kind::Image) => self.assets.image(&path, &ImageRequest::default()).map(|facts| (asset_object(&facts), key)),
           Some(assets::Kind::Font) => self.assets.font(&path).map(|url| (Expr::lit_str(url), key)),
+          Some(assets::Kind::Media) => self.assets.media(&path).map(|url| (Expr::lit_str(url), key)),
           None => None,
         });
       }

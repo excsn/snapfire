@@ -125,6 +125,9 @@ pub struct Report {
   /// name and the `src` when the build can read it as a string; `None` is a
   /// `src` computed at request time, whose origin the policy must name itself.
   pub scripts: Vec<(String, Option<String>)>,
+  /// The literal `src` of every `video`, `audio`, `source` and `track` a
+  /// lowered component writes, by module.
+  pub media: Vec<(String, String)>,
 }
 
 
@@ -1052,6 +1055,7 @@ impl AppBuilder {
       .collect();
     let mut components = Vec::new();
     let mut lowered = None;
+    let media: Vec<(String, String)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::ast::media_sources(&component.render).into_iter().map(move |src| (module.clone(), src))).collect();
     if !self.lowered_components.is_empty() {
       let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components)).with_interpreter(interpreter.clone());
       components = evaluator.modules().into_iter().map(|m| (m, Owner::Lowered)).collect();
@@ -1081,6 +1085,7 @@ impl AppBuilder {
         .flat_map(|module| self.islands.names(&module).into_iter().map(move |name| format!("{module} {name}")))
         .collect(),
       scripts: self.lowered_metas.iter().flat_map(|(name, body)| snapfire_fsr_ir::ast::head_scripts(body).into_iter().map(move |script| (name.clone(), script.src))).collect(),
+      media,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 

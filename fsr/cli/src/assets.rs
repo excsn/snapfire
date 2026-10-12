@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use snapfire_fsr_assets::{font, hash, image, strip, variant_name, Face, Format, Source, VariantPolicy};
 use snapfire_compiler_wire::driven::{AssetMap, MappedAsset};
-use snapfire_fsr_host::assets::{AssetsManifest, Face as FaceOut, FontFile, Fonts, ImageEntry, ImagePolicy, Remote, Variant, VERSION};
+use snapfire_fsr_host::assets::{AssetsManifest, Face as FaceOut, FontFile, Fonts, ImageEntry, ImagePolicy, MediaFile, Remote, Variant, VERSION};
 use snapfire_fsr_host::config::{Config, DirsSection, FontsSection, ImagesSection};
 use snapfire_fsr_lower::assets::{AssetResolver, ImageFacts, ImageRequest};
 
@@ -73,6 +73,8 @@ pub struct Resolver {
   seen: RefCell<BTreeMap<String, Seen>>,
   /// Every font a module or a stylesheet named, by its path under the app.
   fonts: RefCell<BTreeMap<String, FontFile>>,
+  /// Every media file a module named, by its path under the app.
+  media: RefCell<BTreeMap<String, MediaFile>>,
   /// Files that were asked for and are not images this build decodes, with why.
   pub refused: RefCell<Vec<(String, String)>>,
 }
@@ -83,7 +85,7 @@ pub const MAP_FILE: &str = "generated/assets.map.json";
 impl Resolver {
   pub fn new(app: &Path, public_path: &str, sections: Sections) -> Self {
     let policy = sections.policy();
-    Self { app: app.to_path_buf(), public_path: public_path.trim_end_matches('/').to_owned(), sections, policy, seen: RefCell::new(BTreeMap::new()), fonts: RefCell::new(BTreeMap::new()), refused: RefCell::new(Vec::new()) }
+    Self { app: app.to_path_buf(), public_path: public_path.trim_end_matches('/').to_owned(), sections, policy, seen: RefCell::new(BTreeMap::new()), fonts: RefCell::new(BTreeMap::new()), media: RefCell::new(BTreeMap::new()), refused: RefCell::new(Vec::new()) }
   }
 
   /// Defines every path the compiler reported as referenced and not in the
@@ -96,6 +98,7 @@ impl Resolver {
       let defined = match kind {
         Some(snapfire_fsr_lower::assets::Kind::Image) => self.image(path, &ImageRequest::default()).is_some(),
         Some(snapfire_fsr_lower::assets::Kind::Font) => self.font(path).is_some(),
+        Some(snapfire_fsr_lower::assets::Kind::Media) => self.media(path).is_some(),
         None => false,
       };
       if !defined {
@@ -118,6 +121,9 @@ impl Resolver {
     }
     for (source, file) in self.fonts.borrow().iter() {
       map.assets.entry(source.clone()).or_insert_with(|| MappedAsset { url: file.url.clone(), width: None, height: None });
+    }
+    for (source, file) in self.media.borrow().iter() {
+      map.assets.insert(source.clone(), MappedAsset { url: file.url.clone(), width: None, height: None });
     }
     map
   }
@@ -323,6 +329,22 @@ impl AssetResolver for Resolver {
     Some(url)
   }
 
+  fn media(&self, path: &str) -> Option<String> {
+    if let Some(file) = self.media.borrow().get(path) {
+      return Some(file.url.clone());
+    }
+    let bytes = std::fs::read(self.app.join(path)).ok()?;
+    let digest = hash::of(&bytes);
+    let relative = Path::new(path);
+    let dir = relative.parent().map(|d| d.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+    let stem = relative.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+    let ext = relative.extension().unwrap_or_default().to_string_lossy().to_ascii_lowercase();
+    let out_path = format!("{}{}", dir_prefix(&dir), hash::emitted_name(&stem, &digest, &ext));
+    let url = self.url(None, &out_path);
+    self.media.borrow_mut().insert(path.to_owned(), MediaFile { source: path.to_owned(), url: url.clone(), path: out_path });
+    Some(url)
+  }
+
   fn source(&self, name: &str) -> Option<String> {
     self.sections.images.sources.get(name).map(|s| s.template.clone())
   }
@@ -336,7 +358,7 @@ impl AssetResolver for Resolver {
 /// font directory holds.
 pub fn manifest(resolver: &Resolver, mut fonts: Fonts) -> AssetsManifest {
   fonts.referenced = resolver.referenced_fonts(&fonts.faces);
-  AssetsManifest { version: VERSION, images: resolver.policy_out(), entries: resolver.entries(), fonts }
+  AssetsManifest { version: VERSION, images: resolver.policy_out(), entries: resolver.entries(), fonts, media: resolver.media.borrow().values().cloned().collect() }
 }
 
 /// What `derive` wrote and what it found already there.
@@ -398,7 +420,8 @@ pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Deriv
   }
   let faces = manifest.fonts.faces.iter().map(|face| (&face.source, &face.path));
   let referenced = manifest.fonts.referenced.iter().map(|file| (&file.source, &file.path));
-  for (source, rel) in faces.chain(referenced) {
+  let media = manifest.media.iter().map(|file| (&file.source, &file.path));
+  for (source, rel) in faces.chain(referenced).chain(media) {
     let path = out.join(rel);
     if path.is_file() {
       derived.kept += 1;

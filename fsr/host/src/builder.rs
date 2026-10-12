@@ -939,7 +939,8 @@ impl HostBuilder {
     // the bundle id it was rendered against and so has no stable hash.
     let dev_nonce = dev.then(dev_nonce);
     let empty_icon = config.document.head.iter().any(|t| t.get("href").is_some_and(|href| href == "data:,"));
-    let script_origins: Vec<String> = app.report.scripts.iter().filter_map(|(_, src)| src.as_deref().and_then(script_origin)).collect();
+    let script_origins: Vec<String> = app.report.scripts.iter().filter_map(|(_, src)| src.as_deref().and_then(other_origin)).collect();
+    let media_origins: Vec<String> = app.report.media.iter().filter_map(|(_, src)| other_origin(src)).collect();
     let compose = |declared: &config::Csp| {
       let mut policy = declared.clone();
       if empty_icon {
@@ -953,6 +954,9 @@ impl HostBuilder {
       }
       for origin in &script_origins {
         policy.widen("script-src", origin.clone());
+      }
+      for origin in &media_origins {
+        policy.widen("media-src", origin.clone());
       }
       if let Some(css) = &font_css {
         policy.widen("style-src", import_map_csp(css));
@@ -1276,10 +1280,10 @@ pub(crate) fn session_keys(config: &Config) -> Vec<Vec<u8>> {
     .collect()
 }
 
-/// The origin a `meta` script row's `src` loads from, `https://host[:port]`,
+/// The origin a script row's or a media element's `src` loads from, `https://host[:port]`,
 /// when it names another one. A path on the document's own origin needs
 /// nothing a policy with `'self'` does not already have.
-fn script_origin(src: &str) -> Option<String> {
+fn other_origin(src: &str) -> Option<String> {
   let rest = src.strip_prefix("https://").map(|r| ("https", r)).or_else(|| src.strip_prefix("http://").map(|r| ("http", r)))?;
   let host = rest.1.split(['/', '?', '#']).next().filter(|host| !host.is_empty())?;
   Some(format!("{}://{host}", rest.0))

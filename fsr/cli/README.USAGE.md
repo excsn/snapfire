@@ -873,6 +873,8 @@ One thing the runner cannot answer, so a spec must not expect it: the Rust half 
 
 ## Serving Images and Fonts
 
+A video, an audio file or a `.vtt` caption track a module imports is served as it is under its hash, its import the URL, so a `<video>` takes `src={clip}`. A media element's `src` on another origin widens `media-src`.
+
 A route directory's `opengraph-image.png`, with an optional `opengraph-image.alt.txt`, becomes the `og:image` rows of every page under it. A `twitter-image.png` becomes the `twitter:image` rows. A nearer image replaces either. The build serves each as its hashed original with no variant and the host writes the URL against `document.origin`. Guide chapter 108 has the rules.
 
 
