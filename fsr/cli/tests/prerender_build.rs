@@ -1,6 +1,6 @@
-//! A prerender directory is the build that wrote it. Production answers from
-//! this build's files; development renders live and previews them when asked;
-//! another build's files are never served.
+//! Production answers from this build's prerendered files and never another
+//! build's; development renders live and, asked, renders what a prerender
+//! would write.
 
 use std::path::{Path, PathBuf};
 
@@ -50,37 +50,39 @@ fn production(root: &Path) -> Host {
 }
 
 #[test]
-fn development_renders_live_and_previews_this_builds_prerender_when_asked() {
+fn development_renders_live_and_previews_what_a_prerender_would_write_when_asked() {
   let root = project();
+  std::fs::create_dir_all(root.join("app/routes/cart")).unwrap();
+  std::fs::write(root.join("app/routes/cart/page.tsx"), page("cart")).unwrap();
+  std::fs::write(root.join("app/routes/cart/page.loader.ts"), "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ session }: Ctx) {\n  return { who: session.id };\n}\n").unwrap();
   let dir = root.join("app/dist/prerender");
   let runtime = tokio::runtime::Runtime::new().unwrap();
 
   let host = boot(&root);
-  runtime.block_on(host.prerender(&dir)).unwrap();
-  assert!(dir.join(snapfire_fsr_host::BUILD_FILE).is_file(), "the build is written beside the documents");
-  let host = boot(&root);
+  assert!(!dir.exists(), "nothing has been prerendered");
   let (_, from_file, html) = runtime.block_on(get(&host, "/about"));
   assert!(!from_file && html.contains("alpha-copy"), "development renders live: {html}");
-  let (_, from_file, html) = runtime.block_on(get(&host, "/about?__prerendered"));
-  assert!(from_file && html.contains("alpha-copy"), "and answers from the file when asked: {html}");
+  let (status, preview, html) = runtime.block_on(get(&host, "/about?__prerendered"));
+  assert!(status == 200 && preview && html.contains("alpha-copy") && !html.contains("EventSource"), "a preview with no run behind it is what a run would write, plain head and all: {html}");
+  let (status, _, why) = runtime.block_on(get(&host, "/cart?__prerendered"));
+  assert!(status == 404 && why.contains("`/cart` is not prerendered"), "a route that reads the request says why: {why}");
 
   std::fs::write(root.join("app/routes/about/page.tsx"), page("beta-copy")).unwrap();
   let host = boot(&root);
-  assert!(host.report().to_string().contains("written by another build"), "{}", host.report());
-  let (status, _, text) = runtime.block_on(get(&host, "/about?__prerendered"));
-  assert_eq!(status, 404, "another build's file is no preview of this one: {text}");
-  assert!(text.contains("no prerendered page for this build") && text.contains("fsr prerender"), "{text}");
-  let (_, _, html) = runtime.block_on(get(&host, "/about"));
-  assert!(html.contains("beta-copy") && !html.contains("alpha-copy"), "{html}");
+  let (_, _, html) = runtime.block_on(get(&host, "/about?__prerendered"));
+  assert!(html.contains("beta-copy") && !html.contains("alpha-copy"), "an edit shows in the preview at once: {html}");
 
   runtime.block_on(host.prerender(&dir)).unwrap();
-  let (_, from_file, html) = runtime.block_on(get(&host, "/about?__prerendered"));
-  assert!(from_file && html.contains("beta-copy"), "a prerender from this build is previewed without a reload: {html}");
+  assert!(dir.join(snapfire_fsr_host::BUILD_FILE).is_file(), "the build is written beside the documents");
+  std::fs::write(root.join("app/routes/about/page.tsx"), page("gamma-copy")).unwrap();
+  let host = boot(&root);
+  assert!(host.report().to_string().contains("written by another build"), "{}", host.report());
+  let (_, _, html) = runtime.block_on(get(&host, "/about?__prerendered"));
+  assert!(html.contains("gamma-copy"), "the preview never answers from an older run's file: {html}");
 
+  runtime.block_on(host.prerender(&dir)).unwrap();
   let host = production(&root);
   let (_, from_file, html) = runtime.block_on(get(&host, "/about"));
-  assert!(from_file && html.contains("beta-copy"), "production answers from this build's file unasked: {html}");
-  let (_, from_file, _) = runtime.block_on(get(&host, "/about?__prerendered"));
-  assert!(from_file, "and the flag changes nothing there");
+  assert!(from_file && html.contains("gamma-copy"), "production answers from this build's file unasked: {html}");
   std::fs::remove_dir_all(&root).unwrap();
 }

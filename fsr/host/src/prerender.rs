@@ -437,6 +437,38 @@ impl Host {
     Ok(warmed)
   }
 
+  /// What `prerender` would write for `served` now: the page rendered the way
+  /// a run renders it, anonymously with the plain head, after its loaders run.
+  /// `path` is `served` without its locale prefix. Development answers a
+  /// `?__prerendered` request with it, so a page is previewed whether or not
+  /// a run has written it. `Err` says why the route has no prerendered page.
+  pub(crate) async fn preview(&self, t: &Tables, path: &str, served: &str, mode: RenderMode, locale: &Locale) -> Result<String, String> {
+    let matched = t.app.matcher.match_path(path).or_else(|| t.app.matcher.match_path(path.trim_end_matches('/')));
+    let Some(pattern) = matched.and_then(|m| t.app.patterns.get(m.entry.0 as usize)).cloned() else {
+      return Err(format!("no route: {served}"));
+    };
+    if !t.app.prerenderable.contains(&pattern) && !t.app.prerenderable_anonymous.contains(&pattern) {
+      return Err(format!("`{pattern}` is not prerendered: its loaders read the request, so it renders live for every visitor"));
+    }
+    if let Some(enumerated) = t.app.paths.get(&pattern) {
+      let ctx = self.ctx(t, Incoming::anonymous(SessionCell::default()), Params::new(), Params::new(), "/", locale.clone());
+      let sets = enumerated.paths(&ctx).await.map_err(|e| format!("the paths of `{pattern}` failed: {}", e.message))?;
+      let listed = sets.iter().map(|set| fill_pattern(&pattern, set)).collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+      if !listed.iter().any(|p| p == path || p.trim_end_matches('/') == path.trim_end_matches('/')) {
+        return Err(format!("`{path}` is not one of the paths `{pattern}` exports, so it renders live"));
+      }
+    }
+    let (plan, params) = self.plan_for(t, path).ok_or_else(|| format!("no route: {served}"))?;
+    let rendered = self
+      .render_plan_with(t, &plan, params, Params::new(), mode, Incoming::anonymous(SessionCell::default()), served, locale, t.head_for(&locale.tag).as_ref().unwrap_or(&t.head))
+      .await
+      .map_err(|e| e.to_string())?;
+    if let Some(kind) = rendered.failed {
+      return Err(format!("the page's loader failed ({}), so a prerender writes no file for it", kind.as_str()));
+    }
+    Ok(rendered.chunks.collect::<Vec<_>>().await.concat())
+  }
+
   /// The prerendered text for `path` in `mode`, when the prerender directory
   /// holds one. `path` may carry a locale prefix. The query string is
   /// ignored: a prerenderable route reads none.

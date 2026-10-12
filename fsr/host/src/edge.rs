@@ -803,13 +803,25 @@ impl Host {
         )
         .is_some();
 
-    // Development renders live and answers from the prerender directory only when the request asks to preview it.
-    let preview = self.changed.is_some() && preview_of(&raw_query);
-    if req.method() == Method::GET && !intercepted && (self.changed.is_none() || preview) {
+    // Development renders live and previews what a prerender would write when the request asks.
+    if self.changed.is_some() && preview_of(&raw_query) && req.method() == Method::GET && !intercepted {
+      return match self.preview(t, &visit.path, &path, mode.clone(), &visit.locale).await {
+        Ok(text) => {
+          let content_type = if mode == RenderMode::Payload { "application/x-sf-payload+json; charset=utf-8" } else { "text/html; charset=utf-8" };
+          let mut response = Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, content_type)
+            .header("x-sf-prerendered", "preview")
+            .body(http_body_util::Full::new(Bytes::from(text)).map_err(|never: std::convert::Infallible| match never {}).boxed_unsync())
+            .expect("a response with a valid header");
+          set_csp(t, &mode, &mut response);
+          response
+        }
+        Err(why) => text_response(StatusCode::NOT_FOUND, why),
+      };
+    }
+    if req.method() == Method::GET && !intercepted && self.changed.is_none() {
       let found = self.prerendered_in(t, &path, &mode, &visit.locale, opened.cell.identity().is_none());
-      if found.is_none() && preview {
-        return text_response(StatusCode::NOT_FOUND, format!("no prerendered page for this build at {path}; run fsr prerender"));
-      }
       if let Some(text) = found {
         let content_type = match mode {
           RenderMode::Html | RenderMode::Fragment(_) => "text/html; charset=utf-8",

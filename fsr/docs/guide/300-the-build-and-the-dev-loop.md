@@ -84,14 +84,13 @@ So a deploy that ships a new build with a prerender directory from an older one 
 
 In development the host renders every page live and never answers from the directory on its own. An edit to a page and a change in what its loader returns both show on the next request.
 
-Next.js, Astro, SvelteKit and Nuxt also render live in development. The only way to see their prerendered output is a production build served locally, `next build` then `next start`. Here you can look at one page's prerendered file while the development server keeps running: add `?__prerendered` to its URL.
+Next.js, Astro, SvelteKit and Nuxt also render live in development. The only way to see their prerendered output is a production build served locally, `next build` then `next start`. Here you can see any page as a prerender would write it while the development server keeps running: add `?__prerendered` to its URL.
 
 ```sh
-fsr prerender app
 curl -i 'http://127.0.0.1:8190/notice/bins?__prerendered'
 ```
 
-That answers from this build's file with `x-sf-prerendered: 1`. A page with no file from this build answers `404` with `no prerendered page for this build at /notice/nope; run fsr prerender`, rather than a live render that would look like a preview. A production host answers from the files whatever the query says.
+The host renders that page the way `fsr prerender` does: anonymously, with its loaders run now and the head a written file carries. It answers with `x-sf-prerendered: preview`. Nothing is read from the directory and nothing is written to it, so a project that has never run `fsr prerender` previews its pages the same way and an edit shows in the preview on the next request. `?__prerendered&__payload` previews the payload a navigation would read from the file. A page that would have no file answers `404` saying why: the route reads the request, the path is not one its `paths` lists or its loader failed. A production host answers from the files whatever the query says.
 
 ## Prerendering again while the host serves
 
