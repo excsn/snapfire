@@ -295,6 +295,8 @@ The key includes the query string, which is why `/` and `/?q=filament` are diffe
 
 The payload is usually already there when the click lands. Moving the pointer over a link, focusing it or touching it fetches its payload and holds it for thirty seconds, so the click applies what is held and the loader ran while the user was still deciding; a back or forward inside that window makes no request either. An action that revalidates drops everything held, so nothing from before the mutation is shown after it. A link whose loader should not run speculatively says `data-sf-prefetch="none"`.
 
+To animate a navigation, pass `transitions: true` to `enableNavigation` in `src/main.ts`. The swap then runs inside the browser's view transition, which crossfades the old page into the new one unless your CSS says otherwise; the conference app gives its header a `view-transition-name` so it holds still while the page changes. A link opts out with `data-sf-transition="none"`. The navigator skips the animation for a visitor whose system asks for reduced motion.
+
 ## The lab
 
 Add a route: `routes/deals/page.tsx` with a component that returns a paragraph. Run `fsr check app` and read the report: `/deals` is listed, with no source since there is no loader. Add a `page.loader.ts` that returns `{ when: ctx.now }`, check again and `deals` appears under sources as `lowered`. The page can now import `DealsProps` and it has a `when: bigint`.

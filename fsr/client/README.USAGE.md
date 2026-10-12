@@ -26,6 +26,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Marking the Link to the Page Being Shown](#marking-the-link-to-the-page-being-shown)
 * [Placing a Picture](#placing-a-picture)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
+* [Animating a Navigation](#animating-a-navigation)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Wiring Another Library to the Navigator](#wiring-another-library-to-the-navigator)
 * [Following the Server](#following-the-server)
@@ -540,6 +541,29 @@ An intercepted navigation changes the address and leaves the page beneath in pla
 ```
 
 Open the drawer from the agent list and `Agents` keeps its mark while the gear takes one. `current="url"` is the default and the two agree whenever no intercept is open. On a plain anchor the same is `data-sf-current="document"` beside `data-sf-link`.
+
+## Animating a Navigation
+
+Turn on view transitions and the navigator swaps the page inside `document.startViewTransition`, so the browser animates from the old page to the new one. With no CSS the browser crossfades the whole page:
+
+```ts
+enableNavigation({ transitions: true });
+```
+
+The animation is CSS. An element given a `view-transition-name` holds still while the rest fades. The named pseudo-elements take any animation, a slide for one:
+
+```css
+header.site {
+  view-transition-name: site-header;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 180ms;
+}
+```
+
+A link turns it off for itself with `data-sf-transition="none"` and on with `data-sf-transition` when the document leaves it off. From code, `navigate(href, true, { transition: false })` does the same. The navigator skips the transition where the browser has no view transitions, when the visitor's system asks for reduced motion and when the tab is hidden, so the swap happens at once in those cases. Only a navigation animates: a `refresh` after an action and a scroll to a fragment on the same page do not.
 
 ## Prefetching and the Router Cache
 

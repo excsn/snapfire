@@ -341,3 +341,12 @@ a:hover {
   font-size: 12px;
   color: var(--quiet);
 }
+
+.masthead {
+  view-transition-name: masthead;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 160ms;
+}

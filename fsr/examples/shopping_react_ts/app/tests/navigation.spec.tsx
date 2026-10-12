@@ -1,4 +1,4 @@
-import { navigate } from "@snapfire/fsr-client";
+import { enableNavigation, navigate } from "@snapfire/fsr-client";
 import { ctx, expect, fireEvent, load, screen, settle, spyOn, test } from "@snapfire/fsr-client/testing";
 
 const filament = { id: 1n, name: "PLA filament", brand: "Prusa", category: "printing", price_cents: 2400n, list_price_cents: 2900n, image: { file: "1.png", color: "#e8d5b5", emoji: "🧵" }, rating: 4.5, reviews: 12n, stock: 5n, description: "A spool.", tags: ["pla"], attributes: [] };
@@ -154,4 +154,73 @@ test("a navigation told not to scroll leaves the window where it was", async () 
   await navigate("/", true);
   expect(top, "while a navigation left to itself still goes to the top").toHaveBeenCalledTimes(1);
   top.mockRestore();
+});
+
+test("navigating back and forth before the islands finish hydrating patches them without throwing hydration away", async () => {
+  await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
+  await navigate("/cart");
+  await navigate("/");
+  await navigate("/cart");
+  await navigate("/");
+  await settle();
+  expect(location.pathname).toEqual("/");
+  expect(screen.getByText("Today's picks")).toBeTruthy();
+});
+
+/** A stand-in for `document.startViewTransition` that records each call and runs the update the way a browser does: after the call returns. */
+function fakeTransitions(): { calls: string[]; restore: () => void } {
+  const doc = document as Document & { startViewTransition?: unknown };
+  const before = doc.startViewTransition;
+  const calls: string[] = [];
+  doc.startViewTransition = (update: () => void) => {
+    calls.push(location.pathname);
+    const updateCallbackDone = Promise.resolve().then(update);
+    return { updateCallbackDone, finished: updateCallbackDone, ready: updateCallbackDone, skipTransition() {} };
+  };
+  return { calls, restore: () => (doc.startViewTransition = before) };
+}
+
+test("a navigation swaps the page inside a view transition when the document asks for them", async () => {
+  await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
+  const fake = fakeTransitions();
+  try {
+    await navigate("/cart");
+    await settle();
+    expect(fake.calls, "off by default").toEqual([]);
+    enableNavigation({ transitions: true });
+    await navigate("/");
+    await settle();
+    expect(fake.calls, "the transition started while the old page was still showing").toEqual(["/cart"]);
+    expect(location.pathname).toEqual("/");
+    expect(screen.getByText("Today's picks"), "the update swapped the page").toBeTruthy();
+    await navigate("/cart", true, { transition: false });
+    await settle();
+    expect(fake.calls.length, "a navigation that says not to swaps at once").toEqual(1);
+    document.body.insertAdjacentHTML("beforeend", '<a id="plain" href="/" data-sf-transition="none">home</a>');
+    await fireEvent.click(document.getElementById("plain")!);
+    await settle();
+    expect(location.pathname).toEqual("/");
+    expect(fake.calls.length, "so does a link that says none").toEqual(1);
+  } finally {
+    enableNavigation({ transitions: false });
+    fake.restore();
+  }
+});
+
+test("a navigation skips the view transition when the visitor prefers reduced motion", async () => {
+  await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
+  const fake = fakeTransitions();
+  const g = globalThis as { matchMedia?: unknown };
+  const before = g.matchMedia;
+  g.matchMedia = (query: string) => ({ matches: query.includes("reduce"), media: query });
+  try {
+    enableNavigation({ transitions: true });
+    await navigate("/cart");
+    expect(location.pathname).toEqual("/cart");
+    expect(fake.calls, "no transition for a visitor who asked for less motion").toEqual([]);
+  } finally {
+    enableNavigation({ transitions: false });
+    g.matchMedia = before;
+    fake.restore();
+  }
 });

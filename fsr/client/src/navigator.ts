@@ -613,6 +613,8 @@ export interface NavigateOptions {
   keep?: boolean;
   /** Whether the window scrolls to the element the target's fragment names or to the top when it names none. Defaults to true; false leaves the window where it is. */
   scroll?: boolean;
+  /** Whether the swap runs inside a view transition, over the document's `transitions` setting. */
+  transition?: boolean;
 }
 
 function askFor(options: NavigateOptions): Ask {
@@ -623,7 +625,8 @@ function askFor(options: NavigateOptions): Ask {
 
 function askOf(anchor: Element): NavigateOptions {
   const keep = anchor.getAttribute("data-sf-keep");
-  return { full: anchor.hasAttribute("data-sf-full"), into: anchor.getAttribute("data-sf-into") ?? undefined, keep: keep === null ? undefined : keep !== "false" };
+  const transition = anchor.getAttribute("data-sf-transition");
+  return { full: anchor.hasAttribute("data-sf-full"), into: anchor.getAttribute("data-sf-into") ?? undefined, keep: keep === null ? undefined : keep !== "false", transition: transition === null ? undefined : transition !== "none" };
 }
 
 function headersOf(ask: Ask): Record<string, string> {
@@ -640,6 +643,22 @@ export interface NavigationOptions {
   prefetch?: PrefetchTiming;
   /** How long a fetched payload answers a navigation before it is fetched again. Defaults to 30 seconds. */
   cacheMs?: number;
+  /** Whether a navigation swaps the page inside a view transition, `document.startViewTransition`, so the browser animates from the old page to the new one. A link's own `data-sf-transition` overrides it. Skipped where the browser has no view transitions, when the visitor prefers reduced motion and when the tab is hidden. Defaults to false. */
+  transitions?: boolean;
+}
+
+/** The document's view transition setting for a navigation that names none. */
+let fallbackTransitions = false;
+
+/** Runs `update` inside a view transition when `wanted` and the browser can, else at once; resolves once `update` has run. */
+async function transitioned(wanted: boolean, update: () => void): Promise<void> {
+  const start = (document as Document & { startViewTransition?: (cb: () => void) => { updateCallbackDone: Promise<void> } }).startViewTransition;
+  const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!wanted || typeof start !== "function" || reduced || document.visibilityState === "hidden") {
+    update();
+    return;
+  }
+  await start.call(document, update).updateCallbackDone.catch(() => {});
 }
 
 function payloadUrl(url: URL): string {
@@ -795,17 +814,28 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   if (gen !== generation) return;
   if (eager) await applyStyles(eager.styles);
   if (gen !== generation) return;
-  if (!eager || !patch(eager, false, keep)) {
+  if (!eager) {
     window.location.assign(href);
     return;
   }
-  if (push) record(false);
-  currentPath = `${url.pathname}${url.search}`;
-  if (openSlot === null) {
-    documentPath = currentPath;
-    if (options.scroll !== false) scrollToFragment(url.hash);
+  let applied = false;
+  await transitioned(options.transition ?? fallbackTransitions, () => {
+    if (gen !== generation) return;
+    applied = patch(eager, false, keep);
+    if (!applied) return;
+    if (push) record(false);
+    currentPath = `${url.pathname}${url.search}`;
+    if (openSlot === null) {
+      documentPath = currentPath;
+      if (options.scroll !== false) scrollToFragment(url.hash);
+    }
+    markLinks();
+  });
+  if (gen !== generation) return;
+  if (!applied) {
+    window.location.assign(href);
+    return;
   }
-  markLinks();
   announce();
   await drain(rows, eager.segments, gen);
 }
@@ -875,6 +905,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   const g = globalThis as { __sf?: Record<string, unknown> };
   g.__sf = Object.assign(g.__sf ?? {}, { refresh });
   if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
+  if (options.transitions !== undefined) fallbackTransitions = options.transitions;
   if (wired === document) {
     if (options.prefetch !== undefined && options.prefetch !== fallbackPrefetch) {
       fallbackPrefetch = options.prefetch;
@@ -903,6 +934,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     void navigate(url.pathname + url.search + url.hash, true, askOf(anchor));
   });
   fallbackPrefetch = options.prefetch ?? "hover";
+  fallbackTransitions = options.transitions ?? false;
   resetViewport();
   const warm = (event: Event) => {
     const anchor = linkOf(event.target);

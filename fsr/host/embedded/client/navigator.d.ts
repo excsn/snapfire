@@ -13,12 +13,16 @@ export interface NavigateOptions {
 	keep?: boolean;
 	/** Whether the window scrolls to the element the target's fragment names or to the top when it names none. Defaults to true; false leaves the window where it is. */
 	scroll?: boolean;
+	/** Whether the swap runs inside a view transition, over the document's `transitions` setting. */
+	transition?: boolean;
 }
 export interface NavigationOptions {
 	/** When a link's payload is fetched ahead of its click: on hover, focus or touch; as the link enters the viewport; or never. A link's own `data-sf-prefetch` overrides it. Defaults to `"hover"`. */
 	prefetch?: PrefetchTiming;
 	/** How long a fetched payload answers a navigation before it is fetched again. Defaults to 30 seconds. */
 	cacheMs?: number;
+	/** Whether a navigation swaps the page inside a view transition, `document.startViewTransition`, so the browser animates from the old page to the new one. A link's own `data-sf-transition` overrides it. Skipped where the browser has no view transitions, when the visitor prefers reduced motion and when the tab is hidden. Defaults to false. */
+	transitions?: boolean;
 }
 /** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. Resolves once the payload has arrived whole. */
 export declare function prefetch(href: string, options?: NavigateOptions): Promise<void>;

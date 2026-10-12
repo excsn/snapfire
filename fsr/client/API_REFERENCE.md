@@ -526,12 +526,12 @@ Patches `el`'s children to match `html`: a text or comment node by content, an e
 
 Segment patching in place of a page load. The functions share one module-level sidecar, one id allocator, the document's current path and one router cache: payload text by the origin, the slot asked for and `pathname + search` or the fetch still bringing it, held for `cacheMs` on the clock `performance.now` reads.
 
-A request for a payload says where it comes from: `x-sf-from` carries the document's path and search, which lets the server render the target into a slot of a live layout, an intercept; `x-sf-into` names that slot outright; a full navigation sends neither. `interface NavigateOptions { full?: boolean; into?: string; replace?: boolean; keep?: boolean; scroll?: boolean }` chooses and an anchor chooses `full`, `into` and `keep` with `data-sf-full`, `data-sf-into` and `data-sf-keep`. `replace` puts the target in place of the current history entry. `scroll: false` leaves the window where it is. `keep` says whether a segment whose key changed within its module is morphed in place or replaced; left out, it is true when the target has the document's current pathname.
+A request for a payload says where it comes from: `x-sf-from` carries the document's path and search, which lets the server render the target into a slot of a live layout, an intercept; `x-sf-into` names that slot outright; a full navigation sends neither. `interface NavigateOptions { full?: boolean; into?: string; replace?: boolean; keep?: boolean; scroll?: boolean; transition?: boolean }` chooses and an anchor chooses `full`, `into`, `keep` and `transition` with `data-sf-full`, `data-sf-into`, `data-sf-keep` and `data-sf-transition`, where `data-sf-transition="none"` is `transition: false` and any other value is `transition: true`. `transition` runs the patch, the history entry, the scroll and the link marks inside one `document.startViewTransition` callback and waits for `updateCallbackDone` before the deferred segments drain; it is skipped when the browser has no `startViewTransition`, when `(prefers-reduced-motion: reduce)` matches and when `document.visibilityState` is `hidden`. A navigation started while the callback is pending makes the older callback a no-op. `replace` puts the target in place of the current history entry. `scroll: false` leaves the window where it is. `keep` says whether a segment whose key changed within its module is morphed in place or replaced; left out, it is true when the target has the document's current pathname.
 
 ### enableNavigation
 
 * `enableNavigation(options?: NavigationOptions): void`
-* `interface NavigationOptions { prefetch?: PrefetchTiming; cacheMs?: number }`; `type PrefetchTiming = "hover" | "viewport" | "none"`. `prefetch` is the document's timing for a link that names none of its own, `"hover"` by default; `cacheMs` defaults to 30000.
+* `interface NavigationOptions { prefetch?: PrefetchTiming; cacheMs?: number; transitions?: boolean }`; `type PrefetchTiming = "hover" | "viewport" | "none"`. `prefetch` is the document's timing for a link that names none of its own, `"hover"` by default; `cacheMs` defaults to 30000. `transitions` is whether a navigation that names none of its own swaps the page inside `document.startViewTransition`, false by default; a second call on the same document changes it.
 
 Registers `refresh` as `window.__sf.refresh`, which the host's development script calls, reads `script[data-sf-segments]` into the module's current sidecar, sets `cacheMs` when given, then installs a `click` listener on `document` and a `popstate` listener on `window`. `mouseover`, `focusin` and passive `touchstart` listeners on `document` call `prefetch` for a link whose timing is `"hover"`. A link whose timing is `"viewport"` is observed by one `IntersectionObserver` instead, prefetched as it enters the view and unobserved there, so it is fetched once; the links are observed at `enableNavigation`, after every applied payload and on `sf:fill`, since a navigation brings new ones. A link's own `data-sf-prefetch` decides its timing and the option decides the rest. Where `IntersectionObserver` does not exist, viewport timing observes nothing rather than throwing. The href of the enclosing `a[href]`, unless it carries `data-sf-native` or `data-sf-prefetch="none"`. The navigator is wired to a document once: a second call on the same document, which a mounted site's entry module makes when a payload imports it, keeps the current sidecar, the paths and the listeners the first call installed and changes only the options it names, `cacheMs` and, with `prefetch`, the timing the document's links are observed under. A new document, which `load` under `fsr test` gives every spec, is wired afresh.
 
@@ -906,7 +906,7 @@ A component another framework mounts, as a React component that renders `Mount` 
 
 * `const reactPatcher: Patcher`
 
-Calls `render` on the root the mounter returned with `createElement(component, props, children)`, the same `children` element as at mount, so a layout re-renders with new props and its page's DOM is untouched.
+Calls `render` on the root the mounter returned with `createElement(component, props, children)`, the same `children` element as at mount, so a layout re-renders with new props and its page's DOM is untouched. A root the mounter hydrated is never given `render`: its element is held outside the root and read through `useSyncExternalStore`, the server's element during hydration and the latest after, because React 18 abandons a hydration that receives an update before it commits.
 
 Requires `react` and `react-dom/client` in the page's import map. A component compiled from `.tsx` under `"jsx": "react-jsx"` additionally needs `react/jsx-runtime` there, since `snapfirec` lowers JSX through the automatic runtime.
 
@@ -914,7 +914,7 @@ Requires `react` and `react-dom/client` in the page's import map. A component co
 
 * `const reactUnmounter: Unmounter`
 
-Calls `unmount` on the root the mounter returned, so every effect cleanup in the island runs.
+Calls `unmount` on the root the mounter returned, so every effect cleanup in the island runs. A hydrated root whose hydration has not committed is unmounted once it commits, since `unmount` is an update React 18 refuses on such a root; a navigation that discards an island the moment it lands is the case.
 
 ## 11. The Vue Mounter
 

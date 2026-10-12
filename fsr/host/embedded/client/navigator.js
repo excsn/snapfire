@@ -526,10 +526,12 @@ function askFor(options) {
 }
 function askOf(anchor) {
     const keep = anchor.getAttribute("data-sf-keep");
+    const transition = anchor.getAttribute("data-sf-transition");
     return {
         full: anchor.hasAttribute("data-sf-full"),
         into: anchor.getAttribute("data-sf-into") ?? undefined,
-        keep: keep === null ? undefined : keep !== "false"
+        keep: keep === null ? undefined : keep !== "false",
+        transition: transition === null ? undefined : transition !== "none"
     };
 }
 function headersOf(ask) {
@@ -539,6 +541,16 @@ function headersOf(ask) {
     const held = currentLocale();
     if (held && catalog(held) !== null) headers["x-sf-catalog"] = held;
     return headers;
+}
+let fallbackTransitions = false;
+async function transitioned(wanted, update) {
+    const start = document.startViewTransition;
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!wanted || typeof start !== "function" || reduced || document.visibilityState === "hidden") {
+        update();
+        return;
+    }
+    await start.call(document, update).updateCallbackDone.catch(()=>{});
 }
 function payloadUrl(url) {
     return `${url.pathname}${url.search}${url.search ? "&" : "?"}__payload`;
@@ -668,17 +680,28 @@ export async function navigate(href, push = true, options = {}) {
     if (gen !== generation) return;
     if (eager) await applyStyles(eager.styles);
     if (gen !== generation) return;
-    if (!eager || !patch(eager, false, keep)) {
+    if (!eager) {
         window.location.assign(href);
         return;
     }
-    if (push) record(false);
-    currentPath = `${url.pathname}${url.search}`;
-    if (openSlot === null) {
-        documentPath = currentPath;
-        if (options.scroll !== false) scrollToFragment(url.hash);
+    let applied = false;
+    await transitioned(options.transition ?? fallbackTransitions, ()=>{
+        if (gen !== generation) return;
+        applied = patch(eager, false, keep);
+        if (!applied) return;
+        if (push) record(false);
+        currentPath = `${url.pathname}${url.search}`;
+        if (openSlot === null) {
+            documentPath = currentPath;
+            if (options.scroll !== false) scrollToFragment(url.hash);
+        }
+        markLinks();
+    });
+    if (gen !== generation) return;
+    if (!applied) {
+        window.location.assign(href);
+        return;
     }
-    markLinks();
     announce();
     await drain(rows, eager.segments, gen);
 }
@@ -733,6 +756,7 @@ export function enableNavigation(options = {}) {
         refresh
     });
     if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
+    if (options.transitions !== undefined) fallbackTransitions = options.transitions;
     if (wired === document) {
         if (options.prefetch !== undefined && options.prefetch !== fallbackPrefetch) {
             fallbackPrefetch = options.prefetch;
@@ -761,6 +785,7 @@ export function enableNavigation(options = {}) {
         void navigate(url.pathname + url.search + url.hash, true, askOf(anchor));
     });
     fallbackPrefetch = options.prefetch ?? "hover";
+    fallbackTransitions = options.transitions ?? false;
     resetViewport();
     const warm = (event)=>{
         const anchor = linkOf(event.target);
