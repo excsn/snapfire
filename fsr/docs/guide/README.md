@@ -21,6 +21,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [001. Calling a service without a client](001-one-contract-no-client-code.md), how a service's own document becomes a typed call nobody wrote. Everyone.
 - [002. How loaders and actions are lowered](002-a-body-is-data.md), why a loader is lowered rather than run, what residue is and why the report always says where a body runs. Everyone.
 - [003. Server rendering without a JavaScript engine](003-rendered-where-it-is-cheapest.md), how a React page is rendered on the server with no JavaScript engine, which of its components become islands, what hydrates over them and what the browser reads instead of computing again. Everyone.
+- [004. Server components without React Server Components](004-server-components-without-rsc.md), RSC taken apart into its five mechanisms and what fsr has for each, why RSC itself is rejected, the two things called an async component and why the loaded-on-demand one is in and the awaiting one is out. Everyone.
 
 **The application:**
 
@@ -59,7 +60,7 @@ And one appendix:
 
 ## Reading paths
 
-**A frontend developer who knows Next or Remix:** read 000 for the vocabulary, then 100, 101, 102, 103. Chapter 003 will read like the rendering model you already have, minus the engine. Start the project with `fsr new <dir> --with react`: a plain `fsr new` is a bare application with no framework. 102 is written for React.
+**A frontend developer who knows Next or Remix:** read 000 for the vocabulary, then 100, 101, 102, 103. Chapter 003 will read like the rendering model you already have, minus the engine; 004 says what became of server components and `async function Page()`. Start the project with `fsr new <dir> --with react`: a plain `fsr new` is a bare application with no framework. 102 is written for React.
 
 **A frontend developer who writes Vue:** read 000, then 100 and 101 for the templates and bodies, then 104. Your components are islands and the pages around them are templates. 102 covers the same split for React and 106 covers what it costs to run both at once.
 

@@ -79,11 +79,11 @@ You do not write or enable any of this. The build does it to every component it 
 
 An island can go one step further and have no browser half at all: placed in server mode, its events are sent to the server, Rust runs the handler and renders the island again and the browser patches the markup it gets back into place. [Chapter 102](102-components-the-server-renders.md) shows both.
 
-## Running residue on the server
+## Residue stays in the browser
 
-Components that read state the server cannot see, that suspend, that reach into libraries the build cannot follow, are residue. Today they render in the browser only. An engine that runs residue components on the server has not been built and whether to build one is an open question, because the cost of an engine is paid per component per request and most of a storefront never needs it: the eight modules in the example lower after one helper was rewritten to avoid `new URLSearchParams`. When one arrives, a residue component will render on the server through it and the report will say so.
+Components that read state the server cannot see, that reach into libraries the build cannot follow, are residue. They render in the browser only. That is the end state rather than a queue: no engine runs them on the server, because the cost of an engine is paid per component per request and almost nothing needs it. Across every example application two components are residue, both browser-only by meaning; the storefront's modules lower after one helper was rewritten to avoid `new URLSearchParams`. `fsr census` counts them at any later date.
 
-Whatever is decided about an engine, data resolves before render. A loader owns every await and a component is a function of its props. That is what lets Rust cache a subtree and skip evaluating it. An engine would have to keep the same rule and could not let a component fetch mid-render.
+Data resolves before render. A loader owns every await and a component is a function of its props. That is what lets Rust cache a subtree and skip evaluating it. It is why a component that fetches mid-render is refused rather than run; [chapter 004](004-server-components-without-rsc.md) is the reasoning.
 
 ## The lab
 

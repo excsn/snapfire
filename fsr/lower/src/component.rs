@@ -503,6 +503,10 @@ impl ComponentSet {
       return Ok(None);
     }
     let parsed = self.parsed[&file].clone();
+    let export = module.split_once('#').map(|(_, export)| export).unwrap_or("default");
+    if async_function_span(&parsed, export).is_some() {
+      return Ok(None);
+    }
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
     match crate::extract::extract(&parsed, &file, &slots, None) {
       Ok(Some(extraction)) => {
@@ -535,7 +539,7 @@ impl ComponentSet {
     };
     let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module).to_owned();
     let LowerError::Residue(residue) = &error else { return Err(error) };
-    if residue.file != file || !residue.via.is_empty() {
+    if residue.file != file || !residue.via.is_empty() || residue.message == ASYNC_COMPONENT {
       return Err(error);
     }
     let Some(parsed) = self.parsed.get(&file).cloned() else { return Err(error) };

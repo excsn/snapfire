@@ -82,6 +82,24 @@ fn an_async_page_is_refused_with_the_loader_named() {
 }
 
 #[test]
+fn an_async_page_with_state_is_refused_rather_than_split() {
+  let page = r#"import { useState } from "react";
+export default async function Page({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const data = await fetchThing(id);
+  return <main><button onClick={() => setOpen(!open)}>{open ? "hide" : "show"}</button>{data.name}</main>;
+}
+"#;
+  let dir = app("async_page_state", &[("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let error = match set.lower_route("routes/page.tsx#default") {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("the await is not residue an island can take"),
+  };
+  assert!(error.contains("an `async` component") && error.contains("page.loader.ts"), "{error}");
+}
+
+#[test]
 fn an_async_arrow_component_is_refused_the_same_way() {
   let page = r#"const Page = async ({ id }: { id: string }) => {
   const data = await fetchThing(id);
