@@ -280,7 +280,7 @@ This is the API route: the same session, identity and services as a page, reache
 
 ```ts
 export async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {
-  if (request.path.startsWith("/account") && !identity) return { redirect: "/login" };
+  if (request.path.startsWith("/account") && !identity?.subject) return { redirect: "/login" };
   return { headers: { "x-frame-options": "DENY" } };
 }
 ```

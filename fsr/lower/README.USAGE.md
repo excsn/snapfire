@@ -126,7 +126,7 @@ session.extend(7200);                    // Stmt::SessionExtend, not in a loader
 
 ```ts
 if (lines.length === 0) fail("invalid", "the cart is empty");
-if (!identity) { fail("unauthorized", "sign in first"); }
+if (!identity?.subject) { fail("unauthorized", "sign in first"); }
 ```
 
 ## Using Lambdas
