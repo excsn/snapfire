@@ -667,8 +667,8 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   let fsr = file("generated/fsr.ts");
   assert!(fsr.contains("\"/\":") && !fsr.contains("/billing"), "route keys stay as written: {fsr}");
   let overlay = file(".fsr-bundle/src/Tips.tsx");
-  assert!(overlay.contains("__sfUseHoisted(\"billing:src/Tips.tsx#TipList\")") && overlay.contains("__sfh.r(0, () => (money(cents)))"), "the reader keys under the prefixed module the host renders: {overlay}");
-  assert_eq!(built.report.hoisted, vec![("billing:routes/page.tsx#default".to_owned(), 0, 1), ("billing:src/Tips.tsx#TipList".to_owned(), 1, 1)], "the page's div around the pure TipList is a subtree of its own: {}", built.report);
+  assert!(overlay.contains("__sfUseHoisted(\"billing:src/Tips.tsx#TipList\")") && overlay.contains("__sfh.c(1, (__sfHtml) => <ul dangerouslySetInnerHTML={__sfHtml} />)"), "the reader keys under the prefixed module the host renders and the list is a proven subtree: {overlay}");
+  assert_eq!(built.report.hoisted, vec![("billing:routes/page.tsx#default".to_owned(), 0, 1, 0), ("billing:src/Tips.tsx#TipList".to_owned(), 0, 1, 0)], "the page's div around the pure TipList is a subtree of its own and the list's read is carried by its markup: {}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -978,7 +978,7 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
   assert_eq!(built.report.browser.len(), 1, "{}", built.report);
   assert_eq!(built.report.browser[0].0, "routes/index/page.island0.tsx#default", "the state and its handler moved into the island: {}", built.report);
   assert!(built.report.browser[0].1.starts_with("routes/index/page.island0.tsx:"), "{}", built.report);
-  assert_eq!(built.report.hoisted, vec![("routes/index/page.island0.tsx#default".to_owned(), 1, 0), ("routes/index/page.tsx#default".to_owned(), 0, 0)], "{}", built.report);
+  assert_eq!(built.report.hoisted, vec![("routes/index/page.island0.tsx#default".to_owned(), 1, 0, 0), ("routes/index/page.tsx#default".to_owned(), 0, 0, 0)], "{}", built.report);
   let text = built.report.to_string();
   assert!(text.contains("extensions ext/fmt.ts#weight      lowered") && text.contains("browser   routes/index/page.island0.tsx#default"), "{text}");
   let plan = built.manifest.to_json();

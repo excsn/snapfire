@@ -562,6 +562,19 @@ impl ComponentSet {
     Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds }))
   }
 
+  /// Settles which chunks keep their fallback once every component is
+  /// lowered: those of a component a `foreign` placement mounts, whose props
+  /// the browser supplies, and of every component when a `<Mount>` names its
+  /// island at run time, since any island can then be mounted that way.
+  pub fn settle_proofs(&mut self) {
+    let dynamic = self.components.iter().any(|(_, c)| holds_mount(&c.render));
+    for rewrite in &mut self.rewrites {
+      if dynamic || self.mounted.contains(&rewrite.module) {
+        rewrite.chunks.iter_mut().for_each(|chunk| chunk.proven = false);
+      }
+    }
+  }
+
   pub fn rewritten(&self) -> Vec<(String, String)> {
     let mut files: Vec<&str> = Vec::new();
     for rewrite in &self.rewrites {
@@ -852,13 +865,15 @@ impl ComponentSet {
       }));
     }
     if let Some((candidates, state, Some(hook))) = hoisting {
-      let kept = hoist::decide(&mut component, &state);
+      let mut kept = hoist::decide(&mut component, &state);
       let pure = state.is_empty() && hoist::static_tree(&component.render, &self.pure);
       let chunks = hoist::chunks(&mut component, &state, &self.pure);
+      let covered = hoist::cover(&mut component, &chunks);
+      kept.retain(|id| !covered.contains(id));
       self.pure.insert(module.clone(), pure);
       self.stateless.insert(module.clone(), state.is_empty());
       let parsed = self.parsed[file].clone();
-      for range in candidates.remaining(&kept) {
+      for range in candidates.remaining(&kept, &chunks) {
         let (line, column) = parsed.position(range.start);
         self.remaining.push((module.clone(), format!("{file}:{line}:{column}")));
       }
@@ -1388,6 +1403,18 @@ pub fn is_foreign(module: &str) -> bool {
   let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
   let ext = std::path::Path::new(file).extension().and_then(|e| e.to_str()).unwrap_or("");
   !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs")
+}
+
+/// True when `tmpl` holds the region a `<Mount>` writes.
+fn holds_mount(tmpl: &Tmpl) -> bool {
+  match tmpl {
+    Tmpl::Element { attrs, children, .. } => attrs.iter().any(|a| matches!(a, Entry::Field(name, _) if name == placements::MOUNT_ATTR)) || children.iter().any(holds_mount),
+    Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(holds_mount),
+    Tmpl::If { then, r#else, .. } => holds_mount(then) || r#else.as_ref().is_some_and(|e| holds_mount(e)),
+    Tmpl::For { body, .. } => holds_mount(body),
+    Tmpl::Let { then, .. } => holds_mount(then),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => false,
+  }
 }
 
 /// `tmpl` with each component of another framework it renders inline as the
@@ -4683,21 +4710,23 @@ export default function Cart({ lines, total }: { lines: { price: number }[]; tot
     ];
     let set = set(&files, "routes/cart/page.tsx#default");
     let component = &set.components[0].1;
-    assert_eq!(hoist_ids(component), vec![0, 6, 10], "props only: money(total), money(l.price) and money(1); not qty, tip or grand: {component:?}");
+    assert_eq!(hoist_ids(component), vec![6, 10], "props only: money(l.price) and money(1); not qty, tip or grand; money(total) sits in the chunk whose markup the browser adopts: {component:?}");
     let mut chunks = Vec::new();
     chunk_ids(&component.render, &mut chunks);
     assert_eq!(chunks, vec![("b".to_owned(), 1)], "the one static element that does work; the others read state, hold a handler or only literals: {component:?}");
     assert_eq!(set.rewrites.len(), 1);
     let rewrite = &set.rewrites[0];
     assert_eq!(rewrite.module, "routes/cart/page.tsx#default");
-    assert_eq!(rewrite.sites.len(), 3);
+    assert_eq!(rewrite.sites.len(), 2);
     assert_eq!(rewrite.chunks.len(), 1);
+    assert!(rewrite.chunks[0].proven);
     assert_eq!(rewrite.loops.len(), 1, "the one .map callback holding a survivor");
     let (file, source) = set.rewritten().pop().unwrap();
     assert_eq!(file, "routes/cart/page.tsx");
     assert!(source.starts_with(hoist::IMPORT), "{source}");
     assert!(source.contains("{ const __sfh = __sfUseHoisted(\"routes/cart/page.tsx#default\"); "), "{source}");
-    assert!(source.contains("__sfh.c(1, (__sfHtml) => <b dangerouslySetInnerHTML={__sfHtml} />, () => (<b>{__sfh.r(0, () => (money(total)))}</b>))"), "{source}");
+    assert!(source.contains("{__sfh.c(1, (__sfHtml) => <b dangerouslySetInnerHTML={__sfHtml} />)}"), "a proven chunk is its hit alone: {source}");
+    assert!(!source.contains("money(total)"), "the chunk's own read goes with its fallback: {source}");
     assert!(source.contains("<i>{money(total * qty)}</i>"), "a state read stays a call: {source}");
     assert!(source.contains("<ul>{lines.map(__sfh.l((l) => <li key={l.price}>{__sfh.r(6, () => (money(l.price)))}{money(l.price * qty)}</li>))}</ul>"), "{source}");
     assert!(source.contains("{__sfh.r(10, () => (money(1)))}</button>"), "{source}");
@@ -5084,9 +5113,9 @@ export default function Page({ items, note }: { items: { id: number; price: numb
     assert_eq!(rewrite.chunks.len(), 3);
     assert!(rewrite.loops.is_empty(), "the loop sits inside the chunk, whose fallback renders it as written");
     let (_, source) = set.rewritten().into_iter().find(|(f, _)| f == "routes/index/page.tsx").unwrap();
-    assert!(source.contains("{__sfh.c(2, (__sfHtml) => <ul className=\"list\" dangerouslySetInnerHTML={__sfHtml} />, () => (<ul className=\"list\">"), "{source}");
-    assert!(source.contains("      </ul>))}\n"), "a chunk among JSX children is braced: {source}");
-    assert!(source.contains("{__sfh.c(3, (__sfHtml) => <p dangerouslySetInnerHTML={__sfHtml} />, () => (<p>{note}</p>))}"), "{source}");
+    assert!(source.contains("{__sfh.c(2, (__sfHtml) => <ul className=\"list\" dangerouslySetInnerHTML={__sfHtml} />)}\n"), "a chunk among JSX children is braced and a proven one is its hit alone: {source}");
+    assert!(!source.contains("<Price"), "the list's cards go with the fallback: {source}");
+    assert!(source.contains("{__sfh.c(3, (__sfHtml) => <p dangerouslySetInnerHTML={__sfHtml} />)}"), "{source}");
     assert!(source.contains("<button onClick={() => setOpen(!open)}>{note}</button>"), "a bound element is untouched: {source}");
     assert_eq!(source.matches("__sfh.c(").count(), 3, "{source}");
   }
@@ -5113,12 +5142,12 @@ export const Page = ({ items, n }: { items: number[]; n: number }) => (
         hoisted.push(*id);
       }
     });
-    assert_eq!(hoisted, vec![2, 3], "wrap(money(n)) as one hoist, toLocaleString as another; the lambda's money(i) is none: {component:?}");
+    assert_eq!(hoisted, Vec::<u32>::new(), "wrap(money(n)) and toLocaleString sit in the chunk whose markup the browser adopts; the lambda's money(i) was never one: {component:?}");
     let (_, source) = set.rewritten().pop().unwrap();
     assert!(source.contains("=> { const __sfh = __sfUseHoisted(\"routes/index/page.tsx#Page\"); return (("), "an expression body becomes a block: {source}");
     assert!(source.trim_end().ends_with(")); };"), "{source}");
-    assert!(source.contains("__sfh.c(4, (__sfHtml) => <p title={items.map((i) => money(i)).join(\", \")} dangerouslySetInnerHTML={__sfHtml} />, () => (<p title={items.map((i) => money(i)).join(\", \")}>"), "the whole paragraph is static, so it is a chunk whose hit keeps the attribute: {source}");
-    assert!(source.contains("{__sfh.r(2, () => (wrap(money(n))))}{__sfh.r(3, () => (items.length.toLocaleString()))}</p>))"), "{source}");
+    assert!(source.contains("__sfh.c(4, (__sfHtml) => <p title={items.map((i) => money(i)).join(\", \")} dangerouslySetInnerHTML={__sfHtml} />)"), "the whole paragraph is static, so it is a chunk whose hit keeps the attribute: {source}");
+    assert!(!source.contains("__sfh.r("), "the reads inside the chunk go with its fallback: {source}");
   }
 
   #[test]
@@ -5197,9 +5226,10 @@ export default function Product({ product }: { product: { price: number; rating:
     let Tmpl::Element { attrs, children, .. } = &page.render else { panic!() };
     assert!(matches!(&attrs[0], Entry::Field(name, Expr::Object(entries)) if name == "style" && entries.len() == 2));
     assert!(matches!(&children[0], Tmpl::Component { module, props, .. } if module == "src/ui/Stars.tsx#Stars" && props.len() == 1));
-    let Tmpl::Element { children: span, .. } = &children[1] else { panic!() };
-    let Tmpl::Expr(Expr::Hoist { id: 0, expr }) = &span[0] else { panic!("{:?}", span[0]) };
-    assert!(matches!(&**expr, Expr::Apply { f, args } if matches!(**f, Expr::Lambda { .. }) && args.len() == 1), "{expr:?}");
+    let Tmpl::Element { attrs: span_attrs, children: span, .. } = &children[1] else { panic!() };
+    assert!(span_attrs.iter().any(|a| matches!(a, Entry::Field(name, _) if name == hoist::CHUNK_ATTR)), "the span reads props only, so the server renders it: {span_attrs:?}");
+    let Tmpl::Expr(expr) = &span[0] else { panic!("{:?}", span[0]) };
+    assert!(matches!(expr, Expr::Apply { f, args } if matches!(**f, Expr::Lambda { .. }) && args.len() == 1), "the helper is inlined and, carried by the chunk's markup, no longer a hoist: {expr:?}");
     let Tmpl::Element { attrs, .. } = &children[3] else { panic!() };
     assert_eq!(plain(attrs).len(), 1, "onClick is dropped, disabled stays: {attrs:?}");
   }

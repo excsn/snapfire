@@ -60,7 +60,7 @@ pub struct Prepared {
 }
 
 /// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
-pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], composition_files: &[(String, Vec<String>)], generated: &[String], plugins: &mut crate::plugins::Plugins) -> Result<Prepared, BuildError> {
+pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lowered: &[String], composition_files: &[(String, Vec<String>)], generated: &[String], plugins: &mut crate::plugins::Plugins) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
   let site = crate::site_beside(&app);
@@ -114,12 +114,15 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], co
     boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));
   }
   boot_source.push_str("import { discard } from \"@snapfire/fsr-client\";\nglobalThis.__sf.discard = discard;\nimport { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n");
-  if !compositions.is_empty() {
-    boot_source.push_str(&format!("import {{ registerComposition }} from \"{TESTING_SPECIFIER}\";\n"));
-    for module in compositions {
+  for (register, modules) in [("registerComposition", compositions), ("registerLowered", lowered)] {
+    if modules.is_empty() {
+      continue;
+    }
+    boot_source.push_str(&format!("import {{ {register} }} from \"{TESTING_SPECIFIER}\";\n"));
+    for module in modules {
       let Some((file, export)) = module.split_once('#') else { continue };
       let js = file.rsplit_once('.').map(|(stem, _)| format!("{stem}.js")).unwrap_or_else(|| format!("{file}.js"));
-      boot_source.push_str(&format!("registerComposition(\"{module}\", () => import(\"./dist/{js}\").then((m) => m.{export}));\n"));
+      boot_source.push_str(&format!("{register}(\"{module}\", () => import(\"./dist/{js}\").then((m) => m.{export}));\n"));
     }
   }
   if let Some(entry) = entry_module(&app) {
@@ -175,7 +178,17 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     specs.iter().any(|source| source.contains(&specifier))
   };
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/") && imported(&c.module)).map(|c| c.module.clone()).collect();
-  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_files, &compositions, &built.composition_files, &built.added, plugins)?;
+  // Every other lowered component the bundle holds renders through the server
+  // in a spec, so the subtrees it reads from the server are there.
+  let lowered: Vec<String> = built
+    .manifest
+    .components
+    .iter()
+    .filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && !compositions.contains(&c.module))
+    .filter(|c| c.module.split_once('#').is_some_and(|(file, _)| built.browser_files.contains(&file.to_owned())) || (c.module.starts_with("routes/") && imported(&c.module)))
+    .map(|c| c.module.clone())
+    .collect();
+  let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_files, &compositions, &lowered, &built.composition_files, &built.added, plugins)?;
 
   let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());

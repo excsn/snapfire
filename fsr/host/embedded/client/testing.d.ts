@@ -148,6 +148,8 @@ export interface Rendered extends BoundQueries {
 	asFragment(): DocumentFragment;
 	debug(element?: Element, maxLength?: number): void;
 }
+/** Names a component the build lowered that is neither a composition nor an island, so `render` writes the server's markup for it and hydrates over it with the table its subtrees read. The spec runner's boot calls it for each one. */
+export declare function registerLowered(moduleId: string, loader: () => Promise<unknown>): void;
 /** Names a page or layout composition renders, so `render` writes the server's markup for it and mounts only the islands inside. The spec runner's boot calls it for each one. */
 export declare function registerComposition(moduleId: string, loader: () => Promise<unknown>): void;
 /** What a spec's JSX builds, whichever runtime built it: React's element, FSR's or any value with a component `type` and its `props`. */
@@ -155,7 +157,7 @@ export type Placed = ReactElement | {
 	type: unknown;
 	props: Record<string, unknown>;
 };
-/** Mounts `element` under a fresh container. A page or layout is composition: the server's markup is written and only the islands inside mount. A registered island of any framework mounts through its own adapter, hydrating over the server's markup when its module lowers, so a mismatch fails here the way it would in a browser. Any other React element mounts fresh in a React root. */
+/** Mounts `element` under a fresh container. A page or layout is composition: the server's markup is written and only the islands inside mount. A registered island of any framework mounts through its own adapter, hydrating over the server's markup when its module lowers, so a mismatch fails here the way it would in a browser. Any other React element mounts in a React root, hydrating over the server's markup when the build lowered it, so the subtrees it reads from the server are there. */
 export declare function render(element: Placed, options?: {
 	ctx?: TestCtx;
 	hydrate?: boolean;

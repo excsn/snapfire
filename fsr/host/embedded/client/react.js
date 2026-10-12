@@ -329,12 +329,13 @@ export function useHoisted(module) {
                 return k in table ? table[k] : compute();
             },
             c (id, hit, miss) {
-                if (table === null) return miss();
                 const k = key(id);
-                const html = table[k];
-                return typeof html === "string" ? hit({
+                const html = table === null ? undefined : table[k];
+                if (typeof html === "string") return hit({
                     __html: html
-                }) : miss();
+                });
+                if (miss !== undefined) return miss();
+                throw new Error(table === null ? `${k} is a subtree the server renders, but this root mounted with no hoisted table: render it through the server or register it as an island` : `${k} is a subtree the server renders and the table it mounted with holds no markup for it`);
             },
             k (id) {
                 return key(`i${id}`);

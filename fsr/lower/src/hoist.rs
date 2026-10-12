@@ -29,6 +29,20 @@ pub const BOUND_ATTR: &str = "$bound";
 /// The attribute marking an element whose inner markup the renderer records
 /// under the id it holds. Never printed.
 pub const CHUNK_ATTR: &str = "$chunk";
+/// The attribute beside `CHUNK_ATTR` on a chunk under a branch on state,
+/// which the renderer records whether or not the branch is taken, since the
+/// browser may take it later. Never printed.
+pub const UNTAKEN_ATTR: &str = "$untaken";
+
+/// A subtree the server renders for the browser. `proven` says the browser's
+/// reader can count on the markup being recorded, so the rewrite drops the
+/// fallback; a chunk among the children a component or an island is given is
+/// rendered by its slot, which the reader is not keyed for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Chunk {
+  pub id: u32,
+  pub proven: bool,
+}
 
 /// The hoist candidates of one component as the lowerer meets them.
 #[derive(Debug, Default)]
@@ -81,9 +95,11 @@ impl Candidates {
   }
 
   /// The call ranges of the value candidates that stay in the browser: not
-  /// kept and not inside a kept one, whose read covers them.
-  pub fn remaining(&self, kept: &[u32]) -> Vec<Range<usize>> {
-    let held: Vec<&Range<usize>> = self.sites.iter().filter(|(id, _, _)| kept.contains(id)).map(|(_, range, _)| range).collect();
+  /// kept, not inside a kept one, whose read covers them, and not inside a
+  /// proven chunk, whose markup covers them.
+  pub fn remaining(&self, kept: &[u32], chunks: &[Chunk]) -> Vec<Range<usize>> {
+    let mut held: Vec<&Range<usize>> = self.sites.iter().filter(|(id, _, _)| kept.contains(id)).map(|(_, range, _)| range).collect();
+    held.extend(self.chunk_sites.iter().filter(|(id, ..)| chunks.iter().any(|c| c.id == *id && c.proven)).map(|(_, range, ..)| range));
     self
       .sites
       .iter()
@@ -96,7 +112,7 @@ impl Candidates {
   /// placements in `islands` and the keyed placements in `keyed`; `None`
   /// when there is none of them.
   #[allow(clippy::too_many_arguments)]
-  pub fn rewrite(self, values: &[u32], chunks: &[u32], islands: &[u32], keyed: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
+  pub fn rewrite(self, values: &[u32], chunks: &[Chunk], islands: &[u32], keyed: &[u32], file: &str, module: &str, hook: Hook) -> Option<Rewrite> {
     let mut sites = Vec::new();
     let mut chunk_sites = Vec::new();
     let mut loops: Vec<Range<usize>> = Vec::new();
@@ -114,8 +130,8 @@ impl Candidates {
       }
     }
     for (id, range, open, as_child, enclosing) in self.chunk_sites {
-      if chunks.contains(&id) {
-        chunk_sites.push((id, range, open, as_child));
+      if let Some(chunk) = chunks.iter().find(|c| c.id == id) {
+        chunk_sites.push(ChunkSite { id, range, open, as_child, proven: chunk.proven });
         remember(enclosing);
       }
     }
@@ -137,6 +153,18 @@ impl Candidates {
   }
 }
 
+/// A surviving subtree candidate in the source: its element range, its
+/// opening tag's range and whether it sits among JSX children. A proven one
+/// is rewritten to the hit alone; the rest keep the element as the fallback.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChunkSite {
+  pub id: u32,
+  pub range: Range<usize>,
+  pub open: Range<usize>,
+  pub as_child: bool,
+  pub proven: bool,
+}
+
 /// Where the reader hook goes: after the `{` of a block body or around an
 /// arrow's expression body, which becomes a block returning it.
 #[derive(Debug, Clone, PartialEq)]
@@ -153,9 +181,8 @@ pub struct Rewrite {
   pub hook: Hook,
   /// The surviving value candidates: id and call range.
   pub sites: Vec<(u32, Range<usize>)>,
-  /// The surviving subtree candidates: id, element range, opening tag range
-  /// and whether the element sits among JSX children.
-  pub chunks: Vec<(u32, Range<usize>, Range<usize>, bool)>,
+  /// The surviving subtree candidates.
+  pub chunks: Vec<ChunkSite>,
   /// The island placements: id and the offset the reader call is spliced at.
   pub islands: Vec<(u32, usize)>,
   /// The keyed placements: id, element range and whether the element sits
@@ -357,8 +384,11 @@ fn does_work(t: &Tmpl) -> bool {
 }
 
 /// Keeps the outermost static subtrees of `component` that do work, removes
-/// every other `CHUNK_ATTR` and returns the ids kept.
-pub fn chunks(component: &mut Component, state: &[String], pure: &HashMap<String, bool>) -> Vec<u32> {
+/// every other `CHUNK_ATTR` and returns the chunks kept. A subtree inside a
+/// loop over state is never kept: the browser can grow the loop past what
+/// the server rendered. One under a branch on state is kept and marked
+/// `UNTAKEN_ATTR`, so the server records it in either branch.
+pub fn chunks(component: &mut Component, state: &[String], pure: &HashMap<String, bool>) -> Vec<Chunk> {
   let mut tainted: Vec<String> = state.to_vec();
   for stmt in &component.body {
     let Stmt::Let { name, expr } = stmt else { continue };
@@ -367,8 +397,82 @@ pub fn chunks(component: &mut Component, state: &[String], pure: &HashMap<String
     }
   }
   let mut kept = Vec::new();
-  choose(&mut component.render, &mut tainted, pure, &mut kept);
+  choose(&mut component.render, &mut tainted, pure, Where::default(), &mut kept);
   kept
+}
+
+/// Unwraps every value hoist among the children of a proven chunk in
+/// `chunks`, whose markup the browser adopts whole, and returns their ids.
+/// A hoist in the chunk's opening tag stays: the hit reads it.
+pub fn cover(component: &mut Component, chunks: &[Chunk]) -> Vec<u32> {
+  let mut covered = Vec::new();
+  cover_tmpl(&mut component.render, chunks, false, &mut covered);
+  covered
+}
+
+fn cover_tmpl(t: &mut Tmpl, chunks: &[Chunk], inside: bool, covered: &mut Vec<u32>) {
+  match t {
+    Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
+    Tmpl::Expr(e) => cover_expr(e, inside, covered),
+    Tmpl::Element { attrs, children, .. } => {
+      let proven = take_chunk(attrs).is_some_and(|id| {
+        attrs.push(Entry::Field(CHUNK_ATTR.to_owned(), Expr::Lit(Lit::Int(id as i128))));
+        chunks.iter().any(|c| c.id == id && c.proven)
+      });
+      entries_mut(attrs).for_each(|e| cover_expr(e, inside, covered));
+      children.iter_mut().for_each(|c| cover_tmpl(c, chunks, inside || proven, covered));
+    }
+    Tmpl::Fragment(children) => children.iter_mut().for_each(|c| cover_tmpl(c, chunks, inside, covered)),
+    Tmpl::If { cond, then, r#else } => {
+      cover_expr(cond, inside, covered);
+      cover_tmpl(then, chunks, inside, covered);
+      if let Some(other) = r#else {
+        cover_tmpl(other, chunks, inside, covered);
+      }
+    }
+    Tmpl::For { over, body, .. } => {
+      cover_expr(over, inside, covered);
+      cover_tmpl(body, chunks, inside, covered);
+    }
+    Tmpl::Let { expr, then, .. } => {
+      cover_expr(expr, inside, covered);
+      cover_tmpl(then, chunks, inside, covered);
+    }
+    Tmpl::Component { props, children, .. } => {
+      entries_mut(props).for_each(|e| cover_expr(e, inside, covered));
+      children.iter_mut().for_each(|c| cover_tmpl(c, chunks, inside, covered));
+    }
+    Tmpl::Island { children, .. } => children.iter_mut().for_each(|c| cover_tmpl(c, chunks, inside, covered)),
+  }
+}
+
+fn cover_expr(e: &mut Expr, inside: bool, covered: &mut Vec<u32>) {
+  if !inside {
+    return;
+  }
+  e.visit(&mut |x| {
+    if let Expr::Hoist { id, .. } = x {
+      covered.push(*id);
+    }
+  });
+  strip(e, &[], &mut Vec::new(), true, false);
+}
+
+fn entries_mut(entries: &mut [Entry]) -> impl Iterator<Item = &mut Expr> {
+  entries.iter_mut().flat_map(|entry| match entry {
+    Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => vec![e],
+    Entry::Computed(k, v) => vec![k, v],
+    Entry::Baked(_) => Vec::new(),
+  })
+}
+
+/// Where a chunk candidate sits in its component.
+#[derive(Debug, Clone, Copy, Default)]
+struct Where {
+  /// Under an `If` whose condition reads state.
+  untaken: bool,
+  /// Among the children a component or an island is given.
+  slot: bool,
 }
 
 fn take_chunk(attrs: &mut Vec<Entry>) -> Option<u32> {
@@ -377,7 +481,7 @@ fn take_chunk(attrs: &mut Vec<Entry>) -> Option<u32> {
   Some(id as u32)
 }
 
-fn choose(t: &mut Tmpl, tainted: &mut Vec<String>, pure: &HashMap<String, bool>, kept: &mut Vec<u32>) {
+fn choose(t: &mut Tmpl, tainted: &mut Vec<String>, pure: &HashMap<String, bool>, at: Where, kept: &mut Vec<Chunk>) {
   match t {
     Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
     Tmpl::Element { attrs, children, .. } => {
@@ -385,38 +489,38 @@ fn choose(t: &mut Tmpl, tainted: &mut Vec<String>, pure: &HashMap<String, bool>,
       let whole = Tmpl::Element { tag: String::new(), attrs: attrs.clone(), children: children.clone() };
       if let Some(id) = id {
         if is_static(&whole, tainted, pure) && does_work(&whole) {
-          kept.push(id);
+          kept.push(Chunk { id, proven: !at.slot });
           attrs.push(Entry::Field(CHUNK_ATTR.to_owned(), Expr::Lit(Lit::Int(id as i128))));
+          if at.untaken {
+            attrs.push(Entry::Field(UNTAKEN_ATTR.to_owned(), Expr::Lit(Lit::Bool(true))));
+          }
           children.iter_mut().for_each(clear_chunks);
           return;
         }
       }
-      children.iter_mut().for_each(|c| choose(c, tainted, pure, kept));
+      children.iter_mut().for_each(|c| choose(c, tainted, pure, at, kept));
     }
-    Tmpl::Fragment(children) => children.iter_mut().for_each(|c| choose(c, tainted, pure, kept)),
-    Tmpl::If { then, r#else, .. } => {
-      choose(then, tainted, pure, kept);
+    Tmpl::Fragment(children) => children.iter_mut().for_each(|c| choose(c, tainted, pure, at, kept)),
+    Tmpl::If { cond, then, r#else } => {
+      let at = Where { untaken: at.untaken || reads_tainted(cond, tainted), ..at };
+      choose(then, tainted, pure, at, kept);
       if let Some(other) = r#else {
-        choose(other, tainted, pure, kept);
+        choose(other, tainted, pure, at, kept);
       }
     }
-    Tmpl::For { over, params, body } => {
-      let depth = tainted.len();
-      if reads_tainted(over, tainted) {
-        tainted.extend(params.iter().cloned());
-      }
-      choose(body, tainted, pure, kept);
-      tainted.truncate(depth);
-    }
+    Tmpl::For { over, body, .. } => match reads_tainted(over, tainted) {
+      true => clear_chunks(body),
+      false => choose(body, tainted, pure, at, kept),
+    },
     Tmpl::Let { name, expr, then } => {
       let depth = tainted.len();
       if reads_tainted(expr, tainted) {
         tainted.push(name.clone());
       }
-      choose(then, tainted, pure, kept);
+      choose(then, tainted, pure, at, kept);
       tainted.truncate(depth);
     }
-    Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter_mut().for_each(|c| choose(c, tainted, pure, kept)),
+    Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter_mut().for_each(|c| choose(c, tainted, pure, Where { slot: true, ..at }, kept)),
   }
 }
 
@@ -460,12 +564,15 @@ struct Edit {
 
 /// `source` with every rewrite in `rewrites` applied; all of them are for
 /// this one file. Edits are applied from the end so earlier offsets hold; at
-/// one position the lower rank is applied first and so ends up after.
+/// one position the lower rank is applied first and so ends up after. A
+/// proven chunk replaces its element whole, so the edits inside it go.
 pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String {
   let mut edits: Vec<Edit> = Vec::new();
   fn insert(edits: &mut Vec<Edit>, at: usize, rank: u8, text: String) {
     edits.push(Edit { start: at, end: at, rank, text });
   }
+  let replaced: Vec<Range<usize>> = rewrites.iter().flat_map(|r| r.chunks.iter().filter(|c| c.proven).map(|c| c.range.clone())).collect();
+  let inside = |start: usize, end: usize| replaced.iter().any(|r| r.start < start && end <= r.end);
   for rewrite in rewrites {
     match &rewrite.hook {
       Hook::Block { after } => insert(&mut edits, *after, 0, format!(" const {READER} = __sfUseHoisted({}); ", quoted(&rewrite.module))),
@@ -475,17 +582,32 @@ pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String {
       }
     }
     for range in &rewrite.loops {
+      if inside(range.start, range.end) {
+        continue;
+      }
       insert(&mut edits, range.start, 0, format!("{READER}.l("));
       insert(&mut edits, range.end, 0, ")".to_owned());
     }
-    for (id, range, open, as_child) in &rewrite.chunks {
+    for ChunkSite { id, range, open, as_child, proven } in &rewrite.chunks {
       let inner = spliced(source, open.clone(), &rewrite.sites);
       let inner = inner.strip_prefix('<').and_then(|s| s.strip_suffix('>')).unwrap_or(&inner).trim_end();
-      let (before, after) = if *as_child { ("{", "))}") } else { ("", "))") };
-      insert(&mut edits, range.start, 0, format!("{before}{READER}.c({id}, (__sfHtml) => <{inner} dangerouslySetInnerHTML={{__sfHtml}} />, () => ("));
-      insert(&mut edits, range.end, 1, after.to_owned());
+      let hit = format!("{READER}.c({id}, (__sfHtml) => <{inner} dangerouslySetInnerHTML={{__sfHtml}} />");
+      match proven {
+        true => {
+          let (before, after) = if *as_child { ("{", ")}") } else { ("", ")") };
+          edits.push(Edit { start: range.start, end: range.end, rank: 0, text: format!("{before}{hit}{after}") });
+        }
+        false => {
+          let (before, after) = if *as_child { ("{", "))}") } else { ("", "))") };
+          insert(&mut edits, range.start, 0, format!("{before}{hit}, () => ("));
+          insert(&mut edits, range.end, 1, after.to_owned());
+        }
+      }
     }
     for (id, range) in &rewrite.sites {
+      if inside(range.start, range.end) {
+        continue;
+      }
       edits.push(Edit { start: range.start, end: range.end, rank: 0, text: format!("{READER}.r({id}, () => ({}))", &source[range.clone()]) });
     }
     for (id, at) in &rewrite.islands {

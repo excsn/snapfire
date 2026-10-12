@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use snapfire_fsr_ir::{Expr, Reach, Stmt, Tmpl};
+use snapfire_fsr_ir::{Entry, Expr, Reach, Stmt, Tmpl};
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::LowerError;
 
@@ -63,7 +63,8 @@ fn a_standard_member_lowers_to_an_extension_call_in_a_body_and_on_a_render_path(
     });
     ids
   };
-  assert_eq!(hoisted.len(), 2, "both calls are props only, so both are hoisted: {component:?}");
+  assert_eq!(hoisted.len(), 1, "both calls are props only; the title's stays a hoist and the child's is carried by the paragraph's markup, which the server renders as a chunk: {component:?}");
+  assert!(matches!(&component.render, Tmpl::Element { attrs, .. } if attrs.iter().any(|a| matches!(a, Entry::Field(name, _) if name == "$chunk"))), "{component:?}");
 }
 
 #[test]
@@ -168,7 +169,8 @@ fn a_native_pair_lowers_to_its_name_with_the_reach_its_declaration_gives() {
       hoisted += 1;
     }
   });
-  assert_eq!(hoisted, 1, "a render native on props is hoisted like a helper");
+  assert_eq!(hoisted, 0, "a render native on props is static like a helper, so the paragraph is a chunk whose markup carries the call: {component:?}");
+  assert!(matches!(&component.render, Tmpl::Element { attrs, .. } if attrs.iter().any(|a| matches!(a, Entry::Field(name, _) if name == "$chunk"))), "{component:?}");
 
   match set.lower("routes/b/page.tsx#default") {
     Err(LowerError::Reach(residue)) => assert!(residue.message.contains("`fleet.token` on a render path"), "{}", residue.message),
@@ -229,7 +231,7 @@ fn a_bare_t_from_the_standard_library_lowers_to_i18n_t_and_is_hoisted() {
       hoisted += 1;
     }
   });
-  assert_eq!(hoisted, 2);
+  assert_eq!(hoisted, 1, "the title's call stays a hoist and the child's is carried by the paragraph's markup: {:?}", set.components[0].1);
   let body = set.lower_loader("routes/a/page.loader.ts").unwrap();
   let Stmt::Return(expr) = &body[0] else { panic!("{body:?}") };
   assert_eq!(exts(expr), vec!["i18n.t/1"]);

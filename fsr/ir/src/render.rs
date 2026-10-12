@@ -730,10 +730,16 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::If { cond, then, r#else } => {
       if env.truth_of(cond)? {
         render_vue_wrapped(env, then, library, slots, out)?;
-      } else if let Some(other) = r#else {
-        render_vue_wrapped(env, other, library, slots, out)?;
-      } else if env.markup.is_vue() {
-        out.markup(vue::EMPTY);
+        if let Some(other) = r#else {
+          record_untaken(env, other, library, slots);
+        }
+      } else {
+        if let Some(other) = r#else {
+          render_vue_wrapped(env, other, library, slots, out)?;
+        } else if env.markup.is_vue() {
+          out.markup(vue::EMPTY);
+        }
+        record_untaken(env, then, library, slots);
       }
     }
     Tmpl::For { over, params, body } => render_for(env, over, params, body, library, slots, out)?,
@@ -949,6 +955,113 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
   Ok(())
 }
 
+/// Records the chunks marked `UNTAKEN_ATTR` in a branch the render did not
+/// take: the browser may take it later, and a chunk reads nothing of the
+/// state the branch turned on. Loops and bindings on the way are evaluated
+/// as the render would, so the keys match. A chunk whose render fails is
+/// left unrecorded: its branch guards a read the browser cannot take either.
+fn record_untaken<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>) {
+  if env.hoists.is_none() || !holds_chunk(tmpl, UNTAKEN_ATTR) {
+    return;
+  }
+  let _ = walk_chunks(env, tmpl, UNTAKEN_ATTR, library, slots);
+}
+
+/// Renders every element carrying `mark` in `tmpl` into nothing but the
+/// hoist table, with the loops and bindings on the way evaluated as the
+/// render would, so the keys match.
+fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Components, slots: &mut Vec<Slot<'a>>) -> Result<(), Fail> {
+  match tmpl {
+    Tmpl::Element { attrs, children, .. } => match attrs.iter().any(|entry| matches!(entry, Entry::Field(name, _) if name == mark)) {
+      true => {
+        let mut scratch = Out::default();
+        let depth = env.scope.len();
+        let stamp = std::mem::take(&mut env.stamp);
+        let result = render(env, tmpl, library, slots, &mut scratch);
+        env.stamp = stamp;
+        env.scope.truncate(depth);
+        result
+      }
+      false => children.iter().try_for_each(|child| walk_chunks(env, child, mark, library, slots)),
+    },
+    Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().try_for_each(|child| walk_chunks(env, child, mark, library, slots)),
+    Tmpl::If { then, r#else, .. } => {
+      walk_chunks(env, then, mark, library, slots)?;
+      r#else.as_ref().map_or(Ok(()), |other| walk_chunks(env, other, mark, library, slots))
+    }
+    Tmpl::For { over, params, body } => {
+      if !holds_chunk(body, mark) {
+        return Ok(());
+      }
+      let Value::Seq(items) = env.eval_sync(over)? else { return Ok(()) };
+      let depth = env.scope.len();
+      for i in 0..items.len() {
+        env.scope.truncate(depth);
+        for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
+          env.scope.push((param.clone(), value));
+        }
+        let result = in_step(env, Step::Iteration(i), |env| walk_chunks(env, body, mark, library, slots));
+        env.scope.truncate(depth);
+        result?;
+      }
+      Ok(())
+    }
+    Tmpl::Let { name, expr, then } if !name.starts_with(SLOT_OUT_PREFIX) && !name.starts_with(SLOT_CONTENT_PREFIX) && !name.starts_with(CONTEXT_PREFIX) => {
+      if !holds_chunk(then, mark) {
+        return Ok(());
+      }
+      let value = env.eval_sync(expr)?;
+      let depth = env.scope.len();
+      env.scope.push((name.clone(), value));
+      let result = walk_chunks(env, then, mark, library, slots);
+      env.scope.truncate(depth);
+      result
+    }
+    Tmpl::Let { .. } | Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) => Ok(()),
+  }
+}
+
+/// True when an element carrying `mark` sits in `tmpl`, outside any
+/// component's or island's children.
+fn holds_chunk(tmpl: &Tmpl, mark: &str) -> bool {
+  match tmpl {
+    Tmpl::Element { attrs, children, .. } => attrs.iter().any(|entry| matches!(entry, Entry::Field(name, _) if name == mark)) || children.iter().any(|child| holds_chunk(child, mark)),
+    Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().any(|child| holds_chunk(child, mark)),
+    Tmpl::If { then, r#else, .. } => holds_chunk(then, mark) || r#else.as_ref().is_some_and(|other| holds_chunk(other, mark)),
+    Tmpl::For { body, .. } => holds_chunk(body, mark),
+    Tmpl::Let { then, .. } => holds_chunk(then, mark),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) => false,
+  }
+}
+
+/// The hoist table of an island the server holds back for a pending store
+/// key: every chunk of `component` rendered from `props` alone, since a
+/// chunk reads nothing of the store, with each body binding that evaluates
+/// without it in scope. The browser mounts the island fresh and adopts them.
+fn held_chunks<'a>(env: &mut Env, module: &str, component: &'a Component, props: &ValueMap, library: &'a Components, slots: &mut Vec<Slot<'a>>) -> ValueMap {
+  if !holds_chunk(&component.render, CHUNK_ATTR) {
+    return ValueMap::default();
+  }
+  let depth = env.scope.len();
+  let outer = std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(props.clone()))]);
+  let outer_hoists = env.hoists.replace(Hoists::new(module.to_owned()));
+  let outer_framework = std::mem::replace(&mut env.in_framework, true);
+  let caller = env.markup;
+  env.markup = Markup::of(component.owner, env.frameworks, caller);
+  for stmt in &component.body {
+    let Stmt::Let { name, expr } = stmt else { break };
+    if let Ok(value) = env.eval_sync(expr) {
+      env.scope.push((name.clone(), value));
+    }
+  }
+  let _ = walk_chunks(env, &component.render, CHUNK_ATTR, library, slots);
+  env.markup = caller;
+  env.in_framework = outer_framework;
+  env.scope = outer;
+  env.scope.truncate(depth);
+  std::mem::replace(&mut env.hoists, outer_hoists).map(|h| h.table).unwrap_or_default()
+}
+
 #[allow(clippy::too_many_arguments)]
 fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], id: u32, keyed: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let Some(component) = library.get(module) else {
@@ -1104,7 +1217,8 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     }
     let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources((*cached_store_keys(env, component, library)).clone(), &env.derives) } else { Vec::new() };
     let index = out.islands.len();
-    let body = Rendered { html: held.html, islands: held.islands, hoisted: ValueMap::default(), whole: true };
+    let hoisted = held_chunks(env, module, component, &map, library, slots);
+    let body = Rendered { html: held.html, islands: held.islands, hoisted, whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
@@ -1147,7 +1261,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
-    let body = Rendered { html: held.html, islands: held.islands, hoisted: ValueMap::default(), whole: true };
+    let body = Rendered { html: held.html, islands: held.islands, hoisted, whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, awaits: Vec::new(), key, body });
   } else {
     out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
@@ -1748,6 +1862,8 @@ fn skipped_attr(name: &str) -> bool {
 
 /// The attribute marking an element whose inner markup is recorded as a hoisted chunk and its id.
 pub const CHUNK_ATTR: &str = "$chunk";
+/// The attribute beside `CHUNK_ATTR` on a chunk under a branch on state, recorded whether or not the branch is taken.
+pub const UNTAKEN_ATTR: &str = "$untaken";
 
 /// An element's `dangerouslySetInnerHTML`, holding the `__html` expression.
 /// Its string is written to the document as it stands, so whoever produced it
@@ -2400,6 +2516,54 @@ mod hoist_tests {
     assert_eq!(rendered.html, "<ul class=\"list\"><li>1.0</li><li>2.0</li></ul>");
     assert_eq!(rendered.hoisted["routes/index/page.tsx#default|4"], Value::str("<li>1.0</li><li>2.0</li>"));
     assert_eq!(rendered.hoisted["routes/index/page.tsx#default|1@1"], Value::str("2.0"), "a value inside a chunk is still recorded, for the fallback");
+  }
+
+  #[test]
+  fn a_chunk_under_a_branch_on_state_is_recorded_in_the_branch_not_taken() {
+    let untaken = |id: i128, tag: &str, child: Tmpl| Tmpl::Element {
+      tag: tag.to_owned(),
+      attrs: vec![Entry::Field(UNTAKEN_ATTR.to_owned(), Expr::Lit(Lit::Bool(true))), Entry::Field(CHUNK_ATTR.to_owned(), Expr::Lit(Lit::Int(id)))],
+      children: vec![child],
+    };
+    let noted = Tmpl::Element {
+      tag: "p".to_owned(),
+      attrs: Vec::new(),
+      children: vec![Tmpl::Text("Noted: ".to_owned()), untaken(3, "strong", Tmpl::Expr(Expr::var("$props").field("title"))), Tmpl::Expr(Expr::var("pace"))],
+    };
+    let guarded = Tmpl::If {
+      cond: Expr::Logic(crate::ast::LogicOp::And, Box::new(Expr::var("open")), Box::new(Expr::var("$props").field("image"))),
+      then: Box::new(untaken(5, "em", Tmpl::Expr(Expr::var("$props").field("image").field("alt")))),
+      r#else: None,
+    };
+    let component = Component {
+      body: vec![Stmt::Let { name: "pace".to_owned(), expr: Expr::lit_str("") }, Stmt::Let { name: "open".to_owned(), expr: Expr::Lit(Lit::Bool(false)) }],
+      render: Tmpl::Fragment(vec![
+        Tmpl::If { cond: Expr::Compare(crate::ast::CompareOp::Eq, Box::new(Expr::var("pace")), Box::new(Expr::lit_str(""))), then: Box::new(Tmpl::Text("buttons".to_owned())), r#else: Some(Box::new(noted)) },
+        Tmpl::If {
+          cond: Expr::var("open"),
+          then: Box::new(Tmpl::For { over: Expr::var("$props").field("items"), params: vec!["it".to_owned()], body: Box::new(untaken(4, "li", Tmpl::Expr(Expr::var("it")))) }),
+          r#else: None,
+        },
+        guarded,
+      ]),
+      state: vec!["pace".to_owned(), "open".to_owned()],
+      stores: Vec::new(),
+      handlers: Vec::new(),
+      owner: crate::ast::Owner::React,
+      shadow: None,
+      scope: None,
+    };
+    let mut props = ValueMap::default();
+    props.insert("title".to_owned(), Value::str("Pace"));
+    props.insert("items".to_owned(), Value::seq(vec![Value::F64(1.0), Value::F64(2.0)]));
+    props.insert("image".to_owned(), Value::Null);
+    let rendered = Interpreter::default().render_module("src/ui/Feedback.tsx#Feedback", &prepare(&component), &props, &Components::new()).unwrap();
+    assert_eq!(rendered.html, "buttons", "{rendered:?}");
+    let keys: Vec<&String> = rendered.hoisted.keys().collect();
+    assert_eq!(keys, ["src/ui/Feedback.tsx#Feedback|3", "src/ui/Feedback.tsx#Feedback|4@0", "src/ui/Feedback.tsx#Feedback|4@1", "src/ui/Feedback.tsx#Feedback|5"], "the untaken branches' chunks, the loop's by iteration: {:?}", rendered.hoisted);
+    assert_eq!(rendered.hoisted["src/ui/Feedback.tsx#Feedback|3"], Value::str("Pace"));
+    assert_eq!(rendered.hoisted["src/ui/Feedback.tsx#Feedback|4@1"], Value::str("2"));
+    assert_eq!(rendered.hoisted["src/ui/Feedback.tsx#Feedback|5"], Value::str(""), "a field of the null image reads as null, which prints as nothing");
   }
 
   #[test]

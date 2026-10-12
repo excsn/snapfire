@@ -417,6 +417,16 @@ async function moduleOf(type) {
     }
     return null;
 }
+const lowered = new Map();
+async function loweredOf(type) {
+    for (const [id, loader] of lowered){
+        if (await loader() === type) return id;
+    }
+    return null;
+}
+export function registerLowered(moduleId, loader) {
+    lowered.set(moduleId, loader);
+}
 const compositions = new Map();
 export function registerComposition(moduleId, loader) {
     compositions.set(moduleId, loader);
@@ -518,9 +528,17 @@ async function renderIsland(module, element, container) {
             container.remove();
         },
         async rerender (next) {
-            if (!await patchIsland(marker, next.props)) {
+            const props = next.props;
+            const rendered = sf().render(module, JSON.stringify(encodeValue(props)));
+            const hoisted = rendered == null ? null : JSON.parse(rendered).hoisted;
+            if (!await patchIsland(marker, {
+                ...props,
+                ...hoisted === null ? {} : {
+                    $h: decodeValue(hoisted)
+                }
+            })) {
                 discard(container);
-                marker = place(next.props);
+                marker = place(props);
                 scan(container);
             }
             await settle();
@@ -544,11 +562,12 @@ export async function render(element, options = {}) {
     if (composed !== null) return renderComposed(composed, element, container);
     const module = await moduleOf(element.type);
     if (module !== null && options.hydrate !== false && encodable(element.props)) return renderIsland(module, element, container);
+    const known = module ?? await loweredOf(element.type);
     if (!isReactElement(element)) {
         container.remove();
-        throw new Error(module === null ? "render takes a page, a layout or a registered island; this component is none of them" : `${module} takes props that cannot be encoded, which only a React element can be mounted with`);
+        throw new Error(known === null ? "render takes a page, a layout or a registered island; this component is none of them" : `${known} takes props that cannot be encoded, which only a React element can be mounted with`);
     }
-    return renderReact(module === null || options.hydrate === false ? null : module, element, container);
+    return renderReact(known === null || options.hydrate === false ? null : known, element, container);
 }
 function encodable(props) {
     try {
@@ -591,7 +610,8 @@ async function renderReact(module, element, container) {
             container.remove();
         },
         async rerender (next) {
-            root.render(next);
+            const again = hydrated === null ? null : sf().render(hydrated, JSON.stringify(encodeValue(next.props)));
+            root.render(again == null ? next : withHoisted(decodeValue(JSON.parse(again).hoisted), next));
             await settle();
         },
         asFragment () {

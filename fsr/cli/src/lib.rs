@@ -213,8 +213,8 @@ pub struct Report {
   pub foreign: Vec<Cause>,
   /// A framework plugin the build could not start and what that leaves foreign.
   pub plugins: Vec<String>,
-  /// Module, how many of its render-path calls and how many of its static subtrees the server computes for the browser.
-  pub hoisted: Vec<(String, usize, usize)>,
+  /// Module, how many of its render-path calls and how many of its static subtrees the server computes for the browser and how many of those subtrees keep a fallback in the bundle.
+  pub hoisted: Vec<(String, usize, usize, usize)>,
   /// Components placed as islands in server mode and how many handlers each answers.
   pub islands: Vec<(String, usize)>,
   /// Each page or layout whose state, handlers and effects moved into an island beside it: the route module, the island and what it took.
@@ -325,7 +325,7 @@ impl fmt::Display for Report {
       writeln!(f, "{:<9} {what}", "csp")?;
       writeln!(f, "{:<9} {remedy}", "")?;
     }
-    for (i, (module, values, chunks)) in self.hoisted.iter().enumerate() {
+    for (i, (module, values, chunks, fallbacks)) in self.hoisted.iter().enumerate() {
       let label = if i == 0 { "hoisted" } else { "" };
       let mut parts = Vec::new();
       if *values > 0 {
@@ -333,6 +333,9 @@ impl fmt::Display for Report {
       }
       if *chunks > 0 {
         parts.push(format!("{chunks} subtree{}", if *chunks == 1 { "" } else { "s" }));
+      }
+      if *fallbacks > 0 {
+        parts.push(format!("{fallbacks} with a fallback"));
       }
       writeln!(f, "{label:<9} {module:<34} {}", parts.join(", "))?;
     }
@@ -1151,9 +1154,10 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     }
   }
   report.islands.sort();
+  set.settle_proofs();
   for rewrite in &mut set.rewrites {
     rewrite.module = format!("{}{}", options.prefix(), rewrite.module);
-    report.hoisted.push((rewrite.module.clone(), rewrite.sites.len(), rewrite.chunks.len()));
+    report.hoisted.push((rewrite.module.clone(), rewrite.sites.len(), rewrite.chunks.len(), rewrite.chunks.iter().filter(|c| !c.proven).count()));
   }
   let mut rewritten = set.rewritten();
   for (file, source) in &generated {

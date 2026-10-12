@@ -222,11 +222,15 @@ pub(crate) fn timing<'p>(cx: &impl Placer<'p>, value: Expr, at: At) -> Lowered<S
   }
 }
 
+/// The attribute marking the region a `<Mount>` writes, whose island is
+/// named and given its props in the browser. Never printed.
+pub const MOUNT_ATTR: &str = "$mount";
+
 /// `<Mount module=… props=… when=…>`: the empty region the adapter's
 /// `Mount` renders and then fills in the browser, since the island it places
 /// is named at run time and the server renders none of it.
 pub(crate) fn mount<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At) -> Lowered<Tmpl> {
-  let mut out = vec![Entry::Field("data-sf-island".to_owned(), Expr::lit_str(""))];
+  let mut out = vec![Entry::Field("data-sf-island".to_owned(), Expr::lit_str("")), Entry::Field(MOUNT_ATTR.to_owned(), Expr::Lit(Lit::Bool(true)))];
   for attr in attrs {
     if let Value::Spread(_) = attr.value {
       return Err(refuse(cx, at, "a spread on `<Mount>`"));

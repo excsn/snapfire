@@ -558,6 +558,20 @@ async function moduleOf(type: unknown): Promise<string | null> {
   return null;
 }
 
+const lowered = new Map<string, () => Promise<unknown>>();
+
+async function loweredOf(type: unknown): Promise<string | null> {
+  for (const [id, loader] of lowered) {
+    if ((await loader()) === type) return id;
+  }
+  return null;
+}
+
+/** Names a component the build lowered that is neither a composition nor an island, so `render` writes the server's markup for it and hydrates over it with the table its subtrees read. The spec runner's boot calls it for each one. */
+export function registerLowered(moduleId: string, loader: () => Promise<unknown>): void {
+  lowered.set(moduleId, loader);
+}
+
 const compositions = new Map<string, () => Promise<unknown>>();
 
 /** Names a page or layout composition renders, so `render` writes the server's markup for it and mounts only the islands inside. The spec runner's boot calls it for each one. */
@@ -663,9 +677,12 @@ async function renderIsland(module: string, element: Placed, container: HTMLElem
       container.remove();
     },
     async rerender(next: Placed) {
-      if (!(await patchIsland(marker, next.props as Props))) {
+      const props = next.props as Record<string, unknown>;
+      const rendered = sf().render(module, JSON.stringify(encodeValue(props as SfValue)));
+      const hoisted = rendered == null ? null : (JSON.parse(rendered) as { hoisted: SfValue }).hoisted;
+      if (!(await patchIsland(marker, { ...props, ...(hoisted === null ? {} : { $h: decodeValue(hoisted) }) } as Props))) {
         discard(container);
-        marker = place(next.props as Record<string, unknown>);
+        marker = place(props);
         scan(container);
       }
       await settle();
@@ -681,7 +698,7 @@ async function renderIsland(module: string, element: Placed, container: HTMLElem
   };
 }
 
-/** Mounts `element` under a fresh container. A page or layout is composition: the server's markup is written and only the islands inside mount. A registered island of any framework mounts through its own adapter, hydrating over the server's markup when its module lowers, so a mismatch fails here the way it would in a browser. Any other React element mounts fresh in a React root. */
+/** Mounts `element` under a fresh container. A page or layout is composition: the server's markup is written and only the islands inside mount. A registered island of any framework mounts through its own adapter, hydrating over the server's markup when its module lowers, so a mismatch fails here the way it would in a browser. Any other React element mounts in a React root, hydrating over the server's markup when the build lowered it, so the subtrees it reads from the server are there. */
 export async function render(element: Placed, options: { ctx?: TestCtx; hydrate?: boolean } = {}): Promise<Rendered> {
   sf().use(options.ctx?.id ?? 0);
   setLocale(options.ctx?.locale ?? sf().locale(0));
@@ -691,11 +708,12 @@ export async function render(element: Placed, options: { ctx?: TestCtx; hydrate?
   if (composed !== null) return renderComposed(composed, element, container);
   const module = await moduleOf(element.type);
   if (module !== null && options.hydrate !== false && encodable(element.props)) return renderIsland(module, element, container);
+  const known = module ?? (await loweredOf(element.type));
   if (!isReactElement(element)) {
     container.remove();
-    throw new Error(module === null ? "render takes a page, a layout or a registered island; this component is none of them" : `${module} takes props that cannot be encoded, which only a React element can be mounted with`);
+    throw new Error(known === null ? "render takes a page, a layout or a registered island; this component is none of them" : `${known} takes props that cannot be encoded, which only a React element can be mounted with`);
   }
-  return renderReact(module === null || options.hydrate === false ? null : module, element, container);
+  return renderReact(known === null || options.hydrate === false ? null : known, element, container);
 }
 
 function encodable(props: unknown): boolean {
@@ -741,7 +759,8 @@ async function renderReact(module: string | null, element: ReactElement, contain
       container.remove();
     },
     async rerender(next: Placed) {
-      root.render(next as ReactElement);
+      const again = hydrated === null ? null : sf().render(hydrated, JSON.stringify(encodeValue((next as ReactElement).props as SfValue)));
+      root.render(again == null ? (next as ReactElement) : withHoisted(decodeValue((JSON.parse(again) as { hoisted: SfValue }).hoisted) as Hoisted, next as ReactElement));
       await settle();
     },
     asFragment() {

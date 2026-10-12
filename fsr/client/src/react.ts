@@ -436,11 +436,12 @@ export function useHoisted(module: string): HoistReader {
         const k = key(id);
         return k in table ? (table[k] as T) : compute();
       },
-      c(id: number, hit: (html: { __html: string }) => ReactElement, miss: () => ReactElement): ReactElement {
-        if (table === null) return miss();
+      c(id: number, hit: (html: { __html: string }) => ReactElement, miss?: () => ReactElement): ReactElement {
         const k = key(id);
-        const html = table[k];
-        return typeof html === "string" ? hit({ __html: html }) : miss();
+        const html = table === null ? undefined : table[k];
+        if (typeof html === "string") return hit({ __html: html });
+        if (miss !== undefined) return miss();
+        throw new Error(table === null ? `${k} is a subtree the server renders, but this root mounted with no hoisted table: render it through the server or register it as an island` : `${k} is a subtree the server renders and the table it mounted with holds no markup for it`);
       },
       k(id: number): string {
         return key(`i${id}`);
