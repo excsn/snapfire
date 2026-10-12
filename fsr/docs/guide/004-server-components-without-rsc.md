@@ -22,7 +22,7 @@ RSC is usually described as one feature. It is five mechanisms combined and only
 4. **Client reconciliation.** The browser takes the stream, mounts the referenced modules into the holes and hydrates them.
 5. **Function references.** A server function gets an id that survives serialization and becomes an endpoint. That is a server action.
 
-Only the third needs a JavaScript engine on the server, and only for components the build cannot read itself. The fourth is the only one shaped by React. It amounts to islands, with the layout arriving as a tree instead of being baked into the HTML.
+Only the third needs a JavaScript engine on the server. It needs one only for components the build cannot read itself. The fourth is the only one shaped by React. It amounts to islands, with the layout arriving as a tree instead of being baked into the HTML.
 
 ## What FSR has for each one
 
