@@ -3986,7 +3986,9 @@ async fn the_root_favicon_answers_from_icons() {
 
   let host = host_at(&app_dir()).unwrap();
   let response = host.handle(Request::get("/favicon.ico").body(Bytes::new()).unwrap()).await;
-  assert_eq!(response.status(), StatusCode::NOT_FOUND, "no icons/ leaves the root path unanswered");
+  assert_eq!(response.status(), StatusCode::NO_CONTENT, "no icons/ answers that there is none, which a browser does not log as a failure");
+  assert!(response.headers().get(header::CACHE_CONTROL).is_some(), "so the browser stops asking");
+  assert_eq!(&body_of(response).await, "");
 }
 
 #[tokio::test]

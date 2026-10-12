@@ -310,6 +310,16 @@ impl Host {
       }
     }
 
+    // A browser asks for the root icon on its own when it shows anything but
+    // a document; with none to serve, it is told so without a logged 404.
+    if path == "/favicon.ico" && t.favicon.is_none() && (req.method() == Method::GET || req.method() == Method::HEAD) && !t.statics.iter().any(|(route, _)| route == "/") {
+      let mut response = Response::builder().status(StatusCode::NO_CONTENT).body(Body::default()).expect("an empty response");
+      let cache = if self.changed.is_some() { Some(HeaderValue::from_static("no-cache")) } else { t.static_cache.clone() };
+      if let Some(value) = cache {
+        response.headers_mut().insert(header::CACHE_CONTROL, value);
+      }
+      return response;
+    }
     let lookup = match &t.favicon {
       Some(at) if path == "/favicon.ico" => at.as_str(),
       _ => path.as_str(),
