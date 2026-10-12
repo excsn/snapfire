@@ -1394,7 +1394,6 @@ mod tests {
     app.join("types/htmx.org/dist/htmx.d.ts").is_file() && crate::types::missing(app).unwrap().is_empty()
   }
 
-  /// REQUESTS 11.38.
   #[test]
   fn a_build_fetches_the_declarations_a_clean_checkout_lacks() {
     let (app, options) = htmx_app("fetch-clean");
@@ -1404,7 +1403,7 @@ mod tests {
     assert!(declares_htmx(&app), "the build fetched and recorded htmx.org");
   }
 
-  /// DEFECTS 1.67's tree: the directory committed, its entry not.
+  /// A tree with the package directory committed and its entry missing.
   #[test]
   fn a_build_fetches_a_package_whose_directory_lacks_its_entry() {
     let (app, options) = htmx_app("fetch-entryless");
@@ -1437,7 +1436,7 @@ mod tests {
     crate::types::TypesManifest::read(app, &crate::xwpm::Layout::of(app).unwrap()).unwrap().packages.get(package).cloned()
   }
 
-  /// DEFECTS 1.70: `vue` 3.5.42 pins `@vue/runtime-dom` at 3.5.42 and was given 3.5.43, `latest`.
+  /// `vue` 3.5.42 pins `@vue/runtime-dom` at 3.5.42 and was given 3.5.43, `latest`.
   #[test]
   fn a_build_fetches_a_dependency_at_the_range_its_dependent_declares() {
     let (app, options) = htmx_app("fetch-range");
@@ -1447,7 +1446,6 @@ mod tests {
     assert_eq!(recorded(&app, "@htmx/core").map(|t| t.version), Some("1.2.0".to_owned()), "the highest ^1, not latest 2.0.0");
   }
 
-  /// DEFECTS 1.70.
   #[test]
   fn a_build_takes_the_highest_version_every_dependent_accepts() {
     let (app, options) = htmx_app("fetch-ranges");
@@ -1457,7 +1455,6 @@ mod tests {
     assert_eq!(recorded(&app, "@htmx/core").map(|t| t.version), Some("1.0.0".to_owned()), "^1 from htmx.org and ~1.0.0 from @htmx/ext");
   }
 
-  /// DEFECTS 1.70.
   #[test]
   fn a_build_fetches_again_a_kept_dependency_its_dependent_does_not_accept() {
     let (app, options) = htmx_app("fetch-stale");
@@ -1476,7 +1473,6 @@ mod tests {
     assert!(std::fs::read_to_string(core.join("index.d.ts")).unwrap().contains("1.2.0"));
   }
 
-  /// DEFECTS 1.70.
   #[test]
   fn a_range_no_version_meets_is_named_in_the_types_rows() {
     let (app, options) = htmx_app("fetch-unmet");
@@ -1488,7 +1484,7 @@ mod tests {
     assert!(rows.iter().any(|(package, row)| package == "@htmx/core" && row.contains("htmx.org asks ^3")), "{rows:?}");
   }
 
-  /// DEFECTS 1.70: `@babel/parser` 8 names its declarations only in `exports`.
+  /// `@babel/parser` 8 names its declarations only in `exports`.
   #[test]
   fn a_build_fetches_a_package_whose_types_only_exports_names() {
     let (app, options) = htmx_app("fetch-exports");
@@ -1499,7 +1495,6 @@ mod tests {
     assert!(app.join("types/@htmx/core/index.d.ts").is_file(), "and what its declarations import");
   }
 
-  /// DEFECTS 1.70.
   #[test]
   fn a_build_fetches_what_the_declarations_it_keeps_import() {
     let (app, options) = htmx_app("fetch-dependency");
@@ -1510,7 +1505,7 @@ mod tests {
     assert_eq!(crate::types::missing(&app).unwrap(), Vec::<String>::new());
   }
 
-  /// DEFECTS 1.70: a package placed by hand has no manifest record to say where its declarations came from.
+  /// A package placed by hand has no manifest record to say where its declarations came from.
   #[test]
   fn a_build_fetches_what_an_unrecorded_packages_declarations_import() {
     let (app, options) = htmx_app("fetch-dependency-unrecorded");
@@ -1525,7 +1520,6 @@ mod tests {
     assert!(app.join("types/@htmx/core/index.d.ts").is_file(), "the build fetched the package htmx.org's declarations re-export");
   }
 
-  /// DEFECTS 1.70.
   #[test]
   fn the_types_rows_name_a_dependency_a_kept_package_imports() {
     let (app, _) = htmx_app("status-dependency");
@@ -1534,7 +1528,6 @@ mod tests {
     assert!(rows.iter().any(|(package, row)| package == "@htmx/core" && row.starts_with("missing")), "{rows:?}");
   }
 
-  /// DEFECTS 1.70.
   #[test]
   fn a_build_that_cannot_fetch_a_kept_packages_dependency_names_it() {
     let (app, options) = htmx_app("fetch-dependency-offline");

@@ -1,6 +1,6 @@
 //! Derived store keys on the server: a key a module-level `derive` computes is
 //! in the store the server renders from, as it is in the browser's, so the
-//! first paint shows what hydration will. GAPS 9.63.
+//! first paint shows what hydration will.
 
 use std::path::{Path, PathBuf};
 

@@ -428,7 +428,6 @@ mod tests {
     host
   }
 
-  /// DEFECTS 1.63.
   #[test]
   fn every_source_map_a_vendored_module_names_is_vendored_beside_it() {
     let app = std::env::temp_dir().join(format!("fsr-vendor-maps-{}", std::process::id()));

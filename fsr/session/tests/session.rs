@@ -245,7 +245,7 @@ fn capacity_is_accounted_across_shards_not_divided_by_them() {
   assert_eq!(resident, 64, "a small store under the default shard count keeps everything");
 }
 
-/// DEFECTS 2.1: `CookieCodec` is a seam only if the layer will take one.
+/// `CookieCodec` is a seam only if the layer will take one.
 #[test]
 fn a_codec_of_the_caller_s_own_carries_the_session() {
   struct Plain;
@@ -271,7 +271,7 @@ fn a_codec_of_the_caller_s_own_carries_the_session() {
   assert_eq!(back.cell.get("who"), Some(Value::str("alice")));
 }
 
-/// DEFECTS 3.7: the cookie header is RFC 6265, not a prefix match.
+/// The cookie header is RFC 6265, not a prefix match.
 #[test]
 fn a_cookie_is_read_by_name_unquoted_and_decoded() {
   let layer = sessions();
@@ -358,7 +358,7 @@ mod keyring {
   }
 }
 
-/// DEFECTS 4.3: one end on the record, followed by the cookie and the store
+/// One end on the record, followed by the cookie and the store
 /// and moved only by `SessionCell::extend`.
 mod lifetime {
   use super::*;

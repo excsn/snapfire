@@ -254,7 +254,7 @@ fn a_node_with_children_learns_which_slots_the_plan_fills_or_keeps() {
 }
 
 /// A layout with one pane that reads the query and one that never does, which
-/// is the shape GAPS 9.56 was found on.
+/// is the shape a pane reading the query once broke.
 struct Panes;
 
 impl Evaluator for Panes {

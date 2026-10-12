@@ -345,7 +345,6 @@ mod derived {
     pairs.iter().map(|(k, v)| ((*k).to_owned(), Value::Int(*v as i128))).collect()
   }
 
-  /// GAPS 9.63.
   #[test]
   fn a_derived_key_is_computed_after_the_derived_keys_it_reads_whatever_order_they_are_declared_in() {
     let derives = derive_order(vec![sum("twice", &["total", "total"]), sum("total", &["price", "qty"])]);
@@ -354,7 +353,7 @@ mod derived {
     assert_eq!((int(&merged, "total"), int(&merged, "twice")), (Some(7), Some(14)));
   }
 
-  /// GAPS 9.63: the browser reads a derived value ahead of the merge.
+  /// The browser reads a derived value ahead of the merge.
   #[test]
   fn a_derived_value_replaces_what_a_segment_seeded_for_the_key() {
     let mut merged = store(&[("price", 3), ("qty", 4), ("total", 1)]);
@@ -362,7 +361,7 @@ mod derived {
     assert_eq!(int(&merged, "total"), Some(7));
   }
 
-  /// GAPS 9.63: a reader of a derived key waits for a pending source as a reader of the source does.
+  /// A reader of a derived key waits for a pending source as a reader of the source does.
   #[test]
   fn a_derived_key_is_pending_while_a_source_it_reads_is_even_through_another_derived_key() {
     let derives = derive_order(vec![sum("twice", &["total"]), sum("total", &["price"]), sum("other", &["qty"])]);
@@ -380,7 +379,7 @@ mod derived {
     assert!(pending.is_empty(), "{pending:?}");
   }
 
-  /// GAPS 9.63: a derive the build could not lower is never painted from what a segment seeded for it.
+  /// A derive the build could not lower is never painted from what a segment seeded for it.
   #[test]
   fn a_derived_key_without_a_compute_is_left_out_of_the_store_and_pending() {
     let derives = derive_order(vec![Derived { key: "now".to_owned(), sources: Vec::new(), compute: None }]);

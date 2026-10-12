@@ -66,7 +66,7 @@ fn the_stylesheets_under_styles_compile_beside_the_modules() {
   std::fs::remove_dir_all(&root).unwrap();
 }
 
-/// DEFECTS 1.61: the checker reads the tsconfig of the build that wrote the declarations, on the first build as on every later one.
+/// The checker reads the tsconfig of the build that wrote the declarations, on the first build as on every later one.
 #[test]
 fn the_first_build_maps_the_fsr_packages_it_writes() {
   let root = project("first", "");

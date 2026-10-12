@@ -294,7 +294,7 @@ test("a reply to a block goes to the action with the block it answers", async ()
   expect(asked, "the action carried the paragraph's block").toEqual([{ parent: "1", anchor: "b1", body: "a word on that" }]);
 });
 
-/// DEFECTS 5.3: the client action path and the revalidation it triggers.
+/// The client action path and the revalidation it triggers.
 test("a wave opens at the end of its transcript", async () => {
   const into = spyOn(Element.prototype, "scrollIntoView");
   await load("/wave/kickoff", { ctx: open("alice") });

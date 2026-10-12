@@ -5684,7 +5684,6 @@ export default function Order({ id }: { id: number }) {
     assert_eq!(reads, 6, "{:?} {:?}", tag.body, tag.render);
   }
 
-  /// REQUESTS 11.42.
   #[test]
   fn a_template_context_lowers_like_reacts_and_leaves_the_page_to_the_server() {
     let files = [
@@ -5701,7 +5700,6 @@ export default function Order({ id }: { id: number }) {
     assert!(format!("{:?}", row.render).contains("Context(\"src/reserved.ts#Reserved\")"), "{:?}", row.render);
   }
 
-  /// REQUESTS 11.42.
   #[test]
   fn the_template_use_of_something_other_than_a_context_is_residue() {
     let files = [("routes/a/page.tsx", "import { use } from \"@snapfire/fsr-authoring/template\";\nexport default function A({ theme }: { theme: string }) {\n  return <p>{use(theme)}</p>;\n}\n")];

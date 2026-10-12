@@ -1335,7 +1335,7 @@ fn included(built: &snapfire_fsr_cli::Built) -> Vec<String> {
 
 const BARE: &str = r#"{"imports":{"@snapfire/fsr-client":"/f","@snapfire/fsr-client/elements":"/e"}}"#;
 
-/// DEFECTS 1.71: a template nothing mounts was compiled for the browser, which
+/// A template nothing mounts was compiled for the browser, which
 /// in an application without React asked the import map for the dialect.
 #[test]
 fn the_bundle_compiles_what_the_browser_loads_and_not_a_template_nothing_mounts() {
@@ -1353,7 +1353,6 @@ fn the_bundle_compiles_what_the_browser_loads_and_not_a_template_nothing_mounts(
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// DEFECTS 1.71.
 #[test]
 fn a_server_island_and_a_static_component_are_not_bundle_roots_and_a_browser_island_is() {
   let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Clock } from \"@src/ui/Clock\";\nimport { Help } from \"@src/ui/Help\";\nimport { Card } from \"@src/ui/Card\";\nexport default function Page() {\n  return <main><Island><Clock /></Island><Island mode=\"server\"><Help /></Island><Card /></main>;\n}\n";
@@ -1370,7 +1369,7 @@ fn a_server_island_and_a_static_component_are_not_bundle_roots_and_a_browser_isl
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// DEFECTS 1.71: an application without a JSX framework has nothing to compile JSX the browser loads.
+/// An application without a JSX framework has nothing to compile JSX the browser loads.
 #[test]
 fn jsx_the_browser_loads_in_an_application_without_a_jsx_framework_is_refused_naming_both() {
   let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <main>page</main>;\n}\n"), ("src/ui/Badge.tsx", "export const LABEL = \"new\";\nexport function Badge() {\n  return <b>{LABEL}</b>;\n}\n"), ("src/main.ts", "import { LABEL } from \"./ui/Badge\";\nconsole.log(LABEL);\n")]);
@@ -1380,7 +1379,7 @@ fn jsx_the_browser_loads_in_an_application_without_a_jsx_framework_is_refused_na
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// DEFECTS 1.71: one copy, compiled for the root that renders it, shared by the one that does not.
+/// One copy, compiled for the root that renders it, shared by the one that does not.
 #[test]
 fn jsx_a_react_island_also_reaches_is_shared_by_a_plain_root() {
   let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Badge } from \"@src/ui/Badge\";\nexport default function Page() {\n  return <main><Island><Badge /></Island></main>;\n}\n";
@@ -1394,7 +1393,7 @@ fn jsx_a_react_island_also_reaches_is_shared_by_a_plain_root() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// DEFECTS 1.71: `[document] entry` is a URL under the public path, `/static/js/app` with no trailing slash.
+/// `[document] entry` is a URL under the public path, `/static/js/app` with no trailing slash.
 #[test]
 fn the_document_entry_the_configuration_names_is_a_bundle_root() {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1412,7 +1411,7 @@ fn the_document_entry_the_configuration_names_is_a_bundle_root() {
   std::fs::remove_dir_all(&root).unwrap();
 }
 
-/// DEFECTS 1.71: the toolshed's entry imports its elements as `./elements/shed-tally.js`, which TypeScript resolves to the `.ts` source.
+/// The toolshed's entry imports its elements as `./elements/shed-tally.js`, which TypeScript resolves to the `.ts` source.
 #[test]
 fn a_file_the_entry_imports_by_its_compiled_name_is_compiled() {
   let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <main>page</main>;\n}\n"), ("src/main.ts", "import \"./elements/x-a.js\";\n"), ("src/elements/x-a.ts", "customElements.define(\"x-a\", class extends HTMLElement {});\n")]);

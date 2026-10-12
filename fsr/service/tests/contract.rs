@@ -266,7 +266,7 @@ fn a_typedef_is_data_the_build_can_read_back() {
   assert_eq!(back.method("users", "get").unwrap().returns, Type::named("User"));
 }
 
-/// DEFECTS 3.1 and 3.2: a route template naming an argument the call does not
+/// A route template naming an argument the call does not
 /// carry and metadata that is not a string, are refused rather than skipped.
 #[test]
 fn a_route_argument_and_metadata_that_cannot_be_sent_are_refused() {
