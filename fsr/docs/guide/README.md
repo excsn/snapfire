@@ -33,16 +33,16 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [105. Applications without a framework](105-no-framework-at-all.md), custom elements a template writes and the browser upgrades, a value a template passes down with `createContext` and `use`, a shadow root the server renders, the store read with no adapter, htmx regions over fragments the host renders, the two events that let a library and the navigator share a document and a page written as a Tera template the host renders from the file. App developers.
 - [106. Two frameworks on one page](106-two-frameworks-on-one-page.md), how islands are dispatched by module id, one store under two adapters, one router over segments from different frameworks, htmx beside them and what each one costs the page. App developers, plus anyone weighing a migration.
 - [107. Moving tests from Jest or Vitest](107-moving-tests-from-jest-or-vitest.md), what carries over from a Jest, Vitest or Testing Library suite, what changes and a spec moved end to end. App developers moving a suite.
-- [108. Images and fonts](108-images-and-fonts.md), an image as an import the build resizes into a `<picture>`, the catalog whose photos are a record indexed by data, a remote image through a named source, a font under `fonts/` served with a fallback sized so nothing moves and the one table that moves every asset directory. App developers.
+- [108. Images and fonts](108-images-and-fonts.md), an image as an import the build resizes into a `<picture>`, the catalog whose photos are a record indexed by data, a remote image through a named source, a font under `fonts/` served with a fallback sized so nothing moves, a video with its captions, the card image a shared link shows and the one table that moves every asset directory. App developers.
 
 **The host:**
 
-- [200. The stock host and its configuration](200-the-stock-host-and-its-configuration.md), the config ladder, what the host infers and the boot report. Platform developers.
+- [200. The stock host and its configuration](200-the-stock-host-and-its-configuration.md), the config ladder, what the host infers, `robots.txt` and the sitemap and the boot report. Platform developers.
 - [201. Graduating to Rust](201-graduating-to-rust.md), taking one name back from the plan file and the rule that makes each override explicit. Platform developers.
 - [202. Services and transports](202-services-and-transports.md), HTTP, gRPC, interceptors and why application code never sees a token. Platform developers.
 - [203. Sessions and identity](203-sessions-and-identity.md), the signed cookie, the store, who the request is and where a login goes. Platform developers.
 - [204. Reloading in place](204-reloading-in-place.md), the tables a request reads, what a reload swaps and what it refuses and why `fsr dev` reloads in place instead of restarting. Platform developers.
-- [205. Sites](205-sites.md), a team's application built as a site, the shell that mounts it under a path, what passes between shell and site and how a deploy switches a site to a new version. Everyone.
+- [205. Sites](205-sites.md), a team's application built as a site, the shell that mounts it under a path, what passes between shell and site, one sitemap across them and how a deploy switches a site to a new version. Everyone.
 - [206. What a request did](206-what-a-request-did.md), the trace behind a slow or wrong page: the seven spans the framework opens, reading them with no collector wired, what they cost when nobody is watching and how to get them out. Everyone.
 
 **Tooling:**

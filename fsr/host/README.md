@@ -54,6 +54,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Serve the readable client instead of the minified one | `document.client = "readable"` or `auto` with `server.dev` on |
 | Send a Content-Security-Policy | `[document.csp]` as directives and sources; the host adds the import map's hash and the dev nonce itself |
 | Try a policy before enforcing it | `[document.csp_report_only]`, the same shape, sent as report-only |
+| Serve `robots.txt` and a sitemap of what a signed-out visitor reaches | `[crawl]` with `document.origin`; a site in its own process serves its own sitemap under its prefix |
 | See what was bound and served | `Host::report` |
 
 | Serve a team's application under a path of yours, from its build output, one session and one navigation across both | `HostBuilder::mount` and `Mount` or `snapfire_fsr_sites` over a `[sites]` table |

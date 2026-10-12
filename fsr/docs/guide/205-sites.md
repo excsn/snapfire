@@ -135,6 +135,36 @@ What a site in its own process does not get: the shell's store on its server ren
 
 `GET /__fsr/sites` on the shell lists the site with each address and whether the shell reached it last, which `fsr sites list --host` prints under the instance as `up` or `down`. On the site's own host the same route carries a `site` object: its name, prefix, entry module and stylesheets, what it answers a shell with.
 
+## One sitemap across the sites
+
+`robots.txt` and the sitemap belong to the origin, so the shell serves them. Its `[crawl]` names the paths and its `document.origin` the URLs are absolute against:
+
+```toml
+[document]
+origin = "https://acme.example"
+
+[crawl]
+robots = "/robots.txt"
+sitemap = "/sitemap.xml"
+```
+
+A site mounted in the shell's process needs nothing of its own. Its routes are the shell's routes once mounted, so the shell's sitemap lists them, each fixed route and each value of a route's `paths` export. The shell finds them by asking itself for every candidate page as a signed-out visitor, through its own middleware and then the site's. So a site page whose middleware sends that visitor to sign in is left out, as billing's `/billing/overdue` is in the portal. A site route with a parameter and no `paths` is listed on the shell's boot report as one the sitemap cannot list.
+
+A site in its own process lists its own pages, because only it knows its routes. Its `[crawl]` names the sitemap alone, served under its prefix. Its `document.origin` is the shell's, since a crawler reaches its pages through the shell:
+
+```toml
+# sites/reports/config/app.toml
+[document]
+origin = "https://acme.example"
+
+[crawl]
+sitemap = "/sitemap.xml"
+```
+
+The site answers `/reports/sitemap.xml`. It never serves a `robots.txt`, which only the origin's root may answer. The shell's `/sitemap.xml` becomes an index: its own pages and the in-process sites' in `/sitemap-1.xml`, then `/reports/sitemap.xml` for the site, which the shell forwards to the site's process. A crawler reads the index and fetches both. The reports site lists one page per report because its detail route's `paths` calls the metrics client, which the shell cannot reach.
+
+A page's `lastmod` is the date it names in its head with `modified(...)`, the same in a site as in the shell. The portal example has all three shapes: `cargo test -p portal_react_ts` checks the index, what it leaves out and the forwarded site sitemap.
+
 ## Deploying a site version
 
 `[sites] root` is a cache: `<root>/<name>/<version>`, which is where `artifact = "billing@1.4.2"` already resolves. `fsr sites install <shell> billing-1.4.2.tar.gz --keep 3` unpacks into a dot-prefixed staging directory beside the destination, verifies every file against the manifest and the listing against the hash and only then renames it into place. A fetch that dies leaves nothing a mount can see; one that arrives wrong leaves the running version serving and names the file that disagreed. `--keep` sweeps older versions and never the one in use, so a rollback is offline. It then writes the hash of what it placed into the mount that names that version, because installing a version is when you mean to ship it; `--no-pin` leaves the table alone and `--layer <name>` writes it into `config/<name>.toml`. A mount still pointing at the previous version is left as it is, since moving the pointer is a separate decision.
