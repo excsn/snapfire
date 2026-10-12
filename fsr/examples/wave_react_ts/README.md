@@ -83,7 +83,7 @@ A reader with no name is asked for one in a bar across the top of the page, whic
 
 The name is a session write and `me` reaches every composer through the wave's page. Naming asks for the document again rather than revalidating, because a session write changes what every island on the page was rendered from and a fresh document is the honest answer to that.
 
-This example is what found DEFECTS 1.2, now FIXED 10.73: a revalidation used to patch the page and leave the islands under it holding the props they were rendered with and a blip added by someone else took whichever region a counter landed on, so a new blip could render the header's presence pills and the first blip's text. An island placement owns a named region now, so a reply arriving from another window lands as itself.
+This example is what found a defect, since fixed: a revalidation used to patch the page and leave the islands under it holding the props they were rendered with and a blip added by someone else took whichever region a counter landed on, so a new blip could render the header's presence pills and the first blip's text. An island placement owns a named region now, so a reply arriving from another window lands as itself.
 
 ## What is server-rendered and what is not
 
