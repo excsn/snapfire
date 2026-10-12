@@ -146,15 +146,29 @@ pub(crate) fn fill_pattern(pattern: &str, set: &Params) -> Result<String, HostEr
   Ok(out)
 }
 
-/// Removes every file the last prerender listed in `prerendered.json` under
-/// `out`, then the directories that emptied, then the list itself.
-pub(crate) fn clear_written(out: &Path) -> Result<(), HostError> {
+/// What the last prerender under `out` listed in `prerendered.json`, paths
+/// relative to `out`; empty when there is no list.
+pub(crate) fn read_written(out: &Path) -> Result<Vec<String>, HostError> {
   let list = out.join(WRITTEN_FILE);
   let Ok(text) = std::fs::read_to_string(&list) else {
-    return Ok(());
+    return Ok(Vec::new());
   };
-  let files: Vec<String> = serde_json::from_str(&text).map_err(|e| HostError::Config(list.clone(), e.to_string()))?;
-  for rel in &files {
+  serde_json::from_str(&text).map_err(|e| HostError::Config(list, e.to_string()))
+}
+
+/// Writes `bytes` beside `file` and renames it into place, so a request
+/// reading the file while a prerender runs gets the old bytes or the new ones.
+fn write_whole(file: &Path, bytes: &[u8]) -> Result<(), HostError> {
+  let staged = file.with_file_name(format!(".{}.{}.part", file.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
+  std::fs::write(&staged, bytes).map_err(|e| HostError::Io(staged.clone(), e))?;
+  std::fs::rename(&staged, file).map_err(|e| HostError::Io(file.to_path_buf(), e))
+}
+
+/// Removes every file of `previous` that `kept` does not hold, then the
+/// directories that emptied: a path that dropped out of `paths` is not served
+/// from a stale file, and a file nothing recorded is left alone.
+fn prune(out: &Path, previous: &[String], kept: &[String]) -> Result<(), HostError> {
+  for rel in previous.iter().filter(|rel| !kept.contains(rel)) {
     let file = out.join(rel);
     match std::fs::remove_file(&file) {
       Ok(()) => {}
@@ -169,11 +183,7 @@ pub(crate) fn clear_written(out: &Path) -> Result<(), HostError> {
       dir = d.parent();
     }
   }
-  match std::fs::remove_file(&list) {
-    Ok(()) => Ok(()),
-    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-    Err(e) => Err(HostError::Io(list, e)),
-  }
+  Ok(())
 }
 
 impl Host {
@@ -203,20 +213,24 @@ impl Host {
   ///
   /// The warm pass runs first and its result replaces whatever an earlier one
   /// left, so a rerun writes documents from the loads it just took rather than
-  /// from the file it booted with. Every file the last run wrote is removed
-  /// first, from the list it left in `prerendered.json`, so a path that
-  /// dropped out of `paths` is not served from a stale file; a file nothing
-  /// recorded is left alone.
+  /// from the file it booted with.
+  ///
+  /// It may run while the host serves, as often as the application calls it:
+  /// each file is renamed into place whole, a page whose loader fails this run
+  /// keeps the file the last run wrote, and only once every page is written
+  /// are the files of a path that dropped out of `paths` removed, from the list
+  /// the last run left in `prerendered.json`. A file nothing recorded is left alone.
   pub async fn prerender(&self, out: &Path) -> Result<Vec<(String, PathBuf)>, HostError> {
     let t = self.tables();
     let mut written = Vec::new();
-    clear_written(out)?;
+    let previous = read_written(out)?;
+    let mut held: Vec<PathBuf> = Vec::new();
     let warmed = self.warm(&t).await?;
     t.warm.replace(warmed.clone());
     if !warmed.is_empty() {
       std::fs::create_dir_all(out).map_err(|e| HostError::Io(out.to_path_buf(), e))?;
       let file = out.join(LOADS_FILE);
-      std::fs::write(&file, warm_to_json(&warmed)).map_err(|e| HostError::Io(file.clone(), e))?;
+      write_whole(&file, warm_to_json(&warmed).as_bytes())?;
       written.push((LOADS_FILE.to_owned(), file));
     }
     for pattern in t
@@ -268,12 +282,13 @@ impl Host {
               )
               .await?;
             if let Some(kind) = rendered.failed {
-              tracing::warn!(target: "fsr::host", path = %served, kind = kind.as_str(), "prerender: the page's loader failed, so no file is written for it");
+              tracing::warn!(target: "fsr::host", path = %served, kind = kind.as_str(), "prerender: the page's loader failed, so no new file is written for it and the last run's stays");
+              held.extend(["index.html", "index.payload"].map(|name| dir.join(name)));
               break;
             }
             let text: String = rendered.chunks.collect::<Vec<_>>().await.concat();
             let file = dir.join(name);
-            std::fs::write(&file, text).map_err(|e| HostError::Io(file.clone(), e))?;
+            write_whole(&file, text.as_bytes())?;
             written.push((served.clone(), file));
           }
         }
@@ -307,7 +322,7 @@ impl Host {
       if !entries.is_empty() {
         std::fs::create_dir_all(out).map_err(|e| HostError::Io(out.to_path_buf(), e))?;
         let file = out.join(RENDERS_FILE);
-        std::fs::write(&file, renders_to_json(&entries)).map_err(|e| HostError::Io(file.clone(), e))?;
+        write_whole(&file, renders_to_json(&entries).as_bytes())?;
         written.push((RENDERS_FILE.to_owned(), file));
       }
     }
@@ -320,14 +335,23 @@ impl Host {
       for (name, _) in client::FILES {
         let Some(body) = client::get(name, t.client_minified) else { continue };
         let file = dir.join(name);
-        std::fs::write(&file, body).map_err(|e| HostError::Io(file.clone(), e))?;
+        write_whole(&file, body.as_bytes())?;
         written.push((format!("{}/{name}", client::ROUTE), file));
       }
     }
-    if !written.is_empty() {
-      let listed: Vec<String> = written.iter().filter_map(|(_, file)| file.strip_prefix(out).ok()).map(|rel| rel.to_string_lossy().replace('\\', "/")).collect();
-      let file = out.join(WRITTEN_FILE);
-      std::fs::write(&file, serde_json::to_string_pretty(&listed).expect("a list of paths serializes")).map_err(|e| HostError::Io(file.clone(), e))?;
+    let relative = |file: &Path| file.strip_prefix(out).ok().map(|rel| rel.to_string_lossy().replace('\\', "/"));
+    let mut listed: Vec<String> = written.iter().filter_map(|(_, file)| relative(file)).collect();
+    listed.extend(held.iter().filter_map(|file| relative(file)).filter(|rel| previous.contains(rel)));
+    prune(out, &previous, &listed)?;
+    let file = out.join(WRITTEN_FILE);
+    if listed.is_empty() {
+      match std::fs::remove_file(&file) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(HostError::Io(file, e)),
+      }
+    } else {
+      write_whole(&file, serde_json::to_string_pretty(&listed).expect("a list of paths serializes").as_bytes())?;
       written.push((WRITTEN_FILE.to_owned(), file));
     }
     Ok(written)

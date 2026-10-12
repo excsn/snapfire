@@ -146,3 +146,17 @@ fn a_shell_with_a_site_in_its_own_process_writes_an_index_naming_the_site_sitema
   assert_eq!(get(&host, "/sitemap-2.xml").0, 404);
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn the_application_refreshes_the_sitemap_when_it_chooses_and_requests_keep_the_one_held() {
+  let root = project("refresh", "[crawl]\nsitemap = \"/sitemap.xml\"\n", "", &[("routes/about/page.tsx", PAGE)]);
+  let host = host(&root);
+  let runtime = tokio::runtime::Runtime::new().unwrap();
+  runtime.block_on(host.refresh_sitemap()).expect("a refresh before any request builds the files");
+  let (status, _, first) = get(&host, "/sitemap.xml");
+  assert_eq!(status, 200);
+  assert!(first.contains("https://shop.example/about</loc>"), "{first}");
+  runtime.block_on(host.refresh_sitemap()).expect("and again");
+  assert_eq!(get(&host, "/sitemap.xml").2, first, "the same pages build the same file");
+  std::fs::remove_dir_all(&root).unwrap();
+}

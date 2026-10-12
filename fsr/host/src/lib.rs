@@ -154,6 +154,8 @@ pub enum HostError {
   Config(PathBuf, String),
   #[error("no configuration under {0}: expected `config/`, or `app.toml` beside it")]
   NoConfig(PathBuf),
+  #[error("{0}")]
+  Sitemap(String),
   #[error("`{0}` is not a valid value: `{1}`")]
   Value(String, String),
   #[error(transparent)]

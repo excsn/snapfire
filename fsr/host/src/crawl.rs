@@ -9,7 +9,8 @@ use crate::prerender::fill_pattern;
 use crate::*;
 
 /// What `[crawl]` resolved to against this host: the paths it answers, the
-/// robots text and the sitemap, built on the first request that asks for it.
+/// robots text and the sitemap, built on the first request that asks for it
+/// and again whenever the application calls `Host::refresh_sitemap`.
 pub(crate) struct Crawl {
   origin: String,
   robots: Option<(String, String)>,
@@ -17,7 +18,8 @@ pub(crate) struct Crawl {
   /// The sitemap path of each site in its own process, which that site
   /// answers and the shell forwards.
   remote: Vec<String>,
-  built: tokio::sync::OnceCell<Result<Vec<(String, String)>, String>>,
+  built: tokio::sync::RwLock<Option<Arc<Result<Vec<(String, String)>, String>>>>,
+  building: tokio::sync::Mutex<()>,
 }
 
 impl Crawl {
@@ -42,7 +44,7 @@ impl Crawl {
       Some(path) => remote_at.iter().map(|at| format!("{at}{path}")).collect(),
       None => Vec::new(),
     };
-    Self { origin: origin.to_owned(), robots, sitemap, remote, built: tokio::sync::OnceCell::new() }
+    Self { origin: origin.to_owned(), robots, sitemap, remote, built: tokio::sync::RwLock::new(None), building: tokio::sync::Mutex::new(()) }
   }
 
   /// The robots text when `path` is where it is served.
@@ -73,12 +75,46 @@ impl Crawl {
     &self.remote
   }
 
-  pub(crate) async fn built<F, Fut>(&self, build: F) -> &Result<Vec<(String, String)>, String>
+  /// The files as last built, building them first when nothing has been.
+  pub(crate) async fn built<F, Fut>(&self, build: F) -> Arc<Result<Vec<(String, String)>, String>>
   where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<Vec<(String, String)>, String>>,
   {
-    self.built.get_or_init(build).await
+    if let Some(held) = self.built.read().await.clone() {
+      return held;
+    }
+    let _one = self.building.lock().await;
+    if let Some(held) = self.built.read().await.clone() {
+      return held;
+    }
+    let fresh = Arc::new(build().await);
+    *self.built.write().await = Some(fresh.clone());
+    fresh
+  }
+
+  /// Builds the files again and swaps them in. Requests meanwhile get the
+  /// files as they were; a build that fails leaves them as they were.
+  pub(crate) async fn rebuild<F, Fut>(&self, build: F) -> Result<(), String>
+  where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<(String, String)>, String>>,
+  {
+    let _one = self.building.lock().await;
+    let fresh = build().await;
+    let failed = fresh.as_ref().err().cloned();
+    let mut held = self.built.write().await;
+    match failed {
+      Some(why) if held.is_some() => Err(why),
+      Some(why) => {
+        *held = Some(Arc::new(Err(why.clone())));
+        Err(why)
+      }
+      None => {
+        *held = Some(Arc::new(fresh));
+        Ok(())
+      }
+    }
   }
 }
 
@@ -138,6 +174,18 @@ fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
 }
 
 impl Host {
+  /// Builds the sitemap again from what the host serves now and swaps it in,
+  /// for an application that schedules its own refresh. The host never calls
+  /// it. Requests meanwhile get the sitemap as it was, and a build that fails
+  /// keeps it and returns why. Nothing to do without `[crawl] sitemap`.
+  pub async fn refresh_sitemap(&self) -> Result<(), HostError> {
+    let t = self.tables();
+    let Some(crawl) = t.crawl.as_ref().filter(|crawl| crawl.sitemap_path().is_some()) else {
+      return Ok(());
+    };
+    crawl.rebuild(|| self.build_sitemap(&t, crawl)).await.map_err(HostError::Sitemap)
+  }
+
   /// The answer for a crawl path, `None` when `path` is none of them.
   pub(crate) async fn crawl_response(&self, t: &Tables, req: &Request<Bytes>, path: &str) -> Option<Response<Body>> {
     let crawl = t.crawl.as_ref()?;
@@ -151,7 +199,7 @@ impl Host {
       return None;
     }
     let built = crawl.built(|| self.build_sitemap(t, crawl)).await;
-    Some(match built {
+    Some(match built.as_ref() {
       Ok(files) => match files.iter().find(|(at, _)| at == path) {
         Some((_, xml)) => Response::builder()
           .header(header::CONTENT_TYPE, "application/xml; charset=utf-8")
