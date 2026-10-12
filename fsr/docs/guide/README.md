@@ -47,7 +47,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 
 **Tooling:**
 
-- [300. The build and the dev loop](300-the-build-and-the-dev-loop.md), `fsr build`, `fsr check`, `fsr dev`, `fsr serve` and why `generated/` is not committed. Everyone.
+- [300. The build and the dev loop](300-the-build-and-the-dev-loop.md), `fsr build`, `fsr check`, `fsr dev`, `fsr serve`, prerendering with its preview in development and why `generated/` is not committed. Everyone.
 - [301. Dependencies without npm](301-dependencies-without-npm.md), `fsr add`, `fsr types`, the import map and what xwpm changes. Everyone.
 - [302. Imports and aliases](302-imports-and-aliases.md), the five prefixes and where each of the three readers resolves them. Everyone.
 - [303. The deploy tree](303-the-deploy-tree.md), `fsr bundle`, why `serve/` is the only servable directory and how the routes a server answers stay the ones the host serves. Everyone.

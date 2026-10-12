@@ -59,9 +59,60 @@ Without a Cargo project beside the app, the loop runs `fsr serve` on the app ins
 
 ## Prerendering
 
-A route whose loader reads no parameter, no query, no session, no identity and no clock renders the same for every request. The host can tell, because the loader is data it can read. The boot report lists such routes under `prerender`; `fsr prerender app` (or the project's binary with `--prerender`) renders each once into `server.prerender` and the host answers those from the file from then on, with `x-sf-prerendered: 1` so you can see it. A relative `server.prerender` is resolved against the app directory, so `dist/prerender` in a project-root config lands under `app/`. The storefront's `/about` qualifies; every other page reads the cart from the session, so none of them does. There is nothing to declare: a loader that starts reading the session takes its route back to per-request rendering at the next build. A route with a parameter is the one exception, since nothing can tell which values it takes: its page loader exports `paths` naming them and the command writes one file per set, `/blog/hello` and `/blog/world` for `/blog/{slug}`. Each run lists what it wrote in `prerendered.json` and removes the files of a set that dropped out, so no stale page is left. It also writes `prerender.build`, a hash of the plan, the templates and the assets manifest it rendered from. A host booting a different build renders those routes live and its boot report says the directory was written by another build, so an edit shows without a forgotten `fsr prerender` and a deploy never serves pages from an older build. Running `fsr prerender` again puts the files back in front.
+A route whose loader reads no parameter, no query, no session, no identity and no clock renders the same for every request. The host can tell, because the loader is data it can read. The boot report lists such routes under `prerender`. `fsr prerender app` renders each once into `server.prerender`, as does the project's binary with `--prerender`. A production host answers those routes from the files with `x-sf-prerendered: 1` so you can see it. A relative `server.prerender` is resolved against the app directory, so `dist/prerender` in a project-root config lands under `app/`.
 
-Under development the host renders every page live and never answers from the directory on its own, so an edit and a change in what a loader returns both show on the next request. To see the page production will serve, add `?__prerendered` to its URL, `/blog/hello?__prerendered`. That answers from this build's file, or `404` with `no prerendered page for this build; run fsr prerender` when there is none. Production answers from the files whatever the query says. A route the host cannot write whole still gets what it can: under a layout reading the session, a page reading nothing is rendered once by the same command into `renders.json` and spliced in at request time, so only the layout is evaluated per request.
+```sh
+fsr prerender app
+fsr bundle app --out deploy/
+```
+
+The storefront's `/about` qualifies; every other page reads the cart from the session, so none of them does. There is nothing to declare: a loader that starts reading the session takes its route back to per-request rendering at the next build. A route with a parameter is the one exception, since nothing can tell which values it takes: its page loader exports `paths` naming them and the command writes one file per set, `/blog/hello` and `/blog/world` for `/blog/{slug}`. Each run lists what it wrote in `prerendered.json` and removes the files of a set that dropped out, so no stale page is left.
+
+A route the host cannot write whole still gets what it can: under a layout reading the session, a page reading nothing is rendered once by the same command into `renders.json` and spliced in at request time, so only the layout is evaluated per request.
+
+## A prerender belongs to its build
+
+Each run also writes `prerender.build`: a hash of the plan, the templates and the assets manifest it rendered from. A host whose own build hashes differently does not read the directory. It renders those routes live and its boot report says why:
+
+```text
+prerender /about                 app/dist/prerender written by another build, rendered live until fsr prerender runs
+```
+
+So a deploy that ships a new build with a prerender directory from an older one serves the new pages, not the old files. Running `fsr prerender` from the new build puts the files back in use. The configuration is left out of the hash, since a directory prerendered on a development machine is served under production's configuration.
+
+## Previewing a prerendered page in development
+
+In development the host renders every page live and never answers from the directory on its own. An edit to a page and a change in what its loader returns both show on the next request.
+
+Next.js, Astro, SvelteKit and Nuxt also render live in development. The only way to see their prerendered output is a production build served locally, `next build` then `next start`. Here you can look at one page's prerendered file while the development server keeps running: add `?__prerendered` to its URL.
+
+```sh
+fsr prerender app
+curl -i 'http://127.0.0.1:8190/notice/bins?__prerendered'
+```
+
+That answers from this build's file with `x-sf-prerendered: 1`. A page with no file from this build answers `404` with `no prerendered page for this build at /notice/nope; run fsr prerender`, rather than a live render that would look like a preview. A production host answers from the files whatever the query says.
+
+## Prerendering again while the host serves
+
+A page prerendered from a service's answers shows what the service said when it ran. To refresh it without a redeploy, call `Host::prerender` from the application's own Rust, on whatever schedule suits the data:
+
+```rust
+let host = Arc::new(builder.build()?);
+let out = host.report().prerender.clone().expect("server.prerender is set");
+let refreshing = host.clone();
+tokio::spawn(async move {
+  let mut every = tokio::time::interval(Duration::from_secs(600));
+  loop {
+    every.tick().await;
+    if let Err(e) = refreshing.prerender(&out).await {
+      log::warn!("prerender: {e}");
+    }
+  }
+});
+```
+
+The host never runs this itself. A run is safe beside the requests it serves: each file is written aside and renamed into place, so a request gets the old page or the new one and never half of one. A page whose loader fails this time keeps the file the last run wrote. Once every page is written, the files for paths that dropped out of `paths` are removed.
 
 ## The lab
 

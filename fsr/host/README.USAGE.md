@@ -532,7 +532,7 @@ assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction
 
 ## Prerendering the Routes That Never Change
 
-A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`, plus the client modules the documents load under `static/js/fsr/`, so the directory is a site anything can serve. From then on the host answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads and so does a page or layout reading its `identity` or `csrf_token` prop, since a render for nobody cannot supply them. A route that reads only the locale still qualifies: that is what the render per locale is for.
+A route with no parameter whose every source is lowered and reads nothing of the request renders the same for everyone. The boot report lists it under `prerender`. `prerender` renders each once per locale, anonymously, into the configured directory: the default locale at the top, every other under its tag, `fr_FR/about/index.html`, plus the client modules the documents load under `static/js/fsr/`, so the directory is a site anything can serve. From then on a host with `server.dev` off answers a `GET` for it from the file with `x-sf-prerendered: 1`, session cookie and middleware still applied, the file chosen by the locale the request resolved to. Under `dev` the host renders live and answers from the file only when the query carries `__prerendered`, `404` when this build wrote none. A Rust source keeps its route dynamic, since the host cannot read what a Rust function reads and so does a page or layout reading its `identity` or `csrf_token` prop, since a render for nobody cannot supply them. A route that reads only the locale still qualifies: that is what the render per locale is for.
 
 ```rust
 let written = host.prerender(&host.report().prerender.clone().unwrap()).await?;
@@ -557,7 +557,22 @@ assert!(host.prerendered("/blog/hello", RenderMode::Html).is_some());
 assert_eq!(host.prerendered("/blog/gone", RenderMode::Html), None);
 ```
 
-`prerender` lists every file it wrote in `prerendered.json` at the top of the directory and removes those files and the directories they emptied before it writes again, so a set dropped from `paths` leaves no stale page behind. A file nothing recorded is left alone.
+`prerender` lists every file it wrote in `prerendered.json` at the top of the directory and writes `prerender.build`, the hash of the build it rendered from. A host booting a different build reads nothing from the directory and its report's `prerender` rows say it was written by another build. The next run from this build puts it back in use.
+
+`prerender` is safe to call while the host serves, for an application that refreshes its pages from its own job; the host never calls it on its own. Each file is written aside and renamed into place. A page whose loader fails keeps the file the last run wrote. Once every page is written, the files of a set dropped from `paths` and the directories they emptied are removed, so no stale page is left behind. A file nothing recorded is left alone.
+
+```rust
+let refreshing = host.clone();
+tokio::spawn(async move {
+  let mut every = tokio::time::interval(Duration::from_secs(600));
+  loop {
+    every.tick().await;
+    if let Err(e) = refreshing.prerender(&out).await {
+      log::warn!("prerender: {e}");
+    }
+  }
+});
+```
 
 `fsr prerender <app>` does the same for the stock host. Delete the directory to go back to rendering per request.
 
@@ -637,7 +652,7 @@ The first `GET /sitemap.xml` asks the host for every fixed route and every path 
 host.refresh_sitemap().await?;
 ```
 
-Run it from the application's own job on whatever schedule suits its content. Requests keep the sitemap held until the new one is built, and a failed build keeps it. A page's `article:modified_time` meta, which `modified(date)` from `@snapfire/fsr/head` writes, becomes its `lastmod`. Without one the `Last-Modified` header does. A Rust host gets the same files with no code of its own, since the edge answers them before the middleware.
+Run it from the application's own job on whatever schedule suits its content. Requests keep the sitemap held until the new one is built. A failed build keeps it. A page's `article:modified_time` meta, which `modified(date)` from `@snapfire/fsr/head` writes, becomes its `lastmod`. Without one the `Last-Modified` header does. A Rust host gets the same files with no code of its own, since the edge answers them before the middleware.
 
 The boot report shows where they are and what cannot be listed:
 

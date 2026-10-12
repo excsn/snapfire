@@ -1105,7 +1105,7 @@ The shell writes `<html lang="fr-FR" data-sf-locale="fr_FR">`. Every segment key
 
 ## Prerendering
 
-`fsr prerender app` warms every loader that reads nothing of the request and renders every route that does the same once per locale, into `--out`, else `server.prerender` from the configuration, else `dist/prerender` under the app. The default locale lands at the top and every other under its tag, `fr_FR/about/index.html`. It prints what it wrote. The host serves those files from then on; the boot report's `prerender` rows say which routes qualify.
+`fsr prerender app` warms every loader that reads nothing of the request and renders every route that does the same once per locale, into `--out`, else `server.prerender` from the configuration, else `dist/prerender` under the app. The default locale lands at the top and every other under its tag, `fr_FR/about/index.html`. It prints what it wrote, `prerender.build` among it, the hash of the build it rendered from. A production host serves those files from then on and a host of a different build ignores them; the boot report's `prerender` rows say which routes qualify and whether the directory is this build's. Under `fsr dev` and `fsr serve` in development every page renders live; add `?__prerendered` to a URL to see its file.
 
 ```sh
 fsr prerender app
