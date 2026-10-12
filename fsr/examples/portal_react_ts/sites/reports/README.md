@@ -9,6 +9,7 @@ A site that runs in its own process. It is built with a `[site]` section like `b
 | A deferred segment that streams from this process through the portal to the browser | `app/routes/[id]/loading.tsx` |
 | What this host tells the portal about itself: its prefix, its entry module and its stylesheet | `GET /__fsr/sites` on this process, the `site` object |
 | A store key the portal seeds, read by the layout's island in the browser | `ShellStore["portal/who"]` in `app/src/store.ts` |
+| Its own sitemap at `/reports/sitemap.xml` and no `robots.txt`, with URLs on the portal's origin and one entry per report from the `paths` export calling the metrics client | `[crawl]` and `document.origin` in `config/app.toml`, `paths` in `app/routes/[id]/page.loader.ts` |
 
 ## Run it alone
 

@@ -5,7 +5,12 @@ dir = "app"
 listen = "127.0.0.1:8100"
 
 [document]
+origin = "http://127.0.0.1:8100"
 title = "Acme portal"
+
+[crawl]
+robots = "/robots.txt"
+sitemap = "/sitemap.xml"
 
 [session]
 ttl = "1h"

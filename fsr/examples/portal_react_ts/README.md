@@ -24,6 +24,7 @@ Each site reaches the portal a different way, which is the point of having four:
 | A header whose section link stays marked while a page under it is shown, across the mount | `match="prefix"` in `app/src/ui/Header.tsx`, `a[aria-current]` in `app/styles/app.css` |
 | A site in its own process rendered inside the portal's document, with a client the portal cannot reach and a deferred segment streamed through | `[sites.reports]` in `config/app.toml`, `sites/reports`, the `over` row of the report |
 | The portal's session reaching that process under a shared secret | `secret` in `[sites.reports]` and in `sites/reports/config/app.toml` |
+| A `robots.txt` and a sitemap index across the mounts, leaving out what the middleware turns a signed-out visitor away from; the reports process answers its own sitemap under its prefix, its detail pages listed from a service | `[crawl]` in `config/app.toml` and `sites/reports/config/app.toml`, `/sitemap.xml`, `paths` in `sites/reports/app/routes/[id]/page.loader.ts` |
 | A release whose loader fails refused before it swaps in, the running version kept | `probe` in `sites/billing/config/app.toml`, `TeamsListed` in `src/main.rs`, the `409` from `fsr sites reload` |
 
 ## Run it

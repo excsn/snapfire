@@ -12,7 +12,13 @@ shell = "../../app/generated/shell.json"
 secret = "portal-reports"
 
 [document]
+# The portal's origin: a crawler reaches these pages through it.
+origin = "http://127.0.0.1:8100"
 title = "Reports"
+
+# Served under the prefix, /reports/sitemap.xml, which the portal's index names.
+[crawl]
+sitemap = "/sitemap.xml"
 
 [session]
 ttl = "1h"

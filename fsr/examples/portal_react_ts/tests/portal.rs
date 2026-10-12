@@ -349,3 +349,30 @@ mod portal_react_ts_check {
     }
   }
 }
+
+#[tokio::test]
+async fn the_sitemap_lists_what_an_anonymous_visitor_reaches_across_the_sites() {
+  let (portal, reports) = portal_over_reports().await;
+  let get = |host: Arc<Host>, path: &'static str| async move { body_of(host.handle(Request::get(path).body(Bytes::new()).unwrap()).await).await };
+
+  let robots = get(portal.clone(), "/robots.txt").await;
+  assert!(robots.contains("Disallow: /auth/") && robots.contains("Sitemap: http://127.0.0.1:8100/sitemap.xml"), "{robots}");
+
+  let index = get(portal.clone(), "/sitemap.xml").await;
+  assert!(index.contains("<loc>http://127.0.0.1:8100/sitemap-1.xml</loc>") && index.contains("<loc>http://127.0.0.1:8100/reports/sitemap.xml</loc>"), "a site in its own process gets its own entry: {index}");
+
+  let own = get(portal.clone(), "/sitemap-1.xml").await;
+  for listed in ["8100/</loc>", "8100/login</loc>", "8100/billing</loc>", "8100/blog</loc>", "8100/blog/post/why-a-plan-file</loc>", "8100/status</loc>"] {
+    assert!(own.contains(listed), "{listed}: {own}");
+  }
+  assert!(!own.contains("/account"), "the portal's middleware turns a signed-out visitor away: {own}");
+  assert!(!own.contains("/billing/overdue"), "billing's middleware does the same under the mount: {own}");
+  assert!(!own.contains("/reports"), "the reports process lists its own pages: {own}");
+
+  let remote = get(portal.clone(), "/reports/sitemap.xml").await;
+  for listed in ["8100/reports</loc>", "8100/reports/1</loc>", "8100/reports/3</loc>"] {
+    assert!(remote.contains(listed), "the portal forwards the site's own sitemap, its paths from a service: {listed}: {remote}");
+  }
+  let report = reports.report().to_string();
+  assert!(report.contains("/reports/sitemap.xml") && !report.contains("robots"), "a site serves no robots.txt: {report}");
+}
