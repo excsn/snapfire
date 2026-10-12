@@ -191,7 +191,7 @@ fn the_browser_store_and_the_server_store_agree_on_generated_cases() {
   let mut rng = Rng(0x5eed_9630);
   let cases: Vec<String> = (0..CASES).map(|_| json(&case(&mut rng))).collect();
   let dir = app(&SPEC.replace("__CASES__", &format!("[\n{}\n]", cases.join(",\n"))));
-  let summary = test::run(&dir, &Options::beside(&dir), None).unwrap();
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
   let _ = std::fs::remove_dir_all(dir.parent().unwrap());
   assert_eq!((summary.failed, summary.passed), (0, 1), "{summary}");
 }

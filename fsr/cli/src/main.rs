@@ -184,6 +184,8 @@ struct Test {
   app_dir: PathBuf,
   /// Runs only the tests whose name holds this.
   filter: Option<String>,
+  #[command(flatten)]
+  typecheck: TypecheckFlags,
 }
 
 #[derive(Args)]
@@ -407,6 +409,14 @@ impl Remote {
   }
 }
 
+impl Test {
+  fn typechecked(&self) -> Typecheck {
+    let mut typecheck = Typecheck::beside(&self.app_dir);
+    self.typecheck.apply(&mut typecheck);
+    typecheck
+  }
+}
+
 impl TypecheckFlags {
   fn apply(&self, typecheck: &mut Typecheck) {
     if self.no_typecheck {
@@ -518,7 +528,7 @@ fn main() -> ExitCode {
       Ok(()) => ExitCode::SUCCESS,
       Err(e) => failed(e),
     },
-    Command::Test(args) => match test::run(&args.app_dir, &Options::beside(&args.app_dir), args.filter.as_deref()) {
+    Command::Test(args) => match test::run(&args.app_dir, &Options::beside(&args.app_dir), &args.typechecked(), args.filter.as_deref()) {
       Ok(summary) => {
         print!("{summary}");
         if summary.failed == 0 { ExitCode::SUCCESS } else { ExitCode::from(1) }

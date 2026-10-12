@@ -29,7 +29,7 @@ fn a_body_test_runs_a_loader_over_the_module_constant_it_imports() {
     ("routes/page.loader.ts", "import { items } from \"@src/items\";\n\nexport async function load() {\n  return { items, count: items.length };\n}\n\nexport const meta = ({ data }: { data: { count: number } }) => ({ title: `${data.count} items` });\n"),
     ("tests/page.test.ts", "import { load, meta } from \"@routes/page.loader\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"the loader reads the constant\", async () => {\n  const c = ctx({});\n  const data = await load(c);\n  expect(data.items).toEqual([\"a\", \"b\"]);\n  const described = meta({ data });\n  expect(described.title).toEqual(\"2 items\");\n});\n"),
   ]);
-  let summary = test::run(&dir, &Options::beside(&dir), None).unwrap();
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
   assert_eq!(summary.failed, 0, "{summary}");
   assert_eq!(summary.passed, 1, "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
@@ -42,7 +42,7 @@ fn a_body_test_sees_an_extension_in_the_session_trace() {
     ("routes/actions.ts", "import { action } from \"@snapfire/fsr\";\n\nexport const stay = action(async ({ session }) => {\n  session.extend(7200);\n  return null;\n});\n"),
     ("tests/stay.test.ts", "import { stay } from \"@routes/actions\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"the action extends the session and writes no key\", async () => {\n  const c = ctx({});\n  await stay(c);\n  expect(c.trace.session.extended).toEqual(7200);\n  expect(c.trace.session.written).toEqual([]);\n});\n"),
   ]);
-  let summary = test::run(&dir, &Options::beside(&dir), None).unwrap();
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
   assert_eq!(summary.failed, 0, "{summary}");
   assert_eq!(summary.passed, 1, "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
@@ -55,7 +55,7 @@ fn a_spec_fetch_reads_an_empty_fragment_or_payload_value_like_the_bare_key() {
     ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
     ("tests/query.spec.ts", "import { ctx, expect, load, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"an empty value is the bare key\", async () => {\n  await load(\"/\", { ctx: ctx({}) });\n  for (const query of [\"__fragment\", \"__fragment=\", \"__fragment=&by=1\", \"%5F%5Ffragment\"]) {\n    const response = await fetch(`/?${query}`);\n    expect(response.status, query).toEqual(200);\n    const html = await response.text();\n    expect(html.includes(\"<p>page</p>\") && !html.includes(\"frame\"), `${query}: ${html}`).toBeTruthy();\n  }\n  for (const query of [\"__payload\", \"__payload=\", \"by=1&__payload=\"]) {\n    const text = await (await fetch(`/?${query}`)).text();\n    expect(text.startsWith(\"V {\\\"fmt\\\"\"), `${query}: ${text.slice(0, 40)}`).toBeTruthy();\n  }\n});\n"),
   ]);
-  let summary = test::run(&dir, &Options::beside(&dir), None).unwrap();
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
   assert_eq!(summary.failed, 0, "{summary}");
   assert_eq!(summary.passed, 1, "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
@@ -69,7 +69,7 @@ fn a_spec_fetch_of_an_action_decodes_only_a_percent_and_two_hex_digits() {
   ]);
   let (done, finished) = std::sync::mpsc::channel();
   let spec = dir.clone();
-  std::thread::spawn(move || done.send(test::run(&spec, &Options::beside(&spec), None).map(|s| (s.failed, s.passed, s.to_string()))));
+  std::thread::spawn(move || done.send(test::run(&spec, &Options::beside(&spec), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).map(|s| (s.failed, s.passed, s.to_string()))));
   let (failed, passed, summary) = finished
     .recv_timeout(std::time::Duration::from_secs(60))
     .expect("the spec answers within a minute")

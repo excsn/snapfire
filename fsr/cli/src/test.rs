@@ -81,10 +81,30 @@ impl fmt::Display for Summary {
   }
 }
 
-/// Runs every test file under `app` whose name matches `filter`, when given.
-pub fn run(app: &Path, options: &Options, filter: Option<&str>) -> Result<Summary, BuildError> {
+/// Runs every test file under `app` whose name matches `filter`, when given,
+/// after typechecking the application with its tests when `typecheck` is
+/// enabled: the runner lowers a spec rather than compiling it, so a type
+/// error in one would otherwise pass. Declarations the application lacks are
+/// fetched first and the generated types are this build's, as `fsr build`
+/// does.
+pub fn run(app: &Path, options: &Options, typecheck: &crate::typecheck::Typecheck, filter: Option<&str>) -> Result<Summary, BuildError> {
+  let fetched = typecheck.enabled.then(|| crate::types::fetch_missing_from(app, crate::types::NPM_REGISTRY));
   let mut plugins = crate::plugins::Plugins::new();
   let built = crate::build_with(app, options, &mut plugins)?;
+  if typecheck.enabled {
+    if !built.missing_declarations.is_empty() {
+      let failure = match &fetched {
+        Some(Err(e)) => format!(" ({e})"),
+        _ => String::new(),
+      };
+      return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`{failure}", built.missing_declarations.join(", "))));
+    }
+    crate::write_generated(app, &built)?;
+    if let Some(checked) = crate::typecheck::run(app, typecheck)?.filter(|checked| checked.errors() > 0) {
+      let lines: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
+      return Err(BuildError::Typecheck(format!("{}\n{}", checked.row(), lines.join("\n"))));
+    }
+  }
   let contract = Arc::new(built.contract.clone());
   let mut files = Vec::new();
   discover(app, app, &mut files)?;

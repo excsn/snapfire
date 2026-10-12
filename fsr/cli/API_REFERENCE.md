@@ -11,6 +11,7 @@ The `fsr` binary and the library build it fronts: route discovery, the contract,
   * [fsr types](#fsr-types)
   * [fsr build](#fsr-build)
   * [fsr check](#fsr-check)
+  * [fsr test](#fsr-test)
   * [fsr doctor](#fsr-doctor)
   * [fsr census](#fsr-census)
   * [fsr ir view](#fsr-ir-view)
@@ -95,6 +96,12 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 * `fsr check <app dir> [--shell <module id>] [--slot <name>] [--strict] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
 * Runs the build and prints the report; writes nothing, so the typecheck reads whichever `tsconfig.json` is on disk. Same exit codes, plus 1 when a diagnostic is an error.
+
+### fsr test
+
+* `fsr test <app dir> [filter] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
+* `test::run(app: &Path, options: &Options, typecheck: &Typecheck, filter: Option<&str>) -> Result<Summary, BuildError>`: builds, then typechecks the application with its tests when `typecheck.enabled`, then runs every `*.test.ts` body test through the interpreter and every `*.spec.ts` and `*.spec.tsx` page spec in QuickJS over linkedom. Before the build it fetches the declarations the application lacks, as `emit` does; one still missing is `BuildError::Types` naming it and a type error is `BuildError::Typecheck` with tsc's diagnostics, so nothing runs. `filter` keeps the tests whose name or file holds it. The binary takes `Typecheck::beside` with the flags applied; a caller passing `Typecheck::default()` skips the typecheck.
+* `pub struct Summary { pub passed: usize, pub failed: usize, pub skipped: usize, pub todo: usize, pub lines: Vec<String> }`. `Display` prints one line per test, its file, its name and `ok`, `FAILED` with the message beneath, `skipped` or `todo`, then `test result:` with the counts. Exit 0 when nothing failed, 1 when a test failed or the build or the typecheck stopped the run.
 
 ### fsr doctor
 

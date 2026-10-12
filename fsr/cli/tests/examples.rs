@@ -23,6 +23,37 @@ fn checkout(from: &Path, to: &Path) {
     std::fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::fs::copy(from.join(file), &target).unwrap();
   }
+  copy_types(from, to);
+}
+
+/// Every `app/types/` under `from` copied to the same place under `to`: a
+/// shell's and each of its sites'.
+fn copy_types(from: &Path, to: &Path) {
+  copy_dir(&from.join("app/types"), &to.join("app/types"));
+  let Ok(entries) = std::fs::read_dir(from) else { return };
+  for entry in entries.flatten() {
+    let name = entry.file_name().to_string_lossy().into_owned();
+    if entry.path().is_dir() && !["app", "target", "node_modules"].contains(&name.as_str()) && !name.starts_with('.') {
+      copy_types(&entry.path(), &to.join(&name));
+    }
+  }
+}
+
+/// `from` copied whole into `to`, when it exists. An example's `app/types/` is
+/// ignored by git and written by `fsr types`, which fetches; the checkout takes
+/// the source tree's so the typecheck sees what a developer's would.
+fn copy_dir(from: &Path, to: &Path) {
+  let Ok(entries) = std::fs::read_dir(from) else { return };
+  std::fs::create_dir_all(to).unwrap();
+  for entry in entries.flatten() {
+    let path = entry.path();
+    match path.is_dir() {
+      true => copy_dir(&path, &to.join(entry.file_name())),
+      false => {
+        std::fs::copy(&path, to.join(entry.file_name())).unwrap();
+      }
+    }
+  }
 }
 
 /// Every `config/app.toml` under `root`, a site's beside its shell's; sorted so a shell precedes its sites.
@@ -130,7 +161,7 @@ fn every_example_builds_tests_and_boots_from_a_checkout() {
     };
     write(&app, &built).unwrap();
     if app.join("tests").is_dir() {
-      match test::run(&app, &Options::beside(&app), None) {
+      match test::run(&app, &Options::beside(&app), &snapfire_fsr_cli::typecheck::Typecheck::beside(&app), None) {
         Ok(summary) if summary.failed == 0 => {
           tested += 1;
           println!("{name}: {} specs passed", summary.passed);
