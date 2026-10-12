@@ -1,4 +1,5 @@
 import { adoptCatalog, adoptLocale } from "./locale.js";
+import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue } from "./values.js";
@@ -226,7 +227,14 @@ export function loadEntry(src) {
 }
 const filling = new WeakSet();
 export function boot() {
-    const run = ()=>scan(document);
+    const g = globalThis;
+    g.__sf = Object.assign(g.__sf ?? {}, {
+        script: loadMarkedScript
+    });
+    const run = ()=>{
+        scan(document);
+        loadDeclaredScripts(document);
+    };
     adopt();
     adoptLocale();
     adoptCatalog();

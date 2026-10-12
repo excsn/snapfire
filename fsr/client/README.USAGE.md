@@ -27,6 +27,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Placing a Picture](#placing-a-picture)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Animating a Navigation](#animating-a-navigation)
+* [Loading a Third-Party Script](#loading-a-third-party-script)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Wiring Another Library to the Navigator](#wiring-another-library-to-the-navigator)
 * [Following the Server](#following-the-server)
@@ -564,6 +565,18 @@ header.site {
 ```
 
 A link turns it off for itself with `data-sf-transition="none"` and on with `data-sf-transition` when the document leaves it off. From code, `navigate(href, true, { transition: false })` does the same. The navigator skips the transition where the browser has no view transitions, when the visitor's system asks for reduced motion and when the tab is hidden, so the swap happens at once in those cases. Only a navigation animates: a `refresh` after an action and a scroll to a fragment on the same page do not.
+
+## Loading a Third-Party Script
+
+`loadScript` adds a vendor's classic script once per document at the timing it is given and resolves when the script has run:
+
+```ts
+import { loadScript } from "@snapfire/fsr-client";
+
+await loadScript("https://chat.example/widget.js", { when: "interaction" });
+```
+
+Calling it again for the same URL returns the same promise, so a module can call it on every navigation without adding a second element. `"idle"` waits for the main thread to be idle and `"interaction"` for the visitor's first key, pointer, touch or scroll. A route that needs a script declares it in its `meta` with `scriptTag` from `@snapfire/fsr/head` instead; the boot runtime and the navigator load those rows through the same function, as guide chapter 305 describes.
 
 ## Prefetching and the Router Cache
 

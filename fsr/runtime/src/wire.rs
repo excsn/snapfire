@@ -64,7 +64,7 @@ fn data_of(json: &Json) -> Result<snapfire_fsr_core::Data, DecodeError> {
   }
 }
 
-/// What `meta_to_json` wrote, read back: a title or a description, nothing else.
+/// What `meta_to_json` wrote, read back: a title, a description and the script rows.
 pub fn meta_from_json(json: &Json) -> Result<Meta, DecodeError> {
   let obj = json.as_object().ok_or_else(|| err("an `H` row is an object"))?;
   let mut meta = Meta::default();
@@ -73,6 +73,13 @@ pub fn meta_from_json(json: &Json) -> Result<Meta, DecodeError> {
   }
   if let Some(description) = obj.get("description") {
     meta.description = Some(description.as_str().ok_or_else(|| err("`description` is a string"))?.to_owned());
+  }
+  if let Some(scripts) = obj.get("scripts") {
+    for script in scripts.as_array().ok_or_else(|| err("`scripts` is an array"))? {
+      let attrs = script.as_object().ok_or_else(|| err("a script is an object"))?;
+      let attrs = attrs.iter().map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned())).ok_or_else(|| err("a script attribute is a string"))).collect::<Result<Vec<_>, _>>()?;
+      meta.head.push(crate::meta::HeadEl { tag: "script".to_owned(), attrs, children: None });
+    }
   }
   Ok(meta)
 }

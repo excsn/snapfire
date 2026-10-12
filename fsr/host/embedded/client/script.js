@@ -1,0 +1,76 @@
+const loaded = new Map();
+export function forgetLoadedScripts() {
+    loaded.clear();
+}
+function whenReady(when) {
+    if (when === "load") return Promise.resolve();
+    if (when === "idle") {
+        const idle = globalThis.requestIdleCallback;
+        return new Promise((resolve)=>typeof idle === "function" ? idle(()=>resolve()) : setTimeout(resolve, 1));
+    }
+    return new Promise((resolve)=>{
+        const events = [
+            "pointerdown",
+            "keydown",
+            "touchstart",
+            "scroll"
+        ];
+        const go = ()=>{
+            for (const name of events)document.removeEventListener(name, go, true);
+            resolve();
+        };
+        for (const name of events)document.addEventListener(name, go, {
+            capture: true,
+            passive: true
+        });
+    });
+}
+export function loadScript(src, options = {}) {
+    const url = new URL(src, location.href).href;
+    const held = loaded.get(url);
+    if (held) return held;
+    const promise = whenReady(options.when ?? "load").then(()=>new Promise((resolve, reject)=>{
+            const script = document.createElement("script");
+            const attrs = {
+                async: true,
+                ...options.attrs
+            };
+            for (const [name, value] of Object.entries(attrs)){
+                if (value === false) continue;
+                script.setAttribute(name, value === true ? "" : value);
+            }
+            script.addEventListener("load", ()=>resolve(), {
+                once: true
+            });
+            script.addEventListener("error", ()=>reject(new Error(`${src} did not load`)), {
+                once: true
+            });
+            script.src = url;
+            document.head.append(script);
+        }));
+    loaded.set(url, promise);
+    return promise;
+}
+export function loadDeclaredScripts(root = document) {
+    for (const marker of Array.from(root.querySelectorAll("script[data-sf-script]"))){
+        loadMarkedScript(Object.fromEntries(Array.from(marker.attributes, ({ name, value })=>[
+                name,
+                value
+            ])));
+    }
+}
+export function loadMarkedScript(marker) {
+    const src = marker["data-src"];
+    if (!src) return;
+    const when = marker["data-sf-script"];
+    const attrs = {};
+    for (const [name, value] of Object.entries(marker)){
+        if (name === "type" || name === "data-src" || name === "data-sf-script") continue;
+        attrs[name === "data-type" ? "type" : name] = value;
+    }
+    loadScript(src, {
+        when: when === "idle" || when === "interaction" ? when : "load",
+        attrs
+    }).catch((err)=>console.error(`sf: ${err.message}`));
+}
+//# sourceMappingURL=script.js.map

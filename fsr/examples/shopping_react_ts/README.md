@@ -63,6 +63,7 @@ app/                    the TypeScript application
   src/ui/               components the pages share
   styles/               plain CSS, linked into the head by convention
   vendor/               React and SweetAlert2, committed, no npm
+  demo/                 a stand-in analytics tag the root layout's meta loads once the page is idle, served at /static/demo
   importmap.json        the bare specifiers the browser resolves
   tsconfig.json         generated: the @app, @routes, @src, @schemas and @generated aliases
 config/app.toml         listen address, session key, each service's base URL

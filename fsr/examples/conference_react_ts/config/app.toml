@@ -21,3 +21,7 @@ transport = "mock"
 
 [typecheck]
 version = "7.0.2"
+
+[[static]]
+route = "/static/demo"
+dir = "demo"

@@ -13,7 +13,43 @@ pub struct HeadEl {
   pub children: Option<String>,
 }
 
+/// When a head script loads, as a row's `when` names it.
+pub const SCRIPT_WHEN: [&str; 3] = ["load", "idle", "interaction"];
+
 impl HeadEl {
+  /// A `script` row as the document carries it: inert, `type="text/plain"`
+  /// with its `src` under `data-src`, its `type` under `data-type` and its
+  /// timing under `data-sf-script`, for the client's `loadScript` to load
+  /// once per document whether it arrived with the first paint or a
+  /// navigation. A script inserted as markup by a navigation never runs, so
+  /// a live tag would work on first load and silently not after. `Err` names
+  /// what the row got wrong: no `src`, an inline body or an unknown `when`.
+  pub fn script(attrs: Vec<(String, String)>, children: Option<String>) -> Result<HeadEl, String> {
+    if children.is_some() {
+      return Err("a head `script` takes a `src`, not inline code; put the code in a module `src/main.ts` imports".to_owned());
+    }
+    let mut src = None;
+    let mut when = "load".to_owned();
+    let mut rest = Vec::new();
+    for (key, value) in attrs {
+      match key.as_str() {
+        "src" => src = Some(value),
+        "when" => when = value,
+        "type" => rest.push(("data-type".to_owned(), value)),
+        _ => rest.push((key, value)),
+      }
+    }
+    let Some(src) = src else {
+      return Err("a head `script` needs a `src`".to_owned());
+    };
+    if !SCRIPT_WHEN.contains(&when.as_str()) {
+      return Err(format!("a head `script`'s `when` is one of {}, got `{when}`", SCRIPT_WHEN.join(", ")));
+    }
+    let mut out = vec![("type".to_owned(), "text/plain".to_owned()), ("data-sf-script".to_owned(), when), ("data-src".to_owned(), src)];
+    out.extend(rest);
+    Ok(HeadEl { tag: "script".to_owned(), attrs: out, children: None })
+  }
+
   /// The `link` rels that name a resource rather than a role: a document
   /// carries one of these per href, so the href is part of what the element
   /// is. Every other rel (`canonical`, `icon`, `manifest`, `alternate`) is a
@@ -29,6 +65,11 @@ impl HeadEl {
   /// by its href as well.
   fn attr(&self, name: &str) -> Option<&str> {
     self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+  }
+
+  /// A script row `script` made, the inert marker the client loads.
+  pub fn is_script(&self) -> bool {
+    self.tag == "script" && self.attr("data-sf-script").is_some()
   }
 
   /// A `link` whose `rel` includes `icon`.
@@ -447,5 +488,27 @@ mod tests {
     let head = merged(outer, inner);
     assert_eq!(head.len(), 4);
     assert_eq!(head[1].attrs[2].1, "/other.svg", "the same rel and type replaces");
+  }
+
+  #[test]
+  fn a_script_row_becomes_an_inert_marker_and_rides_the_head_row() {
+    let row = |attrs: &[(&str, &str)], children: Option<&str>| HeadEl::script(attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), children.map(str::to_owned));
+    let script = row(&[("src", "https://maps.example/w.js"), ("when", "idle"), ("type", "module"), ("crossorigin", "anonymous")], None).unwrap();
+    let mut html = String::new();
+    script.render(&mut html);
+    assert_eq!(html, "<script type=\"text/plain\" data-sf-script=\"idle\" data-src=\"https://maps.example/w.js\" data-type=\"module\" crossorigin=\"anonymous\"></script>");
+    assert!(script.is_script());
+    assert_eq!(row(&[("src", "/a.js")], None).unwrap().attrs[1].1, "load", "no `when` loads with the page");
+    assert!(row(&[("when", "idle")], None).unwrap_err().contains("needs a `src`"));
+    assert!(row(&[("src", "/a.js")], Some("alert(1)")).unwrap_err().contains("not inline code"));
+    assert!(row(&[("src", "/a.js"), ("when", "soon")], None).unwrap_err().contains("load, idle, interaction"));
+
+    let meta = Meta { head: vec![script, el("link", &[("rel", "preconnect"), ("href", "https://maps.example")])], ..Meta::default() };
+    let json = crate::stream::meta_to_json(&meta);
+    assert_eq!(json["scripts"].as_array().map(Vec::len), Some(1), "only the script rides the row: {json}");
+    assert_eq!(json["scripts"][0]["data-src"], "https://maps.example/w.js");
+    let back = crate::wire::meta_from_json(&json).unwrap();
+    assert_eq!(back.head.len(), 1);
+    assert!(back.head[0].is_script() && back.head[0].attrs == meta.head[0].attrs, "a shell splicing a remote site's head row keeps its scripts: {back:?}");
   }
 }

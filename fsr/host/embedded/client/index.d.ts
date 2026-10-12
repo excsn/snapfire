@@ -8,6 +8,8 @@ export type { StoreKey, StoreListener } from "./store.js";
 export { decodeNode, linesOf, parsePayload, parseRow } from "./reader.js";
 export type { Head, Payload, Row, Segment, SfNode } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";
+export { loadDeclaredScripts, loadMarkedScript, loadScript } from "./script.js";
+export type { ScriptOptions, ScriptTiming } from "./script.js";
 export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, prefetch, refresh } from "./navigator.js";
 export { live, type LiveOptions } from "./live.js";
 export { socket, type Socket, type SocketOptions } from "./socket.js";

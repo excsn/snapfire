@@ -167,9 +167,29 @@ test("navigating back and forth before the islands finish hydrating patches them
   expect(screen.getByText("Today's picks")).toBeTruthy();
 });
 
+test("the script the root layout declares is loaded once across navigations", async () => {
+  const g = globalThis as { requestIdleCallback?: unknown };
+  const before = g.requestIdleCallback;
+  g.requestIdleCallback = (cb: () => void) => cb();
+  try {
+  await load("/", { ctx: ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } }) });
+  const analytics = () => Array.from(document.querySelectorAll<HTMLScriptElement>("script[src]")).filter((s) => s.src.endsWith("/static/demo/analytics.js"));
+  expect(document.querySelector('script[type="text/plain"][data-sf-script="idle"][data-src="/static/demo/analytics.js"]'), "the document carries the row as an inert marker").toBeTruthy();
+  await settle();
+  expect(analytics().length, "loaded once the page is idle").toEqual(1);
+  await navigate("/cart");
+  await settle();
+  await navigate("/");
+  await settle();
+  expect(analytics().length, "each navigation's head row names it again and nothing is added").toEqual(1);
+  } finally {
+    g.requestIdleCallback = before;
+  }
+});
+
 /** A stand-in for `document.startViewTransition` that records each call and runs the update the way a browser does: after the call returns. */
 function fakeTransitions(): { calls: string[]; restore: () => void } {
-  const doc = document as Document & { startViewTransition?: unknown };
+  const doc = document as unknown as { startViewTransition?: unknown };
   const before = doc.startViewTransition;
   const calls: string[] = [];
   doc.startViewTransition = (update: () => void) => {

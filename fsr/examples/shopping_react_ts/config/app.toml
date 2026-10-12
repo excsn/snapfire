@@ -31,3 +31,7 @@ version = "7.0.2"
 
 [[route]]
 pattern = "/about"
+
+[[static]]
+route = "/static/demo"
+dir = "demo"

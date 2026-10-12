@@ -40,6 +40,8 @@ export interface Segment {
 export interface Head {
 	title?: string;
 	description?: string;
+	/** The attributes of each script row the route's `meta` declared, as the document's inert marker carries them. */
+	scripts?: Record<string, string>[];
 }
 export interface Payload {
 	format: number;

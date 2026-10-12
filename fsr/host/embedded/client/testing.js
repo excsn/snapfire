@@ -1,3 +1,4 @@
+import { forgetLoadedScripts } from "./script.js";
 import { boot, discard, patchIsland, registeredIslands, scan } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
@@ -673,6 +674,7 @@ export async function load(path, options = {}) {
     discard(document);
     sf().load(html, path);
     clearRouterCache();
+    forgetLoadedScripts();
     reset();
     adopt();
     const late = applyFills();

@@ -28,7 +28,7 @@ export const meta = () => ({
 
 Two rows are the same element when they share the attribute a head element is identified by: `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified by `sizes`, `media`, `type` and `hreflang`. A `link` whose `rel` names a resource, a stylesheet, a preconnect or a preload, is qualified by its `href` as well, so two preconnects are two elements. A `canonical` or an `icon` is a role and an inner route replaces it by naming it again. The host's own inferred icons sit under the layout's rows and are overridden the same way. An application with no `icons/` directory gets `<link rel="icon" href="data:,">`, an empty icon that keeps the browser from requesting `/favicon.ico` and logging the 404. It is dropped as soon as a route's `meta` names any icon, like the two above. `[document] empty_icon = false` turns it off.
 
-A `script` is not in that list. The document's one script is the entry, `main.ts`, which the host writes for you.
+A `script` is not in that list and is a row of its own kind, the next section but one.
 
 ## Scripts as modules
 
@@ -48,7 +48,45 @@ enableNavigation();
 
 A third-party library arrives the way React did in chapter 301: its ESM build under `vendor/`, an entry in the import map and `fsr types` for its declarations. Take the ESM build. A UMD file loads as a side-effect import and assigns a global, but exports nothing, so the module that imports it has no binding to type or to call. The vendored file and the fetched declarations come from different places unless the same registry version feeds both, so read the version in each before you trust the types.
 
-A library that has to be a `<script src>` because its vendor says so is still not a head row. It is a script element the module creates when the page needs it, which is the next section.
+A library that has to be a `<script src>` because its vendor says so is loaded with `loadScript` or declared as a head row when a route needs it. Those are the next two sections.
+
+## Loading a vendor's script
+
+`loadScript` from `@snapfire/fsr-client` adds a classic script once per document and resolves when it has run. A second call for the same URL returns the first call's promise and adds nothing, so a module can ask for its vendor on every navigation:
+
+```ts
+import { loadScript } from "@snapfire/fsr-client";
+
+await loadScript("https://maps.example/widget.js", { when: "interaction", attrs: { crossorigin: "anonymous" } });
+window.mapsWidget.draw();
+```
+
+`when` is `"load"` by default, which adds the element straight away. `"idle"` waits for the main thread to be idle, which suits analytics. `"interaction"` waits for the visitor's first key, pointer, touch or scroll, which suits a chat widget or a map nobody has looked at yet. The promise rejects with the source named when the script fails to load. The element is `async` unless `attrs` says otherwise.
+
+## Declaring a route's script
+
+A script one route needs belongs in that route's `meta`, the way its preloads do. `scriptTag` spells the row:
+
+```ts
+// routes/venue/page.loader.ts
+import { scriptTag } from "@snapfire/fsr/head";
+
+export const meta = () => ({
+  head: [scriptTag("/static/demo/venue-map.js", "interaction")],
+});
+```
+
+The document carries the row as an inert element, `<script type="text/plain" data-sf-script="interaction" data-src="/static/demo/venue-map.js">`, which the client loads through `loadScript` once it boots. A navigation adds no head markup, so the payload's head row lists the same rows and the navigator loads them the same way. A script inserted as markup by a navigation never runs, which is why a live `<script>` tag would work on the first load and silently not after one. Leaving the route does not unload a script. Coming back does not load it again. The conference app's venue page does this with a stand-in map widget and the storefront's root layout does it with a stand-in analytics tag on `"idle"`.
+
+A row written out takes the same keys: `{ tag: "script", src, when, crossorigin: "anonymous" }`, any attribute beyond `src` and `when` kept as written. A row needs a `src`. One with inline code in `children` is refused by the build, since that code would run on a document load and never after a navigation; the code belongs in a module `src/main.ts` imports.
+
+The build reads each row's `src` and the host adds the origin of every one on another origin to `script-src`, the way it adds the import map's hash. The boot report lists them:
+
+```
+scripts   venue                  /static/demo/venue-map.js
+```
+
+A `src` computed at request time, from `[public]` for one, has no origin the build can read. The report says so on that row. That origin goes in `[document.csp]` by hand.
 
 ## Loading a tag after consent
 
@@ -73,6 +111,7 @@ run({ onConsent, onChange: onConsent, categories: { necessary: { enabled: true, 
 
 ```ts
 // src/analytics.ts
+import { loadScript } from "@snapfire/fsr-client";
 import { get } from "@snapfire/fsr-client/store";
 
 import { analytics } from "./store";
@@ -96,10 +135,7 @@ export function loadAnalytics() {
   }
   gtag("js", new Date());
   gtag("config", id);
-  const script = document.createElement("script");
-  script.async = true;
-  script.src = `https://www.googletagmanager.com/gtag/js?id=${id}`;
-  document.head.append(script);
+  void loadScript(`https://www.googletagmanager.com/gtag/js?id=${id}`, { when: "idle" });
 }
 ```
 

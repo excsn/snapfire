@@ -10,6 +10,7 @@ export default function VenuePage({ venue, talks }: VenueProps) {
     <section className="page venue-page">
       <h2>{venue}</h2>
       <LocalClock />
+      <div className="venue-map" data-venue-map={venue} />
       <Island when="visible">
         <Floors talks={talks} />
       </Island>

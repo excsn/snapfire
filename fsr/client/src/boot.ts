@@ -1,4 +1,5 @@
 import { adoptCatalog, adoptLocale } from "./locale.js";
+import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, SfValue } from "./values.js";
@@ -289,7 +290,12 @@ const filling = new WeakSet<Document>();
 
 /** Scans the document and keeps scanning as streamed slots fill in. Calling it again scans again without listening twice. */
 export function boot(): void {
-  const run = () => scan(document);
+  const g = globalThis as { __sf?: Record<string, unknown> };
+  g.__sf = Object.assign(g.__sf ?? {}, { script: loadMarkedScript });
+  const run = () => {
+    scan(document);
+    loadDeclaredScripts(document);
+  };
   adopt();
   adoptLocale();
   adoptCatalog();

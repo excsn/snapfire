@@ -1,3 +1,4 @@
+import { forgetLoadedScripts } from "./script.js";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
@@ -828,6 +829,7 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   discard(document);
   sf().load(html, path);
   clearRouterCache();
+  forgetLoadedScripts();
   reset();
   adopt();
   const late = applyFills();

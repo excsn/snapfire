@@ -1,3 +1,4 @@
+import { loadMarkedScript } from "./script.js";
 import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
@@ -321,6 +322,7 @@ let currentPath = "";
 let documentPath = "";
 let documentSidecar = false;
 export function applyHead(head) {
+    for (const script of head.scripts ?? [])loadMarkedScript(script);
     if (head.title !== undefined) document.title = head.title;
     if (head.description !== undefined) {
         let meta = document.head.querySelector('meta[name="description"]');

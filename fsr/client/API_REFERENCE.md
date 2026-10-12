@@ -57,6 +57,8 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [live](#live)
   * [socket](#socket)
   * [applyHead](#applyhead)
+  * [loadScript](#loadscript)
+  * [loadDeclaredScripts](#loaddeclaredscripts)
 * [7. Actions](#7-actions)
   * [action](#action)
 * [8. The Store](#8-the-store)
@@ -588,7 +590,23 @@ Opens a WebSocket on `topic` at `path` (`/_sf/socket` by default) and keeps it o
 
 * `applyHead(head: Head): void`
 
-Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
+Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. Each entry of `head.scripts`, the attributes of a script row a route's `meta` declared, goes to `loadMarkedScript`. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
+
+* `interface Head { title?: string; description?: string; scripts?: Record<string, string>[] }`
+
+### loadScript
+
+* `loadScript(src: string, options?: ScriptOptions): Promise<void>`
+* `interface ScriptOptions { when?: ScriptTiming; attrs?: Record<string, string | boolean> }`; `type ScriptTiming = "load" | "idle" | "interaction"`
+
+Adds `<script src>` to `document.head` once per resolved URL and resolves on its `load` event, rejecting with `Error("<src> did not load")` on `error`. A second call for a URL already asked for returns the first call's promise and adds nothing. `when` defaults to `"load"`, which adds the element at once; `"idle"` waits for `requestIdleCallback`, falling back to a timeout where there is none; `"interaction"` waits for the first `pointerdown`, `keydown`, `touchstart` or `scroll` on `document`. `attrs` are set on the element, `true` as an empty attribute and `false` left off; `async` is set unless `attrs` names it.
+
+### loadDeclaredScripts
+
+* `loadDeclaredScripts(root?: ParentNode): void`
+* `loadMarkedScript(marker: Record<string, string>): void`
+
+`loadDeclaredScripts` calls `loadMarkedScript` with the attributes of every `script[data-sf-script]` under `root`, the inert element the host writes for a script row. `boot` calls it for the document and on every `sf:fill`. It also sets `window.__sf.script` to `loadMarkedScript` for the fill script, which hands it a streamed resolution's script rows or writes them as inert elements when the client has not booted. `loadMarkedScript` loads `data-src` at the timing `data-sf-script` names, with every other attribute but `type` set as written and `data-type` set as `type`. A failure is written to the console.
 
 ## 7. Actions
 

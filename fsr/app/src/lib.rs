@@ -121,7 +121,12 @@ pub struct Report {
   pub clients: Vec<snapfire_fsr_plan::ClientEntry>,
   /// Islands a template renders, with the handlers each answers: `<module> <name>`.
   pub islands: Vec<String>,
+  /// The scripts each lowered `meta` declares in its head, as the meta's
+  /// name and the `src` when the build can read it as a string; `None` is a
+  /// `src` computed at request time, whose origin the policy must name itself.
+  pub scripts: Vec<(String, Option<String>)>,
 }
+
 
 impl std::fmt::Display for Report {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -167,6 +172,10 @@ impl std::fmt::Display for Report {
     for (i, island) in self.islands.iter().enumerate() {
       let label = if i == 0 { "islands" } else { "" };
       writeln!(f, "{label:<9} {island:<22} {}", Owner::Rust.as_str())?;
+    }
+    for (i, (meta, src)) in self.scripts.iter().enumerate() {
+      let label = if i == 0 { "scripts" } else { "" };
+      writeln!(f, "{label:<9} {meta:<22} {}", src.as_deref().unwrap_or("computed at request time; name its origin in [document.csp] script-src"))?;
     }
     Ok(())
   }
@@ -1069,6 +1078,7 @@ impl AppBuilder {
         .into_iter()
         .flat_map(|module| self.islands.names(&module).into_iter().map(move |name| format!("{module} {name}")))
         .collect(),
+      scripts: self.lowered_metas.iter().flat_map(|(name, body)| snapfire_fsr_ir::ast::head_scripts(body).into_iter().map(move |script| (name.clone(), script.src))).collect(),
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 

@@ -194,6 +194,9 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
     }
     attrs.push((key.clone(), text));
   }
+  if tag.as_ref() == "script" {
+    return HeadEl::script(attrs, children).map_err(fail);
+  }
   Ok(HeadEl { tag: tag.to_string(), attrs, children })
 }
 

@@ -971,3 +971,61 @@ pub fn body_params_read(body: &Body) -> Vec<String> {
   }
   out
 }
+
+/// A `{ tag: "script" }` object a `meta` body puts in its head: its `src`
+/// when the build can read it as a string and whether it carries inline code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeadScript {
+  pub src: Option<String>,
+  pub inline: bool,
+}
+
+/// Every script row in `body`. A helper the lowerer inlined,
+/// `scriptTag("/x.js")`, is a lambda applied to its arguments, so a
+/// parameter is read as the literal it was given.
+pub fn head_scripts(body: &Body) -> Vec<HeadScript> {
+  fn text(e: &Expr, bound: &[(String, Option<String>)]) -> Option<String> {
+    match e {
+      Expr::Lit(Lit::Str(s)) => Some(s.clone()),
+      Expr::Folded(snapfire_fsr_core::value::Value::Str(s)) => Some(s.to_string()),
+      Expr::Var(name) => bound.iter().rev().find(|(n, _)| n == name).and_then(|(_, v)| v.clone()),
+      _ => None,
+    }
+  }
+  fn field<'a>(entries: &'a [Entry], name: &str) -> Option<&'a Expr> {
+    entries.iter().find_map(|entry| match entry {
+      Entry::Field(key, e) if key == name => Some(e),
+      _ => None,
+    })
+  }
+  fn script(e: &Expr, bound: &[(String, Option<String>)]) -> Option<HeadScript> {
+    let Expr::Object(entries) = e else { return None };
+    if field(entries, "tag").and_then(|t| text(t, bound)).as_deref() != Some("script") {
+      return None;
+    }
+    let inline = field(entries, "children").is_some_and(|c| !matches!(c, Expr::Lit(Lit::Null)));
+    Some(HeadScript { src: field(entries, "src").and_then(|src| text(src, bound)), inline })
+  }
+  let mut found: Vec<(*const Expr, HeadScript)> = Vec::new();
+  let mut record = |at: *const Expr, row: HeadScript| match found.iter_mut().find(|(p, _)| *p == at) {
+    Some(held) if held.1.src.is_none() => held.1 = row,
+    Some(_) => {}
+    None => found.push((at, row)),
+  };
+  body_visit(body, &mut |e| {
+    if let Some(row) = script(e, &[]) {
+      record(e as *const Expr, row);
+    }
+    if let Expr::Apply { f, args } = e {
+      if let Expr::Lambda { params, body } = &**f {
+        let bound: Vec<(String, Option<String>)> = params.iter().cloned().zip(args.iter().map(|a| text(a, &[])).chain(std::iter::repeat(None))).collect();
+        body.visit(&mut |inner| {
+          if let Some(row) = script(inner, &bound) {
+            record(inner as *const Expr, row);
+          }
+        });
+      }
+    }
+  });
+  found.into_iter().map(|(_, row)| row).collect()
+}

@@ -75,6 +75,8 @@ The same file shows the session defaults folded in. `session.saved` is written p
 | Layouts as composition | both layouts render on the server alone: a click to another talk keeps the masthead, the crumbs and the saved count's state and replaces the talk; `tests/navigation.spec.tsx` |
 | A page's own state moved into an island | the talk page's `useState` and the button that sets it become `routes/talk/[id]/page.island0.tsx`, listed under `extracted` in the report; the page around it stays `static` |
 | An island of every owner on one page | `/venue`: `Saved` in the layout hydrates under React, `LocalClock` mounts fresh under React, `Floors.vue` hydrates under Vue, `talk-count` defines itself and `AskDesk` steps on the server, while the page is server markup; `tests/venue.spec.tsx` |
+| A navigation animated by the browser | `enableNavigation({ transitions: true })` in `src/main.ts`; the masthead has a `view-transition-name` in `styles/conference.css`, so it holds still while the page crossfades |
+| A script only one route loads | the venue loader's `meta` declares `scriptTag("/static/demo/venue-map.js", "interaction")`: the stand-in map widget under `demo/` loads on the first key or click on `/venue`, once, whether the page was loaded or navigated to |
 
 The island timings are the one thing the test suite cannot tell apart, since the spec harness reports every observed element as in view. Scroll the talk page in a browser instead: the pace control hydrates when it comes into view and not before.
 

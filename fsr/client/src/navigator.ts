@@ -1,3 +1,4 @@
+import { loadMarkedScript } from "./script.js";
 import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
@@ -374,8 +375,9 @@ let documentPath = "";
 /** True while `current` is the sidecar the document shipped, which the fill script rewrites as streamed segments land; false once a payload has replaced it. */
 let documentSidecar = false;
 
-/** Sets the document's title and description meta from a payload's `H` row; a field the row left out is left alone. */
+/** Sets the document's title and description meta from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
 export function applyHead(head: Head): void {
+  for (const script of head.scripts ?? []) loadMarkedScript(script);
   if (head.title !== undefined) document.title = head.title;
   if (head.description !== undefined) {
     let meta = document.head.querySelector('meta[name="description"]');

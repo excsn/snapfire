@@ -12,7 +12,7 @@ use crate::store::Contribution;
 
 /// Installed once, ahead of the first fill. Moves a resolved template's content
 /// into its slot and wakes the boot runtime to rescan.
-pub const FILL_SCRIPT: &str = "<script>function __sfFill(n,g){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}</script>";
+pub const FILL_SCRIPT: &str = "<script>function __sfFill(n,g){var t=document.querySelector('template[data-sf-fill=\"'+n+'\"]'),s=document.querySelector('[data-sf-slot=\"'+n+'\"]');if(t&&s){s.replaceWith(t.content);t.remove();if(g){var c=document.querySelector('script[data-sf-segments]');if(c){try{var j=JSON.parse(c.textContent),q=[j];while(q.length){var x=q.shift();if(x.s===n){x.c=g;break}q.push.apply(q,x.c)}c.textContent=JSON.stringify(j)}catch(e){}}}document.dispatchEvent(new CustomEvent('sf:fill',{detail:n}))}}function __sfHead(h){if(h.title!=null)document.title=h.title;if(h.description!=null){var m=document.querySelector('meta[name=\"description\"]');if(!m){m=document.createElement('meta');m.name='description';document.head.appendChild(m)}m.content=h.description}(h.scripts||[]).forEach(function(a){var f=window.__sf&&window.__sf.script;if(f){f(a);return}var e=document.createElement('script');for(var k in a)e.setAttribute(k,a[k]);document.head.appendChild(e)})}function __sfStore(o){var g=window;if(g.__sfSeedApply){g.__sfSeedApply(o)}else{(g.__sfSeed=g.__sfSeed||[]).push(o)}}</script>";
 
 /// The `T` row's body and the seed script's: one entry per seeding segment,
 /// `k` its key, `p` the slot names from the root to it and `v` what it seeded
@@ -49,7 +49,9 @@ fn seed_script(contributions: &[Contribution]) -> String {
 }
 
 /// The `H` row's body: only the fields a segment set, so a reader leaves
-/// the rest alone.
+/// the rest alone. `scripts` carries the attributes of each script row the
+/// segments' `meta` declared, which a navigation loads since it adds no
+/// head markup.
 pub fn meta_to_json(meta: &Meta) -> Json {
   let mut obj = serde_json::Map::new();
   if let Some(title) = &meta.title {
@@ -57,6 +59,10 @@ pub fn meta_to_json(meta: &Meta) -> Json {
   }
   if let Some(description) = &meta.description {
     obj.insert("description".to_owned(), json!(description));
+  }
+  let scripts: Vec<Json> = meta.head.iter().filter(|el| el.is_script()).map(|el| Json::Object(el.attrs.iter().map(|(k, v)| (k.clone(), json!(v))).collect())).collect();
+  if !scripts.is_empty() {
+    obj.insert("scripts".to_owned(), Json::Array(scripts));
   }
   Json::Object(obj)
 }

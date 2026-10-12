@@ -128,6 +128,8 @@ pub enum BuildError {
   TemplateIsland { file: PathBuf, line: usize },
   #[error("{0} exports `paths`, which only a page loader may: a layout or a slot has no parameter set of its own")]
   PathsOffPage(String),
+  #[error("{0}: a head `script` in `meta` carries inline code; give it a `src` or put the code in a module `src/main.ts` imports")]
+  InlineScript(String),
   #[error("{module} exports `paths` but its route `{pattern}` has no parameter to enumerate")]
   PathsWithoutParameter { module: String, pattern: String },
   #[error("{path}: `{file}` names slot `{slot}`, which no layout above it declares")]
@@ -826,6 +828,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       let loader_module = format!("{rel}/layout.loader.ts");
       let body = lowered!(set.lower_loader(&loader_module));
       let meta = lowered!(set.lower_meta(&loader_module));
+      refuse_inline_scripts(&loader_module, meta.as_ref())?;
       let store = lowered!(set.lower_store(&loader_module));
       let defaults = lowered!(set.lower_defaults(&loader_module));
       if lowered!(set.lower_paths(&loader_module)).is_some() {
@@ -864,6 +867,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
         let loader_module = format!("{slot_rel}/page.loader.ts");
         let body = lowered!(set.lower_loader(&loader_module));
         let meta = lowered!(set.lower_meta(&loader_module));
+        refuse_inline_scripts(&loader_module, meta.as_ref())?;
         let store = lowered!(set.lower_store(&loader_module));
       let defaults = lowered!(set.lower_defaults(&loader_module));
         if lowered!(set.lower_paths(&loader_module)).is_some() {
@@ -937,6 +941,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       let module = format!("{rel}/page.loader.ts");
       let body = lowered!(set.lower_loader(&module));
       let meta = lowered!(set.lower_meta(&module));
+      refuse_inline_scripts(&module, meta.as_ref())?;
       let store = lowered!(set.lower_store(&module));
       let defaults = lowered!(set.lower_defaults(&module));
       let paths = lowered!(set.lower_paths(&module));
@@ -1719,6 +1724,11 @@ export function metaTag(name: string, content: string): HeadEl {
 /** One `<link>` element. */
 export function linkTag(rel: string, href: string): HeadEl {
   return { tag: "link", rel, href };
+}
+
+/** A script the page loads once per document, whether it arrives with the first paint or a navigation: now, once the main thread is idle or on the visitor's first interaction. Its origin is added to the policy's `script-src`. */
+export function scriptTag(src: string, when?: "load" | "idle" | "interaction"): HeadEl {
+  return { tag: "script", src, when };
 }
 
 /** An Open Graph property: `og("title", t)` is `<meta property="og:title">`. */
@@ -3195,4 +3205,14 @@ fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
   let pattern = if segments.is_empty() { "/".to_owned() } else { format!("/{}", segments.join("/")) };
   let id = if id_parts.is_empty() { "$root".to_owned() } else { id_parts.join(".") };
   Ok((pattern, id))
+}
+
+/// A head script with inline code is refused: a navigation inserts head rows
+/// as data the client loads by `src`, so the code would run on a document load
+/// and never after a navigation.
+fn refuse_inline_scripts(module: &str, meta: Option<&snapfire_fsr_ir::Body>) -> Result<(), BuildError> {
+  match meta.is_some_and(|body| snapfire_fsr_ir::ast::head_scripts(body).iter().any(|script| script.inline)) {
+    true => Err(BuildError::InlineScript(module.to_owned())),
+    false => Ok(()),
+  }
 }

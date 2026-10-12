@@ -389,6 +389,8 @@ A deferred slot's eventual content.
 
 * `pub fn is_empty(&self) -> bool`
 
+`HeadEl::script(attrs: Vec<(String, String)>, children: Option<String>) -> Result<HeadEl, String>` turns a `meta` head entry whose `tag` is `script` into the element a document carries: `type="text/plain"`, `data-sf-script` holding `when` (`load` by default, else `idle` or `interaction`, `SCRIPT_WHEN`), `data-src` holding `src`, `data-type` holding `type` and every other attribute as written. `Err` for no `src`, an inline body or another `when`. `HeadEl::is_script` is true of the result. The lowered `meta` evaluator builds every script entry this way.
+
 ### `Metadata`
 
 `pub trait Metadata: Send + Sync`. Registered on the runtime under a data source id.
@@ -674,7 +676,7 @@ The wire encoding of a streamed response. The first item is the eager wave, newl
 
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
-* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` has a title or a description.
+* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set and `scripts`, the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `meta_from_json` reads `scripts` back into `head`, so a shell splicing a remote site keeps them.
 * `T <contributions json>`, from [`contributions_to_json`](#contributions_to_json), when `assembly.contributions` is not empty.
 * `L <json string>`, the locale tag, when `assembly.locale` has one.
 * `E "<src>"`, when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
