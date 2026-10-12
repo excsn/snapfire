@@ -51,6 +51,11 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
   }
   out.extend(manifest.components.iter().map(component_to_sx));
   out.extend(manifest.derives.iter().map(derive_to_sx));
+  for entry in &manifest.heads {
+    let mut rest = vec![sym(entry.module.clone())];
+    rest.extend(entry.head.iter().map(head_row_to_sx));
+    out.push(form("module-head", rest));
+  }
   for entry in &manifest.clients {
     let mut rest = vec![sym(entry.module.clone()), Sx::Str(entry.at.clone()), Sx::Str(entry.message.clone())];
     if let Some(hint) = &entry.hint {
@@ -64,15 +69,27 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
 fn component_to_sx(entry: &ComponentEntry) -> Sx {
   let mut rest = vec![sym(entry.module.clone())];
   rest.extend(component_sections(&entry.body));
-  for row in &entry.head {
-    let mut terms = vec![sym(row.tag.clone())];
-    for (name, value) in &row.attrs {
-      terms.push(Sx::Str(name.clone()));
-      terms.push(Sx::Str(value.clone()));
-    }
-    rest.push(form("head", terms));
-  }
+  rest.extend(entry.head.iter().map(head_row_to_sx));
   form("component", rest)
+}
+
+fn head_row_to_sx(row: &HeadRow) -> Sx {
+  let mut terms = vec![sym(row.tag.clone())];
+  for (name, value) in &row.attrs {
+    terms.push(Sx::Str(name.clone()));
+    terms.push(Sx::Str(value.clone()));
+  }
+  form("head", terms)
+}
+
+fn head_row_from_sx(row: &Sx) -> Res<HeadRow> {
+  let terms = as_list(row)?;
+  if head_of(row)? != "head" || terms.len() < 2 || terms.len() % 2 != 0 {
+    return Err(err("a head row is `(head tag \"name\" \"value\" ...)`"));
+  }
+  let tag = as_sym(&terms[1])?;
+  let attrs = terms[2..].chunks(2).map(|pair| Ok((as_sym(&pair[0])?, as_sym(&pair[1])?))).collect::<Result<Vec<_>, _>>()?;
+  Ok(HeadRow { tag, attrs })
 }
 
 fn derive_to_sx(entry: &DeriveEntry) -> Sx {
@@ -118,6 +135,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     frameworks: Default::default(),
     reads: Default::default(),
     derives: Vec::new(),
+    heads: Vec::new(),
   };
   let mut versioned = false;
   for sx in forms {
@@ -178,16 +196,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         if !named && manifest.version < crate::OWNERS_NAMED {
           sections.push(form("owner", vec![sym("react".to_owned())]));
         }
-        let mut head = Vec::new();
-        for row in heads {
-          let terms = as_list(row)?;
-          if terms.len() < 2 || terms.len() % 2 != 0 {
-            return Err(err("a head row is `(head tag \"name\" \"value\" ...)`"));
-          }
-          let tag = as_sym(&terms[1])?;
-          let attrs = terms[2..].chunks(2).map(|pair| Ok((as_sym(&pair[0])?, as_sym(&pair[1])?))).collect::<Result<Vec<_>, _>>()?;
-          head.push(HeadRow { tag, attrs });
-        }
+        let head = heads.into_iter().map(head_row_from_sx).collect::<Res<Vec<_>>>()?;
         manifest.components.push(ComponentEntry {
           module: as_sym(&items[1])?,
           body: component_from_sections(&sections)?,
@@ -214,6 +223,12 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
           _ => (Some(expr_from_sx(&items[3])?), None, None),
         };
         manifest.derives.push(crate::DeriveEntry { key: as_sym(&items[1])?, sources, body, at, why });
+      }
+      "module-head" => {
+        if items.len() < 3 {
+          return Err(err("a module head is `(module-head module (head ...) ...)`"));
+        }
+        manifest.heads.push(crate::ModuleHead { module: as_sym(&items[1])?, head: items[2..].iter().map(head_row_from_sx).collect::<Res<Vec<_>>>()? });
       }
       "client" => {
         if !(4..=5).contains(&items.len()) {

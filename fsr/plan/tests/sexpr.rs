@@ -334,6 +334,13 @@ fn every_manifest() -> Manifest {
       },
       snapfire_fsr_plan::DeriveEntry { key: "clock/now".to_owned(), sources: Vec::new(), body: None, at: Some("src/main.ts:4:1".to_owned()), why: Some("`Date.now`".to_owned()) },
     ],
+    heads: vec![snapfire_fsr_plan::ModuleHead {
+      module: "routes/blog/layout.tsx#default".to_owned(),
+      head: vec![
+        snapfire_fsr_plan::HeadRow { tag: "meta".to_owned(), attrs: vec![("property".to_owned(), "og:image".to_owned()), ("content".to_owned(), "/static/js/app/routes/blog/opengraph-image.1a2b3c4d.png".to_owned())] },
+        snapfire_fsr_plan::HeadRow { tag: "meta".to_owned(), attrs: vec![("property".to_owned(), "og:image:alt".to_owned()), ("content".to_owned(), "A \"quoted\" line".to_owned())] },
+      ],
+    }],
   }
 }
 
@@ -553,6 +560,7 @@ fn manifest() -> BoxedStrategy<Manifest> {
       frameworks: Default::default(),
       reads: Default::default(),
       derives: Vec::new(),
+      heads: Vec::new(),
     })
     .boxed()
 }
@@ -707,9 +715,10 @@ fn a_format_5_plan_still_reads() {
   assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
 }
 
-/// Every `derive` row and every source's `defaults` dropped, which is what a plan written before format 6 carries.
+/// Every `derive` row, every `module-head` row and every source's `defaults` dropped, which is what a plan written before format 6 carries.
 fn forget_derives(manifest: &mut Manifest) {
   manifest.derives.clear();
+  manifest.heads.clear();
   for source in &mut manifest.sources {
     source.defaults = None;
   }

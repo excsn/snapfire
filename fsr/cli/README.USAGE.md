@@ -873,6 +873,9 @@ One thing the runner cannot answer, so a spec must not expect it: the Rust half 
 
 ## Serving Images and Fonts
 
+A route directory's `opengraph-image.png`, with an optional `opengraph-image.alt.txt`, becomes the `og:image` rows of every page under it. A `twitter-image.png` becomes the `twitter:image` rows. A nearer image replaces either. The build serves each as its hashed original with no variant and the host writes the URL against `document.origin`. Guide chapter 108 has the rules.
+
+
 An image a component imports is served under a content hash with a resized variant per width and format. A font under the fonts directory is served with a fallback face sized to match it. Import the image and place it with `Picture`:
 
 ```tsx

@@ -131,6 +131,23 @@ remote = "https://fonts.googleapis.com/css2?family=Fraunces&display=swap"
 
 That key gets no fallback metrics, since there is no file to read, so its text reflows when the face arrives. Every visitor's IP goes to the provider on every page. Vendor when you can.
 
+## A card image beside a route
+
+A link pasted into a chat or a post shows a card. The card's picture is the page's `og:image`. Put the picture beside the route it stands for:
+
+```text
+routes/
+  opengraph-image.png            every page's card
+  blog/
+    opengraph-image.png          the blog's, replacing it under /blog
+    opengraph-image.alt.txt      its alt text
+    twitter-image.png            a separate picture for X's card
+```
+
+The build serves each as its hashed original with no resized variant, since a crawler fetches one URL. It strips the metadata as `[images] strip` says. It writes `og:image` with its width, height and type and `og:image:alt` from the text file. A `twitter-image` gets the same rows under `twitter:image`. X reads the Open Graph image when there is no `twitter-image`, so one file is usually enough. A page sets its own card type with `twitter("card", "summary_large_image")` in its `meta`.
+
+An image covers every route under its directory. A nearer one replaces it. The file wins over an `og("image", ...)` a `meta` returns, as it does in Next. A crawler reads the URL as absolute only, so the host writes it against `document.origin`; set that, or the tag carries a path the card ignores. PNG, JPEG, GIF and WebP are accepted, since those are what the crawlers decode. The build refuses a directory with two pictures of one kind and a picture with no route under it.
+
 ## A CDN in front
 
 A deployment whose static tree a CDN serves sets the base at build time, since the URLs are written into the markup:

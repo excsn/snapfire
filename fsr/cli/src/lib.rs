@@ -130,6 +130,8 @@ pub enum BuildError {
   PathsOffPage(String),
   #[error("{0}: a head `script` in `meta` carries inline code; give it a `src` or put the code in a module `src/main.ts` imports")]
   InlineScript(String),
+  #[error("{0}: {1}")]
+  SocialImage(PathBuf, String),
   #[error("{module} exports `paths` but its route `{pattern}` has no parameter to enumerate")]
   PathsWithoutParameter { module: String, pattern: String },
   #[error("{path}: `{file}` names slot `{slot}`, which no layout above it declares")]
@@ -1373,7 +1375,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       reads.insert(module.clone(), keys);
     }
   }
-  let mut manifest = Manifest::new(entries).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
+  let social = social_images(app, &routes_dir, &resolver)?;
+  let mut manifest = Manifest::new(entries).with_heads(social).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
   manifest.reads = reads;
   let mut composition_files: Vec<(String, Vec<String>)> = Vec::new();
   for component in manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")) {
@@ -3114,6 +3117,97 @@ fn discover(root: &Path, dir: &Path, out: &mut Vec<Route>, handlers: &mut Vec<Ro
       continue;
     }
     discover(root, &child, out, handlers)?;
+  }
+  Ok(())
+}
+
+/// The image files a crawler's card reads beside a route, by stem: Open Graph's and Twitter's.
+const SOCIAL_IMAGES: [(&str, &str); 2] = [("opengraph-image", "og"), ("twitter-image", "twitter")];
+
+/// What a social card's crawler decodes.
+const SOCIAL_IMAGE_TYPES: [(&str, &str); 5] = [("png", "image/png"), ("jpg", "image/jpeg"), ("jpeg", "image/jpeg"), ("gif", "image/gif"), ("webp", "image/webp")];
+
+/// The head rows of every `opengraph-image.<ext>` and `twitter-image.<ext>`
+/// under `routes/`, covering every route under its directory, a nearer image
+/// replacing them. They go on the module of the directory's layout, which
+/// every route beneath it renders, or without one on each page beneath it
+/// that no nearer image covers. `<stem>.alt.txt` beside one is its alt text.
+/// Each image is served as its hashed original.
+fn social_images(app: &Path, routes: &Path, resolver: &assets::Resolver) -> Result<Vec<snapfire_fsr_plan::ModuleHead>, BuildError> {
+  let mut found = Vec::new();
+  image_dirs(app, routes, resolver, &mut found)?;
+  let module = |dir: &Path, file: String| format!("{}/{file}#default", dir.strip_prefix(app).unwrap_or(dir).to_string_lossy().replace('\\', "/"));
+  let mut out = Vec::new();
+  for (dir, head) in &found {
+    if let Some(file) = layout_file(dir)? {
+      out.push(snapfire_fsr_plan::ModuleHead { module: module(dir, file), head: head.clone() });
+      continue;
+    }
+    let mut pages = Vec::new();
+    pages_under(dir, &mut pages)?;
+    let covered: Vec<&PathBuf> = pages.iter().filter(|page| !found.iter().any(|(other, _)| other != dir && other.starts_with(dir) && page.starts_with(other))).collect();
+    if covered.is_empty() {
+      return Err(BuildError::SocialImage(dir.clone(), "a card image covers the routes under its directory, and there is none".to_owned()));
+    }
+    for page in covered {
+      let file = page_file(page)?.expect("a page directory holds a page");
+      out.push(snapfire_fsr_plan::ModuleHead { module: module(page, file), head: head.clone() });
+    }
+  }
+  Ok(out)
+}
+
+/// Every directory under `dir` holding a card image, with the rows it writes.
+fn image_dirs(app: &Path, dir: &Path, resolver: &assets::Resolver, out: &mut Vec<(PathBuf, Vec<snapfire_fsr_plan::HeadRow>)>) -> Result<(), BuildError> {
+  let mut children: Vec<PathBuf> = std::fs::read_dir(dir).map_err(|e| BuildError::Io(dir.to_path_buf(), e))?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+  children.sort();
+  let mut head = Vec::new();
+  for (stem, prefix) in SOCIAL_IMAGES {
+    let found: Vec<&PathBuf> = children.iter().filter(|p| p.is_file() && p.file_stem().is_some_and(|s| s == stem)).collect();
+    let file = match found.as_slice() {
+      [] => continue,
+      [one] => *one,
+      [first, second, ..] => return Err(BuildError::SocialImage(dir.to_path_buf(), format!("`{}` and `{}` are both its {stem}; keep one", first.display(), second.display()))),
+    };
+    let ext = file.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
+    let Some((_, mime)) = SOCIAL_IMAGE_TYPES.iter().find(|(e, _)| *e == ext) else {
+      return Err(BuildError::SocialImage(file.clone(), format!("a card image is png, jpg, gif or webp, which a crawler decodes, not `{ext}`")));
+    };
+    let rel = file.strip_prefix(app).unwrap_or(file).to_string_lossy().replace('\\', "/");
+    let Some(facts) = resolver.original(&rel) else {
+      let why = resolver.refused.borrow().iter().rev().find(|(p, _)| *p == rel).map(|(_, why)| why.clone()).unwrap_or_else(|| "not an image this build reads".to_owned());
+      return Err(BuildError::SocialImage(file.clone(), why));
+    };
+    let (key, field) = if prefix == "og" { ("property", "og:image") } else { ("name", "twitter:image") };
+    let row = |name: String, content: String| snapfire_fsr_plan::HeadRow { tag: "meta".to_owned(), attrs: vec![(key.to_owned(), name), ("content".to_owned(), content)] };
+    head.push(row(field.to_owned(), facts.src));
+    head.push(row(format!("{field}:width"), facts.width.to_string()));
+    head.push(row(format!("{field}:height"), facts.height.to_string()));
+    head.push(row(format!("{field}:type"), (*mime).to_owned()));
+    let alt = dir.join(format!("{stem}.alt.txt"));
+    if alt.is_file() {
+      let text = std::fs::read_to_string(&alt).map_err(|e| BuildError::Io(alt.clone(), e))?;
+      head.push(row(format!("{field}:alt"), text.trim().to_owned()));
+    }
+  }
+  if !head.is_empty() {
+    out.push((dir.to_path_buf(), head));
+  }
+  for child in children.iter().filter(|p| p.is_dir() && p.file_name().is_some_and(|n| n != "slots")) {
+    image_dirs(app, child, resolver, out)?;
+  }
+  Ok(())
+}
+
+/// `dir` and every directory under it that holds a page.
+fn pages_under(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildError> {
+  if page_file(dir)?.is_some() {
+    out.push(dir.to_path_buf());
+  }
+  let mut children: Vec<PathBuf> = std::fs::read_dir(dir).map_err(|e| BuildError::Io(dir.to_path_buf(), e))?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.is_dir() && p.file_name().is_some_and(|n| n != "slots")).collect();
+  children.sort();
+  for child in children {
+    pages_under(&child, out)?;
   }
   Ok(())
 }

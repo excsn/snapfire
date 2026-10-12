@@ -227,15 +227,27 @@ fn dir_prefix(dir: &str) -> String {
   if dir.is_empty() { String::new() } else { format!("{dir}/") }
 }
 
-impl AssetResolver for Resolver {
-  fn image(&self, path: &str, request: &ImageRequest) -> Option<ImageFacts> {
+impl Resolver {
+  /// The hashed original of the image at `path` and no variant of it, for a
+  /// reader that fetches one URL: a social card's crawler.
+  pub fn original(&self, path: &str) -> Option<ImageFacts> {
+    if !self.record(path) {
+      return None;
+    }
+    let seen = self.seen.borrow();
+    let entry = seen.get(path).expect("just recorded");
+    Some(ImageFacts { src: entry.src.clone(), width: entry.width, height: entry.height, sources: Vec::new() })
+  }
+
+  /// Reads `path` into `seen` once, false when it is no image this build reads.
+  fn record(&self, path: &str) -> bool {
     let file = self.app.join(path);
     if !file.is_file() {
-      return None;
+      return false;
     }
     let mut seen = self.seen.borrow_mut();
     if !seen.contains_key(path) {
-      let mut bytes = std::fs::read(&file).ok()?;
+      let Ok(mut bytes) = std::fs::read(&file) else { return false };
       let mut stripped = false;
       if self.sections.images.strip {
         match strip::strip(&bytes) {
@@ -246,7 +258,7 @@ impl AssetResolver for Resolver {
           Ok(None) => {}
           Err(e) => {
             self.refused.borrow_mut().push((path.to_owned(), e));
-            return None;
+            return false;
           }
         }
       }
@@ -255,7 +267,7 @@ impl AssetResolver for Resolver {
         Ok(size) => size,
         Err(e) => {
           self.refused.borrow_mut().push((path.to_owned(), e.to_string()));
-          return None;
+          return false;
         }
       };
       let passthrough = image::passthrough(&file).unwrap_or(true);
@@ -266,7 +278,17 @@ impl AssetResolver for Resolver {
       let src = self.url(self.sections.images.base.as_deref(), &format!("{}{}", dir_prefix(&dir), hash::emitted_name(&stem, &digest, &ext)));
       seen.insert(path.to_owned(), Seen { src, hash: digest, width, height, passthrough, stripped, dir, stem, ext, widths: BTreeSet::new(), quality: BTreeMap::new() });
     }
-    let entry = seen.get_mut(path).expect("just inserted");
+    true
+  }
+}
+
+impl AssetResolver for Resolver {
+  fn image(&self, path: &str, request: &ImageRequest) -> Option<ImageFacts> {
+    if !self.record(path) {
+      return None;
+    }
+    let mut seen = self.seen.borrow_mut();
+    let entry = seen.get_mut(path).expect("just recorded");
     let policy = match &request.widths {
       Some(widths) => self.policy.clone().with_widths(widths.clone()),
       None => self.policy.clone(),

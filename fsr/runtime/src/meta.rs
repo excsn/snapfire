@@ -238,6 +238,10 @@ impl Head {
   /// one is not a weaker version of the tag but an ignored one.
   const ABSOLUTE_RELS: [&'static str; 2] = ["canonical", "alternate"];
 
+  /// Every `meta` whose `content` a social card's crawler fetches as a URL,
+  /// by its `property` or `name`.
+  const ABSOLUTE_CONTENT: [&'static str; 7] = ["og:image", "og:image:url", "og:image:secure_url", "og:url", "og:video", "og:audio", "twitter:image"];
+
   /// The head node for a document: `rest`, then the title and description
   /// with `meta` overriding the defaults, then the response's own stylesheets
   /// last so they override what the document already links.
@@ -290,12 +294,16 @@ impl Head {
     }
     if let Some(origin) = &self.origin {
       for element in &mut merged.head {
-        let rel = element.attrs.iter().find(|(k, _)| k == "rel").map(|(_, v)| v.as_str());
-        if !rel.is_some_and(|rel| Self::ABSOLUTE_RELS.contains(&rel)) {
+        let attr = |key: &str| element.attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());
+        let field = if attr("rel").is_some_and(|rel| Self::ABSOLUTE_RELS.contains(&rel)) {
+          "href"
+        } else if element.tag == "meta" && attr("property").or(attr("name")).is_some_and(|name| Self::ABSOLUTE_CONTENT.contains(&name)) {
+          "content"
+        } else {
           continue;
-        }
+        };
         for (name, value) in element.attrs.iter_mut() {
-          if name == "href" && is_path(value) {
+          if name == field && is_path(value) {
             *value = format!("{origin}{value}");
           }
         }
@@ -424,6 +432,24 @@ mod tests {
       },
       other => panic!("{other:?}"),
     }
+  }
+
+  #[test]
+  fn a_card_image_path_is_written_against_the_origin() {
+    let mut head = Head::new("t", Node::raw(""));
+    head.origin = Some("https://shop.example".to_owned());
+    let meta = Meta {
+      head: vec![
+        el("meta", &[("property", "og:image"), ("content", "/static/og.1a2b3c4d.png")]),
+        el("meta", &[("name", "twitter:image"), ("content", "https://cdn.example/t.png")]),
+        el("meta", &[("property", "og:image:alt"), ("content", "/not/a/url")]),
+      ],
+      ..Meta::default()
+    };
+    let html = tail(&head, &meta);
+    assert!(html.contains(r#"content="https://shop.example/static/og.1a2b3c4d.png""#), "{html}");
+    assert!(html.contains(r#"content="https://cdn.example/t.png""#), "an absolute one is left as written: {html}");
+    assert!(html.contains(r#"content="/not/a/url""#), "only a property a crawler fetches: {html}");
   }
 
   #[test]

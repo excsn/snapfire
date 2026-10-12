@@ -107,6 +107,18 @@ pub struct Manifest {
   /// in the order the browser files declare them.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub derives: Vec<DeriveEntry>,
+  /// Head rows for a module the build knows from a file beside it rather than
+  /// from lowering it: a route directory's `opengraph-image`. Merged with a
+  /// component's own rows under the same module.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub heads: Vec<ModuleHead>,
+}
+
+/// The head rows one module carries whatever renders it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleHead {
+  pub module: String,
+  pub head: Vec<HeadRow>,
 }
 
 /// A derived store key: what it is computed from and how. A row without a
@@ -507,7 +519,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new(), heads: Vec::new() }
   }
 
   /// The constants bodies read by name.
@@ -567,6 +579,11 @@ impl Manifest {
 
   pub fn with_components(mut self, components: Vec<ComponentEntry>) -> Self {
     self.components = components;
+    self
+  }
+
+  pub fn with_heads(mut self, heads: Vec<ModuleHead>) -> Self {
+    self.heads = heads;
     self
   }
 
@@ -763,7 +780,7 @@ impl Manifest {
         namespace_node(not_found, &prefix, shell);
       }
     }
-    for key in ["sources", "actions", "handlers", "components", "clients"] {
+    for key in ["sources", "actions", "handlers", "components", "clients", "heads"] {
       for row in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
         for field in ["id", "module", "input"] {
           if let Some(value) = row.get_mut(field) {

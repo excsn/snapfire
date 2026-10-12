@@ -313,6 +313,13 @@
   (sources "order/price" "order/qty")
   (* (?? (store order/price) 0.0) (?? (store order/qty) 0.0)))
 (derive "clock/now" (sources) (browser "src/main.ts:4:1" "`Date.now`"))
+(module-head routes/blog/layout.tsx#default
+  (head meta
+    "property"
+    "og:image"
+    "content"
+    "/static/js/app/routes/blog/opengraph-image.1a2b3c4d.png")
+  (head meta "property" "og:image:alt" "content" "A \"quoted\" line"))
 (client routes/stars/page.tsx#default
   "src/ui/Stars.tsx:2:17"
   "`.slice()`, which is not a builtin"
