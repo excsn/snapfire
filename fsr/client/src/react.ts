@@ -514,11 +514,43 @@ function rootElement(element: ReactElement, el: Element): ReactElement {
   return suspending.has(el) ? createElement(Suspense, { fallback: null }, element) : element;
 }
 
+/** What a hydrated root renders, held outside it, and whether its hydration has committed. React 18 abandons hydration and renders the root from scratch when `render` or `unmount` is called on it before hydration commits, which a navigation patching or discarding an island that is still hydrating does. A patch writes `element` instead and `useSyncExternalStore` applies it: the server's element during hydration, the latest one after. An unmount waits for `committed`. */
+interface Held {
+  element: ReactElement;
+  listeners: Set<() => void>;
+  done: boolean;
+  committed: Promise<void>;
+  commit: () => void;
+}
+
+const held = new WeakMap<Element, Held>();
+const heldByRoot = new WeakMap<Root, Held>();
+
+function HydratedRoot({ box, initial }: { box: Held; initial: ReactElement }): ReactElement {
+  const subscribe = useCallback((listener: () => void) => {
+    box.listeners.add(listener);
+    return () => box.listeners.delete(listener);
+  }, [box]);
+  useEffect(() => box.commit(), [box]);
+  return useSyncExternalStore(subscribe, () => box.element, () => initial);
+}
+
 export const reactMounter: Mounter = (component, props, el, hydrate) => {
   const element = islandElement(component, props, el, false);
   if (hydrate) {
-    return hydrateRoot(el, element);
+    let commit = () => {};
+    const committed = new Promise<void>((resolve) => (commit = resolve));
+    const box: Held = { element, listeners: new Set(), done: false, committed, commit: () => {} };
+    box.commit = () => {
+      box.done = true;
+      commit();
+    };
+    held.set(el, box);
+    const root = hydrateRoot(el, createElement(HydratedRoot, { box, initial: element }));
+    heldByRoot.set(root, box);
+    return root;
   }
+  held.delete(el);
   suspending.add(el);
   const root = createRoot(el);
   root.render(rootElement(element, el));
@@ -527,11 +559,24 @@ export const reactMounter: Mounter = (component, props, el, hydrate) => {
 
 export const reactPatcher: Patcher = (handle, component, props, el) => {
   patchChildren(el, islandState(el)?.children ?? null);
-  (handle as Root).render(rootElement(islandElement(component, props, el, true), el));
+  const element = rootElement(islandElement(component, props, el, true), el);
+  const box = held.get(el);
+  if (box === undefined) {
+    (handle as Root).render(element);
+    return;
+  }
+  box.element = element;
+  for (const listener of Array.from(box.listeners)) listener();
 };
 
 export const reactUnmounter: Unmounter = (handle) => {
-  (handle as Root).unmount();
+  const root = handle as Root;
+  const box = heldByRoot.get(root);
+  if (box === undefined || box.done) {
+    root.unmount();
+    return;
+  }
+  void box.committed.then(() => root.unmount());
 };
 
 /** The template dialect's context where an island reaches a template file: the build points that file's import of the dialect here, so its contexts are React's and `use` is `useContext`. */

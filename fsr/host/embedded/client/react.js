@@ -426,11 +426,45 @@ function rootElement(element, el) {
         fallback: null
     }, element) : element;
 }
+const held = new WeakMap();
+const heldByRoot = new WeakMap();
+function HydratedRoot({ box, initial }) {
+    const subscribe = useCallback((listener)=>{
+        box.listeners.add(listener);
+        return ()=>box.listeners.delete(listener);
+    }, [
+        box
+    ]);
+    useEffect(()=>box.commit(), [
+        box
+    ]);
+    return useSyncExternalStore(subscribe, ()=>box.element, ()=>initial);
+}
 export const reactMounter = (component, props, el, hydrate)=>{
     const element = islandElement(component, props, el, false);
     if (hydrate) {
-        return hydrateRoot(el, element);
+        let commit = ()=>{};
+        const committed = new Promise((resolve)=>commit = resolve);
+        const box = {
+            element,
+            listeners: new Set(),
+            done: false,
+            committed,
+            commit: ()=>{}
+        };
+        box.commit = ()=>{
+            box.done = true;
+            commit();
+        };
+        held.set(el, box);
+        const root = hydrateRoot(el, createElement(HydratedRoot, {
+            box,
+            initial: element
+        }));
+        heldByRoot.set(root, box);
+        return root;
     }
+    held.delete(el);
     suspending.add(el);
     const root = createRoot(el);
     root.render(rootElement(element, el));
@@ -438,10 +472,23 @@ export const reactMounter = (component, props, el, hydrate)=>{
 };
 export const reactPatcher = (handle, component, props, el)=>{
     patchChildren(el, islandState(el)?.children ?? null);
-    handle.render(rootElement(islandElement(component, props, el, true), el));
+    const element = rootElement(islandElement(component, props, el, true), el);
+    const box = held.get(el);
+    if (box === undefined) {
+        handle.render(element);
+        return;
+    }
+    box.element = element;
+    for (const listener of Array.from(box.listeners))listener();
 };
 export const reactUnmounter = (handle)=>{
-    handle.unmount();
+    const root = handle;
+    const box = heldByRoot.get(root);
+    if (box === undefined || box.done) {
+        root.unmount();
+        return;
+    }
+    void box.committed.then(()=>root.unmount());
 };
 export { createContext, useContext as use };
 //# sourceMappingURL=react.js.map
