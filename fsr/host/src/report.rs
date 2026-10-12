@@ -32,6 +32,9 @@ pub struct HostReport {
   pub client: Option<(&'static str, usize, usize, bool)>,
   /// Where prerendered documents are read from, when configured.
   pub prerender: Option<PathBuf>,
+  /// Whether that directory holds documents another build wrote, which the
+  /// host ignores until a prerender from this build replaces them.
+  pub prerender_stale: bool,
   /// How many of `app.warmable`'s keys the prerender directory answered at
   /// boot. Zero with sources listed means the warm pass has not run.
   pub warmed: usize,
@@ -187,6 +190,7 @@ impl std::fmt::Display for HostReport {
       let who = if anonymous { " for anonymous visitors" } else { "" };
       let each = if self.app.paths.contains(pattern) { " per paths" } else { "" };
       match &self.prerender {
+        Some(dir) if self.prerender_stale => writeln!(f, "{label:<9} {pattern:<22} {} written by another build, rendered live until fsr prerender runs{who}{each}", dir.display())?,
         Some(dir) => writeln!(f, "{label:<9} {pattern:<22} {}{who}{each}", dir.display())?,
         None => writeln!(f, "{label:<9} {pattern:<22} not configured{who}{each}")?,
       }

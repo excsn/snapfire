@@ -10,6 +10,42 @@ pub const LOADS_FILE: &str = "loads.json";
 /// to the directory, which the next run removes before writing its own.
 pub const WRITTEN_FILE: &str = "prerendered.json";
 
+/// Beside the prerendered documents: the build they were rendered from, as
+/// `build_of` names it. A host booting another build ignores the directory.
+pub const BUILD_FILE: &str = "prerender.build";
+
+/// What a prerendered page is rendered from: the plan and every mounted
+/// site's, the templates the host reads at boot and each assets manifest,
+/// hashed. The configuration and the import map are left out, since a
+/// directory prerendered under development's is served under production's,
+/// whose import map names the minified client.
+pub(crate) fn build_of(plans: &[&str], apps: &[&Path]) -> Result<String, HostError> {
+  use sha2::Digest;
+  let mut hash = sha2::Sha256::new();
+  for plan in plans {
+    hash.update(b"plan\0");
+    hash.update(plan.as_bytes());
+  }
+  for app in apps {
+    for file in crate::template_files(app)? {
+      hash.update(file.strip_prefix(app).unwrap_or(&file).to_string_lossy().as_bytes());
+      hash.update(b"\0");
+      hash.update(std::fs::read(&file).map_err(|e| HostError::Io(file.clone(), e))?);
+    }
+    if let Ok(assets) = std::fs::read(app.join(crate::assets::ASSETS_FILE)) {
+      hash.update(b"assets\0");
+      hash.update(assets);
+    }
+  }
+  Ok(hash.finalize().iter().take(8).map(|b| format!("{b:02x}")).collect())
+}
+
+/// Whether `dir` holds a prerender written by a build other than `build`:
+/// one that listed its files and named another build or none.
+pub(crate) fn written_by_another(dir: &Path, build: &str) -> bool {
+  dir.join(WRITTEN_FILE).is_file() && std::fs::read_to_string(dir.join(BUILD_FILE)).ok().as_deref().map(str::trim) != Some(build)
+}
+
 /// Beside `loads.json`: every subtree a build rendered ahead of a request,
 /// under the memo key a request composes for it, which a boot reads into the
 /// render memo in front of whatever `[cache]` configured.
@@ -343,6 +379,12 @@ impl Host {
     let mut listed: Vec<String> = written.iter().filter_map(|(_, file)| relative(file)).collect();
     listed.extend(held.iter().filter_map(|file| relative(file)).filter(|rel| previous.contains(rel)));
     prune(out, &previous, &listed)?;
+    let build = out.join(BUILD_FILE);
+    write_whole(&build, t.build.as_bytes())?;
+    written.push((BUILD_FILE.to_owned(), build));
+    if t.prerendered.as_deref() == Some(out) {
+      t.prerender_current.store(true, std::sync::atomic::Ordering::Release);
+    }
     let file = out.join(WRITTEN_FILE);
     if listed.is_empty() {
       match std::fs::remove_file(&file) {
@@ -417,6 +459,9 @@ impl Host {
     anonymous: bool,
   ) -> Option<String> {
     let dir = t.prerendered.as_ref()?;
+    if !t.prerender_current.load(std::sync::atomic::Ordering::Acquire) {
+      return None;
+    }
     if !anonymous {
       let matched = t.app.matcher.match_path(path).or_else(|| t.app.matcher.match_path(path.trim_end_matches('/')));
       let pattern = matched.and_then(|m| t.app.patterns.get(m.entry.0 as usize));

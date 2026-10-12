@@ -4712,16 +4712,21 @@ async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_
   let renders = std::fs::read_to_string(out.join(snapfire_fsr_host::RENDERS_FILE)).unwrap();
   assert!(renders.contains("routes/help/page.tsx#default|") && renders.contains("ident=-|csrf=-|"), "keyed for everyone: {renders}");
 
-  let mut json: serde_json::Value = serde_json::from_str(CONSOLE_PLAN).unwrap();
-  json["sources"][1]["body"][0]["return"]["object"][0]["field"][1]["lit"]["str"] = serde_json::json!("Help");
-  json["components"][1]["body"]["render"]["element"]["tag"] = serde_json::json!("h2");
-  write_plan_value(&dir, json);
+  std::fs::write(out.join(snapfire_fsr_host::RENDERS_FILE), renders.replace("<h1>Help</h1>", "<h1>Help from the build</h1>")).unwrap();
   let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   assert_eq!(host.report().rendered, 2, "one entry per locale: {}", host.report());
   let response = host.handle(Request::get("/help").body(Bytes::new()).unwrap()).await;
   assert!(response.headers().get("x-sf-prerendered").is_none(), "the document is rendered live");
   let html = body_of(response).await;
-  assert!(html.contains("<h1>Help</h1>") && html.contains("data-who=\"nobody\""), "the page comes from the build's render inside the live layout: {html}");
+  assert!(html.contains("<h1>Help from the build</h1>") && html.contains("data-who=\"nobody\""), "the page comes from the build's render inside the live layout: {html}");
+
+  let mut json: serde_json::Value = serde_json::from_str(CONSOLE_PLAN).unwrap();
+  json["components"][1]["body"]["render"]["element"]["tag"] = serde_json::json!("h2");
+  write_plan_value(&dir, json);
+  let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  assert_eq!(host.report().rendered, 0, "another build's renders are not read: {}", host.report());
+  let html = body_of(host.handle(Request::get("/help").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains("<h2>Help</h2>"), "the changed plan renders live: {html}");
 
   let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
   let html = body_of(host.handle(Request::get("/help").body(Bytes::new()).unwrap()).await).await;

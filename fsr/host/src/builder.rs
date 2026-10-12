@@ -614,6 +614,7 @@ impl HostBuilder {
       true => preload_set(&config, import_map.as_deref(), minified_bundle(&config)),
       false => Vec::new(),
     };
+    let mounted: Vec<(String, PathBuf)> = self.mounts.iter().map(|mount| (mount.artifact.plan.clone(), mount.artifact.config.app.clone())).collect();
     for mount in std::mem::take(&mut self.mounts) {
       let site = mount.artifact.config.site.clone().ok_or_else(|| {
         HostError::Mount(
@@ -866,9 +867,16 @@ impl HostBuilder {
       .prerendered
       .take()
       .or_else(|| config.server.prerender.as_deref().map(|rel| config.resolve(rel)));
+    let mut plans: Vec<&str> = vec![plan.as_str()];
+    plans.extend(mounted.iter().map(|(plan, _)| plan.as_str()));
+    let mut apps: Vec<&Path> = vec![config.app.as_path()];
+    apps.extend(mounted.iter().map(|(_, app)| app.as_path()));
+    let build = build_of(&plans, &apps)?;
+    let prerender_stale = prerendered.as_deref().is_some_and(|dir| written_by_another(dir, &build));
     let warm = Arc::new(WarmLoads::new(
       prerendered
         .as_ref()
+        .filter(|_| !prerender_stale)
         .map(|dir| warm_from_file(&dir.join(LOADS_FILE)))
         .unwrap_or_default(),
     ));
@@ -877,6 +885,7 @@ impl HostBuilder {
     let renders = Arc::new(WarmRenders::new(
       prerendered
         .as_ref()
+        .filter(|_| !prerender_stale)
         .map(|dir| renders_from_file(&dir.join(RENDERS_FILE)))
         .unwrap_or_default(),
       live,
@@ -1114,6 +1123,7 @@ impl HostBuilder {
       statics: static_rows,
       client: serve_client.then(|| (client::ROUTE, client::FILES.len(), client::bytes(client_minified), client_minified)),
       prerender: prerendered.clone(),
+      prerender_stale,
       warmed: warmed_count,
       rendered: rendered_count,
       cache: cache_row,
@@ -1167,6 +1177,8 @@ impl HostBuilder {
         dev_nonce,
         trace_expose: config.trace.as_ref().map(|t| t.expose.clone()).unwrap_or_default(),
         prerendered,
+        build,
+        prerender_current: std::sync::atomic::AtomicBool::new(!prerender_stale),
         warm,
         renders,
         locales,

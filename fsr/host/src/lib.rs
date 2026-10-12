@@ -79,7 +79,7 @@ pub use builder::HostBuilder;
 pub use edge::percent_decoded;
 pub use locale::{Locales, LocalesSection, Resolution};
 pub use mount::{Artifact, Mount};
-pub use prerender::{LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
+pub use prerender::{BUILD_FILE, LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use probe::{Candidate, Probe, ReloadCheck};
 pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use remote_site::{RemoteSite, PAYLOAD_TYPE};
@@ -365,6 +365,13 @@ struct Tables {
   /// own trace of.
   trace_expose: Vec<String>,
   prerendered: Option<PathBuf>,
+  /// The build `prerender::build_of` names for these tables, which a
+  /// prerender writes beside its documents.
+  build: String,
+  /// Whether `prerendered` holds this build's documents: false when the
+  /// directory was written by another build, until a `prerender` from this
+  /// one replaces them.
+  prerender_current: std::sync::atomic::AtomicBool,
   /// The memo the app's runtime reads a warmable source's data from, held
   /// here so a warm pass swaps its contents in before it renders anything.
   warm: Arc<WarmLoads>,
