@@ -873,10 +873,12 @@ impl HostBuilder {
     apps.extend(mounted.iter().map(|(_, app)| app.as_path()));
     let build = build_of(&plans, &apps)?;
     let prerender_stale = prerendered.as_deref().is_some_and(|dir| written_by_another(dir, &build));
+    // Development renders live, so its loads and renders come from the sources rather than the directory's memo.
+    let memo_from_dir = !prerender_stale && !config.dev();
     let warm = Arc::new(WarmLoads::new(
       prerendered
         .as_ref()
-        .filter(|_| !prerender_stale)
+        .filter(|_| memo_from_dir)
         .map(|dir| warm_from_file(&dir.join(LOADS_FILE)))
         .unwrap_or_default(),
     ));
@@ -885,7 +887,7 @@ impl HostBuilder {
     let renders = Arc::new(WarmRenders::new(
       prerendered
         .as_ref()
-        .filter(|_| !prerender_stale)
+        .filter(|_| memo_from_dir)
         .map(|dir| renders_from_file(&dir.join(RENDERS_FILE)))
         .unwrap_or_default(),
       live,

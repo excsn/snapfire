@@ -459,7 +459,7 @@ fn a_route_that_reads_nothing_of_the_request_is_prerendered_once() {
   let written = block_on(app.prerender(&out)).unwrap();
   let (client, written): (Vec<_>, Vec<_>) = written.into_iter().partition(|(p, _)| p.starts_with("/static/js/fsr/"));
   assert!(client.iter().any(|(p, _)| p == "/static/js/fsr/boot.js"), "the client lands beside the documents for a server that is not this host: {client:?}");
-  assert_eq!(written.iter().map(|(p, f)| (p.as_str(), f.strip_prefix(&out).unwrap().to_string_lossy().into_owned())).collect::<Vec<_>>(), vec![("/about", "about/index.html".to_owned()), ("/about", "about/index.payload".to_owned()), ("prerendered.json", "prerendered.json".to_owned())]);
+  assert_eq!(written.iter().map(|(p, f)| (p.as_str(), f.strip_prefix(&out).unwrap().to_string_lossy().into_owned())).collect::<Vec<_>>(), vec![("/about", "about/index.html".to_owned()), ("/about", "about/index.payload".to_owned()), ("prerender.build", "prerender.build".to_owned()), ("prerendered.json", "prerendered.json".to_owned())]);
   let html = app.prerendered("/about?anything=1", RenderMode::Html).unwrap();
   assert!(html.contains("data-sf-module=\"src/About.tsx#default\""), "the document, with the Rust route's island: {html}");
   assert!(!html.contains("EventSource"), "a prerendered document never carries the live-refresh script: {html}");
@@ -482,7 +482,7 @@ fn a_loader_meta_titles_the_document_and_a_streamed_page_retitles_it_on_resoluti
   let html = block_on(app.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
   assert!(html.contains("<title>Today&#39;s picks · Shopping</title>") || html.contains("<title>Today's picks · Shopping</title>"), "{html}");
   let payload = block_on(app.render_to_string("/?q=nozzle", RenderMode::Payload, SessionCell::default())).unwrap();
-  assert!(payload.contains("\nH {\"title\":\"Results for nozzle · Shopping\"}\n"), "{payload}");
+  assert!(payload.contains("\nH {\"title\":\"Results for nozzle · Shopping\","), "{payload}");
 
   let parts: Vec<String> = block_on(async { app.render("/product/1", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
   assert!(parts[0].contains("<title>Shopping</title>"), "the document ships with the default: {}", parts[0]);

@@ -211,6 +211,11 @@ pub fn fragment_of(raw_query: &str) -> Option<Option<String>> {
     .map(|(_, slot)| (!slot.is_empty()).then(|| slot.into_owned()))
 }
 
+/// Whether `raw_query` asks to preview the prerendered page under `dev`.
+pub fn preview_of(raw_query: &str) -> bool {
+  form_urlencoded::parse(raw_query.as_bytes()).any(|(key, _)| key == "__prerendered")
+}
+
 /// Whether `raw_query` asks for the navigator's payload.
 pub fn payload_of(raw_query: &str) -> bool {
   form_urlencoded::parse(raw_query.as_bytes()).any(|(key, _)| key == "__payload")

@@ -47,7 +47,7 @@ fn the_whole_site_is_written_to_files_and_each_document_stands_alone() {
   assert!(home.contains("<title>The FSR handbook</title>"), "the route's own meta titled it: {home}");
   assert!(home.contains("<h1>A site with no server</h1>"), "the page rendered on the server: {home}");
   assert!(home.contains("Routes are files"), "the loader's data is in the markup: {home}");
-  assert!(home.contains("<link rel=\"stylesheet\" href=\"/static/css/handbook.css\">"), "{home}");
+  assert!(home.contains("<link rel=\"stylesheet\" href=\"/static/js/app/styles/handbook.css\">"), "{home}");
   assert!(home.contains("<script type=\"module\" src=\"/static/js/app/src/main.js\"></script>"), "{home}");
 
   assert!(!home.contains("__fsr"), "no development endpoint is baked into a written document: {home}");

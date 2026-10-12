@@ -1384,7 +1384,7 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
 async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_directory() {
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
-  let host = Host::from(localised_dir().join("app.toml"))
+  let host = Host::from(production(localised_dir()).join("app.toml"))
     .unwrap()
     .services_over(transport)
     .prerendered(&out)
@@ -3090,7 +3090,7 @@ async fn catalogs_under_locales_reach_the_document_the_payload_and_t() {
 async fn a_route_reading_only_the_identity_prerenders_for_anonymous_visitors_and_renders_live_for_a_signed_in_one() {
   let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
-  let host = Host::from(identified_dir(USERS).join("app.toml"))
+  let host = Host::from(production(identified_dir(USERS)).join("app.toml"))
     .unwrap()
     .services_over(transport)
     .prerendered(&out)
@@ -3180,7 +3180,7 @@ mod tls {
   /// An app whose `[server.tls]` names a directory and takes the default
   /// `cert.pem` and `key.pem` under it.
   fn app_with_tls(pair: &str, reload: &str) -> PathBuf {
-    let dir = app_dir();
+    let dir = production(app_dir());
     std::fs::create_dir_all(dir.join("certs")).unwrap();
     put(&dir, pair);
     let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace(
@@ -3583,7 +3583,7 @@ async fn a_warmed_load_answers_a_route_the_layout_keeps_dynamic() {
   assert!(warmed.get("console.layout").is_none(), "{warmed}");
 
   let moved = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("moved on")])));
-  let warm = Host::from(app_dir().join("app.toml"))
+  let warm = Host::from(production(app_dir()).join("app.toml"))
     .unwrap()
     .services_over(moved.clone())
     .prerendered(&out)
@@ -3653,7 +3653,7 @@ async fn a_source_reading_the_request_is_never_warmed() {
 
 #[tokio::test]
 async fn a_second_warm_pass_writes_documents_from_the_loads_it_just_took() {
-  let app = app_dir();
+  let app = production(app_dir());
   let out = std::env::temp_dir().join(format!("fsr-host-warm-{}-{}", std::process::id(), rand_suffix()));
   let first = Host::from(app.join("app.toml"))
     .unwrap()
@@ -3909,6 +3909,16 @@ fn app_dir_with(extra: &str) -> PathBuf {
   let mut toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
   toml.push_str(extra);
   std::fs::write(dir.join("app.toml"), toml).unwrap();
+  dir
+}
+
+/// `dir` with `server.dev` off, as a deployment boots it: only then does the
+/// host answer from its prerender directory unasked.
+fn production(dir: PathBuf) -> PathBuf {
+  let file = dir.join("app.toml");
+  let text = std::fs::read_to_string(&file).unwrap();
+  let text = if text.contains("[server]\n") { text.replacen("[server]\n", "[server]\ndev = false\n", 1) } else { format!("{text}\n[server]\ndev = false\n") };
+  std::fs::write(&file, text).unwrap();
   dir
 }
 
@@ -4598,7 +4608,7 @@ fn blog_dir() -> PathBuf {
 #[tokio::test]
 async fn a_route_with_paths_is_prerendered_once_per_set_per_locale() {
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
-  let host = Host::from(blog_dir().join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  let host = Host::from(production(blog_dir()).join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   assert_eq!(host.prerenderable(), vec!["/blog".to_owned(), "/blog/{slug}".to_owned()], "{}", host.report());
   assert_eq!(host.prerenderable_anonymous(), vec!["/me/{slug}".to_owned()]);
   assert!(host.report().to_string().contains("/blog/{slug}") && host.report().to_string().contains("per paths"), "{}", host.report());
@@ -4627,7 +4637,7 @@ async fn a_route_with_paths_is_prerendered_once_per_set_per_locale() {
 #[tokio::test]
 async fn an_identified_visitor_on_an_expanded_anonymous_route_renders_live() {
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
-  let host = Host::from(blog_dir().join("app.toml")).unwrap().prerendered(&out).build().unwrap();
+  let host = Host::from(production(blog_dir()).join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   host.prerender(&out).await.unwrap();
   let host = Arc::new(host);
 
@@ -4700,7 +4710,7 @@ const CONSOLE_PLAN: &str = r#"{
 #[tokio::test]
 async fn a_build_renders_a_fixed_page_under_a_session_reading_layout_and_a_boot_serves_it() {
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));
-  let dir = identified_dir(USERS);
+  let dir = production(identified_dir(USERS));
   write_plan(&dir, CONSOLE_PLAN);
   let host = Host::from(dir.join("app.toml")).unwrap().prerendered(&out).build().unwrap();
   assert!(host.prerenderable().is_empty(), "the layout reads the session: {}", host.report());

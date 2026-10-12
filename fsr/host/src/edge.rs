@@ -803,8 +803,14 @@ impl Host {
         )
         .is_some();
 
-    if req.method() == Method::GET && !intercepted {
-      if let Some(text) = self.prerendered_in(t, &path, &mode, &visit.locale, opened.cell.identity().is_none()) {
+    // Development renders live and answers from the prerender directory only when the request asks to preview it.
+    let preview = self.changed.is_some() && preview_of(&raw_query);
+    if req.method() == Method::GET && !intercepted && (self.changed.is_none() || preview) {
+      let found = self.prerendered_in(t, &path, &mode, &visit.locale, opened.cell.identity().is_none());
+      if found.is_none() && preview {
+        return text_response(StatusCode::NOT_FOUND, format!("no prerendered page for this build at {path}; run fsr prerender"));
+      }
+      if let Some(text) = found {
         let content_type = match mode {
           RenderMode::Html | RenderMode::Fragment(_) => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
