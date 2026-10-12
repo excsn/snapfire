@@ -10,7 +10,7 @@ It exists to show that a template is one more thing a route directory can hold. 
 fsr serve app
 ```
 
-`fsr prerender app` writes the index and, since the notice page's loader exports `paths`, one file per notice; `fsr serve app` then answers those from the files and renders any other id live. The same `paths` fills `/sitemap.xml`, which `[crawl]` turns on beside `/robots.txt`.
+`fsr prerender app` writes the index and, since the notice page's loader exports `paths`, one file per notice; `fsr serve app` then answers those from the files and renders any other id live. The same `paths` fills `/sitemap.xml`, which `[crawl]` turns on beside `/robots.txt`. Each notice's `meta` names its posting date with `modified`, which the sitemap writes as its `lastmod`.
 
 ## What it holds
 

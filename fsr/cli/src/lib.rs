@@ -1755,6 +1755,11 @@ export function canonical(href: string): HeadEl {
   return { tag: "link", rel: "canonical", href };
 }
 
+/** When this page last changed, a W3C date such as `2026-06-01` or `2026-06-01T09:30:00Z`: `<meta property="article:modified_time">`, which a sitemap under `[crawl]` writes as the page's `lastmod`. */
+export function modified(at: string): HeadEl {
+  return { tag: "meta", property: "article:modified_time", content: at };
+}
+
 /** What crawlers may do: "noindex, follow" and its kin. */
 export function robots(content: string): HeadEl {
   return { tag: "meta", name: "robots", content };

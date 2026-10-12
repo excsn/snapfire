@@ -631,7 +631,7 @@ Disallow: /_sf/
 Sitemap: https://example.com/sitemap.xml
 ```
 
-The first `GET /sitemap.xml` asks the host for every fixed route and every path a `paths` export lists, as an anonymous visitor through `Host::handle`. It keeps the pages that answer 200 with HTML that says no `noindex`. The answer is held until a reload builds new tables. A Rust host gets the same files with no code of its own, since the edge answers them before the middleware.
+The first `GET /sitemap.xml` asks the host for every fixed route and every path a `paths` export lists, as an anonymous visitor through `Host::handle`. It keeps the pages that answer 200 with HTML that says no `noindex`. The answer is held until a reload builds new tables. A page's `article:modified_time` meta, which `modified(date)` from `@snapfire/fsr/head` writes, becomes its `lastmod`. Without one the `Last-Modified` header does. A Rust host gets the same files with no code of its own, since the edge answers them before the middleware.
 
 The boot report shows where they are and what cannot be listed:
 

@@ -90,6 +90,16 @@ disallow = ["/drafts/"]
 
 The sitemap lists every page an anonymous visitor is served. The first request for it makes the host ask itself for each candidate page, through the same front door a browser uses, with no cookie. The middleware, the loaders and the head all run. A page is listed when it answers 200 with an HTML document whose head has no `robots` meta saying `noindex` or `none` and whose response has no `X-Robots-Tag` saying either. So a route the middleware redirects a signed-out visitor away from stays out, as does a page whose `meta` returns `robots("noindex")`, a 404 and a handler's JSON. The result is kept until the next reload.
 
+A page's `lastmod` is the date it gives itself. `modified` from `@snapfire/fsr/head` writes `<meta property="article:modified_time">`, the Open Graph property a social card reads. The sitemap reads the same row:
+
+```ts
+import { modified } from "@snapfire/fsr/head";
+
+export const meta = ({ data }: MetaCtx<Data>) => ({ title: data.post.title, head: [modified(data.post.updated)] });
+```
+
+The value is a W3C date, `2026-06-01` or `2026-06-01T09:30:00Z`. A response with a `Last-Modified` header and no such row takes the header's date. A page that names neither has no `lastmod`, which is better than a guessed one: a crawler that finds the dates on a site inaccurate stops reading them. An index entry takes the newest date in its document.
+
 The candidates are the fixed routes plus one path per value of a route's `paths` export, the one `fsr prerender` reads. A route with a parameter and no `paths` has nothing to list. The boot report names it on the `crawl` rows. With `[locales]` serving prefixes, each page is listed once per locale with `xhtml:link` alternates naming the others, `fr_FR` written as `fr-FR` and the default locale as `x-default`.
 
 Past 50,000 URLs or when the shell mounts a site in its own process, the sitemap becomes an index. The host's own pages go in `sitemap-1.xml`, `sitemap-2.xml` and so on beside it. Each such site's own sitemap is listed under its prefix, `/reports/sitemap.xml`. That site answers it and the shell forwards the request. Its `[crawl]` names only `sitemap`, since only the origin's root has a `robots.txt`. A site mounted in this process is part of the shell's routes and needs nothing of its own.

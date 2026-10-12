@@ -15,6 +15,7 @@ static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0)
 
 const PAGE: &str = "export default function Page() {\n  return <main>page</main>;\n}\n";
 const LOADER: &str = "export async function load() {\n  return { n: 1 };\n}\n";
+const DATED: &str = "import { modified } from \"@snapfire/fsr/head\";\nexport async function load() {\n  return { n: 1 };\n}\nexport const meta = () => ({ head: [modified(\"2026-07-04\")] });\n";
 
 fn project(tag: &str, crawl: &str, extra: &str, files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -55,11 +56,12 @@ fn get(host: &Host, path: &str) -> (u16, String, String) {
 fn site_files() -> Vec<(&'static str, &'static str)> {
   vec![
     ("routes/about/page.tsx", PAGE),
+    ("routes/about/page.loader.ts", DATED),
     ("routes/hidden/page.tsx", PAGE),
     ("routes/hidden/page.loader.ts", "import { robots } from \"@snapfire/fsr/head\";\nexport async function load() {\n  return { n: 1 };\n}\nexport const meta = () => ({ head: [robots(\"noindex, follow\")] });\n"),
     ("routes/account/page.tsx", PAGE),
     ("routes/post/[slug]/page.tsx", PAGE),
-    ("routes/post/[slug]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/post/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => [{ slug: \"first\" }, { slug: \"second\" }];\n"),
+    ("routes/post/[slug]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nimport { modified } from \"@snapfire/fsr/head\";\nconst POSTS = [{ slug: \"first\", updated: \"2026-05-01T08:00:00Z\" }, { slug: \"second\", updated: \"2026-05-02\" }];\nexport async function load({ params }: Ctx<\"/post/{slug}\">) {\n  return { updated: POSTS.find((p) => p.slug === params.slug)?.updated ?? \"\" };\n}\nexport const meta = ({ data }: { data: { updated: string } }) => ({ head: [modified(data.updated)] });\nexport const paths = () => POSTS.map((p) => ({ slug: p.slug }));\n"),
     ("routes/item/[id]/page.tsx", PAGE),
     ("routes/item/[id]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/item/{id}\">) {\n  return { id: params.id };\n}\n"),
     ("routes/api/ping/route.ts", "export async function GET() {\n  return { ok: true };\n}\n"),
@@ -86,6 +88,10 @@ fn the_sitemap_lists_what_an_anonymous_visitor_is_served_and_robots_names_it() {
   assert!(!sitemap.contains("/item"), "a parameter with no `paths` export is left out: {sitemap}");
   assert!(!sitemap.contains("/api/ping"), "a handler's JSON is no document: {sitemap}");
   assert!(!sitemap.contains("xhtml"), "one locale writes no alternates: {sitemap}");
+  assert!(sitemap.contains("<loc>https://shop.example/about</loc>\n    <lastmod>2026-07-04</lastmod>"), "a page's modified date is its lastmod: {sitemap}");
+  assert!(sitemap.contains("<loc>https://shop.example/post/first</loc>\n    <lastmod>2026-05-01T08:00:00Z</lastmod>"), "each path's date comes from its own render: {sitemap}");
+  assert!(sitemap.contains("<loc>https://shop.example/post/second</loc>\n    <lastmod>2026-05-02</lastmod>"), "{sitemap}");
+  assert!(sitemap.contains("<loc>https://shop.example/</loc>\n  </url>"), "a page naming no date has no lastmod: {sitemap}");
   let report = host.report().to_string();
   assert!(report.contains("/item/{id}") && report.contains("no `paths` export"), "{report}");
   std::fs::remove_dir_all(&root).unwrap();
@@ -129,11 +135,11 @@ fn crawl_without_an_origin_refuses_to_load() {
 
 #[test]
 fn a_shell_with_a_site_in_its_own_process_writes_an_index_naming_the_site_sitemap() {
-  let root = project("shell", "[crawl]\nrobots = \"/robots.txt\"\nsitemap = \"/sitemap.xml\"\n", "[sites.reports]\nat = \"/reports\"\nover = [\"http://127.0.0.1:9\"]\n", &[("routes/about/page.tsx", PAGE)]);
+  let root = project("shell", "[crawl]\nrobots = \"/robots.txt\"\nsitemap = \"/sitemap.xml\"\n", "[sites.reports]\nat = \"/reports\"\nover = [\"http://127.0.0.1:9\"]\n", &[("routes/about/page.tsx", PAGE), ("routes/about/page.loader.ts", DATED)]);
   let host = host(&root);
   let (status, _, index) = get(&host, "/sitemap.xml");
   assert_eq!(status, 200, "{index}");
-  assert!(index.contains("<sitemapindex") && index.contains("<loc>https://shop.example/sitemap-1.xml</loc>") && index.contains("<loc>https://shop.example/reports/sitemap.xml</loc>"), "{index}");
+  assert!(index.contains("<sitemapindex") && index.contains("<loc>https://shop.example/sitemap-1.xml</loc>\n    <lastmod>2026-07-04</lastmod>") && index.contains("<loc>https://shop.example/reports/sitemap.xml</loc>"), "{index}");
   let (status, _, own) = get(&host, "/sitemap-1.xml");
   assert_eq!(status, 200, "{own}");
   assert!(own.contains("https://shop.example/about</loc>") && !own.contains("/reports"), "the site's pages are its own sitemap's: {own}");

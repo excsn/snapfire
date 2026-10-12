@@ -102,6 +102,9 @@ A W3C Datetime at one of two precisions.
 * `Date::Day(NaiveDate)`: renders `%Y-%m-%d`.
 * `Date::Instant(DateTime<FixedOffset>)`: renders RFC 3339 to whole seconds.
 * `render(&self) -> String`
+* `Date::parse(text: &str) -> Option<Date>`: a W3C Datetime as a page writes one, a day or an instant with an offset to the minute or past it; fractional seconds are dropped on render. `None` for a year or month alone, an instant with no offset and anything else.
+* `Date::parse_http(text: &str) -> Option<Date>`: an HTTP date, the `Last-Modified` form, as an instant.
+* `as_instant(&self) -> DateTime<FixedOffset>`: the instant the date starts at, a day at midnight UTC, for ordering dates of either precision.
 
 `From` is implemented for `NaiveDate`, `DateTime<FixedOffset>` and `DateTime<Utc>`. A `DateTime<Utc>` renders with a `Z` suffix; a `DateTime<FixedOffset>` keeps its offset.
 

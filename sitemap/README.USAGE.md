@@ -126,6 +126,17 @@ assert_eq!(Date::from(day).render(), "2026-06-01");
 
 Pick the day form when you only know the day. A date padded out to midnight claims a precision you do not have.
 
+A date that arrives as text, from a page's head or a response header, parses into the same two forms:
+
+```rust
+assert_eq!(Date::parse("2026-06-01").unwrap().render(), "2026-06-01");
+assert_eq!(Date::parse("2026-06-01T09:30+02:00").unwrap().render(), "2026-06-01T09:30:00+02:00");
+assert_eq!(Date::parse_http("Mon, 01 Jun 2026 09:30:00 GMT").unwrap().render(), "2026-06-01T09:30:00Z");
+assert_eq!(Date::parse("2026-06"), None);
+```
+
+`as_instant` orders dates of either precision, a day counting from its midnight in UTC, which is how an index entry takes the newest `lastmod` of its document.
+
 ## Attaching Images
 
 An image needs a location. The other four fields are still in the schema but Google dropped them in 2022.

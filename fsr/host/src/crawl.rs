@@ -1,7 +1,7 @@
 //! `[crawl]`: the `robots.txt` the host answers and the sitemap it builds by
 //! asking itself for every page a crawler could reach.
 
-use snapfire_sitemap::{limit, Alternate, Error as SitemapError, Sitemap, SitemapIndex, Url, UrlSet};
+use snapfire_sitemap::{limit, Alternate, Date, Error as SitemapError, Sitemap, SitemapIndex, Url, UrlSet};
 
 use crate::config::CrawlSection;
 use crate::locale::Source;
@@ -98,12 +98,21 @@ fn hreflang(tag: &str) -> String {
   tag.replace('_', "-")
 }
 
-/// Whether a document's head or headers tell a crawler not to index it.
-fn noindex(headers: &header::HeaderMap, html: &str) -> bool {
+/// What a crawler reads off a document before the body: whether it may index
+/// it and when it last changed.
+#[derive(Debug, PartialEq)]
+struct Reading {
+  noindex: bool,
+  modified: Option<Date>,
+}
+
+/// A `robots` meta or an `X-Robots-Tag` of `noindex` or `none` keeps the page
+/// out. Its date is the head's `article:modified_time`, or the
+/// `Last-Modified` header when the head names none.
+fn read(headers: &header::HeaderMap, html: &str) -> Reading {
   let says = |value: &str| value.split(',').any(|part| matches!(part.trim().to_ascii_lowercase().as_str(), "noindex" | "none"));
-  if headers.get_all("x-robots-tag").iter().filter_map(|v| v.to_str().ok()).any(says) {
-    return true;
-  }
+  let mut noindex = headers.get_all("x-robots-tag").iter().filter_map(|v| v.to_str().ok()).any(says);
+  let mut modified = None;
   let head = html.find("</head>").map_or(html, |end| &html[..end]);
   let mut rest = head;
   while let Some(start) = rest.find("<meta") {
@@ -111,11 +120,15 @@ fn noindex(headers: &header::HeaderMap, html: &str) -> bool {
     let end = tag.find('>').unwrap_or(tag.len());
     let tag = &tag[..end];
     if attribute(tag, "name").is_some_and(|name| name.eq_ignore_ascii_case("robots")) && attribute(tag, "content").is_some_and(says) {
-      return true;
+      noindex = true;
+    }
+    if modified.is_none() && attribute(tag, "property") == Some("article:modified_time") {
+      modified = attribute(tag, "content").and_then(Date::parse);
     }
     rest = &rest[start + end..];
   }
-  false
+  let modified = modified.or_else(|| headers.get(header::LAST_MODIFIED).and_then(|v| v.to_str().ok()).and_then(Date::parse_http));
+  Reading { noindex, modified }
 }
 
 fn attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
@@ -162,7 +175,7 @@ impl Host {
       vec![t.locales.default.clone()]
     };
     let remote_at: Vec<&str> = t.sites.iter().filter(|site| site.remote.is_some()).map(|site| site.at.as_str()).collect();
-    let mut pages: Vec<Vec<(String, String)>> = Vec::new();
+    let mut pages: Vec<Vec<(String, String, Option<Date>)>> = Vec::new();
     for (pattern, _) in &t.report.app.routes {
       if remote_at.iter().any(|at| pattern == at || pattern.starts_with(&format!("{at}/"))) {
         continue;
@@ -171,7 +184,7 @@ impl Host {
       if pattern.contains('{') && enumerated.is_none() {
         continue;
       }
-      let mut by_path: Vec<(String, Vec<(String, String)>)> = Vec::new();
+      let mut by_path: Vec<(String, Vec<(String, String, Option<Date>)>)> = Vec::new();
       for tag in &tags {
         let locale = t.locales.locale(tag);
         let paths = match enumerated {
@@ -184,10 +197,10 @@ impl Host {
         };
         for path in paths {
           let served = if locale.is_default { path.clone() } else { format!("/{tag}{}", path.trim_end_matches('/')) };
-          if self.indexable(crawl, &served).await {
+          if let Some(modified) = self.indexable(crawl, &served).await {
             match by_path.iter_mut().find(|(p, _)| *p == path) {
-              Some((_, variants)) => variants.push((tag.clone(), served)),
-              None => by_path.push((path, vec![(tag.clone(), served)])),
+              Some((_, variants)) => variants.push((tag.clone(), served, modified)),
+              None => by_path.push((path, vec![(tag.clone(), served, modified)])),
             }
           }
         }
@@ -199,16 +212,20 @@ impl Host {
     let mut urls = Vec::new();
     for variants in &pages {
       let alternates = if tags.len() > 1 {
-        let mut alternates = variants.iter().map(|(tag, served)| Alternate::new(hreflang(tag), format!("{origin}{served}"))).collect::<Result<Vec<_>, _>>().map_err(sitemap_error)?;
-        if let Some((_, served)) = variants.iter().find(|(tag, _)| tag == default) {
+        let mut alternates = variants.iter().map(|(tag, served, _)| Alternate::new(hreflang(tag), format!("{origin}{served}"))).collect::<Result<Vec<_>, _>>().map_err(sitemap_error)?;
+        if let Some((_, served, _)) = variants.iter().find(|(tag, _, _)| tag == default) {
           alternates.push(Alternate::new("x-default", format!("{origin}{served}")).map_err(sitemap_error)?);
         }
         alternates
       } else {
         Vec::new()
       };
-      for (_, served) in variants {
+      for (_, served, modified) in variants {
         let url = Url::builder(format!("{origin}{served}"));
+        let url = match modified {
+          Some(at) => url.lastmod(*at),
+          None => url,
+        };
         let url = if alternates.is_empty() { url } else { url.alternates(alternates.clone()) };
         urls.push(url.build().map_err(sitemap_error)?);
       }
@@ -216,13 +233,17 @@ impl Host {
     let mut parts = Vec::new();
     split(urls, &mut parts)?;
     if parts.len() == 1 && crawl.remote_paths().is_empty() {
-      return Ok(vec![(sitemap.to_owned(), parts.remove(0))]);
+      return Ok(vec![(sitemap.to_owned(), parts.remove(0).0)]);
     }
     let mut files = Vec::new();
     let mut named = Vec::new();
-    for (i, xml) in parts.into_iter().enumerate() {
+    for (i, (xml, newest)) in parts.into_iter().enumerate() {
       let at = part_path(sitemap, i + 1);
-      named.push(Sitemap::new(format!("{origin}{at}")).map_err(sitemap_error)?);
+      let entry = Sitemap::new(format!("{origin}{at}")).map_err(sitemap_error)?;
+      named.push(match newest {
+        Some(at) => entry.lastmod(at),
+        None => entry,
+      });
       files.push((at, xml));
     }
     for at in crawl.remote_paths() {
@@ -232,21 +253,23 @@ impl Host {
     Ok(files)
   }
 
-  /// Whether an anonymous GET of `path` is a document a crawler may index.
-  async fn indexable(&self, crawl: &Crawl, path: &str) -> bool {
+  /// `Some` with the page's date when an anonymous GET of `path` is a
+  /// document a crawler may index, `None` when it is not.
+  async fn indexable(&self, crawl: &Crawl, path: &str) -> Option<Option<Date>> {
     let mut req = Request::builder().method(Method::GET).uri(path).header(header::ACCEPT, "text/html");
     if let Some(host) = crawl.origin().split_once("://").map(|(_, host)| host) {
       req = req.header(header::HOST, host);
     }
-    let Ok(req) = req.body(Bytes::new()) else { return false };
+    let req = req.body(Bytes::new()).ok()?;
     let response = Box::pin(self.handle_in(req)).await;
     let html = response.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("text/html"));
     if response.status() != StatusCode::OK || !html {
-      return false;
+      return None;
     }
     let (parts, body) = response.into_parts();
-    let Ok(collected) = body.collect().await else { return false };
-    !noindex(&parts.headers, &String::from_utf8_lossy(&collected.to_bytes()))
+    let collected = body.collect().await.ok()?;
+    let reading = read(&parts.headers, &String::from_utf8_lossy(&collected.to_bytes()));
+    (!reading.noindex).then_some(reading.modified)
   }
 }
 
@@ -255,8 +278,8 @@ fn sitemap_error(e: SitemapError) -> String {
 }
 
 /// `urls` as one document per `limit::MAX_URLS`, halving a document that
-/// comes out past the size limit.
-fn split(urls: Vec<Url>, parts: &mut Vec<String>) -> Result<(), String> {
+/// comes out past the size limit, each with the newest `lastmod` it holds.
+fn split(urls: Vec<Url>, parts: &mut Vec<(String, Option<Date>)>) -> Result<(), String> {
   if urls.len() > limit::MAX_URLS {
     let mut rest = urls;
     while !rest.is_empty() {
@@ -268,7 +291,8 @@ fn split(urls: Vec<Url>, parts: &mut Vec<String>) -> Result<(), String> {
   let count = urls.len();
   match UrlSet::new(urls.clone()).and_then(|set| set.to_xml()) {
     Ok(xml) => {
-      parts.push(xml);
+      let newest = urls.iter().filter_map(Url::lastmod).max_by_key(Date::as_instant);
+      parts.push((xml, newest));
       Ok(())
     }
     Err(SitemapError::DocumentTooLarge { .. }) if count > 1 => {
@@ -288,13 +312,23 @@ mod tests {
   #[test]
   fn a_meta_or_a_header_saying_noindex_keeps_a_page_out() {
     let none = header::HeaderMap::new();
-    assert!(noindex(&none, "<head><meta name=\"robots\" content=\"noindex, follow\"></head>"));
-    assert!(noindex(&none, "<head><meta name=\"ROBOTS\" content=\"none\"></head>"));
-    assert!(!noindex(&none, "<head><meta name=\"robots\" content=\"index\"></head><body><meta name=\"robots\" content=\"noindex\"></body>"));
-    assert!(!noindex(&none, "<head><meta name=\"description\" content=\"noindex\"></head>"));
+    assert!(read(&none, "<head><meta name=\"robots\" content=\"noindex, follow\"></head>").noindex);
+    assert!(read(&none, "<head><meta name=\"ROBOTS\" content=\"none\"></head>").noindex);
+    assert!(!read(&none, "<head><meta name=\"robots\" content=\"index\"></head><body><meta name=\"robots\" content=\"noindex\"></body>").noindex);
+    assert!(!read(&none, "<head><meta name=\"description\" content=\"noindex\"></head>").noindex);
     let mut headers = header::HeaderMap::new();
     headers.insert("x-robots-tag", HeaderValue::from_static("noarchive, noindex"));
-    assert!(noindex(&headers, "<head></head>"));
+    assert!(read(&headers, "<head></head>").noindex);
+  }
+
+  #[test]
+  fn the_head_date_wins_over_the_header_and_the_header_fills_in() {
+    let mut headers = header::HeaderMap::new();
+    headers.insert(header::LAST_MODIFIED, HeaderValue::from_static("Mon, 01 Jun 2026 09:30:00 GMT"));
+    let dated = "<head><meta property=\"article:modified_time\" content=\"2026-07-04\"></head>";
+    assert_eq!(read(&headers, dated).modified.map(|d| d.render()).as_deref(), Some("2026-07-04"));
+    assert_eq!(read(&headers, "<head></head>").modified.map(|d| d.render()).as_deref(), Some("2026-06-01T09:30:00Z"));
+    assert_eq!(read(&header::HeaderMap::new(), "<head><meta property=\"article:modified_time\" content=\"last week\"></head>").modified, None);
   }
 
   #[test]
