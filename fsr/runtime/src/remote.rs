@@ -330,7 +330,11 @@ impl Session {
         if wave.entry.is_some() {
           head.entry = wave.entry.clone();
         }
-        head.styles.extend(wave.styles.iter().cloned());
+        for style in &wave.styles {
+          if !head.styles.contains(style) {
+            head.styles.push(style.clone());
+          }
+        }
       }
       waves.insert(id, wave);
     }
