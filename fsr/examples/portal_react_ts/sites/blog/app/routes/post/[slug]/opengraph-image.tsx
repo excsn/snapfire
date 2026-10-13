@@ -4,16 +4,22 @@ export const size = { width: 1200, height: 630 };
 
 export default function Image({ post }: PostSlugProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: "100%", height: "100%", padding: 72, backgroundColor: "#fdf6e3", color: "#1f2937" }}>
-      <span style={{ fontSize: 30, fontWeight: 700, color: "#b45309" }}>Acme blog</span>
-      <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-        <h1 style={{ fontSize: 72, fontWeight: 700, lineHeight: 1.1, margin: 0, lineClamp: 2 }}>{post.title}</h1>
-        <p style={{ fontSize: 32, lineHeight: 1.4, margin: 0, color: "#4b5563", lineClamp: 2 }}>{post.summary}</p>
+    <div className="flex h-full w-full flex-col justify-between bg-amber-50 p-[72px] text-gray-800">
+      <span className="text-[30px] font-bold text-amber-700">Acme blog</span>
+      <div className="flex flex-col gap-6">
+        <h1 className="m-0 text-[72px]/[1.1] font-bold" style={{ lineClamp: 2 }}>
+          {post.title}
+        </h1>
+        <p className="m-0 text-[32px]/[1.4] text-gray-600" style={{ lineClamp: 2 }}>
+          {post.summary}
+        </p>
       </div>
-      <div style={{ display: "flex", gap: 16, fontSize: 26 }}>
+      <div className="flex gap-4 text-[26px]">
         <span>{post.posted}</span>
         {post.tags.map((tag) => (
-          <span key={tag} style={{ padding: "4px 16px", borderRadius: 999, backgroundColor: "#fde68a" }}>{tag}</span>
+          <span key={tag} className="rounded-full bg-amber-200 px-4 py-1">
+            {tag}
+          </span>
         ))}
       </div>
     </div>

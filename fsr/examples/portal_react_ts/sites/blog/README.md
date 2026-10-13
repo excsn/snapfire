@@ -11,7 +11,7 @@ A blog as a site the portal mounts under `/blog`: an index, a tag list and one p
 | Placements written against the portable template module in a React site | `@snapfire/fsr-authoring/template` in every route file |
 | A post body that is markup the application produced | `dangerouslySetInnerHTML` in `routes/post/[slug]/page.tsx` |
 | A theme the site sets for its own pages that a visitor's pick replaces, with the portal's tokens read through fallbacks | `export const theme = "editorial"` in `routes/layout.tsx`, `styles/themes/editorial.css`, `@theme reference` in `styles/blog.css` |
-| A card image per post drawn from the post's data, with its tags as a flex row of pills, at `/blog/post/<slug>/opengraph-image.png` | `routes/post/[slug]/opengraph-image.tsx` |
+| A card image per post drawn from the post's data, with its tags as a flex row of pills, at `/blog/post/<slug>/opengraph-image.png`, styled with the same Tailwind classes a page uses | `routes/post/[slug]/opengraph-image.tsx`, `generated/tailwind.cards.json` |
 
 ## Run it alone
 

@@ -5,13 +5,13 @@ export const alt = "Acme portal: the teams and the sites they own";
 
 export default function Image({ teams }: RootProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: "100%", height: "100%", padding: 72, backgroundImage: "linear-gradient(135deg, #0b1020 0%, #1d2b64 100%)", color: "white" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-        <div style={{ width: 56, height: 56, borderRadius: 14, backgroundColor: "#f59e0b" }} />
-        <span style={{ fontSize: 34, fontWeight: 700 }}>Acme portal</span>
+    <div className="flex h-full w-full flex-col justify-between p-[72px] text-white" style={{ backgroundImage: "linear-gradient(135deg, #0b1020 0%, #1d2b64 100%)" }}>
+      <div className="flex items-center gap-5">
+        <div className="size-14 rounded-[14px] bg-amber-500" />
+        <span className="text-[34px] font-bold">Acme portal</span>
       </div>
-      <h1 style={{ fontSize: 76, fontWeight: 700, lineHeight: 1.1, margin: 0 }}>{teams.length} teams, one portal</h1>
-      <p style={{ fontSize: 30, opacity: 0.75, margin: 0 }}>{teams.map((team) => team.name).join(" · ")}</p>
+      <h1 className="m-0 text-[76px]/[1.1] font-bold">{teams.length} teams, one portal</h1>
+      <p className="m-0 text-[30px] opacity-75">{teams.map((team) => team.name).join(" · ")}</p>
     </div>
   );
 }
