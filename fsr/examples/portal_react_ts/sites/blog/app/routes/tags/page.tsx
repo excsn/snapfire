@@ -11,7 +11,7 @@ export default function Tags({ tags }: TagsProps) {
           <ul className="list-disc pl-5">
             {posts.map((post) => (
               <li key={post.slug}>
-                <Link href={`/blog/post/${post.slug}`} className="text-violet-700 hover:underline">
+                <Link href={`/blog/post/${post.slug}`} className="text-accent hover:underline">
                   {post.title}
                 </Link>
               </li>

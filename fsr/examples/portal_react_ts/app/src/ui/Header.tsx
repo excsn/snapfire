@@ -10,7 +10,7 @@ export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken
   const [name] = useStore(who, "");
 
   return (
-    <header className="sticky top-0 z-10 flex h-[54px] items-center gap-[18px] border-b border-line bg-white px-6">
+    <header className="sticky top-0 z-10 flex min-h-[54px] flex-wrap items-center gap-x-[18px] gap-y-2 border-b border-line bg-card px-6 py-2">
       <Link href="/" className="font-bold text-ink">
         Acme
       </Link>

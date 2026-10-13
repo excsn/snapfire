@@ -8,7 +8,7 @@ export function PayButton({ id, status }: { id: bigint | number; status: string 
   if (now === "paid") return <p className="font-semibold text-emerald-600">Paid.</p>;
   return (
     <button
-      className="cursor-pointer rounded-md bg-indigo-600 px-3.5 py-1.5 text-white hover:bg-indigo-700 disabled:opacity-60"
+      className="cursor-pointer rounded-md bg-accent px-3.5 py-1.5 text-white hover:opacity-90 disabled:opacity-60"
       disabled={busy}
       onClick={async () => {
         setBusy(true);

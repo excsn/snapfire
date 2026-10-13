@@ -1,7 +1,10 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *));
+
 @theme {
   --color-canvas: #f6f7f9;
+  --color-card: #ffffff;
   --color-line: #dde3ea;
   --color-ink: #1b2430;
   --color-ink-soft: #5b6b7c;
@@ -10,6 +13,19 @@
   --color-bad: #c9403f;
   --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* The scheme beats a theme's neutrals: `:root` with the attribute outranks `[data-sf-theme]`. */
+@layer theme {
+  :root[data-sf-scheme="dark"] {
+    color-scheme: dark;
+    --color-canvas: #0d1117;
+    --color-card: #161b22;
+    --color-line: #30363d;
+    --color-ink: #e6edf3;
+    --color-ink-soft: #8b949e;
+    --color-accent-soft: color-mix(in oklab, var(--color-accent) 22%, #161b22);
+  }
 }
 
 @layer base {

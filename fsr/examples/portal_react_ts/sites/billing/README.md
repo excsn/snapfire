@@ -10,6 +10,7 @@ A site: an application built with a `[site]` section, so every id it emits is pr
 | A store key the portal seeds, typed by the shell contract | `ShellStore["portal/who"]` in `app/src/store.ts`, read in `app/routes/layout.tsx` |
 | A guard that relies on a sign-in the site never implements | `app/middleware.ts` on `/billing/overdue` |
 | A nav whose current link is marked by the server and kept right by the navigator, styled by Tailwind's `aria-[current]:` variant | `<Link>` and `tab` in `app/routes/layout.tsx` |
+| A theme the site forces on its pages, kept over the visitor's pick while the visitor's scheme still applies | `export const theme = { name: "ledger", force: true }` in `app/routes/layout.tsx`, `app/styles/themes/ledger.css` |
 | A row styled from its data through an attribute instead of a class built from the status | `data-status` and `group-data-[status=overdue]:` in `app/routes/page.tsx` |
 | A client of its own, mocked from a file, cached on the contract's say-so | `app/clients/ledger.openapi.json`, `app/clients/ledger.mock.json` |
 | React from the portal's vendor tree when running alone, since the import map names the shell's URLs | `shell` in `config/app.toml`, the `inferred` row naming the shell's `vendor/` |

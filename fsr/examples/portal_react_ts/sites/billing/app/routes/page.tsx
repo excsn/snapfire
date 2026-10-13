@@ -3,7 +3,7 @@ import { Link, Picture } from "@snapfire/fsr-client/react";
 
 import ledger from "../src/img/ledger.png";
 
-const cell = "border-b border-slate-100 px-1.5 py-2";
+const cell = "border-b border-line px-1.5 py-2";
 
 export default function InvoicesPage({ invoices }: RootProps) {
   return (

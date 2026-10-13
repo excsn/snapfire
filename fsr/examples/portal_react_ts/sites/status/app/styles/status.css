@@ -1,2 +1,15 @@
 @import "tailwindcss/theme" layer(theme);
 @import "tailwindcss/utilities" layer(utilities);
+
+@custom-variant dark (&:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *));
+
+/* The portal's tokens. The shell's stylesheet and the document's theme set them; these values are only the fallbacks. */
+@theme reference {
+  --color-canvas: #f6f7f9;
+  --color-card: #ffffff;
+  --color-line: #dde3ea;
+  --color-ink: #1b2430;
+  --color-ink-soft: #5b6b7c;
+  --color-accent: #1f6feb;
+  --color-accent-soft: #e7f0ff;
+}

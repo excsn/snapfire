@@ -9,11 +9,11 @@ export default function Index({ posts }: RootProps) {
         {posts.map((post) => (
           <li key={post.slug}>
             <h2 className="mb-1 font-serif text-xl">
-              <Link href={`/blog/post/${post.slug}`} className="text-violet-900 hover:underline">
+              <Link href={`/blog/post/${post.slug}`} className="text-accent hover:underline">
                 {post.title}
               </Link>
             </h2>
-            <p className="mb-1.5 flex items-center gap-2 text-[13px] text-slate-500">
+            <p className="mb-1.5 flex items-center gap-2 text-[13px] text-ink-soft">
               <time>{post.posted}</time>
               {post.tags.map((tag) => (
                 <Link key={tag} href="/blog/tags" className="tag">
@@ -21,7 +21,7 @@ export default function Index({ posts }: RootProps) {
                 </Link>
               ))}
             </p>
-            <p className="text-slate-700">{post.summary}</p>
+            <p className="text-ink">{post.summary}</p>
           </li>
         ))}
       </ul>

@@ -1,7 +1,7 @@
 import type { LoginProps } from "@generated/client";
 
 const field = "grid gap-1 text-[13px] text-ink-soft";
-const input = "rounded-md border border-line bg-white px-2.5 py-1.5 text-[15px] text-ink";
+const input = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[15px] text-ink";
 
 export default function LoginPage({ denied }: LoginProps) {
   return (
