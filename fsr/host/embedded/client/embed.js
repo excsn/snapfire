@@ -1,0 +1,73 @@
+export const EMBED_ATTR = "data-sf-embed";
+const OUTER_STYLE = "position:relative;aspect-ratio:16/9;background:#000;overflow:hidden";
+const BUTTON_STYLE = "all:unset;cursor:pointer;position:absolute;inset:0;display:block";
+const STILL_STYLE = "width:100%;height:100%;object-fit:cover;display:block";
+const TITLE_STYLE = "position:absolute;left:0;right:0;top:0;padding:12px 16px;color:#fff;font:600 16px/1.3 system-ui,sans-serif;text-align:left;background:linear-gradient(rgba(0,0,0,.65),transparent)";
+const PLAY_STYLE = "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:68px;height:48px;border-radius:12px;background:rgba(0,0,0,.75);color:#fff;display:flex;align-items:center;justify-content:center;font:24px/1 sans-serif";
+function player(provider, id) {
+    return provider === "vimeo" ? `https://player.vimeo.com/video/${id}?autoplay=1` : `https://www.youtube-nocookie.com/embed/${id}?autoplay=1`;
+}
+export function embedParts(props) {
+    const outer = {
+        [EMBED_ATTR]: player(props.provider, props.id),
+        "data-sf-embed-title": props.title,
+        style: OUTER_STYLE
+    };
+    if (props.className) outer.class = props.className;
+    const still = props.provider === "youtube" ? {
+        src: `https://i.ytimg.com/vi/${props.id}/hqdefault.jpg`,
+        alt: "",
+        width: "480",
+        height: "360",
+        loading: "lazy",
+        decoding: "async",
+        style: STILL_STYLE
+    } : null;
+    return {
+        outer,
+        button: {
+            type: "button",
+            style: BUTTON_STYLE
+        },
+        still,
+        title: {
+            style: TITLE_STYLE
+        },
+        play: {
+            "aria-hidden": "true",
+            style: PLAY_STYLE
+        }
+    };
+}
+export function styleObject(css) {
+    const out = {};
+    for (const part of css.split(";")){
+        const at = part.indexOf(":");
+        if (at < 0) continue;
+        const name = part.slice(0, at).trim().replace(/-([a-z])/g, (_, c)=>c.toUpperCase());
+        out[name] = part.slice(at + 1).trim();
+    }
+    return out;
+}
+export function playEmbed(button) {
+    const holder = button.closest(`[${EMBED_ATTR}]`);
+    const src = holder?.getAttribute(EMBED_ATTR);
+    if (!holder || !src) return;
+    const frame = document.createElement("iframe");
+    frame.src = src;
+    frame.title = holder.getAttribute("data-sf-embed-title") ?? "";
+    frame.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen";
+    frame.referrerPolicy = "strict-origin-when-cross-origin";
+    frame.setAttribute("style", "position:absolute;inset:0;width:100%;height:100%;border:0");
+    holder.replaceChildren(frame);
+}
+let listening = null;
+export function enableEmbeds() {
+    if (listening === document) return;
+    listening = document;
+    document.addEventListener("click", (event)=>{
+        const button = event.target?.closest?.(`[${EMBED_ATTR}] > button`);
+        if (button) playEmbed(button);
+    });
+}
+//# sourceMappingURL=embed.js.map

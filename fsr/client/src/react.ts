@@ -8,6 +8,7 @@ import { CHILDREN_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
 import { type PrefetchTiming } from "./navigator.js";
 import { linkAttributes, type LinkOptions } from "./link.js";
+import { embedParts, styleObject, type EmbedOptions } from "./embed.js";
 import { pictureParts, type ImageAsset, type PictureOptions } from "./picture.js";
 
 export type { ImageAsset } from "./picture.js";
@@ -396,6 +397,17 @@ export function Picture(props: PictureProps): ReactElement {
   const { img, sources } = pictureParts(props as PictureOptions, FETCH_PRIORITY);
   if (sources === null) return createElement("img", img);
   return createElement("picture", null, ...sources.map((source) => createElement("source", source)), createElement("img", img));
+}
+
+/** The placeholder the server writes for a video hosted elsewhere, for a component the browser renders. */
+export function Embed(props: EmbedOptions): ReactElement {
+  const parts = embedParts(props);
+  const react = (attrs: Record<string, string>) => {
+    const { style, class: className, ...rest } = attrs;
+    return { ...rest, ...(className ? { className } : {}), ...(style ? { style: styleObject(style) } : {}) };
+  };
+  const face = [...(parts.still ? [createElement("img", { key: "still", ...react(parts.still) })] : []), createElement("span", { key: "title", ...react(parts.title) }, props.title), createElement("span", { key: "play", ...react(parts.play) }, "\u25B6")];
+  return createElement("div", react(parts.outer), createElement("button", react(parts.button), ...face));
 }
 
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */

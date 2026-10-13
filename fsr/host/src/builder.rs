@@ -952,6 +952,8 @@ impl HostBuilder {
     let empty_icon = config.document.head.iter().any(|t| t.get("href").is_some_and(|href| href == "data:,"));
     let script_origins: Vec<String> = app.report.scripts.iter().filter_map(|(_, src)| src.as_deref().and_then(other_origin)).collect();
     let media_origins: Vec<String> = app.report.media.iter().filter_map(|(_, src)| other_origin(src)).collect();
+    let frame_origins: Vec<String> = app.report.embeds.iter().filter_map(|(_, src)| other_origin(src)).collect();
+    let image_origins: Vec<String> = app.report.images.iter().filter_map(|(_, src)| other_origin(src)).collect();
     let compose = |declared: &config::Csp| {
       let mut policy = declared.clone();
       if empty_icon {
@@ -968,6 +970,12 @@ impl HostBuilder {
       }
       for origin in &media_origins {
         policy.widen("media-src", origin.clone());
+      }
+      for origin in &frame_origins {
+        policy.widen("frame-src", origin.clone());
+      }
+      for origin in &image_origins {
+        policy.widen("img-src", origin.clone());
       }
       if let Some(css) = &font_css {
         policy.widen("style-src", import_map_csp(css));

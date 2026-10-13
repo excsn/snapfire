@@ -350,3 +350,10 @@ a:hover {
 ::view-transition-new(root) {
   animation-duration: 160ms;
 }
+
+.venue-breaks {
+  display: grid;
+  gap: 1rem;
+  max-width: 40rem;
+  margin-block: 1.5rem;
+}

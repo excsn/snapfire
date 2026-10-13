@@ -18,6 +18,14 @@ pub trait AssetResolver {
   fn media(&self, _path: &str) -> Option<String> {
     None
   }
+  /// The still an `<Embed>` shows for `id` before it plays: the provider's
+  /// own image, or one this application serves when `[media] embed_stills`
+  /// is `local`. YouTube's is named by the id alone; Vimeo's needs a lookup a
+  /// resolver makes. `None` when there is none, and the placeholder shows the
+  /// title alone.
+  fn embed_still(&self, provider: &str, id: &str) -> Option<ImageFacts> {
+    youtube_still(provider, id)
+  }
   /// The URL template of a named remote source, `{src}` and `{width}` in it.
   fn source(&self, name: &str) -> Option<String>;
   /// The policy's widths, for a remote image whose own width is unknown.
@@ -41,6 +49,11 @@ pub struct ImageFacts {
   /// `(mime, srcset)` per format, in the policy's order. Empty for an image
   /// served as it is, an SVG or an animation, which gets no `<picture>`.
   pub sources: Vec<(String, String)>,
+}
+
+/// YouTube's still for `id`, which its CDN serves at a URL the id names.
+pub fn youtube_still(provider: &str, id: &str) -> Option<ImageFacts> {
+  (provider == "youtube").then(|| ImageFacts { src: format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"), width: 480, height: 360, sources: Vec::new() })
 }
 
 /// A resolver that knows nothing, so an asset import stays unbound.

@@ -128,6 +128,10 @@ pub struct Report {
   /// The literal `src` of every `video`, `audio`, `source` and `track` a
   /// lowered component writes, by module.
   pub media: Vec<(String, String)>,
+  /// The player URL of every embed placeholder a lowered component writes, by module.
+  pub embeds: Vec<(String, String)>,
+  /// The literal `src` of every `img` a lowered component writes, by module.
+  pub images: Vec<(String, String)>,
 }
 
 
@@ -1055,6 +1059,8 @@ impl AppBuilder {
       .collect();
     let mut components = Vec::new();
     let mut lowered = None;
+    let images: Vec<(String, String)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::ast::image_sources(&component.render).into_iter().map(move |src| (module.clone(), src))).collect();
+    let embeds: Vec<(String, String)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::ast::embed_players(&component.render).into_iter().map(move |src| (module.clone(), src))).collect();
     let media: Vec<(String, String)> = self.lowered_components.iter().flat_map(|(module, component)| snapfire_fsr_ir::ast::media_sources(&component.render).into_iter().map(move |src| (module.clone(), src))).collect();
     if !self.lowered_components.is_empty() {
       let evaluator = IrEvaluator::new(std::mem::take(&mut self.lowered_components)).with_interpreter(interpreter.clone());
@@ -1086,6 +1092,8 @@ impl AppBuilder {
         .collect(),
       scripts: self.lowered_metas.iter().flat_map(|(name, body)| snapfire_fsr_ir::ast::head_scripts(body).into_iter().map(move |script| (name.clone(), script.src))).collect(),
       media,
+      embeds,
+      images,
     };
     report.routes.sort_by(|a, b| a.0.cmp(&b.0));
 

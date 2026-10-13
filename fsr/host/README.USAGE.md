@@ -177,6 +177,9 @@ lib = ["es2023", "dom"]           # optional: the tsconfig lib; left to the targ
 [trace]                           # optional: without it no client reads a trace outside dev
 expose = ["/"]                    # path prefixes whose requests a page may read its own trace of
 
+[media]                           # optional
+embed_stills = "provider"         # the default: an <Embed>'s still loads from the provider; "local" fetches it at build
+
 [crawl]                           # optional: needs document.origin, see Serving robots.txt and a Sitemap
 robots = "/robots.txt"            # served here; no key, no robots.txt
 sitemap = "/sitemap.xml"          # served here; no key, no sitemap

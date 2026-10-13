@@ -100,6 +100,7 @@ pub fn run(app: &Path, options: &Options, typecheck: &crate::typecheck::Typechec
       return Err(BuildError::Types(format!("no declarations for {}; run `fsr types`{failure}", built.missing_declarations.join(", "))));
     }
     crate::write_generated(app, &built)?;
+    crate::types::refresh_embedded(app)?;
     if let Some(checked) = crate::typecheck::run(app, typecheck)?.filter(|checked| checked.errors() > 0) {
       let lines: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
       return Err(BuildError::Typecheck(format!("{}\n{}", checked.row(), lines.join("\n"))));

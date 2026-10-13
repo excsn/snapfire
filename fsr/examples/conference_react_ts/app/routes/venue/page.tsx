@@ -1,4 +1,4 @@
-import { Island } from "@snapfire/fsr-client/react";
+import { Embed, Island } from "@snapfire/fsr-client/react";
 
 import AskDesk from "@src/ui/AskDesk";
 import Floors from "@src/ui/Floors.vue";
@@ -20,6 +20,11 @@ export default function VenuePage({ venue, talks }: VenueProps) {
         <source src={walkMp4} type="video/mp4" />
         <track kind="captions" src={walkCaptions} srcLang="en" label="English" default />
       </video>
+      <section className="venue-breaks">
+        <h3>Between the talks</h3>
+        <Embed provider="youtube" id="dQw4w9WgXcQ" title="Rick Astley - Never Gonna Give You Up" />
+        <Embed provider="youtube" id="astISOttCQ0" title="Gummibär - The Gummy Bear Song" />
+      </section>
       <Island when="visible">
         <Floors talks={talks} />
       </Island>

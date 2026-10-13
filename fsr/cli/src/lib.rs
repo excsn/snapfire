@@ -132,6 +132,8 @@ pub enum BuildError {
   InlineScript(String),
   #[error("{0}: {1}")]
   SocialImage(PathBuf, String),
+  #[error("`{0}` places an `<Embed>` and hydrates, but the browser has no still to render it with; place the `<Embed>` in a page or a component that does not hydrate")]
+  EmbedInIsland(String),
   #[error("{module} exports `paths` but its route `{pattern}` has no parameter to enumerate")]
   PathsWithoutParameter { module: String, pattern: String },
   #[error("{path}: `{file}` names slot `{slot}`, which no layout above it declares")]
@@ -1206,6 +1208,9 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       Owner::Fsr => "static".to_owned(),
     };
     report.components.push((module.clone(), "lowered".to_owned(), detail));
+    if component.owner.hydrates() && !snapfire_fsr_ir::ast::embed_players(&component.render).is_empty() {
+      return Err(BuildError::EmbedInIsland(module));
+    }
     if !component.owner.hydrates() {
       static_modules.push(module.clone());
     }
@@ -1626,6 +1631,7 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
 pub fn check(app: &Path, options: &Options, typecheck: &typecheck::Typecheck, report: impl FnOnce(&Built)) -> Result<(Built, Option<typecheck::Checked>), BuildError> {
   let built = build(app, options)?;
   write_generated(app, &built)?;
+  types::refresh_embedded(app)?;
   report(&built);
   let checked = typecheck::run(app, typecheck)?;
   Ok((built, checked))

@@ -67,6 +67,8 @@ pub struct Config {
   pub dirs: DirsSection,
   /// `[images]`: the variant policy and the sources, defaults filled.
   pub images: ImagesSection,
+  /// `[media]`: video and audio, defaults filled.
+  pub media: MediaSection,
   /// `[fonts]`: the families declared and where their files are served from.
   pub fonts: FontsSection,
   /// The shell's `vendor/`, beside the `generated/shell.json` that `[site]
@@ -208,6 +210,34 @@ pub struct ImagesSection {
   /// policy. Format negotiation is the service's.
   #[serde(default)]
   pub sources: BTreeMap<String, ImageSource>,
+}
+
+/// `[media]`.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct MediaSection {
+  /// Where an `<Embed>`'s still comes from: `provider`, the video host's own
+  /// image, or `local`, fetched once at build and served from this
+  /// application, so a page asks the provider for nothing until it plays and
+  /// still shows it offline. `local` falls back to the provider's image when
+  /// the fetch fails.
+  #[serde(default)]
+  pub embed_stills: EmbedStills,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbedStills {
+  #[default]
+  Provider,
+  Local,
+}
+
+impl Default for MediaSection {
+  fn default() -> Self {
+    serde_json::from_str("{}").expect("every media key has a default")
+  }
 }
 
 impl Default for ImagesSection {
@@ -1142,6 +1172,7 @@ const SECTIONS: &[&str] = &[
   "public",
   "dirs",
   "images",
+  "media",
   "fonts",
 ];
 
@@ -1972,6 +2003,7 @@ impl Config {
     }
     let dirs: DirsSection = section(store, "dirs", &at)?;
     let images: ImagesSection = section(store, "images", &at)?;
+    let media: MediaSection = section(store, "media", &at)?;
     for width in &images.widths {
       if *width == 0 {
         return Err(HostError::Config(at.clone(), "images.widths: a width is at least 1".to_owned()));
@@ -2216,6 +2248,7 @@ impl Config {
       sites,
       dirs,
       images,
+      media,
       fonts,
       shell_vendor,
       favicon,

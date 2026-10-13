@@ -6,6 +6,7 @@
 */
 import { type LinkOptions } from "./link.js";
 import { type PictureOptions } from "./picture.js";
+import { type EmbedOptions } from "./embed.js";
 export declare const Fragment: unique symbol;
 export type FsrComponent = (props: Record<string, unknown>) => FsrNode;
 export interface FsrElement {
@@ -36,6 +37,8 @@ export declare function Link(props: LinkOptions & {
 }): FsrElement;
 /** The `<picture>` the server writes for the same props. */
 export declare function Picture(props: PictureOptions): FsrElement;
+/** The placeholder the server writes for a video hosted elsewhere, which a click swaps for the player. */
+export declare function Embed(props: EmbedOptions): FsrElement;
 /** A placement as an element: its child where it stands. */
 export declare function Island(props: {
 	children?: FsrNode;

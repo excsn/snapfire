@@ -1,3 +1,4 @@
+import { enableEmbeds } from "./embed.js";
 import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
@@ -299,6 +300,7 @@ export function boot(): void {
   adopt();
   adoptLocale();
   adoptCatalog();
+  enableEmbeds();
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", run, { once: true });
   } else {

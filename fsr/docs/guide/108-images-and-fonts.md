@@ -152,6 +152,18 @@ The conference app's venue page has this one. The import is the URL, so it works
 
 Set `width` and `height` so the page does not move when the video loads. Set `preload="metadata"` so a visitor who never plays it does not download it. A video that plays on its own needs `muted` and `playsInline` as well as `autoPlay`, since browsers refuse to autoplay sound. A `src` written as a literal URL on another origin, a CDN or a hosting service, is added to the policy's `media-src`.
 
+## A video hosted elsewhere
+
+A YouTube or Vimeo video is an `Embed`. The server renders the provider's still with the title and a play button. The player's iframe replaces it when the visitor clicks:
+
+```tsx
+import { Embed } from "@snapfire/fsr-client/react";
+
+<Embed provider="youtube" id="dQw4w9WgXcQ" title="Rick Astley - Never Gonna Give You Up" />
+```
+
+`provider` and `id` are strings written out. `title` is required, since it names the video on the placeholder, to a screen reader and on the player. The placeholder keeps a 16:9 box, so nothing moves when it loads or plays; place it inside an element as wide as you want it and style that element through `className`. The still loads from the provider by default. `[media] embed_stills = "local"` fetches it at build and serves it from your origin instead, which chapter 306 explains along with everything else a page asks other hosts for. An `Embed` renders on the server, so place it in a page, a layout or a component that does not hydrate: the build refuses one inside a component the browser hydrates, which has no still to render it with.
+
 ## A card image beside a route
 
 A link pasted into a chat or a post shows a card. The card's picture is the page's `og:image`. Put the picture beside the route it stands for:

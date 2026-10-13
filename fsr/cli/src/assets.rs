@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use snapfire_fsr_assets::{font, hash, image, strip, variant_name, Face, Format, Source, VariantPolicy};
 use snapfire_compiler_wire::driven::{AssetMap, MappedAsset};
 use snapfire_fsr_host::assets::{AssetsManifest, Face as FaceOut, FontFile, Fonts, ImageEntry, ImagePolicy, MediaFile, Remote, Variant, VERSION};
-use snapfire_fsr_host::config::{Config, DirsSection, FontsSection, ImagesSection};
+use snapfire_fsr_host::config::{Config, DirsSection, EmbedStills, FontsSection, ImagesSection, MediaSection};
 use snapfire_fsr_lower::assets::{AssetResolver, ImageFacts, ImageRequest};
 
 use crate::BuildError;
@@ -22,14 +22,15 @@ pub struct Sections {
   pub dirs: DirsSection,
   pub images: ImagesSection,
   pub fonts: FontsSection,
+  pub media: MediaSection,
 }
 
 impl Sections {
   pub fn of(app: &Path) -> Self {
     let root = crate::serve::project_root(app);
     match Config::load(&root) {
-      Ok(config) => Self { dirs: config.dirs, images: config.images, fonts: config.fonts },
-      Err(_) => Self { dirs: DirsSection::default(), images: ImagesSection::default(), fonts: FontsSection::default() },
+      Ok(config) => Self { dirs: config.dirs, images: config.images, fonts: config.fonts, media: config.media },
+      Err(_) => Self { dirs: DirsSection::default(), images: ImagesSection::default(), fonts: FontsSection::default(), media: MediaSection::default() },
     }
   }
 
@@ -345,6 +346,29 @@ impl AssetResolver for Resolver {
     Some(url)
   }
 
+  fn embed_still(&self, provider: &str, id: &str) -> Option<ImageFacts> {
+    if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+      return None;
+    }
+    if self.sections.media.embed_stills == EmbedStills::Local {
+      let rel = format!("{EMBEDS_DIR}/{provider}-{id}.jpg");
+      let file = self.app.join(&rel);
+      if !file.is_file() {
+        let fetched = remote_still(&self.app, provider, id).ok_or_else(|| "no still to fetch".to_owned()).and_then(|still| fetch(&still.src));
+        match fetched.and_then(|bytes| file.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&file, bytes)).map_err(|e| e.to_string())) {
+          Ok(()) => {}
+          Err(why) => eprintln!("embed     {provider} {id}: the still was not fetched, {why}; the provider's is shown instead"),
+        }
+      }
+      if file.is_file() {
+        if let Some(facts) = self.original(&rel) {
+          return Some(facts);
+        }
+      }
+    }
+    remote_still(&self.app, provider, id)
+  }
+
   fn source(&self, name: &str) -> Option<String> {
     self.sections.images.sources.get(name).map(|s| s.template.clone())
   }
@@ -434,6 +458,43 @@ pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Deriv
     derived.written.push(path);
   }
   Ok(derived)
+}
+
+/// Where a fetched provider still is kept under the app, so a build fetches each once.
+pub const EMBEDS_DIR: &str = "generated/embeds";
+
+/// The provider's own still for an embed: YouTube's at the URL its id
+/// names, Vimeo's from its oEmbed answer, looked up once and kept under
+/// `EMBEDS_DIR` so a later build asks nothing.
+fn remote_still(app: &Path, provider: &str, id: &str) -> Option<ImageFacts> {
+  if let Some(still) = snapfire_fsr_lower::assets::youtube_still(provider, id) {
+    return Some(still);
+  }
+  if provider != "vimeo" {
+    return None;
+  }
+  let kept = app.join(EMBEDS_DIR).join(format!("vimeo-{id}.json"));
+  let answer = match std::fs::read(&kept) {
+    Ok(bytes) => bytes,
+    Err(_) => match fetch(&format!("https://vimeo.com/api/oembed.json?url=https://vimeo.com/{id}")) {
+      Ok(bytes) => {
+        let _ = kept.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&kept, &bytes));
+        bytes
+      }
+      Err(why) => {
+        eprintln!("embed     vimeo {id}: no still, {why}; the placeholder shows the title alone");
+        return None;
+      }
+    },
+  };
+  let json: serde_json::Value = serde_json::from_slice(&answer).ok()?;
+  let number = |key: &str| json.get(key).and_then(serde_json::Value::as_u64).map(|n| n as u32);
+  Some(ImageFacts { src: json.get("thumbnail_url")?.as_str()?.to_owned(), width: number("thumbnail_width").unwrap_or(640), height: number("thumbnail_height").unwrap_or(360), sources: Vec::new() })
+}
+
+fn fetch(url: &str) -> Result<Vec<u8>, String> {
+  let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10)).build().map_err(|e| e.to_string())?;
+  client.get(url).send().and_then(|r| r.error_for_status()).and_then(|r| r.bytes()).map(|b| b.to_vec()).map_err(|e| format!("{url}: {e}"))
 }
 
 /// Writes the compiler's map under the app, from what the resolver defines.

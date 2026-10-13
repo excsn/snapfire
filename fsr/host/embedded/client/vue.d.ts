@@ -26,5 +26,7 @@ export interface MountProps {
 export declare const Mount: Component;
 /** An anchor with the marks the navigator reads, for a Vue island. Attributes pass through as `<a>`'s. */
 export declare const Link: Component;
+/** The placeholder the server writes for a video hosted elsewhere, for a component the browser renders. */
+export declare const Embed: Component;
 /** The `<picture>` the server writes for the same attributes, for a Vue island. */
 export declare const Picture: Component;

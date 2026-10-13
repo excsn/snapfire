@@ -20,7 +20,7 @@ pub(crate) enum Construct {
   Hook(&'static str),
   /// `createContext`; `react` when it is React's, whose providers the browser mounts.
   CreateContext { react: bool },
-  /// A placement the build lowers itself: `Island`, `island`, `Link`, `Slot`, `Picture`, `Mount` or the retired `tree`.
+  /// A placement the build lowers itself: `Island`, `island`, `Link`, `Slot`, `Picture`, `Mount`, `Embed` or the retired `tree`.
   Placement(&'static str),
   /// The store's `key`, which names a store key by its string.
   StoreKey,
@@ -44,7 +44,7 @@ pub(crate) enum Construct {
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
 const PLACEMENT_MODULES: [&str; 4] = ["@snapfire/fsr-authoring/template", "@snapfire/fsr-client/react", "@snapfire/fsr-client/vue", "@snapfire/fsr-client/jsx-runtime"];
-const PLACEMENTS: [&str; 7] = ["Island", "island", "Link", "Slot", "Picture", "Mount", "tree"];
+const PLACEMENTS: [&str; 8] = ["Island", "island", "Link", "Slot", "Picture", "Mount", "Embed", "tree"];
 
 fn rows() -> &'static [(&'static str, &'static str, Construct)] {
   static ROWS: std::sync::OnceLock<Vec<(&'static str, &'static str, Construct)>> = std::sync::OnceLock::new();

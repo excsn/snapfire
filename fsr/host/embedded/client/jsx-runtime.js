@@ -1,5 +1,6 @@
 import { linkAttributes } from "./link.js";
 import { pictureParts } from "./picture.js";
+import { embedParts } from "./embed.js";
 export const Fragment = Symbol.for("sf.fragment");
 export function jsx(type, props, key) {
     return {
@@ -20,6 +21,29 @@ export function Picture(props) {
             ...sources.map((source)=>jsx("source", source)),
             jsx("img", img)
         ]
+    });
+}
+export function Embed(props) {
+    const parts = embedParts(props);
+    const face = [
+        ...parts.still ? [
+            jsx("img", parts.still)
+        ] : [],
+        jsx("span", {
+            ...parts.title,
+            children: props.title
+        }),
+        jsx("span", {
+            ...parts.play,
+            children: "\u25B6"
+        })
+    ];
+    return jsx("div", {
+        ...parts.outer,
+        children: jsx("button", {
+            ...parts.button,
+            children: face
+        })
     });
 }
 export function Island(props) {

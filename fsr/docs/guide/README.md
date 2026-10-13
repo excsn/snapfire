@@ -53,6 +53,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [303. The deploy tree](303-the-deploy-tree.md), `fsr bundle`, why `serve/` is the only servable directory and how the routes a server answers stay the ones the host serves. Everyone.
 - [304. Checking a deployment](304-checking-a-deployment.md), `fsr doctor`, the six checks it runs and why each one is a thing the host will not refuse to start over. Everyone.
 - [305. Third-party scripts](305-third-party-scripts.md), the fixed head rows as layout meta, a library as a module the entry imports, a consent banner that loads a vendor from its callback and the deployment's own values under `[public]`. App developers.
+- [306. What a page asks other origins for](306-what-a-page-asks-other-origins-for.md), every request a page sends to a host other than yours, the video embed that loads its player only on a click and the settings that keep a request on your origin. App developers.
 
 And one appendix:
 

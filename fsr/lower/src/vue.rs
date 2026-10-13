@@ -781,6 +781,10 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         let attrs = self.placement_attrs(node)?;
         placements::mount(self, &attrs, At::Line(node.line, node.column))
       }
+      Some("Embed") => {
+        let attrs = self.placement_attrs(node)?;
+        placements::embed(self, &attrs, At::Line(node.line, node.column))
+      }
       _ => self.child_component(node),
     }
   }

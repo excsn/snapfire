@@ -5,7 +5,7 @@
 * by a file nothing mounts: the placements as plain elements, loading no
 * framework.
 */
-export { Island, island, Link, Picture, Slot } from "./jsx-runtime.js";
+export { Embed, Island, island, Link, Picture, Slot } from "./jsx-runtime.js";
 export { createContext, use } from "./jsx-runtime.js";
 export type { ImageAsset, PictureOptions as PictureProps } from "./picture.js";
 export type { LinkOptions as LinkProps } from "./link.js";

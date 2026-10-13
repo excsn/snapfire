@@ -6,6 +6,7 @@
  */
 import { linkAttributes, type LinkOptions } from "./link.js";
 import { pictureParts, type PictureOptions } from "./picture.js";
+import { embedParts, type EmbedOptions } from "./embed.js";
 
 export const Fragment: unique symbol = Symbol.for("sf.fragment") as never;
 
@@ -50,6 +51,13 @@ export function Picture(props: PictureOptions): FsrElement {
   const { img, sources } = pictureParts(props);
   if (sources === null) return jsx("img", img);
   return jsx("picture", { children: [...sources.map((source) => jsx("source", source)), jsx("img", img)] });
+}
+
+/** The placeholder the server writes for a video hosted elsewhere, which a click swaps for the player. */
+export function Embed(props: EmbedOptions): FsrElement {
+  const parts = embedParts(props);
+  const face = [...(parts.still ? [jsx("img", parts.still)] : []), jsx("span", { ...parts.title, children: props.title }), jsx("span", { ...parts.play, children: "\u25B6" })];
+  return jsx("div", { ...parts.outer, children: jsx("button", { ...parts.button, children: face }) });
 }
 
 /** A placement as an element: its child where it stands. */

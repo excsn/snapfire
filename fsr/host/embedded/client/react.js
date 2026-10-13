@@ -6,6 +6,7 @@ import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { linkAttributes } from "./link.js";
+import { embedParts, styleObject } from "./embed.js";
 import { pictureParts } from "./picture.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { get, isPending, set, subscribe, whenSettled } from "./store.js";
@@ -310,6 +311,38 @@ export function Picture(props) {
     const { img, sources } = pictureParts(props, FETCH_PRIORITY);
     if (sources === null) return createElement("img", img);
     return createElement("picture", null, ...sources.map((source)=>createElement("source", source)), createElement("img", img));
+}
+export function Embed(props) {
+    const parts = embedParts(props);
+    const react = (attrs)=>{
+        const { style, class: className, ...rest } = attrs;
+        return {
+            ...rest,
+            ...className ? {
+                className
+            } : {},
+            ...style ? {
+                style: styleObject(style)
+            } : {}
+        };
+    };
+    const face = [
+        ...parts.still ? [
+            createElement("img", {
+                key: "still",
+                ...react(parts.still)
+            })
+        ] : [],
+        createElement("span", {
+            key: "title",
+            ...react(parts.title)
+        }, props.title),
+        createElement("span", {
+            key: "play",
+            ...react(parts.play)
+        }, "\u25B6")
+    ];
+    return createElement("div", react(parts.outer), createElement("button", react(parts.button), ...face));
 }
 const HoistContext = createContext(null);
 const HOISTED_PROP = "$h";

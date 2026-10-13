@@ -983,39 +983,54 @@ pub struct HeadScript {
 /// The `src` of every `video`, `audio`, `source` and `track` in `tmpl` the
 /// build can read as a string, in the order written.
 pub fn media_sources(tmpl: &Tmpl) -> Vec<String> {
-  fn walk(tmpl: &Tmpl, out: &mut Vec<String>) {
+  literal_attrs(tmpl, &|tag| matches!(tag, "video" | "audio" | "source" | "track"), "src")
+}
+
+/// The `src` of every `img` in `tmpl` the build can read as a string, in the order written.
+pub fn image_sources(tmpl: &Tmpl) -> Vec<String> {
+  literal_attrs(tmpl, &|tag| tag == "img", "src")
+}
+
+/// The player URL of every embed placeholder in `tmpl`, its `data-sf-embed`.
+pub fn embed_players(tmpl: &Tmpl) -> Vec<String> {
+  literal_attrs(tmpl, &|_| true, "data-sf-embed")
+}
+
+/// The string value of `name` on every element `tag_matches` takes, in the order written.
+fn literal_attrs(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> Vec<String> {
+  fn walk(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str, out: &mut Vec<String>) {
     match tmpl {
       Tmpl::Element { tag, attrs, children } => {
-        if matches!(tag.as_str(), "video" | "audio" | "source" | "track") {
+        if tag_matches(tag) {
           for entry in attrs {
-            if let Entry::Field(name, expr) = entry {
+            if let Entry::Field(field, expr) = entry {
               let text = match expr {
                 Expr::Lit(Lit::Str(s)) => Some(s.clone()),
                 Expr::Folded(snapfire_fsr_core::value::Value::Str(s)) => Some(s.to_string()),
                 _ => None,
               };
-              if let Some(text) = text.filter(|_| name == "src") {
+              if let Some(text) = text.filter(|_| field == name) {
                 out.push(text);
               }
             }
           }
         }
-        children.iter().for_each(|child| walk(child, out));
+        children.iter().for_each(|child| walk(child, tag_matches, name, out));
       }
-      Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|child| walk(child, out)),
+      Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|child| walk(child, tag_matches, name, out)),
       Tmpl::If { then, r#else, .. } => {
-        walk(then, out);
+        walk(then, tag_matches, name, out);
         if let Some(other) = r#else {
-          walk(other, out);
+          walk(other, tag_matches, name, out);
         }
       }
-      Tmpl::For { body, .. } => walk(body, out),
-      Tmpl::Let { then, .. } => walk(then, out),
+      Tmpl::For { body, .. } => walk(body, tag_matches, name, out),
+      Tmpl::Let { then, .. } => walk(then, tag_matches, name, out),
       Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
   let mut out = Vec::new();
-  walk(tmpl, &mut out);
+  walk(tmpl, tag_matches, name, &mut out);
   out
 }
 

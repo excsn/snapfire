@@ -7,6 +7,7 @@ import { get, set, subscribe } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes } from "./link.js";
 import { pictureParts } from "./picture.js";
+import { embedParts } from "./embed.js";
 const held = new WeakMap();
 const RUNTIME_PROPS = [
     "$h",
@@ -215,6 +216,26 @@ export const Link = defineComponent({
     inheritAttrs: false,
     setup (_, { attrs, slots }) {
         return ()=>h("a", linkAttributes(attrs), slots.default?.());
+    }
+});
+export const Embed = defineComponent({
+    name: "SfEmbed",
+    inheritAttrs: false,
+    setup (_, { attrs }) {
+        return ()=>{
+            const props = attrs;
+            const parts = embedParts(props);
+            const face = [
+                ...parts.still ? [
+                    h("img", parts.still)
+                ] : [],
+                h("span", parts.title, props.title),
+                h("span", parts.play, "\u25B6")
+            ];
+            return h("div", parts.outer, [
+                h("button", parts.button, face)
+            ]);
+        };
     }
 });
 export const Picture = defineComponent({

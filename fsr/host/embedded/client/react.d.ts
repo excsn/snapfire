@@ -1,6 +1,7 @@
 import { createContext, useContext, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { MountTiming, Mounter, Patcher, type Props, type Unmounter } from "./boot.js";
 import { type PrefetchTiming } from "./navigator.js";
+import { type EmbedOptions } from "./embed.js";
 import { type ImageAsset } from "./picture.js";
 export type { ImageAsset } from "./picture.js";
 import { type StoreKey } from "./store.js";
@@ -91,6 +92,8 @@ export interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, 
 }
 /** The markup the server wrote for the same props: a `<picture>` with a `<source>` per format and the hashed original as its `<img>`; an `<img>` alone for an image served as it is; for a string `src`, an `<img>` whose `srcset` a named source's template writes. */
 export declare function Picture(props: PictureProps): ReactElement;
+/** The placeholder the server writes for a video hosted elsewhere, for a component the browser renders. */
+export declare function Embed(props: EmbedOptions): ReactElement;
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */
 export type Hoisted = {
 	readonly [key: string]: unknown;

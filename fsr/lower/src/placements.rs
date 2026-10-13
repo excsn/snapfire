@@ -1,4 +1,4 @@
-//! The placements every front end shares: `Link`, `Picture` and `Mount`. A
+//! The placements every front end shares: `Link`, `Picture`, `Mount` and `Embed`. A
 //! front end recognises one by where its tag is imported from and hands over
 //! its attributes as written; what the markup is gets decided here, once, for
 //! JSX, a Vue template and any front end after them.
@@ -412,6 +412,79 @@ fn picture_quality<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<std
 /// with a `<source>` per format and the hashed original as its `<img>`,
 /// an `<img>` alone for an image served as it is, and for a string `src`
 /// an `<img>` whose `srcset` a named source's template writes.
+/// The attribute every embed placeholder carries: the player URL the click swaps in.
+pub const EMBED_ATTR: &str = "data-sf-embed";
+
+/// The player each provider serves, autoplaying since the visitor's click is the play.
+fn embed_player(provider: &str, id: &str) -> Option<String> {
+  match provider {
+    "youtube" => Some(format!("https://www.youtube-nocookie.com/embed/{id}?autoplay=1")),
+    "vimeo" => Some(format!("https://player.vimeo.com/video/{id}?autoplay=1")),
+    _ => None,
+  }
+}
+
+/// `<Embed provider="youtube" id="dQw4w9WgXcQ" title="…">`: a placeholder the
+/// server renders, the provider's still served from this application with a
+/// play button over it, which the client swaps for the player's iframe on a
+/// click. Nothing is asked of the provider before then.
+pub(crate) fn embed<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At) -> Lowered<Tmpl> {
+  let mut provider: Option<String> = None;
+  let mut id: Option<String> = None;
+  let mut title: Option<Expr> = None;
+  let mut rest: Vec<Entry> = Vec::new();
+  for attr in attrs {
+    if let Value::Spread(_) = &attr.value {
+      return Err(refuse(cx, attr.at, "an `<Embed>` takes its attributes written out, not spread"));
+    }
+    match attr.name.as_str() {
+      "key" | "ref" => {}
+      name if name == RAW_ESCAPE => {}
+      "provider" | "id" => match value(cx, attr)? {
+        Expr::Lit(Lit::Str(text)) => {
+          if attr.name == "provider" {
+            provider = Some(text);
+          } else {
+            id = Some(text);
+          }
+        }
+        _ => return Err(refuse(cx, attr.at, format!("an `<Embed>`'s `{}` is a string written out, since the build fetches the still for it", attr.name))),
+      },
+      "title" => title = Some(value(cx, attr)?),
+      "style" => return Err(refuse(cx, attr.at, "an `<Embed>` lays itself out; style it through `className`")),
+      other => {
+        let lowered = value(cx, attr)?;
+        rest.push(Entry::Field(html_attr_name(other).to_owned(), lowered));
+      }
+    }
+  }
+  let (Some(provider), Some(id)) = (provider, id) else {
+    return Err(refuse(cx, at, "an `<Embed>` needs a `provider`, `youtube` or `vimeo`, and the video's `id`"));
+  };
+  let Some(player) = embed_player(&provider, &id) else {
+    return Err(refuse(cx, at, format!("an `<Embed>`'s `provider` is `youtube` or `vimeo`, not `{provider}`")));
+  };
+  let Some(title) = title else {
+    return Err(refuse(cx, at, "an `<Embed>` needs a `title`, which names the video to a screen reader and on the placeholder"));
+  };
+  let field = |name: &str, value: &str| Entry::Field(name.to_owned(), Expr::lit_str(value));
+  let element = |tag: &str, attrs: Vec<Entry>, children: Vec<Tmpl>| Tmpl::Element { tag: tag.to_owned(), attrs, children };
+  let mut face = Vec::new();
+  if let Some(still) = cx.assets().embed_still(&provider, &id) {
+    face.push(element(
+      "img",
+      vec![field("src", &still.src), field("alt", ""), field("width", &still.width.to_string()), field("height", &still.height.to_string()), field("loading", "lazy"), field("decoding", "async"), field("style", "width:100%;height:100%;object-fit:cover;display:block")],
+      Vec::new(),
+    ));
+  }
+  face.push(element("span", vec![field("style", "position:absolute;left:0;right:0;top:0;padding:12px 16px;color:#fff;font:600 16px/1.3 system-ui,sans-serif;text-align:left;background:linear-gradient(rgba(0,0,0,.65),transparent)")], vec![Tmpl::Expr(title.clone())]));
+  face.push(element("span", vec![field("aria-hidden", "true"), field("style", "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:68px;height:48px;border-radius:12px;background:rgba(0,0,0,.75);color:#fff;display:flex;align-items:center;justify-content:center;font:24px/1 sans-serif")], vec![Tmpl::Text("\u{25B6}".to_owned())]));
+  let button = element("button", vec![field("type", "button"), field("style", "all:unset;cursor:pointer;position:absolute;inset:0;display:block")], face);
+  let mut outer = vec![Entry::Field(EMBED_ATTR.to_owned(), Expr::lit_str(player)), Entry::Field("data-sf-embed-title".to_owned(), title), field("style", "position:relative;aspect-ratio:16/9;background:#000;overflow:hidden")];
+  outer.extend(rest);
+  Ok(element("div", outer, vec![button]))
+}
+
 pub(crate) fn picture<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At, from_img: bool) -> Lowered<Tmpl> {
   let mut src: Option<PictureSrc> = None;
   let mut sizes: Option<Expr> = None;

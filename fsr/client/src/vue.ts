@@ -8,6 +8,7 @@ import { get, set, subscribe, type StoreKey } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes, type LinkOptions } from "./link.js";
 import { pictureParts, type PictureOptions } from "./picture.js";
+import { embedParts, type EmbedOptions } from "./embed.js";
 
 /** The reactive props an island was mounted with, so a patch re-renders it in place instead of tearing it down. */
 const held = new WeakMap<Element, Record<string, unknown>>();
@@ -229,6 +230,20 @@ export const Link: Component = defineComponent({
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
     return () => h("a", linkAttributes(attrs as LinkOptions), slots.default?.());
+  },
+});
+
+/** The placeholder the server writes for a video hosted elsewhere, for a component the browser renders. */
+export const Embed: Component = defineComponent({
+  name: "SfEmbed",
+  inheritAttrs: false,
+  setup(_, { attrs }) {
+    return () => {
+      const props = attrs as unknown as EmbedOptions;
+      const parts = embedParts(props);
+      const face = [...(parts.still ? [h("img", parts.still)] : []), h("span", parts.title, props.title), h("span", parts.play, "\u25B6")];
+      return h("div", parts.outer, [h("button", parts.button, face)]);
+    };
   },
 });
 

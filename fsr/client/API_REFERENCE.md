@@ -98,6 +98,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [useLocale](#uselocale)
   * [Link](#link)
   * [Picture](#picture)
+  * [Embed](#embed)
   * [Mount](#mount)
   * [foreign](#foreign)
   * [reactPatcher](#reactpatcher)
@@ -159,8 +160,8 @@ Eight ES module entry points, resolved through an import map. There is no packag
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 | `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
-| `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
-| `@snapfire/fsr-authoring/template` | `dist/template.js` | `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the JSX runtime | none |
+| `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
+| `@snapfire/fsr-authoring/template` | `dist/template.js` | `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot`, re-exported from the JSX runtime | none |
 
 The core entry imports nothing outside the package, so a page that mounts no React islands never loads React. The template entry is the dialect's placements as plain elements and loads no framework. The build rewrites a React or Vue island's import of the dialect to that framework's entry, so the template entry is reached only by a file nothing mounts. `Link` and `Picture` in the React, Vue and JSX runtime entries build their elements from the same attributes, computed in `dist/link.js` and `dist/picture.js`, which no specifier names.
 
@@ -905,6 +906,15 @@ The server writes the mark at first paint, from the path the request matched or 
 The markup the server wrote for the same props, so hydration finds what it expects. For an imported image: a `<picture>` with a `<source>` per format of the policy, each `srcSet` naming `<stem>.<width>.<format>` for every policy width below the image's own and then its own, `sizes` as given or `(max-width: {width}px) 100vw, {width}px`, then the `<img>` with `src`, `width` and `height` from the asset, `loading` as given or `lazy` (`eager` under `priority`), `decoding` as given or `async` and, under `priority`, `fetchPriority="high"` (the lowercase attribute under React 18). An SVG, a GIF or an asset marked `animated` is the `<img>` alone. A string `src` with a `source` that names an entry of the policy's `sources` is an `<img>` whose `srcSet` the template writes per policy width with `{src}` and `{width}` filled and `sizes` defaulting to `100vw`; any other string is `<img src>` as written. `widths` replaces the policy's; `quality` changes nothing in the browser.
 
 The policy is read once from the document's `<meta name="sf:images">`, which the host writes from the build's manifest: `widths`, `formats`, `base`, prefixed onto a root-relative `src` for a tree a CDN serves, plus `sources`. A document without the meta falls back to the policy's defaults.
+
+### Embed
+
+* `function Embed(props: EmbedOptions): ReactElement`; the Vue entry and the JSX runtime export the same component.
+* `interface EmbedOptions { provider: "youtube" | "vimeo"; id: string; title: string; className?: string }`
+* `function enableEmbeds(): void`: listens on the document for a click on a placeholder's button and replaces the placeholder with its player's iframe, the `data-sf-embed` URL with the `data-sf-embed-title` title. `boot` calls it once per document.
+* `function playEmbed(button: Element): void`: the swap itself, for the placeholder `button` sits in.
+
+The placeholder the build writes on the server: a `div` with `data-sf-embed` and `data-sf-embed-title` holding a `button` with the still, the title and a play mark. The build lowers `Embed` wherever it renders on the server and refuses one inside a component that hydrates. The component here is what a component the browser alone renders writes: YouTube's still from its CDN, none for Vimeo, whose still only the build looks up.
 
 ### Mount
 

@@ -4225,6 +4225,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some("Link") => return self.link_element(el),
       Some("Picture") => return self.picture_element(el, false),
       Some("Mount") => return self.mount_element(el),
+      Some("Embed") => {
+        let attrs = self.jsx_attrs(el)?;
+        return placements::embed(self, &attrs, At::Span(el.span));
+      }
       _ => {}
     }
     if let js::JSXElementName::Ident(id) = &el.opening.name {

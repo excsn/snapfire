@@ -500,6 +500,7 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `ActionsWithoutPage(PathBuf)`, an `actions.ts` in a directory under `routes/` with no page.
 * `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)` and `SlotUndeclared { path: PathBuf, file: String, slot: String }`, from the slot and variant rules above.
 * `PageAndTemplate { dir: PathBuf, first: String, second: String }`, `TemplateFeature(PathBuf)` and `TemplateIsland { file: PathBuf, line: usize }`, from the template rules above. The `tera` feature is on by default and forwards to the host's.
+* `EmbedInIsland(String)`: a component that hydrates places an `<Embed>`, whose still the browser has no way to render the same; the module is named.
 * `PathsOffPage(String)`: a `layout.loader.ts` or a slot's `page.loader.ts` exports `paths`, which only a route's page loader may. `PathsWithoutParameter { module, pattern }`: a page loader exports `paths` on a route whose pattern has no parameter.
 * `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.
 * `UnknownComponent { module: String }`, an island whose extension no framework claims.

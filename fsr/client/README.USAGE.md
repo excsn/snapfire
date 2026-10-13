@@ -24,6 +24,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
 * [Marking the Link to the Page Being Shown](#marking-the-link-to-the-page-being-shown)
+* [Placing a Video Embed](#placing-a-video-embed)
 * [Placing a Picture](#placing-a-picture)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Animating a Navigation](#animating-a-navigation)
@@ -753,6 +754,18 @@ await addServer({ name: "eu-3", load: 0.25 });
 await addServer({ name: "eu-4", load: 0.5 });
 await refresh();
 ```
+
+## Placing a Video Embed
+
+`Embed` is a YouTube or Vimeo video as a still with a play button; a click puts the player in its place:
+
+```tsx
+import { Embed } from "@snapfire/fsr-client/react";
+
+<Embed provider="youtube" id="dQw4w9WgXcQ" title="Rick Astley - Never Gonna Give You Up" />
+```
+
+The build writes the placeholder on the server and `boot` listens for the click, so the page needs no island for it. Place it where the server renders: the build refuses an `Embed` inside a component that hydrates.
 
 ## Placing a Picture
 

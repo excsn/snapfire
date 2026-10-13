@@ -68,3 +68,17 @@ test("the walk from the station is a video whose sources, captions and poster th
   const track = video.querySelector("track")!;
   expect(track.getAttribute("src")!.endsWith(".vtt") && track.hasAttribute("default"), track.outerHTML).toEqual(true);
 });
+
+test("the videos between the talks are stills until played, and a click puts that one player in its place", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  const embeds = Array.from(document.querySelectorAll(".venue-breaks [data-sf-embed]"));
+  expect(embeds.length).toEqual(2);
+  expect(embeds[0].querySelector("img")!.getAttribute("src"), "the provider's still").toEqual("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg");
+  expect(document.querySelectorAll(".venue-breaks iframe").length, "no player before a click").toEqual(0);
+  await fireEvent.click(embeds[1].querySelector("button")!);
+  const frames = Array.from(document.querySelectorAll(".venue-breaks iframe"));
+  expect(frames.length, "only the clicked one plays").toEqual(1);
+  expect(frames[0].getAttribute("src")).toEqual("https://www.youtube-nocookie.com/embed/astISOttCQ0?autoplay=1");
+  expect(frames[0].getAttribute("title")).toEqual("Gummibär - The Gummy Bear Song");
+});
