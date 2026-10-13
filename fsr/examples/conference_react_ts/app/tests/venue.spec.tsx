@@ -74,7 +74,7 @@ test("the videos between the talks are stills until played, and a click puts tha
   await settle();
   const embeds = Array.from(document.querySelectorAll(".venue-breaks [data-sf-embed]"));
   expect(embeds.length).toEqual(2);
-  expect(embeds[0].querySelector("img")!.getAttribute("src"), "the provider's still").toEqual("https://i.ytimg.com/vi/Aq5WXmQQooo/hqdefault.jpg");
+  expect(embeds[0].querySelector("img")!.getAttribute("src"), "the provider's still").toEqual("https://i.ytimg.com/vi/f_WuRfuMXQw/hqdefault.jpg");
   expect(document.querySelectorAll(".venue-breaks iframe").length, "no player before a click").toEqual(0);
   await fireEvent.click(embeds[1].querySelector("button")!);
   const frames = Array.from(document.querySelectorAll(".venue-breaks iframe"));

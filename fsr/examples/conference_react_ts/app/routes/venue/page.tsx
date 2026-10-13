@@ -22,7 +22,7 @@ export default function VenuePage({ venue, talks }: VenueProps) {
       </video>
       <section className="venue-breaks">
         <h3>Between the talks</h3>
-        <Embed provider="youtube" id="Aq5WXmQQooo" title="Rick Astley - Never Gonna Give You Up" />
+        <Embed provider="youtube" id="f_WuRfuMXQw" title="Rick Astley - Never Gonna Give You Up" />
         <Embed provider="youtube" id="astISOttCQ0" title="Gummibär - The Gummy Bear Song" />
       </section>
       <Island when="visible">
