@@ -62,11 +62,15 @@ pub enum Root {
 pub struct CompileOptions<'a> {
   /// The directory the stylesheet's own imports resolve against.
   pub base: String,
-  /// Resolves an `@import` that is not one of Tailwind's own stylesheets.
+  /// Resolves every `@import`. Without one only Tailwind's own stylesheets resolve; a loader
+  /// that should also find them calls [`tailwind_stylesheet`].
   pub load_stylesheet: Option<Box<LoadStylesheet<'a>>>,
   pub polyfills: Polyfills,
   /// Starts the output with Tailwind's license comment.
   pub banner: bool,
+  /// The stylesheet's file name. A syntax error then starts with `file:line:column`. An
+  /// imported stylesheet's errors name its `path`.
+  pub from: Option<String>,
 }
 
 impl Default for CompileOptions<'_> {
@@ -76,6 +80,7 @@ impl Default for CompileOptions<'_> {
       load_stylesheet: None,
       polyfills: Polyfills::ALL,
       banner: true,
+      from: None,
     }
   }
 }
@@ -102,7 +107,7 @@ pub struct Compiler {
 
 impl Compiler {
   pub fn new(css: &str, options: CompileOptions) -> Result<Compiler, Error> {
-    let parsed = css_parser::parse(css)?;
+    let parsed = css_parser::parse(css, options.from.as_deref())?;
     let mut compiler = parse_css(parsed, &options)?;
     if options.banner {
       compiler.ast.insert(
@@ -185,6 +190,18 @@ impl Compiler {
     self.compiled.clone().unwrap()
   }
 
+  /// The candidate in Tailwind's canonical spelling, from its first parse: `!flex` as `flex!`
+  /// or `bg-[var(--x)]` as `bg-(--x)`. `None` when it does not parse.
+  pub fn canonical_candidate(&self, candidate: &str) -> Option<String> {
+    let parsed = self.ds.parse_candidate(candidate);
+    parsed.first().map(|c| candidate::print_candidate(&self.ds, c))
+  }
+
+  /// The warnings Tailwind would print to the console, in order.
+  pub fn warnings(&self) -> Vec<String> {
+    self.ds.warnings.borrow().clone()
+  }
+
   /// One candidate as CSS without polyfills. `None` when it is not a utility.
   pub fn candidate_css(&self, candidate: &str) -> Option<String> {
     self.ds.candidate_to_css(candidate)
@@ -250,17 +267,13 @@ fn parse_css(parsed: Vec<Node>, options: &CompileOptions) -> Result<Compiler, Er
   let mut ast = vec![context(ctx1("base", CtxValue::Str(options.base.clone())), parsed)];
 
   let load = |id: &str, base: &str| -> Result<Loaded, Error> {
-    if let Some(loaded) = tailwind_stylesheet(id, base) {
-      return Ok(loaded);
-    }
     match &options.load_stylesheet {
       Some(load) => load(id, base),
-      None => Err(Error::Message(
-        "No `loadStylesheet` function provided to `compile`".to_owned(),
-      )),
+      None => tailwind_stylesheet(id, base)
+        .ok_or_else(|| Error::Message(format!("Cannot resolve `{id}`: no `load_stylesheet` was given"))),
     }
   };
-  features |= at_import::substitute_at_imports(&mut ast, &options.base, &load, 0)?;
+  features |= at_import::substitute_at_imports(&mut ast, &options.base, &load, 0, options.from.is_some())?;
 
   let mut important = false;
   let mut theme = Theme::default();
@@ -631,6 +644,8 @@ fn parse_css(parsed: Vec<Node>, options: &CompileOptions) -> Result<Compiler, Er
     return Err(e);
   }
 
+  check_plugins(&mut ast)?;
+
   let names = extract_css_utilities(&mut ast, &mut custom_utilities);
 
   let mut ds = DesignSystem::new(theme);
@@ -736,6 +751,78 @@ fn parse_css(parsed: Vec<Node>, options: &CompileOptions) -> Result<Compiler, Er
     previous_count: 0,
     compiled: None,
   })
+}
+
+/// `@plugin` and `@config` load JavaScript, which this crate does not run. Their syntax is
+/// still checked as Tailwind checks it before it would load them.
+fn check_plugins(ast: &mut Vec<Node>) -> Result<(), Error> {
+  let mut error: Option<Error> = None;
+  let mut found = false;
+  walk(ast, &mut |node, visit| {
+    let Node::AtRule { name, params, nodes } = node else {
+      return Action::Continue;
+    };
+    let has_parent = visit.css_parent().is_some();
+    if name == "@plugin" {
+      if has_parent {
+        error = Some(Error::Message("`@plugin` cannot be nested.".to_owned()));
+        return Action::Stop;
+      }
+      if params.chars().count() <= 2 {
+        error = Some(Error::Message("`@plugin` must have a path.".to_owned()));
+        return Action::Stop;
+      }
+      for option in nodes.iter() {
+        let Node::Declaration { property, value, .. } = option else {
+          error = Some(Error::Message(format!(
+            "Unexpected `@plugin` option:\n\n{}\n\n`@plugin` options must be a flat list of declarations.",
+            to_css(std::slice::from_ref(option))
+          )));
+          return Action::Stop;
+        };
+        let Some(value) = value else { continue };
+        for part in segment(value, b',') {
+          let part = part.trim();
+          if part.starts_with('{') && part.ends_with('}') {
+            let shown = to_css(&[Node::Declaration {
+              property: property.clone(),
+              value: Some(value.clone()),
+              important: false,
+            }]);
+            error = Some(Error::Message(format!(
+              "Unexpected `@plugin` option: Value of declaration `{}` is not supported.\n\nUsing an object as a plugin option is currently only supported in JavaScript configuration files.",
+              shown.trim()
+            )));
+            return Action::Stop;
+          }
+        }
+      }
+      found = true;
+      return Action::Replace(Vec::new());
+    }
+    if name == "@config" {
+      if !nodes.is_empty() {
+        error = Some(Error::Message("`@config` cannot have a body.".to_owned()));
+        return Action::Stop;
+      }
+      if has_parent {
+        error = Some(Error::Message("`@config` cannot be nested.".to_owned()));
+        return Action::Stop;
+      }
+      found = true;
+      return Action::Replace(Vec::new());
+    }
+    Action::Continue
+  });
+  if let Some(e) = error {
+    return Err(e);
+  }
+  if found {
+    return Err(Error::Message(
+      "No `loadModule` function provided to `compile`".to_owned(),
+    ));
+  }
+  Ok(())
 }
 
 fn for_each_utility_body(

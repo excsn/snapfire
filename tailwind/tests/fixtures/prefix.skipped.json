@@ -4,19 +4,7 @@
     "reason": "option `loadModule`"
   },
   {
-    "test": "a prefix can be configured via @import theme(…)",
-    "reason": "options are not an object literal"
-  },
-  {
-    "test": "a prefix can be configured via @import theme(…)",
-    "reason": "options are not an object literal"
-  },
-  {
-    "test": "a prefix can be configured via @import prefix(…)",
-    "reason": "options are not an object literal"
-  },
-  {
-    "test": "a prefix can be configured via @import prefix(…)",
-    "reason": "options are not an object literal"
+    "test": "JS theme functions do not use the prefix",
+    "reason": "asserts on `theme`"
   }
 ]

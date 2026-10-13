@@ -1,1 +1,19 @@
-[]
+[
+  {
+    "test": "supports theme(reference) imports",
+    "kind": "css",
+    "candidates": [
+      "text-red-500"
+    ],
+    "css": "\n        @tailwind utilities;\n        @import 'example.css' theme(reference);\n      ",
+    "expected": "\n.text-red-500 {\n  color: var(--color-red-500, red);\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": [
+      "\n              @theme {\n                --color-red-500: red;\n              }\n            ",
+      ""
+    ],
+    "shuffled": false
+  }
+]

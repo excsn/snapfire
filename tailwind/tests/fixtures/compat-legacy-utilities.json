@@ -15,7 +15,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.bg-gradient-to-b {\n  --tw-gradient-position: to bottom in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n\n.bg-gradient-to-bl {\n  --tw-gradient-position: to bottom left in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n\n.bg-gradient-to-br {\n  --tw-gradient-position: to bottom right in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n\n.bg-gradient-to-l {\n  --tw-gradient-position: to left in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n\n.bg-gradient-to-r {\n  --tw-gradient-position: to right in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n\n.bg-gradient-to-t {\n  --tw-gradient-position: to top in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n\n.bg-gradient-to-tl {\n  --tw-gradient-position: to top left in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n\n.bg-gradient-to-tr {\n  --tw-gradient-position: to top right in oklab;\n  background-image: linear-gradient(var(--tw-gradient-stops));\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "max-w-screen",
@@ -30,7 +33,10 @@
     "css": "\n        @theme {\n          --breakpoint-sm: 40rem;\n          --breakpoint-md: 48rem;\n          --breakpoint-lg: 64rem;\n          --breakpoint-xl: 80rem;\n          --breakpoint-2xl: 96rem;\n        }\n        @tailwind utilities;\n      ",
     "expected": "\n:root, :host {\n  --breakpoint-sm: 40rem;\n  --breakpoint-md: 48rem;\n  --breakpoint-lg: 64rem;\n  --breakpoint-xl: 80rem;\n  --breakpoint-2xl: 96rem;\n}\n\n.max-w-screen-2xl {\n  max-width: var(--breakpoint-2xl);\n}\n\n.max-w-screen-lg {\n  max-width: var(--breakpoint-lg);\n}\n\n.max-w-screen-md {\n  max-width: var(--breakpoint-md);\n}\n\n.max-w-screen-sm {\n  max-width: var(--breakpoint-sm);\n}\n\n.max-w-screen-xl {\n  max-width: var(--breakpoint-xl);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "max-w-screen",
@@ -53,7 +59,10 @@
     "css": "@tailwind utilities;",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "box-decoration",
@@ -65,7 +74,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.decoration-clone {\n  -webkit-box-decoration-break: clone;\n  box-decoration-break: clone;\n}\n\n.decoration-slice {\n  -webkit-box-decoration-break: slice;\n  box-decoration-break: slice;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "overflow-ellipsis",
@@ -76,7 +88,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.overflow-ellipsis {\n  text-overflow: ellipsis;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "flex-grow",
@@ -89,7 +104,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.flex-grow {\n  flex-grow: 1;\n}\n\n.flex-grow-0 {\n  flex-grow: 0;\n}\n\n.flex-grow-\\[123\\] {\n  flex-grow: 123;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "flex-grow",
@@ -108,7 +126,10 @@
     "css": "@tailwind utilities;",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "flex-shrink",
@@ -121,7 +142,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.flex-shrink {\n  flex-shrink: 1;\n}\n\n.flex-shrink-0 {\n  flex-shrink: 0;\n}\n\n.flex-shrink-\\[123\\] {\n  flex-shrink: 123;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "flex-shrink",
@@ -140,7 +164,10 @@
     "css": "@tailwind utilities;",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "start",
@@ -158,7 +185,10 @@
     "css": "\n        @theme {\n          --spacing: 0.25rem;\n          --inset-shadowned: 1940px;\n        }\n        @tailwind utilities;\n      ",
     "expected": "\n:root, :host {\n  --spacing: .25rem;\n  --inset-shadowned: 1940px;\n}\n\n.-start-4 {\n  inset-inline-start: calc(var(--spacing) * -4);\n}\n\n.-start-full {\n  inset-inline-start: -100%;\n}\n\n.start-3\\/4 {\n  inset-inline-start: 75%;\n}\n\n.start-4 {\n  inset-inline-start: calc(var(--spacing) * 4);\n}\n\n.start-\\[4px\\] {\n  inset-inline-start: 4px;\n}\n\n.start-auto {\n  inset-inline-start: auto;\n}\n\n.start-full {\n  inset-inline-start: 100%;\n}\n\n.start-shadowned {\n  inset-inline-start: var(--inset-shadowned);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "start",
@@ -181,7 +211,10 @@
     "css": "\n        @theme reference {\n          --spacing: 0.25rem;\n          --inset-shadow-sm: inset 0 1px 1px rgb(0 0 0 / 0.05);\n        }\n        @tailwind utilities;\n      ",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "end",
@@ -199,7 +232,10 @@
     "css": "\n        @theme {\n          --spacing: 0.25rem;\n          --inset-shadowned: 1940px;\n        }\n        @tailwind utilities;\n      ",
     "expected": "\n:root, :host {\n  --spacing: .25rem;\n  --inset-shadowned: 1940px;\n}\n\n.-end-4 {\n  inset-inline-end: calc(var(--spacing) * -4);\n}\n\n.-end-full {\n  inset-inline-end: -100%;\n}\n\n.end-3\\/4 {\n  inset-inline-end: 75%;\n}\n\n.end-4 {\n  inset-inline-end: calc(var(--spacing) * 4);\n}\n\n.end-\\[4px\\] {\n  inset-inline-end: 4px;\n}\n\n.end-auto {\n  inset-inline-end: auto;\n}\n\n.end-full {\n  inset-inline-end: 100%;\n}\n\n.end-shadowned {\n  inset-inline-end: var(--inset-shadowned);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "end",
@@ -222,6 +258,9 @@
     "css": "\n        @theme reference {\n          --spacing: 0.25rem;\n          --inset-shadow-sm: inset 0 1px 1px rgb(0 0 0 / 0.05);\n        }\n        @tailwind utilities;\n      ",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   }
 ]

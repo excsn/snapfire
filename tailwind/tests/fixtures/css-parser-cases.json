@@ -1,0 +1,3258 @@
+[
+  {
+    "test": "Line endings: %s [0] > comments > should parse a comment and ignore it",
+    "css": "\n          /*Hello, world!*/\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > comments > should parse a comment with an escaped ending and ignore it",
+    "css": "\n          /*Hello, \\*\\/ world!*/\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > comments > should parse a comment inside of a selector and ignore it",
+    "css": "\n          .foo {\n            /*Example comment*/\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > comments > should remove comments in between selectors while maintaining the correct whitespace",
+    "css": "\n          .foo/*.bar*/.baz {\n          }\n          .foo/*.bar*//*.baz*/.qux\n          {\n          }\n          .foo/*.bar*/ /*.baz*/.qux {\n            /*        ^ whitespace */\n          }\n          .foo /*.bar*/.baz {\n            /*^ whitespace */\n          }\n          .foo/*.bar*/ .baz {\n            /*        ^ whitespace */\n          }\n          .foo/*.bar*/\n          .baz {\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo.baz"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo.qux"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .qux"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .baz"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .baz"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .baz"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > comments > should collect license comments",
+    "css": "\n          /*! License #1 */\n          /*!\n            * License #2\n            */\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "comment",
+        "value": "! License #1 "
+      },
+      {
+        "kind": "comment",
+        "value": "!\n            * License #2\n            "
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > comments > should hoist all license comments",
+    "css": "\n          /*! License #1 */\n          .foo {\n            color: red; /*! License #1.5 */\n          }\n          /*! License #2 */\n          .bar {\n            /*! License #2.5 */\n            color: blue;\n          }\n          /*! License #3 */\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "comment",
+        "value": "! License #1 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #1.5 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #2 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #2.5 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #3 "
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo"
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "blue"
+          }
+        ],
+        "selector": ".bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > comments > should handle comments before element selectors",
+    "css": "\n          .dark /* comment */p {\n            color: black;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "black"
+          }
+        ],
+        "selector": ".dark p"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse a simple declaration",
+    "css": "\n          color: red;\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "color",
+        "value": "red"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse declarations with strings",
+    "css": "\n          content: 'Hello, world!';\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "'Hello, world!'"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse declarations with nested strings",
+    "css": "\n          content: 'Good, \"monday\", morning!';\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "'Good, \"monday\", morning!'"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse declarations with nested strings that are not balanced",
+    "css": "\n          content: \"It's a beautiful day!\";\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "\"It's a beautiful day!\""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse declarations with with strings and escaped string endings",
+    "css": "\n          content: 'These are not the end \"\\' of the string';\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "'These are not the end \"\\' of the string'"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > important > should parse declarations with `!important`",
+    "css": "\n            width: 123px !important;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "width",
+        "value": "123px"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > important > should parse declarations with `!important` when there is a trailing comment",
+    "css": "\n            width: 123px !important /* Very important */;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "width",
+        "value": "123px"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property",
+    "css": "\n            --foo: bar;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a minified custom property",
+    "css": ":root{--foo:bar;}",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--foo",
+            "value": "bar"
+          }
+        ],
+        "selector": ":root"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a minified custom property with no semicolon ",
+    "css": ":root{--foo:bar}",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--foo",
+            "value": "bar"
+          }
+        ],
+        "selector": ":root"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with a missing ending `;`",
+    "css": "\n            --foo: bar\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with a missing ending `;` and `!important`",
+    "css": "\n            --foo: bar !important\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with an embedded programming language",
+    "css": "\n            --foo: if(x > 5) this.width = 10;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "if(x > 5) this.width = 10"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with an empty block as the value",
+    "css": "--foo: {};",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "{}"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with an empty value",
+    "css": "--foo:;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": ""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with a space value",
+    "css": "--foo: ;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": ""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with a block including nested \"css\"",
+    "css": "\n            --foo: {\n              background-color: red;\n              /* A comment */\n              content: 'Hello, world!';\n            };\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "{\n              background-color: red;\n              /* A comment */\n              content: 'Hello, world!';\n            }"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with a block including nested \"css\" and comments with end characters inside them",
+    "css": "\n            --foo: {\n              background-color: red;\n              /* A comment ; */\n              content: 'Hello, world!';\n            };\n            --bar: {\n              background-color: red;\n              /* A comment } */\n              content: 'Hello, world!';\n            };\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "{\n              background-color: red;\n              /* A comment ; */\n              content: 'Hello, world!';\n            }"
+      },
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--bar",
+        "value": "{\n              background-color: red;\n              /* A comment } */\n              content: 'Hello, world!';\n            }"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with escaped characters in the value",
+    "css": "\n            --foo: This is not the end \\;, but this is;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "This is not the end \\;, but this is"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse a custom property with escaped characters inside a comment in the value",
+    "css": "\n            --foo: /* This is not the end \\; this is also not the end ; */ but this is;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "/* This is not the end \\; this is also not the end ; */ but this is"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse empty custom properties",
+    "css": "\n            --foo: ;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": ""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse custom properties with `!important`",
+    "css": "\n            --foo: bar !important;\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > Custom properties > should parse custom properties with data URL value",
+    "css": "\n            --foo: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==';\n          ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse multiple declarations",
+    "css": "\n          color: red;\n          background-color: blue;\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "color",
+        "value": "red"
+      },
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "background-color",
+        "value": "blue"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should correctly parse comments with `:` inside of them",
+    "css": "\n          color/* color: #f00; */: red;\n          font-weight:/* font-size: 12px */ bold;\n\n          .foo {\n            background-color/* background-color: #f00; */: red;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "color",
+        "value": "red"
+      },
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "font-weight",
+        "value": "bold"
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background-color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse multi-line declarations",
+    "css": "\n          .foo {\n            grid-template-areas:\n              'header header header'\n              'sidebar main main'\n              'footer footer footer';\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "grid-template-areas",
+            "value": "'header header header' 'sidebar main main' 'footer footer footer'"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > declarations > should parse url(…) without quotes and special characters such as `;`, `{}`, and `[]`",
+    "css": "\n          .foo {\n            /* ';' should be valid inside the 'url(…)' function */\n            background: url(data:image/png;base64,abc==);\n\n            /* '{', '}', '[' and ']' should be valid inside the 'url(…)' function */\n            /* '{' and '}' should not start a new block (nesting) */\n            background: url(https://example-image-search.org?q={query;limit=5}&ids=[1,2,3]);\n\n            /* '{' and '}' don't need to be balanced */\n            background: url(https://example-image-search.org?curlies=}});\n\n            /* '(' and ')' are not valid, unless we are in a string with quotes */\n            background: url('https://example-image-search.org?q={query;limit=5}&ids=[1,2,3]&format=(png|jpg)');\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url(data:image/png;base64,abc==)"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url(https://example-image-search.org?q={query;limit=5}&ids=[1,2,3])"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url(https://example-image-search.org?curlies=}})"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url('https://example-image-search.org?q={query;limit=5}&ids=[1,2,3]&format=(png|jpg)')"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse a simple selector",
+    "css": "\n          .foo {\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse selectors with escaped characters",
+    "css": "\n          .hover\\:foo:hover {\n          }\n          .\\32 xl\\:foo {\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".hover\\:foo:hover"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".\\32 xl\\:foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse multiple simple selectors",
+    "css": "\n          .foo,\n          .bar {\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo, .bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse multiple declarations inside of a selector",
+    "css": "\n          .foo {\n            color: red;\n            font-size: 16px;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "font-size",
+            "value": "16px"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse rules with declarations that end with a missing `;`",
+    "css": "\n          .foo {\n            color: red;\n            font-size: 16px\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "font-size",
+            "value": "16px"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse rules with declarations that end with a missing `;` and `!important`",
+    "css": "\n          .foo {\n            color: red;\n            font-size: 16px !important\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "important": true,
+            "kind": "declaration",
+            "property": "font-size",
+            "value": "16px"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse a multi-line selector",
+    "css": ".foo,\n.bar,\n.baz\n{\ncolor:red;\n}",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo, .bar, .baz"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > selectors > should parse a multi-line selector and preserves important whitespace",
+    "css": ".foo,\n.bar,\n.baz\t\n \n .qux\n{\ncolor:red;\n}",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo, .bar, .baz .qux"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule without a block",
+    "css": "\n          @charset \"UTF-8\";\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@charset",
+        "nodes": [],
+        "params": "\"UTF-8\""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [0]",
+    "css": "@apply bg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [1]",
+    "css": "@apply  bg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [2]",
+    "css": "@apply\tbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [3]",
+    "css": "@apply \tbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [4]",
+    "css": "@apply\t bg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [5]",
+    "css": "@apply\t\tbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [6]",
+    "css": "@apply\nbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [7]",
+    "css": "@apply \nbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [8]",
+    "css": "@apply\n bg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [9]",
+    "css": "@apply\n\nbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [10]",
+    "css": "@apply\r\nbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [11]",
+    "css": "@apply \r\nbg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule with whitespace %s in the params [12]",
+    "css": "@apply\r\n bg-red-500;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule without a block or semicolon",
+    "css": "\n          @tailwind utilities\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@tailwind",
+        "nodes": [],
+        "params": "utilities"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse an at-rule without a block or semicolon when it's the last rule in a block",
+    "css": "\n          @layer utilities {\n            @tailwind utilities\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@layer",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@tailwind",
+            "nodes": [],
+            "params": "utilities"
+          }
+        ],
+        "params": "utilities"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse a nested at-rule without a block",
+    "css": "\n          @layer utilities {\n            @charset \"UTF-8\";\n          }\n\n          .foo {\n            @apply font-bold hover:text-red-500;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@layer",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@charset",
+            "nodes": [],
+            "params": "\"UTF-8\""
+          }
+        ],
+        "params": "utilities"
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@apply",
+            "nodes": [],
+            "params": "font-bold hover:text-red-500"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse custom at-rules without a block",
+    "css": "\n          @tailwind;\n          @tailwind base;\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@tailwind",
+        "nodes": [],
+        "params": ""
+      },
+      {
+        "kind": "at-rule",
+        "name": "@tailwind",
+        "nodes": [],
+        "params": "base"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse (nested) media queries",
+    "css": "\n          @media (width >= 600px) {\n            .foo {\n              color: red;\n              @media (width >= 800px) {\n                color: blue;\n              }\n              @media (width >= 1000px) {\n                color: green;\n              }\n            }\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@media",
+        "nodes": [
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "red"
+              },
+              {
+                "kind": "at-rule",
+                "name": "@media",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "blue"
+                  }
+                ],
+                "params": "(width >= 800px)"
+              },
+              {
+                "kind": "at-rule",
+                "name": "@media",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "green"
+                  }
+                ],
+                "params": "(width >= 1000px)"
+              }
+            ],
+            "selector": ".foo"
+          }
+        ],
+        "params": "(width >= 600px)"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > at-rules > should parse at-rules that span multiple lines",
+    "css": "\n          .foo {\n            @apply hover:text-red-100\n                   sm:hover:text-red-200\n                   md:hover:text-red-300\n                   lg:hover:text-red-400\n                   xl:hover:text-red-500;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@apply",
+            "nodes": [],
+            "params": "hover:text-red-100 sm:hover:text-red-200 md:hover:text-red-300 lg:hover:text-red-400 xl:hover:text-red-500"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > nesting > should parse nested rules",
+    "css": "\n          .foo {\n            .bar {\n              .baz {\n                color: red;\n              }\n            }\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "kind": "rule",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "red"
+                  }
+                ],
+                "selector": ".baz"
+              }
+            ],
+            "selector": ".bar"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > nesting > should parse nested selector with `&`",
+    "css": "\n          .foo {\n            color: red;\n\n            &:hover {\n              color: blue;\n            }\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "blue"
+              }
+            ],
+            "selector": "&:hover"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > nesting > should parse nested sibling selectors",
+    "css": "\n          .foo {\n            .bar {\n              color: red;\n            }\n\n            .baz {\n              color: blue;\n            }\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "red"
+              }
+            ],
+            "selector": ".bar"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "blue"
+              }
+            ],
+            "selector": ".baz"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > nesting > should parse nested sibling selectors and sibling declarations",
+    "css": "\n          .foo {\n            font-weight: bold;\n            text-declaration-line: underline;\n\n            .bar {\n              color: red;\n            }\n\n            --in-between: 1;\n\n            .baz {\n              color: blue;\n            }\n\n            --at-the-end: 2;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "font-weight",
+            "value": "bold"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "text-declaration-line",
+            "value": "underline"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "red"
+              }
+            ],
+            "selector": ".bar"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--in-between",
+            "value": "1"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "blue"
+              }
+            ],
+            "selector": ".baz"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--at-the-end",
+            "value": "2"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > complex > should parse complex examples",
+    "css": "\n          @custom \\{ {\n            foo: bar;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@custom",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "foo",
+            "value": "bar"
+          }
+        ],
+        "params": "\\{"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > complex > should parse minified nested CSS",
+    "css": ".foo{color:red;@media(width>=600px){.bar{color:blue;font-weight:bold}}}",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "kind": "at-rule",
+            "name": "@media",
+            "nodes": [
+              {
+                "kind": "rule",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "blue"
+                  },
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "font-weight",
+                    "value": "bold"
+                  }
+                ],
+                "selector": ".bar"
+              }
+            ],
+            "params": "(width>=600px)"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > complex > should ignore everything inside of comments",
+    "css": "\n          .foo:has(.bar /* instead \\*\\/ of .baz { */) {\n            color: red;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo:has(.bar )"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > complex > should ignore consecutive semicolons",
+    "css": ";;;",
+    "windows": false,
+    "located": false,
+    "ast": [],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > complex > should ignore semicolons after an at-rule with a body",
+    "css": "@plugin \"foo\" {} ;",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@plugin",
+        "nodes": [],
+        "params": "\"foo\""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > complex > should ignore consecutive semicolons a declaration",
+    "css": ".foo { color: red;;; }",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when curly brackets are unbalanced (opening)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar\n            /* ^ Missing opening { */\n            color: blue;\n          }\n        ",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Missing opening {"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when curly brackets are unbalanced (opening)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar\n            /* ^ Missing opening { */\n            color: blue;\n          }\n        ",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:9:11: Missing opening {"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when curly brackets are unbalanced (closing)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar {\n            color: blue;\n\n       /* ^ Missing closing } */\n        ",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Missing closing } at .bar"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when curly brackets are unbalanced (closing)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar {\n            color: blue;\n\n       /* ^ Missing closing } */\n        ",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:6:11: Missing closing } at .bar"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when an unterminated string is used",
+    "css": "\n        .foo {\n          content: \"Hello world!\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Unterminated string: \"Hello world!\""
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when an unterminated string is used",
+    "css": "\n        .foo {\n          content: \"Hello world!\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:3:20: Unterminated string: \"Hello world!\""
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when an unterminated string is used with a `;`",
+    "css": "\n        .foo {\n          content: \"Hello world!;\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Unterminated string: \"Hello world!;\""
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when an unterminated string is used with a `;`",
+    "css": "\n        .foo {\n          content: \"Hello world!;\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:3:20: Unterminated string: \"Hello world!;\""
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when incomplete custom properties are used",
+    "css": "--foo",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when incomplete custom properties are used",
+    "css": "--foo",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:1:1: Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when incomplete custom properties are used inside rules",
+    "css": ".foo { --bar }",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when incomplete custom properties are used inside rules",
+    "css": ".foo { --bar }",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:1:8: Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when an unterminated string is used in a custom property",
+    "css": "\n        .foo {\n          --bar: 'Hello world!\n          /*                  ^ missing ' * /;\n        }\n      ",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Unterminated string: 'Hello world!'"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when an unterminated string is used in a custom property",
+    "css": "\n        .foo {\n          --bar: 'Hello world!\n          /*                  ^ missing ' * /;\n        }\n      ",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:3:18: Unterminated string: 'Hello world!'"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when a declaration is incomplete",
+    "css": ".foo { bar }",
+    "windows": false,
+    "located": false,
+    "ast": null,
+    "error": "Invalid declaration: `bar`"
+  },
+  {
+    "test": "Line endings: %s [0] > errors > should error when a declaration is incomplete",
+    "css": ".foo { bar }",
+    "windows": false,
+    "located": true,
+    "ast": null,
+    "error": "input.css:1:8: Invalid declaration: `bar`"
+  },
+  {
+    "test": "Line endings: %s [0] > ignores BOM at the beginning of a file",
+    "css": "﻿@reference 'tailwindcss';",
+    "windows": false,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@reference",
+        "nodes": [],
+        "params": "'tailwindcss'"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > comments > should parse a comment and ignore it",
+    "css": "\n          /*Hello, world!*/\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > comments > should parse a comment with an escaped ending and ignore it",
+    "css": "\n          /*Hello, \\*\\/ world!*/\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > comments > should parse a comment inside of a selector and ignore it",
+    "css": "\n          .foo {\n            /*Example comment*/\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > comments > should remove comments in between selectors while maintaining the correct whitespace",
+    "css": "\n          .foo/*.bar*/.baz {\n          }\n          .foo/*.bar*//*.baz*/.qux\n          {\n          }\n          .foo/*.bar*/ /*.baz*/.qux {\n            /*        ^ whitespace */\n          }\n          .foo /*.bar*/.baz {\n            /*^ whitespace */\n          }\n          .foo/*.bar*/ .baz {\n            /*        ^ whitespace */\n          }\n          .foo/*.bar*/\n          .baz {\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo.baz"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo.qux"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .qux"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .baz"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .baz"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo .baz"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > comments > should collect license comments",
+    "css": "\n          /*! License #1 */\n          /*!\n            * License #2\n            */\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "comment",
+        "value": "! License #1 "
+      },
+      {
+        "kind": "comment",
+        "value": "!\r\n            * License #2\r\n            "
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > comments > should hoist all license comments",
+    "css": "\n          /*! License #1 */\n          .foo {\n            color: red; /*! License #1.5 */\n          }\n          /*! License #2 */\n          .bar {\n            /*! License #2.5 */\n            color: blue;\n          }\n          /*! License #3 */\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "comment",
+        "value": "! License #1 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #1.5 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #2 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #2.5 "
+      },
+      {
+        "kind": "comment",
+        "value": "! License #3 "
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo"
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "blue"
+          }
+        ],
+        "selector": ".bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > comments > should handle comments before element selectors",
+    "css": "\n          .dark /* comment */p {\n            color: black;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "black"
+          }
+        ],
+        "selector": ".dark p"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse a simple declaration",
+    "css": "\n          color: red;\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "color",
+        "value": "red"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse declarations with strings",
+    "css": "\n          content: 'Hello, world!';\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "'Hello, world!'"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse declarations with nested strings",
+    "css": "\n          content: 'Good, \"monday\", morning!';\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "'Good, \"monday\", morning!'"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse declarations with nested strings that are not balanced",
+    "css": "\n          content: \"It's a beautiful day!\";\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "\"It's a beautiful day!\""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse declarations with with strings and escaped string endings",
+    "css": "\n          content: 'These are not the end \"\\' of the string';\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "content",
+        "value": "'These are not the end \"\\' of the string'"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > important > should parse declarations with `!important`",
+    "css": "\n            width: 123px !important;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "width",
+        "value": "123px"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > important > should parse declarations with `!important` when there is a trailing comment",
+    "css": "\n            width: 123px !important /* Very important */;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "width",
+        "value": "123px"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property",
+    "css": "\n            --foo: bar;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a minified custom property",
+    "css": ":root{--foo:bar;}",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--foo",
+            "value": "bar"
+          }
+        ],
+        "selector": ":root"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a minified custom property with no semicolon ",
+    "css": ":root{--foo:bar}",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--foo",
+            "value": "bar"
+          }
+        ],
+        "selector": ":root"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with a missing ending `;`",
+    "css": "\n            --foo: bar\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with a missing ending `;` and `!important`",
+    "css": "\n            --foo: bar !important\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with an embedded programming language",
+    "css": "\n            --foo: if(x > 5) this.width = 10;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "if(x > 5) this.width = 10"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with an empty block as the value",
+    "css": "--foo: {};",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "{}"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with an empty value",
+    "css": "--foo:;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": ""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with a space value",
+    "css": "--foo: ;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": ""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with a block including nested \"css\"",
+    "css": "\n            --foo: {\n              background-color: red;\n              /* A comment */\n              content: 'Hello, world!';\n            };\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "{\r\n              background-color: red;\r\n              /* A comment */\r\n              content: 'Hello, world!';\r\n            }"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with a block including nested \"css\" and comments with end characters inside them",
+    "css": "\n            --foo: {\n              background-color: red;\n              /* A comment ; */\n              content: 'Hello, world!';\n            };\n            --bar: {\n              background-color: red;\n              /* A comment } */\n              content: 'Hello, world!';\n            };\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "{\r\n              background-color: red;\r\n              /* A comment ; */\r\n              content: 'Hello, world!';\r\n            }"
+      },
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--bar",
+        "value": "{\r\n              background-color: red;\r\n              /* A comment } */\r\n              content: 'Hello, world!';\r\n            }"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with escaped characters in the value",
+    "css": "\n            --foo: This is not the end \\;, but this is;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "This is not the end \\;, but this is"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse a custom property with escaped characters inside a comment in the value",
+    "css": "\n            --foo: /* This is not the end \\; this is also not the end ; */ but this is;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "/* This is not the end \\; this is also not the end ; */ but this is"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse empty custom properties",
+    "css": "\n            --foo: ;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": ""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse custom properties with `!important`",
+    "css": "\n            --foo: bar !important;\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": true,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > Custom properties > should parse custom properties with data URL value",
+    "css": "\n            --foo: 'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ==';\n          ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "--foo",
+        "value": "'data:text/plain;base64,SGVsbG8sIFdvcmxkIQ=='"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse multiple declarations",
+    "css": "\n          color: red;\n          background-color: blue;\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "color",
+        "value": "red"
+      },
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "background-color",
+        "value": "blue"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should correctly parse comments with `:` inside of them",
+    "css": "\n          color/* color: #f00; */: red;\n          font-weight:/* font-size: 12px */ bold;\n\n          .foo {\n            background-color/* background-color: #f00; */: red;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "color",
+        "value": "red"
+      },
+      {
+        "important": false,
+        "kind": "declaration",
+        "property": "font-weight",
+        "value": "bold"
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background-color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse multi-line declarations",
+    "css": "\n          .foo {\n            grid-template-areas:\n              'header header header'\n              'sidebar main main'\n              'footer footer footer';\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "grid-template-areas",
+            "value": "'header header header' 'sidebar main main' 'footer footer footer'"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > declarations > should parse url(…) without quotes and special characters such as `;`, `{}`, and `[]`",
+    "css": "\n          .foo {\n            /* ';' should be valid inside the 'url(…)' function */\n            background: url(data:image/png;base64,abc==);\n\n            /* '{', '}', '[' and ']' should be valid inside the 'url(…)' function */\n            /* '{' and '}' should not start a new block (nesting) */\n            background: url(https://example-image-search.org?q={query;limit=5}&ids=[1,2,3]);\n\n            /* '{' and '}' don't need to be balanced */\n            background: url(https://example-image-search.org?curlies=}});\n\n            /* '(' and ')' are not valid, unless we are in a string with quotes */\n            background: url('https://example-image-search.org?q={query;limit=5}&ids=[1,2,3]&format=(png|jpg)');\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url(data:image/png;base64,abc==)"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url(https://example-image-search.org?q={query;limit=5}&ids=[1,2,3])"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url(https://example-image-search.org?curlies=}})"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "background",
+            "value": "url('https://example-image-search.org?q={query;limit=5}&ids=[1,2,3]&format=(png|jpg)')"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse a simple selector",
+    "css": "\n          .foo {\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse selectors with escaped characters",
+    "css": "\n          .hover\\:foo:hover {\n          }\n          .\\32 xl\\:foo {\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".hover\\:foo:hover"
+      },
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".\\32 xl\\:foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse multiple simple selectors",
+    "css": "\n          .foo,\n          .bar {\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [],
+        "selector": ".foo, .bar"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse multiple declarations inside of a selector",
+    "css": "\n          .foo {\n            color: red;\n            font-size: 16px;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "font-size",
+            "value": "16px"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse rules with declarations that end with a missing `;`",
+    "css": "\n          .foo {\n            color: red;\n            font-size: 16px\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "font-size",
+            "value": "16px"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse rules with declarations that end with a missing `;` and `!important`",
+    "css": "\n          .foo {\n            color: red;\n            font-size: 16px !important\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "important": true,
+            "kind": "declaration",
+            "property": "font-size",
+            "value": "16px"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse a multi-line selector",
+    "css": ".foo,\n.bar,\n.baz\n{\ncolor:red;\n}",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo, .bar, .baz"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > selectors > should parse a multi-line selector and preserves important whitespace",
+    "css": ".foo,\n.bar,\n.baz\t\n \n .qux\n{\ncolor:red;\n}",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo, .bar, .baz .qux"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule without a block",
+    "css": "\n          @charset \"UTF-8\";\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@charset",
+        "nodes": [],
+        "params": "\"UTF-8\""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [0]",
+    "css": "@apply bg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [1]",
+    "css": "@apply  bg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [2]",
+    "css": "@apply\tbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [3]",
+    "css": "@apply \tbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [4]",
+    "css": "@apply\t bg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [5]",
+    "css": "@apply\t\tbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [6]",
+    "css": "@apply\nbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [7]",
+    "css": "@apply \nbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [8]",
+    "css": "@apply\n bg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [9]",
+    "css": "@apply\n\nbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [10]",
+    "css": "@apply\r\nbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [11]",
+    "css": "@apply \r\nbg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule with whitespace %s in the params [12]",
+    "css": "@apply\r\n bg-red-500;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@apply",
+        "nodes": [],
+        "params": "bg-red-500"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule without a block or semicolon",
+    "css": "\n          @tailwind utilities\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@tailwind",
+        "nodes": [],
+        "params": "utilities"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse an at-rule without a block or semicolon when it's the last rule in a block",
+    "css": "\n          @layer utilities {\n            @tailwind utilities\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@layer",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@tailwind",
+            "nodes": [],
+            "params": "utilities"
+          }
+        ],
+        "params": "utilities"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse a nested at-rule without a block",
+    "css": "\n          @layer utilities {\n            @charset \"UTF-8\";\n          }\n\n          .foo {\n            @apply font-bold hover:text-red-500;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@layer",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@charset",
+            "nodes": [],
+            "params": "\"UTF-8\""
+          }
+        ],
+        "params": "utilities"
+      },
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@apply",
+            "nodes": [],
+            "params": "font-bold hover:text-red-500"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse custom at-rules without a block",
+    "css": "\n          @tailwind;\n          @tailwind base;\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@tailwind",
+        "nodes": [],
+        "params": ""
+      },
+      {
+        "kind": "at-rule",
+        "name": "@tailwind",
+        "nodes": [],
+        "params": "base"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse (nested) media queries",
+    "css": "\n          @media (width >= 600px) {\n            .foo {\n              color: red;\n              @media (width >= 800px) {\n                color: blue;\n              }\n              @media (width >= 1000px) {\n                color: green;\n              }\n            }\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@media",
+        "nodes": [
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "red"
+              },
+              {
+                "kind": "at-rule",
+                "name": "@media",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "blue"
+                  }
+                ],
+                "params": "(width >= 800px)"
+              },
+              {
+                "kind": "at-rule",
+                "name": "@media",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "green"
+                  }
+                ],
+                "params": "(width >= 1000px)"
+              }
+            ],
+            "selector": ".foo"
+          }
+        ],
+        "params": "(width >= 600px)"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > at-rules > should parse at-rules that span multiple lines",
+    "css": "\n          .foo {\n            @apply hover:text-red-100\n                   sm:hover:text-red-200\n                   md:hover:text-red-300\n                   lg:hover:text-red-400\n                   xl:hover:text-red-500;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "at-rule",
+            "name": "@apply",
+            "nodes": [],
+            "params": "hover:text-red-100 sm:hover:text-red-200 md:hover:text-red-300 lg:hover:text-red-400 xl:hover:text-red-500"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > nesting > should parse nested rules",
+    "css": "\n          .foo {\n            .bar {\n              .baz {\n                color: red;\n              }\n            }\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "kind": "rule",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "red"
+                  }
+                ],
+                "selector": ".baz"
+              }
+            ],
+            "selector": ".bar"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > nesting > should parse nested selector with `&`",
+    "css": "\n          .foo {\n            color: red;\n\n            &:hover {\n              color: blue;\n            }\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "blue"
+              }
+            ],
+            "selector": "&:hover"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > nesting > should parse nested sibling selectors",
+    "css": "\n          .foo {\n            .bar {\n              color: red;\n            }\n\n            .baz {\n              color: blue;\n            }\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "red"
+              }
+            ],
+            "selector": ".bar"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "blue"
+              }
+            ],
+            "selector": ".baz"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > nesting > should parse nested sibling selectors and sibling declarations",
+    "css": "\n          .foo {\n            font-weight: bold;\n            text-declaration-line: underline;\n\n            .bar {\n              color: red;\n            }\n\n            --in-between: 1;\n\n            .baz {\n              color: blue;\n            }\n\n            --at-the-end: 2;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "font-weight",
+            "value": "bold"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "text-declaration-line",
+            "value": "underline"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "red"
+              }
+            ],
+            "selector": ".bar"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--in-between",
+            "value": "1"
+          },
+          {
+            "kind": "rule",
+            "nodes": [
+              {
+                "important": false,
+                "kind": "declaration",
+                "property": "color",
+                "value": "blue"
+              }
+            ],
+            "selector": ".baz"
+          },
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "--at-the-end",
+            "value": "2"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > complex > should parse complex examples",
+    "css": "\n          @custom \\{ {\n            foo: bar;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@custom",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "foo",
+            "value": "bar"
+          }
+        ],
+        "params": "\\{"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > complex > should parse minified nested CSS",
+    "css": ".foo{color:red;@media(width>=600px){.bar{color:blue;font-weight:bold}}}",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          },
+          {
+            "kind": "at-rule",
+            "name": "@media",
+            "nodes": [
+              {
+                "kind": "rule",
+                "nodes": [
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "color",
+                    "value": "blue"
+                  },
+                  {
+                    "important": false,
+                    "kind": "declaration",
+                    "property": "font-weight",
+                    "value": "bold"
+                  }
+                ],
+                "selector": ".bar"
+              }
+            ],
+            "params": "(width>=600px)"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > complex > should ignore everything inside of comments",
+    "css": "\n          .foo:has(.bar /* instead \\*\\/ of .baz { */) {\n            color: red;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo:has(.bar )"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > complex > should ignore consecutive semicolons",
+    "css": ";;;",
+    "windows": true,
+    "located": false,
+    "ast": [],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > complex > should ignore semicolons after an at-rule with a body",
+    "css": "@plugin \"foo\" {} ;",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@plugin",
+        "nodes": [],
+        "params": "\"foo\""
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > complex > should ignore consecutive semicolons a declaration",
+    "css": ".foo { color: red;;; }",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "rule",
+        "nodes": [
+          {
+            "important": false,
+            "kind": "declaration",
+            "property": "color",
+            "value": "red"
+          }
+        ],
+        "selector": ".foo"
+      }
+    ],
+    "error": null
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when curly brackets are unbalanced (opening)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar\n            /* ^ Missing opening { */\n            color: blue;\n          }\n        ",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Missing opening {"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when curly brackets are unbalanced (opening)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar\n            /* ^ Missing opening { */\n            color: blue;\n          }\n        ",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:9:11: Missing opening {"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when curly brackets are unbalanced (closing)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar {\n            color: blue;\n\n       /* ^ Missing closing } */\n        ",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Missing closing } at .bar"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when curly brackets are unbalanced (closing)",
+    "css": "\n          .foo {\n            color: red;\n          }\n\n          .bar {\n            color: blue;\n\n       /* ^ Missing closing } */\n        ",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:6:11: Missing closing } at .bar"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when an unterminated string is used",
+    "css": "\n        .foo {\n          content: \"Hello world!\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Unterminated string: \"Hello world!\""
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when an unterminated string is used",
+    "css": "\n        .foo {\n          content: \"Hello world!\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:3:20: Unterminated string: \"Hello world!\""
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when an unterminated string is used with a `;`",
+    "css": "\n        .foo {\n          content: \"Hello world!;\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Unterminated string: \"Hello world!;\""
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when an unterminated string is used with a `;`",
+    "css": "\n        .foo {\n          content: \"Hello world!;\n          /*                    ^ missing \" */\n          font-weight: bold;\n        }\n      ",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:3:20: Unterminated string: \"Hello world!;\""
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when incomplete custom properties are used",
+    "css": "--foo",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when incomplete custom properties are used",
+    "css": "--foo",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:1:1: Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when incomplete custom properties are used inside rules",
+    "css": ".foo { --bar }",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when incomplete custom properties are used inside rules",
+    "css": ".foo { --bar }",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:1:8: Invalid custom property, expected a value"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when an unterminated string is used in a custom property",
+    "css": "\n        .foo {\n          --bar: 'Hello world!\n          /*                  ^ missing ' * /;\n        }\n      ",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Unterminated string: 'Hello world!'"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when an unterminated string is used in a custom property",
+    "css": "\n        .foo {\n          --bar: 'Hello world!\n          /*                  ^ missing ' * /;\n        }\n      ",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:3:18: Unterminated string: 'Hello world!'"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when a declaration is incomplete",
+    "css": ".foo { bar }",
+    "windows": true,
+    "located": false,
+    "ast": null,
+    "error": "Invalid declaration: `bar`"
+  },
+  {
+    "test": "Line endings: %s [1] > errors > should error when a declaration is incomplete",
+    "css": ".foo { bar }",
+    "windows": true,
+    "located": true,
+    "ast": null,
+    "error": "input.css:1:8: Invalid declaration: `bar`"
+  },
+  {
+    "test": "Line endings: %s [1] > ignores BOM at the beginning of a file",
+    "css": "﻿@reference 'tailwindcss';",
+    "windows": true,
+    "located": false,
+    "ast": [
+      {
+        "kind": "at-rule",
+        "name": "@reference",
+        "nodes": [],
+        "params": "'tailwindcss'"
+      }
+    ],
+    "error": null
+  }
+]

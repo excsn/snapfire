@@ -6,6 +6,7 @@ use std::rc::Rc;
 use crate::design_system::DesignSystem;
 use crate::utils::decode::{decode_arbitrary_value, is_valid_arbitrary};
 use crate::utils::segment::segment;
+use crate::value_parser::{self, ValueNode};
 use crate::variants::VariantKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -523,4 +524,376 @@ fn find_roots(input: &str, exists: impl Fn(&str) -> bool) -> Vec<(String, Option
   }
 
   roots
+}
+
+const SYMBOLS: &[&str] = &["~", ">", "+", "-", "*", "/"];
+
+fn is_symbol(node: &ValueNode) -> bool {
+  SYMBOLS.contains(&node.value())
+}
+
+/// Tailwind's `printArbitraryValue`: the inside of `[…]` written back as a class name, with
+/// spaces around operators dropped and spaces as underscores.
+fn print_arbitrary_value(input: &str) -> String {
+  fn level(nodes: &mut Vec<ValueNode>) {
+    let mut drop = vec![false; nodes.len()];
+    let mut i = 0;
+    while i < nodes.len() {
+      match &nodes[i] {
+        ValueNode::Word(w) if SYMBOLS.contains(&w.as_str()) => {
+          let previous_space = i >= 1 && matches!(&nodes[i - 1], ValueNode::Separator(s) if s == " ");
+          let next_space = matches!(nodes.get(i + 1), Some(ValueNode::Separator(s)) if s == " ");
+          let previous_symbol = i >= 2 && is_symbol(&nodes[i - 2]);
+          let next_symbol = nodes.get(i + 2).is_some_and(is_symbol);
+          if previous_space && next_space && !previous_symbol && !next_symbol {
+            drop[i - 1] = true;
+            drop[i + 1] = true;
+          }
+        }
+        ValueNode::Separator(s) if !s.is_empty() && s.trim().is_empty() => {
+          if i == 0 || i == nodes.len() - 1 {
+            drop[i] = true;
+          }
+        }
+        ValueNode::Separator(s) if s.trim() == "," => nodes[i] = ValueNode::Separator(",".to_owned()),
+        ValueNode::Function { value, .. } if value.starts_with("--") => {
+          let wrap = i > 0
+            && !matches!(&nodes[i - 1], ValueNode::Separator(s) if s == ",")
+            && !(i >= 2 && !is_symbol(&nodes[i - 2]));
+          if wrap {
+            let inner = nodes[i].clone();
+            nodes[i] = ValueNode::Function {
+              value: String::new(),
+              nodes: vec![inner],
+            };
+            i += 1;
+            continue;
+          }
+        }
+        _ => {}
+      }
+      if let ValueNode::Function { nodes: children, .. } = &mut nodes[i] {
+        level(children);
+      }
+      i += 1;
+    }
+    let mut index = 0;
+    nodes.retain(|_| {
+      let keep = !drop[index];
+      index += 1;
+      keep
+    });
+  }
+
+  fn escape_underscore(value: &str) -> String {
+    value.replace('_', "\\_").replace(' ', "_")
+  }
+
+  fn escape_all(nodes: &mut [ValueNode]) {
+    for node in nodes {
+      match node {
+        ValueNode::Function { value, nodes } => {
+          let is_url = value == "url" || value.ends_with("_url");
+          *value = escape_underscore(value);
+          if !is_url {
+            escape_all(nodes);
+          }
+        }
+        ValueNode::Separator(v) => *v = escape_underscore(v),
+        ValueNode::Word(w) => {
+          if !w.starts_with("--") {
+            *w = escape_underscore(w);
+          }
+        }
+      }
+    }
+  }
+
+  let mut ast = value_parser::parse(input);
+  level(&mut ast);
+  escape_all(&mut ast);
+  value_parser::to_css(&ast)
+}
+
+fn simplify_arbitrary_variant(input: &str) -> String {
+  let ast = value_parser::parse(input);
+  if let [
+    ValueNode::Word(amp),
+    ValueNode::Separator(colon),
+    ValueNode::Function { value, nodes },
+  ] = ast.as_slice()
+    && amp == "&"
+    && colon == ":"
+    && value == "is"
+  {
+    return value_parser::to_css(nodes);
+  }
+  input.to_owned()
+}
+
+fn is_var(value: &str) -> bool {
+  let ast = value_parser::parse(value);
+  matches!(ast.as_slice(), [ValueNode::Function { value, .. }] if value == "var")
+}
+
+fn bracketed(value: &str) -> (String, char, char) {
+  if is_var(value) {
+    (value[4..value.len() - 1].to_owned(), '(', ')')
+  } else {
+    (value.to_owned(), '[', ']')
+  }
+}
+
+pub fn print_modifier(modifier: Option<&Modifier>) -> String {
+  match modifier {
+    None => String::new(),
+    Some(Modifier::Arbitrary(value)) => {
+      let (inner, open, close) = bracketed(value);
+      format!("/{open}{}{close}", print_arbitrary_value(&inner))
+    }
+    Some(Modifier::Named(value)) => format!("/{value}"),
+  }
+}
+
+pub fn print_variant(variant: &Variant) -> String {
+  match variant {
+    Variant::Static { root } => root.clone(),
+    Variant::Arbitrary { selector, .. } => {
+      format!("[{}]", print_arbitrary_value(&simplify_arbitrary_variant(selector)))
+    }
+    Variant::Functional { root, value, modifier } => {
+      let mut base = root.clone();
+      let dash = if root != "@" { "-" } else { "" };
+      match value {
+        Some(VariantValue::Arbitrary(v)) => {
+          let (inner, open, close) = bracketed(v);
+          base.push_str(&format!("{dash}{open}{}{close}", print_arbitrary_value(&inner)));
+        }
+        Some(VariantValue::Named(v)) => base.push_str(&format!("{dash}{v}")),
+        None => {}
+      }
+      base.push_str(&print_modifier(modifier.as_ref()));
+      base
+    }
+    Variant::Compound {
+      root,
+      modifier,
+      variant,
+    } => format!("{root}-{}{}", print_variant(variant), print_modifier(modifier.as_ref())),
+  }
+}
+
+/// A candidate written back as a class name, in Tailwind's canonical spelling.
+pub fn print_candidate(ds: &DesignSystem, candidate: &Candidate) -> String {
+  let mut parts: Vec<String> = candidate.variants.iter().rev().map(|v| print_variant(v)).collect();
+  if let Some(prefix) = &ds.theme.prefix {
+    parts.insert(0, prefix.clone());
+  }
+
+  let mut base = String::new();
+  match &candidate.kind {
+    CandidateKind::Static { root } => base.push_str(root),
+    CandidateKind::Functional { root, value, modifier } => {
+      base.push_str(root);
+      match value {
+        Some(UtilityValue::Arbitrary { data_type, value }) => {
+          let (inner, open, close) = bracketed(value);
+          match data_type {
+            Some(t) => base.push_str(&format!("-{open}{t}:{}{close}", print_arbitrary_value(&inner))),
+            None => base.push_str(&format!("-{open}{}{close}", print_arbitrary_value(&inner))),
+          }
+        }
+        Some(UtilityValue::Named { value, .. }) => base.push_str(&format!("-{value}")),
+        None => {}
+      }
+      base.push_str(&print_modifier(modifier.as_ref()));
+    }
+    CandidateKind::Arbitrary {
+      property,
+      value,
+      modifier,
+    } => {
+      base.push_str(&format!("[{property}:{}]", print_arbitrary_value(value)));
+      base.push_str(&print_modifier(modifier.as_ref()));
+    }
+  }
+  if candidate.important {
+    base.push('!');
+  }
+  parts.push(base);
+  parts.join(":")
+}
+
+#[cfg(test)]
+mod tests {
+  use serde_json::{Value, json};
+
+  use super::*;
+  use crate::theme::Theme;
+  use crate::utilities::{Compiled, Utilities};
+  use crate::variants::{Compounds, Variants};
+
+  fn modifier(m: &Option<Modifier>) -> Value {
+    match m {
+      None => Value::Null,
+      Some(Modifier::Arbitrary(v)) => json!({ "kind": "arbitrary", "value": v }),
+      Some(Modifier::Named(v)) => json!({ "kind": "named", "value": v }),
+    }
+  }
+
+  fn variant(v: &Variant) -> Value {
+    match v {
+      Variant::Arbitrary { selector, relative } => {
+        json!({ "kind": "arbitrary", "relative": relative, "selector": selector })
+      }
+      Variant::Static { root } => json!({ "kind": "static", "root": root }),
+      Variant::Functional {
+        root,
+        value,
+        modifier: m,
+      } => json!({
+        "kind": "functional",
+        "modifier": modifier(m),
+        "root": root,
+        "value": match value {
+          None => Value::Null,
+          Some(VariantValue::Arbitrary(v)) => json!({ "kind": "arbitrary", "value": v }),
+          Some(VariantValue::Named(v)) => json!({ "kind": "named", "value": v }),
+        },
+      }),
+      Variant::Compound {
+        root,
+        modifier: m,
+        variant: sub,
+      } => json!({ "kind": "compound", "modifier": modifier(m), "root": root, "variant": variant(sub) }),
+    }
+  }
+
+  fn candidate(c: &Candidate) -> Value {
+    let variants: Vec<Value> = c.variants.iter().map(|v| variant(v)).collect();
+    match &c.kind {
+      CandidateKind::Arbitrary {
+        property,
+        value,
+        modifier: m,
+      } => json!({
+        "important": c.important, "kind": "arbitrary", "modifier": modifier(m), "property": property, "raw": c.raw, "value": value, "variants": variants,
+      }),
+      CandidateKind::Static { root } => {
+        json!({ "important": c.important, "kind": "static", "raw": c.raw, "root": root, "variants": variants })
+      }
+      CandidateKind::Functional {
+        root,
+        value,
+        modifier: m,
+      } => json!({
+        "important": c.important,
+        "kind": "functional",
+        "modifier": modifier(m),
+        "raw": c.raw,
+        "root": root,
+        "value": match value {
+          None => Value::Null,
+          Some(UtilityValue::Arbitrary { data_type, value }) => json!({ "dataType": data_type, "kind": "arbitrary", "value": value }),
+          Some(UtilityValue::Named { value, fraction }) => json!({ "fraction": fraction, "kind": "named", "value": value }),
+        },
+        "variants": variants,
+      }),
+    }
+  }
+
+  /// A value as vitest's pretty-format prints it: keys sorted, strings unescaped, trailing commas.
+  fn pretty_format(value: &Value, depth: usize) -> String {
+    let indent = "  ".repeat(depth + 1);
+    let close = "  ".repeat(depth);
+    match value {
+      Value::Null => "null".to_owned(),
+      Value::Bool(b) => b.to_string(),
+      Value::Number(n) => n.to_string(),
+      Value::String(s) => format!("\"{s}\""),
+      Value::Array(items) if items.is_empty() => "[]".to_owned(),
+      Value::Array(items) => {
+        let body: String = items
+          .iter()
+          .map(|v| format!("{indent}{},\n", pretty_format(v, depth + 1)))
+          .collect();
+        format!("[\n{body}{close}]")
+      }
+      Value::Object(map) if map.is_empty() => "{}".to_owned(),
+      Value::Object(map) => {
+        let body: String = map
+          .iter()
+          .map(|(k, v)| format!("{indent}\"{k}\": {},\n", pretty_format(v, depth + 1)))
+          .collect();
+        format!("{{\n{body}{close}}}")
+      }
+    }
+  }
+
+  #[derive(serde::Deserialize)]
+  struct ParseFixture {
+    test: String,
+    candidate: String,
+    utilities: Vec<(String, String)>,
+    variants: Vec<(String, String, String)>,
+    prefix: Option<String>,
+    expected: String,
+  }
+
+  fn compounds(text: &str) -> Compounds {
+    let mut out = Compounds::NEVER;
+    for part in text.split('|') {
+      out = out
+        | match part.trim() {
+          "Compounds.StyleRules" => Compounds::STYLE_RULES,
+          "Compounds.AtRules" => Compounds::AT_RULES,
+          _ => Compounds::NEVER,
+        };
+    }
+    out
+  }
+
+  /// `candidate.test.ts`: each parse against the registrations its test makes.
+  #[test]
+  fn tailwind_candidate_parses() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/candidate-parse.json");
+    let fixtures: Vec<ParseFixture> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut failures = Vec::new();
+    for f in &fixtures {
+      let mut ds = DesignSystem::new(Theme::default());
+      ds.theme.prefix = f.prefix.clone();
+      ds.utilities = Utilities::default();
+      for (kind, name) in &f.utilities {
+        if kind == "static" {
+          ds.utilities.static_utility(name, |_, _| Compiled::Nodes(Vec::new()));
+        } else {
+          ds.utilities.functional(name, |_, _| Compiled::Nodes(Vec::new()));
+        }
+      }
+      ds.variants = Variants::default();
+      for (kind, name, with) in &f.variants {
+        let noop: crate::variants::ApplyFn = std::rc::Rc::new(|_, _, _| Some(()));
+        match kind.as_str() {
+          "static" => ds.variants.static_variant(name, noop, None, None),
+          "functional" => ds.variants.functional(name, noop, None),
+          _ => ds.variants.compound(name, compounds(with), noop),
+        }
+      }
+      let parsed = Value::Array(parse_candidate(&f.candidate, &ds).iter().map(candidate).collect());
+      let printed = pretty_format(&parsed, 0);
+      if printed != f.expected {
+        failures.push(format!(
+          "{} ({}):\n--- got\n{printed}\n--- expected\n{}",
+          f.test, f.candidate, f.expected
+        ));
+      }
+    }
+    assert!(
+      failures.is_empty(),
+      "{} of {} differ:\n{}",
+      failures.len(),
+      fixtures.len(),
+      failures.join("\n")
+    );
+  }
 }

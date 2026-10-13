@@ -813,3 +813,327 @@ fn collect_theme_variables(nodes: &[Node], ctx: &Ctx, out: &mut Vec<(String, Str
     }
   }
 }
+
+/// Tailwind v4.3.2's `ast.test.ts`.
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::css_parser::parse;
+  use crate::design_system::DesignSystem;
+  use crate::theme::{Theme, ThemeOptions};
+  use crate::walk::walk;
+
+  fn optimized(ast: &[Node], ds: &DesignSystem) -> String {
+    to_css(&optimize_ast(ast, ds, Polyfills::ALL))
+  }
+
+  fn id(node: &Node) -> String {
+    match node {
+      Node::AtRule { name, params, .. } => format!("{name} {params}"),
+      Node::Rule { selector, .. } => selector.clone(),
+      Node::Context { .. } => "<context>".to_owned(),
+      Node::AtRoot { .. } => "<at-root>".to_owned(),
+      Node::Declaration { property, value, .. } => format!("{property}: {}", value.as_deref().unwrap_or("undefined")),
+      Node::Comment(value) => format!("// {value}"),
+    }
+  }
+
+  #[test]
+  fn pretty_prints_an_ast() {
+    let ds = DesignSystem::new(Theme::default());
+    let ast = parse(".foo{color:red;&:hover{color:blue;}}", None).unwrap();
+    assert_eq!(
+      optimized(&ast, &ds),
+      ".foo {\n  color: red;\n  &:hover {\n    color: blue;\n  }\n}\n"
+    );
+  }
+
+  #[test]
+  fn allows_the_placement_of_context_nodes() {
+    let ds = DesignSystem::new(Theme::default());
+    let mut ast = vec![
+      style_rule(".foo", vec![decl("color", "red")]),
+      context(
+        ctx1("context", CtxValue::Str("a".to_owned())),
+        vec![style_rule(
+          ".bar",
+          vec![
+            decl("color", "blue"),
+            context(
+              ctx1("context", CtxValue::Str("b".to_owned())),
+              vec![style_rule(".baz", vec![decl("color", "green")])],
+            ),
+          ],
+        )],
+      ),
+    ];
+    let mut seen = BTreeMap::new();
+    walk(&mut ast, &mut |node, visit| {
+      if let Node::Declaration { value: Some(value), .. } = node {
+        seen.insert(value.clone(), visit.context());
+      }
+      Action::Continue
+    });
+    assert_eq!(seen["red"], ContextMap::new());
+    assert_eq!(seen["blue"], ctx1("context", CtxValue::Str("a".to_owned())));
+    assert_eq!(seen["green"], ctx1("context", CtxValue::Str("b".to_owned())));
+    assert_eq!(
+      optimized(&ast, &ds),
+      ".foo {\n  color: red;\n}\n.bar {\n  color: blue;\n  .baz {\n    color: green;\n  }\n}\n"
+    );
+  }
+
+  #[test]
+  fn stops_walking_on_stop() {
+    let mut ast = vec![
+      style_rule(
+        ".foo",
+        vec![style_rule(
+          ".nested",
+          vec![style_rule(".bail", vec![decl("color", "red")])],
+        )],
+      ),
+      style_rule(".bar", vec![]),
+      style_rule(".baz", vec![]),
+      style_rule(".qux", vec![]),
+    ];
+    let mut seen = Vec::new();
+    walk(&mut ast, &mut |node, _| {
+      if let Node::Rule { selector, .. } = node {
+        seen.push(selector.clone());
+        if selector == ".bail" {
+          return Action::Stop;
+        }
+      }
+      Action::Continue
+    });
+    assert_eq!(seen, [".foo", ".nested", ".bail"]);
+  }
+
+  #[test]
+  fn does_not_emit_empty_rules_once_optimized() {
+    let ds = DesignSystem::new(Theme::default());
+    let ast = parse(
+      "
+    /* Empty rule */
+    .foo {
+    }
+
+    /* Empty rule, with nesting */
+    .foo {
+      .bar {
+      }
+      .baz {
+      }
+    }
+
+    /* Empty rule, with special case '&' rules */
+    .foo {
+      & {
+        &:hover {
+        }
+        &:focus {
+        }
+      }
+    }
+
+    /* Empty at-rule */
+    @media (min-width: 768px) {
+    }
+
+    /* Empty at-rule with nesting*/
+    @media (min-width: 768px) {
+      .foo {
+      }
+
+      @media (min-width: 1024px) {
+        .bar {
+        }
+      }
+    }
+
+    /* Exceptions: */
+    @charset \"UTF-8\";
+    @layer foo, bar, baz;
+    @custom-media --modern (color), (hover);
+    @namespace 'http://www.w3.org/1999/xhtml';
+    @import url('https://fonts.googleapis.com/css2?family=Cedarville+Cursive&display=swap');
+  ",
+      None,
+    )
+    .unwrap();
+    let exceptions = "@charset \"UTF-8\";\n@layer foo, bar, baz;\n@custom-media --modern (color), (hover);\n@namespace 'http://www.w3.org/1999/xhtml';\n@import url('https://fonts.googleapis.com/css2?family=Cedarville+Cursive&display=swap');\n";
+    assert_eq!(
+      to_css(&ast),
+      format!(
+        ".foo {{\n}}\n.foo {{\n  .bar {{\n  }}\n  .baz {{\n  }}\n}}\n.foo {{\n  & {{\n    &:hover {{\n    }}\n    &:focus {{\n    }}\n  }}\n}}\n@media (min-width: 768px);\n@media (min-width: 768px) {{\n  .foo {{\n  }}\n  @media (min-width: 1024px) {{\n    .bar {{\n    }}\n  }}\n}}\n{exceptions}"
+      )
+    );
+    assert_eq!(optimized(&ast, &ds), exceptions);
+  }
+
+  #[test]
+  fn does_not_emit_exact_duplicate_declarations_in_the_same_rule() {
+    let ds = DesignSystem::new(Theme::default());
+    let input = ".foo {\n  color: red;\n  .bar {\n    color: green;\n    color: blue;\n    color: green;\n  }\n  color: red;\n}\n.foo {\n  color: red;\n  & {\n    color: green;\n    & {\n      color: red;\n      color: green;\n      color: blue;\n    }\n    color: red;\n  }\n  background: blue;\n  .bar {\n    color: green;\n    color: blue;\n    color: green;\n  }\n  caret-color: orange;\n}\n";
+    let ast = parse(input, None).unwrap();
+    assert_eq!(to_css(&ast), input);
+    assert_eq!(
+      optimized(&ast, &ds),
+      ".foo {\n  .bar {\n    color: blue;\n    color: green;\n  }\n  color: red;\n}\n.foo {\n  color: green;\n  color: blue;\n  color: red;\n  background: blue;\n  .bar {\n    color: blue;\n    color: green;\n  }\n  caret-color: orange;\n}\n"
+    );
+  }
+
+  #[test]
+  fn does_not_emit_color_mix_fallbacks_inside_keyframes() {
+    let input = "@keyframes my-animation {\n  0% {\n    color: color-mix(in oklab, var(--color-emerald-600) 0%, transparent);\n  }\n  100% {\n    color: color-mix(in oklab, var(--color-emerald-600) 0%, transparent);\n  }\n}\n";
+    let ast = parse(input, None).unwrap();
+    let mut theme = Theme::default();
+    theme
+      .add(
+        "--color-emerald-600",
+        "oklch(59.6% 0.145 163.225)",
+        ThemeOptions::default(),
+      )
+      .unwrap();
+    let ds = DesignSystem::new(theme);
+    assert_eq!(optimized(&ast, &ds), input);
+  }
+
+  #[test]
+  fn replace_with_one_node_visits_children_once() {
+    let mut ast = vec![
+      at_rule("@media", "", vec![style_rule(".foo", vec![decl("color", "blue")])]),
+      style_rule(".bar", vec![decl("color", "blue")]),
+    ];
+    let mut visited = Vec::new();
+    walk(&mut ast, &mut |node, _| {
+      visited.push(id(node));
+      match node {
+        Node::AtRule { nodes, .. } => Action::Replace(std::mem::take(nodes)),
+        _ => Action::Continue,
+      }
+    });
+    assert_eq!(visited, ["@media ", ".foo", "color: blue", ".bar", "color: blue"]);
+  }
+
+  #[test]
+  fn replace_with_several_nodes_visits_children_once() {
+    let mut ast = vec![
+      at_rule(
+        "@media",
+        "",
+        vec![context(
+          ContextMap::new(),
+          vec![
+            style_rule(".foo", vec![decl("color", "red")]),
+            style_rule(".baz", vec![decl("color", "blue")]),
+          ],
+        )],
+      ),
+      style_rule(".bar", vec![decl("color", "green")]),
+    ];
+    let mut visited = Vec::new();
+    walk(&mut ast, &mut |node, _| {
+      let key = id(node);
+      assert!(!visited.contains(&key), "Visited node twice");
+      visited.push(key);
+      match node {
+        Node::AtRule { nodes, .. } => Action::Replace(std::mem::take(nodes)),
+        _ => Action::Continue,
+      }
+    });
+    assert_eq!(
+      visited,
+      [
+        "@media ",
+        "<context>",
+        ".foo",
+        "color: red",
+        ".baz",
+        "color: blue",
+        ".bar",
+        "color: green"
+      ]
+    );
+  }
+
+  #[test]
+  fn replace_skip_never_visits_children() {
+    let mut ast = vec![
+      at_rule("@media", "", vec![style_rule(".foo", vec![decl("color", "blue")])]),
+      style_rule(".bar", vec![decl("color", "blue")]),
+    ];
+    let mut visited = Vec::new();
+    walk(&mut ast, &mut |node, _| {
+      visited.push(node.clone());
+      match node {
+        Node::AtRule { nodes, .. } => Action::ReplaceSkip(nodes.clone()),
+        _ => Action::Continue,
+      }
+    });
+    assert_eq!(
+      visited,
+      [
+        at_rule("@media", "", vec![style_rule(".foo", vec![decl("color", "blue")])]),
+        style_rule(".bar", vec![decl("color", "blue")]),
+        decl("color", "blue")
+      ]
+    );
+  }
+
+  #[test]
+  fn skips_the_number_of_children_the_replacement_has() {
+    let all = ["--index: 0", "--index: 1", "--index: 2", "--index: 3", "--index: 4"];
+    let cases: [(bool, Vec<&str>, Vec<&str>); 6] = [
+      (true, vec![], all.to_vec()),
+      (false, vec![], all.to_vec()),
+      (true, vec!["2.1"], all.to_vec()),
+      (
+        false,
+        vec!["2.1"],
+        vec![
+          "--index: 0",
+          "--index: 1",
+          "--index: 2",
+          "--index: 2.1",
+          "--index: 3",
+          "--index: 4",
+        ],
+      ),
+      (true, vec!["2.1", "2.2"], all.to_vec()),
+      (
+        false,
+        vec!["2.1", "2.2"],
+        vec![
+          "--index: 0",
+          "--index: 1",
+          "--index: 2",
+          "--index: 2.1",
+          "--index: 2.2",
+          "--index: 3",
+          "--index: 4",
+        ],
+      ),
+    ];
+    for (skip, replacement, expected) in cases {
+      let mut ast: Vec<Node> = (0..5).map(|i| decl("--index", i.to_string())).collect();
+      let mut visited = Vec::new();
+      walk(&mut ast, &mut |node, _| {
+        visited.push(id(node));
+        match node {
+          Node::Declaration { value: Some(value), .. } if value == "2" => {
+            let nodes = replacement.iter().map(|v| decl("--index", *v)).collect();
+            if skip {
+              Action::ReplaceSkip(nodes)
+            } else {
+              Action::Replace(nodes)
+            }
+          }
+          _ => Action::Continue,
+        }
+      });
+      assert_eq!(visited, expected, "skip {skip}, replacement {replacement:?}");
+    }
+  }
+}

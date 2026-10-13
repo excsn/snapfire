@@ -123,6 +123,7 @@ pub(crate) fn substitute_at_imports(
   base: &str,
   load: &LoadStylesheet,
   depth: usize,
+  track: bool,
 ) -> Result<Features, Error> {
   let mut features = Features::NONE;
   let mut error: Option<Error> = None;
@@ -166,8 +167,8 @@ pub(crate) fn substitute_at_imports(
 
     let result = (|| -> Result<Node, Error> {
       let loaded = load(&uri, base)?;
-      let mut imported = css_parser::parse(&loaded.content)?;
-      substitute_at_imports(&mut imported, &loaded.base, load, depth + 1)?;
+      let mut imported = css_parser::parse(&loaded.content, if track { Some(loaded.path.as_str()) } else { None })?;
+      substitute_at_imports(&mut imported, &loaded.base, load, depth + 1, track)?;
       let nodes = build_import_nodes(
         vec![context(ctx1("base", CtxValue::Str(loaded.base.clone())), imported)],
         layer,

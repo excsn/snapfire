@@ -95,8 +95,9 @@ fn normalize_arg(arg: &str) -> String {
   arg
 }
 
-/// Rewrites the `--value(…)` and `--modifier(…)` arguments in a body into one spelling.
-fn normalize_body(body: &mut Vec<Node>) {
+/// Rewrites the `--value(…)` and `--modifier(…)` arguments in a body into one spelling and
+/// warns about a bare value type outside `number`, `integer`, `ratio` and `percentage`.
+fn normalize_body(body: &mut Vec<Node>, warnings: &mut Vec<String>) {
   walk(body, &mut |child, _| {
     let Node::Declaration { value: Some(value), .. } = child else {
       return Action::Continue;
@@ -118,6 +119,42 @@ fn normalize_body(body: &mut Vec<Node>) {
       let inner = value_parser::to_css(nodes);
       let args: Vec<String> = segment(&inner, b',').into_iter().map(normalize_arg).collect();
       *nodes = value_parser::parse(&args.join(","));
+      let function = ValueNode::Function {
+        value: name.clone(),
+        nodes: nodes.clone(),
+      };
+      for node in nodes.iter() {
+        let ValueNode::Word(word) = node else { continue };
+        let quoted = (word.starts_with('"') || word.starts_with('\'')) && word.len() >= 2 && word.ends_with(&word[..1]);
+        if quoted
+          || word.starts_with("--")
+          || (word.starts_with('[') && word.ends_with(']'))
+          || BARE_VALUE_DATA_TYPES.contains(&word.as_str())
+        {
+          continue;
+        }
+        warnings.push(format!(
+          "Unsupported bare value data type: \"{word}\".\nOnly valid data types are: {}.\n",
+          BARE_VALUE_DATA_TYPES
+            .iter()
+            .map(|t| format!("\"{t}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+        ));
+        let mut copy = vec![function.clone()];
+        value_parser::walk(&mut copy, &mut |n, _| match n {
+          ValueNode::Word(w) if w == word => Action::ReplaceSkip(vec![ValueNode::word("\u{b6}")]),
+          _ => Action::Continue,
+        });
+        let marked = value_parser::to_css(&copy);
+        let offset = marked.find('\u{b6}').map(|i| marked[..i].chars().count()).unwrap_or(0);
+        warnings.push(format!(
+          "```css\n{}\n{}{}\n```",
+          value_parser::to_css(std::slice::from_ref(&function)),
+          " ".repeat(offset),
+          "^".repeat(word.chars().count())
+        ));
+      }
       Action::Continue
     });
     *value = value_parser::to_css(&ast);
@@ -129,7 +166,9 @@ pub fn create_css_utility(ds: &mut DesignSystem, raw_name: &str, index: usize) {
   let name = unescape(raw_name);
 
   if is_valid_functional_utility_name(&name) {
-    normalize_body(&mut ds.css_utilities.borrow_mut()[index]);
+    let mut warnings = Vec::new();
+    normalize_body(&mut ds.css_utilities.borrow_mut()[index], &mut warnings);
+    ds.warnings.borrow_mut().extend(warnings);
     let root = name[..name.len() - 2].to_owned();
     ds.utilities.functional(&root, move |candidate, ds| {
       let mut body: Vec<Node> = ds.css_utilities.borrow()[index].clone();
@@ -408,4 +447,58 @@ fn resolve_value_function(arg: Arg, args: &[ValueNode], ds: &DesignSystem) -> Op
     }
   }
   None
+}
+
+#[cfg(test)]
+mod tests {
+  use super::{is_valid_functional_utility_name, is_valid_static_utility_name};
+
+  /// `utilities.test.ts`: `custom utilities > valid static utility name`.
+  #[test]
+  fn static_names() {
+    for (name, valid) in [
+      ("foo", true),
+      ("foo-123", true),
+      ("foo-2.5", true),
+      ("-foo", true),
+      ("foo-bar", true),
+      ("foo_bar", true),
+      ("foo-50%", true),
+      ("foo-1/2", true),
+      ("foo-sm/8", true),
+      ("foo-4/snug", true),
+      ("foo_", true),
+      ("foo/bar", true),
+      ("Foo", false),
+      ("-Foo", false),
+      ("foo-", false),
+      ("foo-1/", false),
+      ("foo-p%", false),
+      ("foo.bar", false),
+      ("foo-1..5", false),
+      ("foo..bar", false),
+      ("foo/bar/baz", false),
+    ] {
+      assert_eq!(is_valid_static_utility_name(name), valid, "{name}");
+    }
+  }
+
+  /// `utilities.test.ts`: `custom utilities > valid functional name`.
+  #[test]
+  fn functional_names() {
+    for (name, valid) in [
+      ("foo", false),
+      ("foo-*", true),
+      ("foo--*", true),
+      ("-foo-*", true),
+      ("foo-bar-*", true),
+      ("foo_bar-*", true),
+      ("Foo-*", false),
+      ("-Foo-*", false),
+      ("foo!-*", false),
+      ("foo-[…]", false),
+    ] {
+      assert_eq!(is_valid_functional_utility_name(name), valid, "{name}");
+    }
+  }
 }

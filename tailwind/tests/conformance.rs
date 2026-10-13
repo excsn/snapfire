@@ -7,9 +7,9 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 use serde::Deserialize;
-use snapfire_tailwind::{CompileOptions, Compiler, OptimizeOptions, PolyfillFlags, optimize};
+use snapfire_tailwind::{CompileOptions, Compiler, Loaded, OptimizeOptions, PolyfillFlags, optimize};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 struct Fixture {
   test: String,
   kind: String,
@@ -18,6 +18,9 @@ struct Fixture {
   expected: String,
   loader: bool,
   polyfills: Option<String>,
+  base: Option<String>,
+  stylesheet: Option<(String, String)>,
+  shuffled: bool,
 }
 
 static HIGH_PRECISION: LazyLock<Regex> = LazyLock::new(|| {
@@ -55,14 +58,49 @@ fn polyfills(name: Option<&str>) -> PolyfillFlags {
 }
 
 fn run(fixture: &Fixture) -> Result<String, String> {
-  let options = CompileOptions {
+  if fixture.shuffled {
+    let forward = run_in(fixture, fixture.candidates.clone())?;
+    let mut reversed = fixture.candidates.clone();
+    reversed.reverse();
+    let mut rotated = fixture.candidates.clone();
+    rotated.rotate_left(fixture.candidates.len() / 2);
+    for order in [reversed, rotated] {
+      let other = run_in(fixture, order.clone())?;
+      if other != forward {
+        return Err(format!(
+          "the output depends on the candidate order; {order:?} gives:\n{other}"
+        ));
+      }
+    }
+    return Ok(forward);
+  }
+  run_in(fixture, fixture.candidates.clone())
+}
+
+fn run_in(fixture: &Fixture, candidates: Vec<String>) -> Result<String, String> {
+  let mut options = CompileOptions {
     polyfills: polyfills(fixture.polyfills.as_deref()),
+    base: fixture.base.clone().unwrap_or_default(),
     banner: false,
     ..CompileOptions::default()
   };
+  if let Some((content, base)) = fixture.stylesheet.clone() {
+    options.load_stylesheet = Some(Box::new(move |_, given| {
+      let base = if base == "<base>" {
+        given.to_owned()
+      } else {
+        base.clone()
+      };
+      Ok(Loaded {
+        path: String::new(),
+        base,
+        content: content.clone(),
+      })
+    }));
+  }
   let _ = fixture.loader;
   let mut compiler = Compiler::new(&fixture.css, options).map_err(|e| e.to_string())?;
-  let built = compiler.build(fixture.candidates.iter().map(String::as_str));
+  let built = compiler.build(candidates.iter().map(String::as_str));
   let optimized = optimize(&built, &OptimizeOptions::default()).map_err(|e| e.to_string())?;
   Ok(pretty(&optimized))
 }
@@ -92,6 +130,24 @@ fn check(fixture: &Fixture) -> Option<String> {
       }
     }
     ("error", Ok(css)) => Some(format!("expected error {}, got css:\n{css}", fixture.expected)),
+    ("equal", Ok(css)) => {
+      let other = Fixture {
+        css: fixture.expected.clone(),
+        kind: "css".to_owned(),
+        expected: String::new(),
+        ..fixture.clone()
+      };
+      match run(&other) {
+        Ok(other_css) if other_css == css => None,
+        Ok(other_css) => Some(format!(
+          "--- the two stylesheets differ\n{css}\n--- against\n{other_css}"
+        )),
+        Err(e) => Some(format!("error: {e}")),
+      }
+    }
+    ("equal", Err(e)) => Some(format!("error: {e}")),
+    ("throws", Err(_)) => None,
+    ("throws", Ok(css)) => Some(format!("expected an error, got css:\n{css}")),
     _ => Some("unknown kind".to_owned()),
   }
 }
@@ -118,7 +174,14 @@ fn tailwind_test_suite() {
     .unwrap()
     .filter_map(|e| e.ok())
     .map(|e| e.path())
-    .filter(|p| !p.to_string_lossy().ends_with(".skipped.json"))
+    .filter(|p| {
+      let name = p.to_string_lossy();
+      p.extension().is_some_and(|e| e == "json")
+        && !name.ends_with(".skipped.json")
+        && !name.ends_with("-parse.json")
+        && !name.ends_with("-cases.json")
+        && !name.ends_with("-units.json")
+    })
     .collect();
   files.sort();
 

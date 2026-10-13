@@ -1028,3 +1028,28 @@ pub fn substitute_at_variant(ast: &mut Vec<Node>, ds: &DesignSystem) -> Result<F
     None => Ok(features),
   }
 }
+
+#[cfg(test)]
+mod tests {
+  use super::{Compounds, compounds_for_selectors};
+
+  /// `variants.test.ts`: `compoundsForSelectors`.
+  #[test]
+  fn compounds() {
+    let both = Compounds::STYLE_RULES | Compounds::AT_RULES;
+    for (selectors, expected) in [
+      (&[".foo"][..], Compounds::STYLE_RULES),
+      (&["&:is(:hover)"][..], Compounds::STYLE_RULES),
+      (&["@media foo"][..], Compounds::AT_RULES),
+      (&["@supports foo"][..], Compounds::AT_RULES),
+      (&["@container foo"][..], Compounds::AT_RULES),
+      (&[".foo", "@media foo"][..], both),
+      (&[".foo::before"][..], Compounds::NEVER),
+      (&["@starting-style"][..], Compounds::NEVER),
+      (&[".foo", "@media foo", ".foo::before"][..], Compounds::NEVER),
+      (&[".foo", "@media foo", "@starting-style"][..], Compounds::NEVER),
+    ] {
+      assert_eq!(compounds_for_selectors(selectors), expected, "{selectors:?}");
+    }
+  }
+}

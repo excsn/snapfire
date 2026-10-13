@@ -1,0 +1,116 @@
+[
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "fontSize.xs"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "fontSize",
+      "xs"
+    ]
+  },
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "fontSize.xs[1].lineHeight"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "fontSize",
+      "xs",
+      "1",
+      "lineHeight"
+    ]
+  },
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "colors.red.500"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "colors",
+      "red",
+      "500"
+    ]
+  },
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "colors[red].500"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "colors",
+      "red",
+      "500"
+    ]
+  },
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "colors[red].[500]"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "colors",
+      "red",
+      "500"
+    ]
+  },
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "colors[red]500"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "colors",
+      "red",
+      "500"
+    ]
+  },
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "colors[red][500]"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "colors",
+      "red",
+      "500"
+    ]
+  },
+  {
+    "test": "can convert key paths to arrays",
+    "function": "toKeyPath",
+    "args": [
+      "colors[red]500[50]5"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "colors",
+      "red",
+      "500",
+      "50",
+      "5"
+    ]
+  }
+]

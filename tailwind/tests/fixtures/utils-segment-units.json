@@ -1,0 +1,224 @@
+[
+  {
+    "test": "should result in a single segment when the separator is not present",
+    "function": "segment",
+    "args": [
+      "foo",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "foo"
+    ]
+  },
+  {
+    "test": "should split by the separator",
+    "function": "segment",
+    "args": [
+      "foo:bar:baz",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "foo",
+      "bar",
+      "baz"
+    ]
+  },
+  {
+    "test": "should not split inside of parens",
+    "function": "segment",
+    "args": [
+      "a:(b:c):d",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "(b:c)",
+      "d"
+    ]
+  },
+  {
+    "test": "should not split inside of brackets",
+    "function": "segment",
+    "args": [
+      "a:[b:c]:d",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "[b:c]",
+      "d"
+    ]
+  },
+  {
+    "test": "should not split inside of curlies",
+    "function": "segment",
+    "args": [
+      "a:{b:c}:d",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "{b:c}",
+      "d"
+    ]
+  },
+  {
+    "test": "should not split inside of double quotes",
+    "function": "segment",
+    "args": [
+      "a:\"b:c\":d",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "\"b:c\"",
+      "d"
+    ]
+  },
+  {
+    "test": "should not split inside of single quotes",
+    "function": "segment",
+    "args": [
+      "a:'b:c':d",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "'b:c'",
+      "d"
+    ]
+  },
+  {
+    "test": "should not crash when double quotes are unbalanced",
+    "function": "segment",
+    "args": [
+      "a:\"b:c:d",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "\"b:c:d"
+    ]
+  },
+  {
+    "test": "should not crash when single quotes are unbalanced",
+    "function": "segment",
+    "args": [
+      "a:'b:c:d",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "'b:c:d"
+    ]
+  },
+  {
+    "test": "should skip escaped double quotes",
+    "function": "segment",
+    "args": [
+      "a:\"b:c\\\":d\":e",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "\"b:c\\\":d\"",
+      "e"
+    ]
+  },
+  {
+    "test": "should skip escaped single quotes",
+    "function": "segment",
+    "args": [
+      "a:'b:c\\':d':e",
+      ":"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "'b:c\\':d'",
+      "e"
+    ]
+  },
+  {
+    "test": "should split by the escape sequence which is escape as well",
+    "function": "segment",
+    "args": [
+      "a\\b\\c\\d",
+      "\\"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "b",
+      "c",
+      "d"
+    ]
+  },
+  {
+    "test": "should split by the escape sequence which is escape as well",
+    "function": "segment",
+    "args": [
+      "a\\(b\\c)\\d",
+      "\\"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "(b\\c)",
+      "d"
+    ]
+  },
+  {
+    "test": "should split by the escape sequence which is escape as well",
+    "function": "segment",
+    "args": [
+      "a\\[b\\c]\\d",
+      "\\"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "[b\\c]",
+      "d"
+    ]
+  },
+  {
+    "test": "should split by the escape sequence which is escape as well",
+    "function": "segment",
+    "args": [
+      "a\\{b\\c}\\d",
+      "\\"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": [
+      "a",
+      "{b\\c}",
+      "d"
+    ]
+  }
+]

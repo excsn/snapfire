@@ -8,15 +8,35 @@
     "reason": "option `loadModule`"
   },
   {
+    "test": "theme(…) > in declaration values > with default theme > theme(%s) → %s [0]",
+    "reason": "asserts on `customClassRule`"
+  },
+  {
+    "test": "theme(…) > in declaration values > with default theme > theme(%s) → %s [1]",
+    "reason": "asserts on `customClassRule`"
+  },
+  {
+    "test": "theme(…) > in declaration values > with default theme > theme(%s) → %s [2]",
+    "reason": "asserts on `customClassRule`"
+  },
+  {
+    "test": "theme(…) > in declaration values > with default theme > theme(%s) → %s [3]",
+    "reason": "asserts on `customClassRule`"
+  },
+  {
+    "test": "theme(…) > in declaration values > with default theme > theme(%s) → %s [4]",
+    "reason": "asserts on `customClassRule`"
+  },
+  {
+    "test": "theme(…) > in declaration values > with default theme > theme(%s) → %s [5]",
+    "reason": "asserts on `customClassRule`"
+  },
+  {
     "test": "in plugins > CSS theme functions in plugins are properly evaluated",
     "reason": "option `loadModule`"
   },
   {
     "test": "in JS config files > CSS theme functions in config files are properly evaluated",
     "reason": "option `loadModule`"
-  },
-  {
-    "test": "replaces CSS theme() function with values inside imported stylesheets",
-    "reason": "a custom loadStylesheet"
   }
 ]

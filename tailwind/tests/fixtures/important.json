@@ -9,7 +9,28 @@
     "css": "\n        #app {\n          @tailwind utilities;\n        }\n      ",
     "expected": "\n#app .underline {\n  text-decoration-line: underline;\n}\n\n@media (hover: hover) {\n  #app .hover\\:line-through:hover {\n    text-decoration-line: line-through;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "Utilities can be marked with important",
+    "kind": "css",
+    "candidates": [
+      "underline",
+      "hover:line-through"
+    ],
+    "css": "\n        @import 'tailwindcss/utilities' important;\n      ",
+    "expected": "\n.underline {\n  text-decoration-line: underline !important;\n}\n\n@media (hover: hover) {\n  .hover\\:line-through:hover {\n    text-decoration-line: line-through !important;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "@tailwind utilities;",
+      "<base>"
+    ],
+    "shuffled": false
   },
   {
     "test": "Utilities can be wrapped with a selector and marked as important",
@@ -21,7 +42,10 @@
     "css": "\n        @media important {\n          #app {\n            @tailwind utilities;\n          }\n        }\n      ",
     "expected": "\n#app .underline {\n  text-decoration-line: underline !important;\n}\n\n@media (hover: hover) {\n  #app .hover\\:line-through:hover {\n    text-decoration-line: line-through !important;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "variables in utilities should not be marked as important",
@@ -33,6 +57,9 @@
     "css": "\n        @theme {\n          --ease-out: cubic-bezier(0, 0, 0.2, 1);\n        }\n        @tailwind utilities;\n      ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-ease: initial;\n    }\n  }\n}\n\n:root, :host {\n  --ease-out: cubic-bezier(0, 0, .2, 1);\n}\n\n.z-10\\! {\n  z-index: 10 !important;\n}\n\n.ease-out\\! {\n  --tw-ease: var(--ease-out) !important;\n  transition-timing-function: var(--ease-out) !important;\n}\n\n@property --tw-ease {\n  syntax: \"*\";\n  inherits: false\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   }
 ]

@@ -109,3 +109,107 @@ pub fn replace_shadow_colors(input: &str, replacement: &mut dyn FnMut(&str) -> S
 
   shadows.join(", ")
 }
+
+/// Tailwind v4.3.2's `replace-shadow-colors.test.ts`.
+#[cfg(test)]
+mod tests {
+  use super::replace_shadow_colors;
+  use crate::utilities::replace_alpha;
+
+  fn plain(input: &str) -> String {
+    replace_shadow_colors(input, &mut |color| format!("var(--tw-shadow-color, {color})"))
+  }
+
+  fn half(input: &str) -> String {
+    replace_shadow_colors(input, &mut |color| {
+      format!("var(--tw-shadow-color, {})", replace_alpha(color, "50%"))
+    })
+  }
+
+  #[test]
+  fn without_replacer() {
+    for (input, expected) in [
+      ("var(--my-shadow)", "var(--my-shadow)"),
+      ("1px var(--my-shadow)", "1px var(--my-shadow)"),
+      (
+        "1px 1px var(--my-color)",
+        "1px 1px var(--tw-shadow-color, var(--my-color))",
+      ),
+      ("0 0 0 var(--my-color)", "0 0 0 var(--tw-shadow-color, var(--my-color))"),
+      ("1px 2px", "1px 2px var(--tw-shadow-color, currentcolor)"),
+      ("1px 2px 3px", "1px 2px 3px var(--tw-shadow-color, currentcolor)"),
+      (
+        "1px 2px 3px 4px",
+        "1px 2px 3px 4px var(--tw-shadow-color, currentcolor)",
+      ),
+      (
+        "var(--my-shadow), 1px 1px var(--my-color), 0 0 1px var(--my-color)",
+        "var(--my-shadow), 1px 1px var(--tw-shadow-color, var(--my-color)), 0 0 1px var(--tw-shadow-color, var(--my-color))",
+      ),
+    ] {
+      assert_eq!(plain(input), expected, "{input}");
+    }
+  }
+
+  #[test]
+  fn finds_the_color_regardless_of_its_position() {
+    for x in ["calc(var(--spacing) * 1)", "1", "--spacing(1)"] {
+      for y in ["calc(var(--spacing) * 2)", "2", "--spacing(2)"] {
+        for blur in ["calc(var(--spacing) * 3)", "3", "--spacing(3)"] {
+          for spread in ["calc(var(--spacing) * 4)", "4", "--spacing(4)"] {
+            for color in [
+              "black",
+              "rgb(0, 0, 0)",
+              "#000",
+              "--alpha(var(--color) / 50%)",
+              "var(--uknown-color)",
+            ] {
+              let expected_color = format!("var(--tw-shadow-color, {color})");
+              for input in [
+                format!("{x} {color} {y} {blur} {spread}"),
+                format!("{x} {y} {color} {blur} {spread}"),
+                format!("{x} {y} {blur} {color} {spread}"),
+              ] {
+                assert_eq!(plain(&input), input.replacen(color, &expected_color, 1), "{input}");
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  #[test]
+  fn finds_the_color_after_variables() {
+    for color in ["black", "#000", "rgb(0, 0, 0)", "--alpha(var(--color) / 50%)"] {
+      let expected_color = format!("var(--tw-shadow-color, {color})");
+      for input in [
+        format!("var(--x) var(--y) {color}"),
+        format!("var(--x) var(--y) var(--blur) {color}"),
+        format!("var(--x) var(--y) var(--blur) var(--spread) {color}"),
+      ] {
+        assert_eq!(plain(&input), input.replacen(color, &expected_color, 1), "{input}");
+      }
+    }
+  }
+
+  #[test]
+  fn with_replacer() {
+    for (input, expected) in [
+      (
+        "1px 1px var(--my-color)",
+        "1px 1px var(--tw-shadow-color, oklab(from var(--my-color) l a b / 50%))",
+      ),
+      (
+        "1px 2px 3px 4px",
+        "1px 2px 3px 4px var(--tw-shadow-color, oklab(from currentcolor l a b / 50%))",
+      ),
+      (
+        "var(--my-shadow), 1px 1px var(--my-color), 0 0 1px var(--my-color)",
+        "var(--my-shadow), 1px 1px var(--tw-shadow-color, oklab(from var(--my-color) l a b / 50%)), 0 0 1px var(--tw-shadow-color, oklab(from var(--my-color) l a b / 50%))",
+      ),
+    ] {
+      assert_eq!(half(input), expected, "{input}");
+    }
+  }
+}

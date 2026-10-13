@@ -1,0 +1,32 @@
+[
+  {
+    "test": "escape > adds backslashes",
+    "function": "escape",
+    "args": [
+      "red-1/2"
+    ],
+    "post": null,
+    "kind": "snapshot",
+    "expected": "\"red-1\\/2\""
+  },
+  {
+    "test": "unescape > removes backslashes",
+    "function": "unescape",
+    "args": [
+      "red-1\\/2"
+    ],
+    "post": null,
+    "kind": "snapshot",
+    "expected": "\"red-1/2\""
+  },
+  {
+    "test": "unescape > replaces out-of-range escaped code points",
+    "function": "unescape",
+    "args": [
+      "--Coding-Projects-CharacterMapper-Master-Workspace\\d8819554-4725-4235-9d22-2d0ed572e924"
+    ],
+    "post": null,
+    "kind": "snapshot",
+    "expected": "\"--Coding-Projects-CharacterMapper-Master-Workspace�54-4725-4235-9d22-2d0ed572e924\""
+  }
+]

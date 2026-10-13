@@ -1,0 +1,6 @@
+[
+  {
+    "test": "sort is stable",
+    "reason": "asserts on `sorted`"
+  }
+]

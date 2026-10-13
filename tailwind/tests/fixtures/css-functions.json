@@ -6,7 +6,46 @@
     "css": "\n        .foo {\n          margin: --alpha(red / 50%);\n        }\n      ",
     "expected": "\n.foo {\n  margin: oklab(62.7955% .224 .125 / .5);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--alpha(…) > --alpha(…) errors when no arguments are used",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          margin: --alpha();\n        }\n      ",
+    "expected": "The --alpha(…) function requires a color and an alpha value, e.g.: `--alpha(var(--my-color) / 50%)`",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--alpha(…) > --alpha(…) errors when alpha value is missing",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          margin: --alpha(red);\n        }\n      ",
+    "expected": "The --alpha(…) function requires a color and an alpha value, e.g.: `--alpha(red / 50%)`",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--alpha(…) > --alpha(…) errors multiple arguments are used",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          margin: --alpha(red / 50%, blue);\n        }\n      ",
+    "expected": "The --alpha(…) function only accepts one argument, e.g.: `--alpha(red / 50%)`",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--spacing(…) > --spacing(…)",
@@ -15,7 +54,10 @@
     "css": "\n        @theme {\n          --spacing: 0.25rem;\n        }\n\n        .foo {\n          margin: --spacing(4);\n        }\n      ",
     "expected": "\n:root, :host {\n  --spacing: .25rem;\n}\n\n.foo {\n  margin: calc(var(--spacing) * 4);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--spacing(…) > --spacing(…) with inline `@theme` value",
@@ -24,7 +66,10 @@
     "css": "\n        @theme inline {\n          --spacing: 0.25rem;\n        }\n\n        .foo {\n          margin: --spacing(4);\n        }\n      ",
     "expected": "\n.foo {\n  margin: 1rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--spacing(…) > optimizations > --spacing(…) optimizes the output when the input is `0`",
@@ -33,7 +78,10 @@
     "css": "\n          @theme {\n            --spacing: 0.25rem;\n          }\n\n          .foo {\n            margin: --spacing(0);\n            padding: --spacing(0px);\n          }\n        ",
     "expected": "\n.foo {\n  margin: 0;\n  padding: 0;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--spacing(…) > optimizations > --spacing(…) optimizes the output when the input is `0` (with an inlined theme value)",
@@ -42,7 +90,10 @@
     "css": "\n          @theme inline {\n            --spacing: 0.25rem;\n          }\n\n          .foo {\n            margin: --spacing(0);\n            padding: --spacing(0px);\n          }\n        ",
     "expected": "\n.foo {\n  margin: 0;\n  padding: 0;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--spacing(…) > optimizations > --spacing(…) optimizes the output when the input is `1`",
@@ -51,7 +102,10 @@
     "css": "\n          @theme {\n            --spacing: 0.25rem;\n          }\n\n          .foo {\n            margin: --spacing(1);\n            padding: --spacing(1px);\n          }\n        ",
     "expected": "\n:root, :host {\n  --spacing: .25rem;\n}\n\n.foo {\n  margin: var(--spacing);\n  padding: var(--spacing);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--spacing(…) > optimizations > --spacing(…) optimizes the output when the input is `1` (with an inlined theme value)",
@@ -60,7 +114,46 @@
     "css": "\n          @theme inline {\n            --spacing: 0.25rem;\n          }\n\n          .foo {\n            margin: --spacing(1);\n            padding: --spacing(1px);\n          }\n        ",
     "expected": "\n.foo {\n  margin: .25rem;\n  padding: .25rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--spacing(…) > --spacing(…) relies on `--spacing` to be defined",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          margin: --spacing(4);\n        }\n      ",
+    "expected": "The --spacing(…) function requires that the `--spacing` theme variable exists, but it was not found.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--spacing(…) > --spacing(…) requires a single value",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @theme {\n          --spacing: 0.25rem;\n        }\n\n        .foo {\n          margin: --spacing();\n        }\n      ",
+    "expected": "The --spacing(…) function requires an argument, but received none.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--spacing(…) > --spacing(…) does not have multiple arguments",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          margin: --spacing(4, 5, 6);\n        }\n      ",
+    "expected": "The --spacing(…) function only accepts a single argument, but received 3.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(--color-red-500)",
@@ -69,7 +162,10 @@
     "css": "\n        @theme {\n          --color-red-500: #f00;\n        }\n        .red {\n          color: --theme(--color-red-500);\n        }\n      ",
     "expected": "\n:root, :host {\n  --color-red-500: red;\n}\n\n.red {\n  color: var(--color-red-500);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(--color-red-500 inline)",
@@ -78,7 +174,10 @@
     "css": "\n        @theme {\n          --color-red-500: #f00;\n        }\n        .red {\n          color: --theme(--color-red-500 inline);\n        }\n      ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(--color-red-500/50)",
@@ -87,7 +186,10 @@
     "css": "\n        @theme {\n          --color-red-500: #f00;\n        }\n        .red {\n          color: --theme(--color-red-500/0.5);\n        }\n      ",
     "expected": "\n:root, :host {\n  --color-red-500: red;\n}\n\n.red {\n  color: #ff000080;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .red {\n    color: color-mix(in oklab, var(--color-red-500) 50%, transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(--color-red-500/50 inline)",
@@ -96,7 +198,10 @@
     "css": "\n        @theme {\n          --color-red-500: #f00;\n        }\n        .red {\n          color: --theme(--color-red-500/50 inline);\n        }\n      ",
     "expected": "\n.red {\n  color: oklab(62.7955% .224863 .125846);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(…) injects the fallback when the value it refers is set to a `--theme(…)` function with the fallback `initial`",
@@ -105,7 +210,10 @@
     "css": "\n        @theme prefix(tw) {\n          --default-font-family: --theme(--font-family, initial);\n        }\n        .red {\n          font-family: --theme(--default-font-family, Potato Sans, sans-serif);\n        }\n      ",
     "expected": "\n.red {\n  font-family: var(--tw-default-font-family, Potato Sans, sans-serif);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(…) injects the fallback when the value it refers is set to a `--theme(…)` function with the fallback `initial` in @reference mode",
@@ -114,7 +222,10 @@
     "css": "\n        @theme reference prefix(tw) {\n          --default-font-family: --theme(--font-family, initial);\n        }\n        .red {\n          font-family: --theme(--default-font-family, Potato Sans, sans-serif);\n        }\n      ",
     "expected": "\n.red {\n  font-family: var(--tw-default-font-family, Potato Sans, sans-serif);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(…) resolves with the fallback when the value it refers is set to a `--theme(… inline)` function with the fallback `initial`",
@@ -123,7 +234,10 @@
     "css": "\n        @theme prefix(tw) {\n          --default-font-family: --theme(--font-family inline, initial);\n        }\n        .red {\n          font-family: --theme(--default-font-family inline, Potato Sans, sans-serif);\n        }\n      ",
     "expected": "\n.red {\n  font-family: Potato Sans, sans-serif;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(…) resolves with the fallback when the value it refers is set to a `--theme(… inline)` function with the fallback `initial` in @reference mode",
@@ -132,7 +246,10 @@
     "css": "\n        @theme reference prefix(tw) {\n          --default-font-family: --theme(--font-family inline, initial);\n        }\n        .red {\n          font-family: --theme(--default-font-family inline, Potato Sans, sans-serif);\n        }\n      ",
     "expected": "\n.red {\n  font-family: Potato Sans, sans-serif;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(…) does not inject the fallback if the fallback is `initial`",
@@ -143,7 +260,10 @@
     "css": "\n          @theme prefix(tw) {\n            --font-sans:\n              ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',\n              'Segoe UI Symbol', 'Noto Color Emoji';\n            --default-font-family: --theme(--font-sans, initial);\n          }\n          @layer base {\n            html {\n              font-family: --theme(--default-font-family, sans-serif);\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --tw-font-sans: ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\",\n              \"Segoe UI Symbol\", \"Noto Color Emoji\";\n  --tw-default-font-family: var(--tw-font-sans);\n}\n\n@layer base {\n  html {\n    font-family: var(--tw-default-font-family, sans-serif);\n  }\n}\n\n.tw\\:font-sans {\n  font-family: var(--tw-font-sans);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "--theme(…) > --theme(…) forces the value to be retrieved as inline when used inside an at-rule",
@@ -152,7 +272,34 @@
     "css": "\n        @theme {\n          --breakpoint-md: 48rem;\n          --breakpoint-lg: 64rem;\n        }\n        @custom-media --md (width >= --theme(--breakpoint-md));\n        @media (--md) {\n          .blue {\n            color: blue;\n          }\n        }\n        @media (width >= --theme(--breakpoint-lg)) {\n          .red {\n            color: red;\n          }\n        }\n      ",
     "expected": "\n@media (min-width: 48rem) {\n  .blue {\n    color: #00f;\n  }\n}\n\n@media (min-width: 64rem) {\n  .red {\n    color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--theme(…) > --theme(…) can only be used with CSS variables from your @theme",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @theme {\n          --color-red-500: #f00;\n        }\n        .red {\n          color: --theme(colors.red.500);\n        }\n      ",
+    "expected": "The --theme(…) function can only be used with CSS variables from your theme.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "--theme(…) > --theme(…) can only be used with CSS variables from your @theme",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @theme {\n          --color-red-500: #f00;\n        }\n        .red {\n          color: --theme(--color-green-500);\n        }\n      ",
+    "expected": "Could not resolve value for theme function: `theme(--color-green-500)`. Consider checking if the variable name is correct or provide a fallback value to silence this error.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors.red.500)",
@@ -161,7 +308,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors.red.500);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme('colors.red.500')",
@@ -170,7 +320,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme('colors.red.500');\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors[red]500)",
@@ -179,7 +332,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors[red]500);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors[red].500)",
@@ -188,7 +344,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors[red].500);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors[red][500])",
@@ -197,7 +356,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors[red][500]);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors[red].[500])",
@@ -206,7 +368,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors[red].[500]);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors.red.500/75%)",
@@ -215,7 +380,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors.red.500/75%);\n            }\n          ",
     "expected": "\n.red {\n  color: oklab(62.7955% .224 .125 / .75);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors.red.500 / 75%)",
@@ -224,7 +392,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors.red.500 / 75%);\n            }\n          ",
     "expected": "\n.red {\n  color: oklab(62.7955% .224 .125 / .75);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme('colors.red.500 / 75%')",
@@ -233,7 +404,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme('colors.red.500 / 75%');\n            }\n          ",
     "expected": "\n.red {\n  color: oklab(62.7955% .224 .125 / .75);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors.red.500/var(--opacity))",
@@ -242,7 +416,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors.red.500/var(--opacity));\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .red {\n    color: color-mix(in oklab, red var(--opacity), transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(colors.red.500/var(--opacity,50%))",
@@ -251,7 +428,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              /* prettier-ignore */\n              color: theme(colors.red.500/var(--opacity,50%));\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .red {\n    color: color-mix(in oklab, red var(--opacity, 50%), transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(spacing.12)",
@@ -260,7 +440,10 @@
     "css": "\n            @theme {\n              --spacing-12: 3rem;\n            }\n            .space-on-the-left {\n              margin-left: theme(spacing.12);\n            }\n          ",
     "expected": "\n.space-on-the-left {\n  margin-left: 3rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(spacing[2.5])",
@@ -269,7 +452,10 @@
     "css": "\n            @theme {\n              --spacing-2_5: 0.625rem;\n            }\n            .space-on-the-left {\n              margin-left: theme(spacing[2.5]);\n            }\n          ",
     "expected": "\n.space-on-the-left {\n  margin-left: .625rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > calc(100vh - theme(spacing[2.5]))",
@@ -278,7 +464,10 @@
     "css": "\n            @theme {\n              --spacing-2_5: 0.625rem;\n            }\n            .space-on-the-left {\n              margin-left: calc(100vh - theme(spacing[2.5]));\n            }\n          ",
     "expected": "\n.space-on-the-left {\n  margin-left: calc(100vh - .625rem);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > theme(borderRadius.lg)",
@@ -287,7 +476,10 @@
     "css": "\n            @theme {\n              --radius-lg: 0.5rem;\n            }\n            .radius {\n              border-radius: theme(borderRadius.lg);\n            }\n          ",
     "expected": "\n.radius {\n  border-radius: .5rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > for v3 compatibility > theme(blur.DEFAULT)",
@@ -296,7 +488,10 @@
     "css": "\n              @theme {\n                --blur: 8px;\n              }\n              .default-blur {\n                filter: blur(theme(blur.DEFAULT));\n              }\n            ",
     "expected": "\n.default-blur {\n  filter: blur(8px);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > for v3 compatibility > theme(fontSize.xs[1].lineHeight)",
@@ -305,7 +500,10 @@
     "css": "\n              @theme {\n                --text-xs: 1337.75rem;\n                --text-xs--line-height: 1337rem;\n              }\n              .text {\n                font-size: theme(fontSize.xs);\n                line-height: theme(fontSize.xs[1].lineHeight);\n              }\n            ",
     "expected": "\n.text {\n  font-size: 1337.75rem;\n  line-height: 1337rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > without fallback values > for v3 compatibility > theme(fontFamily.sans) (css)",
@@ -314,7 +512,22 @@
     "css": "\n              @theme default reference {\n                --font-family-sans:\n                  ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji,\n                  Segoe UI Symbol, Noto Color Emoji;\n              }\n              .fam {\n                font-family: theme(fontFamily.sans);\n              }\n            ",
     "expected": "\n.fam {\n  font-family: ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "theme(…) > in declaration values > without fallback values > theme(colors.unknown.500)",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n            .red {\n              color: theme(colors.unknown.500);\n            }\n          ",
+    "expected": "Could not resolve value for theme function: `theme(colors.unknown.500)`. Consider checking if the path is correct or provide a fallback value to silence this error.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > with default values > theme(colors.red.unknown / 50%, #f00)",
@@ -323,7 +536,10 @@
     "css": "\n            .red {\n              color: theme(colors.red.unknown / 50%, #f00);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > with default values > theme(colors.red.unknown / 75%, theme(colors.red.500 / 25%))",
@@ -332,7 +548,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(colors.red.unknown / 75%, theme(colors.red.500 / 25%));\n            }\n          ",
     "expected": "\n.red {\n  color: oklab(62.7955% .224 .125 / .25);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > with default values > theme(fontFamily.unknown, Helvetica Neue, Helvetica, sans-serif)",
@@ -341,7 +560,10 @@
     "css": "\n            .fam {\n              font-family: theme(fontFamily.unknown, Helvetica Neue, Helvetica, sans-serif);\n            }\n          ",
     "expected": "\n.fam {\n  font-family: Helvetica Neue, Helvetica, sans-serif;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > with default values > theme(\n\tfontFamily.unknown,\n\tHelvetica Neue,\n\tHelvetica,\n\tsans-serif\n)",
@@ -350,7 +572,10 @@
     "css": "\n            .fam {\n              font-family: theme(\n                fontFamily.unknown,\n                Helvetica Neue,\n                Helvetica,\n                sans-serif\n              );\n            }\n          ",
     "expected": "\n.fam {\n  font-family: Helvetica Neue, Helvetica, sans-serif;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > recursive theme() > can references theme inside @theme",
@@ -359,7 +584,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n              --color-foo: theme(colors.red.500);\n            }\n            .red {\n              color: theme(colors.foo);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > recursive theme() > can references theme inside @theme and stacking opacity",
@@ -368,7 +596,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n              --color-foo: theme(colors.red.500 / 50%);\n            }\n            .red {\n              color: theme(colors.foo / 50%);\n            }\n          ",
     "expected": "\n.red {\n  color: oklab(62.7955% .224 .125 / .25);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > with CSS variable syntax > theme(--color-red-500)",
@@ -377,7 +608,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(--color-red-500);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > with CSS variable syntax > theme(--color-red-500 / 50%)",
@@ -386,7 +620,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(--color-red-500 / 50%);\n            }\n          ",
     "expected": "\n.red {\n  color: oklab(62.7955% .224 .125 / .5);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > with CSS variable syntax > theme(\"--color-red-500\")",
@@ -395,7 +632,10 @@
     "css": "\n            @theme {\n              --color-red-500: #f00;\n            }\n            .red {\n              color: theme(--color-red-500);\n            }\n          ",
     "expected": "\n.red {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in declaration values > resolving --default lookups > theme(blur.DEFAULT)",
@@ -404,7 +644,10 @@
     "css": "\n            @theme {\n              --blur: 8px;\n            }\n            .blur {\n              filter: blur(theme(blur));\n            }\n          ",
     "expected": "\n.blur {\n  filter: blur(8px);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in candidates > sm:[--color:theme(colors.red[500])]",
@@ -415,7 +658,10 @@
     "css": "\n            @tailwind utilities;\n            @theme {\n              --breakpoint-sm: 40rem;\n              --color-red-500: #f00;\n            }\n          ",
     "expected": "\n@media (min-width: 40rem) {\n  .sm\\:\\[--color\\:theme\\(colors\\.red\\[500\\]\\)\\] {\n    --color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in candidates > values that don't exist don't produce candidates",
@@ -428,7 +674,10 @@
     "css": "\n        @tailwind utilities;\n        @theme reference {\n          --radius-sm: 2rem;\n        }\n      ",
     "expected": "\n.rounded-\\[theme\\(--radius-sm\\)\\] {\n  border-radius: 2rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in candidates > values that don't exist don't produce candidates",
@@ -440,7 +689,10 @@
     "css": "\n        @tailwind utilities;\n        @theme reference {\n          --radius-sm: 2rem;\n        }\n      ",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in @media queries > @media (min-width:theme(breakpoint.md)) and (max-width: theme(--breakpoint-lg))",
@@ -449,7 +701,10 @@
     "css": "\n          @theme {\n            --breakpoint-md: 48rem;\n            --breakpoint-lg: 64rem;\n          }\n          /* prettier-ignore */\n          @media (min-width:theme(breakpoint.md)) and (max-width: theme(--breakpoint-lg)) {\n            .red {\n              color: red;\n            }\n          }\n        ",
     "expected": "\n@media (min-width: 48rem) and (max-width: 64rem) {\n  .red {\n    color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > in @media queries > @media (width >= theme(breakpoint.md)) and (width<theme(--breakpoint-lg))",
@@ -458,7 +713,10 @@
     "css": "\n          @theme {\n            --breakpoint-md: 48rem;\n            --breakpoint-lg: 64rem;\n          }\n          @media (width >= theme(breakpoint.md)) and (width<theme(--breakpoint-lg)) {\n            .red {\n              color: red;\n            }\n          }\n        ",
     "expected": "\n@media (min-width: 48rem) and (not (min-width: 64rem)) {\n  .red {\n    color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > @custom-media --my-media (min-width: theme(breakpoint.md))",
@@ -467,7 +725,10 @@
     "css": "\n        @theme {\n          --breakpoint-md: 48rem;\n        }\n        @custom-media --my-media (min-width: theme(breakpoint.md));\n        @media (--my-media) {\n          .red {\n            color: red;\n          }\n        }\n      ",
     "expected": "\n@media (min-width: 48rem) {\n  .red {\n    color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > @container (width > theme(breakpoint.md))",
@@ -476,7 +737,10 @@
     "css": "\n        @theme {\n          --breakpoint-md: 48rem;\n        }\n        @container (width > theme(breakpoint.md)) {\n          .red {\n            color: red;\n          }\n        }\n      ",
     "expected": "\n@container not (max-width: 48rem) {\n  .red {\n    color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "theme(…) > @supports (text-stroke: theme(--font-size-xs))",
@@ -485,7 +749,25 @@
     "css": "\n        @theme {\n          --font-size-xs: 0.75rem;\n        }\n        @supports (text-stroke: theme(--font-size-xs)) {\n          .red {\n            color: red;\n          }\n        }\n      ",
     "expected": "\n@supports (text-stroke: 0.75rem) {\n  .red {\n    color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "replaces CSS theme() function with values inside imported stylesheets",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme {\n          --color-red-500: #f00;\n        }\n        @import './bar.css';\n      ",
+    "expected": "\n.red {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "\n              .red {\n                color: theme(colors.red.500);\n              }\n            ",
+      "/bar.css"
+    ],
+    "shuffled": false
   },
   {
     "test": "resolves paths ending with a 1",
@@ -494,7 +776,10 @@
     "css": "\n      @theme {\n        --spacing-1: 0.25rem;\n      }\n\n      .foo {\n        margin: theme(spacing.1);\n      }\n    ",
     "expected": "\n.foo {\n  margin: .25rem;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "upgrades to a full JS compat theme lookup if a value cannot be mapped to a CSS variable",
@@ -503,6 +788,9 @@
     "css": "\n      .semi {\n        font-weight: theme(fontWeight.semibold);\n      }\n    ",
     "expected": "\n.semi {\n  font-weight: 600;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   }
 ]

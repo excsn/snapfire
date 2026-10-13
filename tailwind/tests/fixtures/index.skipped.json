@@ -1,51 +1,7 @@
 [
   {
-    "test": "@apply > @apply referencing theme values with `@tailwind utilities` should work",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@apply > @apply referencing theme values with `@reference` should work",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@apply > should replace @apply with the correct result inside imported stylesheets",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@apply > should ignore the design systems `important` flag when using @apply",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "sorting > should sort utilities based on their property order",
-    "reason": "candidates are not an array literal"
-  },
-  {
-    "test": "sorting > should sort utilities with a custom internal --tw-sort correctly",
-    "reason": "candidates are not an array literal"
-  },
-  {
-    "test": "sorting > should sort individual logical properties later than left/right pairs",
-    "reason": "candidates are not an array literal"
-  },
-  {
-    "test": "sorting > should move variants to the end while sorting",
-    "reason": "candidates are not an array literal"
-  },
-  {
-    "test": "sorting > should sort variants and stacked variants by variant position",
-    "reason": "candidates are not an array literal"
-  },
-  {
-    "test": "sorting > should order group-* and peer-* variants based on the sort order of the group and peer variant but also based on the variant they are wrapping",
-    "reason": "candidates are not an array literal"
-  },
-  {
-    "test": "Parsing theme values from CSS > `@import \"tailwindcss\" theme(static)` will always generate theme values, regardless of whether they were used or not",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "Parsing theme values from CSS > `@import \"tailwindcss\" theme(inline)` theme values added as `inline` are not wrapped in `var(…)` when used as utility values",
-    "reason": "a custom loadStylesheet"
+    "test": "@apply > should be usable with CSS mixins",
+    "reason": "asserts on `compiler.build`"
   },
   {
     "test": "Parsing theme values from CSS > `default` theme values can be overridden by plugin theme values",
@@ -56,7 +12,43 @@
     "reason": "option `loadModule`"
   },
   {
+    "test": "plugins > @plugin need a path",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @plugin cannot have an empty path",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @plugin cannot be nested.",
+    "reason": "option `loadModule`"
+  },
+  {
     "test": "plugins > @plugin can accept options",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @plugin can accept options",
+    "reason": "asserts on `options`"
+  },
+  {
+    "test": "plugins > @plugin options can be null, booleans, string, numbers, or arrays including those types",
+    "reason": "asserts on `options`"
+  },
+  {
+    "test": "plugins > @plugin options can only be simple key/value pairs",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @plugin options can only be provided to plugins using withOptions",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @plugin errors on array-like syntax",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @plugin errors on object-like syntax",
     "reason": "option `loadModule`"
   },
   {
@@ -84,16 +76,16 @@
     "reason": "option `loadModule`"
   },
   {
-    "test": "@custom-variant",
-    "reason": "the stylesheet is not a literal"
+    "test": "@source > emits @source files",
+    "reason": "asserts on `sources`"
   },
   {
-    "test": "@custom-variant > @custom-variant with no body must include a selector",
-    "reason": "a rejection without an inline snapshot"
+    "test": "@source > emits multiple @source files",
+    "reason": "asserts on `sources`"
   },
   {
-    "test": "@custom-variant > @custom-variant with selector must include a body",
-    "reason": "a rejection without an inline snapshot"
+    "test": "@source > emits negated @source files",
+    "reason": "asserts on `sources`"
   },
   {
     "test": "addBase",
@@ -102,6 +94,10 @@
   {
     "test": "JS APIs support @variant",
     "reason": "option `loadModule`"
+  },
+  {
+    "test": "should error when `layer(…)` is used, but it's not the first param",
+    "reason": "asserts on `async`"
   },
   {
     "test": "`@reference \"…\" imports` > recursively removes styles",
@@ -124,19 +120,11 @@
     "reason": "a custom loadStylesheet"
   },
   {
-    "test": "@variant > comma-separated `@variant` rules > should be possible to use comma-separated `@variant` rules",
-    "reason": "compared against a non-literal"
-  },
-  {
     "test": "@variant > comma-separated `@variant` rules",
     "reason": "the stylesheet is not a literal"
   },
   {
-    "test": "@variant > comma-separated `@variant` rules > should handle nested comma-separated variants",
-    "reason": "compared against a non-literal"
-  },
-  {
-    "test": "@variant > should be possible to use compound and stacked variants in `@variant`",
-    "reason": "compared against a non-literal"
+    "test": "feature detection > using `@theme`",
+    "reason": "asserts on `compiler.build`"
   }
 ]

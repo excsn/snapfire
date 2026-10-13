@@ -24,6 +24,8 @@ pub struct DesignSystem {
   pub variants: Variants,
   pub invalid_candidates: RefCell<HashSet<String>>,
   pub important: bool,
+  /// What Tailwind would print with `console.warn`.
+  pub(crate) warnings: RefCell<Vec<String>>,
   /// The bodies of `@utility` rules, which `@apply` rewrites after they are registered.
   pub(crate) css_utilities: RefCell<Vec<Vec<Node>>>,
   pub(crate) legacy_theme: Option<crate::compat::LegacyTheme>,
@@ -44,6 +46,7 @@ impl DesignSystem {
       variants,
       invalid_candidates: RefCell::new(HashSet::new()),
       important: false,
+      warnings: RefCell::new(Vec::new()),
       css_utilities: RefCell::new(Vec::new()),
       legacy_theme: None,
       parsed_variants: RefCell::new(HashMap::new()),

@@ -10,7 +10,7 @@ use crate::utils::infer::{is_positive_integer, is_valid_spacing_multiplier};
 use crate::utils::segment::segment;
 
 mod default_theme;
-mod theme;
+pub(crate) mod theme;
 
 pub use theme::LegacyTheme;
 

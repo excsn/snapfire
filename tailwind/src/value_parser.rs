@@ -210,7 +210,243 @@ fn walk_level(
 
 #[cfg(test)]
 mod tests {
+  use serde_json::json;
+
   use super::*;
+
+  fn tree(ast: &[ValueNode]) -> serde_json::Value {
+    serde_json::Value::Array(
+      ast
+        .iter()
+        .map(|node| match node {
+          ValueNode::Word(value) => json!({ "kind": "word", "value": value }),
+          ValueNode::Separator(value) => json!({ "kind": "separator", "value": value }),
+          ValueNode::Function { value, nodes } => json!({ "kind": "function", "value": value, "nodes": tree(nodes) }),
+        })
+        .collect(),
+    )
+  }
+
+  #[test]
+  fn parse_conformance() {
+    assert_eq!(
+      tree(&parse("123px")),
+      json!([{ "kind": "word", "value": "123px" }]),
+      "should parse a value"
+    );
+    assert_eq!(
+      tree(&parse("'hello world'")),
+      json!([{ "kind": "word", "value": "'hello world'" }]),
+      "should parse a string value"
+    );
+    assert_eq!(
+      tree(&parse("hello world")),
+      json!([
+        { "kind": "word", "value": "hello" },
+        { "kind": "separator", "value": " " },
+        { "kind": "word", "value": "world" }
+      ]),
+      "should parse a list"
+    );
+    assert_eq!(
+      tree(&parse("'hello ( world )'")),
+      json!([{ "kind": "word", "value": "'hello ( world )'" }]),
+      "should parse a string containing parentheses"
+    );
+    assert_eq!(
+      tree(&parse("theme()")),
+      json!([{ "kind": "function", "value": "theme", "nodes": [] }]),
+      "should parse a function with no arguments"
+    );
+    assert_eq!(
+      tree(&parse("theme(foo)")),
+      json!([
+        { "kind": "function", "value": "theme", "nodes": [{ "kind": "word", "value": "foo" }] }
+      ]),
+      "should parse a function with a single argument"
+    );
+    assert_eq!(
+      tree(&parse("theme('foo')")),
+      json!([
+        { "kind": "function", "value": "theme", "nodes": [{ "kind": "word", "value": "'foo'" }] }
+      ]),
+      "should parse a function with a single string argument"
+    );
+    assert_eq!(
+      tree(&parse("theme(foo, bar)")),
+      json!([
+        {
+          "kind": "function",
+          "value": "theme",
+          "nodes": [
+            { "kind": "word", "value": "foo" },
+            { "kind": "separator", "value": ", " },
+            { "kind": "word", "value": "bar" }
+          ]
+        }
+      ]),
+      "should parse a function with multiple arguments"
+    );
+    assert_eq!(
+      tree(&parse("theme(\n\tfoo,\n\tbar\n)")),
+      json!([
+        {
+          "kind": "function",
+          "value": "theme",
+          "nodes": [
+            { "kind": "separator", "value": "\n\t" },
+            { "kind": "word", "value": "foo" },
+            { "kind": "separator", "value": ",\n\t" },
+            { "kind": "word", "value": "bar" },
+            { "kind": "separator", "value": "\n" }
+          ]
+        }
+      ]),
+      "should parse a function with multiple arguments across lines"
+    );
+    assert_eq!(
+      tree(&parse("theme(foo, theme(bar))")),
+      json!([
+        {
+          "kind": "function",
+          "value": "theme",
+          "nodes": [
+            { "kind": "word", "value": "foo" },
+            { "kind": "separator", "value": ", " },
+            { "kind": "function", "value": "theme", "nodes": [{ "kind": "word", "value": "bar" }] }
+          ]
+        }
+      ]),
+      "should parse a function with nested arguments"
+    );
+    assert_eq!(
+      tree(&parse("theme(colors.red.500/var(--opacity))")),
+      json!([
+        {
+          "kind": "function",
+          "value": "theme",
+          "nodes": [
+            { "kind": "word", "value": "colors.red.500" },
+            { "kind": "word", "value": "/" },
+            { "kind": "function", "value": "var", "nodes": [{ "kind": "word", "value": "--opacity" }] }
+          ]
+        }
+      ]),
+      "should parse a function with nested arguments separated by `/`"
+    );
+    assert_eq!(
+      tree(&parse("calc((1 + 2) * 3)")),
+      json!([
+        {
+          "kind": "function",
+          "value": "calc",
+          "nodes": [
+            {
+              "kind": "function",
+              "value": "",
+              "nodes": [
+                { "kind": "word", "value": "1" },
+                { "kind": "separator", "value": " " },
+                { "kind": "word", "value": "+" },
+                { "kind": "separator", "value": " " },
+                { "kind": "word", "value": "2" }
+              ]
+            },
+            { "kind": "separator", "value": " " },
+            { "kind": "word", "value": "*" },
+            { "kind": "separator", "value": " " },
+            { "kind": "word", "value": "3" }
+          ]
+        }
+      ]),
+      "should handle calculations"
+    );
+    assert_eq!(
+      tree(&parse(
+        "(min-width: 600px) and (max-width:theme(colors.red.500)) and (theme(--breakpoint-sm)<width<=theme(--breakpoint-md))"
+      )),
+      json!([
+        {
+          "kind": "function",
+          "value": "",
+          "nodes": [
+            { "kind": "word", "value": "min-width" },
+            { "kind": "separator", "value": ": " },
+            { "kind": "word", "value": "600px" }
+          ]
+        },
+        { "kind": "separator", "value": " " },
+        { "kind": "word", "value": "and" },
+        { "kind": "separator", "value": " " },
+        {
+          "kind": "function",
+          "value": "",
+          "nodes": [
+            { "kind": "word", "value": "max-width" },
+            { "kind": "separator", "value": ":" },
+            { "kind": "function", "value": "theme", "nodes": [{ "kind": "word", "value": "colors.red.500" }] }
+          ]
+        },
+        { "kind": "separator", "value": " " },
+        { "kind": "word", "value": "and" },
+        { "kind": "separator", "value": " " },
+        {
+          "kind": "function",
+          "value": "",
+          "nodes": [
+            { "kind": "function", "value": "theme", "nodes": [{ "kind": "word", "value": "--breakpoint-sm" }] },
+            { "kind": "separator", "value": "<" },
+            { "kind": "word", "value": "width" },
+            { "kind": "separator", "value": "<=" },
+            { "kind": "function", "value": "theme", "nodes": [{ "kind": "word", "value": "--breakpoint-md" }] }
+          ]
+        }
+      ]),
+      "should handle media query params with functions"
+    );
+    assert_eq!(
+      tree(&parse("calc(1 + 2))")),
+      json!([
+        {
+          "kind": "function",
+          "value": "calc",
+          "nodes": [
+            { "kind": "word", "value": "1" },
+            { "kind": "separator", "value": " " },
+            { "kind": "word", "value": "+" },
+            { "kind": "separator", "value": " " },
+            { "kind": "word", "value": "2" }
+          ]
+        }
+      ]),
+      "should not error when extra `)` was passed"
+    );
+  }
+
+  #[test]
+  fn to_css_conformance() {
+    for (input, expected) in [
+      ("calc((1 + 2) * 3)", "calc((1 + 2) * 3)"),
+      ("theme(foo, theme(bar))", "theme(foo, theme(bar))"),
+      (
+        "(min-width: 600px) and (max-width:theme(colors.red.500))",
+        "(min-width: 600px) and (max-width:theme(colors.red.500))",
+      ),
+      ("foo(   bar  )", "foo(   bar  )"),
+    ] {
+      assert_eq!(to_css(&parse(input)), expected);
+    }
+  }
+
+  #[test]
+  fn walk_replaces_a_function_call() {
+    let mut ast = parse("(min-width: 600px) and (max-width: theme(lg))");
+    walk(&mut ast, &mut |node, _| match node {
+      ValueNode::Function { value, .. } if value == "theme" => Action::Replace(vec![ValueNode::word("64rem")]),
+      _ => Action::Continue,
+    });
+    assert_eq!(to_css(&ast), "(min-width: 600px) and (max-width: 64rem)");
+  }
 
   #[test]
   fn round_trips() {

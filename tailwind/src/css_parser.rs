@@ -5,7 +5,24 @@ use crate::Error;
 use crate::ast::{Node, at_rule, comment, rule};
 use crate::value_parser::next_char_end;
 
-pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
+/// A syntax error's message, prefixed with `file:line:column` when the stylesheet has a name.
+fn located(message: String, input: &str, from: Option<&str>, offset: usize) -> Error {
+  let Some(file) = from else {
+    return Error::Syntax(message);
+  };
+  let offset = offset.min(input.len());
+  let mut start = offset;
+  while start > 0 && !input.is_char_boundary(start) {
+    start -= 1;
+  }
+  let before = &input[..start];
+  let line = before.matches('\n').count() + 1;
+  let line_start = before.rfind('\n').map(|i| i + 1).unwrap_or(0);
+  let column = before[line_start..].encode_utf16().count() + 1;
+  Error::Syntax(format!("{file}:{line}:{column}: {message}"))
+}
+
+pub fn parse(input: &str, from: Option<&str>) -> Result<Vec<Node>, Error> {
   let owned;
   let input = if let Some(rest) = input.strip_prefix('\u{FEFF}') {
     owned = format!(" {rest}");
@@ -20,8 +37,14 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
   let mut ast: Vec<Node> = Vec::new();
   let mut license_comments: Vec<Node> = Vec::new();
   let mut stack: Vec<Node> = Vec::new();
+  let mut starts: Vec<usize> = Vec::new();
   let mut buffer = String::new();
+  let mut buffer_start = 0usize;
   let mut closing = String::new();
+  let fail = |message: String, offset: usize| located(message, input, from, offset);
+  let string = |start: usize, quote: u8| {
+    parse_string(input, start, quote).map_err(|(message, offset)| located(message, input, from, offset))
+  };
 
   let mut i = 0;
   while i < len {
@@ -33,6 +56,9 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
     }
 
     if c == b'\\' {
+      if buffer.is_empty() {
+        buffer_start = i;
+      }
       let end = next_char_end(input, i + 1);
       buffer.push_str(&input[i..end]);
       i = end;
@@ -57,7 +83,7 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
         license_comments.push(comment(&comment_string[2..comment_string.len() - 2]));
       }
     } else if c == b'\'' || c == b'"' {
-      let end = parse_string(input, i, c)?;
+      let end = string(i, c)?;
       buffer.push_str(&input[i..next_char_end(input, end)]);
       i = end;
     } else if (c == b' ' || c == b'\n' || c == b'\t')
@@ -85,7 +111,7 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
           j += 2;
           continue;
         } else if p == b'\'' || p == b'"' {
-          j = parse_string(input, j, p)?;
+          j = string(j, p)?;
         } else if p == b'/' && at(j + 1) == b'*' {
           let mut k = j + 2;
           while k < len {
@@ -123,7 +149,7 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
       }
 
       let Some(declaration) = parse_declaration(&buffer, colon) else {
-        return Err(Error::Syntax("Invalid custom property, expected a value".to_owned()));
+        return Err(fail("Invalid custom property, expected a value".to_owned(), start));
       };
       match stack.last_mut() {
         Some(parent) => parent.children_mut().expect("a rule").push(declaration),
@@ -148,17 +174,18 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
         }
         None => {
           if !buffer.is_empty() {
-            return Err(Error::Syntax(format!("Invalid declaration: `{}`", buffer.trim())));
+            return Err(fail(format!("Invalid declaration: `{}`", buffer.trim()), buffer_start));
           }
         }
       }
     } else if c == b'{' && closing.as_bytes().last() != Some(&b')') {
       closing.push('}');
       stack.push(rule(buffer.trim(), Vec::new()));
+      starts.push(buffer_start);
       buffer.clear();
     } else if c == b'}' && closing.as_bytes().last() != Some(&b')') {
       if closing.is_empty() {
-        return Err(Error::Syntax("Missing opening {".to_owned()));
+        return Err(fail("Missing opening {".to_owned(), i));
       }
       closing.pop();
 
@@ -171,12 +198,13 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
           }
         } else if let Some(parent) = stack.last_mut() {
           let Some(declaration) = parse_declaration(&buffer, buffer.find(':')) else {
-            return Err(Error::Syntax(format!("Invalid declaration: `{}`", buffer.trim())));
+            return Err(fail(format!("Invalid declaration: `{}`", buffer.trim()), buffer_start));
           };
           parent.children_mut().expect("a rule").push(declaration);
         }
       }
 
+      starts.pop();
       if let Some(node) = stack.pop() {
         match stack.last_mut() {
           Some(grand) => grand.children_mut().expect("a rule").push(node),
@@ -189,7 +217,7 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
       buffer.push('(');
     } else if c == b')' {
       if closing.as_bytes().last() != Some(&b')') {
-        return Err(Error::Syntax("Missing opening (".to_owned()));
+        return Err(fail("Missing opening (".to_owned(), i));
       }
       closing.pop();
       buffer.push(')');
@@ -197,6 +225,9 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
       if buffer.is_empty() && (c == b' ' || c == b'\n' || c == b'\t') {
         i += 1;
         continue;
+      }
+      if buffer.is_empty() {
+        buffer_start = i;
       }
       let end = next_char_end(input, i);
       buffer.push_str(&input[i..end]);
@@ -213,11 +244,12 @@ pub fn parse(input: &str) -> Result<Vec<Node>, Error> {
   if !closing.is_empty()
     && let Some(parent) = stack.last()
   {
-    return Err(Error::Syntax(match parent {
+    let message = match parent {
       Node::Rule { selector, .. } => format!("Missing closing }} at {selector}"),
       Node::AtRule { name, params, .. } => format!("Missing closing }} at {name} {params}"),
       _ => "Missing closing }".to_owned(),
-    }));
+    };
+    return Err(fail(message, starts.last().copied().unwrap_or(0)));
   }
 
   if license_comments.is_empty() {
@@ -257,7 +289,7 @@ fn parse_declaration(buffer: &str, colon: Option<usize>) -> Option<Node> {
   })
 }
 
-fn parse_string(input: &str, start: usize, quote: u8) -> Result<usize, Error> {
+fn parse_string(input: &str, start: usize, quote: u8) -> Result<usize, (String, usize)> {
   let bytes = input.as_bytes();
   let len = bytes.len();
   let at = |i: usize| -> u8 { if i < len { bytes[i] } else { 0 } };
@@ -270,17 +302,15 @@ fn parse_string(input: &str, start: usize, quote: u8) -> Result<usize, Error> {
     } else if p == quote {
       return Ok(i);
     } else if p == b';' && (at(i + 1) == b'\n' || (at(i + 1) == b'\r' && at(i + 2) == b'\n')) {
-      return Err(Error::Syntax(format!(
-        "Unterminated string: {}{}",
-        &input[start..i + 1],
-        quote as char
-      )));
+      return Err((
+        format!("Unterminated string: {}{}", &input[start..i + 1], quote as char),
+        start,
+      ));
     } else if p == b'\n' || (p == b'\r' && at(i + 1) == b'\n') {
-      return Err(Error::Syntax(format!(
-        "Unterminated string: {}{}",
-        &input[start..i],
-        quote as char
-      )));
+      return Err((
+        format!("Unterminated string: {}{}", &input[start..i], quote as char),
+        start,
+      ));
     }
     i += 1;
   }
@@ -294,7 +324,7 @@ mod tests {
 
   #[test]
   fn parses_rules_and_declarations() {
-    let ast = parse(".foo {\n  color: red;\n  --x: a  b;\n}").unwrap();
+    let ast = parse(".foo {\n  color: red;\n  --x: a  b;\n}", None).unwrap();
     assert_eq!(
       ast,
       vec![style_rule(".foo", vec![decl("color", "red"), decl("--x", "a  b")])]
@@ -303,7 +333,11 @@ mod tests {
 
   #[test]
   fn parses_at_rules() {
-    let ast = parse("@tailwind utilities;\n@media (width >= 40rem) { .a { color: red } }").unwrap();
+    let ast = parse(
+      "@tailwind utilities;\n@media (width >= 40rem) { .a { color: red } }",
+      None,
+    )
+    .unwrap();
     assert_eq!(ast[0], at_rule("@tailwind", "utilities", vec![]));
     assert_eq!(
       ast[1],
@@ -317,13 +351,84 @@ mod tests {
 
   #[test]
   fn hoists_license_comments() {
-    let ast = parse(".a { color: red }\n/*! license */").unwrap();
+    let ast = parse(".a { color: red }\n/*! license */", None).unwrap();
     assert_eq!(ast[0], comment("! license "));
   }
 
   #[test]
   fn reports_unbalanced_braces() {
-    assert!(matches!(parse(".a { color: red").unwrap_err(), Error::Syntax(m) if m == "Missing closing } at .a"));
-    assert!(matches!(parse(".a } ").unwrap_err(), Error::Syntax(m) if m == "Missing opening {"));
+    assert!(matches!(parse(".a { color: red", None).unwrap_err(), Error::Syntax(m) if m == "Missing closing } at .a"));
+    assert!(matches!(parse(".a } ", None).unwrap_err(), Error::Syntax(m) if m == "Missing opening {"));
+  }
+}
+
+#[cfg(test)]
+mod conformance {
+  use serde_json::{Value, json};
+
+  use super::parse;
+  use crate::ast::Node;
+
+  fn node(n: &Node) -> Value {
+    match n {
+      Node::Rule { selector, nodes } => {
+        json!({ "kind": "rule", "selector": selector, "nodes": nodes.iter().map(node).collect::<Vec<_>>() })
+      }
+      Node::AtRule { name, params, nodes } => {
+        json!({ "kind": "at-rule", "name": name, "params": params, "nodes": nodes.iter().map(node).collect::<Vec<_>>() })
+      }
+      Node::Declaration {
+        property,
+        value,
+        important,
+      } => json!({ "kind": "declaration", "property": property, "value": value, "important": important }),
+      Node::Comment(value) => json!({ "kind": "comment", "value": value }),
+      Node::Context { .. } | Node::AtRoot { .. } => Value::Null,
+    }
+  }
+
+  #[derive(serde::Deserialize)]
+  struct Case {
+    test: String,
+    css: String,
+    windows: bool,
+    located: bool,
+    ast: Option<Value>,
+    error: Option<String>,
+  }
+
+  /// `css-parser.test.ts`, under Unix and Windows line endings.
+  #[test]
+  fn tailwind_parser_cases() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/css-parser-cases.json");
+    let cases: Vec<Case> = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let mut failures = Vec::new();
+    for case in &cases {
+      let unix = case.css.replace("\r\n", "\n");
+      let input = if case.windows { unix.replace('\n', "\r\n") } else { unix };
+      let result = parse(&input, if case.located { Some("input.css") } else { None });
+      match (&case.ast, &case.error, result) {
+        (Some(expected), _, Ok(ast)) => {
+          let got = Value::Array(ast.iter().map(node).collect());
+          if &got != expected {
+            failures.push(format!("{}:\n  got      {got}\n  expected {expected}", case.test));
+          }
+        }
+        (_, Some(expected), Err(e)) => {
+          if &e.to_string() != expected {
+            failures.push(format!("{}: error {e}, expected {expected}", case.test));
+          }
+        }
+        (_, _, Ok(ast)) => failures.push(format!("{}: parsed {} nodes, expected an error", case.test, ast.len())),
+        (_, _, Err(e)) => failures.push(format!("{}: {e}", case.test)),
+      }
+    }
+    assert!(
+      failures.is_empty(),
+      "{} of {} differ:\n{}",
+      failures.len(),
+      cases.len(),
+      failures.join("\n")
+    );
   }
 }

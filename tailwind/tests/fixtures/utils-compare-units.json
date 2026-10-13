@@ -1,0 +1,204 @@
+[
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [0]",
+    "function": "compare",
+    "args": [
+      "abc",
+      "abc"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": 0.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [1]",
+    "function": "compare",
+    "args": [
+      "abc",
+      "abcd"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": -1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [2]",
+    "function": "compare",
+    "args": [
+      "abcd",
+      "abc"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [3]",
+    "function": "compare",
+    "args": [
+      "1",
+      "1"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": 0.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [4]",
+    "function": "compare",
+    "args": [
+      "1",
+      "2"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": -1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [5]",
+    "function": "compare",
+    "args": [
+      "2",
+      "1"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [6]",
+    "function": "compare",
+    "args": [
+      "1",
+      "10"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": -1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [7]",
+    "function": "compare",
+    "args": [
+      "10",
+      "1"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [8]",
+    "function": "compare",
+    "args": [
+      "75",
+      "700"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": -1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [9]",
+    "function": "compare",
+    "args": [
+      "700",
+      "75"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [10]",
+    "function": "compare",
+    "args": [
+      "75",
+      "770"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": -1.0
+  },
+  {
+    "test": "should compare \"%s\" with \"%s\" as \"%d\" [11]",
+    "function": "compare",
+    "args": [
+      "770",
+      "75"
+    ],
+    "post": "sign",
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "should sort strings with numbers consistently using the `compare` function",
+    "function": "sortCompare",
+    "args": [
+      [
+        "p-0",
+        "p-0.5",
+        "p-1",
+        "p-1.5",
+        "p-10",
+        "p-12",
+        "p-2",
+        "p-20",
+        "p-21"
+      ]
+    ],
+    "post": null,
+    "kind": "snapshot",
+    "expected": "[\n  \"p-0\",\n  \"p-0.5\",\n  \"p-1\",\n  \"p-1.5\",\n  \"p-2\",\n  \"p-10\",\n  \"p-12\",\n  \"p-20\",\n  \"p-21\",\n]"
+  },
+  {
+    "test": "should sort strings with modifiers consistently using the `compare` function",
+    "function": "sortCompare",
+    "args": [
+      [
+        "text-5xl",
+        "text-6xl",
+        "text-6xl/loose",
+        "text-6xl/wide",
+        "bg-red-500",
+        "bg-red-500/50",
+        "bg-red-500/70",
+        "bg-red-500/60",
+        "bg-red-50",
+        "bg-red-50/50",
+        "bg-red-50/70",
+        "bg-red-50/60"
+      ]
+    ],
+    "post": null,
+    "kind": "snapshot",
+    "expected": "[\n  \"bg-red-50\",\n  \"bg-red-50/50\",\n  \"bg-red-50/60\",\n  \"bg-red-50/70\",\n  \"bg-red-500\",\n  \"bg-red-500/50\",\n  \"bg-red-500/60\",\n  \"bg-red-500/70\",\n  \"text-5xl\",\n  \"text-6xl\",\n  \"text-6xl/loose\",\n  \"text-6xl/wide\",\n]"
+  },
+  {
+    "test": "should sort strings with multiple numbers consistently using the `compare` function",
+    "function": "sortCompare",
+    "args": [
+      [
+        "foo-123-bar-456-baz-789",
+        "foo-123-bar-456-baz-788",
+        "foo-123-bar-456-baz-790",
+        "foo-123-bar-455-baz-789",
+        "foo-123-bar-456-baz-789",
+        "foo-123-bar-457-baz-789",
+        "foo-123-bar-456-baz-789",
+        "foo-124-bar-456-baz-788",
+        "foo-125-bar-456-baz-790",
+        "foo-126-bar-455-baz-789",
+        "foo-127-bar-456-baz-789",
+        "foo-128-bar-457-baz-789",
+        "foo-1-bar-2-baz-3",
+        "foo-12-bar-34-baz-45",
+        "foo-12-bar-34-baz-4",
+        "foo-12-bar-34-baz-456"
+      ]
+    ],
+    "post": null,
+    "kind": "snapshot",
+    "expected": "[\n  \"foo-1-bar-2-baz-3\",\n  \"foo-12-bar-34-baz-4\",\n  \"foo-12-bar-34-baz-45\",\n  \"foo-12-bar-34-baz-456\",\n  \"foo-123-bar-455-baz-789\",\n  \"foo-123-bar-456-baz-788\",\n  \"foo-123-bar-456-baz-789\",\n  \"foo-123-bar-456-baz-789\",\n  \"foo-123-bar-456-baz-789\",\n  \"foo-123-bar-456-baz-790\",\n  \"foo-123-bar-457-baz-789\",\n  \"foo-124-bar-456-baz-788\",\n  \"foo-125-bar-456-baz-790\",\n  \"foo-126-bar-455-baz-789\",\n  \"foo-127-bar-456-baz-789\",\n  \"foo-128-bar-457-baz-789\",\n]"
+  }
+]

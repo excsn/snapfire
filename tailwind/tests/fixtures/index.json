@@ -11,7 +11,10 @@
     "css": "\n          @theme {\n            --color-black: #000;\n            --breakpoint-md: 768px;\n          }\n\n          @layer utilities {\n            @tailwind utilities;\n          }\n        ",
     "expected": "\n:root, :host {\n  --color-black: #000;\n}\n\n@layer utilities {\n  .flex {\n    display: flex;\n  }\n\n  @media (hover: hover) {\n    .hover\\:underline:hover {\n      text-decoration-line: underline;\n    }\n  }\n\n  @media (min-width: 768px) {\n    .md\\:grid {\n      display: grid;\n    }\n  }\n\n  @media (prefers-color-scheme: dark) {\n    .dark\\:bg-black {\n      background-color: var(--color-black);\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "compiling CSS > that only CSS variables are allowed",
@@ -22,7 +25,10 @@
     "css": "\n          @theme {\n            --color-primary: red;\n            .foo {\n              --color-primary: blue;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "`@theme` blocks must only contain custom properties or `@keyframes`.\n\n  @theme {\n>   .foo {\n>     --color-primary: blue;\n>   }\n  }\n  ",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "compiling CSS > `@tailwind utilities` is only processed once",
@@ -34,7 +40,41 @@
     "css": "\n          @tailwind utilities;\n          @tailwind utilities;\n        ",
     "expected": "\n.flex {\n  display: flex;\n}\n\n.grid {\n  display: grid;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "compiling CSS > `@tailwind utilities` is replaced by utilities using the default theme",
+    "kind": "css",
+    "candidates": [
+      "bg-red-500",
+      "w-4",
+      "sm:flex",
+      "shadow-sm"
+    ],
+    "css": "\n          @theme default {\n  --font-sans:\n    ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',\n    'Noto Color Emoji';\n  --font-serif: ui-serif, Georgia, Cambria, 'Times New Roman', Times, serif;\n  --font-mono:\n    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',\n    monospace;\n\n  --color-red-50: oklch(97.1% 0.013 17.38);\n  --color-red-100: oklch(93.6% 0.032 17.717);\n  --color-red-200: oklch(88.5% 0.062 18.334);\n  --color-red-300: oklch(80.8% 0.114 19.571);\n  --color-red-400: oklch(70.4% 0.191 22.216);\n  --color-red-500: oklch(63.7% 0.237 25.331);\n  --color-red-600: oklch(57.7% 0.245 27.325);\n  --color-red-700: oklch(50.5% 0.213 27.518);\n  --color-red-800: oklch(44.4% 0.177 26.899);\n  --color-red-900: oklch(39.6% 0.141 25.723);\n  --color-red-950: oklch(25.8% 0.092 26.042);\n\n  --color-orange-50: oklch(98% 0.016 73.684);\n  --color-orange-100: oklch(95.4% 0.038 75.164);\n  --color-orange-200: oklch(90.1% 0.076 70.697);\n  --color-orange-300: oklch(83.7% 0.128 66.29);\n  --color-orange-400: oklch(75% 0.183 55.934);\n  --color-orange-500: oklch(70.5% 0.213 47.604);\n  --color-orange-600: oklch(64.6% 0.222 41.116);\n  --color-orange-700: oklch(55.3% 0.195 38.402);\n  --color-orange-800: oklch(47% 0.157 37.304);\n  --color-orange-900: oklch(40.8% 0.123 38.172);\n  --color-orange-950: oklch(26.6% 0.079 36.259);\n\n  --color-amber-50: oklch(98.7% 0.022 95.277);\n  --color-amber-100: oklch(96.2% 0.059 95.617);\n  --color-amber-200: oklch(92.4% 0.12 95.746);\n  --color-amber-300: oklch(87.9% 0.169 91.605);\n  --color-amber-400: oklch(82.8% 0.189 84.429);\n  --color-amber-500: oklch(76.9% 0.188 70.08);\n  --color-amber-600: oklch(66.6% 0.179 58.318);\n  --color-amber-700: oklch(55.5% 0.163 48.998);\n  --color-amber-800: oklch(47.3% 0.137 46.201);\n  --color-amber-900: oklch(41.4% 0.112 45.904);\n  --color-amber-950: oklch(27.9% 0.077 45.635);\n\n  --color-yellow-50: oklch(98.7% 0.026 102.212);\n  --color-yellow-100: oklch(97.3% 0.071 103.193);\n  --color-yellow-200: oklch(94.5% 0.129 101.54);\n  --color-yellow-300: oklch(90.5% 0.182 98.111);\n  --color-yellow-400: oklch(85.2% 0.199 91.936);\n  --color-yellow-500: oklch(79.5% 0.184 86.047);\n  --color-yellow-600: oklch(68.1% 0.162 75.834);\n  --color-yellow-700: oklch(55.4% 0.135 66.442);\n  --color-yellow-800: oklch(47.6% 0.114 61.907);\n  --color-yellow-900: oklch(42.1% 0.095 57.708);\n  --color-yellow-950: oklch(28.6% 0.066 53.813);\n\n  --color-lime-50: oklch(98.6% 0.031 120.757);\n  --color-lime-100: oklch(96.7% 0.067 122.328);\n  --color-lime-200: oklch(93.8% 0.127 124.321);\n  --color-lime-300: oklch(89.7% 0.196 126.665);\n  --color-lime-400: oklch(84.1% 0.238 128.85);\n  --color-lime-500: oklch(76.8% 0.233 130.85);\n  --color-lime-600: oklch(64.8% 0.2 131.684);\n  --color-lime-700: oklch(53.2% 0.157 131.589);\n  --color-lime-800: oklch(45.3% 0.124 130.933);\n  --color-lime-900: oklch(40.5% 0.101 131.063);\n  --color-lime-950: oklch(27.4% 0.072 132.109);\n\n  --color-green-50: oklch(98.2% 0.018 155.826);\n  --color-green-100: oklch(96.2% 0.044 156.743);\n  --color-green-200: oklch(92.5% 0.084 155.995);\n  --color-green-300: oklch(87.1% 0.15 154.449);\n  --color-green-400: oklch(79.2% 0.209 151.711);\n  --color-green-500: oklch(72.3% 0.219 149.579);\n  --color-green-600: oklch(62.7% 0.194 149.214);\n  --color-green-700: oklch(52.7% 0.154 150.069);\n  --color-green-800: oklch(44.8% 0.119 151.328);\n  --color-green-900: oklch(39.3% 0.095 152.535);\n  --color-green-950: oklch(26.6% 0.065 152.934);\n\n  --color-emerald-50: oklch(97.9% 0.021 166.113);\n  --color-emerald-100: oklch(95% 0.052 163.051);\n  --color-emerald-200: oklch(90.5% 0.093 164.15);\n  --color-emerald-300: oklch(84.5% 0.143 164.978);\n  --color-emerald-400: oklch(76.5% 0.177 163.223);\n  --color-emerald-500: oklch(69.6% 0.17 162.48);\n  --color-emerald-600: oklch(59.6% 0.145 163.225);\n  --color-emerald-700: oklch(50.8% 0.118 165.612);\n  --color-emerald-800: oklch(43.2% 0.095 166.913);\n  --color-emerald-900: oklch(37.8% 0.077 168.94);\n  --color-emerald-950: oklch(26.2% 0.051 172.552);\n\n  --color-teal-50: oklch(98.4% 0.014 180.72);\n  --color-teal-100: oklch(95.3% 0.051 180.801);\n  --color-teal-200: oklch(91% 0.096 180.426);\n  --color-teal-300: oklch(85.5% 0.138 181.071);\n  --color-teal-400: oklch(77.7% 0.152 181.912);\n  --color-teal-500: oklch(70.4% 0.14 182.503);\n  --color-teal-600: oklch(60% 0.118 184.704);\n  --color-teal-700: oklch(51.1% 0.096 186.391);\n  --color-teal-800: oklch(43.7% 0.078 188.216);\n  --color-teal-900: oklch(38.6% 0.063 188.416);\n  --color-teal-950: oklch(27.7% 0.046 192.524);\n\n  --color-cyan-50: oklch(98.4% 0.019 200.873);\n  --color-cyan-100: oklch(95.6% 0.045 203.388);\n  --color-cyan-200: oklch(91.7% 0.08 205.041);\n  --color-cyan-300: oklch(86.5% 0.127 207.078);\n  --color-cyan-400: oklch(78.9% 0.154 211.53);\n  --color-cyan-500: oklch(71.5% 0.143 215.221);\n  --color-cyan-600: oklch(60.9% 0.126 221.723);\n  --color-cyan-700: oklch(52% 0.105 223.128);\n  --color-cyan-800: oklch(45% 0.085 224.283);\n  --color-cyan-900: oklch(39.8% 0.07 227.392);\n  --color-cyan-950: oklch(30.2% 0.056 229.695);\n\n  --color-sky-50: oklch(97.7% 0.013 236.62);\n  --color-sky-100: oklch(95.1% 0.026 236.824);\n  --color-sky-200: oklch(90.1% 0.058 230.902);\n  --color-sky-300: oklch(82.8% 0.111 230.318);\n  --color-sky-400: oklch(74.6% 0.16 232.661);\n  --color-sky-500: oklch(68.5% 0.169 237.323);\n  --color-sky-600: oklch(58.8% 0.158 241.966);\n  --color-sky-700: oklch(50% 0.134 242.749);\n  --color-sky-800: oklch(44.3% 0.11 240.79);\n  --color-sky-900: oklch(39.1% 0.09 240.876);\n  --color-sky-950: oklch(29.3% 0.066 243.157);\n\n  --color-blue-50: oklch(97% 0.014 254.604);\n  --color-blue-100: oklch(93.2% 0.032 255.585);\n  --color-blue-200: oklch(88.2% 0.059 254.128);\n  --color-blue-300: oklch(80.9% 0.105 251.813);\n  --color-blue-400: oklch(70.7% 0.165 254.624);\n  --color-blue-500: oklch(62.3% 0.214 259.815);\n  --color-blue-600: oklch(54.6% 0.245 262.881);\n  --color-blue-700: oklch(48.8% 0.243 264.376);\n  --color-blue-800: oklch(42.4% 0.199 265.638);\n  --color-blue-900: oklch(37.9% 0.146 265.522);\n  --color-blue-950: oklch(28.2% 0.091 267.935);\n\n  --color-indigo-50: oklch(96.2% 0.018 272.314);\n  --color-indigo-100: oklch(93% 0.034 272.788);\n  --color-indigo-200: oklch(87% 0.065 274.039);\n  --color-indigo-300: oklch(78.5% 0.115 274.713);\n  --color-indigo-400: oklch(67.3% 0.182 276.935);\n  --color-indigo-500: oklch(58.5% 0.233 277.117);\n  --color-indigo-600: oklch(51.1% 0.262 276.966);\n  --color-indigo-700: oklch(45.7% 0.24 277.023);\n  --color-indigo-800: oklch(39.8% 0.195 277.366);\n  --color-indigo-900: oklch(35.9% 0.144 278.697);\n  --color-indigo-950: oklch(25.7% 0.09 281.288);\n\n  --color-violet-50: oklch(96.9% 0.016 293.756);\n  --color-violet-100: oklch(94.3% 0.029 294.588);\n  --color-violet-200: oklch(89.4% 0.057 293.283);\n  --color-violet-300: oklch(81.1% 0.111 293.571);\n  --color-violet-400: oklch(70.2% 0.183 293.541);\n  --color-violet-500: oklch(60.6% 0.25 292.717);\n  --color-violet-600: oklch(54.1% 0.281 293.009);\n  --color-violet-700: oklch(49.1% 0.27 292.581);\n  --color-violet-800: oklch(43.2% 0.232 292.759);\n  --color-violet-900: oklch(38% 0.189 293.745);\n  --color-violet-950: oklch(28.3% 0.141 291.089);\n\n  --color-purple-50: oklch(97.7% 0.014 308.299);\n  --color-purple-100: oklch(94.6% 0.033 307.174);\n  --color-purple-200: oklch(90.2% 0.063 306.703);\n  --color-purple-300: oklch(82.7% 0.119 306.383);\n  --color-purple-400: oklch(71.4% 0.203 305.504);\n  --color-purple-500: oklch(62.7% 0.265 303.9);\n  --color-purple-600: oklch(55.8% 0.288 302.321);\n  --color-purple-700: oklch(49.6% 0.265 301.924);\n  --color-purple-800: oklch(43.8% 0.218 303.724);\n  --color-purple-900: oklch(38.1% 0.176 304.987);\n  --color-purple-950: oklch(29.1% 0.149 302.717);\n\n  --color-fuchsia-50: oklch(97.7% 0.017 320.058);\n  --color-fuchsia-100: oklch(95.2% 0.037 318.852);\n  --color-fuchsia-200: oklch(90.3% 0.076 319.62);\n  --color-fuchsia-300: oklch(83.3% 0.145 321.434);\n  --color-fuchsia-400: oklch(74% 0.238 322.16);\n  --color-fuchsia-500: oklch(66.7% 0.295 322.15);\n  --color-fuchsia-600: oklch(59.1% 0.293 322.896);\n  --color-fuchsia-700: oklch(51.8% 0.253 323.949);\n  --color-fuchsia-800: oklch(45.2% 0.211 324.591);\n  --color-fuchsia-900: oklch(40.1% 0.17 325.612);\n  --color-fuchsia-950: oklch(29.3% 0.136 325.661);\n\n  --color-pink-50: oklch(97.1% 0.014 343.198);\n  --color-pink-100: oklch(94.8% 0.028 342.258);\n  --color-pink-200: oklch(89.9% 0.061 343.231);\n  --color-pink-300: oklch(82.3% 0.12 346.018);\n  --color-pink-400: oklch(71.8% 0.202 349.761);\n  --color-pink-500: oklch(65.6% 0.241 354.308);\n  --color-pink-600: oklch(59.2% 0.249 0.584);\n  --color-pink-700: oklch(52.5% 0.223 3.958);\n  --color-pink-800: oklch(45.9% 0.187 3.815);\n  --color-pink-900: oklch(40.8% 0.153 2.432);\n  --color-pink-950: oklch(28.4% 0.109 3.907);\n\n  --color-rose-50: oklch(96.9% 0.015 12.422);\n  --color-rose-100: oklch(94.1% 0.03 12.58);\n  --color-rose-200: oklch(89.2% 0.058 10.001);\n  --color-rose-300: oklch(81% 0.117 11.638);\n  --color-rose-400: oklch(71.2% 0.194 13.428);\n  --color-rose-500: oklch(64.5% 0.246 16.439);\n  --color-rose-600: oklch(58.6% 0.253 17.585);\n  --color-rose-700: oklch(51.4% 0.222 16.935);\n  --color-rose-800: oklch(45.5% 0.188 13.697);\n  --color-rose-900: oklch(41% 0.159 10.272);\n  --color-rose-950: oklch(27.1% 0.105 12.094);\n\n  --color-slate-50: oklch(98.4% 0.003 247.858);\n  --color-slate-100: oklch(96.8% 0.007 247.896);\n  --color-slate-200: oklch(92.9% 0.013 255.508);\n  --color-slate-300: oklch(86.9% 0.022 252.894);\n  --color-slate-400: oklch(70.4% 0.04 256.788);\n  --color-slate-500: oklch(55.4% 0.046 257.417);\n  --color-slate-600: oklch(44.6% 0.043 257.281);\n  --color-slate-700: oklch(37.2% 0.044 257.287);\n  --color-slate-800: oklch(27.9% 0.041 260.031);\n  --color-slate-900: oklch(20.8% 0.042 265.755);\n  --color-slate-950: oklch(12.9% 0.042 264.695);\n\n  --color-gray-50: oklch(98.5% 0.002 247.839);\n  --color-gray-100: oklch(96.7% 0.003 264.542);\n  --color-gray-200: oklch(92.8% 0.006 264.531);\n  --color-gray-300: oklch(87.2% 0.01 258.338);\n  --color-gray-400: oklch(70.7% 0.022 261.325);\n  --color-gray-500: oklch(55.1% 0.027 264.364);\n  --color-gray-600: oklch(44.6% 0.03 256.802);\n  --color-gray-700: oklch(37.3% 0.034 259.733);\n  --color-gray-800: oklch(27.8% 0.033 256.848);\n  --color-gray-900: oklch(21% 0.034 264.665);\n  --color-gray-950: oklch(13% 0.028 261.692);\n\n  --color-zinc-50: oklch(98.5% 0 0);\n  --color-zinc-100: oklch(96.7% 0.001 286.375);\n  --color-zinc-200: oklch(92% 0.004 286.32);\n  --color-zinc-300: oklch(87.1% 0.006 286.286);\n  --color-zinc-400: oklch(70.5% 0.015 286.067);\n  --color-zinc-500: oklch(55.2% 0.016 285.938);\n  --color-zinc-600: oklch(44.2% 0.017 285.786);\n  --color-zinc-700: oklch(37% 0.013 285.805);\n  --color-zinc-800: oklch(27.4% 0.006 286.033);\n  --color-zinc-900: oklch(21% 0.006 285.885);\n  --color-zinc-950: oklch(14.1% 0.005 285.823);\n\n  --color-neutral-50: oklch(98.5% 0 0);\n  --color-neutral-100: oklch(97% 0 0);\n  --color-neutral-200: oklch(92.2% 0 0);\n  --color-neutral-300: oklch(87% 0 0);\n  --color-neutral-400: oklch(70.8% 0 0);\n  --color-neutral-500: oklch(55.6% 0 0);\n  --color-neutral-600: oklch(43.9% 0 0);\n  --color-neutral-700: oklch(37.1% 0 0);\n  --color-neutral-800: oklch(26.9% 0 0);\n  --color-neutral-900: oklch(20.5% 0 0);\n  --color-neutral-950: oklch(14.5% 0 0);\n\n  --color-stone-50: oklch(98.5% 0.001 106.423);\n  --color-stone-100: oklch(97% 0.001 106.424);\n  --color-stone-200: oklch(92.3% 0.003 48.717);\n  --color-stone-300: oklch(86.9% 0.005 56.366);\n  --color-stone-400: oklch(70.9% 0.01 56.259);\n  --color-stone-500: oklch(55.3% 0.013 58.071);\n  --color-stone-600: oklch(44.4% 0.011 73.639);\n  --color-stone-700: oklch(37.4% 0.01 67.558);\n  --color-stone-800: oklch(26.8% 0.007 34.298);\n  --color-stone-900: oklch(21.6% 0.006 56.043);\n  --color-stone-950: oklch(14.7% 0.004 49.25);\n\n  --color-mauve-50: oklch(98.5% 0 0);\n  --color-mauve-100: oklch(96% 0.003 325.6);\n  --color-mauve-200: oklch(92.2% 0.005 325.62);\n  --color-mauve-300: oklch(86.5% 0.012 325.68);\n  --color-mauve-400: oklch(71.1% 0.019 323.02);\n  --color-mauve-500: oklch(54.2% 0.034 322.5);\n  --color-mauve-600: oklch(43.5% 0.029 321.78);\n  --color-mauve-700: oklch(36.4% 0.029 323.89);\n  --color-mauve-800: oklch(26.3% 0.024 320.12);\n  --color-mauve-900: oklch(21.2% 0.019 322.12);\n  --color-mauve-950: oklch(14.5% 0.008 326);\n\n  --color-olive-50: oklch(98.8% 0.003 106.5);\n  --color-olive-100: oklch(96.6% 0.005 106.5);\n  --color-olive-200: oklch(93% 0.007 106.5);\n  --color-olive-300: oklch(88% 0.011 106.6);\n  --color-olive-400: oklch(73.7% 0.021 106.9);\n  --color-olive-500: oklch(58% 0.031 107.3);\n  --color-olive-600: oklch(46.6% 0.025 107.3);\n  --color-olive-700: oklch(39.4% 0.023 107.4);\n  --color-olive-800: oklch(28.6% 0.016 107.4);\n  --color-olive-900: oklch(22.8% 0.013 107.4);\n  --color-olive-950: oklch(15.3% 0.006 107.1);\n\n  --color-mist-50: oklch(98.7% 0.002 197.1);\n  --color-mist-100: oklch(96.3% 0.002 197.1);\n  --color-mist-200: oklch(92.5% 0.005 214.3);\n  --color-mist-300: oklch(87.2% 0.007 219.6);\n  --color-mist-400: oklch(72.3% 0.014 214.4);\n  --color-mist-500: oklch(56% 0.021 213.5);\n  --color-mist-600: oklch(45% 0.017 213.2);\n  --color-mist-700: oklch(37.8% 0.015 216);\n  --color-mist-800: oklch(27.5% 0.011 216.9);\n  --color-mist-900: oklch(21.8% 0.008 223.9);\n  --color-mist-950: oklch(14.8% 0.004 228.8);\n\n  --color-taupe-50: oklch(98.6% 0.002 67.8);\n  --color-taupe-100: oklch(96% 0.002 17.2);\n  --color-taupe-200: oklch(92.2% 0.005 34.3);\n  --color-taupe-300: oklch(86.8% 0.007 39.5);\n  --color-taupe-400: oklch(71.4% 0.014 41.2);\n  --color-taupe-500: oklch(54.7% 0.021 43.1);\n  --color-taupe-600: oklch(43.8% 0.017 39.3);\n  --color-taupe-700: oklch(36.7% 0.016 35.7);\n  --color-taupe-800: oklch(26.8% 0.011 36.5);\n  --color-taupe-900: oklch(21.4% 0.009 43.1);\n  --color-taupe-950: oklch(14.7% 0.004 49.3);\n\n  --color-black: #000;\n  --color-white: #fff;\n\n  --spacing: 0.25rem;\n\n  --breakpoint-sm: 40rem;\n  --breakpoint-md: 48rem;\n  --breakpoint-lg: 64rem;\n  --breakpoint-xl: 80rem;\n  --breakpoint-2xl: 96rem;\n\n  --container-3xs: 16rem;\n  --container-2xs: 18rem;\n  --container-xs: 20rem;\n  --container-sm: 24rem;\n  --container-md: 28rem;\n  --container-lg: 32rem;\n  --container-xl: 36rem;\n  --container-2xl: 42rem;\n  --container-3xl: 48rem;\n  --container-4xl: 56rem;\n  --container-5xl: 64rem;\n  --container-6xl: 72rem;\n  --container-7xl: 80rem;\n\n  --text-xs: 0.75rem;\n  --text-xs--line-height: calc(1 / 0.75);\n  --text-sm: 0.875rem;\n  --text-sm--line-height: calc(1.25 / 0.875);\n  --text-base: 1rem;\n  --text-base--line-height: calc(1.5 / 1);\n  --text-lg: 1.125rem;\n  --text-lg--line-height: calc(1.75 / 1.125);\n  --text-xl: 1.25rem;\n  --text-xl--line-height: calc(1.75 / 1.25);\n  --text-2xl: 1.5rem;\n  --text-2xl--line-height: calc(2 / 1.5);\n  --text-3xl: 1.875rem;\n  --text-3xl--line-height: calc(2.25 / 1.875);\n  --text-4xl: 2.25rem;\n  --text-4xl--line-height: calc(2.5 / 2.25);\n  --text-5xl: 3rem;\n  --text-5xl--line-height: 1;\n  --text-6xl: 3.75rem;\n  --text-6xl--line-height: 1;\n  --text-7xl: 4.5rem;\n  --text-7xl--line-height: 1;\n  --text-8xl: 6rem;\n  --text-8xl--line-height: 1;\n  --text-9xl: 8rem;\n  --text-9xl--line-height: 1;\n\n  --font-weight-thin: 100;\n  --font-weight-extralight: 200;\n  --font-weight-light: 300;\n  --font-weight-normal: 400;\n  --font-weight-medium: 500;\n  --font-weight-semibold: 600;\n  --font-weight-bold: 700;\n  --font-weight-extrabold: 800;\n  --font-weight-black: 900;\n\n  --tracking-tighter: -0.05em;\n  --tracking-tight: -0.025em;\n  --tracking-normal: 0em;\n  --tracking-wide: 0.025em;\n  --tracking-wider: 0.05em;\n  --tracking-widest: 0.1em;\n\n  --leading-tight: 1.25;\n  --leading-snug: 1.375;\n  --leading-normal: 1.5;\n  --leading-relaxed: 1.625;\n  --leading-loose: 2;\n\n  --radius-xs: 0.125rem;\n  --radius-sm: 0.25rem;\n  --radius-md: 0.375rem;\n  --radius-lg: 0.5rem;\n  --radius-xl: 0.75rem;\n  --radius-2xl: 1rem;\n  --radius-3xl: 1.5rem;\n  --radius-4xl: 2rem;\n\n  --shadow-2xs: 0 1px rgb(0 0 0 / 0.05);\n  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);\n  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);\n  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);\n  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);\n  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);\n  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);\n\n  --inset-shadow-2xs: inset 0 1px rgb(0 0 0 / 0.05);\n  --inset-shadow-xs: inset 0 1px 1px rgb(0 0 0 / 0.05);\n  --inset-shadow-sm: inset 0 2px 4px rgb(0 0 0 / 0.05);\n\n  --drop-shadow-xs: 0 1px 1px rgb(0 0 0 / 0.05);\n  --drop-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.15);\n  --drop-shadow-md: 0 3px 3px rgb(0 0 0 / 0.12);\n  --drop-shadow-lg: 0 4px 4px rgb(0 0 0 / 0.15);\n  --drop-shadow-xl: 0 9px 7px rgb(0 0 0 / 0.1);\n  --drop-shadow-2xl: 0 25px 25px rgb(0 0 0 / 0.15);\n\n  --text-shadow-2xs: 0px 1px 0px rgb(0 0 0 / 0.15);\n  --text-shadow-xs: 0px 1px 1px rgb(0 0 0 / 0.2);\n  --text-shadow-sm:\n    0px 1px 0px rgb(0 0 0 / 0.075), 0px 1px 1px rgb(0 0 0 / 0.075), 0px 2px 2px rgb(0 0 0 / 0.075);\n  --text-shadow-md:\n    0px 1px 1px rgb(0 0 0 / 0.1), 0px 1px 2px rgb(0 0 0 / 0.1), 0px 2px 4px rgb(0 0 0 / 0.1);\n  --text-shadow-lg:\n    0px 1px 2px rgb(0 0 0 / 0.1), 0px 3px 2px rgb(0 0 0 / 0.1), 0px 4px 8px rgb(0 0 0 / 0.1);\n\n  --ease-in: cubic-bezier(0.4, 0, 1, 1);\n  --ease-out: cubic-bezier(0, 0, 0.2, 1);\n  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);\n\n  --animate-spin: spin 1s linear infinite;\n  --animate-ping: ping 1s cubic-bezier(0, 0, 0.2, 1) infinite;\n  --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;\n  --animate-bounce: bounce 1s infinite;\n\n  @keyframes spin {\n    to {\n      transform: rotate(360deg);\n    }\n  }\n\n  @keyframes ping {\n    75%,\n    100% {\n      transform: scale(2);\n      opacity: 0;\n    }\n  }\n\n  @keyframes pulse {\n    50% {\n      opacity: 0.5;\n    }\n  }\n\n  @keyframes bounce {\n    0%,\n    100% {\n      transform: translateY(-25%);\n      animation-timing-function: cubic-bezier(0.8, 0, 1, 1);\n    }\n\n    50% {\n      transform: none;\n      animation-timing-function: cubic-bezier(0, 0, 0.2, 1);\n    }\n  }\n\n  --blur-xs: 4px;\n  --blur-sm: 8px;\n  --blur-md: 12px;\n  --blur-lg: 16px;\n  --blur-xl: 24px;\n  --blur-2xl: 40px;\n  --blur-3xl: 64px;\n\n  --perspective-dramatic: 100px;\n  --perspective-near: 300px;\n  --perspective-normal: 500px;\n  --perspective-midrange: 800px;\n  --perspective-distant: 1200px;\n\n  --aspect-video: 16 / 9;\n\n  --default-transition-duration: 150ms;\n  --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);\n  --default-font-family: --theme(--font-sans, initial);\n  --default-font-feature-settings: --theme(--font-sans--font-feature-settings, initial);\n  --default-font-variation-settings: --theme(--font-sans--font-variation-settings, initial);\n  --default-mono-font-family: --theme(--font-mono, initial);\n  --default-mono-font-feature-settings: --theme(--font-mono--font-feature-settings, initial);\n  --default-mono-font-variation-settings: --theme(--font-mono--font-variation-settings, initial);\n}\n\n/* Deprecated */\n@theme default inline reference {\n  --blur: 8px;\n  --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);\n  --shadow-inner: inset 0 2px 4px 0 rgb(0 0 0 / 0.05);\n  --drop-shadow: 0 1px 2px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.06);\n  --radius: 0.25rem;\n  --max-width-prose: 65ch;\n}\n\n          @tailwind utilities;\n        ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-shadow: 0 0 #0000;\n      --tw-shadow-color: initial;\n      --tw-shadow-alpha: 100%;\n      --tw-inset-shadow: 0 0 #0000;\n      --tw-inset-shadow-color: initial;\n      --tw-inset-shadow-alpha: 100%;\n      --tw-ring-color: initial;\n      --tw-ring-shadow: 0 0 #0000;\n      --tw-inset-ring-color: initial;\n      --tw-inset-ring-shadow: 0 0 #0000;\n      --tw-ring-inset: initial;\n      --tw-ring-offset-width: 0px;\n      --tw-ring-offset-color: #fff;\n      --tw-ring-offset-shadow: 0 0 #0000;\n    }\n  }\n}\n\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n  --spacing: .25rem;\n}\n\n.w-4 {\n  width: calc(var(--spacing) * 4);\n}\n\n.bg-red-500 {\n  background-color: var(--color-red-500);\n}\n\n.shadow-sm {\n  --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, #0000001a), 0 1px 2px -1px var(--tw-shadow-color, #0000001a);\n  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);\n}\n\n@media (min-width: 40rem) {\n  .sm\\:flex {\n    display: flex;\n  }\n}\n\n@property --tw-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-inset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-ring-inset {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-offset-width {\n  syntax: \"<length>\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-ring-offset-color {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: #fff;\n}\n\n@property --tw-ring-offset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "compiling CSS > prefix all CSS variables inside preflight",
+    "kind": "css",
+    "candidates": [
+      "font-mono"
+    ],
+    "css": "\n          @import 'tailwindcss' prefix(tw);\n          @tailwind utilities;\n        ",
+    "expected": "\n@layer theme {\n  :root, :host {\n    --tw-font-sans: ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\",\n    \"Noto Color Emoji\";\n    --tw-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\",\n    monospace;\n    --tw-default-font-family: var(--tw-font-sans);\n    --tw-default-mono-font-family: var(--tw-font-mono);\n  }\n}\n\n@layer base {\n  *, :after, :before, ::backdrop {\n    box-sizing: border-box;\n    border: 0 solid;\n    margin: 0;\n    padding: 0;\n  }\n\n  ::file-selector-button {\n    box-sizing: border-box;\n    border: 0 solid;\n    margin: 0;\n    padding: 0;\n  }\n\n  html, :host {\n    -webkit-text-size-adjust: 100%;\n    tab-size: 4;\n    line-height: 1.5;\n    font-family: var(--tw-default-font-family, ui-sans-serif, system-ui, sans-serif, \"Apple Color Emoji\", \"Segoe UI Emoji\", \"Segoe UI Symbol\", \"Noto Color Emoji\");\n    font-feature-settings: var(--tw-default-font-feature-settings, normal);\n    font-variation-settings: var(--tw-default-font-variation-settings, normal);\n    -webkit-tap-highlight-color: transparent;\n  }\n\n  hr {\n    height: 0;\n    color: inherit;\n    border-top-width: 1px;\n  }\n\n  abbr:where([title]) {\n    -webkit-text-decoration: underline dotted;\n    text-decoration: underline dotted;\n  }\n\n  h1, h2, h3, h4, h5, h6 {\n    font-size: inherit;\n    font-weight: inherit;\n  }\n\n  a {\n    color: inherit;\n    -webkit-text-decoration: inherit;\n    -webkit-text-decoration: inherit;\n    -webkit-text-decoration: inherit;\n    text-decoration: inherit;\n  }\n\n  b, strong {\n    font-weight: bolder;\n  }\n\n  code, kbd, samp, pre {\n    font-family: var(--tw-default-mono-font-family, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace);\n    font-feature-settings: var(--tw-default-mono-font-feature-settings, normal);\n    font-variation-settings: var(--tw-default-mono-font-variation-settings, normal);\n    font-size: 1em;\n  }\n\n  small {\n    font-size: 80%;\n  }\n\n  sub, sup {\n    vertical-align: baseline;\n    font-size: 75%;\n    line-height: 0;\n    position: relative;\n  }\n\n  sub {\n    bottom: -.25em;\n  }\n\n  sup {\n    top: -.5em;\n  }\n\n  table {\n    text-indent: 0;\n    border-color: inherit;\n    border-collapse: collapse;\n  }\n\n  :-moz-focusring {\n    outline: auto;\n  }\n\n  progress {\n    vertical-align: baseline;\n  }\n\n  summary {\n    display: list-item;\n  }\n\n  ol, ul, menu {\n    list-style: none;\n  }\n\n  img, svg, video, canvas, audio, iframe, embed, object {\n    vertical-align: middle;\n    display: block;\n  }\n\n  img, video {\n    max-width: 100%;\n    height: auto;\n  }\n\n  button, input, select, optgroup, textarea {\n    font: inherit;\n    font-feature-settings: inherit;\n    font-variation-settings: inherit;\n    letter-spacing: inherit;\n    color: inherit;\n    opacity: 1;\n    background-color: #0000;\n    border-radius: 0;\n  }\n\n  ::file-selector-button {\n    font: inherit;\n    font-feature-settings: inherit;\n    font-variation-settings: inherit;\n    letter-spacing: inherit;\n    color: inherit;\n    opacity: 1;\n    background-color: #0000;\n    border-radius: 0;\n  }\n\n  :where(select:is([multiple], [size])) optgroup {\n    font-weight: bolder;\n  }\n\n  :where(select:is([multiple], [size])) optgroup option {\n    padding-inline-start: 20px;\n  }\n\n  ::file-selector-button {\n    margin-inline-end: 4px;\n  }\n\n  ::placeholder {\n    opacity: 1;\n  }\n\n  @supports (not ((-webkit-appearance: -apple-pay-button))) or (contain-intrinsic-size: 1px) {\n    ::placeholder {\n      color: currentColor;\n    }\n\n    @supports (color: color-mix(in lab, red, red)) {\n      ::placeholder {\n        color: color-mix(in oklab, currentcolor 50%, transparent);\n      }\n    }\n  }\n\n  textarea {\n    resize: vertical;\n  }\n\n  ::-webkit-search-decoration {\n    -webkit-appearance: none;\n  }\n\n  ::-webkit-date-and-time-value {\n    min-height: 1lh;\n    text-align: inherit;\n  }\n\n  ::-webkit-datetime-edit {\n    display: inline-flex;\n  }\n\n  ::-webkit-datetime-edit-fields-wrapper {\n    padding: 0;\n  }\n\n  ::-webkit-datetime-edit {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-year-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-month-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-day-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-hour-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-minute-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-second-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-millisecond-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-datetime-edit-meridiem-field {\n    padding-block: 0;\n  }\n\n  ::-webkit-calendar-picker-indicator {\n    line-height: 1;\n  }\n\n  :-moz-ui-invalid {\n    box-shadow: none;\n  }\n\n  button, input:where([type=\"button\"], [type=\"reset\"], [type=\"submit\"]) {\n    appearance: button;\n  }\n\n  ::file-selector-button {\n    appearance: button;\n  }\n\n  ::-webkit-inner-spin-button {\n    height: auto;\n  }\n\n  ::-webkit-outer-spin-button {\n    height: auto;\n  }\n\n  [hidden]:where(:not([hidden=\"until-found\"])) {\n    display: none !important;\n  }\n}\n\n@layer components, utilities;\n",
+    "loader": true,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "compiling CSS > unescapes underscores to spaces inside arbitrary values except for `url()` and first argument of `var()` and `theme()`",
@@ -47,7 +87,10 @@
     "css": "\n          @theme {\n            --spacing-1_5: 1.5rem;\n            --spacing-2_5: 2.5rem;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --spacing-1_5: 1.5rem;\n  --spacing-2_5: 2.5rem;\n}\n\n.ml-\\[theme\\(--spacing-1_5\\,theme\\(--spacing-2_5\\,_1rem\\)\\)\\)\\] {\n  margin-left: 1.5rem;\n}\n\n.ml-\\[var\\(--spacing-1_5\\,_var\\(--spacing-2_5\\,_1rem\\)\\)\\] {\n  margin-left: var(--spacing-1_5, var(--spacing-2_5, 1rem));\n}\n\n.bg-\\[no-repeat_url\\(\\.\\/my_file\\.jpg\\)\\] {\n  background-color: no-repeat url(\"./my_file.jpg\");\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "compiling CSS > unescapes theme variables and handles dots as underscore",
@@ -62,7 +105,10 @@
     "css": "\n          @theme {\n            --spacing-*: initial;\n            --spacing-1\\.5: 1.5px;\n            --spacing-2_5: 2.5px;\n            --spacing-3\\.5: 3.5px;\n            --spacing-3_5: 3.5px;\n            --spacing-foo\\/bar: 3rem;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --spacing-1\\.5: 1.5px;\n  --spacing-2_5: 2.5px;\n  --spacing-3\\.5: 3.5px;\n  --spacing-foo\\/bar: 3rem;\n}\n\n.m-1\\.5 {\n  margin: var(--spacing-1\\.5);\n}\n\n.m-2\\.5, .m-2_5 {\n  margin: var(--spacing-2_5);\n}\n\n.m-3\\.5 {\n  margin: var(--spacing-3\\.5);\n}\n\n.m-foo\\/bar {\n  margin: var(--spacing-foo\\/bar);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "compiling CSS > adds vendor prefixes",
@@ -73,7 +119,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.\\[text-size-adjust\\:none\\] {\n  -webkit-text-size-adjust: none;\n  -moz-text-size-adjust: none;\n  text-size-adjust: none;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "arbitrary properties > should generate arbitrary properties",
@@ -84,7 +133,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.\\[color\\:red\\] {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "arbitrary properties > should generate arbitrary properties with modifiers",
@@ -95,7 +147,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.\\[color\\:red\\]\\/50 {\n  color: oklab(62.7955% .224 .125 / .5);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "arbitrary properties > should not generate arbitrary properties with invalid modifiers",
@@ -106,7 +161,10 @@
     "css": "@tailwind utilities;",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "arbitrary properties > should generate arbitrary properties with variables and with modifiers",
@@ -117,7 +175,64 @@
     "css": "@tailwind utilities;",
     "expected": "\n.\\[color\\:var\\(--my-color\\)\\]\\/50 {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .\\[color\\:var\\(--my-color\\)\\]\\/50 {\n    color: color-mix(in oklab, var(--my-color) 50%, transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > @apply in @keyframes is not allowed",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @keyframes foo {\n          0% {\n            @apply bg-red-500;\n          }\n        }\n      ",
+    "expected": "You cannot use `@apply` inside `@keyframes`.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > @apply referencing theme values without `@tailwind utilities` or `@reference` should error",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          @apply p-2;\n        }\n      ",
+    "expected": "Cannot apply unknown utility class `p-2`. Are you using CSS modules or similar and missing `@reference`? https://tailwindcss.com/docs/functions-and-directives#reference-directive",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > @apply referencing theme values with `@tailwind utilities` should work",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @import 'tailwindcss';\n\n          .foo {\n            @apply p-2;\n          }\n        ",
+    "expected": "\n:root, :host {\n  --spacing: .25rem;\n}\n\n.foo {\n  padding: calc(var(--spacing) * 2);\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "\n                @theme {\n                  --spacing: 0.25rem;\n                }\n                @tailwind utilities;\n              ",
+      "/"
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@apply > @apply referencing theme values with `@reference` should work",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @reference \"style.css\";\n\n          .foo {\n            @apply p-2;\n          }\n        ",
+    "expected": "\n.foo {\n  padding: calc(var(--spacing, .25rem) * 2);\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "\n                @theme {\n                  --spacing: 0.25rem;\n                }\n                @tailwind utilities;\n              ",
+      "/"
+    ],
+    "shuffled": false
   },
   {
     "test": "@apply > should replace @apply with the correct result",
@@ -126,7 +241,25 @@
     "css": "\n        @theme {\n          --color-red-200: #fecaca;\n          --color-red-500: #ef4444;\n          --color-blue-500: #3b82f6;\n          --color-green-200: #bbf7d0;\n          --color-green-500: #22c55e;\n          --breakpoint-md: 768px;\n          --animate-spin: spin 1s linear infinite;\n\n          @keyframes spin {\n            to {\n              transform: rotate(360deg);\n            }\n          }\n        }\n\n        @tailwind utilities;\n\n        .foo {\n          @apply underline bg-red-500 hover:bg-blue-500 md:bg-green-500 animate-spin translate-x-full;\n\n          &:hover:focus {\n            @apply bg-red-200 md:bg-green-200;\n          }\n        }\n      ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-translate-x: 0;\n      --tw-translate-y: 0;\n      --tw-translate-z: 0;\n    }\n  }\n}\n\n:root, :host {\n  --color-red-200: #fecaca;\n  --color-red-500: #ef4444;\n  --color-blue-500: #3b82f6;\n  --color-green-200: #bbf7d0;\n  --color-green-500: #22c55e;\n  --animate-spin: spin 1s linear infinite;\n}\n\n.foo {\n  --tw-translate-x: 100%;\n  translate: var(--tw-translate-x) var(--tw-translate-y);\n  animation: var(--animate-spin);\n  background-color: var(--color-red-500);\n  text-decoration-line: underline;\n}\n\n@media (hover: hover) {\n  .foo:hover {\n    background-color: var(--color-blue-500);\n  }\n}\n\n@media (min-width: 768px) {\n  .foo {\n    background-color: var(--color-green-500);\n  }\n}\n\n.foo:hover:focus {\n  background-color: var(--color-red-200);\n}\n\n@media (min-width: 768px) {\n  .foo:hover:focus {\n    background-color: var(--color-green-200);\n  }\n}\n\n@property --tw-translate-x {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-translate-y {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-translate-z {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@keyframes spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > should replace @apply with the correct result inside imported stylesheets",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @import './bar.css';\n          @tailwind utilities;\n        ",
+    "expected": "\n.foo {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "\n                .foo {\n                  @apply underline;\n                }\n              ",
+      "/bar.css"
+    ],
+    "shuffled": false
   },
   {
     "test": "@apply > should @apply in order the utilities would be sorted in if they were used in HTML",
@@ -135,7 +268,10 @@
     "css": "\n        @tailwind utilities;\n\n        .foo {\n          @apply content-[\"a\"] content-[\"b\"];\n        }\n\n        .bar {\n          @apply content-[\"b\"] content-[\"a\"];\n        }\n      ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-content: \"\";\n    }\n  }\n}\n\n.foo, .bar {\n  --tw-content: \"b\";\n  content: var(--tw-content);\n}\n\n@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@apply > @apply does not cache important state",
@@ -144,7 +280,34 @@
     "css": "\n        .c1 {\n          @apply leading-none;\n        }\n        .c2 {\n          @apply leading-none!;\n        }\n        .c3 {\n          @apply leading-none;\n        }\n      ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-leading: initial;\n    }\n  }\n}\n\n.c1 {\n  --tw-leading: 1;\n  line-height: 1;\n}\n\n.c2 {\n  --tw-leading: 1 !important;\n  line-height: 1 !important;\n}\n\n.c3 {\n  --tw-leading: 1;\n  line-height: 1;\n}\n\n@property --tw-leading {\n  syntax: \"*\";\n  inherits: false\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > should error when using @apply with a utility that does not exist",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @tailwind utilities;\n\n        .foo {\n          @apply bg-not-found;\n        }\n      ",
+    "expected": "Cannot apply unknown utility class `bg-not-found`. Are you using CSS modules or similar and missing `@reference`? https://tailwindcss.com/docs/functions-and-directives#reference-directive",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > should error when using @apply with a variant that does not exist",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @tailwind utilities;\n        @theme {\n          --color-red-500: red;\n        }\n\n        .foo {\n          @apply hocus:hover:pocus:bg-red-500;\n        }\n      ",
+    "expected": "Cannot apply utility class `hocus:hover:pocus:bg-red-500` because the `hocus` and `pocus` variants do not exist.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@apply > should not error with trailing whitespace",
@@ -153,7 +316,10 @@
     "css": "\n        @tailwind utilities;\n\n        .foo {\n          @apply flex ;\n        }\n      ",
     "expected": "\n.foo {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@apply > should be possible to apply a custom utility",
@@ -162,7 +328,10 @@
     "css": "\n        @utility bar {\n          &:before {\n            content: 'bar';\n          }\n        }\n\n        .foo {\n          /* Baz is defined after this rule, but should work */\n          @apply bar baz;\n        }\n\n        @utility baz {\n          &:after {\n            content: 'baz';\n          }\n        }\n\n        @tailwind utilities;\n      ",
     "expected": "\n.foo:before {\n  content: \"bar\";\n}\n\n.foo:after {\n  content: \"baz\";\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@apply > should recursively apply with custom `@utility`, which is used before it is defined",
@@ -177,7 +346,10 @@
     "css": "\n          @tailwind utilities;\n\n          @layer base {\n            body {\n              @apply a;\n            }\n          }\n\n          @utility a {\n            @apply b;\n          }\n\n          @utility b {\n            @apply focus:c;\n          }\n\n          @utility c {\n            @apply my-flex!;\n          }\n\n          @utility my-flex {\n            @apply flex;\n          }\n        ",
     "expected": "\n.a:focus, .b:focus, .c {\n  display: flex !important;\n}\n\n.flex, .my-flex {\n  display: flex;\n}\n\n@layer base {\n  body:focus {\n    display: flex !important;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@apply > should not swallow @utility declarations when @apply is used in nested rules",
@@ -188,7 +360,10 @@
     "css": "\n          @tailwind utilities;\n\n          .ignore-me {\n            @apply underline;\n            div {\n              @apply custom-utility;\n            }\n          }\n\n          @utility custom-utility {\n            @apply flex;\n          }\n        ",
     "expected": "\n.custom-utility {\n  display: flex;\n}\n\n.ignore-me {\n  text-decoration-line: underline;\n}\n\n.ignore-me div {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@apply > should correctly apply nested usages of @apply when one @utility applies another",
@@ -201,7 +376,27 @@
     "css": "\n          @theme {\n            --color-green-500: green;\n            --color-red-500: red;\n            --color-indigo-500: indigo;\n          }\n\n          @tailwind utilities;\n\n          @utility test2 {\n            @apply test;\n          }\n\n          @utility test {\n            @apply bg-green-500;\n            &:hover {\n              @apply bg-red-500;\n            }\n            &:disabled {\n              @apply bg-indigo-500;\n            }\n          }\n\n          .foo {\n            @apply test2;\n          }\n        ",
     "expected": "\n:root, :host {\n  --color-green-500: green;\n  --color-red-500: red;\n  --color-indigo-500: indigo;\n}\n\n.test {\n  background-color: var(--color-green-500);\n}\n\n.test:hover {\n  background-color: var(--color-red-500);\n}\n\n.test:disabled {\n  background-color: var(--color-indigo-500);\n}\n\n.test2 {\n  background-color: var(--color-green-500);\n}\n\n.test2:hover {\n  background-color: var(--color-red-500);\n}\n\n.test2:disabled {\n  background-color: var(--color-indigo-500);\n}\n\n.foo {\n  background-color: var(--color-green-500);\n}\n\n.foo:hover {\n  background-color: var(--color-red-500);\n}\n\n.foo:disabled {\n  background-color: var(--color-indigo-500);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > should ignore the design systems `important` flag when using @apply",
+    "kind": "css",
+    "candidates": [
+      "flex"
+    ],
+    "css": "\n          @import 'tailwindcss/utilities' important;\n          .flex-explicitly-important {\n            @apply flex!;\n          }\n          .flex-not-important {\n            @apply flex;\n          }\n        ",
+    "expected": "\n.flex, .flex-explicitly-important {\n  display: flex !important;\n}\n\n.flex-not-important {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "@tailwind utilities;",
+      "<base>"
+    ],
+    "shuffled": false
   },
   {
     "test": "@apply > should be usable with CSS mixins",
@@ -210,7 +405,46 @@
     "css": "\n      .foo {\n        /* Utility usage */\n        @apply underline;\n\n        /* CSS mixin usage */\n        @apply --my-mixin-1;\n        @apply --my-mixin-1();\n        @apply --my-mixin-1 --my-mixin-2;\n        @apply --my-mixin-1() --my-mixin-2();\n        @apply --my-mixin-3 {\n          color: red;\n        }\n      }\n    ",
     "expected": "\n.foo {\n  text-decoration-line: underline;\n}\n\n@apply --my-mixin-1;\n\n@apply --my-mixin-1();\n\n@apply --my-mixin-1 --my-mixin-2;\n\n@apply --my-mixin-1() --my-mixin-2();\n\n@apply --my-mixin-3 {\n  color: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > should error when trying to use mixins and utilities together",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          @apply underline --my-mixin-1;\n        }\n      ",
+    "expected": "You cannot use `@apply` with both mixins and utilities. Please move `@apply --my-mixin-1` into a separate rule.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > should error when trying to use mixins and utilities together",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          @apply --my-mixin-1 underline;\n        }\n      ",
+    "expected": "You cannot use `@apply` with both mixins and utilities. Please move `@apply --my-mixin-1` into a separate rule.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@apply > should error when used with a body",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          @apply underline {\n            color: red;\n          }\n        }\n      ",
+    "expected": "The rule `@apply underline` must not have a body.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "arbitrary variants > should generate arbitrary variants",
@@ -221,7 +455,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.\\[\\&_p\\]\\:flex p {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "arbitrary variants > should generate arbitrary at-rule variants",
@@ -232,7 +469,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n@media (min-width: 123px) {\n  .\\[\\@media\\(width\\>\\=123px\\)\\]\\:flex {\n    display: flex;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "arbitrary variants > discards arbitrary variants using relative selectors",
@@ -245,7 +485,10 @@
     "css": "@tailwind utilities;",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "variant stacking > should stack simple variants",
@@ -256,7 +499,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n@media (hover: hover) {\n  .focus\\:hover\\:flex:focus:hover {\n    display: flex;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "variant stacking > should stack arbitrary variants and simple variants",
@@ -267,7 +513,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n@media (hover: hover) {\n  .\\[\\&_p\\]\\:hover\\:flex p:hover {\n    display: flex;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "variant stacking > should stack multiple arbitrary variants",
@@ -278,7 +527,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n@media (min-width: 123px) {\n  .\\[\\&_p\\]\\:\\[\\@media\\(width\\>\\=123px\\)\\]\\:flex p {\n    display: flex;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "variant stacking > pseudo element variants are re-ordered",
@@ -290,7 +542,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-content: \"\";\n    }\n  }\n}\n\n.before\\:hover\\:flex:before {\n  content: var(--tw-content);\n}\n\n@media (hover: hover) {\n  .before\\:hover\\:flex:before:hover {\n    display: flex;\n  }\n\n  .hover\\:before\\:flex:hover:before {\n    content: var(--tw-content);\n    display: flex;\n  }\n}\n\n@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "important > should generate an important utility",
@@ -301,7 +556,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.underline\\! {\n  text-decoration-line: underline !important;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "important > should generate an important utility with legacy syntax",
@@ -312,7 +570,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.\\!underline {\n  text-decoration-line: underline !important;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "important > should not mark declarations inside of @keyframes as important",
@@ -323,7 +584,10 @@
     "css": "\n          @theme {\n            --animate-spin: spin 1s linear infinite;\n\n            @keyframes spin {\n              to {\n                transform: rotate(360deg);\n              }\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --animate-spin: spin 1s linear infinite;\n}\n\n.animate-spin\\! {\n  animation: var(--animate-spin) !important;\n}\n\n@keyframes spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "important > should generate an important arbitrary property utility",
@@ -334,7 +598,28 @@
     "css": "@tailwind utilities;",
     "expected": "\n.\\[color\\:red\\]\\! {\n  color: red !important;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "sorting > should sort utilities based on their property order",
+    "kind": "css",
+    "candidates": [
+      "pointer-events-none",
+      "flex",
+      "p-1",
+      "px-1",
+      "pl-1"
+    ],
+    "css": "\n          @theme {\n            --spacing-1: 0.25rem;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --spacing-1: .25rem;\n}\n\n.pointer-events-none {\n  pointer-events: none;\n}\n\n.flex {\n  display: flex;\n}\n\n.p-1 {\n  padding: var(--spacing-1);\n}\n\n.px-1 {\n  padding-inline: var(--spacing-1);\n}\n\n.pl-1 {\n  padding-left: var(--spacing-1);\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": true
   },
   {
     "test": "sorting > should sort based on amount of properties",
@@ -347,7 +632,112 @@
     "css": "@tailwind utilities;",
     "expected": "\n.truncate {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.overflow-scroll {\n  overflow: scroll;\n}\n\n.text-clip {\n  text-overflow: clip;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "sorting > should sort utilities with a custom internal --tw-sort correctly",
+    "kind": "css",
+    "candidates": [
+      "mx-0",
+      "gap-4",
+      "space-x-2"
+    ],
+    "css": "\n          @theme {\n            --spacing-0: 0px;\n            --spacing-2: 0.5rem;\n            --spacing-4: 1rem;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-space-x-reverse: 0;\n    }\n  }\n}\n\n:root, :host {\n  --spacing-0: 0px;\n  --spacing-2: .5rem;\n  --spacing-4: 1rem;\n}\n\n.mx-0 {\n  margin-inline: var(--spacing-0);\n}\n\n.gap-4 {\n  gap: var(--spacing-4);\n}\n\n:where(.space-x-2 > :not(:last-child)) {\n  --tw-space-x-reverse: 0;\n  margin-inline-start: calc(var(--spacing-2) * var(--tw-space-x-reverse));\n  margin-inline-end: calc(var(--spacing-2) * calc(1 - var(--tw-space-x-reverse)));\n}\n\n@property --tw-space-x-reverse {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": true
+  },
+  {
+    "test": "sorting > should sort individual logical properties later than left/right pairs",
+    "kind": "css",
+    "candidates": [
+      "scroll-ms-1",
+      "scroll-me-2",
+      "scroll-mx-3",
+      "scroll-ps-1",
+      "scroll-pe-2",
+      "scroll-px-3",
+      "ms-1",
+      "me-2",
+      "mx-3",
+      "ps-1",
+      "pe-2",
+      "px-3"
+    ],
+    "css": "\n          @theme {\n            --spacing-1: 1px;\n            --spacing-2: 2px;\n            --spacing-3: 3px;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --spacing-1: 1px;\n  --spacing-2: 2px;\n  --spacing-3: 3px;\n}\n\n.mx-3 {\n  margin-inline: var(--spacing-3);\n}\n\n.ms-1 {\n  margin-inline-start: var(--spacing-1);\n}\n\n.me-2 {\n  margin-inline-end: var(--spacing-2);\n}\n\n.scroll-mx-3 {\n  scroll-margin-inline: var(--spacing-3);\n}\n\n.scroll-ms-1 {\n  scroll-margin-inline-start: var(--spacing-1);\n}\n\n.scroll-me-2 {\n  scroll-margin-inline-end: var(--spacing-2);\n}\n\n.scroll-px-3 {\n  scroll-padding-inline: var(--spacing-3);\n}\n\n.scroll-ps-1 {\n  scroll-padding-inline-start: var(--spacing-1);\n}\n\n.scroll-pe-2 {\n  scroll-padding-inline-end: var(--spacing-2);\n}\n\n.px-3 {\n  padding-inline: var(--spacing-3);\n}\n\n.ps-1 {\n  padding-inline-start: var(--spacing-1);\n}\n\n.pe-2 {\n  padding-inline-end: var(--spacing-2);\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": true
+  },
+  {
+    "test": "sorting > should move variants to the end while sorting",
+    "kind": "css",
+    "candidates": [
+      "pointer-events-none",
+      "flex",
+      "hover:flex",
+      "focus:pointer-events-none"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.pointer-events-none {\n  pointer-events: none;\n}\n\n.flex {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .hover\\:flex:hover {\n    display: flex;\n  }\n}\n\n.focus\\:pointer-events-none:focus {\n  pointer-events: none;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": true
+  },
+  {
+    "test": "sorting > should sort variants and stacked variants by variant position",
+    "kind": "css",
+    "candidates": [
+      "flex",
+      "hover:flex",
+      "focus:flex",
+      "disabled:flex",
+      "hover:focus:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.flex {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .hover\\:flex:hover {\n    display: flex;\n  }\n}\n\n.focus\\:flex:focus {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .hover\\:focus\\:flex:hover:focus {\n    display: flex;\n  }\n}\n\n.disabled\\:flex:disabled {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": true
+  },
+  {
+    "test": "sorting > should order group-* and peer-* variants based on the sort order of the group and peer variant but also based on the variant they are wrapping",
+    "kind": "css",
+    "candidates": [
+      "hover:flex",
+      "group-hover:flex",
+      "group-focus:flex",
+      "peer-hover:flex",
+      "peer-focus:flex",
+      "group-hover:peer-hover:flex",
+      "group-hover:peer-focus:flex",
+      "peer-hover:group-hover:flex",
+      "peer-hover:group-focus:flex",
+      "group-focus:peer-hover:flex",
+      "group-focus:peer-focus:flex",
+      "peer-focus:group-hover:flex",
+      "peer-focus:group-focus:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (hover: hover) {\n  .group-hover\\:flex:is(:where(.group):hover *) {\n    display: flex;\n  }\n}\n\n.group-focus\\:flex:is(:where(.group):focus *) {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .peer-hover\\:flex:is(:where(.peer):hover ~ *) {\n    display: flex;\n  }\n\n  @media (hover: hover) {\n    .group-hover\\:peer-hover\\:flex:is(:where(.group):hover *):is(:where(.peer):hover ~ *), .peer-hover\\:group-hover\\:flex:is(:where(.peer):hover ~ *):is(:where(.group):hover *) {\n      display: flex;\n    }\n  }\n\n  .group-focus\\:peer-hover\\:flex:is(:where(.group):focus *):is(:where(.peer):hover ~ *), .peer-hover\\:group-focus\\:flex:is(:where(.peer):hover ~ *):is(:where(.group):focus *) {\n    display: flex;\n  }\n}\n\n.peer-focus\\:flex:is(:where(.peer):focus ~ *) {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .group-hover\\:peer-focus\\:flex:is(:where(.group):hover *):is(:where(.peer):focus ~ *), .peer-focus\\:group-hover\\:flex:is(:where(.peer):focus ~ *):is(:where(.group):hover *) {\n    display: flex;\n  }\n}\n\n.group-focus\\:peer-focus\\:flex:is(:where(.group):focus *):is(:where(.peer):focus ~ *), .peer-focus\\:group-focus\\:flex:is(:where(.peer):focus ~ *):is(:where(.group):focus *) {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .hover\\:flex:hover {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": true
   },
   {
     "test": "sorting > should not take undefined values into account when sorting",
@@ -359,7 +749,10 @@
     "css": "\n          @theme {\n            --text-sm: 0.875rem;\n            --text-sm--line-height: calc(1.25 / 0.875);\n          }\n          @tailwind utilities;\n          @utility fancy-text {\n            font-size: var(--text-4xl);\n            line-height: var(--text-4xl--line-height);\n            font-weight: var(--font-weight-bold);\n          }\n        ",
     "expected": "\n:root, :host {\n  --text-sm: .875rem;\n  --text-sm--line-height: calc(1.25 / .875);\n}\n\n.fancy-text {\n  font-size: var(--text-4xl);\n  line-height: var(--text-4xl--line-height);\n  font-weight: var(--font-weight-bold);\n}\n\n.text-sm {\n  font-size: var(--text-sm);\n  line-height: var(--tw-leading, var(--text-sm--line-height));\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > Can read values from `@theme`",
@@ -370,7 +763,10 @@
     "css": "\n          @theme {\n            --color-red-500: #f00;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red-500: red;\n}\n\n.accent-red-500 {\n  accent-color: var(--color-red-500);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > Later values from `@theme` override earlier ones",
@@ -381,7 +777,10 @@
     "css": "\n          @theme {\n            --color-red-500: #f00;\n            --color-red-500: #f10;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red-500: #f10;\n}\n\n.accent-red-500 {\n  accent-color: var(--color-red-500);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > Multiple `@theme` blocks are merged",
@@ -393,7 +792,10 @@
     "css": "\n          @theme {\n            --color-red-500: #f00;\n          }\n          @theme {\n            --color-blue-500: #00f;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red-500: red;\n  --color-blue-500: #00f;\n}\n\n.accent-blue-500 {\n  accent-color: var(--color-blue-500);\n}\n\n.accent-red-500 {\n  accent-color: var(--color-red-500);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@theme` values with escaped forward slashes map to unescaped slashes in candidate values",
@@ -405,7 +807,10 @@
     "css": "\n          @theme {\n            /* Cursed but we want this to work */\n            --width-1\\/2: 75%;\n            --width-75\\%: 50%;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --width-1\\/2: 75%;\n  --width-75\\%: 50%;\n}\n\n.w-1\\/2 {\n  width: var(--width-1\\/2);\n}\n\n.w-75\\% {\n  width: var(--width-75\\%);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@keyframes` in `@theme` are hoisted",
@@ -417,7 +822,10 @@
     "css": "\n          @theme {\n            --color-red: red;\n            --animate-foo: foo 1s infinite;\n\n            @keyframes foo {\n              to {\n                opacity: 1;\n              }\n            }\n\n            --text-lg: 20px;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red: red;\n  --text-lg: 20px;\n}\n\n.text-lg {\n  font-size: var(--text-lg);\n}\n\n.accent-red {\n  accent-color: var(--color-red);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@keyframes` in `@theme` are generated when name contains a new line",
@@ -428,7 +836,10 @@
     "css": "\n          @theme {\n            --animate-very-long-animation-name: very-long-animation-name\n              var(\n                --very-long-animation-name-configuration,\n                2.5s ease-in-out 0s infinite normal none running\n              );\n\n            @keyframes very-long-animation-name {\n              to {\n                opacity: 1;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --animate-very-long-animation-name: very-long-animation-name\n              var(--very-long-animation-name-configuration, 2.5s ease-in-out 0s infinite normal none running);\n}\n\n.animate-very-long-animation-name {\n  animation: var(--animate-very-long-animation-name);\n}\n\n@keyframes very-long-animation-name {\n  to {\n    opacity: 1;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@theme` values can be unset",
@@ -443,7 +854,10 @@
     "css": "\n          @theme {\n            --color-red: #f00;\n            --color-blue: #00f;\n            --text-sm: 13px;\n            --text-md: 16px;\n\n            --animate-spin: spin 1s infinite linear;\n\n            @keyframes spin {\n              to {\n                transform: rotate(360deg);\n              }\n            }\n          }\n          @theme {\n            --color-*: initial;\n            --text-md: initial;\n            --animate-*: initial;\n            --keyframes-*: initial;\n          }\n          @theme {\n            --color-green: #0f0;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --text-sm: 13px;\n  --color-green: #0f0;\n}\n\n.text-sm {\n  font-size: var(--text-sm);\n}\n\n.accent-green {\n  accent-color: var(--color-green);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@theme` values can be unset (using the escaped syntax)",
@@ -458,7 +872,10 @@
     "css": "\n          @theme {\n            --color-red: #f00;\n            --color-blue: #00f;\n            --text-sm: 13px;\n            --text-md: 16px;\n\n            --animate-spin: spin 1s infinite linear;\n\n            @keyframes spin {\n              to {\n                transform: rotate(360deg);\n              }\n            }\n          }\n          @theme {\n            --color-\\*: initial;\n            --text-md: initial;\n            --animate-\\*: initial;\n            --keyframes-\\*: initial;\n          }\n          @theme {\n            --color-green: #0f0;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --text-sm: 13px;\n  --color-green: #0f0;\n}\n\n.text-sm {\n  font-size: var(--text-sm);\n}\n\n.accent-green {\n  accent-color: var(--color-green);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > all `@theme` values can be unset at once",
@@ -473,7 +890,10 @@
     "css": "\n          @theme {\n            --color-red: #f00;\n            --color-blue: #00f;\n            --font-size-sm: 13px;\n            --font-size-md: 16px;\n          }\n          @theme {\n            --*: initial;\n          }\n          @theme {\n            --color-green: #0f0;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-green: #0f0;\n}\n\n.accent-green {\n  accent-color: var(--color-green);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > unsetting `--font-*` does not unset `--font-weight-*`",
@@ -487,7 +907,10 @@
     "css": "\n          @theme {\n            --font-weight-bold: bold;\n            --font-sans: sans-serif;\n            --font-serif: serif;\n          }\n          @theme {\n            --font-*: initial;\n            --font-body: Inter;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-font-weight: initial;\n    }\n  }\n}\n\n:root, :host {\n  --font-weight-bold: bold;\n  --font-body: Inter;\n}\n\n.font-body {\n  font-family: var(--font-body);\n}\n\n.font-bold {\n  --tw-font-weight: var(--font-weight-bold);\n  font-weight: var(--font-weight-bold);\n}\n\n@property --tw-font-weight {\n  syntax: \"*\";\n  inherits: false\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > unsetting `--inset-*` does not unset `--inset-shadow-*`",
@@ -502,7 +925,10 @@
     "css": "\n          @theme {\n            --inset-shadow-sm: inset 0 2px 4px rgb(0 0 0 / 0.05);\n            --inset-lg: 100px;\n            --inset-sm: 10px;\n          }\n          @theme {\n            --inset-*: initial;\n            --inset-md: 50px;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-shadow: 0 0 #0000;\n      --tw-shadow-color: initial;\n      --tw-shadow-alpha: 100%;\n      --tw-inset-shadow: 0 0 #0000;\n      --tw-inset-shadow-color: initial;\n      --tw-inset-shadow-alpha: 100%;\n      --tw-ring-color: initial;\n      --tw-ring-shadow: 0 0 #0000;\n      --tw-inset-ring-color: initial;\n      --tw-inset-ring-shadow: 0 0 #0000;\n      --tw-ring-inset: initial;\n      --tw-ring-offset-width: 0px;\n      --tw-ring-offset-color: #fff;\n      --tw-ring-offset-shadow: 0 0 #0000;\n    }\n  }\n}\n\n:root, :host {\n  --inset-md: 50px;\n}\n\n.inset-md {\n  inset: var(--inset-md);\n}\n\n.inset-shadow-sm {\n  --tw-inset-shadow: inset 0 2px 4px var(--tw-inset-shadow-color, #0000000d);\n  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);\n}\n\n@property --tw-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-inset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-ring-inset {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-offset-width {\n  syntax: \"<length>\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-ring-offset-color {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: #fff;\n}\n\n@property --tw-ring-offset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > unsetting `--text-*` does not unset `--text-color-*`, `--text-underline-offset-*`, `--text-indent-*`, `--text-decoration-thickness-*` or `--text-decoration-color-*`",
@@ -518,7 +944,10 @@
     "css": "\n          @theme {\n            --text-color-potato: brown;\n            --text-underline-offset-potato: 4px;\n            --text-indent-potato: 6px;\n            --text-decoration-thickness-potato: 8px;\n            --text-decoration-color-salad: yellow;\n            --text-4xl: 60px;\n          }\n          @theme {\n            --text-*: initial;\n            --text-lg: 20px;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --text-color-potato: brown;\n  --text-underline-offset-potato: 4px;\n  --text-indent-potato: 6px;\n  --text-decoration-thickness-potato: 8px;\n  --text-decoration-color-salad: yellow;\n  --text-lg: 20px;\n}\n\n.indent-potato {\n  text-indent: var(--text-indent-potato);\n}\n\n.text-lg {\n  font-size: var(--text-lg);\n}\n\n.text-potato {\n  color: var(--text-color-potato);\n}\n\n.decoration-salad {\n  -webkit-text-decoration-color: var(--text-decoration-color-salad);\n  -webkit-text-decoration-color: var(--text-decoration-color-salad);\n  text-decoration-color: var(--text-decoration-color-salad);\n}\n\n.decoration-potato {\n  text-decoration-thickness: var(--text-decoration-thickness-potato);\n}\n\n.underline-offset-potato {\n  text-underline-offset: var(--text-underline-offset-potato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > unused keyframes are removed when an animation is unset",
@@ -530,7 +959,10 @@
     "css": "\n          @theme {\n            --animate-foo: foo 1s infinite;\n            --animate-foobar: foobar 1s infinite;\n\n            @keyframes foo {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes foobar {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n          @theme {\n            --animate-foo: initial;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --animate-foobar: foobar 1s infinite;\n}\n\n.animate-foobar {\n  animation: var(--animate-foobar);\n}\n\n@keyframes foobar {\n  to {\n    opacity: 0;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > keyframes are generated when used in an animation",
@@ -541,7 +973,10 @@
     "css": "\n          @theme {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --animate-foo: used 1s infinite;\n}\n\n.animate-foo {\n  animation: var(--animate-foo);\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > keyframes are generated when used in an animation within a prefixed setup",
@@ -552,7 +987,10 @@
     "css": "\n          @theme prefix(tw) {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --tw-animate-foo: used 1s infinite;\n}\n\n.tw\\:animate-foo {\n  animation: var(--tw-animate-foo);\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > custom properties are generated when used from a CSS var with a prefixed setup",
@@ -561,7 +999,10 @@
     "css": "\n        @theme prefix(tw) {\n          --color-tomato: #e10c04;\n        }\n        @tailwind utilities;\n        .red {\n          color: var(--tw-color-tomato);\n        }\n      ",
     "expected": "\n:root, :host {\n  --tw-color-tomato: #e10c04;\n}\n\n.red {\n  color: var(--tw-color-tomato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > custom properties in keyframes preserved",
@@ -572,7 +1013,10 @@
     "css": "\n          @theme {\n            --animate-foo: used 1s infinite;\n\n            @keyframes used {\n              to {\n                --other: var(--angle);\n                --angle: 360deg;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --animate-foo: used 1s infinite;\n}\n\n.animate-foo {\n  animation: var(--animate-foo);\n}\n\n@keyframes used {\n  to {\n    --other: var(--angle);\n    --angle: 360deg;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > keyframes are generated when used in an animation using `@theme inline`",
@@ -583,7 +1027,10 @@
     "css": "\n          @theme inline {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.animate-foo {\n  animation: 1s infinite used;\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > keyframes are generated when used in an animation using `@theme static`",
@@ -594,7 +1041,10 @@
     "css": "\n          @theme static {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused-but-kept 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused-but-kept {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --animate-foo: used 1s infinite;\n  --animate-bar: unused-but-kept 1s infinite;\n}\n\n.animate-foo {\n  animation: var(--animate-foo);\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n\n@keyframes unused-but-kept {\n  to {\n    opacity: 0;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > keyframes are generated when used in user CSS",
@@ -603,7 +1053,10 @@
     "css": "\n        @theme {\n          @keyframes used {\n            to {\n              opacity: 1;\n            }\n          }\n\n          @keyframes unused {\n            to {\n              opacity: 0;\n            }\n          }\n        }\n\n        .foo {\n          animation: used 1s infinite;\n        }\n\n        @tailwind utilities;\n      ",
     "expected": "\n.foo {\n  animation: 1s infinite used;\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > extracts keyframe names followed by comma",
@@ -614,7 +1067,10 @@
     "css": "\n          @theme {\n            --animate-test: 500ms both fade-in, 1000ms linear 500ms spin infinite;\n\n            @keyframes fade-in {\n              from {\n                opacity: 0%;\n              }\n              to {\n                opacity: 100%;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --animate-test: .5s both fade-in, 1s linear .5s spin infinite;\n}\n\n.animate-test {\n  animation: var(--animate-test);\n}\n\n@keyframes fade-in {\n  from {\n    opacity: 0;\n  }\n\n  to {\n    opacity: 1;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > keyframes outside of `@theme are always preserved",
@@ -623,7 +1079,10 @@
     "css": "\n        @theme {\n          @keyframes used {\n            to {\n              opacity: 1;\n            }\n          }\n        }\n\n        @keyframes unused {\n          to {\n            opacity: 0;\n          }\n        }\n\n        .foo {\n          animation: used 1s infinite;\n        }\n\n        @tailwind utilities;\n      ",
     "expected": "\n@keyframes unused {\n  to {\n    opacity: 0;\n  }\n}\n\n.foo {\n  animation: 1s infinite used;\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > theme values added as reference are not included in the output as variables but emit fallback values",
@@ -635,7 +1094,10 @@
     "css": "\n          @theme {\n            --color-tomato: #e10c04;\n          }\n          @theme reference {\n            --color-potato: #ac855b;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-tomato: #e10c04;\n}\n\n.bg-potato {\n  background-color: var(--color-potato, #ac855b);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@keyframes` added in `@theme reference` should not be emitted",
@@ -646,7 +1108,10 @@
     "css": "\n          @theme reference {\n            --animate-foo: foo 1s infinite;\n\n            @keyframes foo {\n              0%,\n              100% {\n                color: red;\n              }\n              50% {\n                color: blue;\n              }\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.animate-foo {\n  animation: var(--animate-foo, foo 1s infinite);\n}\n\n@keyframes foo {\n  0%, 100% {\n    color: red;\n  }\n\n  50% {\n    color: #00f;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@keyframes` added in `@theme reference` should not be emitted, even if another `@theme` block exists",
@@ -658,7 +1123,10 @@
     "css": "\n          @theme reference {\n            --animate-foo: foo 1s infinite;\n\n            @keyframes foo {\n              0%,\n              100% {\n                color: red;\n              }\n              50% {\n                color: blue;\n              }\n            }\n          }\n\n          @theme {\n            --color-pink: pink;\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-pink: pink;\n}\n\n.animate-foo {\n  animation: var(--animate-foo, foo 1s infinite);\n}\n\n.bg-pink {\n  background-color: var(--color-pink);\n}\n\n@keyframes foo {\n  0%, 100% {\n    color: red;\n  }\n\n  50% {\n    color: #00f;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > theme values added as reference that override existing theme value suppress the output of the original theme value as a variable",
@@ -669,7 +1137,10 @@
     "css": "\n          @theme {\n            --color-potato: #ac855b;\n          }\n          @theme reference {\n            --color-potato: #c794aa;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: var(--color-potato, #c794aa);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > overriding a reference theme value with a non-reference theme value includes it in the output as a variable",
@@ -680,7 +1151,10 @@
     "css": "\n          @theme reference {\n            --color-potato: #ac855b;\n          }\n          @theme {\n            --color-potato: #c794aa;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-potato: #c794aa;\n}\n\n.bg-potato {\n  background-color: var(--color-potato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > wrapping `@theme` with `@media reference` behaves like `@theme reference` to support `@import` statements",
@@ -693,7 +1167,27 @@
     "css": "\n          @theme {\n            --color-tomato: #e10c04;\n          }\n          @media theme(reference) {\n            @theme {\n              --color-potato: #ac855b;\n            }\n            @theme {\n              --color-avocado: #c0cc6d;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-tomato: #e10c04;\n}\n\n.bg-avocado {\n  background-color: var(--color-avocado, #c0cc6d);\n}\n\n.bg-potato {\n  background-color: var(--color-potato, #ac855b);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "Parsing theme values from CSS > `@import \"tailwindcss\" theme(static)` will always generate theme values, regardless of whether they were used or not",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato"
+    ],
+    "css": "\n          @import 'tailwindcss' theme(static);\n        ",
+    "expected": "\n:root, :host {\n  --color-tomato: #e10c04;\n  --color-potato: #ac855b;\n  --color-primary: var(--primary);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "\n                @theme {\n                  --color-tomato: #e10c04;\n                  --color-potato: #ac855b;\n                  --color-primary: var(--primary);\n                }\n\n                @tailwind utilities;\n              ",
+      ""
+    ],
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `@media theme(reference)` can only contain `@theme` rules",
@@ -706,7 +1200,10 @@
     "css": "\n          @media theme(reference) {\n            .not-a-theme-rule {\n              color: cursed;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "Files imported with `@import \"…\" theme(reference)` must only contain `@theme` blocks.\nUse `@reference \"…\";` instead.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > theme values added as `inline` are not wrapped in `var(…)` when used as utility values",
@@ -719,7 +1216,27 @@
     "css": "\n          @theme inline {\n            --color-tomato: #e10c04;\n            --color-potato: #ac855b;\n            --color-primary: var(--primary);\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "Parsing theme values from CSS > `@import \"tailwindcss\" theme(inline)` theme values added as `inline` are not wrapped in `var(…)` when used as utility values",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato"
+    ],
+    "css": "\n          @import 'tailwindcss' theme(inline);\n        ",
+    "expected": "\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": [
+      "\n                @theme {\n                  --color-tomato: #e10c04;\n                  --color-potato: #ac855b;\n                  --color-primary: var(--primary);\n                }\n\n                @tailwind utilities;\n              ",
+      ""
+    ],
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > theme values added as `static` will always be generated, regardless of whether they were used or not",
@@ -730,7 +1247,10 @@
     "css": "\n          @theme static {\n            --color-tomato: #e10c04;\n            --color-potato: #ac855b;\n            --color-primary: var(--primary);\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-tomato: #e10c04;\n  --color-potato: #ac855b;\n  --color-primary: var(--primary);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > when no theme values are emitted, empty layers can be removed",
@@ -741,7 +1261,10 @@
     "css": "\n          @layer theme1 {\n            @layer theme2 {\n              @theme {\n                --color-tomato: #e10c04;\n                --color-potato: #ac855b;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > wrapping `@theme` with `@media theme(inline)` behaves like `@theme inline` to support `@import` statements",
@@ -754,7 +1277,10 @@
     "css": "\n          @media theme(inline) {\n            @theme {\n              --color-tomato: #e10c04;\n              --color-potato: #ac855b;\n              --color-primary: var(--primary);\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `inline` and `reference` can be used together",
@@ -767,7 +1293,10 @@
     "css": "\n          @theme reference inline {\n            --color-tomato: #e10c04;\n            --color-potato: #ac855b;\n            --color-primary: var(--primary);\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `inline` and `reference` can be used together in `media(…)`",
@@ -780,7 +1309,10 @@
     "css": "\n          @media theme(reference inline) {\n            @theme {\n              --color-tomato: #e10c04;\n              --color-potato: #ac855b;\n              --color-primary: var(--primary);\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `default` theme values can be overridden by regular theme values`",
@@ -791,7 +1323,10 @@
     "css": "\n          @theme {\n            --color-potato: #ac855b;\n          }\n          @theme default {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-potato: #ac855b;\n}\n\n.bg-potato {\n  background-color: var(--color-potato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `default` and `inline` can be used together",
@@ -802,7 +1337,10 @@
     "css": "\n          @theme default inline {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: #efb46b;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `default` and `reference` can be used together",
@@ -813,7 +1351,10 @@
     "css": "\n          @theme default reference {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: var(--color-potato, #efb46b);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `default`, `inline`, and `reference` can be used together",
@@ -824,7 +1365,10 @@
     "css": "\n          @theme default reference inline {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.bg-potato {\n  background-color: #efb46b;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > `default` can be used in `media(…)`",
@@ -836,7 +1380,10 @@
     "css": "\n          @media theme() {\n            @theme {\n              --color-potato: #ac855b;\n            }\n          }\n          @media theme(default) {\n            @theme {\n              --color-potato: #efb46b;\n              --color-tomato: tomato;\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-potato: #ac855b;\n  --color-tomato: tomato;\n}\n\n.bg-potato {\n  background-color: var(--color-potato);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "Parsing theme values from CSS > only emits theme variables that are used outside of being defined by another variable",
@@ -848,7 +1395,10 @@
     "css": "\n          @theme {\n            --var-a: var(--var-b);\n            --var-b: var(--var-c);\n            --var-c: var(--var-d);\n            --var-d: red;\n\n            --var-four: green;\n            --var-three: var(--var-four);\n            --var-two: var(--var-three);\n            --var-one: var(--var-two);\n\n            --var-eins: var(--var-zwei);\n            --var-zwei: var(--var-drei);\n            --var-drei: var(--var-vier);\n            --var-vier: blue;\n          }\n\n          @utility get-var-* {\n            color: --value(--var-\\*);\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --var-b: var(--var-c);\n  --var-c: var(--var-d);\n  --var-d: red;\n  --var-four: green;\n  --var-three: var(--var-four);\n  --var-two: var(--var-three);\n}\n\n.get-var-b {\n  color: var(--var-b);\n}\n\n.get-var-two {\n  color: var(--var-two);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > always includes the candidate",
@@ -857,7 +1407,10 @@
     "css": "\n          @source inline(\"underline\");\n          @tailwind utilities;\n        ",
     "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > applies brace expansion",
@@ -866,7 +1419,10 @@
     "css": "\n          @theme {\n            --color-red-50: oklch(0.971 0.013 17.38);\n            --color-red-100: oklch(0.936 0.032 17.717);\n            --color-red-200: oklch(0.885 0.062 18.334);\n            --color-red-300: oklch(0.808 0.114 19.571);\n            --color-red-400: oklch(0.704 0.191 22.216);\n            --color-red-500: oklch(0.637 0.237 25.331);\n            --color-red-600: oklch(0.577 0.245 27.325);\n            --color-red-700: oklch(0.505 0.213 27.518);\n            --color-red-800: oklch(0.444 0.177 26.899);\n            --color-red-900: oklch(0.396 0.141 25.723);\n            --color-red-950: oklch(0.258 0.092 26.042);\n          }\n          @source inline(\"bg-red-{50,{100..900..100},950}\");\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red-50: oklch(97.1% .013 17.38);\n  --color-red-100: oklch(93.6% .032 17.717);\n  --color-red-200: oklch(88.5% .062 18.334);\n  --color-red-300: oklch(80.8% .114 19.571);\n  --color-red-400: oklch(70.4% .191 22.216);\n  --color-red-500: oklch(63.7% .237 25.331);\n  --color-red-600: oklch(57.7% .245 27.325);\n  --color-red-700: oklch(50.5% .213 27.518);\n  --color-red-800: oklch(44.4% .177 26.899);\n  --color-red-900: oklch(39.6% .141 25.723);\n  --color-red-950: oklch(25.8% .092 26.042);\n}\n\n.bg-red-50 {\n  background-color: var(--color-red-50);\n}\n\n.bg-red-100 {\n  background-color: var(--color-red-100);\n}\n\n.bg-red-200 {\n  background-color: var(--color-red-200);\n}\n\n.bg-red-300 {\n  background-color: var(--color-red-300);\n}\n\n.bg-red-400 {\n  background-color: var(--color-red-400);\n}\n\n.bg-red-500 {\n  background-color: var(--color-red-500);\n}\n\n.bg-red-600 {\n  background-color: var(--color-red-600);\n}\n\n.bg-red-700 {\n  background-color: var(--color-red-700);\n}\n\n.bg-red-800 {\n  background-color: var(--color-red-800);\n}\n\n.bg-red-900 {\n  background-color: var(--color-red-900);\n}\n\n.bg-red-950 {\n  background-color: var(--color-red-950);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > adds multiple inline sources separated by spaces",
@@ -875,7 +1431,10 @@
     "css": "\n          @theme {\n            --color-red-100: oklch(0.936 0.032 17.717);\n            --color-red-200: oklch(0.885 0.062 18.334);\n          }\n          @source inline(\"block bg-red-{100..200..100}\");\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red-100: oklch(93.6% .032 17.717);\n  --color-red-200: oklch(88.5% .062 18.334);\n}\n\n.block {\n  display: block;\n}\n\n.bg-red-100 {\n  background-color: var(--color-red-100);\n}\n\n.bg-red-200 {\n  background-color: var(--color-red-200);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > ignores invalid inline candidates",
@@ -884,7 +1443,10 @@
     "css": "\n          @source inline(\"my-cucumber\");\n          @tailwind utilities;\n        ",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > can be negated",
@@ -895,7 +1457,10 @@
     "css": "\n            @theme {\n              --breakpoint-sm: 40rem;\n              --breakpoint-md: 48rem;\n              --breakpoint-lg: 64rem;\n              --breakpoint-xl: 80rem;\n              --breakpoint-2xl: 96rem;\n            }\n            @source not inline(\"container\");\n            @tailwind utilities;\n          ",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > applies brace expansion to negated sources",
@@ -907,7 +1472,10 @@
     "css": "\n            @theme {\n              --color-red-50: oklch(0.971 0.013 17.38);\n              --color-red-100: oklch(0.936 0.032 17.717);\n              --color-red-200: oklch(0.885 0.062 18.334);\n              --color-red-300: oklch(0.808 0.114 19.571);\n              --color-red-400: oklch(0.704 0.191 22.216);\n              --color-red-500: oklch(0.637 0.237 25.331);\n              --color-red-600: oklch(0.577 0.245 27.325);\n              --color-red-700: oklch(0.505 0.213 27.518);\n              --color-red-800: oklch(0.444 0.177 26.899);\n              --color-red-900: oklch(0.396 0.141 25.723);\n              --color-red-950: oklch(0.258 0.092 26.042);\n            }\n            @source not inline(\"bg-red-{50,{100..900..100},950}\");\n            @tailwind utilities;\n          ",
     "expected": "",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > works with whitespace around the argument",
@@ -916,7 +1484,10 @@
     "css": "\n          /* prettier-ignore */\n          @source inline( \"underline\" );\n          @tailwind utilities;\n        ",
     "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@source > @source inline(…) > works with newlines around the argument",
@@ -925,7 +1496,10 @@
     "css": "\n          /* prettier-ignore */\n          @source inline(\n            \"underline\"\n          );\n          @tailwind utilities;\n        ",
     "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant must be top-level and cannot be nested",
@@ -934,7 +1508,154 @@
     "css": "\n        @custom-variant foo:bar (&:hover, &:focus);\n      ",
     "expected": "`@custom-variant foo:bar` defines an invalid variant name. Variants should only contain alphanumeric, dashes, or underscore characters and start with a lowercase letter or number.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [0]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant - (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [1]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant --- (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [2]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant _ (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [3]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant ___ (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [4]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant -foo (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [5]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant --foo (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [6]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant _foo (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [7]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant __foo (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [8]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant foo- (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [9]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant foo-- (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [10]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant foo_ (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant must have a valid name [11]",
+    "kind": "throws",
+    "candidates": [],
+    "css": "@custom-variant foo__ (&);",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant must not contain special characters",
@@ -943,7 +1664,10 @@
     "css": "\n        .foo {\n          @custom-variant foo:bar (&:hover, &:focus);\n        }\n      ",
     "expected": "`@custom-variant` cannot be nested.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant must not have an empty selector",
@@ -952,7 +1676,10 @@
     "css": "\n        @custom-variant foo ();\n      ",
     "expected": "`@custom-variant foo ()` selector is invalid.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant with multiple selectors, cannot be empty",
@@ -961,7 +1688,34 @@
     "css": "\n        @custom-variant foo (.foo, .bar, );\n      ",
     "expected": "`@custom-variant foo (.foo, .bar, )` selector is invalid.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant with no body must include a selector",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @custom-variant hocus;\n      ",
+    "expected": "`@custom-variant hocus` has no selector or body.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant with selector must include a body",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @custom-variant hocus {\n        }\n      ",
+    "expected": "`@custom-variant hocus` has no selector or body.",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant cannot have both a selector and a body",
@@ -970,7 +1724,10 @@
     "css": "\n        @custom-variant hocus (&:hover, &:focus) {\n          &:is(.potato) {\n            @slot;\n          }\n        }\n      ",
     "expected": "`@custom-variant hocus` cannot have both a selector and a body.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body-less syntax > selector variant",
@@ -982,7 +1739,10 @@
     "css": "\n            @custom-variant hocus (&:hover, &:focus);\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  .group-hocus\\:flex:is(:is(:where(.group):hover, :where(.group):focus) *) {\n    display: flex;\n  }\n\n  .hocus\\:underline:hover, .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body-less syntax > at-rule variant",
@@ -993,7 +1753,10 @@
     "css": "\n            @custom-variant any-hover (@media (any-hover: hover));\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  @media (any-hover: hover) {\n    @media (hover: hover) {\n      .any-hover\\:hover\\:underline:hover {\n        text-decoration-line: underline;\n      }\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body-less syntax > style-rules and at-rules",
@@ -1004,7 +1767,10 @@
     "css": "\n            @custom-variant cant-hover (&:not(:hover), &:not(:active), @media not (any-hover: hover), @media not (pointer: fine));\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  :is(.cant-hover\\:focus\\:underline:not(:hover), .cant-hover\\:focus\\:underline:not(:active)):focus {\n    text-decoration-line: underline;\n  }\n\n  @media not all and (any-hover: hover) {\n    .cant-hover\\:focus\\:underline:focus {\n      text-decoration-line: underline;\n    }\n  }\n\n  @media not all and (pointer: fine) {\n    .cant-hover\\:focus\\:underline:focus {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > selector with @slot",
@@ -1016,7 +1782,10 @@
     "css": "\n            @custom-variant selected {\n              &[data-selected] {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  .group-selected\\:underline:is(:where(.group)[data-selected] *), .selected\\:underline[data-selected] {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > grouped selectors with @slot",
@@ -1028,7 +1797,10 @@
     "css": "\n            @custom-variant hocus {\n              &:hover,\n              &:focus {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  .group-hocus\\:underline:is(:is(:where(.group):hover, :where(.group):focus) *), .hocus\\:underline:hover, .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > multiple selectors with @slot",
@@ -1040,7 +1812,10 @@
     "css": "\n            @custom-variant hocus {\n              &:hover {\n                @slot;\n              }\n\n              &:focus {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  .group-hocus\\:underline:is(:where(.group):hover *), .group-hocus\\:underline:is(:where(.group):focus *), .hocus\\:underline:hover, .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > nested selector with @slot",
@@ -1051,7 +1826,10 @@
     "css": "\n            @custom-variant custom-before {\n              & {\n                --has-before: 1;\n                &::before {\n                  @slot;\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  .custom-before\\:underline {\n    --has-before: 1;\n  }\n\n  .custom-before\\:underline:before {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > grouped nested selectors with @slot",
@@ -1062,7 +1840,10 @@
     "css": "\n            @custom-variant custom-before {\n              & {\n                --has-before: 1;\n                &::before {\n                  &:hover,\n                  &:focus {\n                    @slot;\n                  }\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  .custom-before\\:underline {\n    --has-before: 1;\n  }\n\n  .custom-before\\:underline:before:hover, .custom-before\\:underline:before:focus {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > nested multiple selectors with @slot",
@@ -1074,7 +1855,10 @@
     "css": "\n            @custom-variant hocus {\n              &:hover {\n                @media (hover: hover) {\n                  @slot;\n                }\n              }\n\n              &:focus {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  @media (hover: hover) {\n    .group-hocus\\:underline:is(:where(.group):hover *) {\n      text-decoration-line: underline;\n    }\n  }\n\n  .group-hocus\\:underline:is(:where(.group):focus *) {\n    text-decoration-line: underline;\n  }\n\n  @media (hover: hover) {\n    .hocus\\:underline:hover {\n      text-decoration-line: underline;\n    }\n  }\n\n  .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > selector nested under at-rule with @slot",
@@ -1086,7 +1870,10 @@
     "css": "\n            @custom-variant hocus {\n              @media (hover: hover) {\n                &:hover {\n                  @slot;\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  @media (hover: hover) {\n    .group-hocus\\:underline:is(:where(.group):hover *), .hocus\\:underline:hover {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > at-rule with @slot",
@@ -1097,7 +1884,10 @@
     "css": "\n            @custom-variant any-hover {\n              @media (any-hover: hover) {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  @media (any-hover: hover) {\n    .any-hover\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > multiple at-rules with @slot",
@@ -1108,7 +1898,10 @@
     "css": "\n            @custom-variant desktop {\n              @media (any-hover: hover) {\n                @slot;\n              }\n\n              @media (pointer: fine) {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  @media (any-hover: hover) {\n    .desktop\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n\n  @media (pointer: fine) {\n    .desktop\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > nested at-rules with @slot",
@@ -1119,7 +1912,10 @@
     "css": "\n            @custom-variant custom-variant {\n              @media (orientation: landscape) {\n                @media screen {\n                  @slot;\n                }\n\n                @media print {\n                  display: none;\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  @media (orientation: landscape) {\n    @media screen {\n      .custom-variant\\:underline {\n        text-decoration-line: underline;\n      }\n    }\n\n    @media print {\n      .custom-variant\\:underline {\n        display: none;\n      }\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > body with @slot syntax > at-rule and selector with @slot",
@@ -1130,7 +1926,10 @@
     "css": "\n            @custom-variant custom-dark {\n              @media (prefers-color-scheme: dark) {\n                @slot;\n              }\n              &:is(.dark *) {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
     "expected": "\n@layer utilities {\n  @media (prefers-color-scheme: dark) {\n    .custom-dark\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n\n  .custom-dark\\:underline:is(.dark *) {\n    text-decoration-line: underline;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > built-in variants can be overridden while keeping their order",
@@ -1143,7 +1942,10 @@
     "css": "\n          @custom-variant dark (&:is([data-theme='dark'] *));\n          @layer utilities {\n            @tailwind utilities;\n          }\n        ",
     "expected": "\n@layer utilities {\n  .rtl\\:flex:where(:dir(rtl), [dir=\"rtl\"], [dir=\"rtl\"] *), .dark\\:flex:is([data-theme=\"dark\"] *) {\n    display: flex;\n  }\n\n  @starting-style {\n    .starting\\:flex {\n      display: flex;\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > at-rule-only variants cannot be used with compound variants",
@@ -1158,7 +1960,10 @@
     "css": "\n          @custom-variant foo (@media foo);\n\n          @layer utilities {\n            @tailwind utilities;\n          }\n        ",
     "expected": "\n@layer utilities {\n  @media not foo {\n    .not-foo\\:flex {\n      display: flex;\n    }\n  }\n\n  @media foo {\n    .foo\\:flex {\n      display: flex;\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant can reuse existing @variant in the definition",
@@ -1169,7 +1974,10 @@
     "css": "\n          @custom-variant hocus {\n            @variant hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n@media (hover: hover) {\n  .hocus\\:flex:hover:focus {\n    display: flex;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant can reuse @custom-variant that is defined later",
@@ -1180,7 +1988,10 @@
     "css": "\n          @custom-variant hocus {\n            @variant custom-hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant custom-hover (&:hover);\n\n          @tailwind utilities;\n        ",
     "expected": "\n.hocus\\:flex:hover:focus {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant can reuse existing @variant that is overwritten later",
@@ -1191,7 +2002,24 @@
     "css": "\n          @custom-variant hocus {\n            @variant hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant hover (&:hover);\n\n          @tailwind utilities;\n        ",
     "expected": "\n.hocus\\:flex:hover:focus {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@custom-variant > @custom-variant cannot use @variant that eventually results in a circular dependency",
+    "kind": "error",
+    "candidates": [
+      "foo:flex"
+    ],
+    "css": "\n          @custom-variant custom-variant {\n            @variant foo {\n              @slot;\n            }\n          }\n\n          @custom-variant foo {\n            @variant hover {\n              @variant bar {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant bar {\n            @variant focus {\n              @variant baz {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant baz {\n            @variant active {\n              @variant foo {\n                @slot;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "Circular dependency detected in custom variants:\n\n@custom-variant custom-variant {\n  @variant foo { … }\n}\n@custom-variant foo { /* ← */\n  @variant bar { … }\n}\n@custom-variant bar {\n  @variant baz { … }\n}\n@custom-variant baz {\n  @variant foo { … }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant can use a @variant that eventually uses another @custom-variant",
@@ -1205,7 +2033,10 @@
     "css": "\n          @custom-variant a {\n            @slot;\n          }\n\n          @custom-variant b {\n            @variant a {\n              @slot;\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.a\\:flex, .b\\:flex, .a\\:b\\:flex, .b\\:a\\:flex {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant can use a @variant that eventually uses another @custom-variant (2)",
@@ -1219,7 +2050,10 @@
     "css": "\n          @custom-variant a {\n            .a {\n              @slot;\n            }\n          }\n\n          @custom-variant b {\n            .b {\n              @variant a {\n                .a-inside-b {\n                  @slot;\n                }\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.a\\:flex .a, .b\\:flex .b .a .a-inside-b, .a\\:b\\:flex .a .b .a .a-inside-b, .b\\:a\\:flex .b .a .a-inside-b .a {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant can use existing @slot @variants",
@@ -1230,7 +2064,10 @@
     "css": "\n          @custom-variant hocus {\n            @variant hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant hover {\n            &:hover {\n              @slot;\n            }\n\n            &[data-hover] {\n              @slot;\n            }\n          }\n\n          @tailwind utilities;\n        ",
     "expected": "\n.hocus\\:flex:hover:focus, .hocus\\:flex[data-hover]:focus {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@custom-variant > @custom-variant setup that results in a circular dependency error can be solved",
@@ -1241,7 +2078,10 @@
     "css": "\n          @custom-variant foo {\n            @variant hover {\n              @variant bar {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant bar {\n            @variant focus {\n              @variant baz {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant baz {\n            @variant active {\n              @variant foo {\n                @slot;\n              }\n            }\n          }\n\n          /* Break the circle */\n          @custom-variant foo ([data-broken-circle] &);\n\n          @tailwind utilities;\n        ",
     "expected": "\n[data-broken-circle] .baz\\:flex:active {\n  display: flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > @utility must be top-level and cannot be nested",
@@ -1250,7 +2090,10 @@
     "css": "\n        .foo {\n          @utility foo {\n            color: red;\n          }\n        }\n      ",
     "expected": "`@utility` cannot be nested.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > @utility must include a body",
@@ -1259,7 +2102,10 @@
     "css": "\n        @utility foo {\n        }\n      ",
     "expected": "`@utility foo` is empty. Utilities should include at least one property.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > @utility cannot contain any special characters",
@@ -1268,7 +2114,10 @@
     "css": "\n        @utility 💨 {\n          color: red;\n        }\n      ",
     "expected": "`@utility 💨` defines an invalid utility name. Utilities should be alphanumeric and start with a lowercase letter.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > @utility can handle escape sequences correctly",
@@ -1280,7 +2129,10 @@
     "css": "\n          @layer utilities {\n            @tailwind utilities;\n          }\n\n          @utility push-1\\/2 {\n            right: 50%;\n          }\n\n          @utility push-50\\% {\n            right: 50%;\n          }\n        ",
     "expected": "\n@layer utilities {\n  .push-1\\/2, .push-50\\% {\n    right: 50%;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > A functional @utility must end in -*",
@@ -1289,7 +2141,10 @@
     "css": "\n        @utility foo* {\n          color: red;\n        }\n      ",
     "expected": "`@utility foo*` defines an invalid utility name. A functional utility must end in `-*`.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > Only the last part of a functional @utility can be dynamic",
@@ -1298,7 +2153,10 @@
     "css": "\n        @utility my-*-utility {\n          color: red;\n        }\n      ",
     "expected": "`@utility my-*-utility` defines an invalid utility name. The dynamic portion marked by `-*` must appear once at the end.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > @utility name cannot contain multiple `/` characters",
@@ -1309,7 +2167,10 @@
     "css": "\n          @utility ui/button {\n            display: inline-flex;\n            background: blue;\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.ui\\/button {\n  background: #00f;\n  display: inline-flex;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@utility > @utility name cannot contain multiple `/` characters",
@@ -1318,7 +2179,10 @@
     "css": "\n        @utility ui/button/sm {\n          display: inline-flex;\n          background: blue;\n          font-size: 12px;\n        }\n      ",
     "expected": "`@utility ui/button/sm` defines an invalid utility name. Utilities should be alphanumeric and start with a lowercase letter.",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`@reference \"…\" imports` > removes styles when the import resolver was handled outside of Tailwind CSS",
@@ -1327,7 +2191,10 @@
     "css": "\n        @media reference {\n          @layer theme {\n            @theme {\n              --breakpoint-md: 48rem;\n            }\n            .foo {\n              color: red;\n            }\n          }\n          @utility foo {\n            color: red;\n          }\n          @custom-variant hocus (&:hover, &:focus);\n        }\n\n        .bar {\n          @apply md:hocus:foo;\n        }\n      ",
     "expected": "\n@media (min-width: 48rem) {\n  .bar:hover, .bar:focus {\n    color: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > should convert legacy body-less `@variant` as a `@custom-variant`",
@@ -1338,7 +2205,10 @@
     "css": "\n          @variant hocus (&:hover, &:focus);\n          @tailwind utilities;\n        ",
     "expected": "\n.hocus\\:underline:hover, .hocus\\:underline:focus {\n  text-decoration-line: underline;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > should convert legacy `@variant` with `@slot` as a `@custom-variant`",
@@ -1349,7 +2219,10 @@
     "css": "\n          @variant hocus {\n            &:hover {\n              @slot;\n            }\n\n            &:focus {\n              @slot;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.hocus\\:underline:hover, .hocus\\:underline:focus {\n  text-decoration-line: underline;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > should be possible to use `@variant` in your CSS",
@@ -1358,7 +2231,10 @@
     "css": "\n        .btn {\n          background: black;\n\n          @variant dark {\n            background: white;\n          }\n        }\n\n        @variant hover {\n          @variant landscape {\n            .btn2 {\n              color: red;\n            }\n          }\n        }\n\n        @variant hover {\n          .foo {\n            color: red;\n          }\n          @variant landscape {\n            .bar {\n              color: blue;\n            }\n          }\n          .baz {\n            @variant portrait {\n              color: green;\n            }\n          }\n        }\n\n        @media something {\n          @variant landscape {\n            @page {\n              color: red;\n            }\n          }\n        }\n      ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n@media (prefers-color-scheme: dark) {\n  .btn {\n    background: #fff;\n  }\n}\n\n@media (hover: hover) {\n  @media (orientation: landscape) {\n    :scope:hover .btn2 {\n      color: red;\n    }\n  }\n\n  :scope:hover .foo {\n    color: red;\n  }\n\n  @media (orientation: landscape) {\n    :scope:hover .bar {\n      color: #00f;\n    }\n  }\n\n  @media (orientation: portrait) {\n    :scope:hover .baz {\n      color: green;\n    }\n  }\n}\n\n@media something {\n  @media (orientation: landscape) {\n    @page {\n      color: red;\n    }\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > should be possible to use `@variant` in your CSS with a `@custom-variant` that is defined later",
@@ -1367,7 +2243,10 @@
     "css": "\n        .btn {\n          background: black;\n\n          @variant hocus {\n            background: white;\n          }\n        }\n\n        @custom-variant hocus (&:hover, &:focus);\n      ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:hover, .btn:focus {\n  background: #fff;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > should be possible to use nested `@variant` rules",
@@ -1378,7 +2257,10 @@
     "css": "\n          .btn {\n            background: black;\n\n            @variant disabled {\n              @variant focus {\n                background: white;\n              }\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:disabled:focus {\n  background: #fff;\n}\n\n.disabled\\:focus\\:underline:disabled:focus {\n  text-decoration-line: underline;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > comma-separated `@variant` rules > should be possible to use comma-separated `@variant` rules",
@@ -1387,7 +2269,22 @@
     "css": "\n        .btn {\n          background: black;\n\n          @variant hover, focus {\n            background: red;\n          }\n        }\n        @tailwind utilities;\n      ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover {\n    background: red;\n  }\n}\n\n.btn:focus {\n  background: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should be possible to use comma-separated `@variant` rules",
+    "kind": "equal",
+    "candidates": [],
+    "css": "\n        .btn {\n          background: black;\n\n          @variant hover, focus {\n            background: red;\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n          .btn {\n            background: black;\n\n            @variant hover {\n              background: red;\n            }\n            @variant focus {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > comma-separated `@variant` rules > should handle variants containing a `,` inside",
@@ -1396,7 +2293,10 @@
     "css": "\n          .btn {\n            background: black;\n\n            @variant [&:is(:hover,:focus)], disabled {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:is(:hover, :focus), .btn:disabled {\n  background: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > comma-separated `@variant` rules > should handle nested comma-separated variants",
@@ -1405,7 +2305,22 @@
     "css": "\n        .btn {\n          background: black;\n\n          @variant hover, focus {\n            background: red;\n\n            @variant active, disabled {\n              background: blue;\n            }\n          }\n        }\n        @tailwind utilities;\n      ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover {\n    background: red;\n  }\n\n  .btn:hover:active, .btn:hover:disabled {\n    background: #00f;\n  }\n}\n\n.btn:focus {\n  background: red;\n}\n\n.btn:focus:active, .btn:focus:disabled {\n  background: #00f;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should handle nested comma-separated variants",
+    "kind": "equal",
+    "candidates": [],
+    "css": "\n        .btn {\n          background: black;\n\n          @variant hover, focus {\n            background: red;\n\n            @variant active, disabled {\n              background: blue;\n            }\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n          .btn {\n            background: black;\n\n            @variant hover {\n              background: red;\n\n              @variant active {\n                background: blue;\n              }\n\n              @variant disabled {\n                background: blue;\n              }\n            }\n\n            @variant focus {\n              background: red;\n\n              @variant active {\n                background: blue;\n              }\n\n              @variant disabled {\n                background: blue;\n              }\n            }\n          }\n          @tailwind utilities;\n        ",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > comma-separated `@variant` rules > should error on invalid variants (trailing comma)",
@@ -1414,7 +2329,10 @@
     "css": "\n          .btn {\n            background: black;\n\n            @variant hover,focus, {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "Cannot use `@variant` with empty variant",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > comma-separated `@variant` rules > should error on invalid variants (double comma)",
@@ -1423,7 +2341,10 @@
     "css": "\n          .btn {\n            background: black;\n\n            @variant hover,,focus {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "Cannot use `@variant` with empty variant",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > stacked `@variant` rules > should handle stacked variants",
@@ -1432,7 +2353,10 @@
     "css": "\n          .btn {\n            background: black;\n\n            @variant hover:focus {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover:focus {\n    background: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > stacked `@variant` rules > should handle stacked variants & comma-separated variants",
@@ -1441,7 +2365,10 @@
     "css": "\n          .btn {\n            background: black;\n\n            @variant hover:focus, disabled {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover:focus {\n    background: red;\n  }\n}\n\n.btn:disabled {\n  background: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > stacked `@variant` rules > should handle variants containing a `:` inside",
@@ -1450,7 +2377,10 @@
     "css": "\n          .btn {\n            background: black;\n\n            @variant [&:is(:hover,:focus)]:disabled, aria-disabled:hover {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:is(:hover, :focus):disabled {\n  background: red;\n}\n\n@media (hover: hover) {\n  .btn[aria-disabled=\"true\"]:hover {\n    background: red;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > should be possible to use compound and stacked variants in `@variant`",
@@ -1459,7 +2389,22 @@
     "css": "\n      .btn {\n        background: black;\n\n        @variant data-a, data-b:data-c {\n          background: red;\n\n          @variant data-d, data-e:data-f {\n            background: blue;\n          }\n        }\n      }\n      @tailwind utilities;\n    ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n.btn[data-a] {\n  background: red;\n}\n\n.btn[data-a][data-d], .btn[data-a][data-e][data-f] {\n  background: #00f;\n}\n\n.btn[data-b][data-c] {\n  background: red;\n}\n\n.btn[data-b][data-c][data-d], .btn[data-b][data-c][data-e][data-f] {\n  background: #00f;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
+  },
+  {
+    "test": "@variant > should be possible to use compound and stacked variants in `@variant`",
+    "kind": "equal",
+    "candidates": [],
+    "css": "\n      .btn {\n        background: black;\n\n        @variant data-a, data-b:data-c {\n          background: red;\n\n          @variant data-d, data-e:data-f {\n            background: blue;\n          }\n        }\n      }\n      @tailwind utilities;\n    ",
+    "expected": "\n        .btn {\n          background: black;\n\n          @variant data-a {\n            background: red;\n\n            @variant data-d {\n              background: blue;\n            }\n\n            @variant data-e {\n              @variant data-f {\n                background: blue;\n              }\n            }\n          }\n\n          @variant data-b {\n            @variant data-c {\n              background: red;\n\n              @variant data-d {\n                background: blue;\n              }\n\n              @variant data-e {\n                @variant data-f {\n                  background: blue;\n                }\n              }\n            }\n          }\n        }\n        @tailwind utilities;\n      ",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "@variant > should be possible to use `@variant` with a funky looking variants",
@@ -1468,7 +2413,10 @@
     "css": "\n        @theme inline reference {\n          --container-md: 768px;\n        }\n\n        .btn {\n          background: black;\n\n          @variant @md {\n            @variant [&.foo] {\n              background: white;\n            }\n          }\n        }\n      ",
     "expected": "\n.btn {\n  background: #000;\n}\n\n@container (min-width: 768px) {\n  .btn.foo {\n    background: #fff;\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > creates an inlined variable version of the color-mix(…) usages",
@@ -1479,7 +2427,10 @@
     "css": "\n          @theme {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red-500\\/50 {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/50 {\n    color: color-mix(in oklab, var(--color-red-500) 50%, transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > creates an inlined variable version of the color-mix(…) usages when it resolves to a var(…) containing another theme variable",
@@ -1490,7 +2441,10 @@
     "css": "\n          @theme {\n            --color-red: var(--color-red-500);\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red: var(--color-red-500);\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red\\/50 {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red\\/50 {\n    color: color-mix(in oklab, var(--color-red) 50%, transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > works for color values in the first and second position",
@@ -1499,7 +2453,10 @@
     "css": "\n        @theme {\n          --color-red-500: oklch(63.7% 0.237 25.331);\n          --color-orange-500: oklch(70.5% 0.213 47.604);\n        }\n        @tailwind utilities;\n        .mixed {\n          color: color-mix(in lch, var(--color-red-500) 50%, var(--color-orange-500));\n        }\n      ",
     "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n  --color-orange-500: oklch(70.5% .213 47.604);\n}\n\n.mixed {\n  color: #fc4d1b;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .mixed {\n    color: color-mix(in lch, var(--color-red-500) 50%, var(--color-orange-500));\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > works for nested `color-mix(…)` calls",
@@ -1508,7 +2465,10 @@
     "css": "\n        @theme {\n          --color-red-500: oklch(63.7% 0.237 25.331);\n        }\n        @tailwind utilities;\n        .stacked {\n          color: color-mix(\n            in lch,\n            color-mix(in lch, var(--color-red-500) 50%, transparent) 50%,\n            transparent\n          );\n        }\n      ",
     "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.stacked {\n  color: lch(55.5764% 89.7903 33.1932 / .25098);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .stacked {\n    color: color-mix(in lch, color-mix(in lch, var(--color-red-500) 50%, transparent) 50%, transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > works with multiple `color-mix(…)` functions in one declaration",
@@ -1517,7 +2477,10 @@
     "css": "\n        @theme {\n          --color-red-500: oklch(63.7% 0.237 25.331);\n          --color-orange-500: oklch(70.5% 0.213 47.604);\n        }\n        @tailwind utilities;\n        .gradient {\n          background: linear-gradient(\n            90deg,\n            color-mix(in oklab, var(--color-red-500) 50%, transparent) 0%,\n            color-mix(in oklab, var(--color-orange-500) 50%, transparent) 0%,\n            100%\n          );\n        }\n      ",
     "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n  --color-orange-500: oklch(70.5% .213 47.604);\n}\n\n.gradient {\n  background: linear-gradient(90deg, #fb2c3680 0%, #fe6e0080 0%, 100%);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .gradient {\n    background: linear-gradient(90deg, color-mix(in oklab, var(--color-red-500) 50%, transparent) 0%, color-mix(in oklab, var(--color-orange-500) 50%, transparent) 0%, 100%);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > works with no spaces after the `var(…)`",
@@ -1526,7 +2489,10 @@
     "css": "\n          @theme {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n          .text-red-500\\/50 {\n            color: color-mix(in oklab,var(--color-red-500)50%,transparent);\n          }\n        ",
     "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red-500\\/50 {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/50 {\n    color: color-mix(in oklab,var(--color-red-500)50%,transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > uses the first color value as the fallback when the `color-mix(…)` function contains non-theme variables",
@@ -1539,7 +2505,10 @@
     "css": "\n          @theme {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-\\(--my-color\\)\\/\\(--my-opacity\\) {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-\\(--my-color\\)\\/\\(--my-opacity\\) {\n    color: color-mix(in oklab, var(--my-color) var(--my-opacity), transparent);\n  }\n}\n\n.text-\\(--my-color\\)\\/50 {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-\\(--my-color\\)\\/50 {\n    color: color-mix(in oklab, var(--my-color) 50%, transparent);\n  }\n}\n\n.text-red-500\\/\\(--my-opacity\\) {\n  color: oklch(63.7% .237 25.331);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/\\(--my-opacity\\) {\n    color: color-mix(in oklab, var(--color-red-500) var(--my-opacity), transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > uses the first color value as the fallback when the `color-mix(…)` function contains currentcolor",
@@ -1550,7 +2519,10 @@
     "css": "@tailwind utilities;",
     "expected": "\n.text-current\\/50 {\n  color: currentColor;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-current\\/50 {\n    color: color-mix(in oklab, currentcolor 50%, transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > uses the first color value as the fallback when the `color-mix(…)` function contains theme variables that resolves to other variables",
@@ -1561,7 +2533,10 @@
     "css": "\n          @tailwind utilities;\n          @theme {\n            --color-red: var(--my-red);\n          }\n        ",
     "expected": "\n.text-red\\/50 {\n  color: var(--color-red);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red\\/50 {\n    color: color-mix(in oklab, var(--color-red) 50%, transparent);\n  }\n}\n\n:root, :host {\n  --color-red: var(--my-red);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > uses the first color value of the inner most `color-mix(…)` function as the fallback when nested `color-mix(…)` function all contain non-theme variables",
@@ -1570,7 +2545,10 @@
     "css": "\n        @tailwind utilities;\n        .stacked {\n          color: color-mix(\n            in oklab,\n            color-mix(in oklab, var(--my-color) var(--my-inner-opacity), transparent)\n              var(--my-outer-opacity),\n            transparent\n          );\n        }\n      ",
     "expected": "\n.stacked {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .stacked {\n    color: color-mix(in oklab, color-mix(in oklab, var(--my-color) var(--my-inner-opacity), transparent) var(--my-outer-opacity), transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > does not create a fallback when all color values are statically analyzable (lightningcss will flatten this)",
@@ -1581,7 +2559,10 @@
     "css": "\n          @theme inline {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n.text-red-500\\/50 {\n  color: oklab(63.7% .214 .101 / .5);\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > also replaces eventual variables in opacity values",
@@ -1592,7 +2573,10 @@
     "css": "\n          @theme {\n            --my-half: 50%;\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n:root, :host {\n  --my-half: 50%;\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red-500\\/\\(--my-half\\) {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/\\(--my-half\\) {\n    color: color-mix(in oklab, var(--color-red-500) var(--my-half), transparent);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > does not delete theme variables from the output",
@@ -1605,7 +2589,10 @@
     "css": "\n          @layer theme {\n            @theme {\n              --color-red-500: red;\n              --shadow-xl: 0 6px 18px 4px color-mix(in oklab, var(--color-red-500) 25%, transparent);\n              --opacity-disabled: 50%;\n            }\n          }\n          @tailwind utilities;\n        ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-shadow: 0 0 #0000;\n      --tw-shadow-color: initial;\n      --tw-shadow-alpha: 100%;\n      --tw-inset-shadow: 0 0 #0000;\n      --tw-inset-shadow-color: initial;\n      --tw-inset-shadow-alpha: 100%;\n      --tw-ring-color: initial;\n      --tw-ring-shadow: 0 0 #0000;\n      --tw-inset-ring-color: initial;\n      --tw-inset-ring-shadow: 0 0 #0000;\n      --tw-ring-inset: initial;\n      --tw-ring-offset-width: 0px;\n      --tw-ring-offset-color: #fff;\n      --tw-ring-offset-shadow: 0 0 #0000;\n    }\n  }\n}\n\n@layer theme {\n  :root, :host {\n    --color-red-500: red;\n    --opacity-disabled: 50%;\n  }\n}\n\n.text-red-500 {\n  color: var(--color-red-500);\n}\n\n.opacity-disabled {\n  opacity: var(--opacity-disabled);\n}\n\n.shadow-xl {\n  --tw-shadow: 0 6px 18px 4px var(--tw-shadow-color, #ff000040);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .shadow-xl {\n    --tw-shadow: 0 6px 18px 4px var(--tw-shadow-color, color-mix(in oklab, var(--color-red-500) 25%, transparent));\n  }\n}\n\n.shadow-xl {\n  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);\n}\n\n@property --tw-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-inset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-ring-inset {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-offset-width {\n  syntax: \"<length>\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-ring-offset-color {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: #fff;\n}\n\n@property --tw-ring-offset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`color-mix(…)` polyfill > does not apply optimizations when already inside a @supports (color: color-mix... block",
@@ -1616,7 +2603,10 @@
     "css": "\n          @tailwind utilities;\n          @utility mixed {\n            @supports (color: color-mix(in lab, red, red)) {\n              background: color-mix(in oklab, var(--color-1), var(--color-2) 0%);\n            }\n          }\n        ",
     "expected": "\n@supports (color: color-mix(in lab, red, red)) {\n  .mixed {\n    background: color-mix(in oklab, var(--color-1), var(--color-2) 0%);\n  }\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`@property` polyfill > emits fallbacks",
@@ -1625,7 +2615,10 @@
     "css": "\n        @tailwind utilities;\n\n        @property --no-inherit-no-value {\n          syntax: '*';\n          inherits: false;\n        }\n        @property --no-inherit-value {\n          syntax: '*';\n          inherits: false;\n          initial-value: red;\n        }\n        @property --inherit-no-value {\n          syntax: '*';\n          inherits: true;\n        }\n        @property --inherit-value {\n          syntax: '*';\n          inherits: true;\n          initial-value: red;\n        }\n      ",
     "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    :root, :host {\n      --inherit-no-value: initial;\n      --inherit-value: red;\n    }\n\n    *, :before, :after, ::backdrop {\n      --no-inherit-no-value: initial;\n      --no-inherit-value: red;\n    }\n  }\n}\n\n@property --no-inherit-no-value {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --no-inherit-value {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: red;\n}\n\n@property --inherit-no-value {\n  syntax: \"*\";\n  inherits: true\n}\n\n@property --inherit-value {\n  syntax: \"*\";\n  inherits: true;\n  initial-value: red;\n}\n",
     "loader": false,
-    "polyfills": null
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   },
   {
     "test": "`@property` polyfill > emitting fallbacks can be disabled (necessary for CSS modules)",
@@ -1634,6 +2627,9 @@
     "css": "\n          @tailwind utilities;\n\n          @property --no-inherit-no-value {\n            syntax: '*';\n            inherits: false;\n          }\n          @property --no-inherit-value {\n            syntax: '*';\n            inherits: false;\n            initial-value: red;\n          }\n          @property --inherit-no-value {\n            syntax: '*';\n            inherits: true;\n          }\n          @property --inherit-value {\n            syntax: '*';\n            inherits: true;\n            initial-value: red;\n          }\n        ",
     "expected": "\n@property --no-inherit-no-value {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --no-inherit-value {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: red;\n}\n\n@property --inherit-no-value {\n  syntax: \"*\";\n  inherits: true\n}\n\n@property --inherit-value {\n  syntax: \"*\";\n  inherits: true;\n  initial-value: red;\n}\n",
     "loader": false,
-    "polyfills": "Polyfills.None"
+    "polyfills": "Polyfills.None",
+    "base": null,
+    "stylesheet": null,
+    "shuffled": false
   }
 ]

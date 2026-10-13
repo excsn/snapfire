@@ -536,7 +536,7 @@ fn camel_case(input: &str) -> String {
 }
 
 /// `a[b.c].e` as `["a", "b.c", "e"]`.
-fn to_key_path(path: &str) -> Vec<String> {
+pub(crate) fn to_key_path(path: &str) -> Vec<String> {
   let mut keypath = Vec::new();
   for part in segment(path, b'.') {
     if !part.contains('[') {
