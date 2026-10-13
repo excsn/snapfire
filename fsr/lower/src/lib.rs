@@ -375,6 +375,29 @@ pub fn lower_middleware_with(file: &str, source: &str, defaults: &SessionDefault
   component::ComponentSet::new(std::path::Path::new("")).with_defaults(defaults.clone()).provide(file, source).lower_middleware(file)
 }
 
+pub fn lower_theme(file: &str, source: &str) -> Result<Body, LowerError> {
+  component::ComponentSet::new(std::path::Path::new("")).provide(file, source).lower_theme(file)
+}
+
+/// `export function theme(ctx)` of `theme.ts`: the document's theme for one request, with
+/// `ctx.theme` the route's own as the plan names it, read as the body's input.
+pub(crate) fn lower_theme_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
+  let file = &parsed.file;
+  let missing = || (LowerError::MissingExport { file: file.to_owned(), export: "theme".to_owned() }, None);
+  let function = parsed.exports().find_map(|(name, decl)| (name == "theme").then_some(decl)).ok_or_else(missing)?;
+  let (first, body) = match function {
+    Exported::Function(first, body) => (first, FunctionBody::Block(body)),
+    Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
+    Exported::Action { .. } => return Err(missing()),
+    Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`theme` is {what}")).into(), None)),
+    Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`theme` must be a function").into(), None)),
+  };
+  let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
+  lowerer.theming = true;
+  let result = lower_function(&mut lowerer, first, body);
+  result.map_err(|r| (r.into(), lowerer.unbound.take()))
+}
+
 pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
   let file = &parsed.file;
   let function = parsed
@@ -698,6 +721,8 @@ pub(crate) struct Lowerer<'a> {
   roots: Vec<(String, Root)>,
   /// A middleware body reads the request line as `request`, which is its input.
   middleware: bool,
+  /// Lowering `theme.ts`, whose `ctx.theme` is the body's input.
+  theming: bool,
   /// A meta body reads its loader's data as `data`, which is its input.
   meta: bool,
   /// An action, a route handler or middleware may call `session.extend`; a
@@ -743,7 +768,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -856,6 +881,9 @@ impl<'a> Lowerer<'a> {
 
   fn root_named(&self, name: &str) -> Option<Root> {
     if self.middleware && name == "request" {
+      return Some(Root::Input);
+    }
+    if self.theming && name == "theme" {
       return Some(Root::Input);
     }
     if self.meta && name == "data" {

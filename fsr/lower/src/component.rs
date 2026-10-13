@@ -326,6 +326,59 @@ impl ComponentSet {
     self.resolving_loop(file, |parsed, defaults, resolved| lower_handlers_in(parsed, defaults, resolved))
   }
 
+  pub fn lower_theme(&mut self, file: &str) -> Result<Body, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| crate::lower_theme_in(parsed, defaults, resolved))
+  }
+
+  /// A layout's or a page's `export const theme`: a theme's name or `{ name, force: true }`
+  /// for one the levels below it and the request's `theme.ts` keep. `None` when it sets none.
+  /// Anything but a literal is refused, since the build reads it rather than running it.
+  pub fn theme_export(&mut self, file: &str) -> Result<Option<ThemeExport>, LowerError> {
+    self.load(file)?;
+    let parsed = self.parsed[file].clone();
+    for item in &parsed.module.body {
+      let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else { continue };
+      let js::Decl::Var(var) = &export.decl else { continue };
+      for decl in &var.decls {
+        let (js::Pat::Ident(name), Some(init)) = (&decl.name, decl.init.as_deref()) else { continue };
+        if name.id.sym.as_ref() != "theme" {
+          continue;
+        }
+        let init = unwrap_literal(init);
+        let refused = || LowerError::from(parsed.residue(init.span(), "`theme` is a theme's name or `{ name: \"<name>\", force: true }`, written as a literal"));
+        let text = |expr: &js::Expr| match unwrap_literal(expr) {
+          js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_string_lossy().into_owned()),
+          js::Expr::Tpl(tpl) if tpl.exprs.is_empty() && tpl.quasis.len() == 1 => tpl.quasis[0].cooked.as_ref().map(|c| c.to_string_lossy().into_owned()),
+          _ => None,
+        };
+        if let Some(name) = text(init) {
+          return Ok(Some(ThemeExport { name, force: false }));
+        }
+        let js::Expr::Object(object) = init else { return Err(refused()) };
+        let mut out = ThemeExport { name: String::new(), force: false };
+        for prop in &object.props {
+          let js::PropOrSpread::Prop(prop) = prop else { return Err(refused()) };
+          let js::Prop::KeyValue(kv) = &**prop else { return Err(refused()) };
+          let key = match &kv.key {
+            js::PropName::Ident(id) => id.sym.to_string(),
+            js::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+            _ => return Err(refused()),
+          };
+          match (key.as_str(), unwrap_literal(&kv.value)) {
+            ("name", value) => out.name = text(value).ok_or_else(refused)?,
+            ("force", js::Expr::Lit(js::Lit::Bool(b))) => out.force = b.value,
+            _ => return Err(refused()),
+          }
+        }
+        if out.name.is_empty() {
+          return Err(refused());
+        }
+        return Ok(Some(out));
+      }
+    }
+    Ok(None)
+  }
+
   pub fn lower_middleware(&mut self, file: &str) -> Result<Body, LowerError> {
     self.resolving_loop(file, |parsed, defaults, resolved| lower_middleware_in(parsed, defaults, resolved))
   }
@@ -5947,6 +6000,13 @@ impl swc_core::ecma::visit::Visit for StoreCalls<'_> {
     }
     call.visit_children_with(self);
   }
+}
+
+/// A layout's or a page's `export const theme`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThemeExport {
+  pub name: String,
+  pub force: bool,
 }
 
 /// What a generated card image's module says about the image it draws.
