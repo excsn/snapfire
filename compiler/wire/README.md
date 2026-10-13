@@ -1,7 +1,5 @@
 # snapfire_compiler_wire
 
-License: same as the workspace.
-
 The wire contract between `snapfirec` and a framework compiler plugin: the types both sides serialize as one JSON object per line over stdin and stdout. A plugin depends on this crate to speak the protocol; `snapfirec` depends on it to read the answers. The `driven` module is the other direction: what `snapfirec --driven` and the process driving it say to each other, line by line, plus the asset map that process hands the compiler. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
@@ -30,3 +28,7 @@ No features.
 | Know which extensions go to a plugin and what each binary is called | `EXTENSIONS`, `claimed`, `binary_for`, `install_hint` |
 | Drive `snapfirec --driven` and refuse one speaking another protocol | `driven::hello`, `driven::parse_hello`, `driven::PROTOCOL` and the line constants |
 | Hand the compiler the URLs of every image and font you serve | `driven::AssetMap`, written as JSON and named with `--asset-map` |
+
+## License
+
+This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the `LICENSE` file in the repository for the full license text.

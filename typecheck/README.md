@@ -1,7 +1,5 @@
 # snapfire_typecheck
 
-MPL-2.0.
-
 Typechecking for TypeScript, as a peer process rather than a library inside a compiler. `snapfirec` strips types and never reads one for meaning; this crate puts a `tsc` of a requested version on the machine and runs it over the same tsconfig, so a wrong prop type or a misspelled field is a build failure instead of something the browser discovers. The engine is TypeScript 7, one self-contained native binary per platform, fetched from the npm registry over plain HTTPS and verified against a hash before it runs: no npm client, no Node and no package manager. The library is the resolution and the diagnostics; `snapfiretc` is the executable `fsr` and `snapfirec` spawn. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
@@ -29,3 +27,7 @@ No features. The crate depends on `reqwest` with rustls for the one HTTPS GET, `
 | Put the cache somewhere else | `--cache <dir>` or `$SNAPFIRE_CACHE` |
 | Read diagnostics from a tool | `--format json` |
 | Refuse to fetch on a machine with no network | `--offline` |
+
+## License
+
+This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the `LICENSE` file in the repository for the full license text.

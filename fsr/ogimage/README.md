@@ -1,7 +1,5 @@
 # snapfire_fsr_ogimage
 
-MPL-2.0; the bundled Inter is OFL-1.1.
-
 Renders a card, a tree of boxes, text and images styled with a subset of CSS, to a PNG or a JPEG. Layout is flexbox through taffy, text is shaped with rustybuzz and broken into lines with the Unicode line breaking rules and pixels are drawn with tiny-skia. The subset is the one satori supports, so a card written for Next's `ImageResponse` lays out the same. The guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
@@ -23,3 +21,9 @@ No features. Everything is pure Rust. A stripped release binary grows by about 1
 | Give the card its images | `Images::insert`, then `ImageRef::Key` or `url(key)` |
 | Render to bytes | `render` with `Format::Png` or `Format::Jpeg` |
 | See what was skipped | `Rendered::warnings` |
+
+## License
+
+This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the `LICENSE` file in the repository for the full license text.
+
+The bundled Inter in `fonts/` is licensed under the **SIL Open Font License 1.1 (OFL-1.1)**. See `fonts/OFL.txt`.

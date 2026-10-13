@@ -1,7 +1,5 @@
 # @snapfire/fsr-client
 
-MPL-2.0. part of the SnapFire FSR workspace.
-
 The browser half of SnapFire FSR. It decodes the tagged JSON the server encoded, mounts island components over server-rendered markup, fills streamed slots as they arrive, navigates between routes by patching segments instead of reloading and calls server actions by id. The server halves it pairs with are `snapfire_fsr_payload`, which owns the JSON pair, the HTML serialiser and the row protocol; and `snapfire_fsr_runtime`, which owns segments, streaming and the action endpoint. Task-by-task instructions live in [README.USAGE.md](README.USAGE.md) and every signature is in [API_REFERENCE.md](API_REFERENCE.md).
 
 The package is browser-native ES modules. There is no bundler step, no `node_modules` and no runtime dependency: the core entry imports nothing outside itself; React lives behind a separate entry so a page that mounts Vue, Svelte or web components never loads it.
@@ -73,3 +71,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Parse a whole payload response yourself | `parsePayload` |
 | Parse a single node row | `decodeNode` |
 | Turn a decoded node back into HTML | `nodeToHtml`, `renderSegment` |
+
+## License
+
+This project is licensed under the **Mozilla Public License Version 2.0 (MPL-2.0)**. See the `LICENSE` file in the repository for the full license text.
