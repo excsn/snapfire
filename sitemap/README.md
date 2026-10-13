@@ -1,5 +1,7 @@
 # snapfire_sitemap: Sitemap Writing with Every Protocol Limit Enforced
 
+[![Crates.io](https://img.shields.io/crates/v/snapfire_sitemap.svg)](https://crates.io/crates/snapfire_sitemap)
+[![Docs.rs](https://docs.rs/snapfire_sitemap/badge.svg)](https://docs.rs/snapfire_sitemap)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
 **snapfire_sitemap** writes `<urlset>` and `<sitemapindex>` documents, with the image, video, news and xhtml alternate-link extensions.

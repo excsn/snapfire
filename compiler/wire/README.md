@@ -1,5 +1,9 @@
 # snapfire_compiler_wire
 
+[![Crates.io](https://img.shields.io/crates/v/snapfire_compiler_wire.svg)](https://crates.io/crates/snapfire_compiler_wire)
+[![Docs.rs](https://docs.rs/snapfire_compiler_wire/badge.svg)](https://docs.rs/snapfire_compiler_wire)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 The wire contract between `snapfirec` and a framework compiler plugin: the types both sides serialize as one JSON object per line over stdin and stdout. A plugin depends on this crate to speak the protocol; `snapfirec` depends on it to read the answers. The `driven` module is the other direction: what `snapfirec --driven` and the process driving it say to each other, line by line, plus the asset map that process hands the compiler. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install

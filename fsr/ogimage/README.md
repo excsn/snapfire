@@ -1,5 +1,9 @@
 # snapfire_fsr_ogimage
 
+[![Crates.io](https://img.shields.io/crates/v/snapfire_fsr_ogimage.svg)](https://crates.io/crates/snapfire_fsr_ogimage)
+[![Docs.rs](https://docs.rs/snapfire_fsr_ogimage/badge.svg)](https://docs.rs/snapfire_fsr_ogimage)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 Renders a card, a tree of boxes, text and images styled with a subset of CSS, to a PNG or a JPEG. Layout is flexbox through taffy, text is shaped with rustybuzz and broken into lines with the Unicode line breaking rules and pixels are drawn with tiny-skia. The subset is the one satori supports, so a card written for Next's `ImageResponse` lays out the same. The guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install

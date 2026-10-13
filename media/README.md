@@ -1,5 +1,9 @@
 # snapfire_media
 
+[![Crates.io](https://img.shields.io/crates/v/snapfire_media.svg)](https://crates.io/crates/snapfire_media)
+[![Docs.rs](https://docs.rs/snapfire_media/badge.svg)](https://docs.rs/snapfire_media)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
+
 What an image or a font file says about itself. An image's header gives the size it displays at and the EXIF orientation that size accounts for, read from a JPEG's APP1 segment, a PNG's `eXIf` chunk or a WebP's `EXIF` chunk. A font's tables give its family, weight, style and the metrics a fallback face is sized by, with a woff2 or a woff unpacked first. Two tools read the same file through this crate, so the width a compiled module carries and the width a server writes on the element are the same number. The guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 
 ## Install
