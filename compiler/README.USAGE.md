@@ -20,6 +20,8 @@ This guide covers running the `snapfirec` build tool: selecting source files the
   * [Stripping Console Calls](#stripping-console-calls)
 * [Compiling CSS](#compiling-css)
   * [Targeting Browsers](#targeting-browsers)
+  * [Building Tailwind Stylesheets](#building-tailwind-stylesheets)
+  * [Switching Tailwind Themes](#switching-tailwind-themes)
 * [Compiling Framework Components](#compiling-framework-components)
   * [Installing a Plugin](#installing-a-plugin)
   * [What a Component Becomes](#what-a-component-becomes)
@@ -64,6 +66,7 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * **Public path** - The URL prefix the output directory is served under. Optional and absent everywhere except the preload manifest and import map scopes, which are the only two things that cannot be expressed as paths.
 * **Declaration** - The `.d.ts` describing one module's exported types. Emitted per file from that file alone, so an export whose type only inference across files could supply is an error rather than a guess.
 * **Minified graph** - The parallel set of `.min` files `--minify` adds. Its specifiers point only at other `.min` files, so loading the minified entry never pulls an unminified dependency.
+* **Tailwind stylesheet** - A `.css` file that imports `tailwindcss` or uses one of its at-rules or functions. It is built by `snapfire_tailwind` for the classes the sources name before it is compiled like any other stylesheet.
 * **Asset map** - A file a driving process writes naming every image and font it defines, with the URL each is served at. Given one with `--asset-map`, the compiler rewrites every reference from it and emits none of them; a reference it does not name is reported for the driver to define.
 * **Build facts** - `.snapfire-build.json` in the output directory, recording the entry points, the module graph, the bare specifiers the output carries, every image and font it emitted and every file it produced. A page preloads from it; a packager vendors from it; the next build prunes from it.
 * **`.browserslistrc`** - Sets which browsers the CSS is compiled for, searched for from the root upward.
@@ -201,6 +204,9 @@ snapfirec
 | `--strip-debug` | Delete `console.debug` statements | off |
 | `--copy-assets` | Copy every selected file that is not compiled | off |
 | `--asset-map <path>` | Rewrite every image and font reference from the driver's map and emit none | off |
+| `--tailwind-classes <path>` | Classes a Tailwind stylesheet generates utilities for, one per line, beside those the sources name | off |
+| `--tailwind-themes <dir>` | Each `<name>.css` there is a named theme every Tailwind stylesheet writes | off |
+| `--tailwind-theme-attribute <name>` | The attribute that selects a named theme | `data-theme` |
 | `--source-map` | Emit a `.map` beside each output | `sourceMap` |
 | `--inline-source-map` | Embed each map as a data URI | `inlineSourceMap` |
 | `--minify[=compact\|full]` | Additionally emit a minified `.min` graph | off |
@@ -722,7 +728,7 @@ body .container {
 }
 ```
 
-Nesting flattening and vendor prefixing are driven by the browser targets and happen either way. `@import` is not inlined and files are not concatenated, so each input `.css` stays a separate output `.css`.
+Nesting flattening and vendor prefixing are driven by the browser targets and happen either way. `@import` is not inlined and files are not concatenated, so each input `.css` stays a separate output `.css`. A Tailwind stylesheet is the exception: Tailwind inlines what it imports.
 
 ### Targeting Browsers
 
@@ -752,6 +758,55 @@ If nothing resolves, the build says so and continues with no downlevelling and n
 ```text
 ⚠️  No browser targets resolved: CSS will be compiled without downlevelling or prefixing
 ```
+
+### Building Tailwind Stylesheets
+
+A stylesheet that imports `tailwindcss` is built for the classes the sources name, then compiled like any other:
+
+```css
+/* styles/app.css */
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #e11d48;
+}
+```
+
+```tsx
+// src/Badge.tsx
+export function Badge({ on }: { on: boolean }) {
+  return <span className={clsx("rounded-full px-2 text-sm", on && "bg-brand text-white")}>new</span>;
+}
+```
+
+The compiler reads every script and every plugin's output for class names where a class goes: a `class` or `className` attribute or property and the arguments of `clsx`, `cn`, `cx`, `classnames`, `twMerge` and Vue's `normalizeClass`. A token a template expression touches, the `bg-` of `` `bg-${tone}` ``, is left out; list such values in the stylesheet with `@source inline("bg-{red,amber}-500")`. A tool that knows more classes than the sources show passes them in a file, one per line, optionally followed by a tab and where they come from:
+
+```bash
+snapfirec --root ./app --tailwind-classes generated/tailwind.classes
+```
+
+A class that is neither a utility nor named by a selector in any stylesheet is a warning, with the files that use it:
+
+```text
+⚠️  `flx` in src/Badge.tsx is not a Tailwind utility and no stylesheet defines it
+```
+
+`@import` of a relative file is resolved against the stylesheet and inlined. Under `--watch` or `--driven`, a change to a script whose classes changed, to the classes file or to an imported stylesheet rebuilds the Tailwind stylesheets that read it.
+
+### Switching Tailwind Themes
+
+```css
+/* styles/themes/ocean.css */
+@theme {
+  --color-brand: #0e7490;
+}
+```
+
+```bash
+snapfirec --root ./app --tailwind-themes styles/themes --tailwind-theme-attribute data-theme
+```
+
+Every Tailwind stylesheet writes each theme after its root theme as `[data-theme="ocean"] { ... }`, every variable included, so `<html data-theme="ocean">` switches the page. A theme file is not built as a stylesheet of its own.
 
 ## Compiling Framework Components
 
@@ -1510,7 +1565,7 @@ Under `--watch` the check runs once, with the first build, rather than per rebui
 | Type checking | Stripping types is per-file and needs no dependency graph, which is exactly what lets a build run with no `node_modules`. A checker does the checking, over the same `tsconfig.json` and therefore the same files, in its own executable: [Checking Types](#checking-types). Declaration *emit* is here, since isolated declarations is per-file too; so is the graph check below, since resolving a specifier needs no types. Checking those types is not |
 | Bundling | Output is browser-native ES modules by design. An import map resolves the bare specifiers; the `Externals:` line names them |
 | Downlevelling | Every engine that can load an ES module is already ES2017 or later, so there is no lower target worth emitting for. `target` is checked for satisfiability and otherwise left to `tsc` |
-| `@import` inlining | Bundling again, for stylesheets. Each input `.css` stays a separate output the browser fetches |
+| `@import` inlining | Bundling again, for stylesheets. Each input `.css` stays a separate output the browser fetches; a Tailwind stylesheet inlines its imports because Tailwind does |
 | Content hashing | Not a principled exclusion, just not built. Cache busting usually belongs to whatever serves the files |
 
 Bundling is the one worth a second look, because the reason it is usually reached for is latency rather than bundling itself. [Preloading the Module Graph](#preloading-the-module-graph) addresses that directly. What stays out of reach without it is tree shaking and cross-module mangling, both of which need the whole program in one place.
