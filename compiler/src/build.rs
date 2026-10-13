@@ -49,6 +49,9 @@ pub struct Options {
   pub driven: bool,
   /// The classes file a stylesheet using Tailwind reads, relative to the root.
   pub tailwind_classes: Option<PathBuf>,
+  /// The directory of named themes a stylesheet using Tailwind writes, relative to the root.
+  pub tailwind_themes: Option<PathBuf>,
+  pub tailwind_theme_attribute: String,
 }
 
 /// Everything a rebuild needs to reuse without re-reading the config.
@@ -975,7 +978,8 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
   {
     if crate::tailwind::uses_tailwind(&content) {
       let classes = opts.tailwind_classes.as_ref().map(|c| opts.root.join(c));
-      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), &display(&job.source, &opts.root)));
+      let themes = opts.tailwind_themes.as_ref().map(|dir| (opts.root.join(dir), opts.tailwind_theme_attribute.as_str()));
+      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), themes, &display(&job.source, &opts.root)));
     } else if job.emit.minify().is_none() {
       plain = Some(crate::tailwind::defined_classes(&content).into_iter().map(str::to_owned).collect());
     }
