@@ -229,6 +229,18 @@ pub struct Head {
   /// `rel=canonical` and `rel=alternate` as absolute URLs only, so a path on
   /// either is prefixed with this. Absent, an href is written as given.
   pub origin: Option<String>,
+  /// The document's theme and scheme for this request, when the application
+  /// has themes; the payload's eager `H` row carries both, null included, so
+  /// a navigation sets or clears `<html data-sf-theme>` and `data-sf-scheme`.
+  pub theme: Option<DocumentTheme>,
+}
+
+/// What a request decided for `<html data-sf-theme>` and `<html data-sf-scheme>`:
+/// no name is the root theme and no scheme leaves the attribute off.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DocumentTheme {
+  pub name: Option<String>,
+  pub scheme: Option<String>,
 }
 
 /// How a response's own stylesheets are written into a document and the mark
@@ -252,6 +264,7 @@ impl Head {
       catalog: None,
       head: Vec::new(),
       origin: None,
+      theme: None,
     }
   }
 
@@ -385,6 +398,7 @@ impl From<Node> for Head {
       catalog: None,
       head: Vec::new(),
       origin: None,
+      theme: None,
     }
   }
 }

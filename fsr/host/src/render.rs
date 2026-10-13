@@ -304,7 +304,7 @@ impl Host {
       }
     }
     let localized = t.head_for(&visit.locale.tag);
-    if extra.is_empty() && styles.is_empty() && entry.is_none() && payload_catalog.is_none() && localized.is_none() {
+    if extra.is_empty() && styles.is_empty() && entry.is_none() && payload_catalog.is_none() && localized.is_none() && incoming.theme.is_none() {
       return self
         .render_plan_with(
           t,
@@ -326,6 +326,7 @@ impl Host {
     head.entry = entry;
     head.styles = styles;
     head.catalog = payload_catalog;
+    head.theme = incoming.theme.clone();
     self
       .render_plan_with(
         t,

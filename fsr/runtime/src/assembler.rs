@@ -304,6 +304,8 @@ pub struct Assembly {
   pub styles: Vec<String>,
   /// The head's `catalog`: the locale's message table as JSON.
   pub catalog: Option<String>,
+  /// The head's `theme`: what this request decided for the document.
+  pub theme: Option<crate::meta::DocumentTheme>,
   /// The failure of the route's own page, when its loader failed: the node
   /// reached from the root along the `content` slots. A layout or a slot
   /// failing degrades its segment and leaves this `None`.
@@ -1306,6 +1308,7 @@ async fn assemble_in(
     entry: head.entry.clone(),
     styles: head.styles.clone(),
     catalog: head.catalog.clone(),
+    theme: head.theme.clone(),
     failed,
   })
 }

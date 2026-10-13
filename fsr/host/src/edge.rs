@@ -22,6 +22,8 @@ pub(crate) struct Incoming {
   /// Whether a shell asked for this render to splice into its own document,
   /// `x-sf-mount`, so the answer names what the site's islands need loaded.
   pub(crate) mounted: bool,
+  /// What the request decided for the document's theme, when the application has themes.
+  pub(crate) theme: Option<snapfire_fsr_runtime::DocumentTheme>,
 }
 
 impl Incoming {
@@ -35,6 +37,7 @@ impl Incoming {
       host: None,
       intercept: None,
       mounted: false,
+      theme: None,
     }
   }
 }
@@ -154,6 +157,12 @@ impl Host {
   /// What a request at the edge carries: the session, its custody and, once
   /// the session is identified, a CSRF token. An anonymous request carries no
   /// token so its renders share the memo; the token joins the memo key.
+  pub(crate) fn incoming_themed(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>, mounted: bool, theme: Option<snapfire_fsr_runtime::DocumentTheme>) -> Incoming {
+    let mut incoming = self.incoming_holding(opened, held_catalog, host, mounted);
+    incoming.theme = theme;
+    incoming
+  }
+
   pub(crate) fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>, mounted: bool) -> Incoming {
     let mut incoming = self.incoming(opened, host);
     incoming.held_catalog = held_catalog;
@@ -190,6 +199,7 @@ impl Host {
       host,
       intercept: None,
       mounted: false,
+      theme: None,
     }
   }
 
@@ -810,10 +820,24 @@ impl Host {
         )
         .is_some();
 
+    let theme = match mode {
+      RenderMode::Html | RenderMode::Payload if t.themed() => {
+        let (theme_path, theme_query) = target.split_once('?').unwrap_or((target.as_str(), ""));
+        Some(self.document_theme(t, theme_path, theme_query, &self.incoming(opened, self.matched_host(req.headers())), &visit.locale).await)
+      }
+      _ => None,
+    };
+    let themed = |text: String| match (&theme, &mode) {
+      (Some(theme), RenderMode::Html) => crate::theme::html_with_theme(&text, theme),
+      (Some(theme), RenderMode::Payload) => crate::theme::payload_with_theme(&text, theme),
+      _ => text,
+    };
+
     // Development renders live and previews what a prerender would write when the request asks.
     if self.changed.is_some() && preview_of(&raw_query) && req.method() == Method::GET && !intercepted {
       return match self.preview(t, &visit.path, &path, mode.clone(), &visit.locale).await {
         Ok(text) => {
+          let text = themed(text);
           let content_type = if mode == RenderMode::Payload { "application/x-sf-payload+json; charset=utf-8" } else { "text/html; charset=utf-8" };
           let mut response = Response::builder()
             .status(StatusCode::OK)
@@ -830,6 +854,7 @@ impl Host {
     if req.method() == Method::GET && !intercepted && self.changed.is_none() {
       let found = self.prerendered_in(t, &path, &mode, &visit.locale, opened.cell.identity().is_none());
       if let Some(text) = found {
+        let text = themed(text);
         let content_type = match mode {
           RenderMode::Html | RenderMode::Fragment(_) => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
@@ -865,7 +890,7 @@ impl Host {
           target_query,
           from.as_deref(),
           into.as_deref(),
-          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted),
+          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted, theme.clone()),
         )
         .await
     } else {
@@ -875,7 +900,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted),
+          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted, theme.clone()),
         )
         .await
     };
@@ -887,7 +912,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_holding(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted),
+          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted, theme.clone()),
         )
         .await
       {
@@ -902,6 +927,22 @@ impl Host {
         let content_type = match mode {
           RenderMode::Html | RenderMode::Fragment(_) => "text/html; charset=utf-8",
           RenderMode::Payload => "application/x-sf-payload+json; charset=utf-8",
+        };
+        let chunks = match (&theme, &mode) {
+          (Some(theme), RenderMode::Html) => {
+            let theme = theme.clone();
+            let mut pending = true;
+            chunks
+              .map(move |chunk| match pending && chunk.contains("<html") {
+                true => {
+                  pending = false;
+                  crate::theme::html_with_theme(&chunk, &theme)
+                }
+                false => chunk,
+              })
+              .boxed()
+          }
+          _ => chunks.boxed(),
         };
         let body = StreamBody::new(chunks.map(|c| Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(c)))));
         let mut response = Response::builder()

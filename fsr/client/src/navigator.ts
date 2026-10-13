@@ -375,9 +375,11 @@ let documentPath = "";
 /** True while `current` is the sidecar the document shipped, which the fill script rewrites as streamed segments land; false once a payload has replaced it. */
 let documentSidecar = false;
 
-/** Sets the document's title and description meta from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
+/** Sets the document's title and description meta, its theme and its scheme from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
 export function applyHead(head: Head): void {
   for (const script of head.scripts ?? []) loadMarkedScript(script);
+  if (head.theme !== undefined) setRootAttribute("data-sf-theme", head.theme);
+  if (head.scheme !== undefined) setRootAttribute("data-sf-scheme", head.scheme);
   if (head.title !== undefined) document.title = head.title;
   if (head.description !== undefined) {
     let meta = document.head.querySelector('meta[name="description"]');
@@ -388,6 +390,11 @@ export function applyHead(head: Head): void {
     }
     meta.setAttribute("content", head.description);
   }
+}
+
+function setRootAttribute(name: string, value: string | null): void {
+  if (value === null) document.documentElement.removeAttribute(name);
+  else document.documentElement.setAttribute(name, value);
 }
 
 /** The eager wave of a payload: every row up to the `G` sidecar, which closes it. */

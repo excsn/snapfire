@@ -194,7 +194,14 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     json!({ "fmt": FORMAT_VERSION, "enc": "json" }),
     node_to_row_json(&assembly.tree)
   );
-  if !assembly.meta.is_empty() {
+  if let Some(theme) = &assembly.theme {
+    let mut head = meta_to_json(&assembly.meta);
+    if let Json::Object(fields) = &mut head {
+      fields.insert("theme".to_owned(), json!(theme.name));
+      fields.insert("scheme".to_owned(), json!(theme.scheme));
+    }
+    header.push_str(&format!("H {head}\n"));
+  } else if !assembly.meta.is_empty() {
     header.push_str(&format!("H {}\n", meta_to_json(&assembly.meta)));
   }
   if !assembly.contributions.is_empty() {

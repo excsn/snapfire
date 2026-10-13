@@ -42,6 +42,10 @@ export interface Head {
 	description?: string;
 	/** The attributes of each script row the route's `meta` declared, as the document's inert marker carries them. */
 	scripts?: Record<string, string>[];
+	/** The document's named theme, `<html data-sf-theme>`; null is the root theme. Absent when the application has no themes. */
+	theme?: string | null;
+	/** Light or dark, `<html data-sf-scheme>`; null leaves the attribute off. */
+	scheme?: string | null;
 }
 export interface Payload {
 	format: number;

@@ -323,6 +323,8 @@ let documentPath = "";
 let documentSidecar = false;
 export function applyHead(head) {
     for (const script of head.scripts ?? [])loadMarkedScript(script);
+    if (head.theme !== undefined) setRootAttribute("data-sf-theme", head.theme);
+    if (head.scheme !== undefined) setRootAttribute("data-sf-scheme", head.scheme);
     if (head.title !== undefined) document.title = head.title;
     if (head.description !== undefined) {
         let meta = document.head.querySelector('meta[name="description"]');
@@ -333,6 +335,10 @@ export function applyHead(head) {
         }
         meta.setAttribute("content", head.description);
     }
+}
+function setRootAttribute(name, value) {
+    if (value === null) document.documentElement.removeAttribute(name);
+    else document.documentElement.setAttribute(name, value);
 }
 async function eagerOf(rows) {
     let tree = null;

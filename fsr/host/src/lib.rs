@@ -22,6 +22,7 @@ mod remote_site;
 mod render;
 mod report;
 mod serve;
+mod theme;
 mod upstreams;
 pub mod shell;
 pub mod trace;
@@ -398,6 +399,11 @@ struct Tables {
   /// This host's own `[site]`, as its status answer describes it to a shell.
   own: Option<OwnSite>,
   report: Arc<HostReport>,
+  /// The shell's lowered `theme.ts`.
+  theme: Option<Arc<dyn ActionHandler>>,
+  /// The theme each layout or page sets, the mounted sites' among them: its name and whether it
+  /// is forced.
+  themes: HashMap<String, (String, bool)>,
 }
 
 /// What a site host tells a shell about itself at `/__fsr/sites`.
@@ -419,6 +425,8 @@ struct SiteTables {
   name: String,
   at: String,
   middleware: Option<Arc<dyn ActionHandler>>,
+  /// The site's lowered `theme.ts`, run after the shell's.
+  theme: Option<Arc<dyn ActionHandler>>,
   styles: Vec<String>,
   entry: Option<String>,
   /// The site's own modules to preload, minus what the shell already covers.

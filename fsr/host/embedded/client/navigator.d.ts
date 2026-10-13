@@ -1,5 +1,5 @@
 import { Head } from "./reader.js";
-/** Sets the document's title and description meta from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
+/** Sets the document's title and description meta, its theme and its scheme from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
 export declare function applyHead(head: Head): void;
 export type PrefetchTiming = "hover" | "viewport" | "none";
 export interface NavigateOptions {

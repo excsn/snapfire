@@ -579,6 +579,8 @@ impl HostBuilder {
     let manifest =
       Manifest::from_text(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
     let shell_module = config.document.shell.clone();
+    let shell_theme = manifest.theme.clone().map(snapfire_fsr::middleware_from);
+    let mut themes: HashMap<String, (String, bool)> = manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))).collect();
     let mut app = self.app.take().expect("the builder holds its app until build");
     let mut taken: Vec<String> = manifest.routes.iter().map(|r| r.pattern.clone()).collect();
     let mut sites = Vec::new();
@@ -671,6 +673,8 @@ impl HostBuilder {
       }
       leaks(&mount.artifact.config, &mount.artifact.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
       let middleware = site_manifest.middleware.take().map(snapfire_fsr::middleware_from);
+      let site_theme = site_manifest.theme.take().map(snapfire_fsr::middleware_from);
+      themes.extend(site_manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))));
       graft(&manifest, &mut site_manifest, &shell_module);
       site_manifest.not_found = None;
       taken.extend(site_manifest.routes.iter().map(|r| r.pattern.clone()));
@@ -738,6 +742,7 @@ impl HostBuilder {
         name: mount.name.clone(),
         at: site.at.clone(),
         middleware,
+        theme: site_theme,
         styles: minified_urls(mount.artifact.config.document.styles.clone().unwrap_or_default(), site_bundle),
         entry: mount.artifact.config.document.entry.as_deref().map(|entry| minified_url(entry, site_bundle)),
         preload: match config.document.module_preload {
@@ -791,7 +796,7 @@ impl HostBuilder {
         over: remote.addresses().to_vec(),
         ignored: Vec::new(),
       });
-      sites.push(SiteTables { name: name.clone(), at, middleware: None, styles: Vec::new(), entry: None, preload: Vec::new(), remote: Some(remote) });
+      sites.push(SiteTables { name: name.clone(), at, middleware: None, theme: None, styles: Vec::new(), entry: None, preload: Vec::new(), remote: Some(remote) });
     }
     sites.sort_by(|a, b| b.at.len().cmp(&a.at.len()).then(a.at.cmp(&b.at)));
     let app_contract = if site_reports.is_empty() {
@@ -1206,6 +1211,8 @@ impl HostBuilder {
         probes,
         own: config.site.as_ref().map(|site| OwnSite { name: site.name.clone(), at: site.at.clone(), entry: entry.clone(), styles: styles.clone(), answers }),
         report: Arc::new(report),
+        theme: shell_theme,
+        themes,
       },
       config,
     ))

@@ -34,6 +34,7 @@ fn assembly() -> Assembly {
     entry: Some("/reports/static/js/app/src/main.js".to_owned()),
     styles: vec!["/reports/static/css/site.css".to_owned()],
     catalog: Some(r#"{"hello":"Hello"}"#.to_owned()),
+    theme: Some(snapfire_fsr_runtime::DocumentTheme { name: Some("ocean".to_owned()), scheme: Some("dark".to_owned()) }),
     failed: None,
   }
 }
