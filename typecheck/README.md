@@ -32,4 +32,4 @@ No features. The crate depends on `reqwest` with rustls for the one HTTPS GET, `
 
 ## Status
 
-Unpublished. Not yet run on Windows.
+Active. Not yet run on Windows.
