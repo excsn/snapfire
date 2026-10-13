@@ -1,6 +1,6 @@
 # snapfire_vue
 
-License: same as the workspace. Status: active.
+License: same as the workspace.
 
 Vue single-file components compiled for `snapfirec`, with no JavaScript runtime on the machine: the crate carries Vue's own browser build of `@vue/compiler-sfc` and runs it in QuickJS. The binary is `snapfirec-vue`, the plugin `snapfirec` finds on `PATH` for every `.vue` file; the library behind it is `Compiler`, for a tool that wants the same compile in process. The usage guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 

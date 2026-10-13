@@ -1,6 +1,6 @@
 # snapfire_media
 
-MPL-2.0. Status: the header and face reads snapfirec and FSR's asset pipeline share; nothing here decodes a pixel or writes a file.
+MPL-2.0.
 
 What an image or a font file says about itself. An image's header gives the size it displays at and the EXIF orientation that size accounts for, read from a JPEG's APP1 segment, a PNG's `eXIf` chunk or a WebP's `EXIF` chunk. A font's tables give its family, weight, style and the metrics a fallback face is sized by, with a woff2 or a woff unpacked first. Two tools read the same file through this crate, so the width a compiled module carries and the width a server writes on the element are the same number. The guide is [README.USAGE.md](README.USAGE.md) and the surface is [API_REFERENCE.md](API_REFERENCE.md).
 
@@ -23,4 +23,4 @@ No features. The header read is `imagesize` and `kamadak-exif`; the face read is
 
 ## Status
 
-Built for snapfirec's build facts and `snapfire_fsr_assets`, which re-exports it. The orientation is read, never applied: a consumer that resizes applies it to the pixels itself.
+Built for snapfirec's build facts and `snapfire_fsr_assets`, which re-exports it: the header and face reads the two share. Nothing here decodes a pixel or writes a file. The orientation is read, never applied: a consumer that resizes applies it to the pixels itself.

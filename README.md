@@ -1,6 +1,5 @@
 # SnapFire
 
-![Project Status: Active](https://img.shields.io/badge/status-active-success.svg)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 
 **Write the application in TypeScript. Run it in Rust.**
