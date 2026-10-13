@@ -15,7 +15,7 @@ test("the guard sends an anonymous visitor through the login route to the login 
   const c = portal();
   const landed = await load("/account", { ctx: c });
   expect(landed.path, "the middleware redirects to the flow, which redirects to the application's page").toEqual("/login?return_to=%2Faccount");
-  expect(document.querySelector(".login form")?.getAttribute("action"), "and the login page rendered its form").toEqual("/auth/callback");
+  expect(document.querySelector("main form")?.getAttribute("action"), "and the login page rendered its form").toEqual("/auth/callback");
 });
 
 test("a spec signs in through the callback, and every render after it is that user's", async () => {
@@ -29,8 +29,8 @@ test("a spec signs in through the callback, and every render after it is that us
 
   const account = await load("/account", { ctx: c });
   expect(account.path, "the guard lets the signed-in visitor through").toEqual("/account");
-  expect(document.querySelector(".subject")?.textContent).toEqual("alice");
-  expect(document.querySelector(".role")?.textContent, "with the claims the provider carried").toEqual("admin");
+  expect(document.querySelector("[data-field=subject]")?.textContent).toEqual("alice");
+  expect(document.querySelector("[data-field=role]")?.textContent, "with the claims the provider carried").toEqual("admin");
 });
 
 test("a wrong password is refused and leaves the session anonymous", async () => {

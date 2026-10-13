@@ -7,8 +7,8 @@ export default function Layout({ children, identity, csrf_token }: { children: R
   return (
     <>
       <Header identity={identity} csrfToken={csrf_token} />
-      <main className="portal-main">{children}</main>
-      <footer className="portal-foot">One document, one session, one navigation. The billing pages under /billing are a site the portal mounts from its own artifact.</footer>
+      <main className="mx-auto max-w-[960px] px-6 pt-8 pb-12">{children}</main>
+      <footer className="mx-auto max-w-[960px] px-6 pb-10 text-[13px] text-ink-soft">One document, one session, one navigation. The billing pages under /billing are a site the portal mounts from its own artifact.</footer>
     </>
   );
 }

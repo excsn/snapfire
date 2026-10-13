@@ -8,7 +8,8 @@ What it demonstrates is how it arrives. The portal's table names it as `status@1
 | --- | --- |
 | A site the shell fetches from a store instead of one an operator installs | `[sites.status] artifact = "status@1.0.0"` and `[sites] store` in the portal's `config/app.toml` |
 | A release as an archive with a manifest | `fsr sites pack sites/status --version 1.0.0` |
-| Stylesheet rules scoped to the site, so nothing lands on the portal's pages | `.status-*` selectors in `app/styles/status.css` |
+| Tailwind utilities without the preflight, so the portal's base styles the document and nothing here lands on its pages | `app/styles/status.css` |
+| A class chosen from data through a lookup the build lists every value of | `tone` in `app/routes/page.tsx`, the `bg-emerald-100` and `bg-rose-100` lines of `app/generated/tailwind.classes` |
 
 ## Run it alone
 

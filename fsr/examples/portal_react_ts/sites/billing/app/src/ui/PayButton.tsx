@@ -5,10 +5,10 @@ import { actions } from "@generated/client";
 export function PayButton({ id, status }: { id: bigint | number; status: string }) {
   const [now, setNow] = useState(status);
   const [busy, setBusy] = useState(false);
-  if (now === "paid") return <p className="paid">Paid.</p>;
+  if (now === "paid") return <p className="font-semibold text-emerald-600">Paid.</p>;
   return (
     <button
-      className="pay"
+      className="cursor-pointer rounded-md bg-indigo-600 px-3.5 py-1.5 text-white hover:bg-indigo-700 disabled:opacity-60"
       disabled={busy}
       onClick={async () => {
         setBusy(true);

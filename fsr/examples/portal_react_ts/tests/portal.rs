@@ -97,7 +97,7 @@ async fn the_portal_mounts_billing_under_its_root_layout() {
   assert_eq!(response.headers().get("x-portal").unwrap(), "billing", "the portal's middleware saw the site");
   assert_eq!(response.headers().get("x-billing").unwrap(), "invoices", "the site's middleware ran after it");
   let html = body_of(response).await;
-  assert!(html.contains("class=\"brand\"") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
+  assert!(html.contains(">Acme</a>") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
   assert!(html.contains("Northwind") && html.contains("<!--sf-g:billing:routes/page.tsx#default-->") && html.contains("data-sf-module=\"billing:routes/layout.tsx#default\""), "{html}");
   assert!(html.contains("href=\"/billing/static/js/app/styles/billing.css\""), "the site's stylesheet rides under its prefix: {html}");
 
@@ -186,7 +186,7 @@ async fn the_first_boot_fetches_status_from_the_store() {
   let response = portal.handle(Request::get("/status").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
   let html = body_of(response).await;
-  assert!(html.contains("<h1>Status</h1>") && html.contains("portal-main"), "under the portal's layout: {html}");
+  assert!(html.contains("<h1>Status</h1>") && html.contains("<main class=\"mx-auto"), "under the portal's layout: {html}");
   assert!(html.contains("1 of 4 systems needs attention."), "{html}");
 }
 
@@ -202,7 +202,7 @@ async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
   assert_eq!(response.status(), StatusCode::OK);
   let html = body_of(response).await;
   assert!(html.contains("href=\"/blog/post/why-a-plan-file\"") && html.contains("href=\"/blog/static/js/app/styles/blog.css\""), "{html}");
-  assert!(html.contains("portal-main"), "under the portal's layout: {html}");
+  assert!(html.contains("<main class=\"mx-auto"), "under the portal's layout: {html}");
 
   let response = portal.handle(Request::get("/blog/post/static-under-a-shell").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
@@ -246,7 +246,7 @@ async fn the_portal_renders_the_reports_site_from_its_own_process() {
   assert_eq!(response.status(), StatusCode::OK);
   assert_eq!(response.headers().get("x-portal").unwrap(), "reports", "the portal's middleware saw the site");
   let html = body_of(response).await;
-  assert!(html.contains("class=\"brand\"") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
+  assert!(html.contains(">Acme</a>") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
   assert!(html.contains("<title>Reports</title>"), "the site's title: {html}");
   assert!(html.contains("Revenue by region") && html.contains("data-sf-module=\"reports:routes/layout.tsx#default\""), "rendered by the other process from its own client: {html}");
   assert!(html.contains("href=\"/reports/static/js/app/styles/reports.css\"") && html.contains("src=\"/reports/static/js/app/src/main.js\""), "the site's stylesheet and entry in the portal's head: {html}");
@@ -254,11 +254,12 @@ async fn the_portal_renders_the_reports_site_from_its_own_process() {
 
   let css = portal.handle(Request::get("/reports/static/js/app/styles/reports.css").body(Bytes::new()).unwrap()).await;
   assert_eq!(css.status(), StatusCode::OK);
-  assert!(body_of(css).await.contains(".reports-nav"), "the site's static file forwarded from its process");
+  assert!(body_of(css).await.contains(".figures"), "the site's static file forwarded from its process");
 
   let html = body_of(portal.handle(Request::get("/reports/1").body(Bytes::new()).unwrap()).await).await;
   assert!(html.contains("Adding up the rows") && html.contains("<template data-sf-fill="), "the deferred segment streams through: {html}");
   assert!(html.contains("21100.00"), "{html}");
+  assert_eq!(html.matches("href=\"/reports/static/js/app/styles/reports.css\"").count(), 1, "a page after the first links the site's stylesheet once: {html}");
 
   let payload = body_of(portal.handle(Request::get("/reports?__payload").body(Bytes::new()).unwrap()).await).await;
   assert!(payload.contains("E \"/reports/static/js/app/src/main.js\"") && payload.contains("\"k\":\"reports:routes/layout.tsx#default\""), "a navigation into the site carries its entry and keys: {payload}");
@@ -279,7 +280,7 @@ async fn the_portal_degrades_a_reports_page_while_the_process_is_down() {
   let response = portal.handle(Request::get("/reports").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
   let html = body_of(response).await;
-  assert!(html.contains("class=\"brand\"") && html.contains("data-sf-error"), "the portal's layout around the error: {html}");
+  assert!(html.contains(">Acme</a>") && html.contains("data-sf-error"), "the portal's layout around the error: {html}");
   let response = portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK, "the other sites are untouched");
 }

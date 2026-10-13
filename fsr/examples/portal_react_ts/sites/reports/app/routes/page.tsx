@@ -1,27 +1,31 @@
 import type { RootProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-client/react";
 
+const cell = "border-b border-slate-700 px-1.5 py-2";
+
 export default function ReportsPage({ reports }: RootProps) {
   return (
-    <div className="page reports-index">
+    <div>
       <h1>Reports</h1>
-      <p className="lede">Read from a metrics service only this process can reach. The portal renders this page inside its own document.</p>
-      <table className="report-table">
+      <p className="mb-4 text-slate-400">Read from a metrics service only this process can reach. The portal renders this page inside its own document.</p>
+      <table className="w-full border-collapse text-left">
         <thead>
           <tr>
-            <th>Report</th>
-            <th>Period</th>
-            <th>Total</th>
+            <th className={cell}>Report</th>
+            <th className={cell}>Period</th>
+            <th className={`${cell} figures`}>Total</th>
           </tr>
         </thead>
         <tbody>
           {reports.map((report) => (
             <tr key={String(report.id)}>
-              <td>
-                <Link href={`/reports/${report.id}`}>{report.name}</Link>
+              <td className={cell}>
+                <Link href={`/reports/${report.id}`} className="text-sky-400 hover:underline">
+                  {report.name}
+                </Link>
               </td>
-              <td>{report.period}</td>
-              <td className="total">{report.total.toFixed(2)}</td>
+              <td className={cell}>{report.period}</td>
+              <td className={`${cell} figures`}>{report.total.toFixed(2)}</td>
             </tr>
           ))}
         </tbody>
