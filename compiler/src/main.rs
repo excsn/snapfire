@@ -8,6 +8,7 @@ mod graph;
 mod importmap;
 mod plugin;
 mod sources;
+mod tailwind;
 mod transforms;
 mod typecheck;
 mod watch;
@@ -88,6 +89,11 @@ struct Args {
   #[arg(long)]
   asset_map: Option<PathBuf>,
 
+  /// The classes a stylesheet that uses Tailwind generates utilities for, relative to root: one
+  /// class per line, optionally a tab and the modules using it
+  #[arg(long)]
+  tailwind_classes: Option<PathBuf>,
+
   #[arg(long)]
   typecheck: bool,
 
@@ -130,6 +136,7 @@ fn main() -> Result<()> {
     import_map: args.import_map,
     overlay: args.overlay,
     asset_map: args.asset_map,
+    tailwind_classes: args.tailwind_classes,
     driven: args.driven,
   };
 
@@ -141,6 +148,7 @@ fn main() -> Result<()> {
   let outcome = build::full(&options, true)?;
   if !args.driven {
     outcome.report_misses(&options);
+    outcome.report_unknown_classes();
   }
 
   if args.typecheck && !outcome.failed() {

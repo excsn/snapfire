@@ -108,6 +108,7 @@ fn settle(opts: &Options, build: &mut Build, lines: &mut impl Iterator<Item = st
     }
   }
   build.report_misses(opts);
+  build.report_unknown_classes();
   println!("{}", if build.failed() { FAILED } else { REBUILT });
   std::io::stdout().flush()?;
   Ok(true)

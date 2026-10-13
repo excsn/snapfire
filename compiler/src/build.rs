@@ -47,6 +47,8 @@ pub struct Options {
   pub asset_map: Option<PathBuf>,
   /// The driver owns the framework plugins and the build asks it for each, under `--driven`.
   pub driven: bool,
+  /// The classes file a stylesheet using Tailwind reads, relative to the root.
+  pub tailwind_classes: Option<PathBuf>,
 }
 
 /// Everything a rebuild needs to reuse without re-reading the config.
@@ -79,6 +81,14 @@ pub struct Build {
   /// The modules and stylesheets that named each asset, so a changed image
   /// recompiles what points at it.
   asset_importers: HashMap<PathBuf, BTreeSet<PathBuf>>,
+  /// The stylesheets that read each file while Tailwind expanded them: the classes file and
+  /// every stylesheet they import.
+  style_readers: HashMap<PathBuf, BTreeSet<PathBuf>>,
+  /// For each stylesheet that uses Tailwind, the listed classes that are neither utilities nor
+  /// defined in it, with the modules using each.
+  tailwind_unknown: BTreeMap<PathBuf, Vec<(String, String)>>,
+  /// For each stylesheet that does not, the classes its selectors name.
+  plain_classes: BTreeMap<PathBuf, BTreeSet<String>>,
   surfaces: HashMap<PathBuf, Surface>,
   pub emitted: usize,
   pub has_error: bool,
@@ -279,6 +289,9 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     assets: BTreeMap::new(),
     misses: BTreeMap::new(),
     asset_importers: HashMap::new(),
+    style_readers: HashMap::new(),
+    tailwind_unknown: BTreeMap::new(),
+    plain_classes: BTreeMap::new(),
     surfaces: HashMap::new(),
     emitted: 0,
     has_error: false,
@@ -374,6 +387,22 @@ impl Build {
 
   /// Prints every source still waiting on an asset the map does not define,
   /// once a build has settled and nothing is going to define it.
+  /// The listed classes no stylesheet knows: not a utility in any stylesheet that uses
+  /// Tailwind and not named by a selector in any stylesheet.
+  pub fn report_unknown_classes(&self) {
+    let mut sheets = self.tailwind_unknown.values();
+    let Some(first) = sheets.next() else { return };
+    let rest: Vec<BTreeSet<&str>> = sheets.map(|u| u.iter().map(|(c, _)| c.as_str()).collect()).collect();
+    for (class, modules) in first {
+      if rest.iter().all(|other| other.contains(class.as_str())) && !self.plain_classes.values().any(|defined| defined.contains(class)) {
+        match modules.is_empty() {
+          true => eprintln!("⚠️  `{class}` is not a Tailwind utility and no stylesheet defines it"),
+          false => eprintln!("⚠️  `{class}` in {modules} is not a Tailwind utility and no stylesheet defines it"),
+        }
+      }
+    }
+  }
+
   pub fn report_misses(&self, opts: &Options) {
     for (source, assets) in &self.misses {
       let listed: Vec<String> = assets.iter().map(|a| display(a, &opts.root)).collect();
@@ -439,6 +468,10 @@ pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
       }
     }
   }
+  let readers: Vec<PathBuf> = build.style_readers.get(path).into_iter().flatten().filter(|r| *r != path).cloned().collect();
+  for reader in readers {
+    refresh(opts, build, &reader);
+  }
   let Some(jobs) = jobs_for(opts, build, path, false) else {
     let importers: Vec<PathBuf> = build.asset_importers.get(path).into_iter().flatten().cloned().collect();
     for importer in importers {
@@ -500,6 +533,11 @@ struct JobResult {
   surface: Surface,
   dest: PathBuf,
   written: bool,
+  /// The files Tailwind read while expanding a stylesheet, besides the stylesheet.
+  reads: Vec<PathBuf>,
+  warnings: Vec<String>,
+  unknown: Option<Vec<(String, String)>>,
+  plain: Option<BTreeSet<String>>,
 }
 
 /// What one emitted module offers importers, with `export *` left as edges to
@@ -929,6 +967,35 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
 }
 
 fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) -> JobResult {
+  let mut expanded = None;
+  let mut plain = None;
+  if matches!(job.asset, Asset::Style)
+    && matches!(job.supplied, Supplied::File)
+    && let Ok(content) = fs::read_to_string(&job.source)
+  {
+    if crate::tailwind::uses_tailwind(&content) {
+      let classes = opts.tailwind_classes.as_ref().map(|c| opts.root.join(c));
+      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), &display(&job.source, &opts.root)));
+    } else if job.emit.minify().is_none() {
+      plain = Some(crate::tailwind::defined_classes(&content).into_iter().map(str::to_owned).collect());
+    }
+  }
+  let primary = job.emit.minify().is_none();
+  let (style, reads, warnings, unknown) = match expanded {
+    Some(e) if primary => (Some(e.css), e.reads, e.warnings, Some(e.unknown)),
+    Some(e) => (Some(e.css), e.reads, Vec::new(), None),
+    None => (None, Vec::new(), Vec::new(), None),
+  };
+  let mut result = run_job(compiler, opts, map_options, job, style);
+  result.reads = reads;
+  result.warnings = warnings;
+  result.unknown = unknown;
+  result.plain = plain;
+  result
+}
+
+/// `run` with a stylesheet's text already expanded by Tailwind, when it uses Tailwind.
+fn run_job(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job, style: Option<Result<String, String>>) -> JobResult {
   let map = MapRequest {
     options: map_options,
     source_name: &job.source_name,
@@ -979,7 +1046,10 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
         ),
       )
     }
-    (emit, Asset::Style) => ("CSS", compiler.compile_css(&job.source, emit.minify().is_some(), map)),
+    (emit, Asset::Style) => match style {
+      Some(expanded) => ("CSS", expanded.map_err(|e| anyhow::anyhow!(e)).and_then(|css| compiler.compile_style(&job.source, css, emit.minify().is_some(), map))),
+      None => ("CSS", compiler.compile_css(&job.source, emit.minify().is_some(), map)),
+    },
     // `plugin_jobs` rewrites a plugin source into the script and style jobs
     // above, so the kind itself never reaches here.
     (_, Asset::Plugin { ext }) => unreachable!("a .{ext} job kept its plugin asset kind"),
@@ -1004,6 +1074,10 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
         surface: Surface::default(),
         dest: job.dest.clone(),
         written: false,
+        reads: Vec::new(),
+        warnings: Vec::new(),
+        unknown: None,
+        plain: None,
       };
     }
   };
@@ -1024,6 +1098,10 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       surface: Surface::default(),
       dest: job.dest.clone(),
       written: false,
+      reads: Vec::new(),
+      warnings: Vec::new(),
+      unknown: None,
+      plain: None,
     };
   }
 
@@ -1057,6 +1135,10 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       surface: surface.clone(),
       dest: job.dest.clone(),
       written: true,
+      reads: Vec::new(),
+      warnings: Vec::new(),
+      unknown: None,
+      plain: None,
     },
     Err(e) => JobResult {
       source: display(&job.source, &opts.root),
@@ -1072,6 +1154,10 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) 
       surface: surface.clone(),
       dest: job.dest.clone(),
       written: false,
+      reads: Vec::new(),
+      warnings: Vec::new(),
+      unknown: None,
+      plain: None,
     },
   }
 }
@@ -1104,6 +1190,18 @@ fn place_assets(compiler: &Compiler, opts: &Options, emitted: Vec<Emitted>) -> (
 fn report(build: &mut Build, result: JobResult, referenced: &mut Vec<PathBuf>) {
   println!("{}", result.log);
   referenced.extend(result.referenced);
+  for read in &result.reads {
+    build.style_readers.entry(read.clone()).or_default().insert(result.source_path.clone());
+  }
+  for warning in &result.warnings {
+    eprintln!("⚠️  {warning}");
+  }
+  if let Some(unknown) = result.unknown {
+    build.tailwind_unknown.insert(result.source_path.clone(), unknown);
+  }
+  if let Some(plain) = result.plain {
+    build.plain_classes.insert(result.source_path.clone(), plain);
+  }
   // A source held back for the map was not written and offers nothing yet:
   // it is neither a node in the graph nor a surface to check an importer
   // against until the driver defines what it named and it is compiled again.

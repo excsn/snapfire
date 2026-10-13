@@ -3757,6 +3757,7 @@ dependencies = [
  "serde_json",
  "snapfire_compiler_wire",
  "snapfire_media",
+ "snapfire_tailwind",
  "snapfire_vue",
  "swc_core",
  "tempfile",

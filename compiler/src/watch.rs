@@ -72,6 +72,8 @@ pub fn run(opts: &Options, mut build: Build) -> Result<()> {
     }
 
     build.report_misses(opts);
+
+    build.report_unknown_classes();
     if build.failed() {
       println!("   waiting for changes");
     }
