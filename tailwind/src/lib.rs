@@ -197,6 +197,14 @@ impl Compiler {
     parsed.first().map(|c| candidate::print_candidate(&self.ds, c))
   }
 
+  /// Every candidate a build was given that is not a utility, a variant of one or a theme
+  /// variable, sorted.
+  pub fn invalid_candidates(&self) -> Vec<String> {
+    let mut invalid: Vec<String> = self.ds.invalid_candidates.borrow().iter().cloned().collect();
+    invalid.sort();
+    invalid
+  }
+
   /// The warnings Tailwind would print to the console, in order.
   pub fn warnings(&self) -> Vec<String> {
     self.ds.warnings.borrow().clone()
