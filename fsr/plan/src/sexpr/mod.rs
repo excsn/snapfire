@@ -61,6 +61,11 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
     rest.extend(opt_form("source", &entry.source));
     rest.push(form("size", vec![sym(entry.width.to_string()), sym(entry.height.to_string())]));
     rest.push(form("type", vec![sym(entry.content_type.clone())]));
+    rest.push(form("page", vec![sym(entry.page.clone()), sym(entry.card.clone()), sym(entry.hash.clone())]));
+    if let Some(alt) = &entry.alt {
+      rest.push(form("alt", vec![Sx::Str(alt.clone())]));
+    }
+    rest.extend(body_form("images", &entry.images));
     out.push(form("image", rest));
   }
   for entry in &manifest.clients {
@@ -242,7 +247,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         if items.len() < 3 {
           return Err(err("an image is `(image pattern module (source id) (size w h) (type mime))`"));
         }
-        let mut entry = crate::ImageEntry { pattern: as_sym(&items[1])?, module: as_sym(&items[2])?, source: None, width: 0, height: 0, content_type: String::new() };
+        let mut entry = crate::ImageEntry { pattern: as_sym(&items[1])?, module: as_sym(&items[2])?, source: None, width: 0, height: 0, content_type: String::new(), page: String::new(), card: String::new(), hash: String::new(), alt: None, images: None };
         for (name, values) in sections(items, 3)? {
           match (name.as_str(), values.as_slice()) {
             ("source", [id]) => entry.source = Some(as_sym(id)?),
@@ -252,6 +257,13 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
               entry.height = side(h)?;
             }
             ("type", [mime]) => entry.content_type = as_sym(mime)?,
+            ("page", [module, card, hash]) => {
+              entry.page = as_sym(module)?;
+              entry.card = as_sym(card)?;
+              entry.hash = as_sym(hash)?;
+            }
+            ("alt", [alt]) => entry.alt = Some(as_sym(alt)?),
+            ("images", body) => entry.images = Some(body.iter().map(snapfire_fsr_ir::sexpr::stmt_from_sx).collect::<Res<Vec<_>>>()?),
             (other, _) => return Err(err(format!("`{other}` is not a section of an image"))),
           }
         }

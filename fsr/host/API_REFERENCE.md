@@ -320,10 +320,10 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 One `[fonts.<key>]`. Every field is optional, though a key carries at least one, since an empty table is not read.
 
-* `pub struct FontEntry { pub family: Option<String>, pub files: Vec<String>, pub fallback: Option<String>, pub display: Option<String>, pub preload: Option<bool>, pub remote: Option<String>, pub variable: Option<String> }`, `#[non_exhaustive]`.
+* `pub struct FontEntry { pub family: Option<String>, pub files: Vec<String>, pub fallback: Option<String>, pub display: Option<String>, pub preload: Option<bool>, pub remote: Option<String>, pub variable: Option<String>, pub scripts: Vec<String> }`, `#[non_exhaustive]`.
 * `family` names the family when the files' tables are not to be trusted or `remote` carries no file to read; `files` names the files under `[dirs] fonts` the key covers, else every file whose family matches.
 * `fallback` is the system face the fallback is sized against, one `snapfire_fsr_assets::font::fallbacks` names, `Arial` absent; `display` is `font-display`, `swap` absent; `preload` is whether the faces are preloaded, the regular weight only when absent.
-* `remote` is a provider's own stylesheet URL, which the host links and preconnects to; it needs `family` and excludes `files`. `variable` is the CSS variable the family is defined as, which must start with `--`; `--font-<key>` absent.
+* `remote` is a provider's own stylesheet URL, which the host links and preconnects to; it needs `family` and excludes `files`. `variable` is the CSS variable the family is defined as, which must start with `--`; `--font-<key>` absent. `scripts` names the Unicode scripts a generated card image draws with these faces before any other; a name Unicode does not have refuses the boot of a host with card images.
 
 ### parse_duration
 

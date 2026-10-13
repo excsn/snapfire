@@ -63,7 +63,7 @@ impl HeadEl {
   /// carries several icons under one `rel`, several stylesheets under one
   /// `media` and one `alternate` per language; a resource rel is qualified
   /// by its href as well.
-  fn attr(&self, name: &str) -> Option<&str> {
+  pub(crate) fn attr(&self, name: &str) -> Option<&str> {
     self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
   }
 
@@ -165,13 +165,29 @@ impl Meta {
     if inner.description.is_some() {
       self.description = inner.description;
     }
+    let mut added: Vec<(String, String)> = Vec::new();
     for element in inner.head {
-      match self.head.iter().position(|held| held.identity() == element.identity()) {
-        Some(at) => self.head[at] = element,
-        None => self.head.push(element),
+      let identity = element.identity();
+      match self.head.iter().position(|held| held.identity() == identity) {
+        Some(_) if added.contains(&identity) => self.head.push(element),
+        Some(at) => {
+          self.head[at] = element;
+          added.push(identity);
+        }
+        None => {
+          self.head.push(element);
+          added.push(identity);
+        }
       }
     }
   }
+}
+
+/// The head rows a module's card images list at request time: the field
+/// they are, `og:image` or `twitter:image`, and one group of rows per image.
+/// They replace every row of that field the page already carries.
+pub trait HeadRows: Send + Sync {
+  fn rows(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<(String, Vec<HeadEl>), LoadError>>;
 }
 
 /// Computes a segment's `Meta` from the data its source loaded. Registered

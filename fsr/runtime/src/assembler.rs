@@ -97,6 +97,8 @@ pub struct Runtime {
   /// By module id: the head elements a page rendering that module carries,
   /// which the build settled, a priority image's preload among them.
   pub heads: HashMap<String, Vec<crate::meta::HeadEl>>,
+  /// By module id: the head rows a module's listed card images make per request.
+  pub listed: HashMap<String, Vec<Arc<dyn crate::meta::HeadRows>>>,
   /// By data source id: what a segment seeds the store with from its data.
   pub stores: HashMap<String, Arc<dyn Seeds>>,
   /// What each subtree reads of the request, by its shape. A subtree with no
@@ -118,6 +120,7 @@ pub struct RuntimeBuilder {
   loads: Arc<dyn LoadCache>,
   metas: HashMap<String, Arc<dyn Metadata>>,
   heads: HashMap<String, Vec<crate::meta::HeadEl>>,
+  listed: HashMap<String, Vec<Arc<dyn crate::meta::HeadRows>>>,
   stores: HashMap<String, Arc<dyn Seeds>>,
   reads: Reads,
   slot_order: Vec<String>,
@@ -180,6 +183,11 @@ impl RuntimeBuilder {
   }
 
   /// The head elements a module asks for, by module id.
+  pub fn listed(mut self, module: impl Into<String>, rows: Arc<dyn crate::meta::HeadRows>) -> Self {
+    self.listed.entry(module.into()).or_default().push(rows);
+    self
+  }
+
   pub fn heads(mut self, heads: HashMap<String, Vec<crate::meta::HeadEl>>) -> Self {
     self.heads = heads;
     self
@@ -208,6 +216,7 @@ impl RuntimeBuilder {
       loads: self.loads,
       metas: self.metas,
       heads: self.heads,
+      listed: self.listed,
       stores: self.stores,
       reads: self.reads,
       slot_order: self.slot_order,
@@ -229,6 +238,7 @@ impl Runtime {
       loads: Arc::new(NoLoadCache),
       metas: HashMap::new(),
       heads: HashMap::new(),
+      listed: HashMap::new(),
       stores: HashMap::new(),
       reads: Reads::new(),
       slot_order: Vec::new(),
@@ -803,17 +813,33 @@ impl Session {
       }
     }
     if !self.runtime.heads.is_empty() {
-      let mut rows = Vec::new();
-      module_heads(&self.runtime.heads, plan, &mut rows);
+      let mut groups = Vec::new();
+      module_heads(&self.runtime.heads, plan, &mut groups);
       let path = self.ctx.path.trim_end_matches('/');
-      for row in &mut rows {
-        for (_, value) in row.attrs.iter_mut() {
-          if value.contains(crate::meta::PATH_MARK) {
-            *value = value.replace(crate::meta::PATH_MARK, path);
+      for mut rows in groups {
+        for row in &mut rows {
+          for (_, value) in row.attrs.iter_mut() {
+            if value.contains(crate::meta::PATH_MARK) {
+              *value = value.replace(crate::meta::PATH_MARK, path);
+            }
           }
         }
+        meta.merge(Meta { head: rows, ..Meta::default() });
       }
-      meta.merge(Meta { head: rows, ..Meta::default() });
+    }
+    if !self.runtime.listed.is_empty() {
+      let mut listers = Vec::new();
+      listed_heads(&self.runtime.listed, plan, &mut listers);
+      for lister in listers {
+        match lister.rows(&self.ctx).await {
+          Ok((field, rows)) => {
+            let within = format!("{field}:");
+            meta.head.retain(|el| !el.attr("property").or_else(|| el.attr("name")).is_some_and(|name| name == field || name.starts_with(&within)));
+            meta.head.extend(rows);
+          }
+          Err(e) => tracing::warn!(target: "fsr::load", error = %e, "a card image list failed"),
+        }
+      }
     }
     meta
   }
@@ -1294,10 +1320,21 @@ fn page_of(plan: &PlanNode) -> &PlanNode {
   node
 }
 
-/// The head rows of every module in the subtree, outermost first.
-fn module_heads(heads: &HashMap<String, Vec<crate::meta::HeadEl>>, plan: &PlanNode, out: &mut Vec<crate::meta::HeadEl>) {
-  if let Some(rows) = heads.get(&plan.module.to_string()) {
+/// The listers of every module in the subtree, outermost first.
+fn listed_heads(listed: &HashMap<String, Vec<Arc<dyn crate::meta::HeadRows>>>, plan: &PlanNode, out: &mut Vec<Arc<dyn crate::meta::HeadRows>>) {
+  if let Some(rows) = listed.get(&plan.module.to_string()) {
     out.extend(rows.iter().cloned());
+  }
+  for (_, child) in &plan.children {
+    listed_heads(listed, child, out);
+  }
+}
+
+/// The head rows of every module in the subtree, a group per module,
+/// outermost first, so a nearer module's row replaces an outer one's.
+fn module_heads(heads: &HashMap<String, Vec<crate::meta::HeadEl>>, plan: &PlanNode, out: &mut Vec<Vec<crate::meta::HeadEl>>) {
+  if let Some(rows) = heads.get(&plan.module.to_string()) {
+    out.push(rows.clone());
   }
   for (_, child) in &plan.children {
     module_heads(heads, child, out);

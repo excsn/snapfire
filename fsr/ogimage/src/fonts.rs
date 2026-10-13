@@ -312,6 +312,18 @@ mod tests {
   }
 
   #[test]
+  fn a_face_added_for_a_script_draws_that_scripts_text_before_the_other_faces() {
+    let fraunces = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../cli/tests/fixtures/Fraunces-vietnamese.woff2")).unwrap();
+    let mut fonts = Fonts::new();
+    fonts.add(INTER_REGULAR.to_vec()).unwrap();
+    fonts.add_for_scripts(fraunces, &["Latin"]).unwrap();
+    let faces = fonts.open();
+    let family = |c| faces.list[faces.select(&[], 400, false, c).unwrap()].meta.family.clone();
+    assert_eq!(family('Ơ'), "Fraunces", "the face for Latin, though Inter was added first");
+    assert_eq!(faces.list[faces.select(&["Inter".into()], 400, false, 'a').unwrap()].meta.family, "Inter", "an element's own family comes first");
+  }
+
+  #[test]
   fn garbage_and_unknown_scripts_are_refused() {
     let mut fonts = Fonts::new();
     assert_eq!(fonts.add(vec![0u8; 64]), Err(FontError::NotAFont));

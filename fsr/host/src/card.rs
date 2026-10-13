@@ -31,14 +31,26 @@ impl Cards {
   /// Every face the build read under `[dirs] fonts`, in the order the
   /// manifest lists them. A face that does not read is skipped with a warning
   /// and the card falls back past it.
-  pub(crate) fn new(app: &Path, manifest: Option<&AssetsManifest>) -> Cards {
+  /// A `[fonts.<key>]` with `scripts` adds its faces as the ones for text in
+  /// those scripts; a script name Unicode does not have refuses the boot.
+  pub(crate) fn new(app: &Path, manifest: Option<&AssetsManifest>, scripts: &dyn Fn(&str) -> Vec<String>) -> Result<Cards, String> {
     let mut fonts = Fonts::new();
     let mut sources = HashMap::new();
     if let Some(manifest) = manifest {
       for face in &manifest.fonts.faces {
         let file = app.join(&face.source);
-        match std::fs::read(&file).map_err(|e| e.to_string()).and_then(|bytes| fonts.add(bytes).map_err(|e| e.to_string())) {
+        let names = scripts(&face.key);
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let bytes = match std::fs::read(&file) {
+          Ok(bytes) => bytes,
+          Err(why) => {
+            tracing::warn!(target: "fsr::card", file = %file.display(), %why, "a font is left out of card images");
+            continue;
+          }
+        };
+        match fonts.add_for_scripts(bytes, &names) {
           Ok(_) => {}
+          Err(e @ snapfire_fsr_ogimage::FontError::UnknownScript(_)) => return Err(format!("fonts.{}.scripts: {e}", face.key)),
           Err(why) => tracing::warn!(target: "fsr::card", file = %file.display(), %why, "a font is left out of card images"),
         }
       }
@@ -49,7 +61,7 @@ impl Cards {
         }
       }
     }
-    Cards { fonts: Arc::new(fonts), app: app.to_path_buf(), sources, images: Mutex::new(Images::new()), drawn: Mutex::new(HashMap::new()) }
+    Ok(Cards { fonts: Arc::new(fonts), app: app.to_path_buf(), sources, images: Mutex::new(Images::new()), drawn: Mutex::new(HashMap::new()) })
   }
 
   /// The images `card` names, each an image the build placed, read from its
@@ -100,27 +112,65 @@ fn image_keys(element: &Element, out: &mut Vec<String>) {
   }
 }
 
+/// Why an image was not drawn: the status it answers with and the reason.
+pub(crate) type Refused = (StatusCode, String);
+
+/// The card image file names a page's images sit under, beside its document.
+const STEMS: [&str; 2] = ["opengraph-image", "twitter-image"];
+
+fn sniffed(bytes: &[u8]) -> &'static str {
+  if bytes.starts_with(&[0x89, b'P', b'N', b'G']) { "image/png" } else { "image/jpeg" }
+}
+
 impl Host {
-  /// A generated card image: the page's loader runs for the params, the
-  /// image's component renders through the interpreter with that data as its
-  /// props, and the markup is drawn. A loader that answers not found is a
-  /// 404, any other failure a 500 with the reason logged.
+  /// A generated card image. Outside development a prerender's file for the
+  /// path answers when the directory is this build's; otherwise it is drawn.
   pub(crate) async fn card_image(&self, t: &Tables, entry: &snapfire_fsr_plan::ImageEntry, params: Params, path: &str, incoming: crate::edge::Incoming, locale: &Locale) -> Response<Body> {
-    let Some(cards) = &t.cards else {
-      return text_response(StatusCode::NOT_FOUND, "card images are not drawn by this host".to_owned());
-    };
+    let live = t.dev_bundle.is_some();
+    if !live {
+      if let Some(bytes) = prerendered_image(t, path, locale) {
+        let kind = sniffed(&bytes);
+        return image_response(kind, bytes, false);
+      }
+    }
+    match self.draw_card(t, entry, params, path, incoming, locale).await {
+      Ok((bytes, kind)) => image_response(&kind, bytes, live),
+      Err((status, why)) => text_response(status, why),
+    }
+  }
+
+  /// Draws a generated card image: the image's data loads for the params,
+  /// its component renders through the interpreter with that data as its
+  /// props, and the markup is drawn. A loader that answers not found refuses
+  /// with a 404, any other failure with a 500 and the reason logged.
+  pub(crate) async fn draw_card(&self, t: &Tables, entry: &snapfire_fsr_plan::ImageEntry, params: Params, path: &str, incoming: crate::edge::Incoming, locale: &Locale) -> Result<(Vec<u8>, String), Refused> {
+    let server = |why: String| (StatusCode::INTERNAL_SERVER_ERROR, why);
+    let cards = t.cards.as_ref().ok_or((StatusCode::NOT_FOUND, "card images are not drawn by this host".to_owned()))?;
+    let evaluator = t.app.lowered.as_ref().ok_or_else(|| server("the image's component was not lowered".to_owned()))?;
+    let mut params = params;
+    let listed_id = params.shift_remove(snapfire_fsr_plan::IMAGE_PARAM);
     let ctx = self.ctx(t, incoming, params.clone(), Params::new(), path, locale.clone());
-    let mut props = match &entry.source {
-      Some(id) => match t.app.runtime.sources.get(&snapfire_fsr_core::DataSourceId(id.clone())) {
-        Some(source) => match source.load(&ctx).await {
-          Ok(data) => data,
-          Err(e) if e.kind == FailureKind::NotFound => return text_response(StatusCode::NOT_FOUND, e.message),
-          Err(e) => {
-            tracing::warn!(target: "fsr::card", image = %entry.pattern, error = %e.message, "the page's loader failed");
-            return text_response(StatusCode::INTERNAL_SERVER_ERROR, format!("the image's data did not load: {}", e.message));
-          }
-        },
-        None => Default::default(),
+    let (width, height, content_type) = match &listed_id {
+      None => (entry.width, entry.height, entry.content_type.clone()),
+      Some(id) => {
+        let listed = snapfire_fsr::listed_images(evaluator.interpreter(), entry, &ctx).await.map_err(|why| {
+          tracing::warn!(target: "fsr::card", image = %entry.pattern, %why, "the image list failed");
+          server(format!("the image list failed: {why}"))
+        })?;
+        match listed.into_iter().find(|image| image.id == *id) {
+          Some(image) => (image.width, image.height, image.content_type),
+          None => return Err((StatusCode::NOT_FOUND, format!("`images` lists no image `{id}`"))),
+        }
+      }
+    };
+    let mut props = match entry.source.as_ref().and_then(|id| t.app.runtime.sources.get(&snapfire_fsr_core::DataSourceId(id.clone()))) {
+      Some(source) => match source.load(&ctx).await {
+        Ok(data) => data,
+        Err(e) if e.kind == FailureKind::NotFound => return Err((StatusCode::NOT_FOUND, e.message)),
+        Err(e) => {
+          tracing::warn!(target: "fsr::card", image = %entry.pattern, error = %e.message, "the image's loader failed");
+          return Err(server(format!("the image's data did not load: {}", e.message)));
+        }
       },
       None => Default::default(),
     };
@@ -132,41 +182,34 @@ impl Host {
     if !locale.tag.is_empty() {
       props.insert("locale".to_owned(), Value::str(locale.tag.clone()));
     }
+    if let Some(id) = &listed_id {
+      props.insert("id".to_owned(), Value::str(id.clone()));
+    }
 
     let key = format!("{path}\u{0}{}", snapfire_fsr_payload::value_to_json(&Value::Map(props.clone())));
     let live = t.dev_bundle.is_some();
     if !live {
       if let Some(bytes) = cards.drawn.lock().get(&key).cloned() {
-        return image_response(&entry.content_type, bytes.as_ref().clone(), live);
+        return Ok((bytes.as_ref().clone(), content_type));
       }
     }
-
-    let Some(evaluator) = &t.app.lowered else {
-      return text_response(StatusCode::INTERNAL_SERVER_ERROR, "the image's component was not lowered".to_owned());
-    };
     let components = evaluator.components();
-    let Some(component) = components.get(&entry.module).cloned() else {
-      return text_response(StatusCode::INTERNAL_SERVER_ERROR, format!("`{}` was not lowered", entry.module));
-    };
-    let html = match evaluator.interpreter().render_module(&entry.module, &component, &props, &components) {
-      Ok(rendered) => rendered.html,
-      Err(fail) => {
-        tracing::warn!(target: "fsr::card", image = %entry.pattern, error = %fail.message, "the image's component failed");
-        return text_response(StatusCode::INTERNAL_SERVER_ERROR, format!("the image's component failed: {}", fail.message));
-      }
-    };
-    let card = Card::new(entry.width, entry.height, parse(&html));
+    let component = components.get(&entry.module).cloned().ok_or_else(|| server(format!("`{}` was not lowered", entry.module)))?;
+    let html = evaluator.interpreter().render_module(&entry.module, &component, &props, &components).map_err(|fail| {
+      tracing::warn!(target: "fsr::card", image = %entry.pattern, error = %fail.message, "the image's component failed");
+      server(format!("the image's component failed: {}", fail.message))
+    })?.html;
+    let card = Card::new(width, height, parse(&html));
     let images = cards.images_for(&card);
     let fonts = cards.fonts.clone();
-    let format = if entry.content_type == "image/jpeg" { Format::Jpeg { quality: 85 } } else { Format::Png };
-    let drawn = tokio::task::spawn_blocking(move || snapfire_fsr_ogimage::render(&card, &fonts, &images, format)).await;
-    let rendered = match drawn {
+    let format = if content_type == "image/jpeg" { Format::Jpeg { quality: 85 } } else { Format::Png };
+    let rendered = match tokio::task::spawn_blocking(move || snapfire_fsr_ogimage::render(&card, &fonts, &images, format)).await {
       Ok(Ok(rendered)) => rendered,
       Ok(Err(e)) => {
         tracing::warn!(target: "fsr::card", image = %entry.pattern, error = %e, "the image did not draw");
-        return text_response(StatusCode::INTERNAL_SERVER_ERROR, format!("the image did not draw: {e}"));
+        return Err(server(format!("the image did not draw: {e}")));
       }
-      Err(e) => return text_response(StatusCode::INTERNAL_SERVER_ERROR, format!("the image did not draw: {e}")),
+      Err(e) => return Err(server(format!("the image did not draw: {e}"))),
     };
     for warning in &rendered.warnings {
       tracing::warn!(target: "fsr::card", image = %entry.pattern, %warning, "card image");
@@ -178,8 +221,68 @@ impl Host {
       }
       drawn.insert(key, Arc::new(rendered.bytes.clone()));
     }
-    image_response(&entry.content_type, rendered.bytes, live)
+    Ok((rendered.bytes, content_type))
   }
+
+  /// Writes the card images of the page at `path` into `dir`, the directory
+  /// its document went to: `<stem>.png` or `.jpg`, or `<stem>/<id>` per
+  /// image a module lists. An image that fails to draw is logged and its
+  /// file from the last run kept in `held`.
+  pub(crate) async fn prerender_images(&self, t: &Tables, path: &str, dir: &std::path::Path, locale: &Locale, written: &mut Vec<(String, std::path::PathBuf)>, held: &mut Vec<std::path::PathBuf>) -> Result<(), crate::HostError> {
+    if t.cards.is_none() {
+      return Ok(());
+    }
+    let base = path.trim_end_matches('/');
+    for stem in STEMS {
+      let mut found: Vec<(String, std::path::PathBuf)> = Vec::new();
+      for ext in ["png", "jpg"] {
+        let url = format!("{base}/{stem}.{ext}");
+        if t.app.images.match_path(&url).is_some() {
+          found.push((url, dir.join(format!("{stem}.{ext}"))));
+        }
+      }
+      let probe = format!("{base}/{stem}/_");
+      if let Some((entry, params)) = t.app.images.match_path(&probe).filter(|(entry, _)| entry.images.is_some()) {
+        let mut params = params;
+        params.shift_remove(snapfire_fsr_plan::IMAGE_PARAM);
+        let ctx = self.ctx(t, crate::edge::Incoming::anonymous(snapfire_fsr_runtime::SessionCell::default()), params, Params::new(), path, locale.clone());
+        let evaluator = t.app.lowered.as_ref().expect("an image's component is lowered");
+        match snapfire_fsr::listed_images(evaluator.interpreter(), entry, &ctx).await {
+          Ok(listed) => found.extend(listed.into_iter().map(|image| (format!("{base}/{stem}/{}", image.id), dir.join(stem).join(&image.id)))),
+          Err(why) => tracing::warn!(target: "fsr::host", path = %path, %why, "prerender: the image list failed, so no image under it is written"),
+        }
+      }
+      for (url, file) in found {
+        let Some((entry, params)) = t.app.images.match_path(&url) else { continue };
+        let incoming = crate::edge::Incoming::anonymous(snapfire_fsr_runtime::SessionCell::default());
+        match self.draw_card(t, entry, params, &url, incoming, locale).await {
+          Ok((bytes, _)) => {
+            if let Some(parent) = file.parent() {
+              std::fs::create_dir_all(parent).map_err(|e| crate::HostError::Io(parent.to_path_buf(), e))?;
+            }
+            crate::prerender::write_whole(&file, &bytes)?;
+            written.push((url, file));
+          }
+          Err((_, why)) => {
+            tracing::warn!(target: "fsr::host", image = %url, %why, "prerender: the image did not draw, so no new file is written for it and the last run's stays");
+            held.push(file);
+          }
+        }
+      }
+    }
+    Ok(())
+  }
+}
+
+/// A prerender's file for a card image's path, when the directory is this
+/// build's.
+fn prerendered_image(t: &Tables, path: &str, locale: &Locale) -> Option<Vec<u8>> {
+  let dir = t.prerendered.as_ref()?;
+  if !t.prerender_current.load(std::sync::atomic::Ordering::Acquire) {
+    return None;
+  }
+  let root = if locale.is_default { dir.clone() } else { dir.join(&locale.tag) };
+  std::fs::read(root.join(path.trim_matches('/'))).ok()
 }
 
 fn image_response(content_type: &str, bytes: Vec<u8>, live: bool) -> Response<Body> {

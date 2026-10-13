@@ -194,7 +194,7 @@ pub(crate) fn read_written(out: &Path) -> Result<Vec<String>, HostError> {
 
 /// Writes `bytes` beside `file` and renames it into place, so a request
 /// reading the file while a prerender runs gets the old bytes or the new ones.
-fn write_whole(file: &Path, bytes: &[u8]) -> Result<(), HostError> {
+pub(crate) fn write_whole(file: &Path, bytes: &[u8]) -> Result<(), HostError> {
   let staged = file.with_file_name(format!(".{}.{}.part", file.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
   std::fs::write(&staged, bytes).map_err(|e| HostError::Io(staged.clone(), e))?;
   std::fs::rename(&staged, file).map_err(|e| HostError::Io(file.to_path_buf(), e))
@@ -326,6 +326,9 @@ impl Host {
             let file = dir.join(name);
             write_whole(&file, text.as_bytes())?;
             written.push((served.clone(), file));
+            if name == "index.html" {
+              self.prerender_images(&t, &path, &dir, &locale, &mut written, &mut held).await?;
+            }
           }
         }
       }

@@ -306,6 +306,11 @@ pub struct FontEntry {
   /// The CSS variable the family is defined as; absent, `--font-<key>`.
   #[serde(default)]
   pub variable: Option<String>,
+  /// The Unicode scripts a generated card image draws with these faces,
+  /// named as Unicode names them: `["Han", "Hiragana", "Katakana"]`. A face
+  /// with none is one of the others card text falls back through in order.
+  #[serde(default)]
+  pub scripts: Vec<String>,
 }
 
 /// `[sites]`: `root` is where `name@version` artifacts resolve, `poll` how

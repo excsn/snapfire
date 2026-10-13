@@ -337,6 +337,86 @@ impl Images {
   }
 }
 
+/// One image a card module's `images` lists.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ListedImage {
+  pub id: String,
+  pub alt: Option<String>,
+  pub width: u32,
+  pub height: u32,
+  pub content_type: String,
+}
+
+/// The images `entry`'s `images` body returns for `ctx`, each with the
+/// entry's size, type and alt where it names none of its own.
+pub async fn listed_images(interpreter: &Interpreter, entry: &snapfire_fsr_plan::ImageEntry, ctx: &RequestCtx) -> Result<Vec<ListedImage>, String> {
+  let Some(body) = &entry.images else { return Ok(Vec::new()) };
+  let outcome = interpreter.run(body, ctx, None).await.map_err(|fail| fail.message)?;
+  let snapfire_fsr_core::Value::Seq(items) = &outcome.value else {
+    return Err("`images` must return a list".to_owned());
+  };
+  let text = |v: Option<&snapfire_fsr_core::Value>| match v {
+    Some(snapfire_fsr_core::Value::Str(s)) => Some(s.to_string()),
+    Some(snapfire_fsr_core::Value::Int(n)) => Some(n.to_string()),
+    Some(snapfire_fsr_core::Value::F64(f)) if f.fract() == 0.0 => Some(format!("{f}")),
+    _ => None,
+  };
+  let side = |v: Option<&snapfire_fsr_core::Value>| match v {
+    Some(snapfire_fsr_core::Value::Int(n)) => u32::try_from(*n).ok(),
+    Some(snapfire_fsr_core::Value::F64(f)) if *f >= 1.0 && f.fract() == 0.0 => Some(*f as u32),
+    _ => None,
+  };
+  let mut out = Vec::with_capacity(items.len());
+  for item in items.iter() {
+    let snapfire_fsr_core::Value::Map(fields) = item else {
+      return Err("each entry of `images` is an object with an `id`".to_owned());
+    };
+    let id = text(fields.get("id")).filter(|id| !id.is_empty() && !id.contains('/')).ok_or("each entry of `images` has an `id`, a string or a number with no `/`")?;
+    let (width, height) = match fields.get("size") {
+      Some(snapfire_fsr_core::Value::Map(size)) => (side(size.get("width")).ok_or("`size.width` is a whole number")?, side(size.get("height")).ok_or("`size.height` is a whole number")?),
+      _ => (entry.width, entry.height),
+    };
+    let content_type = match text(fields.get("contentType")) {
+      Some(t) if t == "image/png" || t == "image/jpeg" => t,
+      Some(t) => return Err(format!("`contentType` is `{t}`; a generated image is `image/png` or `image/jpeg`")),
+      None => entry.content_type.clone(),
+    };
+    out.push(ListedImage { id, alt: text(fields.get("alt")).or_else(|| entry.alt.clone()), width, height, content_type });
+  }
+  Ok(out)
+}
+
+/// The head rows of a card module's listed images, one group per image.
+struct ListedImages {
+  entry: snapfire_fsr_plan::ImageEntry,
+  interpreter: Interpreter,
+}
+
+impl snapfire_fsr_runtime::HeadRows for ListedImages {
+  fn rows(&self, ctx: &RequestCtx) -> futures_util::future::BoxFuture<'static, Result<(String, Vec<snapfire_fsr_runtime::HeadEl>), LoadError>> {
+    let entry = self.entry.clone();
+    let interpreter = self.interpreter.clone();
+    let ctx = ctx.clone();
+    Box::pin(async move {
+      let listed = listed_images(&interpreter, &entry, &ctx).await.map_err(|message| LoadError::new(entry.module.clone(), message))?;
+      let (key, field, stem) = if entry.card == "twitter" { ("name", "twitter:image", "twitter-image") } else { ("property", "og:image", "opengraph-image") };
+      let path = ctx.path.trim_end_matches('/');
+      let row = |name: String, content: String| snapfire_fsr_runtime::HeadEl { tag: "meta".to_owned(), attrs: vec![(key.to_owned(), name), ("content".to_owned(), content)], children: None };
+      let mut rows = Vec::new();
+      for image in listed {
+        rows.push(row(field.to_owned(), format!("{path}/{stem}/{}?v={}", image.id, entry.hash)));
+        rows.push(row(format!("{field}:width"), image.width.to_string()));
+        rows.push(row(format!("{field}:height"), image.height.to_string()));
+        rows.push(row(format!("{field}:type"), image.content_type));
+        if let Some(alt) = image.alt {
+          rows.push(row(format!("{field}:alt"), alt));
+        }
+      }
+      Ok((field.to_owned(), rows))
+    })
+  }
+}
+
 struct FnHandler<F>(F);
 
 impl<F, Fut> ActionHandler for FnHandler<F>
@@ -1151,6 +1231,12 @@ impl AppBuilder {
     for (module, rows) in &self.lowered_heads {
       heads.entry(module.clone()).or_default().extend(rows.iter().map(|row| snapfire_fsr_runtime::HeadEl { tag: row.tag.clone(), attrs: row.attrs.clone(), children: None }));
     }
+    let mut listers: Vec<(String, Arc<dyn snapfire_fsr_runtime::HeadRows>)> = Vec::new();
+    for entry in &self.images {
+      if entry.images.is_some() {
+        listers.push((entry.page.clone(), Arc::new(ListedImages { entry: entry.clone(), interpreter: interpreter.clone() })));
+      }
+    }
     let mut runtime = Runtime::builder()
       .sources(self.sources)
       .evaluators(self.evaluators)
@@ -1183,6 +1269,9 @@ impl AppBuilder {
     }
     for (module, segment) in std::mem::take(&mut self.remotes) {
       runtime = runtime.remote(module, segment);
+    }
+    for (module, lister) in listers {
+      runtime = runtime.listed(module, lister);
     }
     for (name, meta) in std::mem::take(&mut self.lowered_metas) {
       if self.claimed.iter().any(|(claimed, owner)| *claimed == name && *owner == Owner::Lowered) {

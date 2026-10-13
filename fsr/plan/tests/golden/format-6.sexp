@@ -325,8 +325,28 @@
   routes/notice/[id]/opengraph-image.tsx#default
   (source notice.$id)
   (size 1200 630)
-  (type image/png))
-(image /twitter-image.jpg routes/twitter-image.tsx#default (size 800 418) (type image/jpeg))
+  (type image/png)
+  (page routes/notice/[id]/page.tsx#default og 1a2b3c4d)
+  (alt "A \"notice\""))
+(image /twitter-image.jpg
+  routes/twitter-image.tsx#default
+  (size 800 418)
+  (type image/jpeg)
+  (page routes/page.tsx#default twitter 5e6f7a8b)
+  (images
+    (let n $props)
+    (if ok ((ret "yes")))
+    (if ok ((ret "yes")) ((ret "no")))
+    (for-of row rows (do row))
+    (for-of row rows)
+    (ret out)
+    (guard missing NotFound "no such order")
+    (session-set cart ("items") next)
+    (session-set cart () next)
+    (session-del cart ("items"))
+    (session-del cart ())
+    (act "desk.save" next)
+    (do side)))
 (client routes/stars/page.tsx#default
   "src/ui/Stars.tsx:2:17"
   "`.slice()`, which is not a builtin"

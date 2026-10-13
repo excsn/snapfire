@@ -401,6 +401,22 @@ async fn a_card_image_is_drawn_for_the_shell_and_each_site_and_named_in_its_page
   }
   let missing = get("/blog/post/nowhere/opengraph-image.png", "*/*").await;
   assert_eq!(missing.status(), StatusCode::NOT_FOUND, "the post's loader answers not found for its image too");
+
+  for page in ["/blog", "/blog/tags"] {
+    let html = body_of(get(page, "text/html").await).await;
+    assert!(html.contains(&format!("<meta property=\"og:image\" content=\"http://127.0.0.1:8100{page}/opengraph-image.png?v=")), "the blog's root image covers {page}, the post's nearer one stays its own: {html}");
+    let image = get(Box::leak(format!("{page}/opengraph-image.png").into_boxed_str()), "*/*").await;
+    assert_eq!(image.status(), StatusCode::OK, "{page}: drawn from the image's own loader");
+  }
+
+  let html = body_of(get("/reports/1", "text/html").await).await;
+  for id in ["total", "rows"] {
+    assert!(html.contains(&format!("<meta name=\"twitter:image\" content=\"http://127.0.0.1:8100/reports/1/twitter-image/{id}?v=")), "each listed image named, through the head row its process sends: {html}");
+  }
+  let rows = get("/reports/1/twitter-image/rows", "*/*").await;
+  assert_eq!(rows.status(), StatusCode::OK);
+  let bytes = rows.into_body().collect().await.unwrap().to_bytes();
+  assert_eq!((u32::from_be_bytes(bytes[16..20].try_into().unwrap()), u32::from_be_bytes(bytes[20..24].try_into().unwrap())), (1200, 900), "the listed image's own size");
 }
 
 #[tokio::test]

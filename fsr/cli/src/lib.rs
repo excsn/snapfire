@@ -1114,7 +1114,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     }
     lower_into(&mut set, module, &mut report)?;
   }
-  let (generated_images, generated_heads) = generated_images(app, &routes, &mut set, &sources)?;
+  let (generated_images, generated_heads) = generated_images(app, &routes_dir, &routes, &mut set, &mut sources)?;
   for (module, component) in &set.components {
     for placed in server_islands(&component.render) {
       let Some((_, inner)) = set.components.iter().find(|(m, _)| *m == placed) else { continue };
@@ -3157,69 +3157,146 @@ fn is_generated_image(path: &Path) -> bool {
 /// the one Open Graph recommends.
 const GENERATED_IMAGE_SIZE: (u32, u32) = (1200, 630);
 
-/// Lowers every `opengraph-image.tsx` and `twitter-image.tsx` beside a page
-/// into a component, with the image row the host answers its URL from and
-/// the head rows that name it on the page. The component's props are the
-/// page loader's data with `params`, as the page's are.
-fn generated_images(app: &Path, routes: &[Route], set: &mut ComponentSet, sources: &[SourceEntry]) -> Result<(Vec<snapfire_fsr_plan::ImageEntry>, Vec<snapfire_fsr_plan::ModuleHead>), BuildError> {
+/// One generated card image file, lowered once whatever number of routes it covers.
+struct DrawnImage {
+  module: String,
+  source: Option<String>,
+  width: u32,
+  height: u32,
+  content_type: String,
+  ext: &'static str,
+  hash: String,
+  alt: Option<String>,
+  images: Option<snapfire_fsr_ir::Body>,
+}
+
+fn draw_image(app: &Path, routes_dir: &Path, dir: &Path, file: &Path, stem: &str, set: &mut ComponentSet, sources: &mut Vec<SourceEntry>) -> Result<DrawnImage, BuildError> {
+  let refuse = |why: String| BuildError::SocialImage(file.to_path_buf(), why);
+  let rel = file.strip_prefix(app).unwrap_or(file).to_string_lossy().replace('\\', "/");
+  let module = format!("{rel}#default");
+  set.lower(&module).map_err(|e| refuse(format!("it draws the image on the server and must lower: {e}")))?;
+  let Some((_, component)) = set.components.iter().find(|(m, _)| *m == module) else {
+    return Err(refuse("it draws the image on the server and must lower".to_owned()));
+  };
+  if component.owner.hydrates() {
+    return Err(refuse("it holds state or a handler, and an image is drawn once with nothing to run in a browser".to_owned()));
+  }
+  if !island_modules(&component.render).is_empty() {
+    return Err(refuse("it places an island, and an image has no browser to mount one in".to_owned()));
+  }
+  let hash = snapfire_fsr_assets::hash::of(format!("{component:?}").as_bytes());
+  let exports = set.image_exports(&rel).map_err(|e| refuse(e.to_string()))?;
+  let (width, height) = match (exports.width, exports.height) {
+    (Some(w), Some(h)) => (w, h),
+    _ => GENERATED_IMAGE_SIZE,
+  };
+  if width > snapfire_fsr_ogimage::MAX_SIDE || height > snapfire_fsr_ogimage::MAX_SIDE {
+    return Err(refuse(format!("`size` is {width}x{height}; each side is at most {}", snapfire_fsr_ogimage::MAX_SIDE)));
+  }
+  let content_type = exports.content_type.unwrap_or_else(|| "image/png".to_owned());
+  let ext = match content_type.as_str() {
+    "image/png" => "png",
+    "image/jpeg" => "jpg",
+    other => return Err(refuse(format!("`contentType` is `{other}`; a generated image is `image/png` or `image/jpeg`"))),
+  };
+  let alt_file = dir.join(format!("{stem}.alt.txt"));
+  let alt = match exports.alt {
+    Some(alt) => Some(alt),
+    None if alt_file.is_file() => Some(std::fs::read_to_string(&alt_file).map_err(|e| BuildError::Io(alt_file.clone(), e))?.trim().to_owned()),
+    None => None,
+  };
+  let images = set.lower_images(&rel).map_err(|e| refuse(e.to_string()))?;
+  let loader = dir.join(format!("{stem}.loader.ts"));
+  let source = if loader.is_file() {
+    let loader_rel = loader.strip_prefix(app).unwrap_or(&loader).to_string_lossy().replace('\\', "/");
+    let body = set.lower_loader(&loader_rel).map_err(|e| BuildError::SocialImage(loader.clone(), format!("an image's loader must lower: {e}")))?;
+    let (_, dir_id) = pattern_of(routes_dir, dir)?;
+    let id = if dir_id.is_empty() { stem.to_owned() } else { format!("{dir_id}.{stem}") };
+    sources.push(SourceEntry::lowered(id.clone(), loader_rel, body));
+    Some(id)
+  } else {
+    None
+  };
+  Ok(DrawnImage { module, source, width, height, content_type, ext, hash, alt, images })
+}
+
+/// Lowers every `opengraph-image.tsx` and `twitter-image.tsx` under
+/// `routes/` into a component and writes, for each page it covers, the image
+/// row the host answers its URL from and, unless the module lists its images,
+/// the head rows that name it on the page. A page takes the nearest image at
+/// or above its directory; a static image nearer than a component wins. The
+/// component's props are its own loader's data when `<stem>.loader.ts` sits
+/// beside it, else the data of the page or layout beside it, with `params`.
+fn generated_images(app: &Path, routes_dir: &Path, routes: &[Route], set: &mut ComponentSet, sources: &mut Vec<SourceEntry>) -> Result<(Vec<snapfire_fsr_plan::ImageEntry>, Vec<snapfire_fsr_plan::ModuleHead>), BuildError> {
+  let mut drawn: HashMap<PathBuf, DrawnImage> = HashMap::new();
   let mut images = Vec::new();
   let mut heads = Vec::new();
   for route in routes {
     let Some(page) = page_file(&route.dir)? else { continue };
-    let dir = route.dir.strip_prefix(app).unwrap_or(&route.dir).to_string_lossy().replace('\\', "/");
+    let rel_dir = route.dir.strip_prefix(app).unwrap_or(&route.dir).to_string_lossy().replace('\\', "/");
+    let page_module = format!("{rel_dir}/{page}#default");
     let mut head = Vec::new();
     for (stem, prefix) in SOCIAL_IMAGES {
-      let Some(file) = ["tsx", "ts"].iter().map(|ext| route.dir.join(format!("{stem}.{ext}"))).find(|f| f.is_file()) else { continue };
-      let refuse = |why: String| BuildError::SocialImage(file.clone(), why);
-      let rel = file.strip_prefix(app).unwrap_or(&file).to_string_lossy().replace('\\', "/");
-      let module = format!("{rel}#default");
-      set.lower(&module).map_err(|e| refuse(format!("it draws the image on the server and must lower: {e}")))?;
-      let Some((_, component)) = set.components.iter().find(|(m, _)| *m == module) else {
-        return Err(refuse("it draws the image on the server and must lower".to_owned()));
-      };
-      if component.owner.hydrates() {
-        return Err(refuse("it holds state or a handler, and an image is drawn once with nothing to run in a browser".to_owned()));
+      let mut found = None;
+      for dir in route.dir.ancestors() {
+        if !dir.starts_with(routes_dir) {
+          break;
+        }
+        if let Some(file) = ["tsx", "ts"].iter().map(|ext| dir.join(format!("{stem}.{ext}"))).find(|f| f.is_file()) {
+          found = Some((dir.to_path_buf(), file));
+          break;
+        }
+        if SOCIAL_IMAGE_TYPES.iter().any(|(ext, _)| dir.join(format!("{stem}.{ext}")).is_file()) {
+          break;
+        }
       }
-      if !island_modules(&component.render).is_empty() {
-        return Err(refuse("it places an island, and an image has no browser to mount one in".to_owned()));
+      let Some((dir, file)) = found else { continue };
+      if !drawn.contains_key(&file) {
+        let image = draw_image(app, routes_dir, &dir, &file, stem, set, sources)?;
+        drawn.insert(file.clone(), image);
       }
-      let hash = snapfire_fsr_assets::hash::of(format!("{component:?}").as_bytes());
-      let exports = set.image_exports(&rel).map_err(|e| refuse(e.to_string()))?;
-      let (width, height) = match (exports.width, exports.height) {
-        (Some(w), Some(h)) => (w, h),
-        _ => GENERATED_IMAGE_SIZE,
+      let image = &drawn[&file];
+      let source = match &image.source {
+        Some(own) => Some(own.clone()),
+        None if dir == route.dir => sources.iter().find(|s| s.id == route.id).map(|s| s.id.clone()),
+        None => {
+          let (_, dir_id) = pattern_of(routes_dir, &dir)?;
+          let layout = if dir == routes_dir { "layout".to_owned() } else { format!("{dir_id}.layout") };
+          sources.iter().find(|s| s.id == layout).map(|s| s.id.clone())
+        }
       };
-      if width > snapfire_fsr_ogimage::MAX_SIDE || height > snapfire_fsr_ogimage::MAX_SIDE {
-        return Err(refuse(format!("`size` is {width}x{height}; each side is at most {}", snapfire_fsr_ogimage::MAX_SIDE)));
+      let base = if route.pattern == "/" { String::new() } else { route.pattern.clone() };
+      let pattern = match image.images {
+        Some(_) => format!("{base}/{stem}/{{{}}}", snapfire_fsr_plan::IMAGE_PARAM),
+        None => format!("{base}/{stem}.{}", image.ext),
+      };
+      if image.images.is_none() {
+        let (key, field) = if prefix == "og" { ("property", "og:image") } else { ("name", "twitter:image") };
+        let row = |name: String, content: String| snapfire_fsr_plan::HeadRow { tag: "meta".to_owned(), attrs: vec![(key.to_owned(), name), ("content".to_owned(), content)] };
+        head.push(row(field.to_owned(), format!("{}/{stem}.{}?v={}", snapfire_fsr_runtime::PATH_MARK, image.ext, image.hash)));
+        head.push(row(format!("{field}:width"), image.width.to_string()));
+        head.push(row(format!("{field}:height"), image.height.to_string()));
+        head.push(row(format!("{field}:type"), image.content_type.clone()));
+        if let Some(alt) = &image.alt {
+          head.push(row(format!("{field}:alt"), alt.clone()));
+        }
       }
-      let content_type = exports.content_type.unwrap_or_else(|| "image/png".to_owned());
-      let ext = match content_type.as_str() {
-        "image/png" => "png",
-        "image/jpeg" => "jpg",
-        other => return Err(refuse(format!("`contentType` is `{other}`; a generated image is `image/png` or `image/jpeg`"))),
-      };
-      let name = format!("{stem}.{ext}");
-      let pattern = if route.pattern == "/" { format!("/{name}") } else { format!("{}/{name}", route.pattern) };
-      let alt_file = route.dir.join(format!("{stem}.alt.txt"));
-      let alt = match exports.alt {
-        Some(alt) => Some(alt),
-        None if alt_file.is_file() => Some(std::fs::read_to_string(&alt_file).map_err(|e| BuildError::Io(alt_file.clone(), e))?.trim().to_owned()),
-        None => None,
-      };
-      let (key, field) = if prefix == "og" { ("property", "og:image") } else { ("name", "twitter:image") };
-      let row = |name: String, content: String| snapfire_fsr_plan::HeadRow { tag: "meta".to_owned(), attrs: vec![(key.to_owned(), name), ("content".to_owned(), content)] };
-      head.push(row(field.to_owned(), format!("{}/{name}?v={hash}", snapfire_fsr_runtime::PATH_MARK)));
-      head.push(row(format!("{field}:width"), width.to_string()));
-      head.push(row(format!("{field}:height"), height.to_string()));
-      head.push(row(format!("{field}:type"), content_type.clone()));
-      if let Some(alt) = alt {
-        head.push(row(format!("{field}:alt"), alt));
-      }
-      let source = sources.iter().find(|s| s.id == route.id).map(|s| s.id.clone());
-      images.push(snapfire_fsr_plan::ImageEntry { pattern, module, source, width, height, content_type });
+      images.push(snapfire_fsr_plan::ImageEntry {
+        pattern,
+        module: image.module.clone(),
+        source,
+        width: image.width,
+        height: image.height,
+        content_type: image.content_type.clone(),
+        page: page_module.clone(),
+        card: prefix.to_owned(),
+        hash: image.hash.clone(),
+        alt: image.alt.clone(),
+        images: image.images.clone(),
+      });
     }
     if !head.is_empty() {
-      heads.push(snapfire_fsr_plan::ModuleHead { module: format!("{dir}/{page}#default"), head });
+      heads.push(snapfire_fsr_plan::ModuleHead { module: page_module, head });
     }
   }
   Ok((images, heads))
@@ -3267,8 +3344,10 @@ fn image_dirs(app: &Path, dir: &Path, resolver: &assets::Resolver, out: &mut Vec
       return Err(BuildError::SocialImage(dir.to_path_buf(), format!("`{}` and `{stem}.tsx` both draw its {stem}; keep one", file.display())));
     }
     if let Some(file) = generated {
-      if page_file(dir)?.is_none() {
-        return Err(BuildError::SocialImage(file.clone(), "a generated card image draws the page beside it with that page's data, and there is none".to_owned()));
+      let mut pages = Vec::new();
+      pages_under(dir, &mut pages)?;
+      if pages.is_empty() {
+        return Err(BuildError::SocialImage(file.clone(), "a generated card image covers the pages under its directory, and there is none".to_owned()));
       }
     }
     let file = match found.as_slice() {

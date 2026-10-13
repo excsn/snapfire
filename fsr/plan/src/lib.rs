@@ -120,7 +120,7 @@ pub struct Manifest {
 
 /// A card image a lowered component draws, answered at `pattern` with the
 /// data of `source` as its props.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ImageEntry {
   /// The URL it answers, the page's pattern with the image's file name after it.
   pub pattern: String,
@@ -133,7 +133,26 @@ pub struct ImageEntry {
   pub height: u32,
   /// `image/png` or `image/jpeg`.
   pub content_type: String,
+  /// The page module whose head names the image.
+  #[serde(default)]
+  pub page: String,
+  /// `og` or `twitter`: which card's tags name it.
+  #[serde(default)]
+  pub card: String,
+  /// The component's hash, which the image's URL carries so a crawler fetches it again after a change.
+  #[serde(default)]
+  pub hash: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub alt: Option<String>,
+  /// The module's `images` (or `generateImageMetadata`), a function of the
+  /// context returning `[{ id, alt, size, contentType }]`. With one, the
+  /// pattern ends in `{__image}` and each id is its own image.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub images: Option<snapfire_fsr_ir::Body>,
 }
+
+/// The parameter a listed image's pattern names its id by.
+pub const IMAGE_PARAM: &str = "__image";
 
 /// The head rows one module carries whatever renders it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -807,10 +826,13 @@ impl Manifest {
       }
     }
     for row in json.get_mut("images").and_then(|r| r.as_array_mut()).into_iter().flatten() {
-      for field in ["module", "source"] {
+      for field in ["module", "source", "page"] {
         if let Some(value) = row.get_mut(field) {
           prefix_str(value, &prefix);
         }
+      }
+      if let Some(body) = row.get_mut("images") {
+        namespace_body(body, &prefix);
       }
       if let Some(pattern) = row.get("pattern").and_then(|p| p.as_str()).map(str::to_owned) {
         row["pattern"] = serde_json::Value::String(under(at, &pattern));

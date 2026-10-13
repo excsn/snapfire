@@ -275,6 +275,15 @@ pub(crate) fn lower_paths_in(parsed: &Parsed, defaults: &SessionDefaults, resolv
   lower_optional_export_in(parsed, defaults, resolved, "paths", false)
 }
 
+/// A card image module's `images`, or `generateImageMetadata` as Next names
+/// it: a function of the context returning the image list.
+pub(crate) fn lower_images_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Option<Body>, Unresolved> {
+  match lower_optional_export_in(parsed, defaults, resolved, "images", false)? {
+    Some(body) => Ok(Some(body)),
+    None => lower_optional_export_in(parsed, defaults, resolved, "generateImageMetadata", false),
+  }
+}
+
 /// An optional exported function of one parameter: the loader's data as
 /// `data` when `of_data`, the context otherwise.
 fn lower_optional_export_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved, export: &str, of_data: bool) -> Result<Option<Body>, Unresolved> {

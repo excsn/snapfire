@@ -313,6 +313,11 @@ impl ComponentSet {
     self.resolving_loop(file, |parsed, defaults, resolved| lower_paths_in(parsed, defaults, resolved))
   }
 
+  /// A card image module's `images` export, or `generateImageMetadata`.
+  pub fn lower_images(&mut self, file: &str) -> Result<Option<Body>, LowerError> {
+    self.resolving_loop(file, |parsed, defaults, resolved| crate::lower_images_in(parsed, defaults, resolved))
+  }
+
   pub fn lower_actions(&mut self, file: &str) -> Result<Vec<LoweredAction>, LowerError> {
     self.resolving_loop(file, |parsed, defaults, resolved| lower_actions_in(parsed, defaults, resolved))
   }

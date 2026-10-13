@@ -205,9 +205,44 @@ The component's props are the page's: its loader's data with `params`. The page'
 
 `size` defaults to 1200 by 630. `contentType` is `"image/png"` unless it says `"image/jpeg"`. `alt` can also come from `opengraph-image.alt.txt`. All three are literals, since the build reads them without running anything.
 
-The markup is styled inline, with the CSS a card uses: flexbox, absolute positioning, sizes, borders and radii, gradients, shadows, transforms, opacity and the text properties. `display` defaults to `flex`, as in Next's `ImageResponse`, so a card written for Next draws the same. A property outside that, `display: grid` say, is left out with a warning in the log. A value that is not CSS fails the image with a 500 naming it. Text draws with the faces under `fonts/`, then with a bundled Inter that covers Latin. Text no face covers is left out and logged. An `<img>` takes a `data:` URI or an image the build placed, by its imported URL. Nothing is fetched from another origin.
+The markup is styled inline, with the CSS a card uses: flexbox, absolute positioning, sizes, borders and radii, gradients, shadows, transforms, opacity and the text properties. `display` defaults to `flex`, as in Next's `ImageResponse`, so a card written for Next draws the same. A property outside that, `display: grid` say, is left out with a warning in the log. A value that is not CSS fails the image with a 500 naming it. Text draws with the faces under `fonts/`, then with a bundled Inter that covers Latin. Text no face covers is left out and logged. A `[fonts.<key>]` entry with `scripts` draws text in those scripts with its faces before any other, so a card with Japanese titles names a Japanese face once:
 
-The component draws once with no browser, so it holds no state, places no island and reads nothing the page's loader does not hand it. The build refuses one that does. It also refuses one with no page beside it. A file and a component for the same card is refused too. In development the image is drawn on every request; otherwise the host keeps the drawn image for its params and data.
+```toml
+[fonts.jp]
+family = "Noto Sans JP"
+scripts = ["Han", "Hiragana", "Katakana"]
+```
+
+The names are Unicode's; one Unicode does not have refuses the boot. An `<img>` takes a `data:` URI or an image the build placed, by its imported URL. Nothing is fetched from another origin.
+
+An image beside a layout or in a directory with no page covers every page under it, as a file does. A nearer image (a file or a component) replaces it. Its props are the data of the page or layout beside it, with `params`. An image that needs data of its own reads it from `opengraph-image.loader.ts` beside it, a loader like any other. That loader's data are its props on every page it covers:
+
+```ts
+import { posts } from "@src/posts";
+
+export async function load() {
+  return { count: posts.length, latest: posts[0].title };
+}
+```
+
+A page with several cards lists them with `images` (Next calls it `generateImageMetadata`). It takes the context and returns an entry per image, each with an `id` and, where it differs from the module's, an `alt`, a `size` or a `contentType`:
+
+```tsx
+export function images({ params }: { params: { id: string } }) {
+  return [
+    { id: "total", alt: `Report ${params.id}: the total` },
+    { id: "rows", size: { width: 1200, height: 900 } },
+  ];
+}
+
+export default function Image({ report, id }: IdProps & { id: string }) {
+  return id === "total" ? <h1>{report.total}</h1> : <ul>{/* the rows */}</ul>;
+}
+```
+
+Each is named in the head in order, at `<the page's path>/opengraph-image/<id>`. Each is drawn with its `id` among the props. An id the list does not name is a 404.
+
+The component draws once with no browser, so it holds no state, places no island and reads nothing its data does not hand it. The build refuses one that does. It also refuses one with no page under it. A file and a component for the same card in one directory is refused too. In development the image is drawn on every request; otherwise the host keeps the drawn image for its params and data. `fsr prerender` writes each prerendered page's images beside its document as `opengraph-image.png` or `opengraph-image/<id>`. Production answers from those files while they are the build's.
 
 ## A CDN in front
 

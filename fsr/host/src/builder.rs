@@ -1168,7 +1168,11 @@ impl HostBuilder {
       public: config.public.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(),
       ignored: config.ignored.clone(),
     };
-    let cards = (!app.images.is_empty()).then(|| crate::card::Cards::new(&config.app, assets_manifest.as_ref()));
+    let scripts = |key: &str| config.fonts.faces.get(key).map(|entry| entry.scripts.clone()).unwrap_or_default();
+    let cards = match app.images.is_empty() {
+      true => None,
+      false => Some(crate::card::Cards::new(&config.app, assets_manifest.as_ref(), &scripts).map_err(|why| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), why))?),
+    };
     let answers: Vec<String> = app.report.handlers.iter().filter_map(|(key, _)| key.strip_prefix("GET ").map(str::to_owned)).chain(app.images.entries().iter().map(|image| image.pattern.clone())).collect();
     Ok((
       Tables {

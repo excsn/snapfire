@@ -136,6 +136,7 @@ strip = true                      # the served original loses its metadata but i
 [fonts.sans]                      # optional: a family under the fonts directory, served with a sized fallback
 family = "Inter"
 fallback = "Arial"
+# scripts = ["Han", "Hiragana"]   # the scripts a generated card image draws with these faces first
 
 [session]
 key = "a signing key"             # absent, a development host makes one at boot and any other refuses to start

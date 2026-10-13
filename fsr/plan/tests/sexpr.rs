@@ -342,8 +342,8 @@ fn every_manifest() -> Manifest {
       ],
     }],
     images: vec![
-      snapfire_fsr_plan::ImageEntry { pattern: "/notice/{id}/opengraph-image.png".to_owned(), module: "routes/notice/[id]/opengraph-image.tsx#default".to_owned(), source: Some("notice.$id".to_owned()), width: 1200, height: 630, content_type: "image/png".to_owned() },
-      snapfire_fsr_plan::ImageEntry { pattern: "/twitter-image.jpg".to_owned(), module: "routes/twitter-image.tsx#default".to_owned(), source: None, width: 800, height: 418, content_type: "image/jpeg".to_owned() },
+      snapfire_fsr_plan::ImageEntry { pattern: "/notice/{id}/opengraph-image.png".to_owned(), module: "routes/notice/[id]/opengraph-image.tsx#default".to_owned(), source: Some("notice.$id".to_owned()), width: 1200, height: 630, content_type: "image/png".to_owned(), page: "routes/notice/[id]/page.tsx#default".to_owned(), card: "og".to_owned(), hash: "1a2b3c4d".to_owned(), alt: Some("A \"notice\"".to_owned()), images: None },
+      snapfire_fsr_plan::ImageEntry { pattern: "/twitter-image.jpg".to_owned(), module: "routes/twitter-image.tsx#default".to_owned(), source: None, width: 800, height: 418, content_type: "image/jpeg".to_owned(), page: "routes/page.tsx#default".to_owned(), card: "twitter".to_owned(), hash: "5e6f7a8b".to_owned(), alt: None, images: Some(every_stmt()) },
     ],
   }
 }
