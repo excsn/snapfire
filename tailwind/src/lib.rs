@@ -6,6 +6,7 @@ mod apply;
 mod ast;
 mod at_import;
 mod candidate;
+mod card;
 mod compat;
 mod compile;
 mod css_functions;
@@ -24,6 +25,7 @@ mod walk;
 use indexmap::IndexSet;
 
 pub use at_import::{LoadStylesheet, Loaded, TAILWIND_BASE, tailwind_stylesheet};
+pub use card::CardRule;
 pub use features::Features;
 pub use optimize::{OptimizeOptions, optimize};
 
