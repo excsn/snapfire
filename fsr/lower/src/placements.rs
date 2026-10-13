@@ -424,7 +424,7 @@ fn embed_player(provider: &str, id: &str) -> Option<String> {
   }
 }
 
-/// `<Embed provider="youtube" id="dQw4w9WgXcQ" title="…">`: a placeholder the
+/// `<Embed provider="youtube" id="Aq5WXmQQooo" title="…">`: a placeholder the
 /// server renders, the provider's still served from this application with a
 /// play button over it, which the client swaps for the player's iframe on a
 /// click. Nothing is asked of the provider before then.

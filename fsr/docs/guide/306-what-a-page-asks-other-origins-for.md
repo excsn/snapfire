@@ -27,7 +27,7 @@ Nothing in this list happens unless the application wrote it. A card image, a si
 ```tsx
 import { Embed } from "@snapfire/fsr-client/react";
 
-<Embed provider="youtube" id="dQw4w9WgXcQ" title="Rick Astley - Never Gonna Give You Up" />
+<Embed provider="youtube" id="Aq5WXmQQooo" title="Rick Astley - Never Gonna Give You Up" />
 ```
 
 By default the still is the provider's own image, so the page asks the provider's image CDN for it on load. YouTube's still is named by the id. Vimeo's comes from Vimeo's oEmbed answer, which the build looks up once and keeps under `generated/embeds/`.
