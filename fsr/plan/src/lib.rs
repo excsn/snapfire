@@ -22,7 +22,8 @@ pub mod sexpr;
 /// seeds merge. A host reading format 5 would render without them, painting
 /// a derived key's fallback where the browser shows its value. It also adds
 /// a source's `defaults`, a second seed body whose keys a browser write
-/// outranks.
+/// outranks, the `module-head` and `image` rows of generated card images, the
+/// lowered `theme.ts` and a `theme-of` row per layout or page that sets a theme.
 ///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of
@@ -116,6 +117,23 @@ pub struct Manifest {
   /// `twitter-image.tsx` beside a page, answered at its own URL.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub images: Vec<ImageEntry>,
+  /// The lowered `theme.ts`: the document's theme and scheme for one request, run before the
+  /// page with the route's own theme as its input.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub theme: Option<Body>,
+  /// One row per layout or page whose `export const theme` names one.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub themes: Vec<ThemeEntry>,
+}
+
+/// A layout's or a page's `export const theme`. Down a route's layouts the deepest one wins,
+/// except that a forced theme keeps everything below it; of two forced ones the outer wins.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThemeEntry {
+  pub module: String,
+  pub name: String,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub force: bool,
 }
 
 /// A card image a lowered component draws, answered at `pattern` with the
@@ -559,7 +577,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new(), heads: Vec::new(), images: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new(), heads: Vec::new(), images: Vec::new(), theme: None, themes: Vec::new() }
   }
 
   /// The constants bodies read by name.
@@ -589,6 +607,12 @@ impl Manifest {
       out.push((entry.pattern.clone(), entry.plan.to_plan(&format!("intercept {}", entry.pattern), &mut Vec::new())?));
     }
     Ok(out)
+  }
+
+  pub fn with_theme(mut self, theme: Option<Body>, themes: Vec<ThemeEntry>) -> Self {
+    self.theme = theme;
+    self.themes = themes;
+    self
   }
 
   pub fn with_middleware(mut self, middleware: Option<Body>) -> Self {
@@ -838,7 +862,7 @@ impl Manifest {
         row["pattern"] = serde_json::Value::String(under(at, &pattern));
       }
     }
-    for key in ["sources", "actions", "handlers", "components", "clients", "heads"] {
+    for key in ["sources", "actions", "handlers", "components", "clients", "heads", "themes"] {
       for row in json.get_mut(key).and_then(|r| r.as_array_mut()).into_iter().flatten() {
         for field in ["id", "module", "input"] {
           if let Some(value) = row.get_mut(field) {
@@ -859,6 +883,9 @@ impl Manifest {
     }
     if let Some(middleware) = json.get_mut("middleware") {
       namespace_body(middleware, &prefix);
+    }
+    if let Some(theme) = json.get_mut("theme") {
+      namespace_body(theme, &prefix);
     }
     for row in json.get_mut("derives").and_then(|r| r.as_array_mut()).into_iter().flatten() {
       if let Some(body) = row.get_mut("body") {

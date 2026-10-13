@@ -45,6 +45,22 @@
   (session-del cart ())
   (act "desk.save" next)
   (do side))
+(theme
+  (let n $props)
+  (if ok ((ret "yes")))
+  (if ok ((ret "yes")) ((ret "no")))
+  (for-of row rows (do row))
+  (for-of row rows)
+  (ret out)
+  (guard missing NotFound "no such order")
+  (session-set cart ("items") next)
+  (session-set cart () next)
+  (session-del cart ("items"))
+  (session-del cart ())
+  (act "desk.save" next)
+  (do side))
+(theme-of routes/blog/layout.tsx#default "editorial")
+(theme-of routes/sale/page.tsx#default "a \"winter\" sale" force)
 (source index
   lowered
   (module routes/page.loader.ts)

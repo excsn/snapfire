@@ -320,7 +320,12 @@ fn every_manifest() -> Manifest {
       ClientEntry { module: "routes/stars/page.tsx#default".to_owned(), at: "src/ui/Stars.tsx:2:17".to_owned(), message: "`.slice()`, which is not a builtin".to_owned(), hint: Some("the builtins are `map`, `filter`, ...".to_owned()) },
       ClientEntry { module: "routes/broken/page.tsx#default".to_owned(), at: "routes/broken/page.tsx".to_owned(), message: "Expected ';'".to_owned(), hint: None },
     ],
-    middleware: Some(body),
+    middleware: Some(body.clone()),
+    theme: Some(body),
+    themes: vec![
+      snapfire_fsr_plan::ThemeEntry { module: "routes/blog/layout.tsx#default".to_owned(), name: "editorial".to_owned(), force: false },
+      snapfire_fsr_plan::ThemeEntry { module: "routes/sale/page.tsx#default".to_owned(), name: "a \"winter\" sale".to_owned(), force: true },
+    ],
     intercepts: vec![RouteEntry { pattern: "/modal".to_owned(), plan: node }],
     frameworks: [("react".to_owned(), "18.3.1".to_owned())].into_iter().collect(),
     reads: [("src/ui/Box.vue#default".to_owned(), vec!["cart/count".to_owned(), "user/name".to_owned()])].into_iter().collect(),
@@ -566,6 +571,8 @@ fn manifest() -> BoxedStrategy<Manifest> {
       derives: Vec::new(),
       heads: Vec::new(),
       images: Vec::new(),
+      theme: None,
+      themes: Vec::new(),
     })
     .boxed()
 }
@@ -725,6 +732,8 @@ fn forget_derives(manifest: &mut Manifest) {
   manifest.derives.clear();
   manifest.heads.clear();
   manifest.images.clear();
+  manifest.theme = None;
+  manifest.themes.clear();
   for source in &mut manifest.sources {
     source.defaults = None;
   }

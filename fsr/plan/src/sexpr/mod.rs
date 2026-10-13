@@ -43,6 +43,16 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
   if let Some(body) = &manifest.middleware {
     out.push(form("middleware", body.iter().map(stmt_to_sx).collect()));
   }
+  if let Some(body) = &manifest.theme {
+    out.push(form("theme", body.iter().map(stmt_to_sx).collect()));
+  }
+  for entry in &manifest.themes {
+    let mut rest = vec![sym(entry.module.clone()), Sx::Str(entry.name.clone())];
+    if entry.force {
+      rest.push(sym("force".to_owned()));
+    }
+    out.push(form("theme-of", rest));
+  }
   out.extend(manifest.sources.iter().map(source_to_sx));
   out.extend(manifest.actions.iter().map(action_to_sx));
   out.extend(manifest.handlers.iter().map(handler_to_sx));
@@ -149,6 +159,8 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     derives: Vec::new(),
     heads: Vec::new(),
     images: Vec::new(),
+    theme: None,
+    themes: Vec::new(),
   };
   let mut versioned = false;
   for sx in forms {
@@ -190,6 +202,18 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
         manifest.not_found = Some(node_from_sx(&items[1])?);
       }
       "middleware" => manifest.middleware = Some(body_of(&items[1..])?),
+      "theme" => manifest.theme = Some(body_of(&items[1..])?),
+      "theme-of" => {
+        let force = match items.get(3) {
+          None => false,
+          Some(Sx::Sym(term)) if term == "force" && items.len() == 4 => true,
+          _ => return Err(err("a theme row is `(theme-of module \"name\")` or ends in `force`")),
+        };
+        if items.len() < 3 {
+          return Err(err("a theme row is `(theme-of module \"name\")` or ends in `force`"));
+        }
+        manifest.themes.push(crate::ThemeEntry { module: as_sym(&items[1])?, name: as_sym(&items[2])?, force });
+      }
       "source" => manifest.sources.push(source_from_sx(items)?),
       "action" => manifest.actions.push(action_from_sx(items)?),
       "handler" => manifest.handlers.push(handler_from_sx(items)?),
