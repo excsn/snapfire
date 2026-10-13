@@ -36,6 +36,8 @@ async fn the_site_runs_alone_under_its_prefix_and_describes_itself_to_a_shell() 
   assert_eq!(json["site"]["at"], "/reports");
   assert_eq!(json["site"]["entry"], "/reports/static/js/app/src/main.js");
   assert_eq!(json["site"]["styles"][0], "/reports/static/js/app/styles/reports.css");
+  let answers: Vec<&str> = json["site"]["answers"].as_array().unwrap().iter().filter_map(|p| p.as_str()).collect();
+  assert!(answers.contains(&"/reports/{id}/rows") && answers.contains(&"/reports/{id}/opengraph-image.png"), "the GET paths a shell forwards rather than renders: {answers:?}");
 
   let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::NOT_FOUND, "nothing lives outside the prefix");

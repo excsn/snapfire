@@ -411,7 +411,6 @@ async fn a_remote_pages_head_elements_reach_the_portals_document() {
 }
 
 #[tokio::test]
-#[ignore = "the portal renders a GET under a remote site's prefix as a page unless its Accept rules one out, so a handler there does not answer a client accepting */*"]
 async fn a_remote_sites_get_handler_answers_through_the_portal_whatever_the_client_accepts() {
   let (portal, _reports) = portal_over_reports().await;
   for accept in ["*/*", "application/json"] {

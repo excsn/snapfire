@@ -406,6 +406,10 @@ struct OwnSite {
   at: String,
   entry: Option<String>,
   styles: Vec<String>,
+  /// The GET patterns this host answers itself rather than as a page: its
+  /// route handlers' and its generated images'. A shell forwards a GET that
+  /// matches one, whatever the client accepts.
+  answers: Vec<String>,
 }
 
 /// What a request under a site's prefix reads beyond the merged tables: the

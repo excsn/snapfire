@@ -13,7 +13,7 @@ use parking_lot::RwLock;
 use snapfire_fsr_core::ext::FailureKind;
 use snapfire_fsr_payload::DecodeError;
 use snapfire_fsr_runtime::wire::{Row, RowReader};
-use snapfire_fsr_runtime::{LoadError, RemoteSegment, RemoteWave, RequestCtx};
+use snapfire_fsr_runtime::{EntryId, LoadError, Matcher, MatchitMatcher, RemoteSegment, RemoteWave, RequestCtx};
 
 use crate::config::MountConfig;
 use crate::upstreams::Upstreams;
@@ -45,10 +45,15 @@ const RETURNED: &[header::HeaderName] = &[
 /// The payload content type a site host answers `__payload` with.
 pub const PAYLOAD_TYPE: &str = "application/x-sf-payload+json";
 
+/// How long the list of paths a site answers itself is trusted before a
+/// miss fetches it again, so a release that adds a handler is seen.
+const ANSWERS_FRESH: std::time::Duration = std::time::Duration::from_secs(30);
+
 #[derive(Default)]
 struct Learned {
   entry: Option<String>,
   styles: Vec<String>,
+  answers: Option<(MatchitMatcher, std::time::Instant)>,
 }
 
 struct Inner {
@@ -140,20 +145,16 @@ impl RemoteSite {
   }
 
   /// Whether a request under the site's prefix is one the site answers
-  /// itself rather than a page the shell renders: anything but a `GET` or
-  /// `HEAD`, a `GET` for a file, which a last segment with an extension
-  /// names, such as a generated card image, and a `GET` that asks for
-  /// neither a document nor a payload.
-  pub fn forwards(&self, method: &Method, headers: &HeaderMap, path: &str, raw_query: &str) -> bool {
+  /// itself rather than a page the shell renders, judged from the request
+  /// alone: anything but a `GET` or `HEAD` and a `GET` that asks for neither
+  /// a document nor a payload. A `GET` for a path the site lists as its own
+  /// is [`RemoteSite::answers_itself`].
+  pub fn forwards(&self, method: &Method, headers: &HeaderMap, raw_query: &str) -> bool {
     if method != Method::GET && method != Method::HEAD {
       return true;
     }
     if payload_of(raw_query) || fragment_of(raw_query).is_some() {
       return false;
-    }
-    let last = path.rsplit('/').next().unwrap_or("");
-    if last.rfind('.').is_some_and(|dot| dot > 0 && dot + 1 < last.len()) && !last.ends_with(".html") {
-      return true;
     }
     let accept = headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("*/*");
     !accept.contains("text/html") && !accept.contains("*/*")
@@ -214,6 +215,52 @@ impl RemoteSite {
     }
     let stream = answer.bytes_stream().map(|chunk| chunk.map(http_body::Frame::data).map_err(std::io::Error::other));
     response.body(StreamBody::new(stream).boxed_unsync()).expect("a response from an answer")
+  }
+
+  /// Whether `path` is one of the GET patterns the site answers itself, its
+  /// route handlers and its generated images, as its `/__fsr/sites` lists
+  /// them. The list is fetched on first use and again on a miss once it is
+  /// older than [`ANSWERS_FRESH`]; a site that does not answer is judged by
+  /// the list held, or by none.
+  pub async fn answers_itself(&self, path: &str) -> bool {
+    {
+      let learned = self.0.learned.read();
+      if let Some((matcher, at)) = &learned.answers {
+        if matcher.match_path(path).is_some() {
+          return true;
+        }
+        if at.elapsed() < ANSWERS_FRESH {
+          return false;
+        }
+      }
+    }
+    let Some(matcher) = self.fetch_answers().await else {
+      return self.0.learned.read().answers.as_ref().is_some_and(|(m, _)| m.match_path(path).is_some());
+    };
+    let hit = matcher.match_path(path).is_some();
+    self.0.learned.write().answers = Some((matcher, std::time::Instant::now()));
+    hit
+  }
+
+  async fn fetch_answers(&self) -> Option<MatchitMatcher> {
+    let lease = self.0.upstreams.pick()?;
+    let answer = match self.0.client.get(format!("{}/__fsr/sites", lease.address)).send().await {
+      Ok(answer) => answer,
+      Err(e) => {
+        self.0.upstreams.failed(&lease);
+        tracing::warn!(target: "fsr::remote", site = %self.0.name, address = %lease.address, error = %e, "the site's status did not answer");
+        return None;
+      }
+    };
+    self.0.upstreams.recovered(&lease);
+    let json: serde_json::Value = serde_json::from_slice(&answer.bytes().await.ok()?).ok()?;
+    let mut matcher = MatchitMatcher::new();
+    for (i, pattern) in json["site"]["answers"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).enumerate() {
+      if let Err(e) = matcher.insert(pattern, EntryId(i as u32)) {
+        tracing::warn!(target: "fsr::remote", site = %self.0.name, %pattern, error = %e, "a path the site answers is not a pattern");
+      }
+    }
+    Some(matcher)
   }
 
   fn learn(&self, wave: &RemoteWave) {

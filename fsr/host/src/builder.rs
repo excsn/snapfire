@@ -1169,6 +1169,7 @@ impl HostBuilder {
       ignored: config.ignored.clone(),
     };
     let cards = (!app.images.is_empty()).then(|| crate::card::Cards::new(&config.app, assets_manifest.as_ref()));
+    let answers: Vec<String> = app.report.handlers.iter().filter_map(|(key, _)| key.strip_prefix("GET ").map(str::to_owned)).chain(app.images.entries().iter().map(|image| image.pattern.clone())).collect();
     Ok((
       Tables {
         app,
@@ -1199,7 +1200,7 @@ impl HostBuilder {
         sites,
         crawl,
         probes,
-        own: config.site.as_ref().map(|site| OwnSite { name: site.name.clone(), at: site.at.clone(), entry: entry.clone(), styles: styles.clone() }),
+        own: config.site.as_ref().map(|site| OwnSite { name: site.name.clone(), at: site.at.clone(), entry: entry.clone(), styles: styles.clone(), answers }),
         report: Arc::new(report),
       },
       config,

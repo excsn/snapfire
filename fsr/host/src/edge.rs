@@ -241,7 +241,7 @@ impl Host {
         .collect();
       let mut answer = serde_json::json!({ "sites": sites });
       if let Some(own) = &t.own {
-        answer["site"] = serde_json::json!({ "name": own.name, "at": own.at, "entry": own.entry, "styles": own.styles, "fsr": env!("CARGO_PKG_VERSION") });
+        answer["site"] = serde_json::json!({ "name": own.name, "at": own.at, "entry": own.entry, "styles": own.styles, "answers": own.answers, "fsr": env!("CARGO_PKG_VERSION") });
       }
       return json_response(StatusCode::OK, &answer);
     }
@@ -389,7 +389,8 @@ impl Host {
       return self.upgrade(req, &opened);
     }
     if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
-      if remote.forwards(req.method(), req.headers(), &path, req.uri().query().unwrap_or("")) {
+      let get = req.method() == Method::GET || req.method() == Method::HEAD;
+      if remote.forwards(req.method(), req.headers(), req.uri().query().unwrap_or("")) || (get && remote.answers_itself(&path).await) {
         let subject = opened.cell.identity().map(|identity| identity.subject);
         return remote.forward(req, Some(&opened.id.0), subject.as_deref()).await;
       }
