@@ -66,7 +66,7 @@ fsr prerender app
 fsr bundle app --out deploy/
 ```
 
-The storefront's `/about` qualifies; every other page reads the cart from the session, so none of them does. There is nothing to declare: a loader that starts reading the session takes its route back to per-request rendering at the next build. A route with a parameter is the one exception, since nothing can tell which values it takes: its page loader exports `paths` naming them and the command writes one file per set, `/blog/hello` and `/blog/world` for `/blog/{slug}`. Each run lists what it wrote in `prerendered.json` and removes the files of a set that dropped out, so no stale page is left.
+The storefront's `/about` qualifies; every other page reads the cart from the session, so none of them does. There is nothing to declare: a loader that starts reading the session takes its route back to per-request rendering at the next build. A route with a parameter is the one exception, since nothing can tell which values it takes: its page loader exports `paths` naming them and the command writes one file per set, `/blog/hello` and `/blog/world` for `/blog/{slug}`. Each run lists what it wrote in `prerendered.json` and removes the files of a set that dropped out, so no stale page is left. A page with a generated card image, chapter 108's `opengraph-image.tsx`, gets the image written beside its document too, `opengraph-image.png` or one file per id a module lists; production answers the image from that file.
 
 A route the host cannot write whole still gets what it can: under a layout reading the session, a page reading nothing is rendered once by the same command into `renders.json` and spliced in at request time, so only the layout is evaluated per request.
 

@@ -26,6 +26,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Rendering a Template Route](#rendering-a-template-route)
 * [Serving robots.txt and a Sitemap](#serving-robotstxt-and-a-sitemap)
 * [Serving Images and Fonts](#serving-images-and-fonts)
+* [Drawing Card Images](#drawing-card-images)
 * [Serving Locales](#serving-locales)
 * [Signing In on the Host](#signing-in-on-the-host)
 * [Keeping Sessions in a Service](#keeping-sessions-in-a-service)
@@ -722,6 +723,19 @@ A Tera template writes an image the way the `Picture` tag does, for any image un
 ```
 
 `fsr_fonts()` writes the inline style and the font links for a template that builds its own head. A template gets no preload row from `priority`, since a template has no `meta`; the image loads eagerly at high priority instead.
+
+## Drawing Card Images
+
+A plan with `image` rows, from an `opengraph-image.tsx` or `twitter-image.tsx` beside a page, has the host answer each row's URL with the picture. A GET or HEAD that matches runs the image's data source for the params, renders the component through the interpreter and draws the markup with `snapfire_fsr_ogimage`:
+
+```text
+GET /notice/roof/opengraph-image.png      the page's image, 1200 by 630 unless `size` says otherwise
+GET /reports/1/twitter-image/total        one image of a module that lists them with `images`
+```
+
+The page's head names each image with its size, type and alt, against `document.origin`. A loader's not found answers 404, as does an id an `images` list does not name. A draw that fails answers 500 with the reason. Every warning the renderer gives is logged on target `fsr::card`. The faces under `[dirs] fonts` draw the text before the bundled Inter; a `[fonts.<key>]` entry with `scripts` draws text in those scripts first. An `<img>` in the card takes a `data:` URI or an image the build placed, by its URL. Nothing is fetched.
+
+Outside development the drawn bytes are kept for the path and the props. `prerender` writes each prerendered page's images beside its document, which production then answers from while the directory is this build's. A site in its own process lists its image patterns under `answers` in `/__fsr/sites`, so a shell forwards those requests to it.
 
 ## Serving Locales
 

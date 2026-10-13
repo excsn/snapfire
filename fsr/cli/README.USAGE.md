@@ -877,6 +877,17 @@ A video, an audio file or a `.vtt` caption track a module imports is served as i
 
 A route directory's `opengraph-image.png`, with an optional `opengraph-image.alt.txt`, becomes the `og:image` rows of every page under it. A `twitter-image.png` becomes the `twitter:image` rows. A nearer image replaces either. The build serves each as its hashed original with no variant and the host writes the URL against `document.origin`. Guide chapter 108 has the rules.
 
+An `opengraph-image.tsx` or `twitter-image.tsx` draws the card instead. The build lowers it to a component and writes an `image` row per page it covers: the URL it answers, its data source and its size. The source is its own `opengraph-image.loader.ts` when one sits beside it, else the page or layout beside it. Unless the module exports `images`, the build also writes the page's `og:image` rows, the URL `<path>/opengraph-image.png?v=<hash>`. `size`, `alt` and `contentType` are read as literals:
+
+```tsx
+export const size = { width: 1200, height: 630 };
+export const alt = "The notice board";
+
+export default function Image({ notice }: NoticeIdProps) {
+  return <div style={{ display: "flex", fontSize: 72 }}>{notice.title}</div>;
+}
+```
+
 
 An image a component imports is served under a content hash with a resized variant per width and format. A font under the fonts directory is served with a fallback face sized to match it. Import the image and place it with `Picture`:
 

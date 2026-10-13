@@ -500,6 +500,7 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `ActionsWithoutPage(PathBuf)`, an `actions.ts` in a directory under `routes/` with no page.
 * `SlotsWithoutLayout(PathBuf)`, `SlotWithoutPage(PathBuf)`, `SlotRoute(PathBuf)` and `SlotUndeclared { path: PathBuf, file: String, slot: String }`, from the slot and variant rules above.
 * `PageAndTemplate { dir: PathBuf, first: String, second: String }`, `TemplateFeature(PathBuf)` and `TemplateIsland { file: PathBuf, line: usize }`, from the template rules above. The `tera` feature is on by default and forwards to the host's.
+* `SocialImage(PathBuf, String)`: a card image the build cannot place, with why: two pictures of one kind in a directory, a picture crawlers do not decode, a file and a component for one card, an image with no page under it, a component that does not lower, holds state or a handler or places an island, a `size` that is not literal or is past the renderer's side, a `contentType` other than PNG or JPEG, an image's loader that does not lower.
 * `EmbedInIsland(String)`: a component that hydrates places an `<Embed>`, whose still the browser has no way to render the same; the module is named.
 * `PathsOffPage(String)`: a `layout.loader.ts` or a slot's `page.loader.ts` exports `paths`, which only a route's page loader may. `PathsWithoutParameter { module, pattern }`: a page loader exports `paths` on a route whose pattern has no parameter.
 * `NoAdapter { module: String, ext: String }`, an island whose extension a plugin compiles but no client adapter mounts.

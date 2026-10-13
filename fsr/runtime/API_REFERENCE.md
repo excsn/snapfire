@@ -37,6 +37,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`Resolved`](#resolved)
   * [`Meta`](#meta)
   * [`Metadata`](#metadata)
+  * [`HeadRows`](#headrows)
   * [`Paths`](#paths)
   * [`Head`](#head)
 * [7. Segments](#7-segments)
@@ -234,7 +235,8 @@ The per-process pipeline, shared across requests. Fields are public and readable
 * `pub load_keyer: Arc<dyn LoadKeyer>`
 * `pub loads: Arc<dyn LoadCache>`
 * `pub metas: HashMap<String, Arc<dyn Metadata>>`: by data source id, how a segment describes the document from its data.
-* `pub heads: HashMap<String, Vec<HeadEl>>`: by module id, the head elements a page rendering that module carries, which the build settled; merged into a page's `Meta` after its segments describe it, for every module in the plan subtree, outermost first.
+* `pub heads: HashMap<String, Vec<HeadEl>>`: by module id, the head elements a page rendering that module carries, which the build settled; merged into a page's `Meta` after its segments describe it, one module at a time for every module in the plan subtree, outermost first. `PATH_MARK` in a value is replaced by the request's path without a trailing slash.
+* `pub listed: HashMap<String, Vec<Arc<dyn HeadRows>>>`: by module id, the head rows a module's listed card images make per request, applied after `heads`.
 * `pub stores: HashMap<String, Arc<dyn Seeds>>`: by data source id, what a segment seeds the store with.
 * `pub slot_order: Vec<String>`: the application's `[store] slot_order`, as `contribution_order` reads it.
 * `pub reads: Reads`: by `subtree_shape`, what each subtree reads of the request; a subtree with no entry reads everything.
@@ -255,6 +257,7 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn loads(self, loads: Arc<dyn LoadCache>) -> Self`
 * `pub fn meta(self, source_id: impl Into<String>, meta: Arc<dyn Metadata>) -> Self`
 * `pub fn heads(self, heads: HashMap<String, Vec<HeadEl>>) -> Self`
+* `pub fn listed(self, module: impl Into<String>, rows: Arc<dyn HeadRows>) -> Self`: adds a lister for `module`; a module can have several.
 * `pub fn store(self, source_id: impl Into<String>, seeds: Arc<dyn Seeds>) -> Self`: `Seeds` has `seed(&self, ctx, data)`, the values a segment seeds from its data. Its `keys(&self) -> Option<Vec<String>>` is every key a seed can hold before the data is known, `None` by default. A segment with no keys promises nothing while it is deferred.
 * `pub fn slot_order(self, slot_order: Vec<String>) -> Self`: the list `contribution_order` ranks parallel slots by, `Runtime::slot_order`; empty by default.
 * `pub fn derives(self, derives: Vec<Derived>) -> Self`: the derived keys, kept in `derive_order` as `Runtime::derives`. Every render applies them after the contributions merge and adds them to the pending keys by `derived_pending`.
@@ -388,6 +391,8 @@ A deferred slot's eventual content.
 `pub struct Meta { pub title: Option<String>, pub absolute: bool, pub description: Option<String>, pub head: Vec<HeadEl> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. A field left `None` keeps what the document has. `absolute` writes `title` as given rather than through the head's template.
 
 * `pub fn is_empty(&self) -> bool`
+* `pub fn merge(&mut self, inner: Meta)`: `inner`'s title and description replace these when set. Each of its head elements replaces the one with the same identity (`HeadEl::identity`: the tag and its `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified), else is appended. A second element of one identity within `inner` is appended too, so a list of `og:image` rows one `Meta` brings is kept whole.
+* `pub const PATH_MARK: &str = "{fsr:path}"`: in a module head row's value, the request's path.
 
 `HeadEl::script(attrs: Vec<(String, String)>, children: Option<String>) -> Result<HeadEl, String>` turns a `meta` head entry whose `tag` is `script` into the element a document carries: `type="text/plain"`, `data-sf-script` holding `when` (`load` by default, else `idle` or `interaction`, `SCRIPT_WHEN`), `data-src` holding `src`, `data-type` holding `type` and every other attribute as written. `Err` for no `src`, an inline body or another `when`. `HeadEl::is_script` is true of the result. The lowered `meta` evaluator builds every script entry this way.
 
@@ -396,6 +401,12 @@ A deferred slot's eventual content.
 `pub trait Metadata: Send + Sync`. Registered on the runtime under a data source id.
 
 * `fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>>`: `data` is what that source loaded for the request.
+
+### `HeadRows`
+
+`pub trait HeadRows: Send + Sync`. Registered on the runtime under a module id with `RuntimeBuilder::listed`.
+
+* `fn rows(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<(String, Vec<HeadEl>), LoadError>>`: the rows with the field they are, such as `og:image`. Every element the page carries whose `property` or `name` is that field or starts with it and a colon is removed before the rows are appended. A failure is logged on target `fsr::load` and changes nothing.
 
 ### `Paths`
 
@@ -676,7 +687,7 @@ The wire encoding of a streamed response. The first item is the eager wave, newl
 
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
-* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set and `scripts`, the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `meta_from_json` reads `scripts` back into `head`, so a shell splicing a remote site keeps them.
+* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set. `scripts` holds the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `head` holds every other head element. `meta_from_json` reads `scripts` and `head` back into `head`, so a shell splicing a remote site keeps its meta and link elements as well as its scripts.
 * `T <contributions json>`, from [`contributions_to_json`](#contributions_to_json), when `assembly.contributions` is not empty.
 * `L <json string>`, the locale tag, when `assembly.locale` has one.
 * `E "<src>"`, when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
@@ -687,7 +698,7 @@ Then one item per resolution: a `T` row when `Resolved::contributions` is not em
 
 ### `meta_to_json`
 
-`pub fn meta_to_json(meta: &Meta) -> serde_json::Value`: an object holding only the fields that are set, `title` then `description`.
+`pub fn meta_to_json(meta: &Meta) -> serde_json::Value`: an object holding only the fields that are set: `title`, `description`, `scripts` (each script row's attributes) and `head` (every other element as `{"tag", "attrs": [[name, value], ...], "children"?}`).
 
 ### `contributions_to_json`
 
