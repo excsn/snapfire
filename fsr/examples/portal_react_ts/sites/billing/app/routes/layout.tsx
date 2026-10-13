@@ -21,6 +21,7 @@ export default function BillingLayout({ children }: { children: ReactNode }) {
         </Link>
         <span className="ml-auto text-[13px] text-ink-soft">{name ? `for ${name}` : "anonymous"}</span>
       </nav>
+      <p className="mb-4 text-[13px] text-ink-soft">Billing keeps its own ledger theme. The theme you pick applies on the other sites; light or dark applies here too.</p>
       {children}
     </section>
   );

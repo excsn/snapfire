@@ -19,7 +19,7 @@ export function LookControls({ theme, scheme }: { theme: string; scheme: string 
       <select
         aria-label="Theme"
         value={picked}
-        className="rounded-md border border-line bg-card px-2 py-1 text-[13px] text-ink"
+        className="rounded-md border border-line bg-card px-2 py-1 text-[13px] text-ink [[data-sf-theme-forced]_&]:pointer-events-none [[data-sf-theme-forced]_&]:opacity-50"
         onChange={async (event) => {
           setPicked(event.target.value);
           await actions.account.setTheme({ theme: event.target.value });
@@ -32,6 +32,7 @@ export function LookControls({ theme, scheme }: { theme: string; scheme: string 
           </option>
         ))}
       </select>
+      <span className="hidden text-[12px] text-ink-soft [[data-sf-theme-forced]_&]:inline">This site keeps its own theme</span>
       <button
         type="button"
         data-scheme-toggle=""
