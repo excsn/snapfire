@@ -71,6 +71,20 @@ pub struct CompileOptions<'a> {
   /// The stylesheet's file name. A syntax error then starts with `file:line:column`. An
   /// imported stylesheet's errors name its `path`.
   pub from: Option<String>,
+  /// Themes the document switches between, each written after the root theme under its own
+  /// selector.
+  pub themes: Vec<NamedTheme>,
+}
+
+/// A stylesheet of `@theme` blocks whose variables apply under `selector`, such as
+/// `[data-theme="blog"]`. Every variable is written, used or not, since the document's other
+/// stylesheets read them too. A variable the root theme lacks still gets its utilities.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NamedTheme {
+  pub selector: String,
+  pub css: String,
+  /// The file it came from, for errors and warnings.
+  pub from: Option<String>,
 }
 
 impl Default for CompileOptions<'_> {
@@ -81,6 +95,7 @@ impl Default for CompileOptions<'_> {
       polyfills: Polyfills::ALL,
       banner: true,
       from: None,
+      themes: Vec::new(),
     }
   }
 }
@@ -656,7 +671,36 @@ fn parse_css(parsed: Vec<Node>, options: &CompileOptions) -> Result<Compiler, Er
 
   let names = extract_css_utilities(&mut ast, &mut custom_utilities);
 
+  let mut named_rules = Vec::new();
+  let mut named_warnings = Vec::new();
+  for named in &options.themes {
+    let label = named.from.clone().unwrap_or_else(|| named.selector.clone());
+    let mut decls = Vec::new();
+    for node in css_parser::parse(&named.css, named.from.as_deref())? {
+      let Node::AtRule { name, nodes, .. } = node else { continue };
+      if name != "@theme" {
+        continue;
+      }
+      for child in nodes {
+        let Node::Declaration { property, value: Some(value), important } = child else { continue };
+        if !property.starts_with("--") {
+          continue;
+        }
+        let key = unescape(&property);
+        if key.starts_with("--breakpoint-") || key.starts_with("--container-") {
+          named_warnings.push(format!("{label}: `{key}` is read when the stylesheet is built, so a theme that sets it changes no media or container query"));
+        }
+        if theme.get(&[&key]).is_none() {
+          theme.add(&key, &value, ThemeOptions::REFERENCE)?;
+        }
+        decls.push(Node::Declaration { property, value: Some(value), important });
+      }
+    }
+    named_rules.push(style_rule(named.selector.clone(), decls));
+  }
+
   let mut ds = DesignSystem::new(theme);
+  ds.warnings.borrow_mut().extend(named_warnings);
   if important {
     ds.important = true;
   }
@@ -725,6 +769,9 @@ fn parse_css(parsed: Vec<Node>, options: &CompileOptions) -> Result<Compiler, Er
       ));
     }
     fill_theme(&mut ast, nodes);
+  }
+  if !named_rules.is_empty() && !insert_after_root_theme(&mut ast, &mut named_rules) {
+    ast.extend(named_rules);
   }
 
   features |= variants::substitute_at_variant(&mut ast, &ds)?;
@@ -957,6 +1004,25 @@ fn extract_css_utilities(
     })
     .collect();
   (names, apply::UtilityNames(roots))
+}
+
+/// Puts `rules` right after the rule holding the root theme's variables, inside whatever layer
+/// holds it, so a named theme's variables win over the root's at equal specificity.
+fn insert_after_root_theme(ast: &mut Vec<Node>, rules: &mut Vec<Node>) -> bool {
+  for i in 0..ast.len() {
+    let holds_theme = matches!(&ast[i], Node::Rule { nodes, .. } if nodes.iter().any(|n| matches!(n, Node::Context { context, .. } if context.contains_key("theme"))));
+    if holds_theme {
+      let tail = std::mem::take(rules);
+      ast.splice(i + 1..i + 1, tail);
+      return true;
+    }
+    if let Some(children) = ast[i].children_mut()
+      && insert_after_root_theme(children, rules)
+    {
+      return true;
+    }
+  }
+  false
 }
 
 fn fill_theme(ast: &mut Vec<Node>, nodes: Vec<Node>) {
