@@ -2,10 +2,11 @@ import type { Identity } from "@snapfire/fsr-authoring";
 import { Link, useStore } from "@snapfire/fsr-client/react";
 
 import { teams, who } from "@src/store";
+import { LookControls } from "@src/ui/LookControls";
 
 const tab = "rounded-md px-2.5 py-1.5 text-ink-soft hover:bg-accent-soft hover:text-accent aria-[current]:bg-accent-soft aria-[current]:text-accent aria-[current=page]:font-semibold";
 
-export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken?: string }) {
+export function Header({ identity, csrfToken, theme, scheme }: { identity?: Identity; csrfToken?: string; theme: string; scheme: string }) {
   const [count] = useStore(teams, 0);
   const [name] = useStore(who, "");
 
@@ -37,6 +38,7 @@ export function Header({ identity, csrfToken }: { identity?: Identity; csrfToken
       <span className="pill" aria-label={`${count} teams`}>
         {count} teams
       </span>
+      <LookControls theme={theme} scheme={scheme} />
       {identity ? (
         <form method="post" action="/auth/logout" className="ml-auto flex items-center gap-2">
           <Link href="/account" className="pill font-medium text-ink">

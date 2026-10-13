@@ -8,7 +8,8 @@
   --color-line: #dde3ea;
   --color-ink: #1b2430;
   --color-ink-soft: #5b6b7c;
-  --color-accent: #1f6feb;
+  --color-brand: #1f6feb;
+  --color-accent: var(--color-brand);
   --color-accent-soft: #e7f0ff;
   --color-bad: #c9403f;
   --font-sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
@@ -24,7 +25,8 @@
     --color-line: #30363d;
     --color-ink: #e6edf3;
     --color-ink-soft: #8b949e;
-    --color-accent-soft: color-mix(in oklab, var(--color-accent) 22%, #161b22);
+    --color-accent: color-mix(in oklab, var(--color-brand) 70%, white);
+    --color-accent-soft: color-mix(in oklab, var(--color-brand) 30%, #161b22);
   }
 }
 

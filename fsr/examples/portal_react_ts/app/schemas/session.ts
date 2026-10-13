@@ -12,6 +12,16 @@ export const defaults: Session = {
   scheme: "",
 };
 
+/** The header's scheme button: `light`, `dark` or empty. */
+export interface SchemeChoice {
+  scheme: string;
+}
+
+/** The header's theme picker: a theme's name or empty. */
+export interface ThemeChoice {
+  theme: string;
+}
+
 /** The account page's look form, as the browser posts it. */
 export interface LookForm {
   theme: string;
