@@ -11,6 +11,7 @@ members = [
   "ir",
   "lower",
   "macros",
+  "ogimage",
   "payload",
   "plan",
   "sites",

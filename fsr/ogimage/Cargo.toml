@@ -1,0 +1,29 @@
+[package]
+name = "snapfire_fsr_ogimage"
+version = "0.1.0"
+description = "Renders a card, a tree of boxes, text and images styled with a subset of CSS, to PNG or JPEG"
+keywords = ["snapfire", "fsr", "opengraph", "image", "card"]
+categories = ["graphics", "rendering", "web-programming"]
+exclude = ["tests"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = "MPL-2.0 AND OFL-1.1"
+homepage = { workspace = true }
+repository = { workspace = true }
+readme = "README.md"
+
+[dependencies]
+taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
+rustybuzz = "0.20"
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd", "png-format"] }
+unicode-linebreak = "0.1"
+unicode-script = "0.5"
+wuff = { version = "0.2", default-features = false, features = ["brotli"] }
+png = "0.18"
+miniz_oxide = "0.8"
+zune-jpeg = "0.5"
+jpeg-encoder = "0.7"
+zune-core = "0.5"
+thiserror = "2"
+parking_lot = "0.12"
