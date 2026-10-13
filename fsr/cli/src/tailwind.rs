@@ -55,6 +55,38 @@ fn uses_tailwind(css: &str) -> bool {
   })
 }
 
+/// Where the build writes what each class means on a card image, relative to the app.
+pub const CARDS_FILE: &str = snapfire_fsr_host::CARD_CLASSES_FILE;
+
+/// One class as card declarations, the shape the host reads from [`CARDS_FILE`].
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct CardClass {
+  pub class: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub min_width: Option<f32>,
+  pub declarations: Vec<(String, String)>,
+}
+
+/// What each listed class means on a card image, from the first stylesheet under `styles` that
+/// imports Tailwind, in Tailwind's output order. Empty without such a stylesheet.
+pub fn card_table(styles: &Path, classes: &Classes) -> Result<Vec<CardClass>, crate::BuildError> {
+  let mut sheets: Vec<std::path::PathBuf> = std::fs::read_dir(styles).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "css")).collect();
+  sheets.sort();
+  let Some((sheet, css)) = sheets.into_iter().find_map(|p| std::fs::read_to_string(&p).ok().filter(|css| uses_tailwind(css)).map(|css| (p, css))) else { return Ok(Vec::new()) };
+  let load = |id: &str, base: &str| -> Result<snapfire_tailwind::Loaded, snapfire_tailwind::Error> {
+    if let Some(loaded) = snapfire_tailwind::tailwind_stylesheet(id, base) {
+      return Ok(loaded);
+    }
+    let file = Path::new(base).join(id);
+    let content = std::fs::read_to_string(&file).map_err(|e| snapfire_tailwind::Error::Message(format!("{}: {e}", file.display())))?;
+    Ok(snapfire_tailwind::Loaded { path: file.to_string_lossy().into_owned(), base: file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content })
+  };
+  let base = sheet.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
+  let options = snapfire_tailwind::CompileOptions { base, load_stylesheet: Some(Box::new(load)), banner: false, from: Some(sheet.to_string_lossy().into_owned()), ..Default::default() };
+  let compiler = snapfire_tailwind::Compiler::new(&css, options).map_err(|e| crate::BuildError::Dev(format!("{}: {e}", sheet.display())))?;
+  Ok(compiler.card_rules(classes.listed.keys().map(String::as_str)).into_iter().map(|rule| CardClass { class: rule.candidate, min_width: rule.min_width, declarations: rule.declarations }).collect())
+}
+
 /// Every class the plan's components render.
 pub fn collect(manifest: &Manifest) -> Classes {
   let mut classes = Classes::default();

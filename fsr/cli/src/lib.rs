@@ -1487,15 +1487,21 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     report.images.push((path.clone(), format!("not read: {why}")));
   }
   let mut tailwind_file = None;
+  let mut cards_file = None;
   if tailwind::wanted(&app.join(&sections.dirs.styles)) {
     let classes = tailwind::collect(&manifest);
     report.tailwind = Some((classes.listed.len(), classes.unlisted.clone()));
     tailwind_file = Some(classes.file());
+    if !manifest.images.is_empty() {
+      let table = tailwind::card_table(&app.join(&sections.dirs.styles), &classes)?;
+      cards_file = Some(serde_json::to_string_pretty(&table).expect("a card table serializes") + "\n");
+    }
   }
   let plan_text = manifest.to_sexpr();
   report.plan = Some(plan_text.len());
   let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
   files.extend(tailwind_file.map(|text| (tailwind::CLASSES_FILE.to_owned(), text)));
+  files.extend(cards_file.map(|text| (tailwind::CARDS_FILE.to_owned(), text)));
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   match &options.site {

@@ -365,6 +365,11 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     placer.place(format!("{APP}/{}", snapfire_fsr_host::assets::ASSETS_FILE), Source::Path(assets), false, &base)?;
   }
 
+  let cards = config.app.join(snapfire_fsr_host::CARD_CLASSES_FILE);
+  if cards.is_file() {
+    placer.place(format!("{APP}/{}", snapfire_fsr_host::CARD_CLASSES_FILE), Source::Path(cards), false, &base)?;
+  }
+
   let facts = config.app.join("dist/.snapfire-build.json");
   if facts.is_file() {
     placer.place(format!("{APP}/dist/.snapfire-build.json"), Source::Path(facts), false, &base)?;

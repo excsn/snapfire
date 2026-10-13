@@ -39,6 +39,9 @@ pub mod socket;
 #[cfg(feature = "tera")]
 pub mod tera;
 
+/// Where the build writes what each Tailwind class means on a card image, relative to the app.
+pub const CARD_CLASSES_FILE: &str = "generated/tailwind.cards.json";
+
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::future::Future;

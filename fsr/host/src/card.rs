@@ -25,6 +25,44 @@ pub(crate) struct Cards {
   sources: HashMap<String, String>,
   images: Mutex<Images>,
   drawn: Mutex<HashMap<String, Arc<Vec<u8>>>>,
+  /// What each Tailwind class means on a card, from the build's table.
+  classes: CardClasses,
+  /// Each mounted site's own table, by site name, for the images its modules draw.
+  site_classes: HashMap<String, CardClasses>,
+}
+
+/// The build's table of card declarations by class: the class's place in Tailwind's output
+/// order, the card width it starts to apply at and its declarations.
+#[derive(Default)]
+pub(crate) struct CardClasses(HashMap<String, (usize, Option<f32>, Vec<(String, String)>)>);
+
+#[derive(serde::Deserialize)]
+struct CardClass {
+  class: String,
+  #[serde(default)]
+  min_width: Option<f32>,
+  declarations: Vec<(String, String)>,
+}
+
+impl CardClasses {
+  fn read(app: &Path) -> CardClasses {
+    let file = app.join(crate::CARD_CLASSES_FILE);
+    let Ok(text) = std::fs::read_to_string(&file) else { return CardClasses::default() };
+    match serde_json::from_str::<Vec<CardClass>>(&text) {
+      Ok(rows) => CardClasses(rows.into_iter().enumerate().map(|(order, row)| (row.class, (order, row.min_width, row.declarations))).collect()),
+      Err(why) => {
+        tracing::warn!(target: "fsr::card", file = %file.display(), %why, "the card class table does not read; classes draw nothing");
+        CardClasses::default()
+      }
+    }
+  }
+
+  /// The declarations `class` lists for a card `width` wide, in the table's order.
+  fn style_of(&self, class: &str, width: f32) -> String {
+    let mut found: Vec<&(usize, Option<f32>, Vec<(String, String)>)> = class.split_whitespace().filter_map(|c| self.0.get(c)).filter(|(_, min, _)| min.is_none_or(|min| width >= min)).collect();
+    found.sort_by_key(|(order, _, _)| *order);
+    found.iter().flat_map(|(_, _, decls)| decls.iter()).map(|(p, v)| format!("{p}:{v};")).collect()
+  }
 }
 
 impl Cards {
@@ -61,7 +99,20 @@ impl Cards {
         }
       }
     }
-    Ok(Cards { fonts: Arc::new(fonts), app: app.to_path_buf(), sources, images: Mutex::new(Images::new()), drawn: Mutex::new(HashMap::new()) })
+    Ok(Cards { fonts: Arc::new(fonts), app: app.to_path_buf(), sources, images: Mutex::new(Images::new()), drawn: Mutex::new(HashMap::new()), classes: CardClasses::read(app), site_classes: HashMap::new() })
+  }
+
+  /// The tables of the sites mounted from `apps`, each a site's name and its app directory.
+  pub(crate) fn with_sites(mut self, apps: &[(String, std::path::PathBuf)]) -> Cards {
+    for (name, app) in apps {
+      self.site_classes.insert(name.clone(), CardClasses::read(app));
+    }
+    self
+  }
+
+  /// The table for an image `module` draws: its site's when a mounted site owns it.
+  fn classes_for(&self, module: &str) -> &CardClasses {
+    module.split_once(':').and_then(|(site, _)| self.site_classes.get(site)).unwrap_or(&self.classes)
   }
 
   /// The images `card` names, each an image the build placed, read from its
@@ -199,7 +250,7 @@ impl Host {
       tracing::warn!(target: "fsr::card", image = %entry.pattern, error = %fail.message, "the image's component failed");
       server(format!("the image's component failed: {}", fail.message))
     })?.html;
-    let card = Card::new(width, height, parse(&html));
+    let card = Card::new(width, height, parse_with(&html, cards.classes_for(&entry.module), width as f32));
     let images = cards.images_for(&card);
     let fonts = cards.fonts.clone();
     let format = if content_type == "image/jpeg" { Format::Jpeg { quality: 85 } } else { Format::Png };
@@ -517,6 +568,21 @@ fn runs(nodes: &[Node], inherited: &Declarations, out: &mut Vec<Run>) {
   }
 }
 
+fn classed(nodes: &mut [Node], classes: &CardClasses, width: f32) {
+  for node in nodes {
+    let Node::El { attrs, children, .. } = node else { continue };
+    if let Some(class) = attr(attrs, "class").map(str::to_owned) {
+      let from_classes = classes.style_of(&class, width);
+      if !from_classes.is_empty() {
+        let own = attr(attrs, "style").unwrap_or_default().to_owned();
+        attrs.retain(|(name, _)| name != "style");
+        attrs.push(("style".to_owned(), format!("{from_classes}{own}")));
+      }
+    }
+    classed(children, classes, width);
+  }
+}
+
 fn image_ref(src: &str) -> ImageRef {
   if let Some(data) = src.strip_prefix("data:") {
     if let Some((meta, payload)) = data.split_once(',') {
@@ -550,8 +616,19 @@ fn element(node: &Node) -> Option<Element> {
 
 /// The card a component's markup draws. One top element is the root; more
 /// than one sit in a box the card's size.
+#[cfg(test)]
 pub(crate) fn parse(html: &str) -> Element {
-  let mut top: Vec<Element> = nodes(html).iter().filter_map(element).collect();
+  parse_with(html, &CardClasses::default(), 1200.0)
+}
+
+/// `parse` with each element's `class` written as declarations ahead of its own `style`, so an
+/// inline declaration still wins over a class, the way it does on the page.
+pub(crate) fn parse_with(html: &str, classes: &CardClasses, width: f32) -> Element {
+  let mut parsed = nodes(html);
+  if !classes.0.is_empty() {
+    classed(&mut parsed, classes, width);
+  }
+  let mut top: Vec<Element> = parsed.iter().filter_map(element).collect();
   if top.len() == 1 {
     return top.remove(0);
   }
@@ -584,6 +661,25 @@ mod tests {
     let Element::Box { children, .. } = parse(r#"<div style="display:flex;gap:16px"><span>2026-09-02</span><span style="padding:4px 16px;background-color:#fde68a">design</span></div>"#) else { panic!("a box") };
     assert_eq!(children.len(), 2);
     assert!(matches!(&children[1], Element::Text { style, .. } if style.iter().any(|(n, _)| n == "padding")));
+  }
+
+  #[test]
+  fn classes_draw_from_the_table_before_the_inline_style() {
+    let row = |order: usize, min: Option<f32>, decls: &[(&str, &str)]| (order, min, decls.iter().map(|(p, v)| (p.to_string(), v.to_string())).collect::<Vec<_>>());
+    let classes = CardClasses(
+      [
+        ("flex".to_owned(), row(0, None, &[("display", "flex")])),
+        ("text-4xl".to_owned(), row(1, None, &[("font-size", "2.25rem")])),
+        ("md:text-6xl".to_owned(), row(2, Some(768.0), &[("font-size", "3.75rem")])),
+      ]
+      .into_iter()
+      .collect(),
+    );
+    let html = r#"<div class="md:text-6xl text-4xl flex hover:bg-red-500" style="gap:4px"><p>x</p></div>"#;
+    let Element::Box { style, .. } = parse_with(html, &classes, 1200.0) else { panic!("a box") };
+    assert_eq!(style, [("display", "flex"), ("font-size", "2.25rem"), ("font-size", "3.75rem"), ("gap", "4px")].map(|(p, v)| (p.to_owned(), v.to_owned())));
+    let Element::Box { style, .. } = parse_with(html, &classes, 600.0) else { panic!("a box") };
+    assert_eq!(style, [("display", "flex"), ("font-size", "2.25rem"), ("gap", "4px")].map(|(p, v)| (p.to_owned(), v.to_owned())));
   }
 
   #[test]

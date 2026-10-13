@@ -617,6 +617,7 @@ impl HostBuilder {
       false => Vec::new(),
     };
     let mounted: Vec<(String, PathBuf)> = self.mounts.iter().map(|mount| (mount.artifact.plan.clone(), mount.artifact.config.app.clone())).collect();
+    let site_apps: Vec<(String, PathBuf)> = self.mounts.iter().map(|mount| (mount.name.clone(), mount.artifact.config.app.clone())).collect();
     for mount in std::mem::take(&mut self.mounts) {
       let site = mount.artifact.config.site.clone().ok_or_else(|| {
         HostError::Mount(
@@ -1176,7 +1177,7 @@ impl HostBuilder {
     let scripts = |key: &str| config.fonts.faces.get(key).map(|entry| entry.scripts.clone()).unwrap_or_default();
     let cards = match app.images.is_empty() {
       true => None,
-      false => Some(crate::card::Cards::new(&config.app, assets_manifest.as_ref(), &scripts).map_err(|why| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), why))?),
+      false => Some(crate::card::Cards::new(&config.app, assets_manifest.as_ref(), &scripts).map_err(|why| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), why))?.with_sites(&site_apps)),
     };
     let answers: Vec<String> = app.report.handlers.iter().filter_map(|(key, _)| key.strip_prefix("GET ").map(str::to_owned)).chain(app.images.entries().iter().map(|image| image.pattern.clone())).collect();
     Ok((
