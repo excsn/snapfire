@@ -10,7 +10,7 @@ use base64::Engine;
 use browserslist::{Opts, execute};
 use lightningcss::targets::Browsers;
 use rayon::prelude::*;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -92,6 +92,11 @@ pub struct Build {
   tailwind_unknown: BTreeMap<PathBuf, Vec<(String, String)>>,
   /// For each stylesheet that does not, the classes its selectors name.
   plain_classes: BTreeMap<PathBuf, BTreeSet<String>>,
+  /// The classes each script and each plugin source names where a class goes, read when a
+  /// stylesheet uses Tailwind, so islands the driver never listed get their utilities.
+  source_classes: BTreeMap<PathBuf, Vec<String>>,
+  /// The paths a `refresh` is working on, outermost first.
+  refreshing: HashSet<PathBuf>,
   surfaces: HashMap<PathBuf, Surface>,
   pub emitted: usize,
   pub has_error: bool,
@@ -295,6 +300,8 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     style_readers: HashMap::new(),
     tailwind_unknown: BTreeMap::new(),
     plain_classes: BTreeMap::new(),
+    source_classes: BTreeMap::new(),
+    refreshing: HashSet::new(),
     surfaces: HashMap::new(),
     emitted: 0,
     has_error: false,
@@ -334,6 +341,8 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     }
   }
 
+  read_source_classes(&mut build);
+  let extra = build.extra_classes(opts);
   let jobs = plan(opts, &mut build);
 
   // Compiling is the expensive part and each job owns a distinct output path, so it fans out. The
@@ -341,7 +350,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   // progress order and error order identical to a single-threaded build.
   let results: Vec<JobResult> = jobs
     .par_iter()
-    .map(|job| run(&build.compiler, opts, build.map_options, job))
+    .map(|job| run(&build.compiler, opts, build.map_options, job, &extra))
     .collect();
 
   let mut referenced: Vec<PathBuf> = Vec::new();
@@ -454,7 +463,17 @@ fn load_asset_map(opts: &Options) -> Result<Option<std::sync::Arc<snapfire_compi
 
 /// Recompiles one already-selected file in place. Nothing structural is re-checked, so this never
 /// prunes and never re-runs collision detection against entries the file already owns.
+/// Compiles `path` again with everything that depends on it. A path already being refreshed
+/// further up is skipped, so stylesheets that read each other end.
 pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
+  if !build.refreshing.insert(path.to_path_buf()) {
+    return;
+  }
+  refresh_one(opts, build, path);
+  build.refreshing.remove(path);
+}
+
+fn refresh_one(opts: &Options, build: &mut Build, path: &Path) {
   build.misses.remove(path);
   // A plugin source is compiled again before its jobs are planned, and a file
   // a plugin read beside a source refreshes every source that read it.
@@ -484,13 +503,67 @@ pub fn refresh(opts: &Options, build: &mut Build, path: &Path) {
   };
 
   let mut referenced = Vec::new();
+  let extra = build.extra_classes(opts);
 
   for job in &jobs {
-    let result = run(&build.compiler, opts, build.map_options, job);
+    let result = run(&build.compiler, opts, build.map_options, job, &extra);
     report(build, result, &mut referenced);
   }
 
   check_graph(opts, build);
+  if !build.source_classes.is_empty() && build.reread_source_classes(path) {
+    let sheets: Vec<PathBuf> = build.tailwind_unknown.keys().cloned().collect();
+    for sheet in sheets {
+      refresh(opts, build, &sheet);
+    }
+  }
+}
+
+/// Reads the classes every script and plugin source names, when a stylesheet in the build
+/// uses Tailwind.
+fn read_source_classes(build: &mut Build) {
+  let tailwind = build.files.iter().any(|f| matches!(asset(f), Some(Asset::Style)) && fs::read_to_string(f).is_ok_and(|css| crate::tailwind::uses_tailwind(&css)));
+  if !tailwind {
+    return;
+  }
+  let files: Vec<PathBuf> = build.files.clone();
+  for file in files {
+    build.reread_source_classes(&file);
+  }
+}
+
+impl Build {
+  /// Reads `path` again if it is a script or a plugin source; true when its classes changed.
+  fn reread_source_classes(&mut self, path: &Path) -> bool {
+    let text = match asset(path) {
+      Some(Asset::Script { .. }) => self.compiler.read_source(path).ok(),
+      Some(Asset::Plugin { .. }) => self.compiled.get(path).map(|c| c.js.clone()),
+      _ => None,
+    };
+    let Some(text) = text else { return false };
+    let classes = crate::tailwind::source_classes(path, &text);
+    match self.source_classes.get(path) == Some(&classes) {
+      true => false,
+      false => {
+        self.source_classes.insert(path.to_path_buf(), classes);
+        true
+      }
+    }
+  }
+
+  /// Every class the sources name, once each, with the first file naming it.
+  fn extra_classes(&self, opts: &Options) -> Vec<(String, String)> {
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+    for (file, classes) in &self.source_classes {
+      for class in classes {
+        if seen.insert(class.clone()) {
+          out.push((class.clone(), display(file, &opts.root)));
+        }
+      }
+    }
+    out
+  }
 }
 
 /// What one job emits from its source. The minified graph and the declarations are both further
@@ -969,17 +1042,18 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
   Some(jobs)
 }
 
-fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job) -> JobResult {
+fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job, extra: &[(String, String)]) -> JobResult {
   let mut expanded = None;
   let mut plain = None;
   if matches!(job.asset, Asset::Style)
     && matches!(job.supplied, Supplied::File)
     && let Ok(content) = fs::read_to_string(&job.source)
   {
-    if crate::tailwind::uses_tailwind(&content) {
+    let theme_file = opts.tailwind_themes.as_ref().is_some_and(|dir| job.source.starts_with(opts.root.join(dir)));
+    if crate::tailwind::uses_tailwind(&content) && !theme_file {
       let classes = opts.tailwind_classes.as_ref().map(|c| opts.root.join(c));
       let themes = opts.tailwind_themes.as_ref().map(|dir| (opts.root.join(dir), opts.tailwind_theme_attribute.as_str()));
-      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), themes, &display(&job.source, &opts.root)));
+      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), extra, themes, &display(&job.source, &opts.root)));
     } else if job.emit.minify().is_none() {
       plain = Some(crate::tailwind::defined_classes(&content).into_iter().map(str::to_owned).collect());
     }

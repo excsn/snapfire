@@ -43,6 +43,7 @@ rayon = "1.12.0"
 
 oxc_allocator = "0.148"
 oxc_ast = "0.148"
+oxc_ast_visit = "0.148"
 oxc_diagnostics = "0.148"
 oxc_parser = "0.148"
 oxc_span = "0.148"

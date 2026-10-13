@@ -42,6 +42,25 @@ impl Driven {
     driven
   }
 
+  /// `start` with Tailwind's named themes in `styles/themes`.
+  fn start_themed(root: &Path) -> Self {
+    let mut cmd: Command = get_snapfirec_cmd();
+    let mut child = cmd
+      .arg("--root")
+      .arg(root)
+      .args(["--driven", "--tailwind-themes", "styles/themes"])
+      .stdin(Stdio::piped())
+      .stdout(Stdio::piped())
+      .stderr(Stdio::null())
+      .spawn()
+      .expect("failed to start the compiler");
+    let stdin = child.stdin.take();
+    let stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut driven = Driven { child, stdin, stdout };
+    assert_eq!(driven.settled(), REBUILT, "the build it starts with");
+    driven
+  }
+
   fn rebuild(&mut self, paths: &[&str]) -> String {
     let stdin = self.stdin.as_mut().unwrap();
     for path in paths {
@@ -203,4 +222,29 @@ fn a_driven_compiler_asks_its_driver_for_the_plugin_rather_than_starting_one() {
   assert_eq!(seen, ["hello vue", "compile vue src/Card.vue"], "one hello, then one batch per extension");
   let module = fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module");
   assert!(module.contains("the driver"), "the module is the driver's answer: {module}");
+}
+
+/// A theme file read by every Tailwind stylesheet once overflowed the stack: two themes each
+/// listed the other as a file they read, so refreshing one refreshed the other without end.
+#[test]
+fn test_driven_refreshes_stylesheets_that_read_each_other_once() {
+  let fixture = Fixture::new("tailwind-islands");
+  let mut driven = Driven::start_themed(fixture.root());
+  assert_eq!(driven.rebuild(&["styles/themes/ocean.css"]), REBUILT);
+  let css = fs::read_to_string(fixture.root().join("dist/styles/app.css")).unwrap();
+  assert!(css.contains("[data-theme=\"ocean\"]") && css.contains("[data-theme=\"forest\"]"), "{css}");
+}
+
+/// A class an island's source names is in the stylesheet. One added to the source arrives in
+/// the batch that names the source.
+#[test]
+fn test_driven_takes_an_islands_new_class_into_the_stylesheet() {
+  let fixture = Fixture::new("tailwind-islands");
+  let mut driven = Driven::start_themed(fixture.root());
+  let css = || fs::read_to_string(fixture.root().join("dist/styles/app.css")).unwrap();
+  assert!(css().contains(".tracking-wider") && !css().contains(".italic"), "{}", css());
+  let clock = fixture.root().join("src/Clock.tsx");
+  fs::write(&clock, fs::read_to_string(&clock).unwrap().replace("tracking-wider", "tracking-wider italic")).unwrap();
+  assert_eq!(driven.rebuild(&["src/Clock.tsx"]), REBUILT);
+  assert!(css().contains(".italic"), "{}", css());
 }

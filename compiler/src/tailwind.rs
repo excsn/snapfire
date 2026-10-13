@@ -64,15 +64,17 @@ pub fn named_themes(dir: &Path, attribute: &str) -> Vec<(PathBuf, NamedTheme)> {
 /// the named themes in `themes`, a directory and the attribute that selects one.
 /// An import resolves to one of Tailwind's own stylesheets first, then to a file relative to
 /// the stylesheet that names it.
-pub fn expand(path: &Path, content: &str, classes: Option<&Path>, themes: Option<(PathBuf, &str)>, source_name: &str) -> Expanded {
+pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(String, String)], themes: Option<(PathBuf, &str)>, source_name: &str) -> Expanded {
   let reads = RefCell::new(Vec::new());
-  let listed = match classes {
+  let mut listed = match classes {
     Some(file) => {
       reads.borrow_mut().push(file.to_path_buf());
       read_classes(file)
     }
     None => Vec::new(),
   };
+  let known: std::collections::HashSet<String> = listed.iter().map(|(class, _)| class.clone()).collect();
+  listed.extend(extra.iter().filter(|(class, _)| !known.contains(class)).cloned());
   let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_string_lossy().into_owned();
   let mut named = Vec::new();
   if let Some((themes_dir, attribute)) = themes {
@@ -157,9 +159,153 @@ fn declaration_follows(rest: &[u8]) -> bool {
   first.contains(':') && !head[until..].starts_with('{')
 }
 
+/// The class names a script names where a class goes: a `class` or `className` attribute or
+/// property or an argument to `clsx`, `cn`, `cx`, `classnames`, `twMerge` or Vue's
+/// `normalizeClass`. Whole tokens only: a token a template expression touches is left out.
+pub fn source_classes(path: &Path, source: &str) -> Vec<String> {
+  use oxc_ast_visit::Visit;
+  let allocator = oxc_allocator::Allocator::default();
+  let source_type = oxc_span::SourceType::from_path(path).unwrap_or_else(|_| oxc_span::SourceType::tsx());
+  let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
+  let mut collector = Classes::default();
+  collector.visit_program(&parsed.program);
+  let mut found: Vec<String> = collector.found.into_iter().collect();
+  found.sort();
+  found
+}
+
+#[derive(Default)]
+struct Classes {
+  found: std::collections::BTreeSet<String>,
+}
+
+const CLASS_CALLS: &[&str] = &["clsx", "cn", "cx", "classnames", "classNames", "twMerge", "normalizeClass", "_normalizeClass"];
+
+impl Classes {
+  fn words(&mut self, text: &str) {
+    self.found.extend(text.split_whitespace().map(str::to_owned));
+  }
+
+  fn expression(&mut self, expr: &oxc_ast::ast::Expression) {
+    use oxc_ast::ast::Expression;
+    match expr {
+      Expression::StringLiteral(s) => self.words(&s.value),
+      Expression::TemplateLiteral(t) => {
+        let last = t.quasis.len().saturating_sub(1);
+        for (i, quasi) in t.quasis.iter().enumerate() {
+          let text = quasi.value.cooked.as_ref().map(|c| c.as_str()).unwrap_or(quasi.value.raw.as_str());
+          let mut tokens: Vec<&str> = text.split_whitespace().collect();
+          if i > 0 && !text.starts_with(char::is_whitespace) && !tokens.is_empty() {
+            tokens.remove(0);
+          }
+          if i < last && !text.ends_with(char::is_whitespace) && !tokens.is_empty() {
+            tokens.pop();
+          }
+          self.found.extend(tokens.into_iter().map(str::to_owned));
+        }
+        for inner in &t.expressions {
+          self.expression(inner);
+        }
+      }
+      Expression::ConditionalExpression(c) => {
+        self.expression(&c.consequent);
+        self.expression(&c.alternate);
+      }
+      Expression::LogicalExpression(l) => {
+        if l.operator != oxc_ast::ast::LogicalOperator::And {
+          self.expression(&l.left);
+        }
+        self.expression(&l.right);
+      }
+      Expression::ArrayExpression(a) => {
+        for element in &a.elements {
+          if let Some(e) = element.as_expression() {
+            self.expression(e);
+          }
+        }
+      }
+      Expression::ObjectExpression(o) => {
+        for property in &o.properties {
+          if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property {
+            match &p.key {
+              oxc_ast::ast::PropertyKey::StringLiteral(s) => self.words(&s.value),
+              oxc_ast::ast::PropertyKey::StaticIdentifier(id) => self.words(&id.name),
+              _ => {}
+            }
+          }
+        }
+      }
+      Expression::ParenthesizedExpression(p) => self.expression(&p.expression),
+      Expression::TSAsExpression(e) => self.expression(&e.expression),
+      Expression::TSSatisfiesExpression(e) => self.expression(&e.expression),
+      Expression::CallExpression(call) => self.call(call),
+      _ => {}
+    }
+  }
+
+  fn call(&mut self, call: &oxc_ast::ast::CallExpression) {
+    let name = match &call.callee {
+      oxc_ast::ast::Expression::Identifier(id) => Some(id.name.as_str()),
+      oxc_ast::ast::Expression::StaticMemberExpression(m) => Some(m.property.name.as_str()),
+      _ => None,
+    };
+    if name.is_some_and(|n| CLASS_CALLS.contains(&n)) {
+      for argument in &call.arguments {
+        if let Some(e) = argument.as_expression() {
+          self.expression(e);
+        }
+      }
+    }
+  }
+}
+
+impl<'a> oxc_ast_visit::Visit<'a> for Classes {
+  fn visit_jsx_attribute(&mut self, attribute: &oxc_ast::ast::JSXAttribute<'a>) {
+    let named = matches!(&attribute.name, oxc_ast::ast::JSXAttributeName::Identifier(id) if id.name == "class" || id.name == "className");
+    if named {
+      match &attribute.value {
+        Some(oxc_ast::ast::JSXAttributeValue::StringLiteral(s)) => self.words(&s.value),
+        Some(oxc_ast::ast::JSXAttributeValue::ExpressionContainer(c)) => {
+          if let Some(e) = c.expression.as_expression() {
+            self.expression(e);
+          }
+        }
+        _ => {}
+      }
+    }
+    oxc_ast_visit::walk::walk_jsx_attribute(self, attribute);
+  }
+
+  fn visit_object_property(&mut self, property: &oxc_ast::ast::ObjectProperty<'a>) {
+    let named = match &property.key {
+      oxc_ast::ast::PropertyKey::StaticIdentifier(id) => id.name == "class" || id.name == "className",
+      oxc_ast::ast::PropertyKey::StringLiteral(s) => s.value == "class" || s.value == "className",
+      _ => false,
+    };
+    if named {
+      self.expression(&property.value);
+    }
+    oxc_ast_visit::walk::walk_object_property(self, property);
+  }
+
+  fn visit_call_expression(&mut self, call: &oxc_ast::ast::CallExpression<'a>) {
+    self.call(call);
+    oxc_ast_visit::walk::walk_call_expression(self, call);
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn reads_classes_where_a_class_goes() {
+    let tsx = "import { clsx } from \"clsx\";\nexport function Clock({ on, tone }: { on: boolean; tone: string }) {\n  return <p className={clsx(\"font-mono text-sm\", on && \"text-emerald-600\", { \"animate-pulse\": on })}><span className={`rounded px-2 bg-${tone}-100 ${on ? \"ring-2\" : \"ring-0\"}`}>x</span><b class=\"font-bold\">y</b></p>;\n}\n";
+    let found = source_classes(Path::new("src/ui/Clock.tsx"), tsx);
+    assert_eq!(found, ["animate-pulse", "font-bold", "font-mono", "px-2", "ring-0", "ring-2", "rounded", "text-emerald-600", "text-sm"]);
+    let vue = "import { normalizeClass as _normalizeClass, createElementVNode as _createElementVNode } from \"vue\";\nexport function render(_ctx) {\n  return _createElementVNode(\"div\", { class: _normalizeClass([\"card\", { \"card-on\": _ctx.on }]) }, [_createElementVNode(\"p\", { class: \"p-4 text-lg\" })]);\n}\n";
+    assert_eq!(source_classes(Path::new("src/Box.vue.js"), vue), ["card", "card-on", "p-4", "text-lg"]);
+  }
 
   #[test]
   fn recognises_a_tailwind_stylesheet() {
@@ -189,7 +335,7 @@ mod tests {
     let sheet = dir.join("app.css");
     let content = "@import \"tailwindcss/utilities\";\n@import \"./brand.css\";\n.hero {\n  margin: 0 .5rem;\n}\n";
 
-    let expanded = expand(&sheet, content, Some(&classes), None, "styles/app.css");
+    let expanded = expand(&sheet, content, Some(&classes), &[], None, "styles/app.css");
     let css = expanded.css.unwrap();
     assert!(css.contains(".flex {\n  display: flex;\n}"), "{css}");
     assert!(css.contains("background-color: var(--color-brand)"), "{css}");
