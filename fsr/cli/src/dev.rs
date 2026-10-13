@@ -154,6 +154,10 @@ impl App {
     if self.dir.join(crate::tailwind::CLASSES_FILE).is_file() {
       command.args(["--tailwind-classes", crate::tailwind::CLASSES_FILE]);
     }
+    let themes = format!("{}/{}", crate::assets::Sections::of(&self.dir).dirs.styles, crate::THEMES_DIR);
+    if self.dir.join(&themes).is_dir() {
+      command.args(["--tailwind-themes", &themes, "--tailwind-theme-attribute", crate::THEME_ATTRIBUTE]);
+    }
     command
   }
 

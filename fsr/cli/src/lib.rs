@@ -78,6 +78,8 @@ pub enum BuildError {
   UnknownComponent { module: String },
   #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}{remedy}")]
   IslandImports { module: String, adapter: String, missing: String, remedy: String },
+  #[error("{module} sets theme `{name}`, which is not a theme; the themes are {known}")]
+  UnknownTheme { module: String, name: String, known: String },
   #[error("`{name}` is not a direction; the directions are {known}")]
   Direction { name: String, known: String },
   #[error("{map} maps `{specifier}` to `{found}`, but the host serves it at `{want}`; the adapter the build registers is the one the host serves")]
@@ -200,6 +202,12 @@ pub struct Report {
   pub handlers: Vec<(String, String)>,
   /// `middleware.ts` when the app has one.
   pub middleware: Option<String>,
+  /// The named themes from `styles/themes/`, the shell's among them for a site.
+  pub themes: Vec<String>,
+  /// Each layout or page that sets a theme, with the theme and whether it is forced.
+  pub theme_of: Vec<(String, String)>,
+  /// `theme.ts` when the app has one.
+  pub theme_body: Option<String>,
   /// The shell contract a site was built against: its path, how many store
   /// keys and imports it names and which of the site's import map entries
   /// differ from the shell's, which the shell's win at mount.
@@ -263,6 +271,15 @@ impl fmt::Display for Report {
     section(f, "handlers", &self.handlers, "lowered")?;
     if let Some(module) = &self.middleware {
       writeln!(f, "{:<9} {:<22} {:<11} {module}", "middleware", "middleware", "lowered")?;
+    }
+    if !self.themes.is_empty() {
+      writeln!(f, "{:<9} {}", "themes", self.themes.join(", "))?;
+    }
+    for (module, theme) in &self.theme_of {
+      writeln!(f, "{:<9} {module:<34} {theme}", "theme")?;
+    }
+    if let Some(module) = &self.theme_body {
+      writeln!(f, "{:<9} {:<22} {:<11} {module}", "theme.ts", "theme", "lowered")?;
     }
     if let Some((path, keys, imports, differ)) = &self.shell {
       writeln!(f, "{:<9} {path}: {keys} store keys, {imports} imports", "shell")?;
@@ -501,6 +518,9 @@ pub struct ShellContract {
   pub frameworks: std::collections::BTreeMap<String, String>,
   #[serde(default)]
   pub fsr: String,
+  /// The shell's named themes, from its `styles/themes/`, which a site's layouts may name too.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub themes: Vec<String>,
 }
 
 pub const SHELL_CONTRACT_VERSION: u32 = 1;
@@ -1345,6 +1365,40 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     Some(path) => Some((path, ShellContract::read(path)?)),
     None => None,
   };
+  let mut theme_names = theme_files(&app.join(&sections.dirs.styles).join(THEMES_DIR));
+  for name in shell.iter().flat_map(|(_, contract)| contract.themes.iter()) {
+    if !theme_names.contains(name) {
+      theme_names.push(name.clone());
+    }
+  }
+  theme_names.sort();
+  report.themes = theme_names.clone();
+  let mut theme_entries: Vec<snapfire_fsr_plan::ThemeEntry> = Vec::new();
+  let mut route_modules: Vec<String> = Vec::new();
+  for plan in entries.iter().map(|e| &e.plan).chain(intercepts.iter().map(|e| &e.plan)).chain(not_found.iter()) {
+    plan_modules(plan, &mut route_modules);
+  }
+  for module in route_modules {
+    let Some(file) = module.strip_suffix("#default") else { continue };
+    let stem = Path::new(file).file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let ts = file.ends_with(".tsx") || file.ends_with(".ts");
+    if !file.starts_with("routes/") || !ts || !(stem == "layout" || stem.starts_with("page")) {
+      continue;
+    }
+    let Some(theme) = set.theme_export(file)? else { continue };
+    if !theme_names.contains(&theme.name) {
+      let known = if theme_names.is_empty() { format!("none: add {}/{THEMES_DIR}/{}.css", sections.dirs.styles, theme.name) } else { theme_names.join(", ") };
+      return Err(BuildError::UnknownTheme { module, name: theme.name, known });
+    }
+    report.theme_of.push((module.clone(), if theme.force { format!("{} forced", theme.name) } else { theme.name.clone() }));
+    theme_entries.push(snapfire_fsr_plan::ThemeEntry { module, name: theme.name, force: theme.force });
+  }
+  let theme_body = if app.join("theme.ts").is_file() {
+    report.theme_body = Some("theme.ts".to_owned());
+    Some(lowered!(set.lower_theme("theme.ts")))
+  } else {
+    None
+  };
   check_vendor_urls(app, &layout)?;
   check_shell_urls(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
   let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
@@ -1394,7 +1448,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   let mut social = social_images(app, &routes_dir, &resolver)?;
   social.extend(generated_heads);
-  let mut manifest = Manifest::new(entries).with_heads(social).with_images(generated_images).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone());
+  let mut manifest = Manifest::new(entries).with_heads(social).with_images(generated_images).with_sources(sources).with_actions(actions).with_components(components).with_clients(clients).with_not_found(not_found).with_handlers(handlers).with_middleware(middleware).with_intercepts(intercepts).with_consts(set.consts.clone()).with_frameworks(frameworks.clone()).with_theme(theme_body, theme_entries);
   manifest.reads = reads;
   let mut composition_files: Vec<(String, Vec<String>)> = Vec::new();
   for component in manifest.components.iter().filter(|c| c.body.owner == snapfire_fsr_ir::Owner::Fsr && c.module.starts_with("routes/")) {
@@ -1446,7 +1500,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   match &options.site {
     None => {
-      let shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config, &frameworks)?;
+      let mut shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config, &frameworks)?;
+      shell_contract.themes = report.themes.clone();
       files.push(("generated/shell.json".to_owned(), serde_json::to_string_pretty(&shell_contract).expect("a shell contract serializes") + "\n"));
     }
     Some(_) => {
@@ -1475,7 +1530,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     ("generated/services.d.ts".to_owned(), declarations),
     ("generated/elements.d.ts".to_owned(), types::element_declarations(app, &layout, &elements)?),
     ("generated/head.ts".to_owned(), HEAD_HELPERS.to_owned()),
-    ("generated/fsr.ts".to_owned(), ctx_module(&routes.iter().chain(handler_routes.iter()).cloned().collect::<Vec<_>>(), session_import.as_deref(), &config)),
+    ("generated/fsr.ts".to_owned(), ctx_module(&routes.iter().chain(handler_routes.iter()).cloned().collect::<Vec<_>>(), session_import.as_deref(), &config, &report.themes)),
     ("generated/islands.ts".to_owned(), registry),
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
@@ -1730,7 +1785,7 @@ fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, source
     .and_then(|json| json.get("imports").cloned())
     .and_then(|imports| serde_json::from_value(imports).ok())
     .unwrap_or_default();
-  Ok(ShellContract { version: SHELL_CONTRACT_VERSION, store, imports, frameworks: frameworks.clone(), fsr: env!("CARGO_PKG_VERSION").to_owned() })
+  Ok(ShellContract { version: SHELL_CONTRACT_VERSION, store, imports, frameworks: frameworks.clone(), fsr: env!("CARGO_PKG_VERSION").to_owned(), themes: Vec::new() })
 }
 
 /// The head helpers a `meta` body imports from `@snapfire/fsr`. Plain
@@ -1839,7 +1894,7 @@ fn public_of(app: &Path) -> Vec<(String, infer::Ts)> {
 
 /// `generated/fsr.ts`: the per-route params, `Ctx`, `ActionCtx` and the typed
 /// `action` and `fail` a body imports.
-fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String, infer::Ts)]) -> String {
+fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String, infer::Ts)], themes: &[String]) -> String {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   out.push_str("import { action as declare, fail } from \"@snapfire/fsr-authoring\";\nimport type { Identity } from \"@snapfire/fsr-authoring\";\nimport type { Services } from \"./services\";\nimport type { Natives } from \"./native\";\nimport type { HeadEl } from \"./head\";\n");
   match session_import {
@@ -1865,6 +1920,9 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String,
   out.push_str(
     "}\n\nexport interface Address {\n  path: string;\n  params: Record<string, string>;\n  query: Record<string, string>;\n}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  /** The path this request matched, query excluded, locale prefix included. Empty under an action, whose path is the action endpoint rather than the document's. */\n  path: string;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  /** The host the request named, when `[server] hosts` lists it; null when it does not, null whenever that key is unset. */\n  host: string | null;\n  /** `document.origin` for this deployment, the scheme and host it is reached over; null when the configuration names none. The same on every request, so a body reading it still prerenders. */\n  origin: string | null;\n  /** The navigation's own request when this render is an intercept, null otherwise. A layout the document keeps loads under the document's request, so `params`, `query` and `path` are the document's there and this is the navigation's. */\n  address: Address | null;\n  /** `[public]` from the configuration, one field per key, typed from the value written there. */\n  config: Config;\n  services: Services;\n  /** The application's own Rust, in this process. A method the build read as `fn` answers a value; an `async fn` answers a promise. */\n  native: Natives;\n  now: bigint;\n}\n\n/** What an action, a route handler or middleware can do to the session beyond reading and writing its keys. */\nexport interface SessionControl {\n  /** Moves the session's end to `seconds` from now once the body commits; the cookie and the store follow. Nothing extends on its own. */\n  extend(seconds: number): void;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n  session: Session & SessionControl;\n}\n\n/** A `route.ts` handler's context: a loader's plus `session.extend`. */\nexport interface HandlerCtx<P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  session: Session & SessionControl;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n  session: Session & SessionControl;\n}\n\nexport interface Meta {\n  title?: string;\n  /** `title` is written as given rather than through `[document] title_template`. */\n  absolute?: boolean;\n  description?: string;\n  head?: HeadEl[];\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
   );
+  let names: Vec<String> = themes.iter().map(|t| format!("{t:?}")).collect();
+  let _ = writeln!(out, "\n/** A named theme, one per file under `styles/themes/`. */\nexport type Theme = {};", if names.is_empty() { "never".to_owned() } else { names.join(" | ") });
+  out.push_str("\n/** Light or dark, written as `<html data-sf-scheme>` and independent of the theme. */\nexport type Scheme = \"light\" | \"dark\";\n\n/** The theme the route's layouts and page set: the deepest one, unless a level above it forces its own. */\nexport interface RouteTheme {\n  name: Theme | null;\n  forced: boolean;\n}\n\nexport interface ThemeCtx extends Ctx {\n  theme: RouteTheme;\n}\n\n/** What `theme.ts` decides for the document: no `name` is the root theme, no `scheme` leaves the attribute off. */\nexport interface ThemeChoice {\n  name?: Theme | null;\n  scheme?: Scheme | null;\n}\n");
   out.push_str("\nexport type { HeadEl } from \"./head\";\n");
   out
 }
@@ -2834,6 +2892,36 @@ impl SlotInfo {
 
 /// Nests `content` under each layout, outermost first, each layout's
 /// parallel slots beside it. Ids are assigned afterwards by `renumber`.
+/// Where the named themes live under the styles directory.
+pub const THEMES_DIR: &str = "themes";
+
+/// The attribute on `<html>` a named theme is selected by.
+pub const THEME_ATTRIBUTE: &str = "data-sf-theme";
+
+/// The names of the themes in `dir`, one per `<name>.css`.
+pub fn theme_files(dir: &Path) -> Vec<String> {
+  let mut names: Vec<String> = std::fs::read_dir(dir)
+    .into_iter()
+    .flatten()
+    .flatten()
+    .map(|e| e.path())
+    .filter(|p| p.extension().is_some_and(|e| e == "css"))
+    .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
+    .collect();
+  names.sort();
+  names
+}
+
+/// Every module a plan node and its children render, the node's own first.
+fn plan_modules(node: &Node, out: &mut Vec<String>) {
+  if !out.contains(&node.module) {
+    out.push(node.module.clone());
+  }
+  for child in &node.children {
+    plan_modules(&child.node, out);
+  }
+}
+
 fn wrap_in_layouts(content: Node, wrapping: &[&LayoutInfo], error: &Boundary) -> Node {
   let mut node = content;
   for layout in wrapping.iter().rev() {
