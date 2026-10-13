@@ -33,4 +33,4 @@ No features.
 
 ## Status
 
-Driven protocol 2, plugin protocol 3.
+Active.
