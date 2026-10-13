@@ -402,3 +402,23 @@ async fn a_card_image_is_drawn_for_the_shell_and_each_site_and_named_in_its_page
   let missing = get("/blog/post/nowhere/opengraph-image.png", "*/*").await;
   assert_eq!(missing.status(), StatusCode::NOT_FOUND, "the post's loader answers not found for its image too");
 }
+
+#[tokio::test]
+async fn a_remote_pages_head_elements_reach_the_portals_document() {
+  let (portal, _reports) = portal_over_reports().await;
+  let html = body_of(portal.handle(Request::get("/reports").header(header::ACCEPT, "text/html").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains("<meta property=\"og:type\" content=\"website\">"), "the head element the reports index's meta returns, carried in the head row its process sends: {html}");
+}
+
+#[tokio::test]
+#[ignore = "the portal renders a GET under a remote site's prefix as a page unless its Accept rules one out, so a handler there does not answer a client accepting */*"]
+async fn a_remote_sites_get_handler_answers_through_the_portal_whatever_the_client_accepts() {
+  let (portal, _reports) = portal_over_reports().await;
+  for accept in ["*/*", "application/json"] {
+    let response = portal.handle(Request::get("/reports/1/rows").header(header::ACCEPT, accept).body(Bytes::new()).unwrap()).await;
+    let status = response.status();
+    let body = body_of(response).await;
+    assert_eq!(status, StatusCode::OK, "{accept}: {body}");
+    assert!(body.contains("Revenue by region"), "{accept}: answered by the reports process: {body}");
+  }
+}
