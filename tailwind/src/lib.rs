@@ -25,6 +25,10 @@ mod walk;
 use indexmap::IndexSet;
 
 pub use at_import::{LoadStylesheet, Loaded, TAILWIND_BASE, tailwind_stylesheet};
+#[cfg(doctest)]
+#[doc = include_str!("../README.USAGE.md")]
+pub struct UsageGuide;
+
 pub use card::CardRule;
 pub use features::Features;
 pub use optimize::{OptimizeOptions, optimize};
