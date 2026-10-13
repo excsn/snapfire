@@ -22,6 +22,7 @@ pub mod ir;
 pub mod typecheck;
 pub mod types;
 pub mod vendor;
+pub mod tailwind;
 pub mod xwpm;
 
 pub use dev::{emit, DevOptions, Emitted};
@@ -242,6 +243,9 @@ pub struct Report {
   pub images: Vec<(String, String)>,
   /// A face the font directory holds or a remote stylesheet, one line each.
   pub fonts: Vec<String>,
+  /// When a stylesheet imports Tailwind: how many classes the plan renders. Each module with a
+  /// class value the build cannot list comes with that value.
+  pub tailwind: Option<(usize, Vec<(String, String)>)>,
   /// The plan file as written and as it would be without whitespace, in bytes.
   /// The build writes it pretty so it reads and diffs; the second number is
   /// what a deployment would ship.
@@ -277,6 +281,13 @@ impl fmt::Display for Report {
     for (i, line) in self.fonts.iter().enumerate() {
       let label = if i == 0 { "font" } else { "" };
       writeln!(f, "{label:<9} {line}")?;
+    }
+    if let Some((count, unlisted)) = &self.tailwind {
+      writeln!(f, "{:<9} {count} classes in {}", "tailwind", tailwind::CLASSES_FILE)?;
+      for (module, value) in unlisted {
+        writeln!(f, "{:<9} {module:<34} {}: a class value the build cannot list, {value}", "warning", tailwind::UNLISTED)?;
+        writeln!(f, "{:<9} list its values in the stylesheet with @source inline(\"...\")", "")?;
+      }
     }
     for (i, cause) in self.causes.iter().enumerate() {
       let label = if i == 0 { "client" } else { "" };
@@ -1421,9 +1432,16 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   for (path, why) in resolver.refused.borrow().iter() {
     report.images.push((path.clone(), format!("not read: {why}")));
   }
+  let mut tailwind_file = None;
+  if tailwind::wanted(&app.join(&sections.dirs.styles)) {
+    let classes = tailwind::collect(&manifest);
+    report.tailwind = Some((classes.listed.len(), classes.unlisted.clone()));
+    tailwind_file = Some(classes.file());
+  }
   let plan_text = manifest.to_sexpr();
   report.plan = Some(plan_text.len());
   let mut files = vec![(PLAN_FILE.to_owned(), plan_text)];
+  files.extend(tailwind_file.map(|text| (tailwind::CLASSES_FILE.to_owned(), text)));
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
   files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   match &options.site {

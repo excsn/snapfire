@@ -151,6 +151,9 @@ impl App {
     if self.production {
       command.args(["--minify", "compact"]);
     }
+    if self.dir.join(crate::tailwind::CLASSES_FILE).is_file() {
+      command.args(["--tailwind-classes", crate::tailwind::CLASSES_FILE]);
+    }
     command
   }
 
