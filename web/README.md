@@ -45,10 +45,6 @@ SnapFire enables `glob_fs` and `fast` on `tera`. Cargo features are additive, so
 | `inheritance` | `extends`, `block` overrides and globals across three routes. | `cargo run -p snapfire --example inheritance --features devel` |
 | `live_reload` | Template and CSS reload, with a custom WebSocket path. | `cargo run -p snapfire --example live_reload --features devel` |
 
-## Status
-
-Active. The Rust implementation is the complete one; see the [project repository](https://github.com/excsn/snapfire) for the wider project.
-
 ## License
 
 This project is licensed under the **Mozilla Public License 2.0**. See the [LICENSE](LICENSE) file for details.

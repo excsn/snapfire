@@ -31,7 +31,3 @@ No features.
 | Put a block's content in a file beside the component | `<style src="./card.css">`; the plugin asks for the file and the build supplies it |
 | Read a component rather than compile it | `Compiler::describe` in process or a `Request` with `kind` `describe` over the wire; what `fsr build` asks for before lowering |
 | Render a component with Vue's own server renderer | `Compiler::ssr_module` then `Compiler::render_module`, given the runtime as modules |
-
-## Status
-
-Active. No source maps.

@@ -51,7 +51,3 @@ A location that fails to validate comes back as an error rather than vanishing f
 | Point at translations of a page | `Alternate`, then `UrlBuilder::alternates` |
 | Read a limit rather than hardcode it | `limit` |
 | Know why a document was refused | `Error` |
-
-## Status
-
-Writes only; no parser.

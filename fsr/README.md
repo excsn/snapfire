@@ -69,16 +69,11 @@ fsr dev app
 
 [examples/](examples/README.md) is the index: thirteen applications in reading order, what each one shows and the ports they take.
 
-
 ## Education
 
 The [guide](docs/guide/README.md) is the learning layer, one question per chapter with a lab on the running example.
 
 Each crate under this directory carries a `README.md`, a `README.USAGE.md` and an `API_REFERENCE.md`.
-
-## Status
-
-Active.
 
 *Designed to be your unstoppable, high-performance daily driver*
 

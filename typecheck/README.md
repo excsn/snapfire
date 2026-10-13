@@ -29,7 +29,3 @@ No features. The crate depends on `reqwest` with rustls for the one HTTPS GET, `
 | Put the cache somewhere else | `--cache <dir>` or `$SNAPFIRE_CACHE` |
 | Read diagnostics from a tool | `--format json` |
 | Refuse to fetch on a machine with no network | `--offline` |
-
-## Status
-
-Active.

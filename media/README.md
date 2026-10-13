@@ -20,7 +20,3 @@ No features. The header read is `imagesize` and `kamadak-exif`; the face read is
 | Read the orientation tag alone | `image::orientation` |
 | Read a woff2, woff, ttf or otf for its family, weight and metrics | `Face::read` |
 | Write the fallback face that stops text reflowing | `Face::fallback_face` with `font::fallback` |
-
-## Status
-
-Active.

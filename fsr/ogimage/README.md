@@ -23,7 +23,3 @@ No features. Everything is pure Rust. A stripped release binary grows by about 1
 | Give the card its images | `Images::insert`, then `ImageRef::Key` or `url(key)` |
 | Render to bytes | `render` with `Format::Png` or `Format::Jpeg` |
 | See what was skipped | `Rendered::warnings` |
-
-## Status
-
-Flexbox and absolute positioning. No grid, filters, masks, dashed borders, stylesheets or SVG images.

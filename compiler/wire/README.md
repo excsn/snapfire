@@ -30,7 +30,3 @@ No features.
 | Know which extensions go to a plugin and what each binary is called | `EXTENSIONS`, `claimed`, `binary_for`, `install_hint` |
 | Drive `snapfirec --driven` and refuse one speaking another protocol | `driven::hello`, `driven::parse_hello`, `driven::PROTOCOL` and the line constants |
 | Hand the compiler the URLs of every image and font you serve | `driven::AssetMap`, written as JSON and named with `--asset-map` |
-
-## Status
-
-Active.

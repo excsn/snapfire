@@ -22,7 +22,3 @@ No features. AVIF encoding is pure Rust through `ravif`; WebP encoding links `li
 | Name a variant or a hashed original | `variant_name`, `hash::emitted_name` |
 | Read a woff2, woff, ttf or otf for its family, weight and metrics | `Face::read` |
 | Write the fallback face that stops text reflowing | `Face::fallback_face` with `font::fallback` |
-
-## Status
-
-Active. No subsetting or placeholders.

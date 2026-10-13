@@ -127,10 +127,6 @@ not dead
 > 0.2%
 ```
 
-## Status
-
-Active.
-
 ## Development & Testing
 
 ```bash
