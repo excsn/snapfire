@@ -33,7 +33,7 @@ pub(crate) fn html_with_theme(text: &str, theme: &DocumentTheme) -> String {
   let Some(len) = text[start..].find('>') else { return text.to_owned() };
   let end = start + len;
   let mut tag = text[start..end].to_owned();
-  for name in ["data-sf-theme", "data-sf-scheme"] {
+  for name in ["data-sf-theme", "data-sf-scheme", "data-sf-theme-forced"] {
     tag = without_attr(&tag, name);
   }
   if let Some(name) = &theme.name {
@@ -41,6 +41,9 @@ pub(crate) fn html_with_theme(text: &str, theme: &DocumentTheme) -> String {
   }
   if let Some(scheme) = &theme.scheme {
     tag.push_str(&format!(" data-sf-scheme=\"{}\"", shell::escape(scheme)));
+  }
+  if theme.forced {
+    tag.push_str(" data-sf-theme-forced=\"\"");
   }
   format!("{}{tag}{}", &text[..start], &text[end..])
 }
@@ -65,13 +68,14 @@ pub(crate) fn payload_with_theme(text: &str, theme: &DocumentTheme) -> String {
       if let Ok(serde_json::Value::Object(mut fields)) = serde_json::from_str::<serde_json::Value>(json.trim_end()) {
         fields.insert("theme".to_owned(), serde_json::json!(theme.name));
         fields.insert("scheme".to_owned(), serde_json::json!(theme.scheme));
+        fields.insert("forced".to_owned(), serde_json::json!(theme.forced));
         out.push_str(&format!("H {}\n", serde_json::Value::Object(fields)));
         done = true;
         continue;
       }
     }
     if !done && line.starts_with("G ") {
-      out.push_str(&format!("H {}\n", serde_json::json!({ "theme": theme.name, "scheme": theme.scheme })));
+      out.push_str(&format!("H {}\n", serde_json::json!({ "theme": theme.name, "scheme": theme.scheme, "forced": theme.forced })));
       done = true;
     }
     out.push_str(line);
@@ -108,6 +112,7 @@ impl Host {
       Some((plan, _)) => static_theme(&plan, &t.themes),
       None => (None, false),
     };
+    let static_name = name.clone();
     let mut scheme = None;
     let bodies = [t.theme.as_ref(), t.site_for(path).and_then(|site| site.theme.as_ref())];
     for body in bodies.into_iter().flatten() {
@@ -123,7 +128,8 @@ impl Host {
         Err(why) => tracing::warn!(target: "fsr::theme", %path, why, "theme.ts failed; the document keeps the theme so far"),
       }
     }
-    DocumentTheme { name, scheme }
+    let kept = forced && name == static_name;
+    DocumentTheme { name, scheme, forced: kept }
   }
 }
 
@@ -133,7 +139,7 @@ mod tests {
   use snapfire_fsr_core::{NodeId, SlotName};
 
   fn theme(name: Option<&str>, scheme: Option<&str>) -> DocumentTheme {
-    DocumentTheme { name: name.map(str::to_owned), scheme: scheme.map(str::to_owned) }
+    DocumentTheme { name: name.map(str::to_owned), scheme: scheme.map(str::to_owned), forced: false }
   }
 
   #[test]
@@ -157,14 +163,17 @@ mod tests {
     let themed = html_with_theme(html, &theme(Some("ocean"), Some("dark")));
     assert_eq!(html_with_theme(&themed, &theme(Some("forest"), None)), "<!doctype html><html lang=\"en\" data-sf-locale=\"en\" data-sf-theme=\"forest\"><head>");
     assert_eq!(html_with_theme(&themed, &theme(None, None)), html);
+    let forced = DocumentTheme { name: Some("ledger".to_owned()), scheme: None, forced: true };
+    assert_eq!(html_with_theme(html, &forced), "<!doctype html><html lang=\"en\" data-sf-locale=\"en\" data-sf-theme=\"ledger\" data-sf-theme-forced=\"\"><head>");
+    assert_eq!(html_with_theme(&html_with_theme(html, &forced), &theme(Some("ocean"), None)), "<!doctype html><html lang=\"en\" data-sf-locale=\"en\" data-sf-theme=\"ocean\"><head>");
     assert_eq!(html_with_theme("<p>no document</p>", &theme(Some("x"), None)), "<p>no document</p>");
   }
 
   #[test]
   fn a_prerendered_payload_carries_the_theme_in_its_eager_head_row() {
     let with_head = "V {\"fmt\":2}\nN {}\nH {\"title\":\"Posts\"}\nG {}\n";
-    assert_eq!(payload_with_theme(with_head, &theme(Some("editorial"), None)), "V {\"fmt\":2}\nN {}\nH {\"title\":\"Posts\",\"theme\":\"editorial\",\"scheme\":null}\nG {}\n");
+    assert_eq!(payload_with_theme(with_head, &theme(Some("editorial"), None)), "V {\"fmt\":2}\nN {}\nH {\"title\":\"Posts\",\"theme\":\"editorial\",\"scheme\":null,\"forced\":false}\nG {}\n");
     let without = "V {\"fmt\":2}\nN {}\nG {}\nS 1 {}\n";
-    assert_eq!(payload_with_theme(without, &theme(None, Some("dark"))), "V {\"fmt\":2}\nN {}\nH {\"theme\":null,\"scheme\":\"dark\"}\nG {}\nS 1 {}\n");
+    assert_eq!(payload_with_theme(without, &theme(None, Some("dark"))), "V {\"fmt\":2}\nN {}\nH {\"theme\":null,\"scheme\":\"dark\",\"forced\":false}\nG {}\nS 1 {}\n");
   }
 }

@@ -199,6 +199,7 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     if let Json::Object(fields) = &mut head {
       fields.insert("theme".to_owned(), json!(theme.name));
       fields.insert("scheme".to_owned(), json!(theme.scheme));
+      fields.insert("forced".to_owned(), json!(theme.forced));
     }
     header.push_str(&format!("H {head}\n"));
   } else if !assembly.meta.is_empty() {

@@ -39,6 +39,8 @@ export interface Head {
   theme?: string | null;
   /** Light or dark, `<html data-sf-scheme>`; null leaves the attribute off. */
   scheme?: string | null;
+  /** Whether the route forces its theme and the document kept it, `<html data-sf-theme-forced>`. */
+  forced?: boolean;
 }
 
 export interface Payload {

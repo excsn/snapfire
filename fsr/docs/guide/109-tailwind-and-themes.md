@@ -129,6 +129,12 @@ export function theme({ theme, query, session }: ThemeCtx): ThemeChoice {
 
 `force` is a flag the body respects rather than a rule the host enforces, so a site that must keep its brand says so and the body keeps it. A mounted site's own `theme.ts` runs after the shell's and sees the shell's answer as `ctx.theme`. The answer is written on the document as `<html data-sf-theme="ocean" data-sf-scheme="dark">`; a client navigation sets both from the payload's head row, so moving from the portal into billing switches the theme without a reload. A prerendered page is written without one; the host writes the request's theme into its `<html>` before sending it, the same step as for a page rendered live.
 
+A route whose forced theme was kept also carries `data-sf-theme-forced` on `<html>`, so a shell's own theme picker can say so with a variant alone:
+
+```tsx
+<span className="hidden [[data-sf-theme-forced]_&]:inline">This site keeps its own theme</span>
+```
+
 Light and dark are the scheme, not a theme, so a brand theme and the visitor's scheme combine. Key the variant on the attribute and give the dark values a selector that outranks a theme's:
 
 ```css

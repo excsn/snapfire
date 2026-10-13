@@ -325,6 +325,7 @@ export function applyHead(head) {
     for (const script of head.scripts ?? [])loadMarkedScript(script);
     if (head.theme !== undefined) setRootAttribute("data-sf-theme", head.theme);
     if (head.scheme !== undefined) setRootAttribute("data-sf-scheme", head.scheme);
+    if (head.forced !== undefined) setRootAttribute("data-sf-theme-forced", head.forced ? "" : null);
     if (head.title !== undefined) document.title = head.title;
     if (head.description !== undefined) {
         let meta = document.head.querySelector('meta[name="description"]');

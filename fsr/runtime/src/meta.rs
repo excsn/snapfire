@@ -236,11 +236,13 @@ pub struct Head {
 }
 
 /// What a request decided for `<html data-sf-theme>` and `<html data-sf-scheme>`:
-/// no name is the root theme and no scheme leaves the attribute off.
+/// no name is the root theme and no scheme leaves the attribute off. `forced` is
+/// `<html data-sf-theme-forced>`: the route forces its theme and the document kept it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DocumentTheme {
   pub name: Option<String>,
   pub scheme: Option<String>,
+  pub forced: bool,
 }
 
 /// How a response's own stylesheets are written into a document and the mark
