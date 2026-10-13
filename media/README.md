@@ -23,4 +23,4 @@ No features. The header read is `imagesize` and `kamadak-exif`; the face read is
 
 ## Status
 
-Built for snapfirec's build facts and `snapfire_fsr_assets`, which re-exports it: the header and face reads the two share. Nothing here decodes a pixel or writes a file. The orientation is read, never applied: a consumer that resizes applies it to the pixels itself.
+Active.

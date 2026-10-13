@@ -34,4 +34,4 @@ No features.
 
 ## Status
 
-Carries `@vue/compiler-sfc` 3.5.13. Compiles `<script>`, `<script setup>`, `<template>` and `<style>`, in JavaScript and TypeScript for scripts and CSS for styles; a block in another language is refused by name. Describes a component for a host since 2026-09-20, protocol 3. Template comments are dropped on both paths. No source maps yet.
+Active. No source maps.

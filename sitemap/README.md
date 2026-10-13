@@ -54,8 +54,4 @@ A location that fails to validate comes back as an error rather than vanishing f
 
 ## Status
 
-Writing only, no parser.
-
-Namespaces are declared only when used, so a site with no video keeps a document that reads like a plain sitemap.
-
-The 50MB ceiling is the one check that runs after rendering rather than at construction, since a document's size is not knowable until it exists.
+Writes only; no parser.

@@ -26,4 +26,4 @@ No features. Everything is pure Rust. A stripped release binary grows by about 1
 
 ## Status
 
-The CSS subset covers flexbox, absolute positioning, borders, radii, gradients, shadows, transforms, opacity, `object-fit` and the text properties a card uses. Grid, block and inline layout, `filter`, `clip-path`, masks, dashed borders, stylesheets and SVG images are not here. The renderer never fetches anything. It renders cards for FSR's generated social images and reads none of FSR's configuration or routes.
+Flexbox and absolute positioning. No grid, filters, masks, dashed borders, stylesheets or SVG images.

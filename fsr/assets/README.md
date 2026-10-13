@@ -25,4 +25,4 @@ No features. AVIF encoding is pure Rust through `ravif`; WebP encoding links `li
 
 ## Status
 
-Built for FSR's own pipeline: the functions `fsr build` derives images and fonts with. Nothing here reads a configuration or writes a manifest. Subsetting is not here and a placeholder is not here.
+Active. No subsetting or placeholders.

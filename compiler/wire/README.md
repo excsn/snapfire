@@ -33,4 +33,4 @@ No features.
 
 ## Status
 
-Driven protocol 2: the hello line, the asset map and the references handshake, which `fsr build` and `fsr dev` drive. Plugin protocol 3 since 2026-09-20: `Request::kind` with `Describe`, `Outcome::Described` and the `host` module. Protocol 2 added `Unit::files` and `Outcome::Needs`. A host and a plugin on different versions refuse each other by name.
+Driven protocol 2, plugin protocol 3.

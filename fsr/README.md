@@ -78,7 +78,7 @@ Each crate under this directory carries a `README.md`, a `README.USAGE.md` and a
 
 ## Status
 
-The storefront currently runs on the stock host with TypeScript loaders and actions, Rust-side rendering and React hydration.
+Active.
 
 *Designed to be your unstoppable, high-performance daily driver*
 

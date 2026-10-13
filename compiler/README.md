@@ -129,7 +129,7 @@ not dead
 
 ## Status
 
-Active. The output layout follows `tsc`'s `rootDir` rules, so upgrading from a version before that changed where files land: set `rootDir` explicitly to pin it.
+Active.
 
 ## Development & Testing
 
