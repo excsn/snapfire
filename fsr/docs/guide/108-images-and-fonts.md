@@ -181,6 +181,34 @@ The build serves each as its hashed original with no resized variant, since a cr
 
 An image covers every route under its directory. A nearer one replaces it. The file wins over an `og("image", ...)` a `meta` returns, as it does in Next. A crawler reads the URL as absolute only, so the host writes it against `document.origin`; set that, or the tag carries a path the card ignores. PNG, JPEG, GIF and WebP are accepted, since those are what the crawlers decode. The build refuses a directory with two pictures of one kind and a picture with no route under it.
 
+## A card image drawn from the page's data
+
+A page whose card should show its own title draws the picture with a component. Put `opengraph-image.tsx` beside the page:
+
+```tsx
+import type { PostSlugProps } from "@generated/client";
+
+export const size = { width: 1200, height: 630 };
+export const alt = "A post on the Acme blog";
+
+export default function Image({ post }: PostSlugProps) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", width: "100%", height: "100%", padding: 72, backgroundColor: "#fdf6e3" }}>
+      <span style={{ fontSize: 30, fontWeight: 700 }}>Acme blog</span>
+      <h1 style={{ fontSize: 72, margin: 0, lineClamp: 2 }}>{post.title}</h1>
+    </div>
+  );
+}
+```
+
+The component's props are the page's: its loader's data with `params`. The page's head gets `og:image` at `<the page's path>/opengraph-image.png`, absolute against `document.origin`, with the width, height, type and alt. The host draws the image when that URL is asked for: it runs the page's loader for the params, renders the component and draws the markup. A loader that answers not found answers the image with a 404 too. `twitter-image.tsx` is the same under `twitter:image`.
+
+`size` defaults to 1200 by 630. `contentType` is `"image/png"` unless it says `"image/jpeg"`. `alt` can also come from `opengraph-image.alt.txt`. All three are literals, since the build reads them without running anything.
+
+The markup is styled inline, with the CSS a card uses: flexbox, absolute positioning, sizes, borders and radii, gradients, shadows, transforms, opacity and the text properties. `display` defaults to `flex`, as in Next's `ImageResponse`, so a card written for Next draws the same. A property outside that, `display: grid` say, is left out with a warning in the log. A value that is not CSS fails the image with a 500 naming it. Text draws with the faces under `fonts/`, then with a bundled Inter that covers Latin. Text no face covers is left out and logged. An `<img>` takes a `data:` URI or an image the build placed, by its imported URL. Nothing is fetched from another origin.
+
+The component draws once with no browser, so it holds no state, places no island and reads nothing the page's loader does not hand it. The build refuses one that does. It also refuses one with no page beside it. A file and a component for the same card is refused too. In development the image is drawn on every request; otherwise the host keeps the drawn image for its params and data.
+
 ## A CDN in front
 
 A deployment whose static tree a CDN serves sets the base at build time, since the URLs are written into the markup:

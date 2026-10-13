@@ -141,13 +141,19 @@ impl RemoteSite {
 
   /// Whether a request under the site's prefix is one the site answers
   /// itself rather than a page the shell renders: anything but a `GET` or
-  /// `HEAD` and a `GET` that asks for neither a document nor a payload.
-  pub fn forwards(&self, method: &Method, headers: &HeaderMap, raw_query: &str) -> bool {
+  /// `HEAD`, a `GET` for a file, which a last segment with an extension
+  /// names, such as a generated card image, and a `GET` that asks for
+  /// neither a document nor a payload.
+  pub fn forwards(&self, method: &Method, headers: &HeaderMap, path: &str, raw_query: &str) -> bool {
     if method != Method::GET && method != Method::HEAD {
       return true;
     }
     if payload_of(raw_query) || fragment_of(raw_query).is_some() {
       return false;
+    }
+    let last = path.rsplit('/').next().unwrap_or("");
+    if last.rfind('.').is_some_and(|dot| dot > 0 && dot + 1 < last.len()) && !last.ends_with(".html") {
+      return true;
     }
     let accept = headers.get(header::ACCEPT).and_then(|v| v.to_str().ok()).unwrap_or("*/*");
     !accept.contains("text/html") && !accept.contains("*/*")

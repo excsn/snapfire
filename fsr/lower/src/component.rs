@@ -597,6 +597,66 @@ impl ComponentSet {
       .collect()
   }
 
+  /// The `size`, `alt` and `contentType` exports of a generated card image's
+  /// module, each a literal as Next writes them: `{ width: 1200, height: 630 }`,
+  /// a string and `"image/png"` or `"image/jpeg"`. One that is not a literal
+  /// is refused, since the build reads them rather than running them.
+  pub fn image_exports(&mut self, file: &str) -> Result<ImageExports, LowerError> {
+    self.load(file)?;
+    let parsed = self.parsed[file].clone();
+    let mut out = ImageExports::default();
+    for item in &parsed.module.body {
+      let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) = item else { continue };
+      let js::Decl::Var(var) = &export.decl else { continue };
+      for decl in &var.decls {
+        let (js::Pat::Ident(name), Some(init)) = (&decl.name, decl.init.as_deref()) else { continue };
+        let init = unwrap_literal(init);
+        match name.id.sym.as_ref() {
+          "size" => {
+            let refused = || LowerError::from(parsed.residue(init.span(), "`size` is `{ width: <number>, height: <number> }` with literal numbers"));
+            let js::Expr::Object(object) = init else { return Err(refused()) };
+            for prop in &object.props {
+              let js::PropOrSpread::Prop(prop) = prop else { return Err(refused()) };
+              let js::Prop::KeyValue(kv) = &**prop else { return Err(refused()) };
+              let key = match &kv.key {
+                js::PropName::Ident(id) => id.sym.to_string(),
+                js::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+                _ => return Err(refused()),
+              };
+              let js::Expr::Lit(js::Lit::Num(n)) = unwrap_literal(&kv.value) else { return Err(refused()) };
+              if n.value < 1.0 || n.value.fract() != 0.0 {
+                return Err(refused());
+              }
+              match key.as_str() {
+                "width" => out.width = Some(n.value as u32),
+                "height" => out.height = Some(n.value as u32),
+                _ => return Err(refused()),
+              }
+            }
+            if out.width.is_none() || out.height.is_none() {
+              return Err(refused());
+            }
+          }
+          "alt" | "contentType" => {
+            let which = name.id.sym.to_string();
+            let text = match init {
+              js::Expr::Lit(js::Lit::Str(s)) => s.value.to_string_lossy().into_owned(),
+              js::Expr::Tpl(tpl) if tpl.exprs.is_empty() && tpl.quasis.len() == 1 => tpl.quasis[0].cooked.as_ref().map(|c| c.to_string_lossy().into_owned()).unwrap_or_default(),
+              other => return Err(parsed.residue(other.span(), format!("`{which}` is a literal string")).into()),
+            };
+            if which == "alt" {
+              out.alt = Some(text);
+            } else {
+              out.content_type = Some(text);
+            }
+          }
+          _ => {}
+        }
+      }
+    }
+    Ok(out)
+  }
+
   /// Lowers `module` (a `path#export` under the app) and everything it
   /// renders. A module already lowered is not read again and one that did
   /// not lower answers with the same error. A module still
@@ -5881,5 +5941,24 @@ impl swc_core::ecma::visit::Visit for StoreCalls<'_> {
       }
     }
     call.visit_children_with(self);
+  }
+}
+
+/// What a generated card image's module says about the image it draws.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ImageExports {
+  pub width: Option<u32>,
+  pub height: Option<u32>,
+  pub alt: Option<String>,
+  pub content_type: Option<String>,
+}
+
+fn unwrap_literal(expr: &js::Expr) -> &js::Expr {
+  match expr {
+    js::Expr::Paren(inner) => unwrap_literal(&inner.expr),
+    js::Expr::TsAs(inner) => unwrap_literal(&inner.expr),
+    js::Expr::TsSatisfies(inner) => unwrap_literal(&inner.expr),
+    js::Expr::TsConstAssertion(inner) => unwrap_literal(&inner.expr),
+    other => other,
   }
 }

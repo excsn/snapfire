@@ -805,6 +805,14 @@ impl Session {
     if !self.runtime.heads.is_empty() {
       let mut rows = Vec::new();
       module_heads(&self.runtime.heads, plan, &mut rows);
+      let path = self.ctx.path.trim_end_matches('/');
+      for row in &mut rows {
+        for (_, value) in row.attrs.iter_mut() {
+          if value.contains(crate::meta::PATH_MARK) {
+            *value = value.replace(crate::meta::PATH_MARK, path);
+          }
+        }
+      }
       meta.merge(Meta { head: rows, ..Meta::default() });
     }
     meta

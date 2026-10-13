@@ -389,7 +389,7 @@ impl Host {
       return self.upgrade(req, &opened);
     }
     if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
-      if remote.forwards(req.method(), req.headers(), req.uri().query().unwrap_or("")) {
+      if remote.forwards(req.method(), req.headers(), &path, req.uri().query().unwrap_or("")) {
         let subject = opened.cell.identity().map(|identity| identity.subject);
         return remote.forward(req, Some(&opened.id.0), subject.as_deref()).await;
       }
@@ -686,6 +686,12 @@ impl Host {
         };
         self.set_cookie(opened, &mut response).await;
         return response;
+      }
+    }
+
+    if matches!(*req.method(), http::Method::GET | http::Method::HEAD) {
+      if let Some((entry, params)) = t.app.images.match_path(&path) {
+        return self.card_image(t, entry, params, &path, self.incoming(opened, self.matched_host(req.headers())), &visit.locale).await;
       }
     }
 

@@ -131,6 +131,11 @@ impl HeadEl {
   }
 }
 
+/// In a module head row's value, the request's path without a trailing
+/// slash: `{fsr:path}/opengraph-image.png` names the image beside the page
+/// being rendered, which a row written once for the module cannot know.
+pub const PATH_MARK: &str = "{fsr:path}";
+
 /// What a route says about itself once its data is known: the document's
 /// title, its description and the head elements it contributes. Absent fields
 /// leave the host's defaults in place.
@@ -531,10 +536,12 @@ mod tests {
 
     let meta = Meta { head: vec![script, el("link", &[("rel", "preconnect"), ("href", "https://maps.example")])], ..Meta::default() };
     let json = crate::stream::meta_to_json(&meta);
-    assert_eq!(json["scripts"].as_array().map(Vec::len), Some(1), "only the script rides the row: {json}");
+    assert_eq!(json["scripts"].as_array().map(Vec::len), Some(1), "only the script is a script row: {json}");
     assert_eq!(json["scripts"][0]["data-src"], "https://maps.example/w.js");
+    assert_eq!(json["head"].as_array().map(Vec::len), Some(1), "the link rides as a head element: {json}");
     let back = crate::wire::meta_from_json(&json).unwrap();
-    assert_eq!(back.head.len(), 1);
+    assert_eq!(back.head.len(), 2);
     assert!(back.head[0].is_script() && back.head[0].attrs == meta.head[0].attrs, "a shell splicing a remote site's head row keeps its scripts: {back:?}");
+    assert_eq!(back.head[1], meta.head[1], "and its other head elements, a card image's meta among them");
   }
 }

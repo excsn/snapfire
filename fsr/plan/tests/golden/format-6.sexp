@@ -320,6 +320,13 @@
     "content"
     "/static/js/app/routes/blog/opengraph-image.1a2b3c4d.png")
   (head meta "property" "og:image:alt" "content" "A \"quoted\" line"))
+(image
+  |/notice/{id}/opengraph-image.png|
+  routes/notice/[id]/opengraph-image.tsx#default
+  (source notice.$id)
+  (size 1200 630)
+  (type image/png))
+(image /twitter-image.jpg routes/twitter-image.tsx#default (size 800 418) (type image/jpeg))
 (client routes/stars/page.tsx#default
   "src/ui/Stars.tsx:2:17"
   "`.slice()`, which is not a builtin"

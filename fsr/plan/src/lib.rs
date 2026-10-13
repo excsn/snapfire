@@ -112,6 +112,27 @@ pub struct Manifest {
   /// component's own rows under the same module.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub heads: Vec<ModuleHead>,
+  /// One row per generated card image: an `opengraph-image.tsx` or
+  /// `twitter-image.tsx` beside a page, answered at its own URL.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub images: Vec<ImageEntry>,
+}
+
+/// A card image a lowered component draws, answered at `pattern` with the
+/// data of `source` as its props.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageEntry {
+  /// The URL it answers, the page's pattern with the image's file name after it.
+  pub pattern: String,
+  /// The component that draws it.
+  pub module: String,
+  /// The page's data source, whose data are the component's props.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub source: Option<String>,
+  pub width: u32,
+  pub height: u32,
+  /// `image/png` or `image/jpeg`.
+  pub content_type: String,
 }
 
 /// The head rows one module carries whatever renders it.
@@ -519,7 +540,7 @@ impl Node {
 
 impl Manifest {
   pub fn new(routes: Vec<RouteEntry>) -> Self {
-    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new(), heads: Vec::new() }
+    Self { version: FORMAT_VERSION, routes, sources: Vec::new(), actions: Vec::new(), components: Vec::new(), clients: Vec::new(), consts: Consts::new(), not_found: None, handlers: Vec::new(), middleware: None, intercepts: Vec::new(), frameworks: Default::default(), reads: Default::default(), derives: Vec::new(), heads: Vec::new(), images: Vec::new() }
   }
 
   /// The constants bodies read by name.
@@ -584,6 +605,11 @@ impl Manifest {
 
   pub fn with_heads(mut self, heads: Vec<ModuleHead>) -> Self {
     self.heads = heads;
+    self
+  }
+
+  pub fn with_images(mut self, images: Vec<ImageEntry>) -> Self {
+    self.images = images;
     self
   }
 
@@ -778,6 +804,16 @@ impl Manifest {
     if let Some(not_found) = json.get_mut("not_found") {
       if !not_found.is_null() {
         namespace_node(not_found, &prefix, shell);
+      }
+    }
+    for row in json.get_mut("images").and_then(|r| r.as_array_mut()).into_iter().flatten() {
+      for field in ["module", "source"] {
+        if let Some(value) = row.get_mut(field) {
+          prefix_str(value, &prefix);
+        }
+      }
+      if let Some(pattern) = row.get("pattern").and_then(|p| p.as_str()).map(str::to_owned) {
+        row["pattern"] = serde_json::Value::String(under(at, &pattern));
       }
     }
     for key in ["sources", "actions", "handlers", "components", "clients", "heads"] {

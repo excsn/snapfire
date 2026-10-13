@@ -64,7 +64,7 @@ fn data_of(json: &Json) -> Result<snapfire_fsr_core::Data, DecodeError> {
   }
 }
 
-/// What `meta_to_json` wrote, read back: a title, a description and the script rows.
+/// What `meta_to_json` wrote, read back: a title, a description, the script rows and the other head elements.
 pub fn meta_from_json(json: &Json) -> Result<Meta, DecodeError> {
   let obj = json.as_object().ok_or_else(|| err("an `H` row is an object"))?;
   let mut meta = Meta::default();
@@ -79,6 +79,23 @@ pub fn meta_from_json(json: &Json) -> Result<Meta, DecodeError> {
       let attrs = script.as_object().ok_or_else(|| err("a script is an object"))?;
       let attrs = attrs.iter().map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned())).ok_or_else(|| err("a script attribute is a string"))).collect::<Result<Vec<_>, _>>()?;
       meta.head.push(crate::meta::HeadEl { tag: "script".to_owned(), attrs, children: None });
+    }
+  }
+  if let Some(head) = obj.get("head") {
+    for el in head.as_array().ok_or_else(|| err("`head` is an array"))? {
+      let tag = el.get("tag").and_then(Json::as_str).ok_or_else(|| err("a head element has a `tag`"))?.to_owned();
+      let attrs = el
+        .get("attrs")
+        .and_then(Json::as_array)
+        .ok_or_else(|| err("a head element has `attrs`"))?
+        .iter()
+        .map(|pair| match pair.as_array().map(Vec::as_slice) {
+          Some([k, v]) => k.as_str().zip(v.as_str()).map(|(k, v)| (k.to_owned(), v.to_owned())).ok_or_else(|| err("an attribute is two strings")),
+          _ => Err(err("an attribute is `[name, value]`")),
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+      let children = el.get("children").and_then(Json::as_str).map(str::to_owned);
+      meta.head.push(crate::meta::HeadEl { tag, attrs, children });
     }
   }
   Ok(meta)

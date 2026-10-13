@@ -7,6 +7,7 @@ pub mod assets;
 mod auth;
 mod builder;
 mod bundle;
+mod card;
 mod crawl;
 pub mod client;
 pub mod config;
@@ -370,6 +371,8 @@ struct Tables {
   /// own trace of.
   trace_expose: Vec<String>,
   prerendered: Option<PathBuf>,
+  /// What generated card images are drawn with; `None` when the plan has none.
+  cards: Option<card::Cards>,
   /// The build `prerender::build_of` names for these tables, which a
   /// prerender writes beside its documents.
   build: String,

@@ -64,6 +64,23 @@ pub fn meta_to_json(meta: &Meta) -> Json {
   if !scripts.is_empty() {
     obj.insert("scripts".to_owned(), Json::Array(scripts));
   }
+  let head: Vec<Json> = meta
+    .head
+    .iter()
+    .filter(|el| !el.is_script())
+    .map(|el| {
+      let mut row = serde_json::Map::new();
+      row.insert("tag".to_owned(), json!(el.tag));
+      row.insert("attrs".to_owned(), Json::Array(el.attrs.iter().map(|(k, v)| json!([k, v])).collect()));
+      if let Some(children) = &el.children {
+        row.insert("children".to_owned(), json!(children));
+      }
+      Json::Object(row)
+    })
+    .collect();
+  if !head.is_empty() {
+    obj.insert("head".to_owned(), Json::Array(head));
+  }
   Json::Object(obj)
 }
 

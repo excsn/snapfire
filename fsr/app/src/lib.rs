@@ -26,6 +26,8 @@ pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Rea
 pub enum BindError {
   #[error(transparent)]
   Plan(#[from] snapfire_fsr_plan::PlanError),
+  #[error("the generated image at `{0}` cannot be routed: {1}")]
+  Image(String, String),
   #[error("`{0}` is claimed by the plan file and by Rust; mark the Rust one as an override")]
   Claimed(String),
   #[error("action `{0}` is lowered by the plan file and bound in Rust; mark the Rust one as an override")]
@@ -194,6 +196,8 @@ pub struct App {
   pub resolver: TableResolver,
   /// Route handlers: a method and a pattern answered with a value.
   pub handlers: Handlers,
+  /// The generated card images, each answered at its own URL.
+  pub images: Images,
   /// Runs before every request that is not a static file, with the request
   /// line as its input.
   pub middleware: Option<Arc<dyn ActionHandler>>,
@@ -302,6 +306,37 @@ impl Handlers {
   }
 }
 
+/// The generated card images a host answers, matched by URL.
+#[derive(Default)]
+pub struct Images {
+  matcher: MatchitMatcher,
+  entries: Vec<snapfire_fsr_plan::ImageEntry>,
+}
+
+impl Images {
+  fn new(entries: Vec<snapfire_fsr_plan::ImageEntry>) -> Result<Self, BindError> {
+    let mut matcher = MatchitMatcher::new();
+    for (i, entry) in entries.iter().enumerate() {
+      matcher.insert(&entry.pattern, snapfire_fsr_runtime::EntryId(i as u32)).map_err(|e| BindError::Image(entry.pattern.clone(), e.to_string()))?;
+    }
+    Ok(Self { matcher, entries })
+  }
+
+  /// The image `path` names, with the page's params.
+  pub fn match_path(&self, path: &str) -> Option<(&snapfire_fsr_plan::ImageEntry, Params)> {
+    let found = self.matcher.match_path(path)?;
+    Some((self.entries.get(found.entry.0 as usize)?, found.params))
+  }
+
+  pub fn entries(&self) -> &[snapfire_fsr_plan::ImageEntry] {
+    &self.entries
+  }
+
+  pub fn is_empty(&self) -> bool {
+    self.entries.is_empty()
+  }
+}
+
 struct FnHandler<F>(F);
 
 impl<F, Fut> ActionHandler for FnHandler<F>
@@ -347,6 +382,7 @@ pub struct AppBuilder {
   lowered_components: Vec<(String, Component)>,
   /// The head rows each lowered module asks for, by module id.
   lowered_heads: Vec<(String, Vec<snapfire_fsr_plan::HeadRow>)>,
+  images: Vec<snapfire_fsr_plan::ImageEntry>,
   clients: Vec<snapfire_fsr_plan::ClientEntry>,
   contract: Option<Arc<Contract>>,
   sources: DataSources,
@@ -409,6 +445,7 @@ impl App {
       lowered_actions: Vec::new(),
       lowered_components: Vec::new(),
       lowered_heads: Vec::new(),
+      images: Vec::new(),
       clients: Vec::new(),
       contract: None,
       sources: DataSources::new(),
@@ -464,6 +501,7 @@ impl App {
     builder.lowered_components = parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())).collect();
     builder.lowered_heads = parsed.components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())).collect();
     builder.lowered_heads.extend(parsed.heads.iter().map(|row| (row.module.clone(), row.head.clone())));
+    builder.images = parsed.images.clone();
     builder.clients = parsed.clients.clone();
     if !parsed.consts.is_empty() {
       builder.consts = Some(Arc::new(parsed.consts.clone()));
@@ -504,6 +542,7 @@ impl AppBuilder {
     self.lowered_components.extend(parsed.components.iter().map(|row| (row.module.clone(), row.body.clone())));
     self.lowered_heads.extend(parsed.components.iter().filter(|row| !row.head.is_empty()).map(|row| (row.module.clone(), row.head.clone())));
     self.lowered_heads.extend(parsed.heads.iter().map(|row| (row.module.clone(), row.head.clone())));
+    self.images.extend(parsed.images.iter().cloned());
     self.clients.extend(parsed.clients.iter().cloned());
     if !parsed.consts.is_empty() {
       let mut merged = self.consts.as_deref().cloned().unwrap_or_default();
@@ -1159,11 +1198,13 @@ impl AppBuilder {
       }
     }
 
+    let images = Images::new(std::mem::take(&mut self.images))?;
     Ok(App {
       matcher,
       resolver,
       lowered,
       handlers,
+      images,
       middleware,
       not_found,
       intercepts,

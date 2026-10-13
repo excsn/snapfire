@@ -28,7 +28,7 @@ async fn the_site_runs_alone_under_its_prefix_and_describes_itself_to_a_shell() 
 
   let response = host.handle(Request::get("/reports/1").body(Bytes::new()).unwrap()).await;
   let html = body_of(response).await;
-  assert!(html.contains("<title>Reports</title>") && html.contains("Adding up the rows") && html.contains("21100.00") && html.contains("__sfHead({\"title\":\"Revenue by region · Reports\"})"), "the rows and the title stream in after the loading segment: {html}");
+  assert!(html.contains("<title>Reports</title>") && html.contains("Adding up the rows") && html.contains("21100.00") && html.contains("__sfHead({\"title\":\"Revenue by region · Reports\","), "the rows and the title stream in after the loading segment: {html}");
 
   let status = body_of(host.handle(Request::get("/__fsr/sites").body(Bytes::new()).unwrap()).await).await;
   let json: serde_json::Value = serde_json::from_str(&status).unwrap();

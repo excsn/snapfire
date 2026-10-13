@@ -376,3 +376,29 @@ async fn the_sitemap_lists_what_an_anonymous_visitor_reaches_across_the_sites() 
   let report = reports.report().to_string();
   assert!(report.contains("/reports/sitemap.xml") && !report.contains("robots"), "a site serves no robots.txt: {report}");
 }
+
+#[tokio::test]
+async fn a_card_image_is_drawn_for_the_shell_and_each_site_and_named_in_its_page() {
+  let (portal, _reports) = portal_over_reports().await;
+  let get = |path: &'static str, accept: &'static str| {
+    let portal = portal.clone();
+    async move { portal.handle(Request::get(path).header(header::ACCEPT, accept).body(Bytes::new()).unwrap()).await }
+  };
+  for (page, image) in [
+    ("/", "/opengraph-image.png"),
+    ("/blog/post/why-a-plan-file", "/blog/post/why-a-plan-file/opengraph-image.png"),
+    ("/reports/1", "/reports/1/opengraph-image.png"),
+  ] {
+    let html = body_of(get(page, "text/html").await).await;
+    assert!(html.contains(&format!("<meta property=\"og:image\" content=\"http://127.0.0.1:8100{image}?v=")), "{page} names its image, the reports page through the head row its process sends: {html}");
+    assert!(html.contains("<meta property=\"og:image:width\" content=\"1200\">"), "{page}: {html}");
+    let response = get(image, "image/avif,image/webp,*/*").await;
+    assert_eq!(response.status(), StatusCode::OK, "{image}");
+    assert_eq!(response.headers().get(header::CONTENT_TYPE).unwrap(), "image/png", "{image}");
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "{image}");
+    assert_eq!((u32::from_be_bytes(bytes[16..20].try_into().unwrap()), u32::from_be_bytes(bytes[20..24].try_into().unwrap())), (1200, 630), "{image}");
+  }
+  let missing = get("/blog/post/nowhere/opengraph-image.png", "*/*").await;
+  assert_eq!(missing.status(), StatusCode::NOT_FOUND, "the post's loader answers not found for its image too");
+}

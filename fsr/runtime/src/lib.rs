@@ -28,7 +28,7 @@ pub use data::{DataSource, DataSources, LoadError, LoadKeyer, NoLoadKey};
 pub use evaluator::{slot_regions, Chunk, EvalError, Evaluator, NodeChunks, NullEvaluator};
 pub use islands::{IslandEvent, IslandHandler, IslandRegistry, island_data};
 pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher, RouteMatch};
-pub use meta::{Head, HeadEl, Meta, Metadata};
+pub use meta::{Head, HeadEl, Meta, Metadata, PATH_MARK};
 pub use resolver::{Resolver, TableResolver};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use natives::{FromNativeValue, IntoNativeValue, Native, NativeHandle, Natives, native_arg};

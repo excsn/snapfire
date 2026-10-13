@@ -56,6 +56,13 @@ pub fn manifest_to_sx(manifest: &Manifest) -> Vec<Sx> {
     rest.extend(entry.head.iter().map(head_row_to_sx));
     out.push(form("module-head", rest));
   }
+  for entry in &manifest.images {
+    let mut rest = vec![sym(entry.pattern.clone()), sym(entry.module.clone())];
+    rest.extend(opt_form("source", &entry.source));
+    rest.push(form("size", vec![sym(entry.width.to_string()), sym(entry.height.to_string())]));
+    rest.push(form("type", vec![sym(entry.content_type.clone())]));
+    out.push(form("image", rest));
+  }
   for entry in &manifest.clients {
     let mut rest = vec![sym(entry.module.clone()), Sx::Str(entry.at.clone()), Sx::Str(entry.message.clone())];
     if let Some(hint) = &entry.hint {
@@ -136,6 +143,7 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
     reads: Default::default(),
     derives: Vec::new(),
     heads: Vec::new(),
+    images: Vec::new(),
   };
   let mut versioned = false;
   for sx in forms {
@@ -229,6 +237,28 @@ pub fn manifest_from_sx(forms: &[Sx]) -> Res<Manifest> {
           return Err(err("a module head is `(module-head module (head ...) ...)`"));
         }
         manifest.heads.push(crate::ModuleHead { module: as_sym(&items[1])?, head: items[2..].iter().map(head_row_from_sx).collect::<Res<Vec<_>>>()? });
+      }
+      "image" => {
+        if items.len() < 3 {
+          return Err(err("an image is `(image pattern module (source id) (size w h) (type mime))`"));
+        }
+        let mut entry = crate::ImageEntry { pattern: as_sym(&items[1])?, module: as_sym(&items[2])?, source: None, width: 0, height: 0, content_type: String::new() };
+        for (name, values) in sections(items, 3)? {
+          match (name.as_str(), values.as_slice()) {
+            ("source", [id]) => entry.source = Some(as_sym(id)?),
+            ("size", [w, h]) => {
+              let side = |sx: &Sx| as_sym(sx).and_then(|v| v.parse::<u32>().map_err(|_| err(format!("`{v}` is not an image side"))));
+              entry.width = side(w)?;
+              entry.height = side(h)?;
+            }
+            ("type", [mime]) => entry.content_type = as_sym(mime)?,
+            (other, _) => return Err(err(format!("`{other}` is not a section of an image"))),
+          }
+        }
+        if entry.width == 0 || entry.height == 0 || entry.content_type.is_empty() {
+          return Err(err("an image needs its size and its type"));
+        }
+        manifest.images.push(entry);
       }
       "client" => {
         if !(4..=5).contains(&items.len()) {

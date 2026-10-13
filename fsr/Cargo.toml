@@ -44,6 +44,7 @@ snapfire_fsr_engine = { path = "engine", version = "0.5.5" }
 snapfire_fsr_host = { path = "host", version = "0.18.3" }
 snapfire_fsr_ir = { path = "ir", version = "0.15.2" }
 snapfire_fsr_lower = { path = "lower", version = "0.15.1" }
+snapfire_fsr_ogimage = { path = "ogimage", version = "0.1.0" }
 snapfire_fsr_macros = { path = "macros", version = "0.6.0" }
 snapfire_fsr_payload = { path = "payload", version = "0.8.0" }
 snapfire_fsr_plan = { path = "plan", version = "0.14.0" }

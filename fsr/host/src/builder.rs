@@ -1168,6 +1168,7 @@ impl HostBuilder {
       public: config.public.iter().map(|(k, v)| (k.clone(), v.to_string())).collect(),
       ignored: config.ignored.clone(),
     };
+    let cards = (!app.images.is_empty()).then(|| crate::card::Cards::new(&config.app, assets_manifest.as_ref()));
     Ok((
       Tables {
         app,
@@ -1187,6 +1188,7 @@ impl HostBuilder {
         dev_nonce,
         trace_expose: config.trace.as_ref().map(|t| t.expose.clone()).unwrap_or_default(),
         prerendered,
+        cards,
         build,
         prerender_current: std::sync::atomic::AtomicBool::new(!prerender_stale),
         warm,
