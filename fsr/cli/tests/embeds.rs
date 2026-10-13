@@ -33,7 +33,7 @@ fn project(tag: &str, page: &str, media: &str) -> PathBuf {
   std::fs::write(app.join("routes/page.tsx"), page).unwrap();
   let embeds = app.join("generated/embeds");
   std::fs::create_dir_all(&embeds).unwrap();
-  std::fs::write(embeds.join("vimeo-76979871.json"), r#"{"thumbnail_url":"https://i.vimeocdn.com/video/452001751-640.jpg","thumbnail_width":640,"thumbnail_height":360}"#).unwrap();
+  std::fs::write(embeds.join("vimeo-76979871.json"), r#"[{"id":76979871,"thumbnail_large":"https://i.vimeocdn.com/video/452001751-640.jpg","width":1280,"height":720}]"#).unwrap();
   std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/noticeboard_tera/app/images/board.png"), embeds.join("youtube-dQw4w9WgXcQ.jpg")).unwrap();
   let config = root.join("config/app.toml");
   let text = std::fs::read_to_string(&config).unwrap();
@@ -56,7 +56,7 @@ fn by_default_the_still_is_the_providers_and_the_player_waits_for_a_click() {
   let (html, policy) = render(&root);
   assert!(html.contains("data-sf-embed=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1\"") && html.contains("data-sf-embed-title=\"Never Gonna Give You Up\""), "{html}");
   assert!(html.contains("src=\"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg\""), "YouTube's own still: {html}");
-  assert!(html.contains("src=\"https://i.vimeocdn.com/video/452001751-640.jpg\"") && html.contains("width=\"640\""), "Vimeo's, from its oEmbed answer: {html}");
+  assert!(html.contains("src=\"https://i.vimeocdn.com/video/452001751-640.jpg\"") && html.contains("width=\"640\""), "Vimeo's, from its video API: {html}");
   assert!(!html.contains("<iframe"), "no player before a click: {html}");
   assert!(html.contains("<button type=\"button\"") && html.contains("class=\"clip\""), "{html}");
   for origin in ["img-src", "https://i.ytimg.com", "https://i.vimeocdn.com", "frame-src", "https://www.youtube-nocookie.com", "https://player.vimeo.com"] {

@@ -73,9 +73,10 @@ test("the videos between the talks are stills until played, and a click puts tha
   await load("/venue", { ctx: day() });
   await settle();
   const embeds = Array.from(document.querySelectorAll(".venue-breaks [data-sf-embed]"));
-  expect(embeds.length).toEqual(2);
+  expect(embeds.length).toEqual(3);
   expect(embeds[0].querySelector("img")!.getAttribute("src"), "the provider's still").toEqual("https://i.ytimg.com/vi/f_WuRfuMXQw/hqdefault.jpg");
   expect(document.querySelectorAll(".venue-breaks iframe").length, "no player before a click").toEqual(0);
+  expect(embeds[2].getAttribute("data-sf-embed")).toEqual("https://player.vimeo.com/video/76979871?autoplay=1");
   await fireEvent.click(embeds[1].querySelector("button")!);
   const frames = Array.from(document.querySelectorAll(".venue-breaks iframe"));
   expect(frames.length, "only the clicked one plays").toEqual(1);

@@ -24,6 +24,7 @@ export default function VenuePage({ venue, talks }: VenueProps) {
         <h3>Between the talks</h3>
         <Embed provider="youtube" id="f_WuRfuMXQw" title="Rick Astley - Never Gonna Give You Up" />
         <Embed provider="youtube" id="astISOttCQ0" title="Gummibär - The Gummy Bear Song" />
+        <Embed provider="vimeo" id="76979871" title="The New Vimeo Player (You Know, For Videos)" />
       </section>
       <Island when="visible">
         <Floors talks={talks} />

@@ -30,7 +30,7 @@ import { Embed } from "@snapfire/fsr-client/react";
 <Embed provider="youtube" id="f_WuRfuMXQw" title="Rick Astley - Never Gonna Give You Up" />
 ```
 
-By default the still is the provider's own image, so the page asks the provider's image CDN for it on load. YouTube's still is named by the id. Vimeo's comes from Vimeo's oEmbed answer, which the build looks up once and keeps under `generated/embeds/`.
+By default the still is the provider's own image, so the page asks the provider's image CDN for it on load. YouTube's still is named by the id. Vimeo's comes from Vimeo's public video API, which the build asks once and keeps the answer under `generated/embeds/`.
 
 To keep the provider out of the page until the visitor plays, fetch the stills at build:
 

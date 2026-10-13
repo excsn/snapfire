@@ -464,8 +464,9 @@ pub fn derive(app: &Path, out: &Path, manifest: &AssetsManifest) -> Result<Deriv
 pub const EMBEDS_DIR: &str = "generated/embeds";
 
 /// The provider's own still for an embed: YouTube's at the URL its id
-/// names, Vimeo's from its oEmbed answer, looked up once and kept under
-/// `EMBEDS_DIR` so a later build asks nothing.
+/// names, Vimeo's from its public video API, looked up once and kept under
+/// `EMBEDS_DIR` so a later build asks nothing. Vimeo's oEmbed endpoint
+/// answers a client that is not a browser with 403, so it is not asked.
 fn remote_still(app: &Path, provider: &str, id: &str) -> Option<ImageFacts> {
   if let Some(still) = snapfire_fsr_lower::assets::youtube_still(provider, id) {
     return Some(still);
@@ -476,7 +477,7 @@ fn remote_still(app: &Path, provider: &str, id: &str) -> Option<ImageFacts> {
   let kept = app.join(EMBEDS_DIR).join(format!("vimeo-{id}.json"));
   let answer = match std::fs::read(&kept) {
     Ok(bytes) => bytes,
-    Err(_) => match fetch(&format!("https://vimeo.com/api/oembed.json?url=https://vimeo.com/{id}")) {
+    Err(_) => match fetch(&format!("https://vimeo.com/api/v2/video/{id}.json")) {
       Ok(bytes) => {
         let _ = kept.parent().map(std::fs::create_dir_all).transpose().and_then(|_| std::fs::write(&kept, &bytes));
         bytes
@@ -488,8 +489,13 @@ fn remote_still(app: &Path, provider: &str, id: &str) -> Option<ImageFacts> {
     },
   };
   let json: serde_json::Value = serde_json::from_slice(&answer).ok()?;
-  let number = |key: &str| json.get(key).and_then(serde_json::Value::as_u64).map(|n| n as u32);
-  Some(ImageFacts { src: json.get("thumbnail_url")?.as_str()?.to_owned(), width: number("thumbnail_width").unwrap_or(640), height: number("thumbnail_height").unwrap_or(360), sources: Vec::new() })
+  let video = json.get(0)?;
+  let number = |key: &str| video.get(key).and_then(serde_json::Value::as_u64).filter(|n| *n > 0);
+  let height = match (number("width"), number("height")) {
+    (Some(w), Some(h)) => (640 * h / w) as u32,
+    _ => 360,
+  };
+  Some(ImageFacts { src: video.get("thumbnail_large")?.as_str()?.to_owned(), width: 640, height, sources: Vec::new() })
 }
 
 fn fetch(url: &str) -> Result<Vec<u8>, String> {
