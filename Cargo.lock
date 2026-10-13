@@ -3793,6 +3793,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "snapfire_tailwind"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "lightningcss",
+ "oxc_allocator",
+ "oxc_ast",
+ "oxc_ast_visit",
+ "oxc_parser",
+ "oxc_span",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "snapfire_typecheck"
 version = "0.1.0"
 dependencies = [

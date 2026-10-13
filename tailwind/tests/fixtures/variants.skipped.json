@@ -1,0 +1,10 @@
+[
+  {
+    "test": "variants with the same root are sorted deterministically",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "matchVariant sorts deterministically",
+    "reason": "candidates are not an array literal"
+  }
+]

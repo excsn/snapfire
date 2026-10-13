@@ -1,0 +1,10 @@
+[
+  {
+    "test": "<dynamic>",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "<dynamic>",
+    "reason": "a candidate is not a string literal"
+  }
+]

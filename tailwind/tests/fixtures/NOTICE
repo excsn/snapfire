@@ -1,0 +1,4 @@
+These fixtures are extracted from the test files of Tailwind CSS v4.3.2
+(packages/tailwindcss/src/*.test.ts) by examples/extract_fixtures.rs.
+Tailwind CSS is Copyright (c) Tailwind Labs, Inc. and released under the
+MIT License; the full text is in css/LICENSE-TAILWIND.

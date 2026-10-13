@@ -1,0 +1,1639 @@
+[
+  {
+    "test": "compiling CSS > `@tailwind utilities` is replaced with the generated utility classes",
+    "kind": "css",
+    "candidates": [
+      "flex",
+      "md:grid",
+      "hover:underline",
+      "dark:bg-black"
+    ],
+    "css": "\n          @theme {\n            --color-black: #000;\n            --breakpoint-md: 768px;\n          }\n\n          @layer utilities {\n            @tailwind utilities;\n          }\n        ",
+    "expected": "\n:root, :host {\n  --color-black: #000;\n}\n\n@layer utilities {\n  .flex {\n    display: flex;\n  }\n\n  @media (hover: hover) {\n    .hover\\:underline:hover {\n      text-decoration-line: underline;\n    }\n  }\n\n  @media (min-width: 768px) {\n    .md\\:grid {\n      display: grid;\n    }\n  }\n\n  @media (prefers-color-scheme: dark) {\n    .dark\\:bg-black {\n      background-color: var(--color-black);\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "compiling CSS > that only CSS variables are allowed",
+    "kind": "error",
+    "candidates": [
+      "bg-primary"
+    ],
+    "css": "\n          @theme {\n            --color-primary: red;\n            .foo {\n              --color-primary: blue;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "`@theme` blocks must only contain custom properties or `@keyframes`.\n\n  @theme {\n>   .foo {\n>     --color-primary: blue;\n>   }\n  }\n  ",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "compiling CSS > `@tailwind utilities` is only processed once",
+    "kind": "css",
+    "candidates": [
+      "flex",
+      "grid"
+    ],
+    "css": "\n          @tailwind utilities;\n          @tailwind utilities;\n        ",
+    "expected": "\n.flex {\n  display: flex;\n}\n\n.grid {\n  display: grid;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "compiling CSS > unescapes underscores to spaces inside arbitrary values except for `url()` and first argument of `var()` and `theme()`",
+    "kind": "css",
+    "candidates": [
+      "bg-[no-repeat_url(./my_file.jpg)]",
+      "ml-[var(--spacing-1_5,_var(--spacing-2_5,_1rem))]",
+      "ml-[theme(--spacing-1_5,theme(--spacing-2_5,_1rem)))]"
+    ],
+    "css": "\n          @theme {\n            --spacing-1_5: 1.5rem;\n            --spacing-2_5: 2.5rem;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --spacing-1_5: 1.5rem;\n  --spacing-2_5: 2.5rem;\n}\n\n.ml-\\[theme\\(--spacing-1_5\\,theme\\(--spacing-2_5\\,_1rem\\)\\)\\)\\] {\n  margin-left: 1.5rem;\n}\n\n.ml-\\[var\\(--spacing-1_5\\,_var\\(--spacing-2_5\\,_1rem\\)\\)\\] {\n  margin-left: var(--spacing-1_5, var(--spacing-2_5, 1rem));\n}\n\n.bg-\\[no-repeat_url\\(\\.\\/my_file\\.jpg\\)\\] {\n  background-color: no-repeat url(\"./my_file.jpg\");\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "compiling CSS > unescapes theme variables and handles dots as underscore",
+    "kind": "css",
+    "candidates": [
+      "m-1.5",
+      "m-2.5",
+      "m-2_5",
+      "m-3.5",
+      "m-foo/bar"
+    ],
+    "css": "\n          @theme {\n            --spacing-*: initial;\n            --spacing-1\\.5: 1.5px;\n            --spacing-2_5: 2.5px;\n            --spacing-3\\.5: 3.5px;\n            --spacing-3_5: 3.5px;\n            --spacing-foo\\/bar: 3rem;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --spacing-1\\.5: 1.5px;\n  --spacing-2_5: 2.5px;\n  --spacing-3\\.5: 3.5px;\n  --spacing-foo\\/bar: 3rem;\n}\n\n.m-1\\.5 {\n  margin: var(--spacing-1\\.5);\n}\n\n.m-2\\.5, .m-2_5 {\n  margin: var(--spacing-2_5);\n}\n\n.m-3\\.5 {\n  margin: var(--spacing-3\\.5);\n}\n\n.m-foo\\/bar {\n  margin: var(--spacing-foo\\/bar);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "compiling CSS > adds vendor prefixes",
+    "kind": "css",
+    "candidates": [
+      "[text-size-adjust:none]"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.\\[text-size-adjust\\:none\\] {\n  -webkit-text-size-adjust: none;\n  -moz-text-size-adjust: none;\n  text-size-adjust: none;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "arbitrary properties > should generate arbitrary properties",
+    "kind": "css",
+    "candidates": [
+      "[color:red]"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.\\[color\\:red\\] {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "arbitrary properties > should generate arbitrary properties with modifiers",
+    "kind": "css",
+    "candidates": [
+      "[color:red]/50"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.\\[color\\:red\\]\\/50 {\n  color: oklab(62.7955% .224 .125 / .5);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "arbitrary properties > should not generate arbitrary properties with invalid modifiers",
+    "kind": "css",
+    "candidates": [
+      "[color:red]/not-a-percentage"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "arbitrary properties > should generate arbitrary properties with variables and with modifiers",
+    "kind": "css",
+    "candidates": [
+      "[color:var(--my-color)]/50"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.\\[color\\:var\\(--my-color\\)\\]\\/50 {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .\\[color\\:var\\(--my-color\\)\\]\\/50 {\n    color: color-mix(in oklab, var(--my-color) 50%, transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should replace @apply with the correct result",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme {\n          --color-red-200: #fecaca;\n          --color-red-500: #ef4444;\n          --color-blue-500: #3b82f6;\n          --color-green-200: #bbf7d0;\n          --color-green-500: #22c55e;\n          --breakpoint-md: 768px;\n          --animate-spin: spin 1s linear infinite;\n\n          @keyframes spin {\n            to {\n              transform: rotate(360deg);\n            }\n          }\n        }\n\n        @tailwind utilities;\n\n        .foo {\n          @apply underline bg-red-500 hover:bg-blue-500 md:bg-green-500 animate-spin translate-x-full;\n\n          &:hover:focus {\n            @apply bg-red-200 md:bg-green-200;\n          }\n        }\n      ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-translate-x: 0;\n      --tw-translate-y: 0;\n      --tw-translate-z: 0;\n    }\n  }\n}\n\n:root, :host {\n  --color-red-200: #fecaca;\n  --color-red-500: #ef4444;\n  --color-blue-500: #3b82f6;\n  --color-green-200: #bbf7d0;\n  --color-green-500: #22c55e;\n  --animate-spin: spin 1s linear infinite;\n}\n\n.foo {\n  --tw-translate-x: 100%;\n  translate: var(--tw-translate-x) var(--tw-translate-y);\n  animation: var(--animate-spin);\n  background-color: var(--color-red-500);\n  text-decoration-line: underline;\n}\n\n@media (hover: hover) {\n  .foo:hover {\n    background-color: var(--color-blue-500);\n  }\n}\n\n@media (min-width: 768px) {\n  .foo {\n    background-color: var(--color-green-500);\n  }\n}\n\n.foo:hover:focus {\n  background-color: var(--color-red-200);\n}\n\n@media (min-width: 768px) {\n  .foo:hover:focus {\n    background-color: var(--color-green-200);\n  }\n}\n\n@property --tw-translate-x {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-translate-y {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-translate-z {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@keyframes spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should @apply in order the utilities would be sorted in if they were used in HTML",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @tailwind utilities;\n\n        .foo {\n          @apply content-[\"a\"] content-[\"b\"];\n        }\n\n        .bar {\n          @apply content-[\"b\"] content-[\"a\"];\n        }\n      ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-content: \"\";\n    }\n  }\n}\n\n.foo, .bar {\n  --tw-content: \"b\";\n  content: var(--tw-content);\n}\n\n@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > @apply does not cache important state",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        .c1 {\n          @apply leading-none;\n        }\n        .c2 {\n          @apply leading-none!;\n        }\n        .c3 {\n          @apply leading-none;\n        }\n      ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-leading: initial;\n    }\n  }\n}\n\n.c1 {\n  --tw-leading: 1;\n  line-height: 1;\n}\n\n.c2 {\n  --tw-leading: 1 !important;\n  line-height: 1 !important;\n}\n\n.c3 {\n  --tw-leading: 1;\n  line-height: 1;\n}\n\n@property --tw-leading {\n  syntax: \"*\";\n  inherits: false\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should not error with trailing whitespace",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @tailwind utilities;\n\n        .foo {\n          @apply flex ;\n        }\n      ",
+    "expected": "\n.foo {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should be possible to apply a custom utility",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @utility bar {\n          &:before {\n            content: 'bar';\n          }\n        }\n\n        .foo {\n          /* Baz is defined after this rule, but should work */\n          @apply bar baz;\n        }\n\n        @utility baz {\n          &:after {\n            content: 'baz';\n          }\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "\n.foo:before {\n  content: \"bar\";\n}\n\n.foo:after {\n  content: \"baz\";\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should recursively apply with custom `@utility`, which is used before it is defined",
+    "kind": "css",
+    "candidates": [
+      "a",
+      "b",
+      "c",
+      "flex",
+      "my-flex"
+    ],
+    "css": "\n          @tailwind utilities;\n\n          @layer base {\n            body {\n              @apply a;\n            }\n          }\n\n          @utility a {\n            @apply b;\n          }\n\n          @utility b {\n            @apply focus:c;\n          }\n\n          @utility c {\n            @apply my-flex!;\n          }\n\n          @utility my-flex {\n            @apply flex;\n          }\n        ",
+    "expected": "\n.a:focus, .b:focus, .c {\n  display: flex !important;\n}\n\n.flex, .my-flex {\n  display: flex;\n}\n\n@layer base {\n  body:focus {\n    display: flex !important;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should not swallow @utility declarations when @apply is used in nested rules",
+    "kind": "css",
+    "candidates": [
+      "custom-utility"
+    ],
+    "css": "\n          @tailwind utilities;\n\n          .ignore-me {\n            @apply underline;\n            div {\n              @apply custom-utility;\n            }\n          }\n\n          @utility custom-utility {\n            @apply flex;\n          }\n        ",
+    "expected": "\n.custom-utility {\n  display: flex;\n}\n\n.ignore-me {\n  text-decoration-line: underline;\n}\n\n.ignore-me div {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should correctly apply nested usages of @apply when one @utility applies another",
+    "kind": "css",
+    "candidates": [
+      "foo",
+      "test",
+      "test2"
+    ],
+    "css": "\n          @theme {\n            --color-green-500: green;\n            --color-red-500: red;\n            --color-indigo-500: indigo;\n          }\n\n          @tailwind utilities;\n\n          @utility test2 {\n            @apply test;\n          }\n\n          @utility test {\n            @apply bg-green-500;\n            &:hover {\n              @apply bg-red-500;\n            }\n            &:disabled {\n              @apply bg-indigo-500;\n            }\n          }\n\n          .foo {\n            @apply test2;\n          }\n        ",
+    "expected": "\n:root, :host {\n  --color-green-500: green;\n  --color-red-500: red;\n  --color-indigo-500: indigo;\n}\n\n.test {\n  background-color: var(--color-green-500);\n}\n\n.test:hover {\n  background-color: var(--color-red-500);\n}\n\n.test:disabled {\n  background-color: var(--color-indigo-500);\n}\n\n.test2 {\n  background-color: var(--color-green-500);\n}\n\n.test2:hover {\n  background-color: var(--color-red-500);\n}\n\n.test2:disabled {\n  background-color: var(--color-indigo-500);\n}\n\n.foo {\n  background-color: var(--color-green-500);\n}\n\n.foo:hover {\n  background-color: var(--color-red-500);\n}\n\n.foo:disabled {\n  background-color: var(--color-indigo-500);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@apply > should be usable with CSS mixins",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n      .foo {\n        /* Utility usage */\n        @apply underline;\n\n        /* CSS mixin usage */\n        @apply --my-mixin-1;\n        @apply --my-mixin-1();\n        @apply --my-mixin-1 --my-mixin-2;\n        @apply --my-mixin-1() --my-mixin-2();\n        @apply --my-mixin-3 {\n          color: red;\n        }\n      }\n    ",
+    "expected": "\n.foo {\n  text-decoration-line: underline;\n}\n\n@apply --my-mixin-1;\n\n@apply --my-mixin-1();\n\n@apply --my-mixin-1 --my-mixin-2;\n\n@apply --my-mixin-1() --my-mixin-2();\n\n@apply --my-mixin-3 {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "arbitrary variants > should generate arbitrary variants",
+    "kind": "css",
+    "candidates": [
+      "[&_p]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.\\[\\&_p\\]\\:flex p {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "arbitrary variants > should generate arbitrary at-rule variants",
+    "kind": "css",
+    "candidates": [
+      "[@media(width>=123px)]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (min-width: 123px) {\n  .\\[\\@media\\(width\\>\\=123px\\)\\]\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "arbitrary variants > discards arbitrary variants using relative selectors",
+    "kind": "css",
+    "candidates": [
+      "[>img]:flex",
+      "[+img]:flex",
+      "[~img]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "variant stacking > should stack simple variants",
+    "kind": "css",
+    "candidates": [
+      "focus:hover:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (hover: hover) {\n  .focus\\:hover\\:flex:focus:hover {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "variant stacking > should stack arbitrary variants and simple variants",
+    "kind": "css",
+    "candidates": [
+      "[&_p]:hover:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (hover: hover) {\n  .\\[\\&_p\\]\\:hover\\:flex p:hover {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "variant stacking > should stack multiple arbitrary variants",
+    "kind": "css",
+    "candidates": [
+      "[&_p]:[@media(width>=123px)]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (min-width: 123px) {\n  .\\[\\&_p\\]\\:\\[\\@media\\(width\\>\\=123px\\)\\]\\:flex p {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "variant stacking > pseudo element variants are re-ordered",
+    "kind": "css",
+    "candidates": [
+      "before:hover:flex",
+      "hover:before:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-content: \"\";\n    }\n  }\n}\n\n.before\\:hover\\:flex:before {\n  content: var(--tw-content);\n}\n\n@media (hover: hover) {\n  .before\\:hover\\:flex:before:hover {\n    display: flex;\n  }\n\n  .hover\\:before\\:flex:hover:before {\n    content: var(--tw-content);\n    display: flex;\n  }\n}\n\n@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "important > should generate an important utility",
+    "kind": "css",
+    "candidates": [
+      "underline!"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.underline\\! {\n  text-decoration-line: underline !important;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "important > should generate an important utility with legacy syntax",
+    "kind": "css",
+    "candidates": [
+      "!underline"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.\\!underline {\n  text-decoration-line: underline !important;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "important > should not mark declarations inside of @keyframes as important",
+    "kind": "css",
+    "candidates": [
+      "animate-spin!"
+    ],
+    "css": "\n          @theme {\n            --animate-spin: spin 1s linear infinite;\n\n            @keyframes spin {\n              to {\n                transform: rotate(360deg);\n              }\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --animate-spin: spin 1s linear infinite;\n}\n\n.animate-spin\\! {\n  animation: var(--animate-spin) !important;\n}\n\n@keyframes spin {\n  to {\n    transform: rotate(360deg);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "important > should generate an important arbitrary property utility",
+    "kind": "css",
+    "candidates": [
+      "[color:red]!"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.\\[color\\:red\\]\\! {\n  color: red !important;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "sorting > should sort based on amount of properties",
+    "kind": "css",
+    "candidates": [
+      "text-clip",
+      "truncate",
+      "overflow-scroll"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.truncate {\n  text-overflow: ellipsis;\n  white-space: nowrap;\n  overflow: hidden;\n}\n\n.overflow-scroll {\n  overflow: scroll;\n}\n\n.text-clip {\n  text-overflow: clip;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "sorting > should not take undefined values into account when sorting",
+    "kind": "css",
+    "candidates": [
+      "fancy-text",
+      "text-sm"
+    ],
+    "css": "\n          @theme {\n            --text-sm: 0.875rem;\n            --text-sm--line-height: calc(1.25 / 0.875);\n          }\n          @tailwind utilities;\n          @utility fancy-text {\n            font-size: var(--text-4xl);\n            line-height: var(--text-4xl--line-height);\n            font-weight: var(--font-weight-bold);\n          }\n        ",
+    "expected": "\n:root, :host {\n  --text-sm: .875rem;\n  --text-sm--line-height: calc(1.25 / .875);\n}\n\n.fancy-text {\n  font-size: var(--text-4xl);\n  line-height: var(--text-4xl--line-height);\n  font-weight: var(--font-weight-bold);\n}\n\n.text-sm {\n  font-size: var(--text-sm);\n  line-height: var(--tw-leading, var(--text-sm--line-height));\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > Can read values from `@theme`",
+    "kind": "css",
+    "candidates": [
+      "accent-red-500"
+    ],
+    "css": "\n          @theme {\n            --color-red-500: #f00;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red-500: red;\n}\n\n.accent-red-500 {\n  accent-color: var(--color-red-500);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > Later values from `@theme` override earlier ones",
+    "kind": "css",
+    "candidates": [
+      "accent-red-500"
+    ],
+    "css": "\n          @theme {\n            --color-red-500: #f00;\n            --color-red-500: #f10;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red-500: #f10;\n}\n\n.accent-red-500 {\n  accent-color: var(--color-red-500);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > Multiple `@theme` blocks are merged",
+    "kind": "css",
+    "candidates": [
+      "accent-red-500",
+      "accent-blue-500"
+    ],
+    "css": "\n          @theme {\n            --color-red-500: #f00;\n          }\n          @theme {\n            --color-blue-500: #00f;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red-500: red;\n  --color-blue-500: #00f;\n}\n\n.accent-blue-500 {\n  accent-color: var(--color-blue-500);\n}\n\n.accent-red-500 {\n  accent-color: var(--color-red-500);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@theme` values with escaped forward slashes map to unescaped slashes in candidate values",
+    "kind": "css",
+    "candidates": [
+      "w-1/2",
+      "w-75%"
+    ],
+    "css": "\n          @theme {\n            /* Cursed but we want this to work */\n            --width-1\\/2: 75%;\n            --width-75\\%: 50%;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --width-1\\/2: 75%;\n  --width-75\\%: 50%;\n}\n\n.w-1\\/2 {\n  width: var(--width-1\\/2);\n}\n\n.w-75\\% {\n  width: var(--width-75\\%);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@keyframes` in `@theme` are hoisted",
+    "kind": "css",
+    "candidates": [
+      "accent-red",
+      "text-lg"
+    ],
+    "css": "\n          @theme {\n            --color-red: red;\n            --animate-foo: foo 1s infinite;\n\n            @keyframes foo {\n              to {\n                opacity: 1;\n              }\n            }\n\n            --text-lg: 20px;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red: red;\n  --text-lg: 20px;\n}\n\n.text-lg {\n  font-size: var(--text-lg);\n}\n\n.accent-red {\n  accent-color: var(--color-red);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@keyframes` in `@theme` are generated when name contains a new line",
+    "kind": "css",
+    "candidates": [
+      "animate-very-long-animation-name"
+    ],
+    "css": "\n          @theme {\n            --animate-very-long-animation-name: very-long-animation-name\n              var(\n                --very-long-animation-name-configuration,\n                2.5s ease-in-out 0s infinite normal none running\n              );\n\n            @keyframes very-long-animation-name {\n              to {\n                opacity: 1;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --animate-very-long-animation-name: very-long-animation-name\n              var(--very-long-animation-name-configuration, 2.5s ease-in-out 0s infinite normal none running);\n}\n\n.animate-very-long-animation-name {\n  animation: var(--animate-very-long-animation-name);\n}\n\n@keyframes very-long-animation-name {\n  to {\n    opacity: 1;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@theme` values can be unset",
+    "kind": "css",
+    "candidates": [
+      "accent-red",
+      "accent-blue",
+      "accent-green",
+      "text-sm",
+      "text-md"
+    ],
+    "css": "\n          @theme {\n            --color-red: #f00;\n            --color-blue: #00f;\n            --text-sm: 13px;\n            --text-md: 16px;\n\n            --animate-spin: spin 1s infinite linear;\n\n            @keyframes spin {\n              to {\n                transform: rotate(360deg);\n              }\n            }\n          }\n          @theme {\n            --color-*: initial;\n            --text-md: initial;\n            --animate-*: initial;\n            --keyframes-*: initial;\n          }\n          @theme {\n            --color-green: #0f0;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --text-sm: 13px;\n  --color-green: #0f0;\n}\n\n.text-sm {\n  font-size: var(--text-sm);\n}\n\n.accent-green {\n  accent-color: var(--color-green);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@theme` values can be unset (using the escaped syntax)",
+    "kind": "css",
+    "candidates": [
+      "accent-red",
+      "accent-blue",
+      "accent-green",
+      "text-sm",
+      "text-md"
+    ],
+    "css": "\n          @theme {\n            --color-red: #f00;\n            --color-blue: #00f;\n            --text-sm: 13px;\n            --text-md: 16px;\n\n            --animate-spin: spin 1s infinite linear;\n\n            @keyframes spin {\n              to {\n                transform: rotate(360deg);\n              }\n            }\n          }\n          @theme {\n            --color-\\*: initial;\n            --text-md: initial;\n            --animate-\\*: initial;\n            --keyframes-\\*: initial;\n          }\n          @theme {\n            --color-green: #0f0;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --text-sm: 13px;\n  --color-green: #0f0;\n}\n\n.text-sm {\n  font-size: var(--text-sm);\n}\n\n.accent-green {\n  accent-color: var(--color-green);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > all `@theme` values can be unset at once",
+    "kind": "css",
+    "candidates": [
+      "accent-red",
+      "accent-blue",
+      "accent-green",
+      "text-sm",
+      "text-md"
+    ],
+    "css": "\n          @theme {\n            --color-red: #f00;\n            --color-blue: #00f;\n            --font-size-sm: 13px;\n            --font-size-md: 16px;\n          }\n          @theme {\n            --*: initial;\n          }\n          @theme {\n            --color-green: #0f0;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-green: #0f0;\n}\n\n.accent-green {\n  accent-color: var(--color-green);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > unsetting `--font-*` does not unset `--font-weight-*`",
+    "kind": "css",
+    "candidates": [
+      "font-bold",
+      "font-sans",
+      "font-serif",
+      "font-body"
+    ],
+    "css": "\n          @theme {\n            --font-weight-bold: bold;\n            --font-sans: sans-serif;\n            --font-serif: serif;\n          }\n          @theme {\n            --font-*: initial;\n            --font-body: Inter;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-font-weight: initial;\n    }\n  }\n}\n\n:root, :host {\n  --font-weight-bold: bold;\n  --font-body: Inter;\n}\n\n.font-body {\n  font-family: var(--font-body);\n}\n\n.font-bold {\n  --tw-font-weight: var(--font-weight-bold);\n  font-weight: var(--font-weight-bold);\n}\n\n@property --tw-font-weight {\n  syntax: \"*\";\n  inherits: false\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > unsetting `--inset-*` does not unset `--inset-shadow-*`",
+    "kind": "css",
+    "candidates": [
+      "inset-shadow-sm",
+      "inset-ring-thick",
+      "inset-lg",
+      "inset-sm",
+      "inset-md"
+    ],
+    "css": "\n          @theme {\n            --inset-shadow-sm: inset 0 2px 4px rgb(0 0 0 / 0.05);\n            --inset-lg: 100px;\n            --inset-sm: 10px;\n          }\n          @theme {\n            --inset-*: initial;\n            --inset-md: 50px;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-shadow: 0 0 #0000;\n      --tw-shadow-color: initial;\n      --tw-shadow-alpha: 100%;\n      --tw-inset-shadow: 0 0 #0000;\n      --tw-inset-shadow-color: initial;\n      --tw-inset-shadow-alpha: 100%;\n      --tw-ring-color: initial;\n      --tw-ring-shadow: 0 0 #0000;\n      --tw-inset-ring-color: initial;\n      --tw-inset-ring-shadow: 0 0 #0000;\n      --tw-ring-inset: initial;\n      --tw-ring-offset-width: 0px;\n      --tw-ring-offset-color: #fff;\n      --tw-ring-offset-shadow: 0 0 #0000;\n    }\n  }\n}\n\n:root, :host {\n  --inset-md: 50px;\n}\n\n.inset-md {\n  inset: var(--inset-md);\n}\n\n.inset-shadow-sm {\n  --tw-inset-shadow: inset 0 2px 4px var(--tw-inset-shadow-color, #0000000d);\n  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);\n}\n\n@property --tw-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-inset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-ring-inset {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-offset-width {\n  syntax: \"<length>\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-ring-offset-color {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: #fff;\n}\n\n@property --tw-ring-offset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > unsetting `--text-*` does not unset `--text-color-*`, `--text-underline-offset-*`, `--text-indent-*`, `--text-decoration-thickness-*` or `--text-decoration-color-*`",
+    "kind": "css",
+    "candidates": [
+      "text-potato",
+      "underline-offset-potato",
+      "indent-potato",
+      "decoration-potato",
+      "decoration-salad",
+      "text-lg"
+    ],
+    "css": "\n          @theme {\n            --text-color-potato: brown;\n            --text-underline-offset-potato: 4px;\n            --text-indent-potato: 6px;\n            --text-decoration-thickness-potato: 8px;\n            --text-decoration-color-salad: yellow;\n            --text-4xl: 60px;\n          }\n          @theme {\n            --text-*: initial;\n            --text-lg: 20px;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --text-color-potato: brown;\n  --text-underline-offset-potato: 4px;\n  --text-indent-potato: 6px;\n  --text-decoration-thickness-potato: 8px;\n  --text-decoration-color-salad: yellow;\n  --text-lg: 20px;\n}\n\n.indent-potato {\n  text-indent: var(--text-indent-potato);\n}\n\n.text-lg {\n  font-size: var(--text-lg);\n}\n\n.text-potato {\n  color: var(--text-color-potato);\n}\n\n.decoration-salad {\n  -webkit-text-decoration-color: var(--text-decoration-color-salad);\n  -webkit-text-decoration-color: var(--text-decoration-color-salad);\n  text-decoration-color: var(--text-decoration-color-salad);\n}\n\n.decoration-potato {\n  text-decoration-thickness: var(--text-decoration-thickness-potato);\n}\n\n.underline-offset-potato {\n  text-underline-offset: var(--text-underline-offset-potato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > unused keyframes are removed when an animation is unset",
+    "kind": "css",
+    "candidates": [
+      "animate-foo",
+      "animate-foobar"
+    ],
+    "css": "\n          @theme {\n            --animate-foo: foo 1s infinite;\n            --animate-foobar: foobar 1s infinite;\n\n            @keyframes foo {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes foobar {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n          @theme {\n            --animate-foo: initial;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --animate-foobar: foobar 1s infinite;\n}\n\n.animate-foobar {\n  animation: var(--animate-foobar);\n}\n\n@keyframes foobar {\n  to {\n    opacity: 0;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > keyframes are generated when used in an animation",
+    "kind": "css",
+    "candidates": [
+      "animate-foo"
+    ],
+    "css": "\n          @theme {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --animate-foo: used 1s infinite;\n}\n\n.animate-foo {\n  animation: var(--animate-foo);\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > keyframes are generated when used in an animation within a prefixed setup",
+    "kind": "css",
+    "candidates": [
+      "tw:animate-foo"
+    ],
+    "css": "\n          @theme prefix(tw) {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --tw-animate-foo: used 1s infinite;\n}\n\n.tw\\:animate-foo {\n  animation: var(--tw-animate-foo);\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > custom properties are generated when used from a CSS var with a prefixed setup",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme prefix(tw) {\n          --color-tomato: #e10c04;\n        }\n        @tailwind utilities;\n        .red {\n          color: var(--tw-color-tomato);\n        }\n      ",
+    "expected": "\n:root, :host {\n  --tw-color-tomato: #e10c04;\n}\n\n.red {\n  color: var(--tw-color-tomato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > custom properties in keyframes preserved",
+    "kind": "css",
+    "candidates": [
+      "animate-foo"
+    ],
+    "css": "\n          @theme {\n            --animate-foo: used 1s infinite;\n\n            @keyframes used {\n              to {\n                --other: var(--angle);\n                --angle: 360deg;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --animate-foo: used 1s infinite;\n}\n\n.animate-foo {\n  animation: var(--animate-foo);\n}\n\n@keyframes used {\n  to {\n    --other: var(--angle);\n    --angle: 360deg;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > keyframes are generated when used in an animation using `@theme inline`",
+    "kind": "css",
+    "candidates": [
+      "animate-foo"
+    ],
+    "css": "\n          @theme inline {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.animate-foo {\n  animation: 1s infinite used;\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > keyframes are generated when used in an animation using `@theme static`",
+    "kind": "css",
+    "candidates": [
+      "animate-foo"
+    ],
+    "css": "\n          @theme static {\n            --animate-foo: used 1s infinite;\n            --animate-bar: unused-but-kept 1s infinite;\n\n            @keyframes used {\n              to {\n                opacity: 1;\n              }\n            }\n\n            @keyframes unused-but-kept {\n              to {\n                opacity: 0;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --animate-foo: used 1s infinite;\n  --animate-bar: unused-but-kept 1s infinite;\n}\n\n.animate-foo {\n  animation: var(--animate-foo);\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n\n@keyframes unused-but-kept {\n  to {\n    opacity: 0;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > keyframes are generated when used in user CSS",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme {\n          @keyframes used {\n            to {\n              opacity: 1;\n            }\n          }\n\n          @keyframes unused {\n            to {\n              opacity: 0;\n            }\n          }\n        }\n\n        .foo {\n          animation: used 1s infinite;\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "\n.foo {\n  animation: 1s infinite used;\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > extracts keyframe names followed by comma",
+    "kind": "css",
+    "candidates": [
+      "animate-test"
+    ],
+    "css": "\n          @theme {\n            --animate-test: 500ms both fade-in, 1000ms linear 500ms spin infinite;\n\n            @keyframes fade-in {\n              from {\n                opacity: 0%;\n              }\n              to {\n                opacity: 100%;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --animate-test: .5s both fade-in, 1s linear .5s spin infinite;\n}\n\n.animate-test {\n  animation: var(--animate-test);\n}\n\n@keyframes fade-in {\n  from {\n    opacity: 0;\n  }\n\n  to {\n    opacity: 1;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > keyframes outside of `@theme are always preserved",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme {\n          @keyframes used {\n            to {\n              opacity: 1;\n            }\n          }\n        }\n\n        @keyframes unused {\n          to {\n            opacity: 0;\n          }\n        }\n\n        .foo {\n          animation: used 1s infinite;\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "\n@keyframes unused {\n  to {\n    opacity: 0;\n  }\n}\n\n.foo {\n  animation: 1s infinite used;\n}\n\n@keyframes used {\n  to {\n    opacity: 1;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > theme values added as reference are not included in the output as variables but emit fallback values",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato",
+      "bg-potato"
+    ],
+    "css": "\n          @theme {\n            --color-tomato: #e10c04;\n          }\n          @theme reference {\n            --color-potato: #ac855b;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-tomato: #e10c04;\n}\n\n.bg-potato {\n  background-color: var(--color-potato, #ac855b);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@keyframes` added in `@theme reference` should not be emitted",
+    "kind": "css",
+    "candidates": [
+      "animate-foo"
+    ],
+    "css": "\n          @theme reference {\n            --animate-foo: foo 1s infinite;\n\n            @keyframes foo {\n              0%,\n              100% {\n                color: red;\n              }\n              50% {\n                color: blue;\n              }\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.animate-foo {\n  animation: var(--animate-foo, foo 1s infinite);\n}\n\n@keyframes foo {\n  0%, 100% {\n    color: red;\n  }\n\n  50% {\n    color: #00f;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@keyframes` added in `@theme reference` should not be emitted, even if another `@theme` block exists",
+    "kind": "css",
+    "candidates": [
+      "bg-pink",
+      "animate-foo"
+    ],
+    "css": "\n          @theme reference {\n            --animate-foo: foo 1s infinite;\n\n            @keyframes foo {\n              0%,\n              100% {\n                color: red;\n              }\n              50% {\n                color: blue;\n              }\n            }\n          }\n\n          @theme {\n            --color-pink: pink;\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-pink: pink;\n}\n\n.animate-foo {\n  animation: var(--animate-foo, foo 1s infinite);\n}\n\n.bg-pink {\n  background-color: var(--color-pink);\n}\n\n@keyframes foo {\n  0%, 100% {\n    color: red;\n  }\n\n  50% {\n    color: #00f;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > theme values added as reference that override existing theme value suppress the output of the original theme value as a variable",
+    "kind": "css",
+    "candidates": [
+      "bg-potato"
+    ],
+    "css": "\n          @theme {\n            --color-potato: #ac855b;\n          }\n          @theme reference {\n            --color-potato: #c794aa;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: var(--color-potato, #c794aa);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > overriding a reference theme value with a non-reference theme value includes it in the output as a variable",
+    "kind": "css",
+    "candidates": [
+      "bg-potato"
+    ],
+    "css": "\n          @theme reference {\n            --color-potato: #ac855b;\n          }\n          @theme {\n            --color-potato: #c794aa;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-potato: #c794aa;\n}\n\n.bg-potato {\n  background-color: var(--color-potato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > wrapping `@theme` with `@media reference` behaves like `@theme reference` to support `@import` statements",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato",
+      "bg-potato",
+      "bg-avocado"
+    ],
+    "css": "\n          @theme {\n            --color-tomato: #e10c04;\n          }\n          @media theme(reference) {\n            @theme {\n              --color-potato: #ac855b;\n            }\n            @theme {\n              --color-avocado: #c0cc6d;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-tomato: #e10c04;\n}\n\n.bg-avocado {\n  background-color: var(--color-avocado, #c0cc6d);\n}\n\n.bg-potato {\n  background-color: var(--color-potato, #ac855b);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `@media theme(reference)` can only contain `@theme` rules",
+    "kind": "error",
+    "candidates": [
+      "bg-tomato",
+      "bg-potato",
+      "bg-avocado"
+    ],
+    "css": "\n          @media theme(reference) {\n            .not-a-theme-rule {\n              color: cursed;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "Files imported with `@import \"…\" theme(reference)` must only contain `@theme` blocks.\nUse `@reference \"…\";` instead.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > theme values added as `inline` are not wrapped in `var(…)` when used as utility values",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato",
+      "bg-potato",
+      "bg-primary"
+    ],
+    "css": "\n          @theme inline {\n            --color-tomato: #e10c04;\n            --color-potato: #ac855b;\n            --color-primary: var(--primary);\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > theme values added as `static` will always be generated, regardless of whether they were used or not",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato"
+    ],
+    "css": "\n          @theme static {\n            --color-tomato: #e10c04;\n            --color-potato: #ac855b;\n            --color-primary: var(--primary);\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-tomato: #e10c04;\n  --color-potato: #ac855b;\n  --color-primary: var(--primary);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > when no theme values are emitted, empty layers can be removed",
+    "kind": "css",
+    "candidates": [
+      "underline"
+    ],
+    "css": "\n          @layer theme1 {\n            @layer theme2 {\n              @theme {\n                --color-tomato: #e10c04;\n                --color-potato: #ac855b;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > wrapping `@theme` with `@media theme(inline)` behaves like `@theme inline` to support `@import` statements",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato",
+      "bg-potato",
+      "bg-primary"
+    ],
+    "css": "\n          @media theme(inline) {\n            @theme {\n              --color-tomato: #e10c04;\n              --color-potato: #ac855b;\n              --color-primary: var(--primary);\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `inline` and `reference` can be used together",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato",
+      "bg-potato",
+      "bg-primary"
+    ],
+    "css": "\n          @theme reference inline {\n            --color-tomato: #e10c04;\n            --color-potato: #ac855b;\n            --color-primary: var(--primary);\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `inline` and `reference` can be used together in `media(…)`",
+    "kind": "css",
+    "candidates": [
+      "bg-tomato",
+      "bg-potato",
+      "bg-primary"
+    ],
+    "css": "\n          @media theme(reference inline) {\n            @theme {\n              --color-tomato: #e10c04;\n              --color-potato: #ac855b;\n              --color-primary: var(--primary);\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: #ac855b;\n}\n\n.bg-primary {\n  background-color: var(--primary);\n}\n\n.bg-tomato {\n  background-color: #e10c04;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `default` theme values can be overridden by regular theme values`",
+    "kind": "css",
+    "candidates": [
+      "bg-potato"
+    ],
+    "css": "\n          @theme {\n            --color-potato: #ac855b;\n          }\n          @theme default {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-potato: #ac855b;\n}\n\n.bg-potato {\n  background-color: var(--color-potato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `default` and `inline` can be used together",
+    "kind": "css",
+    "candidates": [
+      "bg-potato"
+    ],
+    "css": "\n          @theme default inline {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: #efb46b;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `default` and `reference` can be used together",
+    "kind": "css",
+    "candidates": [
+      "bg-potato"
+    ],
+    "css": "\n          @theme default reference {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: var(--color-potato, #efb46b);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `default`, `inline`, and `reference` can be used together",
+    "kind": "css",
+    "candidates": [
+      "bg-potato"
+    ],
+    "css": "\n          @theme default reference inline {\n            --color-potato: #efb46b;\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.bg-potato {\n  background-color: #efb46b;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > `default` can be used in `media(…)`",
+    "kind": "css",
+    "candidates": [
+      "bg-potato",
+      "bg-tomato"
+    ],
+    "css": "\n          @media theme() {\n            @theme {\n              --color-potato: #ac855b;\n            }\n          }\n          @media theme(default) {\n            @theme {\n              --color-potato: #efb46b;\n              --color-tomato: tomato;\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-potato: #ac855b;\n  --color-tomato: tomato;\n}\n\n.bg-potato {\n  background-color: var(--color-potato);\n}\n\n.bg-tomato {\n  background-color: var(--color-tomato);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "Parsing theme values from CSS > only emits theme variables that are used outside of being defined by another variable",
+    "kind": "css",
+    "candidates": [
+      "get-var-b",
+      "get-var-two"
+    ],
+    "css": "\n          @theme {\n            --var-a: var(--var-b);\n            --var-b: var(--var-c);\n            --var-c: var(--var-d);\n            --var-d: red;\n\n            --var-four: green;\n            --var-three: var(--var-four);\n            --var-two: var(--var-three);\n            --var-one: var(--var-two);\n\n            --var-eins: var(--var-zwei);\n            --var-zwei: var(--var-drei);\n            --var-drei: var(--var-vier);\n            --var-vier: blue;\n          }\n\n          @utility get-var-* {\n            color: --value(--var-\\*);\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --var-b: var(--var-c);\n  --var-c: var(--var-d);\n  --var-d: red;\n  --var-four: green;\n  --var-three: var(--var-four);\n  --var-two: var(--var-three);\n}\n\n.get-var-b {\n  color: var(--var-b);\n}\n\n.get-var-two {\n  color: var(--var-two);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > always includes the candidate",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @source inline(\"underline\");\n          @tailwind utilities;\n        ",
+    "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > applies brace expansion",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @theme {\n            --color-red-50: oklch(0.971 0.013 17.38);\n            --color-red-100: oklch(0.936 0.032 17.717);\n            --color-red-200: oklch(0.885 0.062 18.334);\n            --color-red-300: oklch(0.808 0.114 19.571);\n            --color-red-400: oklch(0.704 0.191 22.216);\n            --color-red-500: oklch(0.637 0.237 25.331);\n            --color-red-600: oklch(0.577 0.245 27.325);\n            --color-red-700: oklch(0.505 0.213 27.518);\n            --color-red-800: oklch(0.444 0.177 26.899);\n            --color-red-900: oklch(0.396 0.141 25.723);\n            --color-red-950: oklch(0.258 0.092 26.042);\n          }\n          @source inline(\"bg-red-{50,{100..900..100},950}\");\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red-50: oklch(97.1% .013 17.38);\n  --color-red-100: oklch(93.6% .032 17.717);\n  --color-red-200: oklch(88.5% .062 18.334);\n  --color-red-300: oklch(80.8% .114 19.571);\n  --color-red-400: oklch(70.4% .191 22.216);\n  --color-red-500: oklch(63.7% .237 25.331);\n  --color-red-600: oklch(57.7% .245 27.325);\n  --color-red-700: oklch(50.5% .213 27.518);\n  --color-red-800: oklch(44.4% .177 26.899);\n  --color-red-900: oklch(39.6% .141 25.723);\n  --color-red-950: oklch(25.8% .092 26.042);\n}\n\n.bg-red-50 {\n  background-color: var(--color-red-50);\n}\n\n.bg-red-100 {\n  background-color: var(--color-red-100);\n}\n\n.bg-red-200 {\n  background-color: var(--color-red-200);\n}\n\n.bg-red-300 {\n  background-color: var(--color-red-300);\n}\n\n.bg-red-400 {\n  background-color: var(--color-red-400);\n}\n\n.bg-red-500 {\n  background-color: var(--color-red-500);\n}\n\n.bg-red-600 {\n  background-color: var(--color-red-600);\n}\n\n.bg-red-700 {\n  background-color: var(--color-red-700);\n}\n\n.bg-red-800 {\n  background-color: var(--color-red-800);\n}\n\n.bg-red-900 {\n  background-color: var(--color-red-900);\n}\n\n.bg-red-950 {\n  background-color: var(--color-red-950);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > adds multiple inline sources separated by spaces",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @theme {\n            --color-red-100: oklch(0.936 0.032 17.717);\n            --color-red-200: oklch(0.885 0.062 18.334);\n          }\n          @source inline(\"block bg-red-{100..200..100}\");\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red-100: oklch(93.6% .032 17.717);\n  --color-red-200: oklch(88.5% .062 18.334);\n}\n\n.block {\n  display: block;\n}\n\n.bg-red-100 {\n  background-color: var(--color-red-100);\n}\n\n.bg-red-200 {\n  background-color: var(--color-red-200);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > ignores invalid inline candidates",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @source inline(\"my-cucumber\");\n          @tailwind utilities;\n        ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > can be negated",
+    "kind": "css",
+    "candidates": [
+      "container"
+    ],
+    "css": "\n            @theme {\n              --breakpoint-sm: 40rem;\n              --breakpoint-md: 48rem;\n              --breakpoint-lg: 64rem;\n              --breakpoint-xl: 80rem;\n              --breakpoint-2xl: 96rem;\n            }\n            @source not inline(\"container\");\n            @tailwind utilities;\n          ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > applies brace expansion to negated sources",
+    "kind": "css",
+    "candidates": [
+      "bg-red-500",
+      "bg-red-700"
+    ],
+    "css": "\n            @theme {\n              --color-red-50: oklch(0.971 0.013 17.38);\n              --color-red-100: oklch(0.936 0.032 17.717);\n              --color-red-200: oklch(0.885 0.062 18.334);\n              --color-red-300: oklch(0.808 0.114 19.571);\n              --color-red-400: oklch(0.704 0.191 22.216);\n              --color-red-500: oklch(0.637 0.237 25.331);\n              --color-red-600: oklch(0.577 0.245 27.325);\n              --color-red-700: oklch(0.505 0.213 27.518);\n              --color-red-800: oklch(0.444 0.177 26.899);\n              --color-red-900: oklch(0.396 0.141 25.723);\n              --color-red-950: oklch(0.258 0.092 26.042);\n            }\n            @source not inline(\"bg-red-{50,{100..900..100},950}\");\n            @tailwind utilities;\n          ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > works with whitespace around the argument",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          /* prettier-ignore */\n          @source inline( \"underline\" );\n          @tailwind utilities;\n        ",
+    "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@source > @source inline(…) > works with newlines around the argument",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          /* prettier-ignore */\n          @source inline(\n            \"underline\"\n          );\n          @tailwind utilities;\n        ",
+    "expected": "\n.underline {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant must be top-level and cannot be nested",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @custom-variant foo:bar (&:hover, &:focus);\n      ",
+    "expected": "`@custom-variant foo:bar` defines an invalid variant name. Variants should only contain alphanumeric, dashes, or underscore characters and start with a lowercase letter or number.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant must not contain special characters",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          @custom-variant foo:bar (&:hover, &:focus);\n        }\n      ",
+    "expected": "`@custom-variant` cannot be nested.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant must not have an empty selector",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @custom-variant foo ();\n      ",
+    "expected": "`@custom-variant foo ()` selector is invalid.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant with multiple selectors, cannot be empty",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @custom-variant foo (.foo, .bar, );\n      ",
+    "expected": "`@custom-variant foo (.foo, .bar, )` selector is invalid.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant cannot have both a selector and a body",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @custom-variant hocus (&:hover, &:focus) {\n          &:is(.potato) {\n            @slot;\n          }\n        }\n      ",
+    "expected": "`@custom-variant hocus` cannot have both a selector and a body.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body-less syntax > selector variant",
+    "kind": "css",
+    "candidates": [
+      "hocus:underline",
+      "group-hocus:flex"
+    ],
+    "css": "\n            @custom-variant hocus (&:hover, &:focus);\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  .group-hocus\\:flex:is(:is(:where(.group):hover, :where(.group):focus) *) {\n    display: flex;\n  }\n\n  .hocus\\:underline:hover, .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body-less syntax > at-rule variant",
+    "kind": "css",
+    "candidates": [
+      "any-hover:hover:underline"
+    ],
+    "css": "\n            @custom-variant any-hover (@media (any-hover: hover));\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  @media (any-hover: hover) {\n    @media (hover: hover) {\n      .any-hover\\:hover\\:underline:hover {\n        text-decoration-line: underline;\n      }\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body-less syntax > style-rules and at-rules",
+    "kind": "css",
+    "candidates": [
+      "cant-hover:focus:underline"
+    ],
+    "css": "\n            @custom-variant cant-hover (&:not(:hover), &:not(:active), @media not (any-hover: hover), @media not (pointer: fine));\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  :is(.cant-hover\\:focus\\:underline:not(:hover), .cant-hover\\:focus\\:underline:not(:active)):focus {\n    text-decoration-line: underline;\n  }\n\n  @media not all and (any-hover: hover) {\n    .cant-hover\\:focus\\:underline:focus {\n      text-decoration-line: underline;\n    }\n  }\n\n  @media not all and (pointer: fine) {\n    .cant-hover\\:focus\\:underline:focus {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > selector with @slot",
+    "kind": "css",
+    "candidates": [
+      "selected:underline",
+      "group-selected:underline"
+    ],
+    "css": "\n            @custom-variant selected {\n              &[data-selected] {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  .group-selected\\:underline:is(:where(.group)[data-selected] *), .selected\\:underline[data-selected] {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > grouped selectors with @slot",
+    "kind": "css",
+    "candidates": [
+      "hocus:underline",
+      "group-hocus:underline"
+    ],
+    "css": "\n            @custom-variant hocus {\n              &:hover,\n              &:focus {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  .group-hocus\\:underline:is(:is(:where(.group):hover, :where(.group):focus) *), .hocus\\:underline:hover, .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > multiple selectors with @slot",
+    "kind": "css",
+    "candidates": [
+      "hocus:underline",
+      "group-hocus:underline"
+    ],
+    "css": "\n            @custom-variant hocus {\n              &:hover {\n                @slot;\n              }\n\n              &:focus {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  .group-hocus\\:underline:is(:where(.group):hover *), .group-hocus\\:underline:is(:where(.group):focus *), .hocus\\:underline:hover, .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > nested selector with @slot",
+    "kind": "css",
+    "candidates": [
+      "custom-before:underline"
+    ],
+    "css": "\n            @custom-variant custom-before {\n              & {\n                --has-before: 1;\n                &::before {\n                  @slot;\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  .custom-before\\:underline {\n    --has-before: 1;\n  }\n\n  .custom-before\\:underline:before {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > grouped nested selectors with @slot",
+    "kind": "css",
+    "candidates": [
+      "custom-before:underline"
+    ],
+    "css": "\n            @custom-variant custom-before {\n              & {\n                --has-before: 1;\n                &::before {\n                  &:hover,\n                  &:focus {\n                    @slot;\n                  }\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  .custom-before\\:underline {\n    --has-before: 1;\n  }\n\n  .custom-before\\:underline:before:hover, .custom-before\\:underline:before:focus {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > nested multiple selectors with @slot",
+    "kind": "css",
+    "candidates": [
+      "hocus:underline",
+      "group-hocus:underline"
+    ],
+    "css": "\n            @custom-variant hocus {\n              &:hover {\n                @media (hover: hover) {\n                  @slot;\n                }\n              }\n\n              &:focus {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  @media (hover: hover) {\n    .group-hocus\\:underline:is(:where(.group):hover *) {\n      text-decoration-line: underline;\n    }\n  }\n\n  .group-hocus\\:underline:is(:where(.group):focus *) {\n    text-decoration-line: underline;\n  }\n\n  @media (hover: hover) {\n    .hocus\\:underline:hover {\n      text-decoration-line: underline;\n    }\n  }\n\n  .hocus\\:underline:focus {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > selector nested under at-rule with @slot",
+    "kind": "css",
+    "candidates": [
+      "hocus:underline",
+      "group-hocus:underline"
+    ],
+    "css": "\n            @custom-variant hocus {\n              @media (hover: hover) {\n                &:hover {\n                  @slot;\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  @media (hover: hover) {\n    .group-hocus\\:underline:is(:where(.group):hover *), .hocus\\:underline:hover {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > at-rule with @slot",
+    "kind": "css",
+    "candidates": [
+      "any-hover:underline"
+    ],
+    "css": "\n            @custom-variant any-hover {\n              @media (any-hover: hover) {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  @media (any-hover: hover) {\n    .any-hover\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > multiple at-rules with @slot",
+    "kind": "css",
+    "candidates": [
+      "desktop:underline"
+    ],
+    "css": "\n            @custom-variant desktop {\n              @media (any-hover: hover) {\n                @slot;\n              }\n\n              @media (pointer: fine) {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  @media (any-hover: hover) {\n    .desktop\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n\n  @media (pointer: fine) {\n    .desktop\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > nested at-rules with @slot",
+    "kind": "css",
+    "candidates": [
+      "custom-variant:underline"
+    ],
+    "css": "\n            @custom-variant custom-variant {\n              @media (orientation: landscape) {\n                @media screen {\n                  @slot;\n                }\n\n                @media print {\n                  display: none;\n                }\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  @media (orientation: landscape) {\n    @media screen {\n      .custom-variant\\:underline {\n        text-decoration-line: underline;\n      }\n    }\n\n    @media print {\n      .custom-variant\\:underline {\n        display: none;\n      }\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > body with @slot syntax > at-rule and selector with @slot",
+    "kind": "css",
+    "candidates": [
+      "custom-dark:underline"
+    ],
+    "css": "\n            @custom-variant custom-dark {\n              @media (prefers-color-scheme: dark) {\n                @slot;\n              }\n              &:is(.dark *) {\n                @slot;\n              }\n            }\n\n            @layer utilities {\n              @tailwind utilities;\n            }\n          ",
+    "expected": "\n@layer utilities {\n  @media (prefers-color-scheme: dark) {\n    .custom-dark\\:underline {\n      text-decoration-line: underline;\n    }\n  }\n\n  .custom-dark\\:underline:is(.dark *) {\n    text-decoration-line: underline;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > built-in variants can be overridden while keeping their order",
+    "kind": "css",
+    "candidates": [
+      "rtl:flex",
+      "dark:flex",
+      "starting:flex"
+    ],
+    "css": "\n          @custom-variant dark (&:is([data-theme='dark'] *));\n          @layer utilities {\n            @tailwind utilities;\n          }\n        ",
+    "expected": "\n@layer utilities {\n  .rtl\\:flex:where(:dir(rtl), [dir=\"rtl\"], [dir=\"rtl\"] *), .dark\\:flex:is([data-theme=\"dark\"] *) {\n    display: flex;\n  }\n\n  @starting-style {\n    .starting\\:flex {\n      display: flex;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > at-rule-only variants cannot be used with compound variants",
+    "kind": "css",
+    "candidates": [
+      "foo:flex",
+      "group-foo:flex",
+      "peer-foo:flex",
+      "has-foo:flex",
+      "not-foo:flex"
+    ],
+    "css": "\n          @custom-variant foo (@media foo);\n\n          @layer utilities {\n            @tailwind utilities;\n          }\n        ",
+    "expected": "\n@layer utilities {\n  @media not foo {\n    .not-foo\\:flex {\n      display: flex;\n    }\n  }\n\n  @media foo {\n    .foo\\:flex {\n      display: flex;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant can reuse existing @variant in the definition",
+    "kind": "css",
+    "candidates": [
+      "hocus:flex"
+    ],
+    "css": "\n          @custom-variant hocus {\n            @variant hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n@media (hover: hover) {\n  .hocus\\:flex:hover:focus {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant can reuse @custom-variant that is defined later",
+    "kind": "css",
+    "candidates": [
+      "hocus:flex"
+    ],
+    "css": "\n          @custom-variant hocus {\n            @variant custom-hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant custom-hover (&:hover);\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.hocus\\:flex:hover:focus {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant can reuse existing @variant that is overwritten later",
+    "kind": "css",
+    "candidates": [
+      "hocus:flex"
+    ],
+    "css": "\n          @custom-variant hocus {\n            @variant hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant hover (&:hover);\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.hocus\\:flex:hover:focus {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant can use a @variant that eventually uses another @custom-variant",
+    "kind": "css",
+    "candidates": [
+      "a:flex",
+      "b:flex",
+      "a:b:flex",
+      "b:a:flex"
+    ],
+    "css": "\n          @custom-variant a {\n            @slot;\n          }\n\n          @custom-variant b {\n            @variant a {\n              @slot;\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.a\\:flex, .b\\:flex, .a\\:b\\:flex, .b\\:a\\:flex {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant can use a @variant that eventually uses another @custom-variant (2)",
+    "kind": "css",
+    "candidates": [
+      "a:flex",
+      "b:flex",
+      "a:b:flex",
+      "b:a:flex"
+    ],
+    "css": "\n          @custom-variant a {\n            .a {\n              @slot;\n            }\n          }\n\n          @custom-variant b {\n            .b {\n              @variant a {\n                .a-inside-b {\n                  @slot;\n                }\n              }\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.a\\:flex .a, .b\\:flex .b .a .a-inside-b, .a\\:b\\:flex .a .b .a .a-inside-b, .b\\:a\\:flex .b .a .a-inside-b .a {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant can use existing @slot @variants",
+    "kind": "css",
+    "candidates": [
+      "hocus:flex"
+    ],
+    "css": "\n          @custom-variant hocus {\n            @variant hover {\n              @variant focus {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant hover {\n            &:hover {\n              @slot;\n            }\n\n            &[data-hover] {\n              @slot;\n            }\n          }\n\n          @tailwind utilities;\n        ",
+    "expected": "\n.hocus\\:flex:hover:focus, .hocus\\:flex[data-hover]:focus {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@custom-variant > @custom-variant setup that results in a circular dependency error can be solved",
+    "kind": "css",
+    "candidates": [
+      "baz:flex"
+    ],
+    "css": "\n          @custom-variant foo {\n            @variant hover {\n              @variant bar {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant bar {\n            @variant focus {\n              @variant baz {\n                @slot;\n              }\n            }\n          }\n\n          @custom-variant baz {\n            @variant active {\n              @variant foo {\n                @slot;\n              }\n            }\n          }\n\n          /* Break the circle */\n          @custom-variant foo ([data-broken-circle] &);\n\n          @tailwind utilities;\n        ",
+    "expected": "\n[data-broken-circle] .baz\\:flex:active {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > @utility must be top-level and cannot be nested",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        .foo {\n          @utility foo {\n            color: red;\n          }\n        }\n      ",
+    "expected": "`@utility` cannot be nested.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > @utility must include a body",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @utility foo {\n        }\n      ",
+    "expected": "`@utility foo` is empty. Utilities should include at least one property.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > @utility cannot contain any special characters",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @utility 💨 {\n          color: red;\n        }\n      ",
+    "expected": "`@utility 💨` defines an invalid utility name. Utilities should be alphanumeric and start with a lowercase letter.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > @utility can handle escape sequences correctly",
+    "kind": "css",
+    "candidates": [
+      "push-1/2",
+      "push-50%"
+    ],
+    "css": "\n          @layer utilities {\n            @tailwind utilities;\n          }\n\n          @utility push-1\\/2 {\n            right: 50%;\n          }\n\n          @utility push-50\\% {\n            right: 50%;\n          }\n        ",
+    "expected": "\n@layer utilities {\n  .push-1\\/2, .push-50\\% {\n    right: 50%;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > A functional @utility must end in -*",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @utility foo* {\n          color: red;\n        }\n      ",
+    "expected": "`@utility foo*` defines an invalid utility name. A functional utility must end in `-*`.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > Only the last part of a functional @utility can be dynamic",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @utility my-*-utility {\n          color: red;\n        }\n      ",
+    "expected": "`@utility my-*-utility` defines an invalid utility name. The dynamic portion marked by `-*` must appear once at the end.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > @utility name cannot contain multiple `/` characters",
+    "kind": "css",
+    "candidates": [
+      "ui/button"
+    ],
+    "css": "\n          @utility ui/button {\n            display: inline-flex;\n            background: blue;\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.ui\\/button {\n  background: #00f;\n  display: inline-flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@utility > @utility name cannot contain multiple `/` characters",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n        @utility ui/button/sm {\n          display: inline-flex;\n          background: blue;\n          font-size: 12px;\n        }\n      ",
+    "expected": "`@utility ui/button/sm` defines an invalid utility name. Utilities should be alphanumeric and start with a lowercase letter.",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`@reference \"…\" imports` > removes styles when the import resolver was handled outside of Tailwind CSS",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @media reference {\n          @layer theme {\n            @theme {\n              --breakpoint-md: 48rem;\n            }\n            .foo {\n              color: red;\n            }\n          }\n          @utility foo {\n            color: red;\n          }\n          @custom-variant hocus (&:hover, &:focus);\n        }\n\n        .bar {\n          @apply md:hocus:foo;\n        }\n      ",
+    "expected": "\n@media (min-width: 48rem) {\n  .bar:hover, .bar:focus {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > should convert legacy body-less `@variant` as a `@custom-variant`",
+    "kind": "css",
+    "candidates": [
+      "hocus:underline"
+    ],
+    "css": "\n          @variant hocus (&:hover, &:focus);\n          @tailwind utilities;\n        ",
+    "expected": "\n.hocus\\:underline:hover, .hocus\\:underline:focus {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > should convert legacy `@variant` with `@slot` as a `@custom-variant`",
+    "kind": "css",
+    "candidates": [
+      "hocus:underline"
+    ],
+    "css": "\n          @variant hocus {\n            &:hover {\n              @slot;\n            }\n\n            &:focus {\n              @slot;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.hocus\\:underline:hover, .hocus\\:underline:focus {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > should be possible to use `@variant` in your CSS",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        .btn {\n          background: black;\n\n          @variant dark {\n            background: white;\n          }\n        }\n\n        @variant hover {\n          @variant landscape {\n            .btn2 {\n              color: red;\n            }\n          }\n        }\n\n        @variant hover {\n          .foo {\n            color: red;\n          }\n          @variant landscape {\n            .bar {\n              color: blue;\n            }\n          }\n          .baz {\n            @variant portrait {\n              color: green;\n            }\n          }\n        }\n\n        @media something {\n          @variant landscape {\n            @page {\n              color: red;\n            }\n          }\n        }\n      ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n@media (prefers-color-scheme: dark) {\n  .btn {\n    background: #fff;\n  }\n}\n\n@media (hover: hover) {\n  @media (orientation: landscape) {\n    :scope:hover .btn2 {\n      color: red;\n    }\n  }\n\n  :scope:hover .foo {\n    color: red;\n  }\n\n  @media (orientation: landscape) {\n    :scope:hover .bar {\n      color: #00f;\n    }\n  }\n\n  @media (orientation: portrait) {\n    :scope:hover .baz {\n      color: green;\n    }\n  }\n}\n\n@media something {\n  @media (orientation: landscape) {\n    @page {\n      color: red;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > should be possible to use `@variant` in your CSS with a `@custom-variant` that is defined later",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        .btn {\n          background: black;\n\n          @variant hocus {\n            background: white;\n          }\n        }\n\n        @custom-variant hocus (&:hover, &:focus);\n      ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:hover, .btn:focus {\n  background: #fff;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > should be possible to use nested `@variant` rules",
+    "kind": "css",
+    "candidates": [
+      "disabled:focus:underline"
+    ],
+    "css": "\n          .btn {\n            background: black;\n\n            @variant disabled {\n              @variant focus {\n                background: white;\n              }\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:disabled:focus {\n  background: #fff;\n}\n\n.disabled\\:focus\\:underline:disabled:focus {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should be possible to use comma-separated `@variant` rules",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        .btn {\n          background: black;\n\n          @variant hover, focus {\n            background: red;\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover {\n    background: red;\n  }\n}\n\n.btn:focus {\n  background: red;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should handle variants containing a `,` inside",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          .btn {\n            background: black;\n\n            @variant [&:is(:hover,:focus)], disabled {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:is(:hover, :focus), .btn:disabled {\n  background: red;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should handle nested comma-separated variants",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        .btn {\n          background: black;\n\n          @variant hover, focus {\n            background: red;\n\n            @variant active, disabled {\n              background: blue;\n            }\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover {\n    background: red;\n  }\n\n  .btn:hover:active, .btn:hover:disabled {\n    background: #00f;\n  }\n}\n\n.btn:focus {\n  background: red;\n}\n\n.btn:focus:active, .btn:focus:disabled {\n  background: #00f;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should error on invalid variants (trailing comma)",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n          .btn {\n            background: black;\n\n            @variant hover,focus, {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "Cannot use `@variant` with empty variant",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should error on invalid variants (double comma)",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n          .btn {\n            background: black;\n\n            @variant hover,,focus {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "Cannot use `@variant` with empty variant",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > stacked `@variant` rules > should handle stacked variants",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          .btn {\n            background: black;\n\n            @variant hover:focus {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover:focus {\n    background: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > stacked `@variant` rules > should handle stacked variants & comma-separated variants",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          .btn {\n            background: black;\n\n            @variant hover:focus, disabled {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n@media (hover: hover) {\n  .btn:hover:focus {\n    background: red;\n  }\n}\n\n.btn:disabled {\n  background: red;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > stacked `@variant` rules > should handle variants containing a `:` inside",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          .btn {\n            background: black;\n\n            @variant [&:is(:hover,:focus)]:disabled, aria-disabled:hover {\n              background: red;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n.btn:is(:hover, :focus):disabled {\n  background: red;\n}\n\n@media (hover: hover) {\n  .btn[aria-disabled=\"true\"]:hover {\n    background: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > should be possible to use compound and stacked variants in `@variant`",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n      .btn {\n        background: black;\n\n        @variant data-a, data-b:data-c {\n          background: red;\n\n          @variant data-d, data-e:data-f {\n            background: blue;\n          }\n        }\n      }\n      @tailwind utilities;\n    ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n.btn[data-a] {\n  background: red;\n}\n\n.btn[data-a][data-d], .btn[data-a][data-e][data-f] {\n  background: #00f;\n}\n\n.btn[data-b][data-c] {\n  background: red;\n}\n\n.btn[data-b][data-c][data-d], .btn[data-b][data-c][data-e][data-f] {\n  background: #00f;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "@variant > should be possible to use `@variant` with a funky looking variants",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme inline reference {\n          --container-md: 768px;\n        }\n\n        .btn {\n          background: black;\n\n          @variant @md {\n            @variant [&.foo] {\n              background: white;\n            }\n          }\n        }\n      ",
+    "expected": "\n.btn {\n  background: #000;\n}\n\n@container (min-width: 768px) {\n  .btn.foo {\n    background: #fff;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > creates an inlined variable version of the color-mix(…) usages",
+    "kind": "css",
+    "candidates": [
+      "text-red-500/50"
+    ],
+    "css": "\n          @theme {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red-500\\/50 {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/50 {\n    color: color-mix(in oklab, var(--color-red-500) 50%, transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > creates an inlined variable version of the color-mix(…) usages when it resolves to a var(…) containing another theme variable",
+    "kind": "css",
+    "candidates": [
+      "text-red/50"
+    ],
+    "css": "\n          @theme {\n            --color-red: var(--color-red-500);\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red: var(--color-red-500);\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red\\/50 {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red\\/50 {\n    color: color-mix(in oklab, var(--color-red) 50%, transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > works for color values in the first and second position",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme {\n          --color-red-500: oklch(63.7% 0.237 25.331);\n          --color-orange-500: oklch(70.5% 0.213 47.604);\n        }\n        @tailwind utilities;\n        .mixed {\n          color: color-mix(in lch, var(--color-red-500) 50%, var(--color-orange-500));\n        }\n      ",
+    "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n  --color-orange-500: oklch(70.5% .213 47.604);\n}\n\n.mixed {\n  color: #fc4d1b;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .mixed {\n    color: color-mix(in lch, var(--color-red-500) 50%, var(--color-orange-500));\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > works for nested `color-mix(…)` calls",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme {\n          --color-red-500: oklch(63.7% 0.237 25.331);\n        }\n        @tailwind utilities;\n        .stacked {\n          color: color-mix(\n            in lch,\n            color-mix(in lch, var(--color-red-500) 50%, transparent) 50%,\n            transparent\n          );\n        }\n      ",
+    "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.stacked {\n  color: lch(55.5764% 89.7903 33.1932 / .25098);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .stacked {\n    color: color-mix(in lch, color-mix(in lch, var(--color-red-500) 50%, transparent) 50%, transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > works with multiple `color-mix(…)` functions in one declaration",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @theme {\n          --color-red-500: oklch(63.7% 0.237 25.331);\n          --color-orange-500: oklch(70.5% 0.213 47.604);\n        }\n        @tailwind utilities;\n        .gradient {\n          background: linear-gradient(\n            90deg,\n            color-mix(in oklab, var(--color-red-500) 50%, transparent) 0%,\n            color-mix(in oklab, var(--color-orange-500) 50%, transparent) 0%,\n            100%\n          );\n        }\n      ",
+    "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n  --color-orange-500: oklch(70.5% .213 47.604);\n}\n\n.gradient {\n  background: linear-gradient(90deg, #fb2c3680 0%, #fe6e0080 0%, 100%);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .gradient {\n    background: linear-gradient(90deg, color-mix(in oklab, var(--color-red-500) 50%, transparent) 0%, color-mix(in oklab, var(--color-orange-500) 50%, transparent) 0%, 100%);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > works with no spaces after the `var(…)`",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @theme {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n          .text-red-500\\/50 {\n            color: color-mix(in oklab,var(--color-red-500)50%,transparent);\n          }\n        ",
+    "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red-500\\/50 {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/50 {\n    color: color-mix(in oklab,var(--color-red-500)50%,transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > uses the first color value as the fallback when the `color-mix(…)` function contains non-theme variables",
+    "kind": "css",
+    "candidates": [
+      "text-(--my-color)/50",
+      "text-red-500/(--my-opacity)",
+      "text-(--my-color)/(--my-opacity)"
+    ],
+    "css": "\n          @theme {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-\\(--my-color\\)\\/\\(--my-opacity\\) {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-\\(--my-color\\)\\/\\(--my-opacity\\) {\n    color: color-mix(in oklab, var(--my-color) var(--my-opacity), transparent);\n  }\n}\n\n.text-\\(--my-color\\)\\/50 {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-\\(--my-color\\)\\/50 {\n    color: color-mix(in oklab, var(--my-color) 50%, transparent);\n  }\n}\n\n.text-red-500\\/\\(--my-opacity\\) {\n  color: oklch(63.7% .237 25.331);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/\\(--my-opacity\\) {\n    color: color-mix(in oklab, var(--color-red-500) var(--my-opacity), transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > uses the first color value as the fallback when the `color-mix(…)` function contains currentcolor",
+    "kind": "css",
+    "candidates": [
+      "text-current/50"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.text-current\\/50 {\n  color: currentColor;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-current\\/50 {\n    color: color-mix(in oklab, currentcolor 50%, transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > uses the first color value as the fallback when the `color-mix(…)` function contains theme variables that resolves to other variables",
+    "kind": "css",
+    "candidates": [
+      "text-red/50"
+    ],
+    "css": "\n          @tailwind utilities;\n          @theme {\n            --color-red: var(--my-red);\n          }\n        ",
+    "expected": "\n.text-red\\/50 {\n  color: var(--color-red);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red\\/50 {\n    color: color-mix(in oklab, var(--color-red) 50%, transparent);\n  }\n}\n\n:root, :host {\n  --color-red: var(--my-red);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > uses the first color value of the inner most `color-mix(…)` function as the fallback when nested `color-mix(…)` function all contain non-theme variables",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @tailwind utilities;\n        .stacked {\n          color: color-mix(\n            in oklab,\n            color-mix(in oklab, var(--my-color) var(--my-inner-opacity), transparent)\n              var(--my-outer-opacity),\n            transparent\n          );\n        }\n      ",
+    "expected": "\n.stacked {\n  color: var(--my-color);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .stacked {\n    color: color-mix(in oklab, color-mix(in oklab, var(--my-color) var(--my-inner-opacity), transparent) var(--my-outer-opacity), transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > does not create a fallback when all color values are statically analyzable (lightningcss will flatten this)",
+    "kind": "css",
+    "candidates": [
+      "text-red-500/50"
+    ],
+    "css": "\n          @theme inline {\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n.text-red-500\\/50 {\n  color: oklab(63.7% .214 .101 / .5);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > also replaces eventual variables in opacity values",
+    "kind": "css",
+    "candidates": [
+      "text-red-500/(--my-half)"
+    ],
+    "css": "\n          @theme {\n            --my-half: 50%;\n            --color-red-500: oklch(63.7% 0.237 25.331);\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n:root, :host {\n  --my-half: 50%;\n  --color-red-500: oklch(63.7% .237 25.331);\n}\n\n.text-red-500\\/\\(--my-half\\) {\n  color: #fb2c3680;\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .text-red-500\\/\\(--my-half\\) {\n    color: color-mix(in oklab, var(--color-red-500) var(--my-half), transparent);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > does not delete theme variables from the output",
+    "kind": "css",
+    "candidates": [
+      "text-red-500",
+      "shadow-xl",
+      "opacity-disabled"
+    ],
+    "css": "\n          @layer theme {\n            @theme {\n              --color-red-500: red;\n              --shadow-xl: 0 6px 18px 4px color-mix(in oklab, var(--color-red-500) 25%, transparent);\n              --opacity-disabled: 50%;\n            }\n          }\n          @tailwind utilities;\n        ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-shadow: 0 0 #0000;\n      --tw-shadow-color: initial;\n      --tw-shadow-alpha: 100%;\n      --tw-inset-shadow: 0 0 #0000;\n      --tw-inset-shadow-color: initial;\n      --tw-inset-shadow-alpha: 100%;\n      --tw-ring-color: initial;\n      --tw-ring-shadow: 0 0 #0000;\n      --tw-inset-ring-color: initial;\n      --tw-inset-ring-shadow: 0 0 #0000;\n      --tw-ring-inset: initial;\n      --tw-ring-offset-width: 0px;\n      --tw-ring-offset-color: #fff;\n      --tw-ring-offset-shadow: 0 0 #0000;\n    }\n  }\n}\n\n@layer theme {\n  :root, :host {\n    --color-red-500: red;\n    --opacity-disabled: 50%;\n  }\n}\n\n.text-red-500 {\n  color: var(--color-red-500);\n}\n\n.opacity-disabled {\n  opacity: var(--opacity-disabled);\n}\n\n.shadow-xl {\n  --tw-shadow: 0 6px 18px 4px var(--tw-shadow-color, #ff000040);\n}\n\n@supports (color: color-mix(in lab, red, red)) {\n  .shadow-xl {\n    --tw-shadow: 0 6px 18px 4px var(--tw-shadow-color, color-mix(in oklab, var(--color-red-500) 25%, transparent));\n  }\n}\n\n.shadow-xl {\n  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);\n}\n\n@property --tw-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-inset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-shadow-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-shadow-alpha {\n  syntax: \"<percentage>\";\n  inherits: false;\n  initial-value: 100%;\n}\n\n@property --tw-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-inset-ring-color {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-inset-ring-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n\n@property --tw-ring-inset {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --tw-ring-offset-width {\n  syntax: \"<length>\";\n  inherits: false;\n  initial-value: 0;\n}\n\n@property --tw-ring-offset-color {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: #fff;\n}\n\n@property --tw-ring-offset-shadow {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: 0 0 #0000;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`color-mix(…)` polyfill > does not apply optimizations when already inside a @supports (color: color-mix... block",
+    "kind": "css",
+    "candidates": [
+      "mixed"
+    ],
+    "css": "\n          @tailwind utilities;\n          @utility mixed {\n            @supports (color: color-mix(in lab, red, red)) {\n              background: color-mix(in oklab, var(--color-1), var(--color-2) 0%);\n            }\n          }\n        ",
+    "expected": "\n@supports (color: color-mix(in lab, red, red)) {\n  .mixed {\n    background: color-mix(in oklab, var(--color-1), var(--color-2) 0%);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`@property` polyfill > emits fallbacks",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @tailwind utilities;\n\n        @property --no-inherit-no-value {\n          syntax: '*';\n          inherits: false;\n        }\n        @property --no-inherit-value {\n          syntax: '*';\n          inherits: false;\n          initial-value: red;\n        }\n        @property --inherit-no-value {\n          syntax: '*';\n          inherits: true;\n        }\n        @property --inherit-value {\n          syntax: '*';\n          inherits: true;\n          initial-value: red;\n        }\n      ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    :root, :host {\n      --inherit-no-value: initial;\n      --inherit-value: red;\n    }\n\n    *, :before, :after, ::backdrop {\n      --no-inherit-no-value: initial;\n      --no-inherit-value: red;\n    }\n  }\n}\n\n@property --no-inherit-no-value {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --no-inherit-value {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: red;\n}\n\n@property --inherit-no-value {\n  syntax: \"*\";\n  inherits: true\n}\n\n@property --inherit-value {\n  syntax: \"*\";\n  inherits: true;\n  initial-value: red;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "`@property` polyfill > emitting fallbacks can be disabled (necessary for CSS modules)",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @tailwind utilities;\n\n          @property --no-inherit-no-value {\n            syntax: '*';\n            inherits: false;\n          }\n          @property --no-inherit-value {\n            syntax: '*';\n            inherits: false;\n            initial-value: red;\n          }\n          @property --inherit-no-value {\n            syntax: '*';\n            inherits: true;\n          }\n          @property --inherit-value {\n            syntax: '*';\n            inherits: true;\n            initial-value: red;\n          }\n        ",
+    "expected": "\n@property --no-inherit-no-value {\n  syntax: \"*\";\n  inherits: false\n}\n\n@property --no-inherit-value {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: red;\n}\n\n@property --inherit-no-value {\n  syntax: \"*\";\n  inherits: true\n}\n\n@property --inherit-value {\n  syntax: \"*\";\n  inherits: true;\n  initial-value: red;\n}\n",
+    "loader": false,
+    "polyfills": "Polyfills.None"
+  }
+]

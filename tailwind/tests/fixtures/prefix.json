@@ -1,0 +1,86 @@
+[
+  {
+    "test": "utilities must be prefixed",
+    "kind": "css",
+    "candidates": [
+      "tw:underline",
+      "tw:hover:line-through",
+      "tw:custom",
+      "tw:group-hover:flex",
+      "tw:peer-hover:flex"
+    ],
+    "css": "\n    @theme reference prefix(tw);\n    @tailwind utilities;\n\n    @utility custom {\n      color: red;\n    }\n  ",
+    "expected": "\n.tw\\:custom {\n  color: red;\n}\n\n.tw\\:underline {\n  text-decoration-line: underline;\n}\n\n@media (hover: hover) {\n  .tw\\:group-hover\\:flex:is(:where(.tw\\:group):hover *), .tw\\:peer-hover\\:flex:is(:where(.tw\\:peer):hover ~ *) {\n    display: flex;\n  }\n\n  .tw\\:hover\\:line-through:hover {\n    text-decoration-line: line-through;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "utilities must be prefixed",
+    "kind": "css",
+    "candidates": [
+      "underline",
+      "hover:line-through",
+      "custom"
+    ],
+    "css": "\n    @theme reference prefix(tw);\n    @tailwind utilities;\n\n    @utility custom {\n      color: red;\n    }\n  ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "utilities used in @apply must be prefixed",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n      @theme reference prefix(tw);\n\n      .my-underline {\n        @apply tw:underline;\n      }\n    ",
+    "expected": "\n.my-underline {\n  text-decoration-line: underline;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "CSS variables output by the theme are prefixed",
+    "kind": "css",
+    "candidates": [
+      "tw:text-red"
+    ],
+    "css": "\n        @theme prefix(tw) {\n          --color-red: #f00;\n          --color-green: #0f0;\n          --breakpoint-sm: 640px;\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "\n:root, :host {\n  --tw-color-red: red;\n}\n\n.tw\\:text-red {\n  color: var(--tw-color-red);\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "CSS theme functions do not use the prefix",
+    "kind": "css",
+    "candidates": [
+      "tw:[color:theme(--color-red)]",
+      "tw:text-[theme(--color-red)]"
+    ],
+    "css": "\n        @theme prefix(tw) {\n          --color-red: #f00;\n          --color-green: #0f0;\n          --breakpoint-sm: 640px;\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "\n.tw\\:\\[color\\:theme\\(--color-red\\)\\], .tw\\:text-\\[theme\\(--color-red\\)\\] {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "CSS theme functions do not use the prefix",
+    "kind": "css",
+    "candidates": [
+      "tw:[color:theme(--tw-color-red)]",
+      "tw:text-[theme(--tw-color-red)]"
+    ],
+    "css": "\n        @theme reference prefix(tw) {\n          --color-red: #f00;\n          --color-green: #0f0;\n          --breakpoint-sm: 640px;\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "a candidate matching the prefix does not crash",
+    "kind": "css",
+    "candidates": [
+      "tomato",
+      "tomato:flex"
+    ],
+    "css": "\n        @theme reference prefix(tomato);\n        @tailwind utilities;\n      ",
+    "expected": "\n.tomato\\:flex {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  }
+]

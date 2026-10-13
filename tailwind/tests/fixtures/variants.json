@@ -1,0 +1,2291 @@
+[
+  {
+    "test": "*",
+    "kind": "css",
+    "candidates": [
+      "*:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n:is(.\\*\\:flex > *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "*",
+    "kind": "css",
+    "candidates": [
+      "*/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "**",
+    "kind": "css",
+    "candidates": [
+      "**:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n:is(.\\*\\*\\:flex *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "**",
+    "kind": "css",
+    "candidates": [
+      "**/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first-letter",
+    "kind": "css",
+    "candidates": [
+      "first-letter:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.first-letter\\:flex:first-letter {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first-letter",
+    "kind": "css",
+    "candidates": [
+      "first-letter/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first-line",
+    "kind": "css",
+    "candidates": [
+      "first-line:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.first-line\\:flex:first-line {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first-line",
+    "kind": "css",
+    "candidates": [
+      "first-line/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "marker",
+    "kind": "css",
+    "candidates": [
+      "marker:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.marker\\:flex ::marker {\n  display: flex;\n}\n\n.marker\\:flex::marker {\n  display: flex;\n}\n\n.marker\\:flex ::-webkit-details-marker {\n  display: flex;\n}\n\n.marker\\:flex::-webkit-details-marker {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "marker",
+    "kind": "css",
+    "candidates": [
+      "marker/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "selection",
+    "kind": "css",
+    "candidates": [
+      "selection:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.selection\\:flex ::selection {\n  display: flex;\n}\n\n.selection\\:flex::selection {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "selection",
+    "kind": "css",
+    "candidates": [
+      "selection/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "file",
+    "kind": "css",
+    "candidates": [
+      "file:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.file\\:flex::file-selector-button {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "file",
+    "kind": "css",
+    "candidates": [
+      "file/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "placeholder",
+    "kind": "css",
+    "candidates": [
+      "placeholder:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.placeholder\\:flex::placeholder {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "placeholder",
+    "kind": "css",
+    "candidates": [
+      "placeholder/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "backdrop",
+    "kind": "css",
+    "candidates": [
+      "backdrop:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.backdrop\\:flex::backdrop {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "backdrop",
+    "kind": "css",
+    "candidates": [
+      "backdrop/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "details-content",
+    "kind": "css",
+    "candidates": [
+      "details-content:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.details-content\\:flex::details-content {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "details-content",
+    "kind": "css",
+    "candidates": [
+      "details-content/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "before",
+    "kind": "css",
+    "candidates": [
+      "before:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-content: \"\";\n    }\n  }\n}\n\n.before\\:flex:before {\n  content: var(--tw-content);\n  display: flex;\n}\n\n@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "before",
+    "kind": "css",
+    "candidates": [
+      "before/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "after",
+    "kind": "css",
+    "candidates": [
+      "after:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-content: \"\";\n    }\n  }\n}\n\n.after\\:flex:after {\n  content: var(--tw-content);\n  display: flex;\n}\n\n@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "after",
+    "kind": "css",
+    "candidates": [
+      "after/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first",
+    "kind": "css",
+    "candidates": [
+      "first:flex",
+      "group-first:flex",
+      "peer-first:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-first\\:flex:is(:where(.group):first-child *), .peer-first\\:flex:is(:where(.peer):first-child ~ *), .first\\:flex:first-child {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first",
+    "kind": "css",
+    "candidates": [
+      "first/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "last",
+    "kind": "css",
+    "candidates": [
+      "last:flex",
+      "group-last:flex",
+      "peer-last:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-last\\:flex:is(:where(.group):last-child *), .peer-last\\:flex:is(:where(.peer):last-child ~ *), .last\\:flex:last-child {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "last",
+    "kind": "css",
+    "candidates": [
+      "last/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "only",
+    "kind": "css",
+    "candidates": [
+      "only:flex",
+      "group-only:flex",
+      "peer-only:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-only\\:flex:is(:where(.group):only-child *), .peer-only\\:flex:is(:where(.peer):only-child ~ *), .only\\:flex:only-child {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "only",
+    "kind": "css",
+    "candidates": [
+      "only/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "odd",
+    "kind": "css",
+    "candidates": [
+      "odd:flex",
+      "group-odd:flex",
+      "peer-odd:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-odd\\:flex:is(:where(.group):nth-child(odd) *), .peer-odd\\:flex:is(:where(.peer):nth-child(odd) ~ *), .odd\\:flex:nth-child(odd) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "odd",
+    "kind": "css",
+    "candidates": [
+      "odd/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "even",
+    "kind": "css",
+    "candidates": [
+      "even:flex",
+      "group-even:flex",
+      "peer-even:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-even\\:flex:is(:where(.group):nth-child(2n) *), .peer-even\\:flex:is(:where(.peer):nth-child(2n) ~ *), .even\\:flex:nth-child(2n) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "even",
+    "kind": "css",
+    "candidates": [
+      "even/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first-of-type",
+    "kind": "css",
+    "candidates": [
+      "first-of-type:flex",
+      "group-first-of-type:flex",
+      "peer-first-of-type:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-first-of-type\\:flex:is(:where(.group):first-of-type *), .peer-first-of-type\\:flex:is(:where(.peer):first-of-type ~ *), .first-of-type\\:flex:first-of-type {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "first-of-type",
+    "kind": "css",
+    "candidates": [
+      "first-of-type/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "last-of-type",
+    "kind": "css",
+    "candidates": [
+      "last-of-type:flex",
+      "group-last-of-type:flex",
+      "peer-last-of-type:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-last-of-type\\:flex:is(:where(.group):last-of-type *), .peer-last-of-type\\:flex:is(:where(.peer):last-of-type ~ *), .last-of-type\\:flex:last-of-type {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "last-of-type",
+    "kind": "css",
+    "candidates": [
+      "last-of-type/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "only-of-type",
+    "kind": "css",
+    "candidates": [
+      "only-of-type:flex",
+      "group-only-of-type:flex",
+      "peer-only-of-type:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-only-of-type\\:flex:is(:where(.group):only-of-type *), .peer-only-of-type\\:flex:is(:where(.peer):only-of-type ~ *), .only-of-type\\:flex:only-of-type {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "only-of-type",
+    "kind": "css",
+    "candidates": [
+      "only-of-type/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "visited",
+    "kind": "css",
+    "candidates": [
+      "visited:flex",
+      "group-visited:flex",
+      "peer-visited:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-visited\\:flex:is(:where(.group):visited *), .peer-visited\\:flex:is(:where(.peer):visited ~ *), .visited\\:flex:visited {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "visited",
+    "kind": "css",
+    "candidates": [
+      "visited/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "target",
+    "kind": "css",
+    "candidates": [
+      "target:flex",
+      "group-target:flex",
+      "peer-target:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-target\\:flex:is(:where(.group):target *), .peer-target\\:flex:is(:where(.peer):target ~ *), .target\\:flex:target {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "target",
+    "kind": "css",
+    "candidates": [
+      "target/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "open",
+    "kind": "css",
+    "candidates": [
+      "open:flex",
+      "group-open:flex",
+      "peer-open:flex",
+      "not-open:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.not-open\\:flex:not(:is([open], :popover-open, :open)), .group-open\\:flex:is(:where(.group):is([open], :popover-open, :open) *), .peer-open\\:flex:is(:where(.peer):is([open], :popover-open, :open) ~ *), .open\\:flex:is([open], :popover-open, :open) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "open",
+    "kind": "css",
+    "candidates": [
+      "open/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "default",
+    "kind": "css",
+    "candidates": [
+      "default:flex",
+      "group-default:flex",
+      "peer-default:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-default\\:flex:is(:where(.group):default *), .peer-default\\:flex:is(:where(.peer):default ~ *), .default\\:flex:default {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "default",
+    "kind": "css",
+    "candidates": [
+      "default/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "checked",
+    "kind": "css",
+    "candidates": [
+      "checked:flex",
+      "group-checked:flex",
+      "peer-checked:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-checked\\:flex:is(:where(.group):checked *), .peer-checked\\:flex:is(:where(.peer):checked ~ *), .checked\\:flex:checked {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "checked",
+    "kind": "css",
+    "candidates": [
+      "checked/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "indeterminate",
+    "kind": "css",
+    "candidates": [
+      "indeterminate:flex",
+      "group-indeterminate:flex",
+      "peer-indeterminate:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-indeterminate\\:flex:is(:where(.group):indeterminate *), .peer-indeterminate\\:flex:is(:where(.peer):indeterminate ~ *), .indeterminate\\:flex:indeterminate {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "indeterminate",
+    "kind": "css",
+    "candidates": [
+      "indeterminate/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "placeholder-shown",
+    "kind": "css",
+    "candidates": [
+      "placeholder-shown:flex",
+      "group-placeholder-shown:flex",
+      "peer-placeholder-shown:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-placeholder-shown\\:flex:is(:where(.group):placeholder-shown *), .peer-placeholder-shown\\:flex:is(:where(.peer):placeholder-shown ~ *), .placeholder-shown\\:flex:placeholder-shown {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "placeholder-shown",
+    "kind": "css",
+    "candidates": [
+      "placeholder-shown/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "autofill",
+    "kind": "css",
+    "candidates": [
+      "autofill:flex",
+      "group-autofill:flex",
+      "peer-autofill:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-autofill\\:flex:is(:where(.group):autofill *), .peer-autofill\\:flex:is(:where(.peer):autofill ~ *) {\n  display: flex;\n}\n\n.autofill\\:flex:autofill {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "autofill",
+    "kind": "css",
+    "candidates": [
+      "autofill/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "optional",
+    "kind": "css",
+    "candidates": [
+      "optional:flex",
+      "group-optional:flex",
+      "peer-optional:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-optional\\:flex:is(:where(.group):optional *), .peer-optional\\:flex:is(:where(.peer):optional ~ *), .optional\\:flex:optional {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "optional",
+    "kind": "css",
+    "candidates": [
+      "optional/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "required",
+    "kind": "css",
+    "candidates": [
+      "required:flex",
+      "group-required:flex",
+      "peer-required:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-required\\:flex:is(:where(.group):required *), .peer-required\\:flex:is(:where(.peer):required ~ *), .required\\:flex:required {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "required",
+    "kind": "css",
+    "candidates": [
+      "required/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "valid",
+    "kind": "css",
+    "candidates": [
+      "valid:flex",
+      "group-valid:flex",
+      "peer-valid:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-valid\\:flex:is(:where(.group):valid *), .peer-valid\\:flex:is(:where(.peer):valid ~ *), .valid\\:flex:valid {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "valid",
+    "kind": "css",
+    "candidates": [
+      "valid/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "invalid",
+    "kind": "css",
+    "candidates": [
+      "invalid:flex",
+      "group-invalid:flex",
+      "peer-invalid:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-invalid\\:flex:is(:where(.group):invalid *), .peer-invalid\\:flex:is(:where(.peer):invalid ~ *), .invalid\\:flex:invalid {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "invalid",
+    "kind": "css",
+    "candidates": [
+      "invalid/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "user-valid",
+    "kind": "css",
+    "candidates": [
+      "user-valid:flex",
+      "group-user-valid:flex",
+      "peer-user-valid:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-user-valid\\:flex:is(:where(.group):user-valid *), .peer-user-valid\\:flex:is(:where(.peer):user-valid ~ *) {\n  display: flex;\n}\n\n.user-valid\\:flex:user-valid {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "user-valid",
+    "kind": "css",
+    "candidates": [
+      "user-valid/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "user-invalid",
+    "kind": "css",
+    "candidates": [
+      "user-invalid:flex",
+      "group-user-invalid:flex",
+      "peer-user-invalid:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-user-invalid\\:flex:is(:where(.group):user-invalid *), .peer-user-invalid\\:flex:is(:where(.peer):user-invalid ~ *) {\n  display: flex;\n}\n\n.user-invalid\\:flex:user-invalid {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "user-invalid",
+    "kind": "css",
+    "candidates": [
+      "user-invalid/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "in-range",
+    "kind": "css",
+    "candidates": [
+      "in-range:flex",
+      "group-in-range:flex",
+      "peer-in-range:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-in-range\\:flex:is(:where(.group):in-range *), .peer-in-range\\:flex:is(:where(.peer):in-range ~ *), .in-range\\:flex:in-range {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "in-range",
+    "kind": "css",
+    "candidates": [
+      "in-range/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "out-of-range",
+    "kind": "css",
+    "candidates": [
+      "out-of-range:flex",
+      "group-out-of-range:flex",
+      "peer-out-of-range:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-out-of-range\\:flex:is(:where(.group):out-of-range *), .peer-out-of-range\\:flex:is(:where(.peer):out-of-range ~ *), .out-of-range\\:flex:out-of-range {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "out-of-range",
+    "kind": "css",
+    "candidates": [
+      "out-of-range/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "read-only",
+    "kind": "css",
+    "candidates": [
+      "read-only:flex",
+      "group-read-only:flex",
+      "peer-read-only:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-read-only\\:flex:is(:where(.group):read-only *), .peer-read-only\\:flex:is(:where(.peer):read-only ~ *), .read-only\\:flex:read-only {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "read-only",
+    "kind": "css",
+    "candidates": [
+      "read-only/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "empty",
+    "kind": "css",
+    "candidates": [
+      "empty:flex",
+      "group-empty:flex",
+      "peer-empty:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-empty\\:flex:is(:where(.group):empty *), .peer-empty\\:flex:is(:where(.peer):empty ~ *), .empty\\:flex:empty {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "empty",
+    "kind": "css",
+    "candidates": [
+      "empty/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "focus-within",
+    "kind": "css",
+    "candidates": [
+      "focus-within:flex",
+      "group-focus-within:flex",
+      "peer-focus-within:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-focus-within\\:flex:is(:where(.group):focus-within *), .peer-focus-within\\:flex:is(:where(.peer):focus-within ~ *), .focus-within\\:flex:focus-within {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "focus-within",
+    "kind": "css",
+    "candidates": [
+      "focus-within/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "hover",
+    "kind": "css",
+    "candidates": [
+      "hover:flex",
+      "group-hover:flex",
+      "peer-hover:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (hover: hover) {\n  .group-hover\\:flex:is(:where(.group):hover *), .peer-hover\\:flex:is(:where(.peer):hover ~ *), .hover\\:flex:hover {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "hover",
+    "kind": "css",
+    "candidates": [
+      "hover/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "focus",
+    "kind": "css",
+    "candidates": [
+      "focus:flex",
+      "group-focus:flex",
+      "peer-focus:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-focus\\:flex:is(:where(.group):focus *), .peer-focus\\:flex:is(:where(.peer):focus ~ *), .focus\\:flex:focus {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "focus",
+    "kind": "css",
+    "candidates": [
+      "focus/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "group-hover group-focus sorting",
+    "kind": "css",
+    "candidates": [
+      "group-hover:flex",
+      "group-focus:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (hover: hover) {\n  .group-hover\\:flex:is(:where(.group):hover *) {\n    display: flex;\n  }\n}\n\n.group-focus\\:flex:is(:where(.group):focus *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "group-hover group-focus sorting",
+    "kind": "css",
+    "candidates": [
+      "group-focus:flex",
+      "group-hover:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (hover: hover) {\n  .group-hover\\:flex:is(:where(.group):hover *) {\n    display: flex;\n  }\n}\n\n.group-focus\\:flex:is(:where(.group):focus *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "focus-visible",
+    "kind": "css",
+    "candidates": [
+      "focus-visible:flex",
+      "group-focus-visible:flex",
+      "peer-focus-visible:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-focus-visible\\:flex:is(:where(.group):focus-visible *), .peer-focus-visible\\:flex:is(:where(.peer):focus-visible ~ *), .focus-visible\\:flex:focus-visible {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "focus-visible",
+    "kind": "css",
+    "candidates": [
+      "focus-visible/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "active",
+    "kind": "css",
+    "candidates": [
+      "active:flex",
+      "group-active:flex",
+      "peer-active:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-active\\:flex:is(:where(.group):active *), .peer-active\\:flex:is(:where(.peer):active ~ *), .active\\:flex:active {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "active",
+    "kind": "css",
+    "candidates": [
+      "active/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "enabled",
+    "kind": "css",
+    "candidates": [
+      "enabled:flex",
+      "group-enabled:flex",
+      "peer-enabled:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-enabled\\:flex:is(:where(.group):enabled *), .peer-enabled\\:flex:is(:where(.peer):enabled ~ *), .enabled\\:flex:enabled {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "enabled",
+    "kind": "css",
+    "candidates": [
+      "enabled/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "disabled",
+    "kind": "css",
+    "candidates": [
+      "disabled:flex",
+      "group-disabled:flex",
+      "peer-disabled:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-disabled\\:flex:is(:where(.group):disabled *), .peer-disabled\\:flex:is(:where(.peer):disabled ~ *), .disabled\\:flex:disabled {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "disabled",
+    "kind": "css",
+    "candidates": [
+      "disabled/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "inert",
+    "kind": "css",
+    "candidates": [
+      "inert:flex",
+      "group-inert:flex",
+      "peer-inert:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-inert\\:flex:is(:where(.group):is([inert], [inert] *) *), .peer-inert\\:flex:is(:where(.peer):is([inert], [inert] *) ~ *), .inert\\:flex:is([inert], [inert] *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "inert",
+    "kind": "css",
+    "candidates": [
+      "inert/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "group-[...]",
+    "kind": "css",
+    "candidates": [
+      "group-[&_p]:flex",
+      "group-[&_p]:hover:flex",
+      "hover:group-[&_p]:flex",
+      "hover:group-[&_p]:hover:flex",
+      "group-[&:hover]:group-[&_p]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-\\[\\&_p\\]\\:flex:is(:where(.group) p *), .group-\\[\\&\\:hover\\]\\:group-\\[\\&_p\\]\\:flex:is(:where(.group):hover *):is(:where(.group) p *) {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .group-\\[\\&_p\\]\\:hover\\:flex:is(:where(.group) p *):hover, .hover\\:group-\\[\\&_p\\]\\:flex:hover:is(:where(.group) p *) {\n    display: flex;\n  }\n\n  @media (hover: hover) {\n    .hover\\:group-\\[\\&_p\\]\\:hover\\:flex:hover:is(:where(.group) p *):hover {\n      display: flex;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "group-[...]",
+    "kind": "css",
+    "candidates": [
+      "group-[]:flex",
+      "group-hover/[]:flex",
+      "group-[@media_foo]:flex",
+      "group-[>img]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "group-*",
+    "kind": "css",
+    "candidates": [
+      "group-hover:flex",
+      "group-focus:flex",
+      "group-hocus:flex",
+      "group-hover:group-focus:flex",
+      "group-focus:group-hover:flex"
+    ],
+    "css": "\n        @custom-variant hocus {\n          &:hover,\n          &:focus {\n            @slot;\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media (hover: hover) {\n  .group-hover\\:flex:is(:where(.group):hover *) {\n    display: flex;\n  }\n}\n\n.group-focus\\:flex:is(:where(.group):focus *) {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .group-focus\\:group-hover\\:flex:is(:where(.group):focus *):is(:where(.group):hover *), .group-hover\\:group-focus\\:flex:is(:where(.group):hover *):is(:where(.group):focus *) {\n    display: flex;\n  }\n}\n\n.group-hocus\\:flex:is(:is(:where(.group):hover, :where(.group):focus) *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "group-*",
+    "kind": "css",
+    "candidates": [
+      "group-custom-at-rule:flex",
+      "group-nested-selectors:flex"
+    ],
+    "css": "\n        @custom-variant custom-at-rule (@media foo);\n        @custom-variant nested-selectors {\n          &:hover {\n            &:focus {\n              @slot;\n            }\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "peer-[...]",
+    "kind": "css",
+    "candidates": [
+      "peer-[&_p]:flex",
+      "peer-[&_p]:hover:flex",
+      "hover:peer-[&_p]:flex",
+      "hover:peer-[&_p]:focus:flex",
+      "peer-[&:hover]:peer-[&_p]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.peer-\\[\\&_p\\]\\:flex:is(:where(.peer) p ~ *), .peer-\\[\\&\\:hover\\]\\:peer-\\[\\&_p\\]\\:flex:is(:where(.peer):hover ~ *):is(:where(.peer) p ~ *) {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .hover\\:peer-\\[\\&_p\\]\\:flex:hover:is(:where(.peer) p ~ *), .peer-\\[\\&_p\\]\\:hover\\:flex:is(:where(.peer) p ~ *):hover, .hover\\:peer-\\[\\&_p\\]\\:focus\\:flex:hover:is(:where(.peer) p ~ *):focus {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "peer-[...]",
+    "kind": "css",
+    "candidates": [
+      "peer-[]:flex",
+      "peer-hover/[]:flex",
+      "peer-[@media_foo]:flex",
+      "peer-[>img]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "peer-*",
+    "kind": "css",
+    "candidates": [
+      "peer-hover:flex",
+      "peer-focus:flex",
+      "peer-hocus:flex",
+      "peer-hover:peer-focus:flex",
+      "peer-focus:peer-hover:flex"
+    ],
+    "css": "\n        @custom-variant hocus {\n          &:hover,\n          &:focus {\n            @slot;\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media (hover: hover) {\n  .peer-hover\\:flex:is(:where(.peer):hover ~ *) {\n    display: flex;\n  }\n}\n\n.peer-focus\\:flex:is(:where(.peer):focus ~ *) {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .peer-focus\\:peer-hover\\:flex:is(:where(.peer):focus ~ *):is(:where(.peer):hover ~ *), .peer-hover\\:peer-focus\\:flex:is(:where(.peer):hover ~ *):is(:where(.peer):focus ~ *) {\n    display: flex;\n  }\n}\n\n.peer-hocus\\:flex:is(:is(:where(.peer):hover, :where(.peer):focus) ~ *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "peer-*",
+    "kind": "css",
+    "candidates": [
+      "peer-custom-at-rule:flex",
+      "peer-nested-selectors:flex"
+    ],
+    "css": "\n        @custom-variant custom-at-rule (@media foo);\n        @custom-variant nested-selectors {\n          &:hover {\n            &:focus {\n              @slot;\n            }\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "ltr",
+    "kind": "css",
+    "candidates": [
+      "ltr:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.ltr\\:flex:where(:dir(ltr), [dir=\"ltr\"], [dir=\"ltr\"] *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "ltr",
+    "kind": "css",
+    "candidates": [
+      "ltr/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "rtl",
+    "kind": "css",
+    "candidates": [
+      "rtl:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.rtl\\:flex:where(:dir(rtl), [dir=\"rtl\"], [dir=\"rtl\"] *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "rtl",
+    "kind": "css",
+    "candidates": [
+      "rtl/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "motion-safe",
+    "kind": "css",
+    "candidates": [
+      "motion-safe:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (prefers-reduced-motion: no-preference) {\n  .motion-safe\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "motion-safe",
+    "kind": "css",
+    "candidates": [
+      "motion-safe/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "motion-reduce",
+    "kind": "css",
+    "candidates": [
+      "motion-reduce:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (prefers-reduced-motion: reduce) {\n  .motion-reduce\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "motion-reduce",
+    "kind": "css",
+    "candidates": [
+      "motion-reduce/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "dark",
+    "kind": "css",
+    "candidates": [
+      "dark:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (prefers-color-scheme: dark) {\n  .dark\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "dark",
+    "kind": "css",
+    "candidates": [
+      "dark/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "starting",
+    "kind": "css",
+    "candidates": [
+      "starting:opacity-0"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@starting-style {\n  .starting\\:opacity-0 {\n    opacity: 0;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "starting",
+    "kind": "css",
+    "candidates": [
+      "starting/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "print",
+    "kind": "css",
+    "candidates": [
+      "print:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media print {\n  .print\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "print",
+    "kind": "css",
+    "candidates": [
+      "print/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "default breakpoints",
+    "kind": "css",
+    "candidates": [
+      "sm:flex",
+      "md:flex",
+      "lg:flex",
+      "xl:flex",
+      "2xl:flex"
+    ],
+    "css": "\n        @theme {\n          /* Breakpoints */\n          --breakpoint-sm: 640px;\n          --breakpoint-md: 768px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-xl: 1280px;\n          --breakpoint-2xl: 1536px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media (min-width: 640px) {\n  .sm\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 768px) {\n  .md\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1024px) {\n  .lg\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1280px) {\n  .xl\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1536px) {\n  .\\32 xl\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "default breakpoints",
+    "kind": "css",
+    "candidates": [
+      "sm/foo:flex",
+      "md/foo:flex",
+      "lg/foo:flex",
+      "xl/foo:flex",
+      "2xl/foo:flex"
+    ],
+    "css": "\n        @theme reference {\n          /* Breakpoints */\n          --breakpoint-sm: 640px;\n          --breakpoint-md: 768px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-xl: 1280px;\n          --breakpoint-2xl: 1536px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "custom breakpoint",
+    "kind": "css",
+    "candidates": [
+      "10xl:flex"
+    ],
+    "css": "\n        @theme {\n          --breakpoint-10xl: 5000px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media (min-width: 5000px) {\n  .\\31 0xl\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "max-*",
+    "kind": "css",
+    "candidates": [
+      "max-lg:flex",
+      "max-sm:flex",
+      "max-md:flex"
+    ],
+    "css": "\n        @theme {\n          /* Explicitly ordered in a strange way */\n          --breakpoint-sm: 640px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-md: 768px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media not all and (min-width: 1024px) {\n  .max-lg\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 768px) {\n  .max-md\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 640px) {\n  .max-sm\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "max-*",
+    "kind": "css",
+    "candidates": [
+      "max-lg/foo:flex",
+      "max-sm/foo:flex",
+      "max-md/foo:flex"
+    ],
+    "css": "\n        @theme reference {\n          /* Explicitly ordered in a strange way */\n          --breakpoint-sm: 640px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-md: 768px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "min-*",
+    "kind": "css",
+    "candidates": [
+      "min-lg:flex",
+      "min-sm:flex",
+      "min-md:flex"
+    ],
+    "css": "\n        @theme {\n          /* Explicitly ordered in a strange way */\n          --breakpoint-sm: 640px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-md: 768px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media (min-width: 640px) {\n  .min-sm\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 768px) {\n  .min-md\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1024px) {\n  .min-lg\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "min-*",
+    "kind": "css",
+    "candidates": [
+      "min-lg/foo:flex",
+      "min-sm/foo:flex",
+      "min-md/foo:flex"
+    ],
+    "css": "\n        @theme reference {\n          /* Explicitly ordered in a strange way */\n          --breakpoint-sm: 640px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-md: 768px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "sorting stacked min-* and max-* variants",
+    "kind": "css",
+    "candidates": [
+      "min-sm:max-lg:flex",
+      "min-sm:max-xl:flex",
+      "min-md:max-lg:flex",
+      "min-xs:max-sm:flex"
+    ],
+    "css": "\n        @theme {\n          /* Explicitly ordered in a strange way */\n          --breakpoint-sm: 640px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-md: 768px;\n          --breakpoint-xl: 1280px;\n          --breakpoint-xs: 280px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media (min-width: 280px) {\n  @media not all and (min-width: 640px) {\n    .min-xs\\:max-sm\\:flex {\n      display: flex;\n    }\n  }\n}\n\n@media (min-width: 640px) {\n  @media not all and (min-width: 1280px) {\n    .min-sm\\:max-xl\\:flex {\n      display: flex;\n    }\n  }\n\n  @media not all and (min-width: 1024px) {\n    .min-sm\\:max-lg\\:flex {\n      display: flex;\n    }\n  }\n}\n\n@media (min-width: 768px) {\n  @media not all and (min-width: 1024px) {\n    .min-md\\:max-lg\\:flex {\n      display: flex;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "stacked min-* and max-* variants should come after unprefixed variants",
+    "kind": "css",
+    "candidates": [
+      "sm:flex",
+      "min-sm:max-lg:flex",
+      "md:flex",
+      "min-md:max-lg:flex"
+    ],
+    "css": "\n        @theme {\n          /* Explicitly ordered in a strange way */\n          --breakpoint-sm: 640px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-md: 768px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media (min-width: 640px) {\n  .sm\\:flex {\n    display: flex;\n  }\n\n  @media not all and (min-width: 1024px) {\n    .min-sm\\:max-lg\\:flex {\n      display: flex;\n    }\n  }\n}\n\n@media (min-width: 768px) {\n  .md\\:flex {\n    display: flex;\n  }\n\n  @media not all and (min-width: 1024px) {\n    .min-md\\:max-lg\\:flex {\n      display: flex;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "min, max and unprefixed breakpoints",
+    "kind": "css",
+    "candidates": [
+      "max-lg-sm-potato:flex",
+      "min-lg-sm-potato:flex",
+      "lg-sm-potato:flex",
+      "max-lg:flex",
+      "max-sm:flex",
+      "min-lg:flex",
+      "max-[1000px]:flex",
+      "md:flex",
+      "min-md:flex",
+      "min-[700px]:flex",
+      "max-md:flex",
+      "min-sm:flex",
+      "sm:flex",
+      "lg:flex"
+    ],
+    "css": "\n        @theme {\n          /* Explicitly ordered in a strange way */\n          --breakpoint-sm: 640px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-md: 768px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@media not all and (min-width: 1024px) {\n  .max-lg\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 1000px) {\n  .max-\\[1000px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 768px) {\n  .max-md\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 640px) {\n  .max-sm\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 640px) {\n  .min-sm\\:flex, .sm\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 700px) {\n  .min-\\[700px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 768px) {\n  .md\\:flex, .min-md\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1024px) {\n  .lg\\:flex, .min-lg\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "sorting `min` and `max` should sort by unit, then by value, then alphabetically",
+    "kind": "css",
+    "candidates": [
+      "min-[10px]:flex",
+      "min-[12px]:flex",
+      "min-[10em]:flex",
+      "min-[12em]:flex",
+      "min-[10rem]:flex",
+      "min-[12rem]:flex",
+      "max-[10px]:flex",
+      "max-[12px]:flex",
+      "max-[10em]:flex",
+      "max-[12em]:flex",
+      "max-[10rem]:flex",
+      "max-[12rem]:flex",
+      "min-[calc(1000px+12em)]:flex",
+      "max-[calc(1000px+12em)]:flex",
+      "min-[calc(50vh+12em)]:flex",
+      "max-[calc(50vh+12em)]:flex",
+      "min-[10vh]:flex",
+      "min-[12vh]:flex",
+      "max-[10vh]:flex",
+      "max-[12vh]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media not all and (min-width: calc(1000px + 12em)) {\n  .max-\\[calc\\(1000px\\+12em\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: calc(50vh + 12em)) {\n  .max-\\[calc\\(50vh\\+12em\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 12em) {\n  .max-\\[12em\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 10em) {\n  .max-\\[10em\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 12px) {\n  .max-\\[12px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 10px) {\n  .max-\\[10px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 12rem) {\n  .max-\\[12rem\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 10rem) {\n  .max-\\[10rem\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 12vh) {\n  .max-\\[12vh\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 10vh) {\n  .max-\\[10vh\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: calc(1000px + 12em)) {\n  .min-\\[calc\\(1000px\\+12em\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: calc(50vh + 12em)) {\n  .min-\\[calc\\(50vh\\+12em\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 10em) {\n  .min-\\[10em\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 12em) {\n  .min-\\[12em\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 10px) {\n  .min-\\[10px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 12px) {\n  .min-\\[12px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 10rem) {\n  .min-\\[10rem\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 12rem) {\n  .min-\\[12rem\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 10vh) {\n  .min-\\[10vh\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 12vh) {\n  .min-\\[12vh\\]\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "supports",
+    "kind": "css",
+    "candidates": [
+      "supports-gap:grid",
+      "supports-[display:grid]:flex",
+      "supports-[selector(A_>_B)]:flex",
+      "supports-[font-format(opentype)]:grid",
+      "supports-[(display:grid)_and_font-format(opentype)]:grid",
+      "supports-[font-tech(color-COLRv1)]:flex",
+      "supports-[var(--test)]:flex",
+      "supports-[--test]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@supports (gap: var(--tw)) {\n  .supports-gap\\:grid {\n    display: grid;\n  }\n}\n\n@supports (display: grid) and font-format(opentype) {\n  .supports-\\[\\(display\\:grid\\)_and_font-format\\(opentype\\)\\]\\:grid {\n    display: grid;\n  }\n}\n\n@supports (--test: var(--tw)) {\n  .supports-\\[--test\\]\\:flex {\n    display: flex;\n  }\n}\n\n@supports (display: grid) {\n  .supports-\\[display\\:grid\\]\\:flex {\n    display: flex;\n  }\n}\n\n@supports font-format(opentype) {\n  .supports-\\[font-format\\(opentype\\)\\]\\:grid {\n    display: grid;\n  }\n}\n\n@supports font-tech(color-COLRv1) {\n  .supports-\\[font-tech\\(color-COLRv1\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@supports selector(A > B) {\n  .supports-\\[selector\\(A_\\>_B\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@supports var(--test) {\n  .supports-\\[var\\(--test\\)\\]\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "supports",
+    "kind": "css",
+    "candidates": [
+      "supports-gap/foo:grid",
+      "supports-[display:grid]/foo:flex",
+      "supports-[selector(A_>_B)]/foo:flex",
+      "supports-[font-format(opentype)]/foo:grid",
+      "supports-[(display:grid)_and_font-format(opentype)]/foo:grid",
+      "supports-[font-tech(color-COLRv1)]/foo:flex",
+      "supports-[var(--test)]/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "not",
+    "kind": "css",
+    "candidates": [
+      "not-[:checked]:flex",
+      "not-[@media_print]:flex",
+      "not-[@media(orientation:portrait)]:flex",
+      "not-[@media_(orientation:landscape)]:flex",
+      "not-[@media_not_(orientation:portrait)]:flex",
+      "not-hocus:flex",
+      "not-device-hocus:flex",
+      "group-not-[:checked]:flex",
+      "group-not-[:checked]/parent-name:flex",
+      "group-not-checked:flex",
+      "group-not-hocus:flex",
+      "group-not-hocus/parent-name:flex",
+      "peer-not-[:checked]:flex",
+      "peer-not-[:checked]/sibling-name:flex",
+      "peer-not-checked:flex",
+      "peer-not-hocus:flex",
+      "peer-not-hocus/sibling-name:flex",
+      "not-first:flex",
+      "not-last:flex",
+      "not-only:flex",
+      "not-odd:flex",
+      "not-even:flex",
+      "not-first-of-type:flex",
+      "not-last-of-type:flex",
+      "not-only-of-type:flex",
+      "not-visited:flex",
+      "not-target:flex",
+      "not-open:flex",
+      "not-default:flex",
+      "not-checked:flex",
+      "not-indeterminate:flex",
+      "not-placeholder-shown:flex",
+      "not-autofill:flex",
+      "not-optional:flex",
+      "not-required:flex",
+      "not-valid:flex",
+      "not-invalid:flex",
+      "not-in-range:flex",
+      "not-out-of-range:flex",
+      "not-read-only:flex",
+      "not-empty:flex",
+      "not-focus-within:flex",
+      "not-hover:flex",
+      "not-focus:flex",
+      "not-focus-visible:flex",
+      "not-active:flex",
+      "not-enabled:flex",
+      "not-disabled:flex",
+      "not-inert:flex",
+      "not-ltr:flex",
+      "not-rtl:flex",
+      "not-motion-safe:flex",
+      "not-motion-reduce:flex",
+      "not-dark:flex",
+      "not-print:flex",
+      "not-supports-grid:flex",
+      "not-has-checked:flex",
+      "not-aria-selected:flex",
+      "not-data-foo:flex",
+      "not-portrait:flex",
+      "not-landscape:flex",
+      "not-contrast-more:flex",
+      "not-contrast-less:flex",
+      "not-forced-colors:flex",
+      "not-nth-2:flex",
+      "not-noscript:flex",
+      "not-sm:flex",
+      "not-min-sm:flex",
+      "not-min-[130px]:flex",
+      "not-max-sm:flex",
+      "not-max-[130px]:flex"
+    ],
+    "css": "\n        @custom-variant hocus {\n          &:hover,\n          &:focus {\n            @slot;\n          }\n        }\n\n        @custom-variant device-hocus {\n          @media (hover: hover) {\n            &:hover,\n            &:focus {\n              @slot;\n            }\n          }\n        }\n\n        @theme {\n          --breakpoint-sm: 640px;\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "\n.not-first\\:flex:not(:first-child), .not-last\\:flex:not(:last-child), .not-only\\:flex:not(:only-child), .not-odd\\:flex:not(:nth-child(odd)), .not-even\\:flex:not(:nth-child(2n)), .not-first-of-type\\:flex:not(:first-of-type), .not-last-of-type\\:flex:not(:last-of-type), .not-only-of-type\\:flex:not(:only-of-type), .not-visited\\:flex:not(:visited), .not-target\\:flex:not(:target), .not-open\\:flex:not(:is([open], :popover-open, :open)), .not-default\\:flex:not(:default), .not-checked\\:flex:not(:checked), .not-indeterminate\\:flex:not(:indeterminate), .not-placeholder-shown\\:flex:not(:placeholder-shown) {\n  display: flex;\n}\n\n.not-autofill\\:flex:not(:autofill) {\n  display: flex;\n}\n\n.not-optional\\:flex:not(:optional), .not-required\\:flex:not(:required), .not-valid\\:flex:not(:valid), .not-invalid\\:flex:not(:invalid), .not-in-range\\:flex:not(:in-range), .not-out-of-range\\:flex:not(:out-of-range), .not-read-only\\:flex:not(:read-only), .not-empty\\:flex:not(:empty), .not-focus-within\\:flex:not(:focus-within), .not-hover\\:flex:not(:hover) {\n  display: flex;\n}\n\n@media not all and (hover: hover) {\n  .not-hover\\:flex {\n    display: flex;\n  }\n}\n\n.not-focus\\:flex:not(:focus), .not-focus-visible\\:flex:not(:focus-visible), .not-active\\:flex:not(:active), .not-enabled\\:flex:not(:enabled), .not-disabled\\:flex:not(:disabled), .not-inert\\:flex:not(:is([inert], [inert] *)), .not-has-checked\\:flex:not(:has(:checked)), .not-aria-selected\\:flex:not([aria-selected=\"true\"]), .not-data-foo\\:flex:not([data-foo]), .not-nth-2\\:flex:not(:nth-child(2)) {\n  display: flex;\n}\n\n@supports not (grid: var(--tw)) {\n  .not-supports-grid\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (prefers-reduced-motion: no-preference) {\n  .not-motion-safe\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (prefers-reduced-motion: reduce) {\n  .not-motion-reduce\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (prefers-contrast: more) {\n  .not-contrast-more\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (prefers-contrast: less) {\n  .not-contrast-less\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 640px) {\n  .not-max-sm\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 130px) {\n  .not-max-\\[130px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 130px) {\n  .not-min-\\[130px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (min-width: 640px) {\n  .not-min-sm\\:flex, .not-sm\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (orientation: portrait) {\n  .not-portrait\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (orientation: landscape) {\n  .not-landscape\\:flex {\n    display: flex;\n  }\n}\n\n.not-ltr\\:flex:not(:where(:dir(ltr), [dir=\"ltr\"], [dir=\"ltr\"] *)), .not-rtl\\:flex:not(:where(:dir(rtl), [dir=\"rtl\"], [dir=\"rtl\"] *)) {\n  display: flex;\n}\n\n@media not all and (prefers-color-scheme: dark) {\n  .not-dark\\:flex {\n    display: flex;\n  }\n}\n\n@media not print {\n  .not-print\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (forced-colors: active) {\n  .not-forced-colors\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (scripting: none) {\n  .not-noscript\\:flex {\n    display: flex;\n  }\n}\n\n.not-hocus\\:flex:not(:hover, :focus), .not-device-hocus\\:flex:not(:hover, :focus) {\n  display: flex;\n}\n\n@media not all and (hover: hover) {\n  .not-device-hocus\\:flex {\n    display: flex;\n  }\n}\n\n.not-\\[\\:checked\\]\\:flex:not(:checked) {\n  display: flex;\n}\n\n@media not all and (orientation: landscape) {\n  .not-\\[\\@media_\\(orientation\\:landscape\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (orientation: portrait) {\n  .not-\\[\\@media_not_\\(orientation\\:portrait\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not print {\n  .not-\\[\\@media_print\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media not all and (orientation: portrait) {\n  .not-\\[\\@media\\(orientation\\:portrait\\)\\]\\:flex {\n    display: flex;\n  }\n}\n\n.group-not-checked\\:flex:is(:where(.group):not(:checked) *), .group-not-hocus\\:flex:is(:where(.group):not(:hover, :focus) *), .group-not-hocus\\/parent-name\\:flex:is(:where(.group\\/parent-name):not(:hover, :focus) *), .group-not-\\[\\:checked\\]\\:flex:is(:where(.group):not(:checked) *), .group-not-\\[\\:checked\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name):not(:checked) *), .peer-not-checked\\:flex:is(:where(.peer):not(:checked) ~ *), .peer-not-hocus\\:flex:is(:where(.peer):not(:hover, :focus) ~ *), .peer-not-hocus\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name):not(:hover, :focus) ~ *), .peer-not-\\[\\:checked\\]\\:flex:is(:where(.peer):not(:checked) ~ *), .peer-not-\\[\\:checked\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name):not(:checked) ~ *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "not",
+    "kind": "css",
+    "candidates": [
+      "not-has-a:flex",
+      "not-has-b:flex",
+      "not-has-c:flex",
+      "not-has-d:flex"
+    ],
+    "css": "\n        @custom-variant has-a {\n          @container style(--a) {\n            @slot;\n          }\n        }\n\n        /* Already negated case */\n        @custom-variant has-b {\n          @container not style(--b) {\n            @slot;\n          }\n        }\n\n        /* Named @container */\n        @custom-variant has-c {\n          @container foo style(--c) {\n            @slot;\n          }\n        }\n\n        /* Named @container, that's already negated case */\n        @custom-variant has-d {\n          @container bar not style(--d) {\n            @slot;\n          }\n        }\n\n        @tailwind utilities;\n      ",
+    "expected": "\n@container not style(--a) {\n  .not-has-a\\:flex {\n    display: flex;\n  }\n}\n\n@container style(--b) {\n  .not-has-b\\:flex {\n    display: flex;\n  }\n}\n\n@container foo not style(--c) {\n  .not-has-c\\:flex {\n    display: flex;\n  }\n}\n\n@container bar style(--d) {\n  .not-has-d\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "not",
+    "kind": "css",
+    "candidates": [
+      "not-[>img]:flex",
+      "not-[+img]:flex",
+      "not-[~img]:flex",
+      "not-[:checked]/foo:flex",
+      "not-[@media_screen,print]:flex",
+      "not-[@media_not_screen,print]:flex",
+      "not-[@media_not_screen,not_print]:flex",
+      "not-nested-at-rules:flex",
+      "not-nested-style-rules:flex",
+      "not-multiple-media-conditions:flex",
+      "not-starting:flex",
+      "not-parallel-style-rules:flex",
+      "not-parallel-at-rules:flex",
+      "not-parallel-mixed-rules:flex",
+      "not-force:flex",
+      "not-*:flex",
+      "not-first-letter:flex",
+      "not-first-line:flex",
+      "not-marker:flex",
+      "not-selection:flex",
+      "not-file:flex",
+      "not-placeholder:flex",
+      "not-backdrop:flex",
+      "not-before:flex",
+      "not-after:flex",
+      "not-starting:flex"
+    ],
+    "css": "\n        @custom-variant nested-at-rules {\n          @media foo {\n            @media bar {\n              @slot;\n            }\n          }\n        }\n        @custom-variant multiple-media-conditions {\n          @media foo, bar {\n            @slot;\n          }\n        }\n        @custom-variant nested-style-rules {\n          &:hover {\n            &:focus {\n              @slot;\n            }\n          }\n        }\n        @custom-variant parallel-style-rules {\n          &:hover {\n            @slot;\n          }\n          &:focus {\n            @slot;\n          }\n        }\n        @custom-variant parallel-at-rules {\n          @media foo {\n            @slot;\n          }\n          @media bar {\n            @slot;\n          }\n        }\n        @custom-variant parallel-mixed-rules {\n          &:hover {\n            @slot;\n          }\n          @media bar {\n            @slot;\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "in",
+    "kind": "css",
+    "candidates": [
+      "in-[p]:flex",
+      "in-[.group]:flex",
+      "not-in-[p]:flex",
+      "not-in-[.group]:flex",
+      "in-data-visible:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.not-in-\\[\\.group\\]\\:flex:not(:where(.group) *), .not-in-\\[p\\]\\:flex:not(:where(:is(p)) *), :where([data-visible]) .in-data-visible\\:flex, :where(.group) .in-\\[\\.group\\]\\:flex, :where(:is(p)) .in-\\[p\\]\\:flex {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "in",
+    "kind": "css",
+    "candidates": [
+      "in-p:flex",
+      "in-foo-bar:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "has",
+    "kind": "css",
+    "candidates": [
+      "has-checked:flex",
+      "has-[:checked]:flex",
+      "has-[>img]:flex",
+      "has-[+img]:flex",
+      "has-[~img]:flex",
+      "has-[&>img]:flex",
+      "has-hocus:flex",
+      "group-has-[:checked]:flex",
+      "group-has-[:checked]/parent-name:flex",
+      "group-has-checked:flex",
+      "group-has-checked/parent-name:flex",
+      "group-has-[>img]:flex",
+      "group-has-[>img]/parent-name:flex",
+      "group-has-[+img]:flex",
+      "group-has-[~img]:flex",
+      "group-has-[&>img]:flex",
+      "group-has-[&>img]/parent-name:flex",
+      "group-has-hocus:flex",
+      "group-has-hocus/parent-name:flex",
+      "peer-has-[:checked]:flex",
+      "peer-has-[:checked]/sibling-name:flex",
+      "peer-has-checked:flex",
+      "peer-has-checked/sibling-name:flex",
+      "peer-has-[>img]:flex",
+      "peer-has-[>img]/sibling-name:flex",
+      "peer-has-[+img]:flex",
+      "peer-has-[~img]:flex",
+      "peer-has-[&>img]:flex",
+      "peer-has-[&>img]/sibling-name:flex",
+      "peer-has-hocus:flex",
+      "peer-has-hocus/sibling-name:flex"
+    ],
+    "css": "\n        @custom-variant hocus {\n          &:hover,\n          &:focus {\n            @slot;\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n.group-has-checked\\:flex:is(:where(.group):has(:checked) *), .group-has-checked\\/parent-name\\:flex:is(:where(.group\\/parent-name):has(:checked) *), .group-has-hocus\\:flex:is(:where(.group):has(:hover, :focus) *), .group-has-hocus\\/parent-name\\:flex:is(:where(.group\\/parent-name):has(:hover, :focus) *), .group-has-\\[\\:checked\\]\\:flex:is(:where(.group):has(:checked) *), .group-has-\\[\\:checked\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name):has(:checked) *), .group-has-\\[\\&\\>img\\]\\:flex:is(:where(.group):has(* > img) *), .group-has-\\[\\&\\>img\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name):has(* > img) *), .group-has-\\[\\+img\\]\\:flex:is(:where(.group):has( + img) *), .group-has-\\[\\>img\\]\\:flex:is(:where(.group):has( > img) *), .group-has-\\[\\>img\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name):has( > img) *), .group-has-\\[\\~img\\]\\:flex:is(:where(.group):has( ~ img) *), .peer-has-checked\\:flex:is(:where(.peer):has(:checked) ~ *), .peer-has-checked\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name):has(:checked) ~ *), .peer-has-hocus\\:flex:is(:where(.peer):has(:hover, :focus) ~ *), .peer-has-hocus\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name):has(:hover, :focus) ~ *), .peer-has-\\[\\:checked\\]\\:flex:is(:where(.peer):has(:checked) ~ *), .peer-has-\\[\\:checked\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name):has(:checked) ~ *), .peer-has-\\[\\&\\>img\\]\\:flex:is(:where(.peer):has(* > img) ~ *), .peer-has-\\[\\&\\>img\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name):has(* > img) ~ *), .peer-has-\\[\\+img\\]\\:flex:is(:where(.peer):has( + img) ~ *), .peer-has-\\[\\>img\\]\\:flex:is(:where(.peer):has( > img) ~ *), .peer-has-\\[\\>img\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name):has( > img) ~ *), .peer-has-\\[\\~img\\]\\:flex:is(:where(.peer):has( ~ img) ~ *), .has-checked\\:flex:has(:checked), .has-hocus\\:flex:has(:hover, :focus), .has-\\[\\:checked\\]\\:flex:has(:checked), .has-\\[\\&\\>img\\]\\:flex:has(* > img), .has-\\[\\+img\\]\\:flex:has( + img), .has-\\[\\>img\\]\\:flex:has( > img), .has-\\[\\~img\\]\\:flex:has( ~ img) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "has",
+    "kind": "css",
+    "candidates": [
+      "has-[:checked]/foo:flex",
+      "has-[@media_print]:flex",
+      "has-custom-at-rule:flex",
+      "has-nested-selectors:flex"
+    ],
+    "css": "\n        @custom-variant custom-at-rule (@media foo);\n        @custom-variant nested-selectors {\n          &:hover {\n            &:focus {\n              @slot;\n            }\n          }\n        }\n        @tailwind utilities;\n      ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "aria",
+    "kind": "css",
+    "candidates": [
+      "aria-checked:flex",
+      "aria-[invalid=spelling]:flex",
+      "aria-[valuenow=1]:flex",
+      "aria-[valuenow_=_\"1\"]:flex",
+      "group-aria-[modal]:flex",
+      "group-aria-checked:flex",
+      "group-aria-[valuenow=1]:flex",
+      "group-aria-[modal]/parent-name:flex",
+      "group-aria-checked/parent-name:flex",
+      "group-aria-[valuenow=1]/parent-name:flex",
+      "peer-aria-[modal]:flex",
+      "peer-aria-checked:flex",
+      "peer-aria-[valuenow=1]:flex",
+      "peer-aria-[modal]/sibling-name:flex",
+      "peer-aria-checked/sibling-name:flex",
+      "peer-aria-[valuenow=1]/sibling-name:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-aria-checked\\:flex:is(:where(.group)[aria-checked=\"true\"] *), .group-aria-checked\\/parent-name\\:flex:is(:where(.group\\/parent-name)[aria-checked=\"true\"] *), .group-aria-\\[modal\\]\\:flex:is(:where(.group)[aria-modal] *), .group-aria-\\[modal\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name)[aria-modal] *), .group-aria-\\[valuenow\\=1\\]\\:flex:is(:where(.group)[aria-valuenow=\"1\"] *), .group-aria-\\[valuenow\\=1\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name)[aria-valuenow=\"1\"] *), .peer-aria-checked\\:flex:is(:where(.peer)[aria-checked=\"true\"] ~ *), .peer-aria-checked\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[aria-checked=\"true\"] ~ *), .peer-aria-\\[modal\\]\\:flex:is(:where(.peer)[aria-modal] ~ *), .peer-aria-\\[modal\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[aria-modal] ~ *), .peer-aria-\\[valuenow\\=1\\]\\:flex:is(:where(.peer)[aria-valuenow=\"1\"] ~ *), .peer-aria-\\[valuenow\\=1\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[aria-valuenow=\"1\"] ~ *), .aria-checked\\:flex[aria-checked=\"true\"], .aria-\\[invalid\\=spelling\\]\\:flex[aria-invalid=\"spelling\"], .aria-\\[valuenow_\\=_\\\"1\\\"\\]\\:flex[aria-valuenow=\"1\"], .aria-\\[valuenow\\=1\\]\\:flex[aria-valuenow=\"1\"] {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "aria",
+    "kind": "css",
+    "candidates": [
+      "aria-checked/foo:flex",
+      "aria-[invalid=spelling]/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "data",
+    "kind": "css",
+    "candidates": [
+      "data-disabled:flex",
+      "data-[potato=salad]:flex",
+      "data-[potato_=_\"salad\"]:flex",
+      "data-[potato_^=_\"salad\"]:flex",
+      "data-[potato=\"^_=\"]:flex",
+      "data-[foo=1]:flex",
+      "data-[foo=bar_baz]:flex",
+      "data-[foo$='bar'_i]:flex",
+      "data-[foo$=bar_baz_i]:flex",
+      "group-data-[disabled]:flex",
+      "group-data-[disabled]/parent-name:flex",
+      "group-data-[foo=1]:flex",
+      "group-data-[foo=1]/parent-name:flex",
+      "group-data-[foo=bar baz]/parent-name:flex",
+      "group-data-[foo$='bar'_i]/parent-name:flex",
+      "group-data-[foo$=bar_baz_i]/parent-name:flex",
+      "peer-data-[disabled]:flex",
+      "peer-data-[disabled]/sibling-name:flex",
+      "peer-data-[foo=1]:flex",
+      "peer-data-[foo=1]/sibling-name:flex",
+      "peer-data-[foo=bar baz]/sibling-name:flex",
+      "peer-data-[foo$='bar'_i]/sibling-name:flex",
+      "peer-data-[foo$=bar_baz_i]/sibling-name:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.group-data-\\[disabled\\]\\:flex:is(:where(.group)[data-disabled] *), .group-data-\\[disabled\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name)[data-disabled] *), .group-data-\\[foo\\$\\=\\'bar\\'_i\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name)[data-foo$=\"bar\" i] *), .group-data-\\[foo\\$\\=bar_baz_i\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name)[data-foo$=\"bar baz\" i] *), .group-data-\\[foo\\=1\\]\\:flex:is(:where(.group)[data-foo=\"1\"] *), .group-data-\\[foo\\=1\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name)[data-foo=\"1\"] *), .group-data-\\[foo\\=bar\\ baz\\]\\/parent-name\\:flex:is(:where(.group\\/parent-name)[data-foo=\"bar baz\"] *), .peer-data-\\[disabled\\]\\:flex:is(:where(.peer)[data-disabled] ~ *), .peer-data-\\[disabled\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[data-disabled] ~ *), .peer-data-\\[foo\\$\\=\\'bar\\'_i\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[data-foo$=\"bar\" i] ~ *), .peer-data-\\[foo\\$\\=bar_baz_i\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[data-foo$=\"bar baz\" i] ~ *), .peer-data-\\[foo\\=1\\]\\:flex:is(:where(.peer)[data-foo=\"1\"] ~ *), .peer-data-\\[foo\\=1\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[data-foo=\"1\"] ~ *), .peer-data-\\[foo\\=bar\\ baz\\]\\/sibling-name\\:flex:is(:where(.peer\\/sibling-name)[data-foo=\"bar baz\"] ~ *), .data-disabled\\:flex[data-disabled], .data-\\[foo\\$\\=\\'bar\\'_i\\]\\:flex[data-foo$=\"bar\" i], .data-\\[foo\\$\\=bar_baz_i\\]\\:flex[data-foo$=\"bar baz\" i], .data-\\[foo\\=1\\]\\:flex[data-foo=\"1\"], .data-\\[foo\\=bar_baz\\]\\:flex[data-foo=\"bar baz\"], .data-\\[potato_\\=_\\\"salad\\\"\\]\\:flex[data-potato=\"salad\"], .data-\\[potato_\\^\\=_\\\"salad\\\"\\]\\:flex[data-potato^=\"salad\"], .data-\\[potato\\=\\\"\\^_\\=\\\"\\]\\:flex[data-potato=\"^ =\"], .data-\\[potato\\=salad\\]\\:flex[data-potato=\"salad\"] {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "data",
+    "kind": "css",
+    "candidates": [
+      "data-[]:flex",
+      "data-[foo_^_=_\"bar\"]:flex",
+      "data-disabled/foo:flex",
+      "data-[potato=salad]/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "portrait",
+    "kind": "css",
+    "candidates": [
+      "portrait:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (orientation: portrait) {\n  .portrait\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "portrait",
+    "kind": "css",
+    "candidates": [
+      "portrait/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "landscape",
+    "kind": "css",
+    "candidates": [
+      "landscape:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (orientation: landscape) {\n  .landscape\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "landscape",
+    "kind": "css",
+    "candidates": [
+      "landscape/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "contrast-more",
+    "kind": "css",
+    "candidates": [
+      "contrast-more:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (prefers-contrast: more) {\n  .contrast-more\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "contrast-more",
+    "kind": "css",
+    "candidates": [
+      "contrast-more/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "contrast-less",
+    "kind": "css",
+    "candidates": [
+      "contrast-less:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (prefers-contrast: less) {\n  .contrast-less\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "contrast-less",
+    "kind": "css",
+    "candidates": [
+      "contrast-less/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "forced-colors",
+    "kind": "css",
+    "candidates": [
+      "forced-colors:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (forced-colors: active) {\n  .forced-colors\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "forced-colors",
+    "kind": "css",
+    "candidates": [
+      "forced-colors/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "inverted-colors",
+    "kind": "css",
+    "candidates": [
+      "inverted-colors:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (inverted-colors: inverted) {\n  .inverted-colors\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "pointer-none",
+    "kind": "css",
+    "candidates": [
+      "pointer-none:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (pointer: none) {\n  .pointer-none\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "pointer-coarse",
+    "kind": "css",
+    "candidates": [
+      "pointer-coarse:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (pointer: coarse) {\n  .pointer-coarse\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "pointer-fine",
+    "kind": "css",
+    "candidates": [
+      "pointer-fine:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (pointer: fine) {\n  .pointer-fine\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "any-pointer-none",
+    "kind": "css",
+    "candidates": [
+      "any-pointer-none:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (any-pointer: none) {\n  .any-pointer-none\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "any-pointer-coarse",
+    "kind": "css",
+    "candidates": [
+      "any-pointer-coarse:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (any-pointer: coarse) {\n  .any-pointer-coarse\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "any-pointer-fine",
+    "kind": "css",
+    "candidates": [
+      "any-pointer-fine:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (any-pointer: fine) {\n  .any-pointer-fine\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "scripting-none",
+    "kind": "css",
+    "candidates": [
+      "noscript:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n@media (scripting: none) {\n  .noscript\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "nth",
+    "kind": "css",
+    "candidates": [
+      "nth-3:flex",
+      "nth-[2n+1]:flex",
+      "nth-[2n+1_of_.foo]:flex",
+      "nth-last-3:flex",
+      "nth-last-[2n+1]:flex",
+      "nth-last-[2n+1_of_.foo]:flex",
+      "nth-of-type-3:flex",
+      "nth-of-type-[2n+1]:flex",
+      "nth-last-of-type-3:flex",
+      "nth-last-of-type-[2n+1]:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.nth-3\\:flex:nth-child(3), .nth-\\[2n\\+1\\]\\:flex:nth-child(odd), .nth-\\[2n\\+1_of_\\.foo\\]\\:flex:nth-child(odd of .foo), .nth-last-3\\:flex:nth-last-child(3), .nth-last-\\[2n\\+1\\]\\:flex:nth-last-child(odd), .nth-last-\\[2n\\+1_of_\\.foo\\]\\:flex:nth-last-child(odd of .foo), .nth-of-type-3\\:flex:nth-of-type(3), .nth-of-type-\\[2n\\+1\\]\\:flex:nth-of-type(odd), .nth-last-of-type-3\\:flex:nth-last-of-type(3), .nth-last-of-type-\\[2n\\+1\\]\\:flex:nth-last-of-type(odd) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "nth",
+    "kind": "css",
+    "candidates": [
+      "nth-foo:flex",
+      "nth-of-type-foo:flex",
+      "nth-last-foo:flex",
+      "nth-last-of-type-foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "nth",
+    "kind": "css",
+    "candidates": [
+      "nth--3:flex",
+      "nth-3/foo:flex",
+      "nth-[2n+1]/foo:flex",
+      "nth-[2n+1_of_.foo]/foo:flex",
+      "nth-last--3:flex",
+      "nth-last-3/foo:flex",
+      "nth-last-[2n+1]/foo:flex",
+      "nth-last-[2n+1_of_.foo]/foo:flex",
+      "nth-of-type--3:flex",
+      "nth-of-type-3/foo:flex",
+      "nth-of-type-[2n+1]/foo:flex",
+      "nth-last-of-type--3:flex",
+      "nth-last-of-type-3/foo:flex",
+      "nth-last-of-type-[2n+1]/foo:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "container queries",
+    "kind": "css",
+    "candidates": [
+      "@lg:flex",
+      "@lg/name:flex",
+      "@[123px]:flex",
+      "@[456px]/name:flex",
+      "@foo-bar:flex",
+      "@foo-bar/name:flex",
+      "@min-lg:flex",
+      "@min-lg/name:flex",
+      "@min-[123px]:flex",
+      "@min-[456px]/name:flex",
+      "@min-foo-bar:flex",
+      "@min-foo-bar/name:flex",
+      "@max-lg:flex",
+      "@max-lg/name:flex",
+      "@max-[123px]:flex",
+      "@max-[456px]/name:flex",
+      "@max-foo-bar:flex",
+      "@max-foo-bar/name:flex"
+    ],
+    "css": "\n    @theme {\n      --container-lg: 1024px;\n      --container-foo-bar: 1440px;\n    }\n    @tailwind utilities;\n  ",
+    "expected": "\n@container name not (min-width: 1440px) {\n  .\\@max-foo-bar\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container not (min-width: 1440px) {\n  .\\@max-foo-bar\\:flex {\n    display: flex;\n  }\n}\n\n@container name not (min-width: 1024px) {\n  .\\@max-lg\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container not (min-width: 1024px) {\n  .\\@max-lg\\:flex {\n    display: flex;\n  }\n}\n\n@container name not (min-width: 456px) {\n  .\\@max-\\[456px\\]\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container not (min-width: 123px) {\n  .\\@max-\\[123px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@container (min-width: 123px) {\n  .\\@\\[123px\\]\\:flex, .\\@min-\\[123px\\]\\:flex {\n    display: flex;\n  }\n}\n\n@container name (min-width: 456px) {\n  .\\@\\[456px\\]\\/name\\:flex, .\\@min-\\[456px\\]\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container name (min-width: 1024px) {\n  .\\@lg\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container (min-width: 1024px) {\n  .\\@lg\\:flex {\n    display: flex;\n  }\n}\n\n@container name (min-width: 1024px) {\n  .\\@min-lg\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container (min-width: 1024px) {\n  .\\@min-lg\\:flex {\n    display: flex;\n  }\n}\n\n@container name (min-width: 1440px) {\n  .\\@foo-bar\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container (min-width: 1440px) {\n  .\\@foo-bar\\:flex {\n    display: flex;\n  }\n}\n\n@container name (min-width: 1440px) {\n  .\\@min-foo-bar\\/name\\:flex {\n    display: flex;\n  }\n}\n\n@container (min-width: 1440px) {\n  .\\@min-foo-bar\\:flex {\n    display: flex;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "container queries",
+    "kind": "css",
+    "candidates": [
+      "@-lg:flex",
+      "@-lg/name:flex",
+      "@-[123px]:flex",
+      "@-[456px]/name:flex",
+      "@-foo-bar:flex",
+      "@-foo-bar/name:flex",
+      "@-min-lg:flex",
+      "@-min-lg/name:flex",
+      "@-min-[123px]:flex",
+      "@-min-[456px]/name:flex",
+      "@-min-foo-bar:flex",
+      "@-min-foo-bar/name:flex",
+      "@-max-lg:flex",
+      "@-max-lg/name:flex",
+      "@-max-[123px]:flex",
+      "@-max-[456px]/name:flex",
+      "@-max-foo-bar:flex",
+      "@-max-foo-bar/name:flex"
+    ],
+    "css": "\n    @theme {\n      --container-lg: 1024px;\n      --container-foo-bar: 1440px;\n    }\n    @tailwind utilities;\n  ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "variant order",
+    "kind": "css",
+    "candidates": [
+      "[&_p]:flex",
+      "2xl:flex",
+      "active:flex",
+      "after:flex",
+      "aria-[custom=true]:flex",
+      "aria-busy:flex",
+      "aria-checked:flex",
+      "aria-disabled:flex",
+      "aria-expanded:flex",
+      "aria-hidden:flex",
+      "aria-pressed:flex",
+      "aria-readonly:flex",
+      "aria-required:flex",
+      "aria-selected:flex",
+      "autofill:flex",
+      "backdrop:flex",
+      "before:flex",
+      "checked:flex",
+      "contrast-less:flex",
+      "contrast-more:flex",
+      "dark:flex",
+      "data-custom:flex",
+      "data-[custom=true]:flex",
+      "default:flex",
+      "details-content:flex",
+      "disabled:flex",
+      "empty:flex",
+      "enabled:flex",
+      "even:flex",
+      "file:flex",
+      "first-letter:flex",
+      "first-line:flex",
+      "first-of-type:flex",
+      "first:flex",
+      "focus-visible:flex",
+      "focus-within:flex",
+      "focus:flex",
+      "forced-colors:flex",
+      "group-hover:flex",
+      "has-[:hover]:flex",
+      "hover:flex",
+      "in-range:flex",
+      "indeterminate:flex",
+      "invalid:flex",
+      "landscape:flex",
+      "last-of-type:flex",
+      "last:flex",
+      "lg:flex",
+      "ltr:flex",
+      "marker:flex",
+      "md:flex",
+      "motion-reduce:flex",
+      "motion-safe:flex",
+      "odd:flex",
+      "only-of-type:flex",
+      "only:flex",
+      "open:flex",
+      "optional:flex",
+      "out-of-range:flex",
+      "peer-hover:flex",
+      "placeholder-shown:flex",
+      "placeholder:flex",
+      "portrait:flex",
+      "print:flex",
+      "read-only:flex",
+      "required:flex",
+      "rtl:flex",
+      "selection:flex",
+      "sm:flex",
+      "supports-[display:flex]:flex",
+      "target:flex",
+      "valid:flex",
+      "visited:flex",
+      "xl:flex"
+    ],
+    "css": "\n        @theme {\n          --breakpoint-sm: 640px;\n          --breakpoint-md: 768px;\n          --breakpoint-lg: 1024px;\n          --breakpoint-xl: 1280px;\n          --breakpoint-2xl: 1536px;\n        }\n        @tailwind utilities;\n      ",
+    "expected": "\n@layer properties {\n  @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {\n    *, :before, :after, ::backdrop {\n      --tw-content: \"\";\n    }\n  }\n}\n\n@media (hover: hover) {\n  .group-hover\\:flex:is(:where(.group):hover *), .peer-hover\\:flex:is(:where(.peer):hover ~ *) {\n    display: flex;\n  }\n}\n\n.first-letter\\:flex:first-letter, .first-line\\:flex:first-line {\n  display: flex;\n}\n\n.marker\\:flex ::marker {\n  display: flex;\n}\n\n.marker\\:flex::marker {\n  display: flex;\n}\n\n.marker\\:flex ::-webkit-details-marker {\n  display: flex;\n}\n\n.marker\\:flex::-webkit-details-marker {\n  display: flex;\n}\n\n.selection\\:flex ::selection {\n  display: flex;\n}\n\n.selection\\:flex::selection {\n  display: flex;\n}\n\n.file\\:flex::file-selector-button {\n  display: flex;\n}\n\n.placeholder\\:flex::placeholder, .backdrop\\:flex::backdrop {\n  display: flex;\n}\n\n.details-content\\:flex::details-content {\n  display: flex;\n}\n\n.before\\:flex:before, .after\\:flex:after {\n  content: var(--tw-content);\n  display: flex;\n}\n\n.first\\:flex:first-child, .last\\:flex:last-child, .only\\:flex:only-child, .odd\\:flex:nth-child(odd), .even\\:flex:nth-child(2n), .first-of-type\\:flex:first-of-type, .last-of-type\\:flex:last-of-type, .only-of-type\\:flex:only-of-type, .visited\\:flex:visited, .target\\:flex:target, .open\\:flex:is([open], :popover-open, :open), .default\\:flex:default, .checked\\:flex:checked, .indeterminate\\:flex:indeterminate, .placeholder-shown\\:flex:placeholder-shown {\n  display: flex;\n}\n\n.autofill\\:flex:autofill {\n  display: flex;\n}\n\n.optional\\:flex:optional, .required\\:flex:required, .valid\\:flex:valid, .invalid\\:flex:invalid, .in-range\\:flex:in-range, .out-of-range\\:flex:out-of-range, .read-only\\:flex:read-only, .empty\\:flex:empty, .focus-within\\:flex:focus-within {\n  display: flex;\n}\n\n@media (hover: hover) {\n  .hover\\:flex:hover {\n    display: flex;\n  }\n}\n\n.focus\\:flex:focus, .focus-visible\\:flex:focus-visible, .active\\:flex:active, .enabled\\:flex:enabled, .disabled\\:flex:disabled, .has-\\[\\:hover\\]\\:flex:has(:hover), .aria-busy\\:flex[aria-busy=\"true\"], .aria-checked\\:flex[aria-checked=\"true\"], .aria-disabled\\:flex[aria-disabled=\"true\"], .aria-expanded\\:flex[aria-expanded=\"true\"], .aria-hidden\\:flex[aria-hidden=\"true\"], .aria-pressed\\:flex[aria-pressed=\"true\"], .aria-readonly\\:flex[aria-readonly=\"true\"], .aria-required\\:flex[aria-required=\"true\"], .aria-selected\\:flex[aria-selected=\"true\"], .aria-\\[custom\\=true\\]\\:flex[aria-custom=\"true\"], .data-custom\\:flex[data-custom], .data-\\[custom\\=true\\]\\:flex[data-custom=\"true\"] {\n  display: flex;\n}\n\n@supports (display: flex) {\n  .supports-\\[display\\:flex\\]\\:flex {\n    display: flex;\n  }\n}\n\n@media (prefers-reduced-motion: no-preference) {\n  .motion-safe\\:flex {\n    display: flex;\n  }\n}\n\n@media (prefers-reduced-motion: reduce) {\n  .motion-reduce\\:flex {\n    display: flex;\n  }\n}\n\n@media (prefers-contrast: more) {\n  .contrast-more\\:flex {\n    display: flex;\n  }\n}\n\n@media (prefers-contrast: less) {\n  .contrast-less\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 640px) {\n  .sm\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 768px) {\n  .md\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1024px) {\n  .lg\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1280px) {\n  .xl\\:flex {\n    display: flex;\n  }\n}\n\n@media (min-width: 1536px) {\n  .\\32 xl\\:flex {\n    display: flex;\n  }\n}\n\n@media (orientation: portrait) {\n  .portrait\\:flex {\n    display: flex;\n  }\n}\n\n@media (orientation: landscape) {\n  .landscape\\:flex {\n    display: flex;\n  }\n}\n\n.ltr\\:flex:where(:dir(ltr), [dir=\"ltr\"], [dir=\"ltr\"] *), .rtl\\:flex:where(:dir(rtl), [dir=\"rtl\"], [dir=\"rtl\"] *) {\n  display: flex;\n}\n\n@media (prefers-color-scheme: dark) {\n  .dark\\:flex {\n    display: flex;\n  }\n}\n\n@media print {\n  .print\\:flex {\n    display: flex;\n  }\n}\n\n@media (forced-colors: active) {\n  .forced-colors\\:flex {\n    display: flex;\n  }\n}\n\n.\\[\\&_p\\]\\:flex p {\n  display: flex;\n}\n\n@property --tw-content {\n  syntax: \"*\";\n  inherits: false;\n  initial-value: \"\";\n}\n",
+    "loader": false,
+    "polyfills": null
+  },
+  {
+    "test": "move modifier of compound variant to sub-variant if its also a compound variant",
+    "kind": "css",
+    "candidates": [
+      "not-group-focus/name:flex",
+      "has-group-focus/name:flex",
+      "in-group-focus/name:flex",
+      "group-peer-focus/name:flex"
+    ],
+    "css": "@tailwind utilities;",
+    "expected": "\n.not-group-focus\\/name\\:flex:not(:is(:where(.group\\/name):focus *)), .group-peer-focus\\/name\\:flex:is(:where(.group\\/name):is(:where(.peer):focus ~ *) *), :where(:is(:where(.group\\/name):focus *)) .in-group-focus\\/name\\:flex, .has-group-focus\\/name\\:flex:has(:is(:where(.group\\/name):focus *)) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null
+  }
+]

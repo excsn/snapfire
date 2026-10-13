@@ -1,0 +1,110 @@
+[
+  {
+    "test": "can resolve relative @imports",
+    "reason": "option `base`"
+  },
+  {
+    "test": "can recursively resolve relative @imports",
+    "reason": "option `base`"
+  },
+  {
+    "test": "extracts path from @import nodes",
+    "reason": "option `base`"
+  },
+  {
+    "test": "extracts path from @import nodes",
+    "reason": "option `base`"
+  },
+  {
+    "test": "extracts path from @import nodes",
+    "reason": "option `base`"
+  },
+  {
+    "test": "url() imports are passed-through",
+    "reason": "option `base`"
+  },
+  {
+    "test": "url() imports are passed-through",
+    "reason": "option `base`"
+  },
+  {
+    "test": "url() imports are passed-through",
+    "reason": "option `base`"
+  },
+  {
+    "test": "url() imports are passed-through",
+    "reason": "option `base`"
+  },
+  {
+    "test": "url() imports are passed-through",
+    "reason": "option `base`"
+  },
+  {
+    "test": "url() imports are passed-through",
+    "reason": "option `base`"
+  },
+  {
+    "test": "handles case-insensitive @import directive",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@media",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@media",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@media",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@media",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@supports",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@supports",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@supports",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@supports",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@layer",
+    "reason": "option `base`"
+  },
+  {
+    "test": "@layer",
+    "reason": "option `base`"
+  },
+  {
+    "test": "supports theme(reference) imports",
+    "reason": "option `base`"
+  },
+  {
+    "test": "updates the base when loading modules inside nested files",
+    "reason": "option `base`"
+  },
+  {
+    "test": "it crashes when inside a cycle",
+    "reason": "option `base`"
+  },
+  {
+    "test": "resolves @reference as `@import \"…\" reference`",
+    "reason": "option `base`"
+  },
+  {
+    "test": "resolves `@variant` used as `@custom-variant` inside `@reference`",
+    "reason": "option `base`"
+  }
+]

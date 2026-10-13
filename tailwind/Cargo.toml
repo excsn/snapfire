@@ -1,0 +1,29 @@
+[package]
+name = "snapfire_tailwind"
+version = "0.1.0"
+description = "Tailwind CSS v4 in Rust: builds the stylesheet for a set of class names from a CSS-first configuration, with no Node"
+keywords = ["snapfire", "tailwind", "css", "utility"]
+categories = ["web-programming", "development-tools::build-utils"]
+exclude = ["tests"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = "MPL-2.0 AND MIT"
+repository = "https://github.com/excsn/snapfire"
+homepage = "https://github.com/excsn/snapfire/tree/main/tailwind"
+readme = "README.md"
+
+[dependencies]
+indexmap = "2"
+lightningcss = { version = "1.0.0-alpha.72", default-features = false }
+regex = "1"
+thiserror = "2"
+
+[dev-dependencies]
+oxc_allocator = "0.148"
+oxc_ast = "0.148"
+oxc_ast_visit = "0.148"
+oxc_parser = "0.148"
+oxc_span = "0.148"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

@@ -1,0 +1,142 @@
+[
+  {
+    "test": "@apply > @apply referencing theme values with `@tailwind utilities` should work",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "@apply > @apply referencing theme values with `@reference` should work",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "@apply > should replace @apply with the correct result inside imported stylesheets",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "@apply > should ignore the design systems `important` flag when using @apply",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "sorting > should sort utilities based on their property order",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "sorting > should sort utilities with a custom internal --tw-sort correctly",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "sorting > should sort individual logical properties later than left/right pairs",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "sorting > should move variants to the end while sorting",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "sorting > should sort variants and stacked variants by variant position",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "sorting > should order group-* and peer-* variants based on the sort order of the group and peer variant but also based on the variant they are wrapping",
+    "reason": "candidates are not an array literal"
+  },
+  {
+    "test": "Parsing theme values from CSS > `@import \"tailwindcss\" theme(static)` will always generate theme values, regardless of whether they were used or not",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "Parsing theme values from CSS > `@import \"tailwindcss\" theme(inline)` theme values added as `inline` are not wrapped in `var(…)` when used as utility values",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "Parsing theme values from CSS > `default` theme values can be overridden by plugin theme values",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "Parsing theme values from CSS > `default` theme values can be overridden by config theme values",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @plugin can accept options",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > addVariant with string selector",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > addVariant with array of selectors",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > addVariant with object syntax and @slot",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > addVariant with object syntax, media, nesting and multiple @slot",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > @slot is preserved when used as a custom property value",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "plugins > built-in variants can be overridden while keeping their order",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "@custom-variant",
+    "reason": "the stylesheet is not a literal"
+  },
+  {
+    "test": "@custom-variant > @custom-variant with no body must include a selector",
+    "reason": "a rejection without an inline snapshot"
+  },
+  {
+    "test": "@custom-variant > @custom-variant with selector must include a body",
+    "reason": "a rejection without an inline snapshot"
+  },
+  {
+    "test": "addBase",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "JS APIs support @variant",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "`@reference \"…\" imports` > recursively removes styles",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "`@reference \"…\" imports` > does not generate utilities",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "`@reference \"…\" imports` > removes all @keyframes, even those contributed by JavasScript plugins",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "`@reference \"…\" imports` > emits CSS variable fallback and keyframes defined inside @reference-ed files",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "`@reference \"…\" imports` > supports `@import \"…\" reference` syntax",
+    "reason": "a custom loadStylesheet"
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should be possible to use comma-separated `@variant` rules",
+    "reason": "compared against a non-literal"
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules",
+    "reason": "the stylesheet is not a literal"
+  },
+  {
+    "test": "@variant > comma-separated `@variant` rules > should handle nested comma-separated variants",
+    "reason": "compared against a non-literal"
+  },
+  {
+    "test": "@variant > should be possible to use compound and stacked variants in `@variant`",
+    "reason": "compared against a non-literal"
+  }
+]
