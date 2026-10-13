@@ -23,6 +23,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
   * [DeriveEntry](#deriveentry)
   * [ModuleHead](#modulehead)
   * [ImageEntry](#imageentry)
+  * [ThemeEntry](#themeentry)
 * [5. The S-Expression Form](#5-the-s-expression-form)
   * [sexpr](#sexpr)
 * [6. Error Handling](#6-error-handling)
@@ -32,7 +33,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 ### FORMAT_VERSION
 
-* `pub const FORMAT_VERSION: u32 = 6`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows; format 4 adds a node's per-kind error modules; format 5 adds a component's `head` rows, makes every component name its owner, `(owner fsr|react|vue)`, and adds a source's `(store-keys ...)` and the `(reads module key ...)` rows; format 6 adds the `derive` rows, the `module-head` rows and the `image` rows.
+* `pub const FORMAT_VERSION: u32 = 6`: what `Manifest::new` stamps and both writers write. Format 2 adds the `sources` table and makes actions rows; format 3 adds the `clients` rows; format 4 adds a node's per-kind error modules; format 5 adds a component's `head` rows, makes every component name its owner, `(owner fsr|react|vue)`, and adds a source's `(store-keys ...)` and the `(reads module key ...)` rows; format 6 adds the `derive` rows, the `module-head` rows, the `image` rows, the `theme` body and the `theme-of` rows.
 * A component in a file older than format 5 that names no owner reads as `Owner::React`; `(static)` reads as `Owner::Fsr`, `(tree)` as `Owner::React` and `(vue)` as `Owner::Vue`.
 * A file from version 1 up to `FORMAT_VERSION` reads; anything else is `PlanError::Version`. A format 1 file's bare action ids read as `rust` rows.
 
@@ -42,7 +43,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 
 `#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]`
 
-* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub clients: Vec<ClientEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String>, pub reads: BTreeMap<String, Vec<String>>, pub derives: Vec<DeriveEntry>, pub heads: Vec<ModuleHead>, pub images: Vec<ImageEntry> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package. `reads` is, per island module the server does not render, the store keys the build read from its source, written as one `(reads module "key" ...)` form each and prefixed by `namespaced` like any module. `derives` is every store key a `derive` in the browser's files computes, absent from the file when empty. `heads` is the head rows the build knows for a module from a file beside it, absent when empty. `images` is one row per generated card image per page it covers, absent when empty.
+* `pub struct Manifest { pub version: u32, pub routes: Vec<RouteEntry>, pub sources: Vec<SourceEntry>, pub actions: Vec<ActionEntry>, pub components: Vec<ComponentEntry>, pub clients: Vec<ClientEntry>, pub not_found: Option<Node>, pub handlers: Vec<HandlerEntry>, pub middleware: Option<Body>, pub intercepts: Vec<RouteEntry>, pub frameworks: BTreeMap<String, String>, pub reads: BTreeMap<String, Vec<String>>, pub derives: Vec<DeriveEntry>, pub heads: Vec<ModuleHead>, pub images: Vec<ImageEntry>, pub theme: Option<Body>, pub themes: Vec<ThemeEntry> }`. `sources`, `actions`, `components`, `handlers` and `intercepts` are absent from the file when empty; `middleware`, the lowered `middleware.ts`, is absent when `None`; `not_found`, the tree a host renders with status 404 for a path no route matches, is absent when `None`. `intercepts` holds one entry per `page.<slot>.tsx`, under the pattern of the route it belongs to: the tree a soft navigation renders into a live layout's slot. `frameworks` is the exact version of every package a client adapter imports, by package: `react`, `react-dom` and `vue`. It is absent from the file when empty and written as one `(framework react 18.3.1)` form per package. `reads` is, per island module the server does not render, the store keys the build read from its source, written as one `(reads module "key" ...)` form each and prefixed by `namespaced` like any module. `derives` is every store key a `derive` in the browser's files computes, absent from the file when empty. `heads` is the head rows the build knows for a module from a file beside it, absent when empty. `images` is one row per generated card image per page it covers, absent when empty. `theme` is the lowered `theme.ts`, absent when `None`; `themes` is one row per layout or page that sets a theme, absent when empty.
 * `Manifest::new(routes: Vec<RouteEntry>) -> Self`: `FORMAT_VERSION` and no rows.
 * `Manifest::with_sources(self, sources: Vec<SourceEntry>) -> Self`
 * `Manifest::with_actions(self, actions: Vec<ActionEntry>) -> Self`
@@ -51,6 +52,7 @@ The plan file: routes, source rows, action rows and component rows as a build ar
 * `Manifest::with_handlers(self, handlers: Vec<HandlerEntry>) -> Self`
 * `Manifest::lowered_handlers(&self) -> impl Iterator<Item = &HandlerEntry>`
 * `Manifest::with_middleware(self, middleware: Option<Body>) -> Self`
+* `Manifest::with_theme(self, theme: Option<Body>, themes: Vec<ThemeEntry>) -> Self`
 * `Manifest::with_intercepts(self, intercepts: Vec<RouteEntry>) -> Self`
 * `Manifest::with_frameworks(self, frameworks: BTreeMap<String, String>) -> Self`
 * `Manifest::intercepts(&self) -> Result<Vec<(String, PlanNode)>, PlanError>`: the intercept trees in file order, checked like routes.
@@ -150,6 +152,11 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 * `pub const IMAGE_PARAM: &str = "__image"`: the parameter a listed image's pattern names its id by.
 * `Manifest::with_images(self, Vec<ImageEntry>) -> Self` sets them; `namespaced` prefixes `module`, `source`, `page` and the body. It moves `pattern` under the site's prefix. In the s-expression form each is `(image <pattern> <module> (source <id>) (size <w> <h>) (type <mime>) (page <module> <card> <hash>) (alt "<text>") (images <stmt> ...))`, `source`, `alt` and `images` written only when set.
 
+### ThemeEntry
+
+* `pub struct ThemeEntry { pub module: String, pub name: String, pub force: bool }`: a layout's or a page's `export const theme`. Down a route's `content` chain the deepest row wins, except that a forced row keeps every level below it; of two forced rows the outer wins. `force` is absent from JSON when false.
+* `namespaced` prefixes `module`; `name` is never prefixed, since a theme is the document's. In the s-expression form each is `(theme-of <module> "<name>")`, with `force` after the name when set; the body is `(theme <stmt> ...)`.
+
 ### DeriveEntry
 
 * `pub struct DeriveEntry { pub key: String, pub sources: Vec<String>, pub body: Option<Expr>, pub at: Option<String>, pub why: Option<String> }`: a store key the browser's `derive` computes and the keys it reads. `body` is the lowered compute, which reads each source as `Expr::Store`; a host computes the key from it after the seeds merge. `None` is a derive the browser alone runs, with `at` its `file:line:column` and `why` what kept it there; a host never paints that key and holds its readers. `namespaced` prefixes what the body calls, never the keys. In the s-expression form each is `(derive "<key>" (sources "<key>" ...) <expr>)`. A browser-only one has `(browser "<at>" "<why>")` in place of the expression.
@@ -160,7 +167,7 @@ A layout is an ordinary node whose page sits in the slot `content`; the build ne
 
 `snapfire_fsr_plan::sexpr` is the manifest half of the format; `snapfire_fsr_ir::sexpr` is the IR half and holds the syntax type.
 
-* `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then one `(framework <package> <version>)` per vendored framework, then routes, intercepts, the not-found tree, middleware, rows, consts, components and clients.
+* `manifest_to_sx(&Manifest) -> Vec<Sx>`: the manifest as forms, the version first, then one `(framework <package> <version>)` per vendored framework, then routes, intercepts, the not-found tree, middleware, the theme body and its rows, then the remaining rows, consts, components and clients.
 * `manifest_from_sx(&[Sx]) -> Result<Manifest, SexprError>`: the same in reverse, with no version check; `Manifest::from_sexpr` adds it.
 * `SOURCE_SECTIONS: [&str; 5]`: `body`, `meta`, `store`, `defaults` and `paths`, the exports a source row carries as sections.
 * `ViewError`: `Unknown { id }`, `OneBody { id }`, `NoSuchSection { section }` and `Absent { id, section, present }`, `present` naming the sections the row carries or `no sections`. `Display` is the message `fsr ir view` prints.

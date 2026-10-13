@@ -49,6 +49,8 @@ Every block in every crate, one line each, sorted by what you would be looking f
 - **`snapfire_fsr_runtime::Runtime`** and **`assemble`**, the assembler: match, resolve, load, evaluate, stitch, with **`NodeCache`** for subtrees, **`MemoryCache`**, **`FibreCache`** and **`NoCache`** as implementations and **`SegmentKeyer`** for navigation identity.
 - **`snapfire_fsr_payload::html_serialize`** and the row encoding, the tree as HTML and as the wire form the client reads.
 - **`snapfire_fsr_runtime::html_stream`** and **`wire_stream`**, the same with deferred slots streamed in.
+- **`snapfire_tailwind::Compiler`**, Tailwind CSS v4 from a stylesheet's own configuration: `build` for the classes given, `card_rules` for the same classes as plain declarations a card image draws, `CompileOptions::themes` for named themes under an attribute.
+- **`snapfire_fsr_runtime::DocumentTheme`**, a request's theme and scheme, written on `<html>` and in the payload's eager head row.
 
 ## I want to serve
 
@@ -85,4 +87,5 @@ Every block in every crate, one line each, sorted by what you would be looking f
 - **`fsr build`**, **`fsr check`**, **`fsr dev`**, **`fsr serve`**, **`fsr test`**, **`fsr add`**, **`fsr types`**, the commands, all thin fronts over the library.
 - **`snapfire_fsr_cli::dev`**, the watch loop; **`serve`**, the stock host over an app with no Rust beside it; **`vendor`**, **`types`** and **`xwpm`**, the dependency side.
 - **`snapfire_fsr_lower::ALIASES`**, the five import prefixes, the same table the tsconfigs get.
-- **snapfirec**, the TypeScript and CSS compiler, with `paths` for aliases, `--import-map` for externals and `--public-path` for the preload manifest.
+- **snapfirec**, the TypeScript and CSS compiler, with `paths` for aliases, `--import-map` for externals, `--public-path` for the preload manifest and `--tailwind-classes` with `--tailwind-themes` for a stylesheet that imports Tailwind.
+- **`snapfire_fsr_cli::tailwind`**, the classes the plan renders, the `tailwind/unlisted-class` findings and the card table.

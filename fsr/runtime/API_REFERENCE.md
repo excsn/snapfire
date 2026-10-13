@@ -40,6 +40,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`HeadRows`](#headrows)
   * [`Paths`](#paths)
   * [`Head`](#head)
+  * [`DocumentTheme`](#documenttheme)
 * [7. Segments](#7-segments)
   * [`SegmentKeyer`](#segmentkeyer)
   * [`DefaultKeyer`](#defaultkeyer)
@@ -367,6 +368,7 @@ What one call produced. `Debug` (which prints `pending` as a count); not `Clone`
 * `pub store: Data`: `contributions` merged, what the eager wave rendered from.
 * `pub locale: Locale`: the request's, for the `L` row.
 * `pub entry: Option<String>`: the head's `entry`, for the `E` row.
+* `pub theme: Option<DocumentTheme>`: the head's `theme`, written into the eager `H` row.
 
 ### `PendingResolution`
 
@@ -417,6 +419,7 @@ A deferred slot's eventual content.
 ### `Head`
 
 * `catalog: Option<String>`: the locale's message catalog as JSON when the browser needs it for this response; the payload carries it as a `D` row and the host sets it per request.
+* `theme: Option<DocumentTheme>`: what the request decided for the document's theme, set by the host per request when the application has themes. `None` writes nothing; `Some` writes `theme` and `scheme` into the eager `H` row, nulls included. The row is written even when the meta is empty.
 
 `pub struct Head { pub title: String, pub template: Option<String>, pub description: Option<String>, pub rest: Node, pub entry: Option<String> }`. `template` is how a segment's title is written into the document, `{page}` the segment's title and `{title}` the default, each filled once; absent, a segment's title is written as given. `Debug`, `Clone`, `PartialEq`. The shell's head slot: everything the host puts in the head, plus the defaults a segment's `Meta` overrides. `entry` names a module the browser must load for this response's islands beyond the document's own entry, a mounted site's; `Head::new` and the `From` conversions leave it `None`.
 
@@ -425,6 +428,10 @@ A deferred slot's eventual content.
 * `pub fn settle(&self, meta: &mut Meta)`: writes `meta`'s title through the template and clears `absolute`, so what a payload or a streamed segment carries is the title as the document shows it.
 * `pub fn node(&self, meta: &Meta) -> Node`: `rest`, then `<title>` when the chosen title is non-empty and `<meta name="description">` when a description was chosen, both escaped, then `head` with `meta` folded over it, the response's stylesheets and `<script type="module">` for its `entry` (`ENTRY_OPEN` opens it); `rest` alone when none of those. The empty icon, a `link` with `rel="icon"` and `href="data:,"`, is dropped when the folded head carries any other icon. `HeadEl::is_icon` and `HeadEl::is_empty_icon` are those two tests.
 * `From<Node>`, `From<&Node>`: an empty title. `From<&Head>`: a clone.
+
+### `DocumentTheme`
+
+`pub struct DocumentTheme { pub name: Option<String>, pub scheme: Option<String> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. `<html data-sf-theme>` and `<html data-sf-scheme>` for one request: no `name` is the root theme and no `scheme` leaves the attribute off.
 
 ## 7. Segments
 
@@ -687,7 +694,7 @@ The wire encoding of a streamed response. The first item is the eager wave, newl
 
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
-* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set. `scripts` holds the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `head` holds every other head element. `meta_from_json` reads `scripts` and `head` back into `head`, so a shell splicing a remote site keeps its meta and link elements as well as its scripts.
+* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set. `scripts` holds the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `head` holds every other head element. `meta_from_json` reads `scripts` and `head` back into `head`, so a shell splicing a remote site keeps its meta and link elements as well as its scripts. With `assembly.theme` set, the eager row also carries `theme` and `scheme`, each a string or null. The row is then written whatever the meta holds.
 * `T <contributions json>`, from [`contributions_to_json`](#contributions_to_json), when `assembly.contributions` is not empty.
 * `L <json string>`, the locale tag, when `assembly.locale` has one.
 * `E "<src>"`, when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.

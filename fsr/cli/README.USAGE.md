@@ -16,6 +16,8 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Writing Actions](#writing-actions)
 * [Writing a Route Handler](#writing-a-route-handler)
 * [Writing Middleware](#writing-middleware)
+* [Styling with Tailwind](#styling-with-tailwind)
+* [Choosing a Theme](#choosing-a-theme)
 * [Signing In](#signing-in)
 * [Importing a Service](#importing-a-service)
 * [Declaring the Session and Action Inputs](#declaring-the-session-and-action-inputs)
@@ -334,6 +336,85 @@ export async function middleware({ session, now }: MiddlewareCtx): Promise<Middl
 ```
 
 An action may call `extend` too and so may a `route.ts` handler, typed `HandlerCtx<"/api/cart">` in place of `Ctx`. A loader may not, since a loader runs on every navigation; the build refuses it there by name.
+
+## Styling with Tailwind
+
+A stylesheet under `styles/` that imports Tailwind turns it on:
+
+```css
+/* app/styles/app.css */
+@import "tailwindcss";
+
+@theme {
+  --color-accent: #1f6feb;
+}
+```
+
+`fsr build` lists the classes the lowered plan renders in `generated/tailwind.classes` and hands the file to snapfirec, which builds the stylesheet for them and for the classes it reads in sources that render in the browser alone:
+
+```text
+tailwind  51 classes in generated/tailwind.classes
+```
+
+A class value the build cannot list is a warning naming the module:
+
+```text
+warning   routes/page.tsx#default     tailwind/unlisted-class: a class value the build cannot list, (concat "badge bg-" (. row tone))
+          list its values in the stylesheet with @source inline("...")
+```
+
+Write the values where the build reads them: a lookup object of literal classes, a `data-*` attribute with a `group-data-[...]:` variant or a `@source inline("bg-{red,amber}-500")` line in the stylesheet. A site imports `tailwindcss/theme` and `tailwindcss/utilities` rather than all of Tailwind, so the shell's preflight stays the document's base. It names the shell's tokens with `@theme reference`.
+
+When the application has card images, the build also writes `generated/tailwind.cards.json`, each class as the plain declarations a card draws:
+
+```tsx
+export default function Image({ post }: PostSlugProps) {
+  return <div className="flex h-full w-full flex-col bg-amber-50 p-[72px]">{post.title}</div>;
+}
+```
+
+## Choosing a Theme
+
+A theme is a file under `styles/themes/`, named by its stem, holding `@theme` blocks:
+
+```css
+/* app/styles/themes/ocean.css */
+@theme {
+  --color-accent: #0e7490;
+}
+```
+
+A layout or a page sets one with a literal, forced or not; a name with no file is `BuildError::UnknownTheme`:
+
+```tsx
+export const theme = "editorial";
+export const theme = { name: "ledger", force: true };
+```
+
+`app/theme.ts` decides per request with the route's theme as `ctx.theme`:
+
+```ts
+import type { Theme, ThemeChoice, ThemeCtx } from "@snapfire/fsr";
+
+export function theme({ theme, session }: ThemeCtx): ThemeChoice {
+  if (theme.forced) return { name: theme.name, scheme: session.scheme === "dark" ? "dark" : null };
+  return { name: session.theme === "" ? theme.name : (session.theme as Theme), scheme: session.scheme === "dark" ? "dark" : null };
+}
+```
+
+The report lists what the build found:
+
+```text
+themes    forest, ocean
+theme     routes/layout.tsx#default          ledger forced
+theme.ts  theme                  lowered     theme.ts
+```
+
+The host writes the answer as `<html data-sf-theme="ocean" data-sf-scheme="dark">`. Key a `dark` variant on the attribute in the stylesheet:
+
+```css
+@custom-variant dark (&:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *));
+```
 
 ## Signing In
 

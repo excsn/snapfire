@@ -591,9 +591,9 @@ Opens a WebSocket on `topic` at `path` (`/_sf/socket` by default) and keeps it o
 
 * `applyHead(head: Head): void`
 
-Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. Each entry of `head.scripts`, the attributes of a script row a route's `meta` declared, goes to `loadMarkedScript`. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
+Sets `document.title` when `head.title` is given and the `meta[name="description"]` content when `head.description` is, creating that element under `document.head` when there is none. Each entry of `head.scripts`, the attributes of a script row a route's `meta` declared, goes to `loadMarkedScript`. `head.theme` and `head.scheme` set `data-sf-theme` and `data-sf-scheme` on `<html>`, null removing the attribute; a row without the key leaves it. `navigate` and `refresh` call it for every `H` row of the payload they apply, in order.
 
-* `interface Head { title?: string; description?: string; scripts?: Record<string, string>[] }`
+* `interface Head { title?: string; description?: string; scripts?: Record<string, string>[]; theme?: string | null; scheme?: string | null }`
 
 ### loadScript
 
