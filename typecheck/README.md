@@ -1,6 +1,6 @@
 # snapfire_typecheck
 
-MPL-2.0. Pre-release, version 0.1.0, not published to crates.io.
+MPL-2.0.
 
 Typechecking for TypeScript, as a peer process rather than a library inside a compiler. `snapfirec` strips types and never reads one for meaning; this crate puts a `tsc` of a requested version on the machine and runs it over the same tsconfig, so a wrong prop type or a misspelled field is a build failure instead of something the browser discovers. The engine is TypeScript 7, one self-contained native binary per platform, fetched from the npm registry over plain HTTPS and verified against a hash before it runs: no npm client, no Node and no package manager. The library is the resolution and the diagnostics; `snapfiretc` is the executable `fsr` and `snapfirec` spawn. Task-by-task instructions are in [README.USAGE.md](README.USAGE.md); the surface is in [API_REFERENCE.md](API_REFERENCE.md).
 
