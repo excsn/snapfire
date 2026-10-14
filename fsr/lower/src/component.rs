@@ -630,8 +630,23 @@ impl ComponentSet {
   /// island at run time, since any island can then be mounted that way.
   pub fn settle_proofs(&mut self) {
     let dynamic = self.components.iter().any(|(_, c)| holds_mount(&c.render));
+    // A component the browser renders can place another in a branch the
+    // server left closed, where nothing recorded that one's markup.
+    let mut reached: Vec<String> = Vec::new();
+    let mut pending: Vec<String> = self.components.iter().filter(|(_, c)| c.owner.hydrates()).map(|(m, _)| m.clone()).collect();
+    while let Some(module) = pending.pop() {
+      let Some((_, component)) = self.components.iter().find(|(m, _)| *m == module) else { continue };
+      let mut placed = Vec::new();
+      placed_modules(&component.render, &mut placed);
+      for module in placed {
+        if !reached.contains(&module) {
+          reached.push(module.clone());
+          pending.push(module);
+        }
+      }
+    }
     for rewrite in &mut self.rewrites {
-      if dynamic || self.mounted.contains(&rewrite.module) {
+      if dynamic || self.mounted.contains(&rewrite.module) || reached.contains(&rewrite.module) {
         rewrite.chunks.iter_mut().for_each(|chunk| chunk.proven = false);
       }
     }
@@ -1526,6 +1541,26 @@ pub fn is_foreign(module: &str) -> bool {
   let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
   let ext = std::path::Path::new(file).extension().and_then(|e| e.to_str()).unwrap_or("");
   !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs")
+}
+
+/// Every module `tmpl` places, inline or as an island.
+fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
+  match tmpl {
+    Tmpl::Component { module, children, .. } | Tmpl::Island { module, children, .. } => {
+      out.push(module.clone());
+      children.iter().for_each(|c| placed_modules(c, out));
+    }
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().for_each(|c| placed_modules(c, out)),
+    Tmpl::If { then, r#else, .. } => {
+      placed_modules(then, out);
+      if let Some(e) = r#else {
+        placed_modules(e, out);
+      }
+    }
+    Tmpl::For { body, .. } => placed_modules(body, out),
+    Tmpl::Let { then, .. } => placed_modules(then, out),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+  }
 }
 
 /// True when `tmpl` holds the region a `<Mount>` writes.

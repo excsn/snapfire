@@ -73,3 +73,34 @@ fn a_bad_alias_in_the_imported_file_is_refused_at_the_placement() {
   let err = set.lower("routes/a/page.tsx#default").unwrap_err().to_string();
   assert!(err.contains("routes/a/page.tsx:3") && err.contains("`when`"), "{err}");
 }
+
+const NOTE: &str = "import type { ReactNode } from \"react\";\nexport function Note({ id, children }: { id?: string; children?: ReactNode }) {\n  return <h2 id={id}><a href={`#${id}`}>#</a> {children}</h2>;\n}\n";
+const OPENER: &str = "import { useState } from \"react\";\nimport { Note } from \"./Note\";\nexport function Opener() {\n  const [open, setOpen] = useState(false);\n  return <div><button onClick={() => setOpen(!open)}>open</button>{open ? <Note id=\"later\">Later</Note> : null}</div>;\n}\n";
+const SHOWS: &str = "import { Island } from \"@snapfire/fsr-client/react\";\nimport { Note } from \"../src/ui/Note\";\nimport { Opener } from \"../src/ui/Opener\";\nexport default function Page() {\n  return <main><Note id=\"now\">Now</Note><Island><Opener /></Island></main>;\n}\n";
+
+/// A chunk the browser renders without the server's markup when a stateful
+/// component opens a branch the server left closed: `Note` is rendered by the
+/// page, so its chunk was proven, and the island placing it under `open`
+/// found no table for it and threw.
+#[test]
+fn a_chunk_a_hydrating_component_can_place_keeps_its_fallback() {
+  let dir = app("unproven", &[("routes/page.tsx", SHOWS), ("src/ui/Note.tsx", NOTE), ("src/ui/Opener.tsx", OPENER)]);
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/page.tsx#default").unwrap();
+  set.settle_proofs();
+  let rewrite = set.rewrites.iter().find(|r| r.module == "src/ui/Note.tsx#Note").expect("Note is rewritten");
+  assert!(!rewrite.chunks.is_empty() && rewrite.chunks.iter().all(|chunk| !chunk.proven), "{:?}", rewrite.chunks);
+  let (_, source) = set.rewritten().into_iter().find(|(file, _)| file == "src/ui/Note.tsx").expect("a rewritten Note");
+  assert!(source.contains("__sfh.c(0, (__sfHtml) => <a href={`#${id}`} dangerouslySetInnerHTML={__sfHtml} />, () => "), "the miss renders the original: {source}");
+}
+
+#[test]
+fn a_chunk_only_pages_place_stays_proven() {
+  let page = "import { Note } from \"../src/ui/Note\";\nexport default function Page() {\n  return <main><Note id=\"now\">Now</Note></main>;\n}\n";
+  let dir = app("proven", &[("routes/page.tsx", page), ("src/ui/Note.tsx", NOTE)]);
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/page.tsx#default").unwrap();
+  set.settle_proofs();
+  let rewrite = set.rewrites.iter().find(|r| r.module == "src/ui/Note.tsx#Note").expect("Note is rewritten");
+  assert!(rewrite.chunks.iter().all(|chunk| chunk.proven), "{:?}", rewrite.chunks);
+}
