@@ -737,11 +737,11 @@ function watchLinks(root: ParentNode): void {
   }
 }
 
-/** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. Resolves once the payload has arrived whole. */
+/** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone, and so is the page being shown, whose link the pointer rests on after every view transition. Resolves once the payload has arrived whole. */
 export async function prefetch(href: string, options: NavigateOptions = {}): Promise<void> {
   const url = new URL(href, window.location.href);
   if (url.origin !== window.location.origin) return;
-  if (url.hash && `${url.pathname}${url.search}` === currentPath) return;
+  if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath) return;
   url.hash = "";
   await payloadFor(url, askFor(options)).whole();
 }

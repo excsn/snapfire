@@ -615,7 +615,7 @@ function watchLinks(root) {
 export async function prefetch(href, options = {}) {
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin) return;
-    if (url.hash && `${url.pathname}${url.search}` === currentPath) return;
+    if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath) return;
     url.hash = "";
     await payloadFor(url, askFor(options)).whole();
 }

@@ -591,6 +591,8 @@ enableNavigation({ cacheMs: 5_000 });
 
 `"viewport"` fetches a link's payload as it scrolls into view rather than waiting for a pointer, which is what a long list of links wants; each link is fetched once and then left alone. It costs a request per link on screen, so it is the document's choice rather than the default.
 
+A link to the page being shown is never prefetched under either timing. After a view transition the pointer rests on the link it clicked, which now names the page on screen.
+
 A link decides for itself, whichever way the document leans. `none` is right for a link whose loader is expensive or whose route logs the visit and `viewport` for the one link on the page that is almost certainly next:
 
 ```html

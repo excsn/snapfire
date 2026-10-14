@@ -24,7 +24,7 @@ export interface NavigationOptions {
 	/** Whether a navigation swaps the page inside a view transition, `document.startViewTransition`, so the browser animates from the old page to the new one. A link's own `data-sf-transition` overrides it. Skipped where the browser has no view transitions, when the visitor prefers reduced motion and when the tab is hidden. Defaults to false. */
 	transitions?: boolean;
 }
-/** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone. Resolves once the payload has arrived whole. */
+/** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone, and so is the page being shown, whose link the pointer rests on after every view transition. Resolves once the payload has arrived whole. */
 export declare function prefetch(href: string, options?: NavigateOptions): Promise<void>;
 /** Drops every held payload, which is what a mutation calls for. */
 export declare function clearRouterCache(): void;

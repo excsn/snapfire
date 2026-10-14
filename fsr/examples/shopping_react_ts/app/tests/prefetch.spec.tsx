@@ -57,3 +57,13 @@ test("hover timing leaves a link unobserved", async () => {
   enableNavigation({ prefetch: "hover" });
   expect(view.observed.length, "nothing is watched while the document prefetches on hover").toEqual(0);
 });
+
+test("a link to the page being shown is not prefetched", async () => {
+  const c = ctx({ session: { cart: {} }, services: { shopping: { listProducts: () => [filament] } } });
+  await load("/", { ctx: c });
+  enableNavigation({ prefetch: "hover" });
+  const before = c.trace.calls.length;
+  document.querySelector("a.brand")?.dispatchEvent(new Event("mouseover", { bubbles: true }));
+  await settle();
+  expect(c.trace.calls.length, "a hover over the link to / on / runs no loader; after a view transition the pointer's link is hovered again").toEqual(before);
+});
