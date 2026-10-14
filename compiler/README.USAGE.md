@@ -791,6 +791,12 @@ A class that is neither a utility nor named by a selector in any stylesheet is a
 ⚠️  `flx` in src/Badge.tsx is not a Tailwind utility and no stylesheet defines it
 ```
 
+The compiler never scans files for classes, so a stylesheet that names some is refused rather than built without their utilities. That covers `@source "path"`, `@source not "path"` and `@import "tailwindcss" source("dir")`. `source(none)` and `@source inline(...)` build as usual:
+
+```text
+❌ Error compiling "styles/app.css": `@source "../node_modules/acme-ui"`: snapfirec reads classes from the sources it compiles and from --tailwind-classes, not from files a stylesheet names; list the classes with `@source inline("...")` instead
+```
+
 `@import` of a relative file is resolved against the stylesheet and inlined. Under `--watch` or `--driven`, a change to a script whose classes changed, to the classes file or to an imported stylesheet rebuilds the Tailwind stylesheets that read it.
 
 ### Switching Tailwind Themes

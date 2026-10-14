@@ -20,7 +20,7 @@ A stylesheet under `styles/` that imports Tailwind is the opt-in:
 }
 ```
 
-Everything Tailwind CSS v4 reads in a stylesheet works: `@theme`, `@utility`, `@variant`, `@custom-variant`, `@apply`, `@source inline(...)`, `theme()` and `--spacing()`. There is no `tailwind.config.js` and no Node: the engine is `snapfire_tailwind`, a Rust port of Tailwind's own compiler. A JavaScript plugin or config is refused by name.
+Everything Tailwind CSS v4 reads in a stylesheet works: `@theme`, `@utility`, `@variant`, `@custom-variant`, `@apply`, `@source inline(...)`, `theme()` and `--spacing()`. There is no `tailwind.config.js` and no Node: the engine is `snapfire_tailwind`, a Rust port of Tailwind's own compiler. A JavaScript plugin or config is refused by name. So is a stylesheet that points Tailwind at files to scan, `@source "../node_modules/some-ui"` or `source("../src")` on the import, since the build reads classes from what it compiles and never scans; the error says to list such classes with `@source inline(...)`.
 
 ## Where the classes come from
 

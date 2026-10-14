@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use snapfire_tailwind::{CompileOptions, Compiler, Error, Loaded, NamedTheme, tailwind_stylesheet};
+use snapfire_tailwind::{CompileOptions, Compiler, Error, Loaded, NamedTheme, Root, tailwind_stylesheet};
 
 /// What expanding one stylesheet produced. `reads` holds every file it read besides itself,
 /// whether or not it succeeded, so a change to any of them compiles it again.
@@ -102,7 +102,7 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
   };
 
   let options = CompileOptions { base: dir, load_stylesheet: Some(Box::new(load)), from: Some(source_name.to_owned()), themes: named, root_selectors, ..CompileOptions::default() };
-  let compiled = Compiler::new(content, options).map(|mut compiler| {
+  let compiled = Compiler::new(content, options).and_then(|compiler| unread_sources(&compiler).map_or(Ok(compiler), Err)).map(|mut compiler| {
     let css = compiler.build(listed.iter().map(|(class, _)| class.as_str()));
     let invalid = compiler.invalid_candidates();
     let defined = defined_classes(&css);
@@ -116,6 +116,21 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
     Ok((css, warnings, unknown)) => Expanded { css: Ok(css), reads, warnings, unknown },
     Err(e) => Expanded { css: Err(e.to_string()), reads, warnings: Vec::new(), unknown: Vec::new() },
   }
+}
+
+/// A `@source` path or a `source("dir")` on the import: snapfirec reads classes from the sources
+/// it compiles and the classes file, never from files a stylesheet names, so a class only such a
+/// file holds would build no utility.
+fn unread_sources(compiler: &Compiler) -> Option<Error> {
+  let remedy = "snapfirec reads classes from the sources it compiles and from --tailwind-classes, not from files a stylesheet names; list the classes with `@source inline(\"...\")` instead";
+  if let Some(source) = compiler.sources().first() {
+    let line = if source.negated { format!("@source not \"{}\"", source.pattern) } else { format!("@source \"{}\"", source.pattern) };
+    return Some(Error::Message(format!("`{line}`: {remedy}")));
+  }
+  if let Some(Root::Path { pattern, .. }) = compiler.root() {
+    return Some(Error::Message(format!("`source(\"{pattern}\")`: {remedy}")));
+  }
+  None
 }
 
 /// The class names a stylesheet's selectors name, so a class an author wrote a rule for is not
@@ -349,5 +364,22 @@ mod tests {
     assert_eq!(expanded.unknown, [("flx".to_owned(), "routes/layout.tsx#default".to_owned())]);
     assert_eq!(expanded.reads, [classes, dir.join("brand.css")]);
     std::fs::remove_dir_all(&dir).unwrap();
+  }
+
+  #[test]
+  fn refuses_a_stylesheet_that_names_files_for_classes() {
+    let sheet = Path::new("styles/app.css");
+    for (content, line) in [
+      ("@import \"tailwindcss\";\n@source \"../node_modules/acme-ui\";\n", "`@source \"../node_modules/acme-ui\"`"),
+      ("@import \"tailwindcss\";\n@source not \"./legacy\";\n", "`@source not \"./legacy\"`"),
+      ("@import \"tailwindcss\" source(\"../src\");\n", "`source(\"../src\")`"),
+    ] {
+      let error = expand(sheet, content, None, &[], None, "styles/app.css").css.unwrap_err();
+      assert!(error.starts_with(&format!("{line}: ")) && error.contains("@source inline("), "{error}");
+    }
+    for content in ["@import \"tailwindcss\" source(none);\n", "@import \"tailwindcss\";\n@source inline(\"flex\");\n"] {
+      let css = expand(sheet, content, None, &[], None, "styles/app.css").css.unwrap();
+      assert!(!css.is_empty(), "{content}");
+    }
   }
 }
