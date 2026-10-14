@@ -32,7 +32,7 @@ pub fn project_root(app: &Path) -> PathBuf {
 
 /// Builds the host for `app` and serves it until the process ends.
 pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
-  let (host, traces) = host_of(app, true, &options.mounts)?;
+  let (host, traces, _logging) = host_of(app, true, &options.mounts)?;
   let host = Arc::new(host);
   print!("{}", host.report());
   let listen = options.listen.unwrap_or_else(|| host.listen().to_owned());
@@ -69,7 +69,7 @@ pub fn prerender(app: &Path, out: Option<&Path>) -> Result<Vec<(String, PathBuf)
 }
 
 pub fn host_for(app: &Path) -> Result<Host, BuildError> {
-  host_of(app, false, &[]).map(|(host, _)| host)
+  host_of(app, false, &[]).map(|(host, _, _)| host)
 }
 
 /// The builder `fsr serve` would build from, with `mounts` laid over the
@@ -92,11 +92,13 @@ pub fn builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<
   Ok(builder.reloader(move || build().map(snapfire_fsr_sites::mountable).and_then(|b| snapfire_fsr_sites::mount_all(b).map_err(|e| snapfire_fsr_host::HostError::Mount("sites".to_owned(), e.to_string())))))
 }
 
-/// `host_for`, with the handle to the collector when one was installed.
-/// Only a development host collects. A span costs an atomic load and a branch
-/// while nothing keeps it; the endpoint that serves them back is not registered
-/// outside development.
-fn host_of(app: &Path, collect: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>), BuildError> {
+/// `host_for`, with the handle to the collector when one was installed and
+/// the logging guard to hold while it serves. `serve` sets the process's
+/// logging: the project's `fibre_logging.yaml`, else warnings and errors to
+/// stderr. Only a development host collects. A span costs an atomic load and
+/// a branch while nothing keeps it; the endpoint that serves them back is not
+/// registered outside development.
+fn host_of(app: &Path, serve: bool, mounts: &[(String, PathBuf)]) -> Result<(Host, Option<Traces>, Option<snapfire_fsr_host::trace::LoggingGuard>), BuildError> {
   let given = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let root = project_root(&given);
   let builder = match mounts.is_empty() {
@@ -108,12 +110,18 @@ fn host_of(app: &Path, collect: bool, mounts: &[(String, PathBuf)]) -> Result<(H
   if configured != given {
     return Err(BuildError::Serve(format!("{} names {} as the app directory, not {}", root.display(), config.app.display(), given.display())));
   }
-  let traces = match collect && config.dev() {
-    true => snapfire_fsr_host::trace::install(),
-    false => None,
+  let (traces, logging) = match serve {
+    true => {
+      let (traces, logging, why) = snapfire_fsr_host::trace::observe_project(&root, config.dev());
+      if let Some(why) = why {
+        eprintln!("logging: {why}; warnings and errors go to stderr");
+      }
+      (traces, logging)
+    }
+    false => (None, None),
   };
   let builder = snapfire_fsr_sites::mountable(builder);
   let builder = snapfire_fsr_sites::mount_all(builder).map_err(|e| BuildError::Serve(e.to_string()))?;
   let host = builder.traces(traces.clone()).build().map_err(|e| BuildError::Serve(e.to_string()))?;
-  Ok((host, traces))
+  Ok((host, traces, logging))
 }

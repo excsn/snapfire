@@ -7,6 +7,7 @@
 
 use tracing_subscriber::layer::SubscriberExt;
 
+pub use fibre_logging::InitResult as LoggingGuard;
 pub use fibre_tracing::{Span, Trace, TraceLayer, Traces};
 
 /// The collector as a layer, for an application whose framework sets the
@@ -52,6 +53,48 @@ pub fn observe(config: &std::path::Path) -> (Option<Traces>, Option<fibre_loggin
     Ok((logging, guard)) => (install_with(logging), Some(guard), None),
     Err(e) => (install(), None, Some(e.to_string())),
   }
+}
+
+/// The logging configuration `fsr serve` and `fsr dev` read beside a project's `config/`.
+pub const LOGGING_FILE: &str = "fibre_logging.yaml";
+
+/// A layer over the plain registry, boxed so either kind of logging fits.
+pub type BoxedLayer = Box<dyn tracing_subscriber::Layer<tracing_subscriber::Registry> + Send + Sync>;
+
+/// The layer that takes a project's events out: `fibre_logging` from
+/// [`LOGGING_FILE`] under `root` when there is one, else warnings and errors
+/// written to `fallback`. A file that does not load falls back too, and the
+/// reason is returned. The guard flushes `fibre_logging`'s appenders on drop.
+pub fn project_logging<W>(root: &std::path::Path, fallback: W) -> (BoxedLayer, Option<fibre_logging::InitResult>, Option<String>)
+where
+  W: for<'w> tracing_subscriber::fmt::MakeWriter<'w> + Send + Sync + 'static,
+{
+  use tracing_subscriber::Layer;
+  let config = root.join(LOGGING_FILE);
+  let mut why = None;
+  if config.is_file() {
+    match fibre_logging::init::layer_from_file(&config) {
+      Ok((logging, guard)) => return (Box::new(logging), Some(guard), None),
+      Err(e) => why = Some(format!("{}: {e}", config.display())),
+    }
+  }
+  let plain = tracing_subscriber::fmt::layer().with_writer(fallback).with_ansi(false).with_filter(tracing_subscriber::filter::LevelFilter::WARN);
+  (Box::new(plain), None, why)
+}
+
+/// [`project_logging`] to stderr set as the global subscriber, with the
+/// collector beside it when `collect`. Returns the collector's handle, the
+/// guard to hold for the life of the process and why the file did not load.
+pub fn observe_project(root: &std::path::Path, collect: bool) -> (Option<Traces>, Option<fibre_logging::InitResult>, Option<String>) {
+  let (logging, guard, why) = project_logging(root, std::io::stderr);
+  let traces = match collect {
+    true => install_with(logging),
+    false => {
+      let _ = tracing::subscriber::set_global_default(tracing_subscriber::registry().with(logging));
+      None
+    }
+  };
+  (traces, guard, why)
 }
 
 /// One trace as the value a route answers with: the spans in the order they
