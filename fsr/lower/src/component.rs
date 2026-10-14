@@ -119,11 +119,47 @@ pub struct ComponentSet {
   /// Custom element tags with a shadow template, to the template's module. A
   /// placement of one is marked, so the server writes the template inside it.
   elements: Rc<HashMap<String, String>>,
+  /// Writes the TSX module the set lowers for a file in [`TRANSFORMED`].
+  transform: Option<Rc<Transform>>,
+  /// A transformed file lowered again with some elements placed as other
+  /// components, for a placement that passes it `components`: by the id the
+  /// placement names, the file and the elements it replaces.
+  variants: HashMap<String, (String, Vec<Override>)>,
+}
+
+/// The extensions of files the set lowers through the module a [`Transform`]
+/// writes from them, rather than reading them as TypeScript.
+pub const TRANSFORMED: &[&str] = &["mdx", "md"];
+
+/// Whether `file` is written in a language a [`Transform`] turns into TSX.
+pub fn is_transformed(file: &str) -> bool {
+  let file = file.split_once('#').map(|(file, _)| file).unwrap_or(file);
+  let file = file.rsplit_once('~').map(|(file, _)| file).unwrap_or(file);
+  Path::new(file).extension().and_then(|e| e.to_str()).is_some_and(|ext| TRANSFORMED.contains(&ext.to_ascii_lowercase().as_str()))
+}
+
+/// Writes the TSX module for `file`, whose text is `source`, with each
+/// element in `overrides` placed as the component it names.
+pub type Transform = dyn Fn(&str, &str, &[Override]) -> Result<Transformed, String>;
+
+/// One element of a transformed file placed as a component other than the
+/// application's map gives: `export` of `specifier`, relative to the file.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Override {
+  pub key: String,
+  pub specifier: String,
+  pub export: String,
+}
+
+/// The module a [`Transform`] wrote and where its runs came from.
+pub struct Transformed {
+  pub source: String,
+  pub origin: Option<crate::Origin>,
 }
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -131,6 +167,13 @@ impl ComponentSet {
   pub fn with_assets(mut self, resolver: Rc<dyn AssetResolver>, rewrite_images: bool) -> Self {
     self.assets = resolver;
     self.rewrite_images = rewrite_images;
+    self
+  }
+
+  /// What writes the module for an `.mdx` or `.md` file. Without one, such a
+  /// file does not parse and the error says which feature reads it.
+  pub fn with_transform(mut self, transform: Rc<Transform>) -> Self {
+    self.transform = Some(transform);
     self
   }
 
@@ -506,7 +549,7 @@ impl ComponentSet {
     sources
       .iter()
       .filter_map(|src| self.resolve_import(file, src))
-      .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)) || self.described.contains_key(target))
+      .filter(|target| [".tsx", ".ts", ".jsx", ".js"].iter().any(|ext| target.ends_with(ext)) || is_transformed(target) || self.described.contains_key(target))
       .collect()
   }
 
@@ -562,7 +605,7 @@ impl ComponentSet {
     }
     let parsed = self.parsed[&file].clone();
     let export = module.split_once('#').map(|(_, export)| export).unwrap_or("default");
-    if async_function_span(&parsed, export).is_some() {
+    if async_function_span(&parsed, export).is_some() && !find_function(&parsed, export).is_some_and(|f| awaits_only_imports(&f)) {
       return Ok(None);
     }
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
@@ -806,11 +849,30 @@ impl ComponentSet {
     if let Some(error) = self.failed.get(file) {
       return Err(error.clone());
     }
+    if let Some((base, overrides)) = self.variants.get(file).cloned() {
+      let source = match self.provided.get(&base) {
+        Some(source) => Ok(source.clone()),
+        None => std::fs::read_to_string(self.app.join(&base)).map_err(|e| LowerError::Parse { file: base.clone(), message: e.to_string() }),
+      };
+      return match source.and_then(|source| self.transformed(&base, &source, &overrides)) {
+        Ok(parsed) => {
+          self.parsed.insert(file.to_owned(), Rc::new(parsed));
+          Ok(())
+        }
+        Err(error) => {
+          self.failed.insert(file.to_owned(), error.clone());
+          Err(error)
+        }
+      };
+    }
     let parsed = match self.provided.get(file) {
       Some(source) => Ok(source.clone()),
       None => std::fs::read_to_string(self.app.join(file)).map_err(|e| LowerError::Parse { file: file.to_owned(), message: e.to_string() }),
     }
-    .and_then(|source: String| parse_with(file, &source, file.ends_with(".tsx")));
+    .and_then(|source: String| match is_transformed(file) {
+      true => self.transformed(file, &source, &[]),
+      false => parse_with(file, &source, file.ends_with(".tsx")),
+    });
     match parsed {
       Ok(parsed) => {
         self.parsed.insert(file.to_owned(), Rc::new(parsed));
@@ -821,6 +883,70 @@ impl ComponentSet {
         Err(error)
       }
     }
+  }
+
+  /// Every `import(`prefix${x}suffix`)` in `file`: by where its call starts,
+  /// the files under the app it can load, each with the value of `x` that
+  /// names it, and as globals every value each of those files exports, keyed
+  /// `file#export`, so a destructured `meta` picks among them.
+  fn template_imports(&mut self, file: &str) -> Result<(HashMap<u32, Vec<(String, String)>>, Vec<(String, Expr)>), LowerError> {
+    let parsed = self.parsed[file].clone();
+    let mut imports = HashMap::new();
+    let mut globals = Vec::new();
+    for (lo, prefix, suffix) in template_import_calls(&parsed.module) {
+      let choices = self.import_choices(file, &prefix, &suffix);
+      for (_, target) in &choices {
+        self.load(target)?;
+        let exports: Vec<String> = self.meanings(target).exports.keys().filter(|name| *name != "default").cloned().collect();
+        for export in exports {
+          let key = format!("{target}#{export}");
+          if globals.iter().any(|(k, _)| *k == key) {
+            continue;
+          }
+          if let Ok(Some((expr, named))) = self.global(target, &export) {
+            let expr = self.name_if_large(named, expr);
+            globals.push((key, expr));
+          }
+        }
+      }
+      imports.insert(lo, choices);
+    }
+    Ok((imports, globals))
+  }
+
+  /// The files `prefix${x}suffix` names from `file`, in the one directory the
+  /// prefix ends in, each with the text that stands for `x`.
+  fn import_choices(&self, file: &str, prefix: &str, suffix: &str) -> Vec<(String, String)> {
+    let (dir_spec, start) = match prefix.rsplit_once('/') {
+      Some((dir, start)) => (dir.to_owned(), start.to_owned()),
+      None => (".".to_owned(), prefix.to_owned()),
+    };
+    let Some(probe) = crate::resolve_specifier(file, &format!("{dir_spec}/x")) else { return Vec::new() };
+    let dir = probe.rsplit_once('/').map(|(d, _)| d.to_owned()).unwrap_or_default();
+    let mut names: Vec<String> = std::fs::read_dir(self.app.join(&dir)).map(|entries| entries.filter_map(|e| e.ok()).filter(|e| e.path().is_file()).filter_map(|e| e.file_name().to_str().map(str::to_owned)).collect()).unwrap_or_default();
+    for provided in self.provided.keys() {
+      if let Some(name) = provided.strip_prefix(&format!("{dir}/")).filter(|n| !n.contains('/')) {
+        names.push(name.to_owned());
+      }
+    }
+    names.sort();
+    names.dedup();
+    names
+      .into_iter()
+      .filter_map(|name| {
+        let middle = name.strip_prefix(start.as_str())?.strip_suffix(suffix)?;
+        (!middle.is_empty() && !middle.contains('/') && !is_foreign(&name)).then(|| (middle.to_owned(), if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") }))
+      })
+      .collect()
+  }
+
+  /// `source`, the text of `file`, as the module the transform writes from it.
+  fn transformed(&self, file: &str, source: &str, overrides: &[Override]) -> Result<Parsed, LowerError> {
+    let Some(transform) = &self.transform else {
+      return Err(LowerError::Parse { file: file.to_owned(), message: "an MDX or markdown module, which this fsr reads only when built with its `mdx` feature".to_owned() });
+    };
+    let written = transform(file, source, overrides).map_err(|message| LowerError::Parse { file: file.to_owned(), message })?;
+    crate::parse_from(file, &written.source, true, written.origin.map(Rc::new))
   }
 
   /// The file an import names relative to the app, through an alias or a
@@ -835,7 +961,7 @@ impl ComponentSet {
       _ => Vec::new(),
     };
     for candidate in [joined.clone(), format!("{joined}.tsx"), format!("{joined}.ts"), format!("{joined}/index.tsx"), format!("{joined}/index.ts")].into_iter().chain(compiled) {
-      if candidate.starts_with("generated/") && candidate != crate::HEAD_MODULE {
+      if candidate.starts_with("generated/") && candidate != crate::HEAD_MODULE && candidate != crate::CONTENT_MODULE {
         continue;
       }
       if self.provided.contains_key(&candidate) || self.app.join(&candidate).is_file() {
@@ -855,7 +981,11 @@ impl ComponentSet {
     if let Some(span) = tree_call(&self.parsed[file].clone(), &meanings).filter(|_| export == "default") {
       return Err(LowerError::Retired(self.parsed[file].residue(span, "`tree(...)` is gone: a layout is composition and its page renders in a region of its own, so `export default` the layout itself and share state with the page through the store")));
     }
+    let (imports, chosen_globals) = self.template_imports(file)?;
+    let imports = Rc::new(imports);
+    globals.extend(chosen_globals);
     let mut hook_files: Vec<(String, String, String)> = Vec::new();
+    let mut variants: Vec<(String, String, Vec<Override>)>;
     let ((component, refs, providers, own_heads), hoisting) = loop {
       let meanings = self.meanings(file);
       let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed[at].clone(), export.clone())).collect();
@@ -863,7 +993,7 @@ impl ComponentSet {
         let parsed = self.parsed[file].clone();
         let function = find_function(&parsed, export).ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() })?;
         let defaults = self.defaults.clone();
-        if let Some(span) = async_function_span(&parsed, export) {
+        if let Some(span) = async_function_span(&parsed, export).filter(|_| !awaits_only_imports(&function)) {
           return Err(Lowerer::new(&parsed, &defaults).residue(span, ASYNC_COMPONENT).into());
         }
         let mut lowerer = Lowerer::new(&parsed, &defaults);
@@ -873,9 +1003,10 @@ impl ComponentSet {
         lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
+        variants = std::mem::take(&mut cl.variants);
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
         let result = match result {
           Err(residue) if cl.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
@@ -908,6 +1039,9 @@ impl ComponentSet {
         }
       }
     };
+    for (variant, base, overrides) in variants {
+      self.variants.insert(variant, (base, overrides));
+    }
     let mut modules: HashMap<String, String> = HashMap::new();
     let mut islands: HashMap<String, IslandTiming> = HashMap::new();
     let refs_positions: Vec<(String, (usize, usize))> = refs.clone();
@@ -1126,6 +1260,10 @@ impl ComponentSet {
   /// file a namespace import binds as `Ns`.
   fn component_module(&mut self, file: &str, name: &str) -> Result<(String, Option<IslandTiming>), String> {
     use crate::meaning::Meaning;
+    if let Some((target, export)) = name.split_once('#') {
+      self.load(target).map_err(|e| e.to_string())?;
+      return self.exported_component(target, export);
+    }
     let meanings = self.meanings(file);
     let (looked, meant) = match name.split_once('.') {
       Some((namespace, member)) => match meanings.bindings.get(namespace) {
@@ -1540,7 +1678,7 @@ pub const CLIENT_SOURCE: &str = "@snapfire/fsr-client";
 pub fn is_foreign(module: &str) -> bool {
   let file = module.split_once('#').map(|(file, _)| file).unwrap_or(module);
   let ext = std::path::Path::new(file).extension().and_then(|e| e.to_str()).unwrap_or("");
-  !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs")
+  !matches!(ext, "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs") && !is_transformed(file)
 }
 
 /// Every module `tmpl` places, inline or as an island.
@@ -1954,6 +2092,73 @@ fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
       _ => None,
     }
   })
+}
+
+/// Every `import(`prefix${x}suffix`)` in `module`: where the call starts and
+/// the literal text on either side of its one substitution.
+fn template_import_calls(module: &js::Module) -> Vec<(u32, String, String)> {
+  struct Found(Vec<(u32, String, String)>);
+  impl Visit for Found {
+    fn visit_call_expr(&mut self, call: &js::CallExpr) {
+      if let (js::Callee::Import(_), Some(js::Expr::Tpl(tpl))) = (&call.callee, call.args.first().map(|a| &*a.expr)) {
+        if let ([before, after], [_]) = (tpl.quasis.as_slice(), tpl.exprs.as_slice()) {
+          let text = |q: &js::TplElement| q.cooked.as_ref().map(|c| c.to_atom_lossy().to_string()).unwrap_or_else(|| q.raw.to_string());
+          self.0.push((call.span.lo.0, text(before), text(after)));
+        }
+      }
+      call.visit_children_with(self);
+    }
+  }
+  let mut found = Found(Vec::new());
+  module.visit_with(&mut found);
+  found.0
+}
+
+/// Whether every `await` in a component's body awaits an `import(...)`, which
+/// the build resolves itself, so the component may be `async`.
+fn awaits_only_imports(found: &Found<'_>) -> bool {
+  struct Awaits(bool);
+  impl Visit for Awaits {
+    fn visit_await_expr(&mut self, awaited: &js::AwaitExpr) {
+      let mut arg = &*awaited.arg;
+      while let js::Expr::Paren(inner) = arg {
+        arg = &inner.expr;
+      }
+      if !matches!(arg, js::Expr::Call(call) if matches!(call.callee, js::Callee::Import(_))) {
+        self.0 = false;
+      }
+      awaited.visit_children_with(self);
+    }
+    fn visit_for_of_stmt(&mut self, stmt: &js::ForOfStmt) {
+      if stmt.is_await {
+        self.0 = false;
+      }
+      stmt.visit_children_with(self);
+    }
+  }
+  let mut awaits = Awaits(true);
+  match found {
+    Found::Declared(_, stmts, _) => stmts.iter().for_each(|s| s.visit_with(&mut awaits)),
+    Found::Arrow(arrow) => arrow.body.visit_with(&mut awaits),
+  }
+  awaits.0
+}
+
+/// The call an `await import(...)` awaits, through parentheses.
+fn awaited_import(init: &js::Expr) -> Option<&js::CallExpr> {
+  let mut expr = init;
+  while let js::Expr::Paren(inner) = expr {
+    expr = &inner.expr;
+  }
+  let js::Expr::Await(awaited) = expr else { return None };
+  let mut arg = &*awaited.arg;
+  while let js::Expr::Paren(inner) = arg {
+    arg = &inner.expr;
+  }
+  match arg {
+    js::Expr::Call(call) if matches!(call.callee, js::Callee::Import(_)) => Some(call),
+    _ => None,
+  }
 }
 
 /// Every `import("literal")` in `module`, wherever it sits: a module the browser loads on demand, which the build compiles like one it imports statically and never preloads.
@@ -3024,6 +3229,15 @@ struct ComponentLowerer<'a, 'p> {
   rewrite_images: bool,
   /// The head rows this component asks for, a priority image's preload.
   heads: Vec<HeadRow>,
+  /// Each `import(`...${x}...`)` in the file, by where its call starts: the
+  /// files it can load and the value of `x` that picks each.
+  imports: Rc<HashMap<u32, Vec<(String, String)>>>,
+  /// Names bound to the default export of such an import: the key that picks
+  /// a file and the choices.
+  chosen: HashMap<String, (Expr, Vec<(String, String)>)>,
+  /// The transformed files placed with a `components` prop: the id each
+  /// placement names, the file and the elements it replaces.
+  variants: Vec<(String, String, Vec<Override>)>,
 }
 
 /// One head element a component asks for: a tag and its attributes in order.
@@ -3377,6 +3591,108 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(())
   }
 
+  /// `components={{ h2: Heading }}` on a placed MDX file: each element and the
+  /// component this file's name for it resolves to.
+  fn component_overrides(&mut self, attr: &'p js::JSXAttr) -> Lowered<Vec<Override>> {
+    let object = match &attr.value {
+      Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) => match &**e {
+        js::Expr::Object(object) => object,
+        other => return Err(self.lowerer.residue(other.span(), "`components` that is not an object written out, as `{{ h2: Heading }}`")),
+      },
+      _ => return Err(self.lowerer.residue(attr.span, "`components` that is not an object written out, as `{{ h2: Heading }}`")),
+    };
+    let mut out = Vec::new();
+    for prop in &object.props {
+      let (key, local) = match prop {
+        js::PropOrSpread::Prop(p) => match &**p {
+          js::Prop::KeyValue(kv) => match (prop_name(&kv.key), &*kv.value) {
+            (Some(key), js::Expr::Ident(local)) => (key, local.sym.to_string()),
+            _ => return Err(self.lowerer.residue(prop.span(), "a `components` entry that is not a component's name")),
+          },
+          js::Prop::Shorthand(id) => (id.sym.to_string(), id.sym.to_string()),
+          _ => return Err(self.lowerer.residue(prop.span(), "a `components` entry that is not a component's name")),
+        },
+        js::PropOrSpread::Spread(spread) => return Err(self.lowerer.residue(spread.expr.span(), "a spread in `components`")),
+      };
+      match self.meanings().bindings.get(&local) {
+        Some(crate::meaning::Meaning::Own { file, name }) => out.push(Override { key, specifier: format!("@app/{file}"), export: name.clone() }),
+        Some(meant @ crate::meaning::Meaning::Library(_)) if meant.placement().is_some() => {
+          let Some((source, imported)) = find_import(self.lowerer.parsed, &local) else { return Err(self.lowerer.residue(prop.span(), format!("`{local}` is not imported"))) };
+          out.push(Override { key, specifier: source, export: imported });
+        }
+        _ => return Err(self.lowerer.residue(prop.span(), format!("`{local}` is not a component this file declares or imports"))),
+      }
+    }
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    Ok(out)
+  }
+
+  /// The id a placement of `target` names: the file itself, or with
+  /// `overrides` a variant of it the set lowers with those elements replaced.
+  fn variant_of(&mut self, target: &str, overrides: &[Override]) -> String {
+    if overrides.is_empty() {
+      return target.to_owned();
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for o in overrides {
+      for byte in format!("{}={}:{};", o.key, o.specifier, o.export).bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+      }
+    }
+    let variant = format!("{target}~{:08x}", hash as u32);
+    if !self.variants.iter().any(|(v, _, _)| *v == variant) {
+      self.variants.push((variant.clone(), target.to_owned(), overrides.to_vec()));
+    }
+    variant
+  }
+
+  /// `const { default: Post, meta } = await import(`../content/${slug}.mdx`)`:
+  /// `Post` places whichever file the key names and `meta` is that file's
+  /// export, each chosen by comparing the key with the text that names a file.
+  fn template_import(&mut self, decl: &'p js::VarDeclarator, call: &'p js::CallExpr) -> Lowered<()> {
+    let Some(choices) = self.imports.get(&call.span.lo.0).cloned() else {
+      return Err(self.lowerer.residue(call.span, "an `import()` of something other than a template with one substitution, such as `../content/${slug}.mdx`"));
+    };
+    let Some(js::Expr::Tpl(tpl)) = call.args.first().map(|a| &*a.expr) else { unreachable!("a template import") };
+    let key = self.lowerer.expr(&tpl.exprs[0])?;
+    let js::Pat::Object(pattern) = &decl.name else {
+      return Err(self.lowerer.residue(decl.span, "an imported module bound whole; destructure it, as `const { default: Post, meta } = await import(...)`"));
+    };
+    if choices.is_empty() {
+      return Err(self.lowerer.residue(call.span, "an `import()` no file under the app matches"));
+    }
+    let picks = |value: &str| Expr::Compare(CompareOp::Eq, Box::new(Expr::Str(Box::new(key.clone()))), Box::new(Expr::lit_str(value)));
+    for prop in &pattern.props {
+      let (export, local) = match prop {
+        js::ObjectPatProp::KeyValue(kv) => match (prop_name(&kv.key), &*kv.value) {
+          (Some(export), js::Pat::Ident(local)) => (export, local.id.sym.to_string()),
+          _ => return Err(self.lowerer.residue(prop.span(), "a nested pattern in an imported module's destructuring")),
+        },
+        js::ObjectPatProp::Assign(a) if a.value.is_none() => (a.key.id.sym.to_string(), a.key.id.sym.to_string()),
+        other => return Err(self.lowerer.residue(other.span(), "a default or a rest in an imported module's destructuring")),
+      };
+      if export == "default" {
+        if !local.starts_with(|c: char| c.is_ascii_uppercase()) {
+          return Err(self.lowerer.residue(prop.span(), format!("`{local}` names a component; capitalise it so JSX places it")));
+        }
+        self.chosen.insert(local, (key.clone(), choices.clone()));
+        continue;
+      }
+      let mut value = Expr::Lit(Lit::Null);
+      for (text, target) in choices.iter().rev() {
+        let Some((_, export_value)) = self.lowerer.globals.iter().find(|(k, _)| *k == format!("{target}#{export}")).cloned() else {
+          return Err(self.lowerer.residue(prop.span(), format!("`{export}`, which `{target}` does not export as a value the build reads")));
+        };
+        value = Expr::Ternary(Box::new(picks(text)), Box::new(export_value), Box::new(value));
+      }
+      let fresh = self.lowerer.temp();
+      self.pending_lets.push(Stmt::Let { name: fresh.clone(), expr: value });
+      self.lowerer.scope.push((local, Expr::Var(fresh)));
+    }
+    Ok(())
+  }
+
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
     let Some(first) = params.first() else { return Ok(()) };
     match first {
@@ -3420,6 +3736,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// A function value, `useCallback` included, is a handler.
   fn let_stmt(&mut self, decl: &'p js::VarDeclarator) -> Lowered<Option<Stmt>> {
     let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+    if let Some(call) = awaited_import(init) {
+      self.template_import(decl, call)?;
+      return Ok(None);
+    }
     match &decl.name {
       js::Pat::Ident(name) => {
         let local = name.id.sym.to_string();
@@ -3730,9 +4050,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       _ => None,
     };
     if provider.is_some() || named_provider.is_some() {
-      let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
+      let loc = self.lowerer.parsed.loc(el.span.lo);
       let shown = named_provider.unwrap_or_else(|| jsx_tag_name(&el.opening.name));
-      self.providers.push((shown, (loc.line, loc.col_display + 1), provider.as_ref().map(|(_, react)| *react)));
+      self.providers.push((shown, loc, provider.as_ref().map(|(_, react)| *react)));
       let children = Tmpl::Fragment(self.children(&el.children)?);
       let Some((id, _)) = provider else { return Ok(children) };
       let mut value = Expr::Lit(Lit::Null);
@@ -4384,7 +4704,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       _ => {}
     }
-    if let js::JSXElementName::Ident(id) = &el.opening.name {
+    let chosen = self.chosen.get(name).cloned();
+    if let (js::JSXElementName::Ident(id), None) = (&el.opening.name, &chosen) {
       let meanings = self.meanings();
       if id.ctxt != meanings.top && id.ctxt != meanings.unresolved {
         return Err(self.lowerer.residue(el.opening.name.span(), format!("`{name}` is not a component this file declares or imports")));
@@ -4394,6 +4715,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let lowered = self.component_ref(&target, el, false)?;
       return self.island_of(lowered, when, mode, el.span);
     }
+    let transformed_target = match &chosen {
+      Some(_) => true,
+      None => matches!(self.meanings().bindings.get(name), Some(crate::meaning::Meaning::Own { file, name: export }) if is_transformed(file) && export == "default"),
+    };
+    let mut overrides: Vec<Override> = Vec::new();
     let mut props = Vec::new();
     for attr in &el.opening.attrs {
       let attr = match attr {
@@ -4405,6 +4731,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       };
       let raw = attr_name(&attr.name);
       if raw == "key" || raw == "ref" {
+        continue;
+      }
+      if raw == "components" && transformed_target {
+        overrides = self.component_overrides(attr)?;
         continue;
       }
       if raw == "children" {
@@ -4430,14 +4760,31 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       props.push(Entry::Field(raw, value));
     }
     let children = self.children(&el.children)?;
-    let loc = self.lowerer.parsed.cm.lookup_char_pos(el.span.lo);
-    self.refs.push((name.to_owned(), (loc.line, loc.col_display + 1)));
+    let loc = self.lowerer.parsed.loc(el.span.lo);
     let at = self.lowerer.parsed.range(el.opening.name.span()).end;
     let range = self.lowerer.parsed.range(el.span);
     let id = match &mut self.lowerer.hoisting {
       Some(candidates) => candidates.island(at, range, as_child),
       None => 0,
     };
+    if let Some((key, choices)) = chosen {
+      let mut tree = Tmpl::Fragment(Vec::new());
+      for (text, target) in choices.iter().rev() {
+        let placed = format!("{}#default", self.variant_of(target, &overrides));
+        self.refs.push((placed.clone(), loc));
+        let cond = Expr::Compare(CompareOp::Eq, Box::new(Expr::Str(Box::new(key.clone()))), Box::new(Expr::lit_str(text.clone())));
+        let then = Tmpl::Component { module: format!("{}#{placed}", self.file), props: props.clone(), children: children.clone(), id, keyed: false };
+        tree = Tmpl::If { cond, then: Box::new(then), r#else: Some(Box::new(tree)) };
+      }
+      return Ok(tree);
+    }
+    if !overrides.is_empty() {
+      let Some(crate::meaning::Meaning::Own { file: target, .. }) = self.meanings().bindings.get(name).cloned() else { unreachable!("a transformed target") };
+      let placed = format!("{}#default", self.variant_of(&target, &overrides));
+      self.refs.push((placed.clone(), loc));
+      return Ok(Tmpl::Component { module: format!("{}#{placed}", self.file), props, children, id, keyed: false });
+    }
+    self.refs.push((name.to_owned(), loc));
     Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children, id, keyed: false })
   }
 

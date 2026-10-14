@@ -22,6 +22,12 @@ default = ["tera"]
 tls = ["snapfire_fsr_host/tls"]
 # A `page.tera` or `layout.tera` under `routes/`, served by the stock host.
 tera = ["snapfire_fsr_host/tera"]
+# `.mdx` and `.md` routes and imports, read at build time.
+mdx = ["dep:snapfire_fsr_mdx"]
+# Fenced code in MDX highlighted at build time.
+mdx-highlight = ["mdx", "snapfire_fsr_mdx/highlight"]
+# YAML or TOML frontmatter in MDX and markdown as `export const meta`.
+mdx-frontmatter = ["mdx", "snapfire_fsr_mdx/frontmatter"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -46,6 +52,7 @@ snapfire_fsr_host.workspace = true
 snapfire_fsr_sites = { workspace = true, features = ["http"] }
 snapfire_fsr_ir.workspace = true
 snapfire_fsr_lower.workspace = true
+snapfire_fsr_mdx = { workspace = true, optional = true }
 snapfire_fsr_ogimage.workspace = true
 snapfire_fsr_payload.workspace = true
 snapfire_fsr_plan.workspace = true
@@ -64,3 +71,7 @@ bytes = "1"
 http = "1"
 http-body-util = "0.1"
 proptest = "1"
+
+[[test]]
+name = "mdx"
+required-features = ["mdx-highlight", "mdx-frontmatter"]

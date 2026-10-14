@@ -410,7 +410,7 @@ struct Reader<'a> {
 
 impl<'a> Reader<'a> {
   fn line(&self, span: Span) -> usize {
-    self.parsed.cm.lookup_char_pos(span.lo).line
+    self.parsed.loc(span.lo).0
   }
 
   fn lowerer(&self) -> Lowerer<'a> {

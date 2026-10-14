@@ -145,6 +145,10 @@ pub const GENERATED: &[(&str, &str)] = &[("@snapfire/fsr/head", "generated/head"
 /// rather than by reading; this file holds nothing but lowerable helpers.
 pub const HEAD_MODULE: &str = "generated/head.ts";
 
+/// The module `fsr` writes from `[mdx.collections]`, which a body may read:
+/// every content file of each collection with its `meta` and `toc`.
+pub const CONTENT_MODULE: &str = "generated/content.ts";
+
 /// A specifier as a path relative to the app: an alias expanded or a relative
 /// specifier joined to `from`'s directory. `None` for a bare specifier.
 pub fn resolve_specifier(from: &str, specifier: &str) -> Option<String> {
@@ -226,6 +230,7 @@ pub(crate) fn lower_loader_in(parsed: &Parsed, defaults: &SessionDefaults, resol
     Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
     Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None)),
     Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`load` is {what}")).into(), None)),
+    Exported::Value(value) => return Err((parsed.residue(value.span(), "`load` must be a function").into(), None)),
     Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`load` must be a function").into(), None)),
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -295,9 +300,71 @@ fn lower_optional_export_in(parsed: &Parsed, defaults: &SessionDefaults, resolve
     Exported::Function(first, body) => lowerer.bind_ctx(first).and_then(|()| lowerer.block(body)),
     Exported::Expr(first, expr) => lowerer.bind_ctx(first).and_then(|()| lowerer.expr(expr)).map(|e| vec![Stmt::Return(e)]),
     Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`{export}` is {what}")).into(), None)),
-    Exported::Action { .. } | Exported::BadAction(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module.span, format!("`{export}` must be a function of {takes}")).into(), None)),
+    Exported::Value(value) if of_data && export == "meta" => lowerer.expr(value).map(|e| vec![Stmt::Return(e)]),
+    Exported::Action { .. } | Exported::BadAction(_) | Exported::Value(_) | Exported::Other(_) => return Err((parsed.residue(parsed.module.span, format!("`{export}` must be a function of {takes}")).into(), None)),
   };
   result.map(Some).map_err(|r| (r.into(), lowerer.unbound.take()))
+}
+
+/// One entry of the object `useMDXComponents` returns in `mdx-components.tsx`:
+/// a component by the name it has in that file, or any other expression by
+/// its bytes there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MappedValue {
+  Name(String),
+  Expr(std::ops::Range<usize>),
+}
+
+/// The elements `mdx-components.tsx` maps, in order: each key of the object
+/// its `useMDXComponents` returns, a spread of the components it is given left out.
+pub fn mdx_component_map(file: &str, source: &str) -> Result<Vec<(String, MappedValue)>, LowerError> {
+  let parsed = parse_with(file, source, true)?;
+  let unreadable = |span: Span, message: &str| LowerError::Residue(parsed.residue(span, message));
+  let Some(found) = component::find_function(&parsed, "useMDXComponents") else {
+    return Err(unreadable(parsed.module.span, "no `useMDXComponents` function; export one returning the map, as Next's `mdx-components.tsx` does"));
+  };
+  let returned: Option<&js::Expr> = match &found {
+    component::Found::Declared(_, stmts, _) => stmts.iter().rev().find_map(|stmt| match stmt {
+      js::Stmt::Return(ret) => ret.arg.as_deref(),
+      _ => None,
+    }),
+    component::Found::Arrow(arrow) => match &*arrow.body {
+      js::ArrowFunctionBody::Expr(e) => Some(e),
+      js::ArrowFunctionBody::FunctionBody(b) => b.stmts.iter().rev().find_map(|stmt| match stmt {
+        js::Stmt::Return(ret) => ret.arg.as_deref(),
+        _ => None,
+      }),
+    },
+  };
+  let mut expr = returned.ok_or_else(|| unreadable(parsed.module.span, "`useMDXComponents` returns nothing"))?;
+  loop {
+    expr = match expr {
+      js::Expr::Paren(inner) => &inner.expr,
+      js::Expr::TsAs(inner) => &inner.expr,
+      js::Expr::TsSatisfies(inner) => &inner.expr,
+      _ => break,
+    };
+  }
+  let js::Expr::Object(object) = expr else { return Err(unreadable(expr.span(), "`useMDXComponents` returns something other than an object written out")) };
+  let mut out = Vec::new();
+  for prop in &object.props {
+    match prop {
+      js::PropOrSpread::Spread(_) => {}
+      js::PropOrSpread::Prop(p) => match &**p {
+        js::Prop::Shorthand(id) => out.push((id.sym.to_string(), MappedValue::Name(id.sym.to_string()))),
+        js::Prop::KeyValue(kv) => {
+          let Some(key) = prop_name(&kv.key) else { return Err(unreadable(kv.key.span(), "a computed key in `useMDXComponents`")) };
+          let value = match &*kv.value {
+            js::Expr::Ident(id) => MappedValue::Name(id.sym.to_string()),
+            other => MappedValue::Expr(parsed.range(other.span())),
+          };
+          out.push((key, value));
+        }
+        other => return Err(unreadable(other.span(), "an entry in `useMDXComponents` other than `key: Component`")),
+      },
+    }
+  }
+  Ok(out)
 }
 
 /// Lowers every `export const name = action(...)` of an actions module.
@@ -353,6 +420,7 @@ pub(crate) fn lower_handlers_in(parsed: &Parsed, defaults: &SessionDefaults, res
       Exported::Expr(first, e) => (None, first, FunctionBody::Expr(e)),
       Exported::BadAction(span) => return Err((parsed.residue(span, format!("`{name}` is an `action(...)` of something other than a function")).into(), None)),
       Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`{name}` is {what}")).into(), None)),
+      Exported::Value(value) => return Err((parsed.residue(value.span(), format!("`{name}` must be a function or an `action(...)`")).into(), None)),
       Exported::Other(span) => return Err((parsed.residue(span, format!("`{name}` must be a function or an `action(...)`")).into(), None)),
     };
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -390,6 +458,7 @@ pub(crate) fn lower_theme_in(parsed: &Parsed, defaults: &SessionDefaults, resolv
     Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
     Exported::Action { .. } => return Err(missing()),
     Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`theme` is {what}")).into(), None)),
+    Exported::Value(value) => return Err((parsed.residue(value.span(), "`theme` must be a function").into(), None)),
     Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`theme` must be a function").into(), None)),
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -409,6 +478,7 @@ pub(crate) fn lower_middleware_in(parsed: &Parsed, defaults: &SessionDefaults, r
     Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
     Exported::Action { .. } => return Err((LowerError::MissingExport { file: file.to_owned(), export: "middleware".to_owned() }, None)),
     Exported::Unreadable(span, what) => return Err((parsed.residue(span, format!("`middleware` is {what}")).into(), None)),
+    Exported::Value(value) => return Err((parsed.residue(value.span(), "`middleware` must be a function").into(), None)),
     Exported::Other(span) | Exported::BadAction(span) => return Err((parsed.residue(span, "`middleware` must be a function").into(), None)),
   };
   let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
@@ -428,6 +498,8 @@ pub(crate) struct Parsed {
   pub(crate) unresolved: SyntaxContext,
   /// What the module's names mean, filled when a component set resolves the file.
   pub(crate) meanings: std::cell::OnceCell<std::rc::Rc<meaning::Meanings>>,
+  /// The file the module was written from, when it was not written by hand.
+  pub(crate) origin: Option<std::rc::Rc<Origin>>,
 }
 
 pub(crate) enum Exported<'a> {
@@ -441,6 +513,8 @@ pub(crate) enum Exported<'a> {
   /// An export the build tried to read and could not classify, as against one
   /// it classified as something else. Never skipped in silence.
   Unreadable(Span, &'static str),
+  /// An object literal, which `meta` may be when it reads nothing from the route's data.
+  Value(&'a js::Expr),
   Other(Span),
 }
 
@@ -471,14 +545,64 @@ pub(crate) fn parse(file: &str, source: &str) -> Result<Parsed, LowerError> {
 }
 
 pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, LowerError> {
+  parse_from(file, source, tsx, None)
+}
+
+/// Where a module the build reads came from when it was written from a file in
+/// another language, an `.mdx` file among them: that file's text and a map
+/// from each run of the module back to it, so a residue names the line the
+/// author wrote rather than one of the module.
+#[derive(Debug, Clone)]
+pub struct Origin {
+  pub source: String,
+  pub segments: Vec<OriginSegment>,
+}
+
+/// A run of the module: `len` bytes from `generated`. A verbatim run maps byte
+/// for byte from `original`; any other maps whole to `original`.
+#[derive(Debug, Clone, Copy)]
+pub struct OriginSegment {
+  pub generated: usize,
+  pub len: usize,
+  pub original: usize,
+  pub verbatim: bool,
+}
+
+impl Origin {
+  /// The one-based line and column in the original text of byte `offset` of the module.
+  pub fn position(&self, offset: usize) -> (usize, usize) {
+    let index = self.segments.partition_point(|s| s.generated <= offset);
+    let original = match index.checked_sub(1).map(|i| self.segments[i]) {
+      Some(s) if s.verbatim && offset < s.generated + s.len.max(1) => s.original + (offset - s.generated),
+      Some(s) => s.original,
+      None => 0,
+    };
+    let mut end = original.min(self.source.len());
+    while !self.source.is_char_boundary(end) {
+      end -= 1;
+    }
+    let before = &self.source[..end];
+    let line = before.matches('\n').count() + 1;
+    let column = before.rsplit('\n').next().map(|l| l.chars().count()).unwrap_or(0) + 1;
+    (line, column)
+  }
+}
+
+pub(crate) fn parse_from(file: &str, source: &str, tsx: bool, origin: Option<std::rc::Rc<Origin>>) -> Result<Parsed, LowerError> {
   let cm: Lrc<SourceMap> = Default::default();
   let fm = cm.new_source_file(Lrc::new(FileName::Custom(file.to_owned())), source.to_owned());
   let syntax = Syntax::Typescript(TsSyntax { tsx, decorators: true, ..Default::default() });
   let lexer = Lexer::new(syntax, js::EsVersion::latest(), StringInput::from(&*fm), None);
   let mut parser = Parser::new_from(lexer);
   let module = parser.parse_module().map_err(|e| {
-    let loc = cm.lookup_char_pos(e.span().lo);
-    LowerError::Parse { file: file.to_owned(), message: format!("{}:{}: {}", loc.line, loc.col_display + 1, e.kind().msg()) }
+    let (line, column) = match &origin {
+      Some(origin) => origin.position((e.span().lo.0 - fm.start_pos.0) as usize),
+      None => {
+        let loc = cm.lookup_char_pos(e.span().lo);
+        (loc.line, loc.col_display + 1)
+      }
+    };
+    LowerError::Parse { file: file.to_owned(), message: format!("{line}:{column}: {}", e.kind().msg()) }
   })?;
   let (module, top, unresolved) = GLOBALS.set(&Globals::new(), || {
     let unresolved = Mark::new();
@@ -487,7 +611,7 @@ pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, 
     let js::Program::Module(module) = program else { unreachable!("a module resolves to a module") };
     (module, SyntaxContext::empty().apply_mark(top_level), SyntaxContext::empty().apply_mark(unresolved))
   });
-  Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new() })
+  Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new(), origin })
 }
 
 impl Parsed {
@@ -511,8 +635,18 @@ impl Parsed {
   }
 
   pub(crate) fn residue(&self, span: Span, message: impl Into<String>) -> Residue {
-    let loc = self.cm.lookup_char_pos(span.lo);
-    Residue { file: self.file.clone(), line: loc.line, column: loc.col_display + 1, message: message.into(), hint: None, via: Vec::new() }
+    let (line, column) = self.loc(span.lo);
+    Residue { file: self.file.clone(), line, column, message: message.into(), hint: None, via: Vec::new() }
+  }
+
+  /// The one-based line and column `pos` names, in the file the author wrote.
+  pub(crate) fn loc(&self, pos: swc_core::common::BytePos) -> (usize, usize) {
+    if let Some(origin) = &self.origin {
+      let start = self.cm.files().first().map(|f| f.start_pos).unwrap_or_default();
+      return origin.position(pos.0.saturating_sub(start.0) as usize);
+    }
+    let loc = self.cm.lookup_char_pos(pos);
+    (loc.line, loc.col_display + 1)
   }
 
   /// The one-based line and column of a byte offset in the file's text.
@@ -531,8 +665,7 @@ impl Parsed {
 
   pub(crate) fn position(&self, offset: usize) -> (usize, usize) {
     let start = self.cm.files().first().map(|f| f.start_pos).unwrap_or_default();
-    let loc = self.cm.lookup_char_pos(start + swc_core::common::BytePos(offset as u32));
-    (loc.line, loc.col_display + 1)
+    self.loc(start + swc_core::common::BytePos(offset as u32))
   }
 
   pub(crate) fn exports(&self) -> impl Iterator<Item = (&str, Exported<'_>)> {
@@ -649,6 +782,7 @@ fn classify_in<'a>(parsed: &'a Parsed, init: &'a js::Expr) -> Exported<'a> {
         None => Exported::BadAction(call.span),
       }
     }
+    js::Expr::Object(_) => Exported::Value(init),
     other => Exported::Other(other.span()),
   }
 }

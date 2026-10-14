@@ -154,6 +154,10 @@ fn every_example_builds_tests_and_boots_from_a_checkout() {
     }
     let built = match build(&app, &Options::beside(&app)) {
       Ok(built) => built,
+      Err(e @ snapfire_fsr_cli::BuildError::MdxFeature { .. }) => {
+        println!("{name}: skipped, {e}");
+        continue;
+      }
       Err(e) => {
         failed.push(format!("{name}: did not build: {e}"));
         continue;

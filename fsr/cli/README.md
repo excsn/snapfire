@@ -10,7 +10,16 @@
 
 ```sh
 cargo install --path fsr/cli
+cargo install --path fsr/cli --features mdx-highlight,mdx-frontmatter
 ```
+
+| Feature | Default | Adds |
+| --- | --- | --- |
+| `tera` | on | `page.tera` and `layout.tera` routes, rendered by the stock host |
+| `tls` | off | TLS in the stock host |
+| `mdx` | off | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
+| `mdx-highlight` | off | `mdx`, plus fenced code highlighted at build and `styles/code.css` from the direction |
+| `mdx-frontmatter` | off | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
 
 It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the bodies, `snapfire_fsr_plan` for the file it writes and `reqwest` with rustls for esm.sh and the npm registry.
 
@@ -20,6 +29,8 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | --- | --- |
 | Start a bare application or one with a direction | `fsr new <dir>`, `fsr new <dir> --with react` |
 | Give an application React, Vue, custom elements, htmx or Tera | `fsr use <app> vue`, once and again for the next |
+| Write a page or a piece of content in MDX or markdown | `page.mdx`, `page.md` or an import of one, with an fsr built with `mdx`; `fsr use <app> mdx` |
+| List every content file in a directory for an index | `[mdx.collections]`, read from `@generated/content` |
 | Serve an image resized per width and format, or a font with a sized fallback | import it and place it with `Picture`; files under `fonts/` and `[fonts.<key>]`; `fsr fonts add <app> google:Inter@400,700` |
 | Emit the whole artifact: the plan, the generated types, the tsconfigs and the browser bundle | `fsr build <app>` |
 | See what a build would emit without writing | `fsr check <app>` |

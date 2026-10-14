@@ -35,6 +35,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [107. Moving tests from Jest or Vitest](107-moving-tests-from-jest-or-vitest.md), what carries over from a Jest, Vitest or Testing Library suite, what changes and a spec moved end to end. App developers moving a suite.
 - [108. Images and fonts](108-images-and-fonts.md), an image as an import the build resizes into a `<picture>`, the catalog whose photos are a record indexed by data, a remote image through a named source, a font under `fonts/` served with a fallback sized so nothing moves, a video with its captions, the card image a shared link shows and the one table that moves every asset directory. App developers.
 - [109. Tailwind and themes](109-tailwind-and-themes.md), a stylesheet that imports Tailwind built for the classes the plan renders, what the build says about a class it cannot list, a theme for the whole document chosen by a layout, a site or `theme.ts` per request, light and dark beside it and card images that draw the same classes. App developers.
+- [110. MDX and markdown](110-mdx-and-markdown.md), a page or a piece of content written in MDX or markdown and lowered like any component, a page that picks a file by its data, collections an index reads, the component map, highlighted code and a file an island renders in the browser. App developers.
 
 **The host:**
 

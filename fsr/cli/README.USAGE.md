@@ -40,6 +40,11 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
 * [Rendering a Route with Tera](#rendering-a-route-with-tera)
+* [Writing Pages in MDX](#writing-pages-in-mdx)
+  * [Importing a file and picking one by its data](#importing-a-file-and-picking-one-by-its-data)
+  * [Listing a collection](#listing-a-collection)
+  * [Mapping markdown's elements](#mapping-markdowns-elements)
+  * [Configuring MDX](#configuring-mdx)
 * [Serving Locales](#serving-locales)
 * [Prerendering](#prerendering)
 * [Hoisting Render-Path Calls](#hoisting-render-path-calls)
@@ -667,7 +672,7 @@ edit      a page: import { Island } from "@snapfire/fsr-authoring/template";
 edit      a page: <Island><Counter start={0} /></Island>
 ```
 
-The directions are `react`, `vue`, `elements`, `htmx` and `tera`. `elements` maps the entry `shadowOf` comes from and vendors nothing, since the build discovers `elements/` on its own. `htmx` vendors `htmx.org` and prints the three lines `src/main.ts` needs, because that file is the application's and its structure is not the command's to guess. `tera` maps nothing and vendors nothing; its example is a `page.tera` beside a loader. Several directions in one run are fine, since the adapter is chosen per file.
+The directions are `react`, `vue`, `elements`, `htmx`, `tailwind`, `tera` and `mdx`, the last two in an fsr built with their features. `elements` maps the entry `shadowOf` comes from and vendors nothing, since the build discovers `elements/` on its own. `htmx` vendors `htmx.org` and prints the three lines `src/main.ts` needs, because that file is the application's and its structure is not the command's to guess. `tera` maps nothing and vendors nothing; its example is a `page.tera` beside a loader. Several directions in one run are fine, since the adapter is chosen per file.
 
 Tailwind is a direction too. On an existing application `fsr use shop/app tailwind` writes `styles/tailwind.css` beside the stylesheets already there with Tailwind's theme and utilities and without its preflight reset, so nothing that already renders changes its look. The document links every `styles/*.css`, so nothing else is edited. Utilities sit in a layer, so an unlayered rule in the application's own sheet still wins where both set one property. `fsr new shop --with tailwind` puts `@import "tailwindcss";`, preflight included, at the top of the scaffold's own `styles/app.css`. `--example` adds a styled page and a theme.
 
@@ -1179,6 +1184,73 @@ templates/
 `fsr serve` reads every `.tera` under the app at boot, outside `vendor/`, `dist/`, `generated/`, `node_modules/`, `tests/` and `types/`, names each by its path and refuses to start when a plan names a template the tree does not hold. `fsr bundle` places the same files in the deploy tree. An `island(` whose `module` is a string literal is bundled and registered from the literal, the way a `<Island>` in TSX is; a `module` the build cannot read is refused with the line. `actions.ts` beside a `page.tera` lowers unchanged and the template posts to the action's URL. `fsr test` tests such a route over HTTP, since there is no component to render; `fsr dev` rebuilds on a template edit like any other file under the app. A `page.<slot>.tsx` variant under a `layout.tera` is refused, since the build cannot read which slots a template places.
 
 The feature is `tera`, on by default in the CLI and off in the host crate, so an application embedding the host as a library takes it when it wants it and a Rust project that registers its own `TeraEvaluator` through `HostBuilder::evaluator` keeps it: the stock evaluator steps aside when one already answers `.tera`. The `noticeboard_tera` example is this chapter as an application.
+
+## Writing Pages in MDX
+
+With the `mdx` feature, a route directory may hold `page.mdx` or `page.md` in place of `page.tsx`. The file is turned into TSX and lowered like any page; the loader beside it runs first and its data is `props`. `export const meta` in the file, a plain object, is the route's meta:
+
+```mdx
+import { Card } from "@src/ui/Card";
+
+export const meta = { title: "Install · Handbook" };
+
+# Install
+
+<Card tone="ok">There are {props.steps.length} steps.</Card>
+```
+
+An fsr built without the feature refuses the page naming the feature, `BuildError::MdxFeature`. A loader and the page both exporting `meta` is `BuildError::MetaTwice`. `fsr use app mdx` writes a starter `mdx-components.tsx` and, with `mdx-highlight`, `styles/code.css`.
+
+### Importing a file and picking one by its data
+
+```tsx
+import Post, { meta, toc } from "../content/first.mdx";
+
+export default async function PostPage({ post }: PostSlugProps) {
+  const { default: Body, meta } = await import(`../../../content/posts/${post.file}`);
+  return <Body components={{ a: Link }} />;
+}
+```
+
+A template `import()` with one substitution is expanded at build into the files of the directory it names. `<Body />` renders the one the key names. An `async` page is accepted when everything it awaits is such an import. `components` replaces markdown's elements for that placement; each value is a component the page declares or imports, a placement such as `Link` among them.
+
+### Listing a collection
+
+```toml
+[mdx.collections]
+posts = "content/posts"
+```
+
+```ts
+import { posts } from "@generated/content";
+
+export const paths = () => posts.map((post) => ({ slug: post.slug }));
+```
+
+`generated/content.ts` holds one `{ slug, file, meta, toc }` per `.mdx` or `.md` file in the directory, by file name. `generated/mdx.d.ts` declares `*.mdx` and `*.md` for the type checker.
+
+### Mapping markdown's elements
+
+```tsx
+// app/mdx-components.tsx
+export function useMDXComponents(components?: MDXComponents): MDXComponents {
+  return { h2: Heading, wrapper: ({ children }) => <div className="prose">{children}</div>, ...components };
+}
+```
+
+The build reads the returned object: each entry is a component's name or a component written in place. A file's own `export default` is its layout, in place of `wrapper`.
+
+### Configuring MDX
+
+```toml
+[mdx]
+gfm = true
+heading_ids = true
+frontmatter = false
+highlight = true
+```
+
+`frontmatter = true` needs `mdx-frontmatter` and `highlight = true` needs `mdx-highlight`; either without its feature is `BuildError::MdxFeature`. Highlighted code is classed spans, kept out of `generated/tailwind.classes`. Each file's browser copy is written to `.fsr-bundle/`, which snapfirec compiles when an island imports the file. A raw HTML block in a `.md` file is a `warning` row in the report.
 
 ## Serving Locales
 

@@ -899,6 +899,9 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool) -> Resu
     false => paths.extend(alias_paths()),
   }
   let mut include: Vec<String> = source_dirs(app).iter().map(|dir| format!("{dir}/**/*")).collect();
+  if app.join(crate::mdx::COMPONENTS).is_file() {
+    include.push(crate::mdx::COMPONENTS.to_owned());
+  }
   if generated {
     include.push("generated/**/*".to_owned());
   }

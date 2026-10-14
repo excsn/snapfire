@@ -190,7 +190,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     created.next.push(format!("fsr build {}", app.display()));
   }
   if options.with.is_empty() {
-    created.next.push(format!("fsr use {} react      # only if the application wants React; also vue, elements, htmx, tailwind or tera", app.display()));
+    created.next.push(format!("fsr use {} react      # only if the application wants React; also vue, elements, htmx, tailwind, tera or mdx", app.display()));
   }
   created.next.push(format!("fsr dev {}", app.display()));
 

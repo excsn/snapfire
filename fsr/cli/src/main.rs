@@ -50,7 +50,7 @@ enum Command {
   Check(Check),
   /// Counts what the build refuses or leaves to the browser across applications, by cause, writing nothing.
   Census(Census),
-  /// Gives an application a direction: react, vue, elements, htmx or tailwind.
+  /// Gives an application a direction: react, vue, elements, htmx, tailwind, tera or mdx.
   Use(Use),
   /// Vendors packages into the application and names them in its import map.
   Add(Add),
@@ -238,7 +238,7 @@ struct Doctor {
 struct Use {
   /// The application directory.
   app_dir: PathBuf,
-  /// Directions to adopt, in order: react, vue, elements, htmx or tailwind.
+  /// Directions to adopt, in order: react, vue, elements, htmx or tailwind, and tera or mdx in an fsr built with that feature.
   #[arg(required = true)]
   directions: Vec<String>,
   /// Skips vendoring packages and fetching declarations.

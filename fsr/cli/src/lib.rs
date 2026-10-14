@@ -23,6 +23,7 @@ pub mod typecheck;
 pub mod types;
 pub mod vendor;
 pub mod tailwind;
+pub mod mdx;
 pub mod xwpm;
 
 pub use dev::{emit, DevOptions, Emitted};
@@ -129,6 +130,12 @@ pub enum BuildError {
   PageAndTemplate { dir: PathBuf, first: String, second: String },
   #[error("{0}: a template route needs an fsr built with the `tera` feature")]
   TemplateFeature(PathBuf),
+  #[error("{what} needs an fsr built with its `{feature}` feature, as `cargo install snapfire_fsr_cli --features {feature}`")]
+  MdxFeature { what: String, feature: &'static str },
+  #[error("{file}: {message}")]
+  Mdx { file: String, message: String },
+  #[error("{module} sets the route's meta and so does {page}; keep one")]
+  MetaTwice { module: String, page: String },
   #[error("{file}:{line}: `island(` whose `module` is not a string literal; the build bundles only a module it can name")]
   TemplateIsland { file: PathBuf, line: usize },
   #[error("{0} exports `paths`, which only a page loader may: a layout or a slot has no parameter set of its own")]
@@ -256,6 +263,8 @@ pub struct Report {
   /// When a stylesheet imports Tailwind: how many classes the plan renders. Each module with a
   /// class value the build cannot list comes with that value.
   pub tailwind: Option<(usize, Vec<(String, String)>)>,
+  /// What converting an `.mdx` or `.md` file left out: the file, the line and column, and why.
+  pub mdx: Vec<(String, usize, usize, String)>,
   /// The plan file as written and as it would be without whitespace, in bytes.
   /// The build writes it pretty so it reads and diffs; the second number is
   /// what a deployment would ship.
@@ -307,6 +316,9 @@ impl fmt::Display for Report {
         writeln!(f, "{:<9} {module:<34} {}: a class value the build cannot list, {value}", "warning", tailwind::UNLISTED)?;
         writeln!(f, "{:<9} list its values in the stylesheet with @source inline(\"...\")", "")?;
       }
+    }
+    for (file, line, column, message) in &self.mdx {
+      writeln!(f, "{:<9} {file}:{line}:{column}: {message}", "warning")?;
     }
     for (i, cause) in self.causes.iter().enumerate() {
       let label = if i == 0 { "client" } else { "" };
@@ -812,6 +824,24 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let public_path = bundle_base(options.site.as_ref());
   let resolver = std::rc::Rc::new(assets::Resolver::new(app, &public_path, sections.clone()));
   let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect()).with_assets(resolver.clone(), sections.images.rewrite);
+  let mdx_settings = mdx::settings(&config_beside(app).map(|config| config.mdx).unwrap_or_default())?;
+  let mut mdx_files: Vec<(String, String)> = Vec::new();
+  #[cfg(feature = "mdx")]
+  let mdx_installed = {
+    let class_attr = match types::jsx_source(app, &crate::xwpm::Layout::of_site(app, options.site.as_ref())?)? {
+      "react" => snapfire_fsr_mdx::ClassAttr::ClassName,
+      _ => snapfire_fsr_mdx::ClassAttr::Class,
+    };
+    let (installed_set, installed) = mdx::install(app, set, &mdx_settings, class_attr)?;
+    set = installed_set;
+    if let Some(content) = mdx::collections(app, &installed)? {
+      set = set.provide(mdx::CONTENT_MODULE, content.clone());
+      mdx_files.push((mdx::CONTENT_MODULE.to_owned(), content));
+    }
+    mdx_files.push((mdx::DECLARATIONS_FILE.to_owned(), mdx::DECLARATIONS.to_owned()));
+    installed
+  };
+  let _ = &mdx_settings;
   describe_foreign(app, &mut set, &mut report, plugins)?;
   for file in sorted_files(&app.join(EXT_DIR), ".ts")? {
     let rel = format!("{EXT_DIR}/{}", file.file_name().unwrap_or_default().to_string_lossy());
@@ -974,10 +1004,18 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
 
     let wrapping: Vec<&LayoutInfo> = layouts.iter().filter(|l| route.dir.starts_with(&l.dir)).collect();
     let loader = route.dir.join("page.loader.ts");
+    let page_source = format!("{rel}/{page_file}");
+    let page_meta = match snapfire_fsr_lower::component::is_transformed(&page_file) {
+      true => lowered!(set.lower_meta(&page_source)),
+      false => None,
+    };
     let source = if loader.is_file() {
       let module = format!("{rel}/page.loader.ts");
       let body = lowered!(set.lower_loader(&module));
-      let meta = lowered!(set.lower_meta(&module));
+      let meta = match (lowered!(set.lower_meta(&module)), page_meta) {
+        (Some(_), Some(_)) => return Err(BuildError::MetaTwice { module, page: page_source }),
+        (meta, page_meta) => meta.or(page_meta),
+      };
       refuse_inline_scripts(&module, meta.as_ref())?;
       let store = lowered!(set.lower_store(&module));
       let defaults = lowered!(set.lower_defaults(&module));
@@ -987,6 +1025,12 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       }
       sources.push(SourceEntry::lowered(route.id.clone(), module.clone(), body).with_meta(meta).with_store(store).with_defaults(defaults).with_paths(paths));
       report.sources.push((route.id.clone(), module));
+      Some(route.id.clone())
+    } else if let Some(meta) = page_meta {
+      refuse_inline_scripts(&page_source, Some(&meta))?;
+      let empty = vec![snapfire_fsr_ir::ast::Stmt::Return(snapfire_fsr_ir::ast::Expr::Object(Vec::new()))];
+      sources.push(SourceEntry::lowered(route.id.clone(), page_source.clone(), empty).with_meta(Some(meta)));
+      report.sources.push((route.id.clone(), page_source));
       Some(route.id.clone())
     } else {
       None
@@ -1491,7 +1535,10 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let mut tailwind_file = None;
   let mut cards_file = None;
   if tailwind::wanted(&app.join(&sections.dirs.styles)) {
-    let classes = tailwind::collect(&manifest);
+    #[allow(unused_mut)]
+    let mut classes = tailwind::collect(&manifest);
+    #[cfg(feature = "mdx")]
+    classes.listed.retain(|class, _| !mdx_installed.log.borrow().classes.contains(class));
     report.tailwind = Some((classes.listed.len(), classes.unlisted.clone()));
     tailwind_file = Some(classes.file());
     if !manifest.images.is_empty() {
@@ -1505,7 +1552,19 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   files.extend(tailwind_file.map(|text| (tailwind::CLASSES_FILE.to_owned(), text)));
   files.extend(cards_file.map(|text| (tailwind::CARDS_FILE.to_owned(), text)));
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
-  files.extend(rewritten.into_iter().map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
+  files.extend(rewritten.into_iter().filter(|(file, _)| !snapfire_fsr_lower::component::is_transformed(file)).map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
+  files.extend(mdx_files);
+  #[cfg(feature = "mdx")]
+  {
+    let log = mdx_installed.log.borrow().clone();
+    for file in &log.files {
+      let copy = mdx::browser_copy(app, file, &mdx_installed)?;
+      let at = format!("{}/{file}", dev::BUNDLE_OVERLAY);
+      files.retain(|(f, _)| *f != at);
+      files.push((at, copy));
+    }
+    report.mdx = log.warnings.clone();
+  }
   match &options.site {
     None => {
       let mut shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config, &frameworks)?;
@@ -2532,6 +2591,8 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
     let adapter = adapter_for(module, owners)?;
     if generated.iter().any(|file| file == path) {
       out.push_str("  // @ts-ignore: the bundle overlay alone holds this module, which the build split out of its page\n");
+    } else if snapfire_fsr_lower::component::is_transformed(path) {
+      out.push_str("  // @ts-ignore: the bundle overlay holds the module the build wrote from this file\n");
     }
     let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
   }
@@ -3528,7 +3589,13 @@ fn pages_under(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildError> {
 /// and a template is a refusal when this fsr was built without its feature,
 /// so a template never becomes a silent 404.
 fn page_file(dir: &Path) -> Result<Option<String>, BuildError> {
-  route_file(dir, &["page.tsx", "page.ts"], "page")
+  let found = route_file(dir, &["page.tsx", "page.ts", "page.mdx", "page.md"], "page")?;
+  if let Some(file) = found.as_deref().filter(|f| snapfire_fsr_lower::component::is_transformed(f)) {
+    if !mdx::BUILT {
+      return Err(mdx::unbuilt(&dir.join(file)));
+    }
+  }
+  Ok(found)
 }
 
 /// The one layout file in `dir`, `layout.tsx` or a `layout.<ext>` for a

@@ -58,6 +58,8 @@ pub struct Config {
   /// `[crawl]`: the `robots.txt` and `sitemap.xml` the host answers; absent
   /// means neither.
   pub crawl: Option<CrawlSection>,
+  /// `[mdx]`: how `fsr` reads `.mdx` and `.md` files, defaults filled.
+  pub mdx: MdxSection,
   /// The application as a site: its name and the prefix its routes sit
   /// under, both fixed at build. Absent, the application is whole.
   pub site: Option<SiteSection>,
@@ -1066,6 +1068,28 @@ pub struct CrawlSection {
   pub disallow: Vec<String>,
 }
 
+/// `[mdx]`. The host reads none of it: `fsr` built with its `mdx` feature
+/// does, and refuses a key whose feature it was built without.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MdxSection {
+  /// GFM tables, strikethrough, task lists, footnotes and literal autolinks; on unless set.
+  pub gfm: bool,
+  /// An `id` on every heading and a `toc` export; on unless set.
+  pub heading_ids: bool,
+  /// YAML or TOML frontmatter as `export const meta`; off unless set.
+  pub frontmatter: bool,
+  /// Fenced code highlighted at build; absent means on when `fsr` carries `mdx-highlight`.
+  pub highlight: Option<bool>,
+  /// `[mdx.collections]`: a name for each directory of content files, listed in `generated/content.ts`.
+  pub collections: BTreeMap<String, String>,
+}
+
+impl Default for MdxSection {
+  fn default() -> Self {
+    Self { gfm: true, heading_ids: true, frontmatter: false, highlight: None, collections: BTreeMap::new() }
+  }
+}
+
 fn default_login() -> String {
   "/login".to_owned()
 }
@@ -1100,6 +1124,7 @@ const SECTIONS: &[&str] = &[
   "build",
   "trace",
   "crawl",
+  "mdx",
   "site",
   "sites",
   "public",
@@ -1722,6 +1747,33 @@ impl Config {
       None
     };
 
+    let mut mdx = MdxSection::default();
+    let mdx_keys: Vec<String> = store.key_paths_with_prefix(Some("mdx")).into_iter().filter_map(|k| k.strip_prefix("mdx.").map(str::to_owned)).collect();
+    for key in &mdx_keys {
+      let value = store.get(&format!("mdx.{key}"));
+      let flag = |value: Option<c5store::value::C5DataValue>| match value.as_ref().map(to_json) {
+        Some(serde_json::Value::Bool(b)) => Ok(b),
+        _ => Err(HostError::Config(at.clone(), format!("mdx.{key} must be true or false"))),
+      };
+      match key.split('.').next().unwrap_or(key) {
+        "gfm" => mdx.gfm = flag(value)?,
+        "heading_ids" => mdx.heading_ids = flag(value)?,
+        "frontmatter" => mdx.frontmatter = flag(value)?,
+        "highlight" => mdx.highlight = Some(flag(value)?),
+        "collections" => {
+          let Some(name) = key.strip_prefix("collections.") else { continue };
+          match value.as_ref().map(to_json) {
+            Some(serde_json::Value::String(dir)) if !dir.starts_with('/') && !dir.split('/').any(|part| part == "..") => {
+              mdx.collections.insert(name.to_owned(), dir.trim_end_matches('/').to_owned());
+            }
+            Some(serde_json::Value::Object(_)) => {}
+            _ => return Err(HostError::Config(at.clone(), format!("mdx.collections.{name} must be a directory under the app, as \"content/posts\""))),
+          }
+        }
+        other => return Err(HostError::Config(at.clone(), format!("mdx.{other} is not a key; [mdx] takes gfm, heading_ids, frontmatter, highlight and collections"))),
+      }
+    }
+
     let crawl: Option<CrawlSection> = if store.path_exists("crawl") || !store.key_paths_with_prefix(Some("crawl")).is_empty() {
       let mut json = serde_json::Map::new();
       for key in ["robots", "sitemap", "disallow"] {
@@ -2177,6 +2229,7 @@ impl Config {
       build,
       trace,
       crawl,
+      mdx,
       site,
       sites,
       dirs,

@@ -17,6 +17,7 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
   * [ComponentSet](#componentset)
   * [assets](#assets)
   * [The Vue Front End](#the-vue-front-end)
+  * [Transformed Files](#transformed-files)
   * [ALIASES, STD_SPECIFIER and EXT_DIR](#aliases-std_specifier-and-ext_dir)
 * [2. The Recognised Language](#2-the-recognised-language)
   * [Modules](#modules)
@@ -63,7 +64,7 @@ The recogniser that lowers a TypeScript loader or actions module to the IR.
 * `pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Body, LowerError>`
 * `pub fn lower_actions_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Vec<LoweredAction>, LowerError>`
 * As `lower_loader` and `lower_actions`, with every read of a session key that has a default lowered to `Coalesce(Session(key), default)`.
-* `pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `meta`, a function of `{ data }` whose `data` lowers to `Expr::Input`, as a block body or an arrow whose expression body becomes its `Return`. `None` when the module exports no `meta`; a `meta` that is not a function is a `Residue`.
+* `pub fn lower_meta_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `meta`, an object literal or a function of `{ data }` whose `data` lowers to `Expr::Input`, as a block body or an arrow whose expression body becomes its `Return`. `None` when the module exports no `meta`; a `meta` that is not a function is a `Residue`.
 * `pub fn lower_store_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `store`, the same shape as `meta`.
 * `pub fn lower_paths_with(file: &str, source: &str, defaults: &SessionDefaults) -> Result<Option<Body>, LowerError>`: the module's exported `paths`, a function of the context or of nothing, returning the parameter sets a route prerenders. The context binds the way a loader's does, so `data` is not a name here. `None` when the module exports no `paths`; a `paths` that is not a function is a `Residue`. What the body may read is the app's check, not the lowerer's.
 
@@ -140,6 +141,20 @@ Where the lowerer looks an imported image, font or media file up, `assets::Asset
 * `defineModel()` and `defineModel("name", { default })` in `<script setup>` bind a ref reading `$props.modelValue` or `$props.name` with the default under it; on a `.vue` child, `v-model` passes `modelValue` and `v-model:name` passes `name`.
 * A tag naming a `.vue` file the script imports, `<Card>` or `<card-item>` as `CardItem`, is a `Tmpl::Component` the set resolves and lowers; its static attributes and `:bound` ones are props by their camelCase name, `v-bind` of an object a spread and its children the child's default slot. An attribute the child does not declare as a prop, which Vue would fall through onto the child's root, is residue, as is a child that does not lower. A scoped parent adds `render::PARENT_SCOPE_PROP` with its scope attribute, which the renderer writes on the child's root element when it has one, as Vue does. A child placed in a slot's content takes the slot owner's scope on its root instead. Under a `:slotted()` rule every element of the content carries `<id>-s` as well. `@event` on a child is the browser's.
 * `vue::props_declaration(file: &str, described: &Described) -> Option<String>`: a declaration module typing the component as `(props: T & { children?: unknown }) => any`, `T` the `defineProps<T>()` of a `<script setup lang="ts">` with each `withDefaults` key made optional, after the script's interfaces, type aliases and type-only imports. `None` for a JavaScript script or props declared any other way. `vue::props_declaration_path(file)` is where it goes, `generated/vue/<file without .vue>.d.vue.ts` under `vue::PROPS_DECLARATION_DIR`.
+
+### Transformed Files
+
+A file in another language that a caller turns into TSX, `.mdx` and `.md` among them. The set lowers the module the transform writes in the file's place and names the file's own lines.
+
+* `component::TRANSFORMED: &[&str]`, `mdx` and `md`; `component::is_transformed(file: &str) -> bool`, for a path, a `file#export` id or a variant id `file~<hash>`. A transformed file is never foreign.
+* `pub type Transform = dyn Fn(&str, &str, &[Override]) -> Result<Transformed, String>`: the file's path, its text and the elements to place as other components. `ComponentSet::with_transform(self, transform: Rc<Transform>) -> ComponentSet`. Without one, loading a transformed file is `LowerError::Parse` naming the `mdx` feature; an `Err` from the transform is `LowerError::Parse` with that message.
+* `pub struct Transformed { pub source: String, pub origin: Option<Origin> }`
+* `pub struct Override { pub key: String, pub specifier: String, pub export: String }`: one element and the component placed for it, `export` of `specifier` relative to the file.
+* `pub struct Origin { pub source: String, pub segments: Vec<OriginSegment> }`, `pub struct OriginSegment { pub generated: usize, pub len: usize, pub original: usize, pub verbatim: bool }`; `Origin::position(&self, offset: usize) -> (usize, usize)`. Every residue, parse error and placement position in the module is reported through it.
+* A placement of a transformed file's default export with `components={{ key: Name }}`, each value a component the placing file declares or imports or a placement such as `Link`, lowers the file again as `file~<hash>#default` with those elements as `Override`s; the prop is not passed on. Any other `components` value is a residue.
+* `mdx_component_map(file: &str, source: &str) -> Result<Vec<(String, MappedValue)>, LowerError>`: the keys of the object `useMDXComponents` returns in order, a spread left out; `MappedValue::Name(String)` for a component named, `MappedValue::Expr(Range<usize>)` for one written in place, by its bytes in `source`. No such function, or one returning something other than an object written out, is a `Residue`.
+* `pub const CONTENT_MODULE: &str`, `generated/content.ts`: the one module under `generated/` besides `HEAD_MODULE` a body may import.
+* `const { default: Name, meta } = await import(`prefix${key}suffix`)` in a component: every file of the one directory `prefix` ends in whose name is the rest of `prefix`, a text with no `/`, then `suffix`, and which the set reads, is a choice. `<Name />` lowers to a `Tmpl::If` chain comparing the key, as a string, with each choice's text; a key naming none renders nothing. Each other destructured name is a `let` of the chosen file's export of that name, `null` for none. An `async` component is accepted when every `await` in it is of an `import()`.
 
 ### ALIASES, STD_SPECIFIER and EXT_DIR
 

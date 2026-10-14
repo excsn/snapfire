@@ -49,7 +49,19 @@ pub const DIRECTIONS: &[Direction] = &[
   Direction { name: "tailwind", maps: &[], adapter: None, vendors: &[], edits: &[] },
   #[cfg(feature = "tera")]
   Direction { name: "tera", maps: &[], adapter: None, vendors: &[], edits: &[] },
+  #[cfg(feature = "mdx")]
+  Direction { name: "mdx", maps: &[], adapter: None, vendors: &[], edits: &[] },
 ];
+
+/// The stylesheet `fsr use <app> mdx` writes for highlighted code.
+pub const CODE_SHEET: &str = "code.css";
+
+/// The theme highlighted code takes in a light scheme and in a dark one.
+pub const CODE_THEMES: (&str, &str) = ("GitHub", "OneHalfDark");
+
+const MDX_COMPONENTS: &str = "import type { MDXComponents } from \"mdx/types\";\n\n/** A second-level heading with a link to itself. */\nfunction Heading({ id, children }: { id?: string; children?: any }) {\n  return (\n    <h2 id={id}>\n      <a href={`#${id}`} aria-hidden=\"true\">#</a> {children}\n    </h2>\n  );\n}\n\nexport function useMDXComponents(components?: MDXComponents): MDXComponents {\n  return { h2: Heading, ...components };\n}\n";
+
+const MDX_PAGE: &str = "export const meta = { title: \"Notes\", description: \"A page written in MDX\" };\n\n# Notes\n\nThis page is **markdown** with JSX in it, lowered like any other page: {1 + 1} is worked out at build.\n\n## A table\n\n| Feature | Where |\n| --- | --- |\n| Tables, task lists, footnotes | `[mdx] gfm` |\n| Heading ids and `toc` | `[mdx] heading_ids` |\n\n## Some code\n\n```ts title=\"routes/notes/page.mdx\" {1}\nexport const meta = { title: \"Notes\" };\nconst sum = 1 + 1;\n```\n";
 
 /// The stylesheet `fsr use <app> tailwind` adds beside an application's own.
 pub const TAILWIND_SHEET: &str = "tailwind.css";
@@ -83,6 +95,7 @@ impl Direction {
       "htmx" => (vec![("routes/pulse/page.loader.ts", HTMX_LOADER), ("routes/pulse/page.tsx", HTMX_PAGE)], vec![("a page", "<div hx-get=\"/pulse?__fragment\" hx-trigger=\"every 5s\" hx-swap=\"innerHTML\" />")]),
       "tera" => (vec![("routes/hello/page.loader.ts", TERA_LOADER), ("routes/hello/page.tera", TERA_PAGE)], vec![("routes/layout.tera", "in place of routes/layout.tsx, which puts the shell in templates too")]),
       "tailwind" => (vec![("routes/styled/page.tsx", TAILWIND_PAGE), ("styles/themes/ocean.css", TAILWIND_THEME)], vec![("a page", "<a href=\"/styled\">Styled</a>"), ("routes/layout.tsx", "export const theme = \"ocean\"; to switch the document to styles/themes/ocean.css")]),
+      "mdx" => (vec![("routes/notes/page.mdx", MDX_PAGE)], vec![("a page", "<a href=\"/notes\">Notes</a>")]),
       _ => (Vec::new(), Vec::new()),
     }
   }
@@ -233,8 +246,70 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
     if direction.name == "tailwind" {
       adopt_tailwind(app, &mut adopted)?;
     }
+    if direction.name == "mdx" {
+      adopt_mdx(app, &mut adopted)?;
+    }
   }
   Ok(adopted)
+}
+
+/// MDX for an application: `mdx-components.tsx` at its root unless it has
+/// one, and with highlighting built in, `code.css` beside its stylesheets
+/// colouring code in a light and a dark theme by the document's scheme.
+fn adopt_mdx(app: &Path, adopted: &mut Adopted) -> Result<(), BuildError> {
+  let components = app.join(crate::mdx::COMPONENTS);
+  match components.is_file() {
+    true => adopted.present.push(crate::mdx::COMPONENTS.to_owned()),
+    false => {
+      std::fs::write(&components, MDX_COMPONENTS).map_err(|e| BuildError::Io(components.clone(), e))?;
+      adopted.written.push(components);
+    }
+  }
+  if let Some(css) = code_sheet() {
+    let styles = crate::assets::Sections::of(app).dirs.styles;
+    let dir = app.join(&styles);
+    let path = dir.join(CODE_SHEET);
+    match path.is_file() {
+      true => adopted.present.push(format!("{styles}/{CODE_SHEET}")),
+      false => {
+        std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
+        std::fs::write(&path, css).map_err(|e| BuildError::Io(path.clone(), e))?;
+        adopted.written.push(path);
+        let listed = crate::config_beside(app).is_some_and(|config| config.document.styles.is_some() && !config.inferred.iter().any(|row| row.starts_with("document.styles from")));
+        if listed {
+          adopted.edits.push(("config/app.toml".to_owned(), format!("[document] styles gains the compiled {styles}/{CODE_SHEET}")));
+        }
+      }
+    }
+  }
+  Ok(())
+}
+
+/// The stylesheet for highlighted code: [`CODE_THEMES`] light at the root,
+/// dark under `data-sf-scheme="dark"` and under the browser's preference when
+/// the document names no scheme. `None` without the highlighter.
+pub fn code_sheet() -> Option<String> {
+  #[cfg(feature = "mdx-highlight")]
+  {
+    use snapfire_fsr_mdx::highlight::theme_css;
+    let (light, dark) = CODE_THEMES;
+    let mut out = format!("/* Code highlighted at build: {light} in a light scheme, {dark} in a dark one. Each class is a TextMate scope; regenerate with another pair of themes from snapfire_fsr_mdx::highlight::themes(). */\n\n");
+    out.push_str(&theme_css(light, "")?);
+    out.push('\n');
+    out.push_str(&theme_css(dark, "[data-sf-scheme=\"dark\"]")?);
+    out.push_str("\n@media (prefers-color-scheme: dark) {\n");
+    for line in theme_css(dark, ":root:not([data-sf-scheme])")?.lines() {
+      out.push_str("  ");
+      out.push_str(line);
+      out.push('\n');
+    }
+    out.push_str("}\n\n[data-rehype-pretty-code-figure] { margin: 1rem 0; }\n[data-rehype-pretty-code-title] { font-family: ui-monospace, monospace; font-size: 0.85em; opacity: 0.8; padding: 0.25rem 0; }\n.hl-code { padding: 0.75rem 1rem; overflow-x: auto; border-radius: 6px; }\n.hl-code code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }\n.hl-code [data-line] { display: inline-block; min-width: 100%; }\n.hl-code [data-highlighted-line] { background: rgba(127, 127, 127, 0.18); }\n");
+    Some(out)
+  }
+  #[cfg(not(feature = "mdx-highlight"))]
+  {
+    None
+  }
 }
 
 /// Tailwind for an application: nothing when a stylesheet under the styles
