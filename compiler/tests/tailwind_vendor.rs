@@ -26,7 +26,7 @@ fn test_a_vendored_packages_class_list_wins_and_a_package_without_one_is_read() 
   for read in [".tabular-nums", ".bg-sky-200", ".h-2", ".block"] {
     assert!(css.contains(read), "acme-charts read from its minified modules, its relative import followed: {read}: {css}");
   }
-  assert!(!css.contains(".font-black"), "a class composed through a renamed helper is not seen: {css}");
+  assert!(!css.contains(".font-black"), "a class composed through a helper the bundle inlined is not seen: {css}");
   assert!(!stdout.contains("acme-chart-frame") && !stderr.contains("acme-chart-frame"), "a vendored string that is no utility is no warning: {stdout}{stderr}");
 }
 

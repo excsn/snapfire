@@ -45,7 +45,7 @@ app/vendor/@acme/ui/
   tailwind.classes
 ```
 
-A package without one, the way a third-party bundle arrives, is read from its modules, its imports followed. A minifier may rename a `cn` helper, so a class composed through one in such a package is not seen; list it with `@source inline(...)`. A site with no vendor tree of its own reads its shell's.
+A package without one, the way a third-party bundle arrives, is read from its modules, its imports followed. A helper it imports is followed under whatever name the minifier gave it. One the bundler inlined and renamed is not, so a class composed through it is not seen; list it with `@source inline(...)`. A site with no vendor tree of its own reads its shell's.
 
 A package that carries `index.d.ts` beside its entry needs nothing from `fsr types`: the build takes its declarations from the vendor tree.
 

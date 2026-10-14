@@ -192,7 +192,7 @@ pub fn source_classes(path: &Path, source: &str) -> Vec<String> {
   let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
   let mut consts = Consts::default();
   consts.visit_program(&parsed.program);
-  let mut collector = Classes { consts: Some(&consts.table), ..Classes::default() };
+  let mut collector = Classes { consts: Some(&consts.table), aliases: helper_aliases(&parsed.program), ..Classes::default() };
   collector.visit_program(&parsed.program);
   let mut found: Vec<String> = collector.found.into_iter().collect();
   found.sort();
@@ -252,9 +252,43 @@ impl<'a> oxc_ast_visit::Visit<'a> for Consts {
 struct Classes<'t> {
   found: std::collections::BTreeSet<String>,
   consts: Option<&'t ConstTable>,
+  /// Local names an import binds a class helper to, `e` in `import { cn as e } from "./cn.js"`.
+  aliases: std::collections::HashSet<String>,
 }
 
-const CLASS_CALLS: &[&str] = &["clsx", "cn", "cx", "classnames", "classNames", "twMerge", "normalizeClass", "_normalizeClass"];
+/// The packages whose default export joins classes.
+const CLASS_PACKAGES: &[&str] = &["clsx", "clsx/lite", "classnames", "tailwind-merge"];
+
+/// The local names a program's imports bind a class helper to: a named import of one of
+/// [`CLASS_CALLS`] under any local name or a default import from one of [`CLASS_PACKAGES`].
+fn helper_aliases(program: &oxc_ast::ast::Program) -> std::collections::HashSet<String> {
+  use oxc_ast::ast::{ImportDeclarationSpecifier, ModuleExportName, Statement};
+  let mut out = std::collections::HashSet::new();
+  for statement in &program.body {
+    let Statement::ImportDeclaration(import) = statement else { continue };
+    for specifier in import.specifiers.iter().flatten() {
+      match specifier {
+        ImportDeclarationSpecifier::ImportSpecifier(s) => {
+          let imported = match &s.imported {
+            ModuleExportName::IdentifierName(n) => n.name.as_str(),
+            ModuleExportName::IdentifierReference(n) => n.name.as_str(),
+            ModuleExportName::StringLiteral(n) => n.value.as_str(),
+          };
+          if CLASS_CALLS.contains(&imported) {
+            out.insert(s.local.name.to_string());
+          }
+        }
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(s) if CLASS_PACKAGES.contains(&import.source.value.as_str()) => {
+          out.insert(s.local.name.to_string());
+        }
+        _ => {}
+      }
+    }
+  }
+  out
+}
+
+const CLASS_CALLS: &[&str] = &["clsx", "cn", "cx", "classnames", "classNames", "twMerge", "twJoin", "normalizeClass", "_normalizeClass"];
 
 impl Classes<'_> {
   fn words(&mut self, text: &str) {
@@ -360,7 +394,7 @@ impl Classes<'_> {
       oxc_ast::ast::Expression::StaticMemberExpression(m) => Some(m.property.name.as_str()),
       _ => None,
     };
-    if name.is_some_and(|n| CLASS_CALLS.contains(&n)) {
+    if name.is_some_and(|n| CLASS_CALLS.contains(&n) || self.aliases.contains(n)) {
       for argument in &call.arguments {
         if let Some(e) = argument.as_expression() {
           self.expression(e);
@@ -545,6 +579,12 @@ mod tests {
   fn a_constant_that_names_another_reads_what_that_one_holds() {
     let tsx = "const ring = \"ring-1 ring-inset\";\nconst tones = { violet: `${ring} bg-violet-100` };\nexport const B = ({ t }: { t: \"violet\" }) => <b className={tones[t]} />;\n";
     assert_eq!(source_classes(Path::new("src/B.tsx"), tsx), ["bg-violet-100", "ring-1", "ring-inset"]);
+  }
+
+  #[test]
+  fn a_helper_imported_under_another_name_still_counts() {
+    let js = "import{cn as e}from\"./cn.min.js\";import t from\"clsx\";import{twJoin as j}from\"tailwind-merge\";import{other as o}from\"./x.js\";export function B(){return[e(\"bg-violet-100\",\"px-2\"),t(\"ring-1\"),j(\"gap-1\"),o(\"not-a-class\")]}";
+    assert_eq!(source_classes(Path::new("vendor/@acme/ui/index.min.js"), js), ["bg-violet-100", "gap-1", "px-2", "ring-1"]);
   }
 
   #[test]
