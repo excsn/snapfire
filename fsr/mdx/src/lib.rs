@@ -930,8 +930,10 @@ impl<'a> Emitter<'a> {
       if let Some(lang) = code.lang.as_deref() {
         if let Some(lines) = highlight::lines(&code.value, lang) {
           self.highlighted(lang, &fence, &lines, at);
-          return;
+        } else {
+          self.ungrammared(lang, &fence, &code.value, at);
         }
+        return;
       }
     }
     let _ = &fence;
@@ -945,6 +947,31 @@ impl<'a> Emitter<'a> {
     self.text(&value, at);
     self.close(&ctag, at);
     self.close(&pre, at);
+  }
+
+  /// A fence whose language no grammar knows, as rehype-pretty-code writes it:
+  /// its title and language kept, its text left unhighlighted.
+  #[cfg(feature = "highlight")]
+  fn ungrammared(&mut self, lang: &str, fence: &Fence, value: &str, at: usize) {
+    let class = self.class();
+    if let Some(title) = &fence.title {
+      self.open("figure", &[("data-rehype-pretty-code-figure", json(""))], at, false);
+      self.open("figcaption", &[("data-rehype-pretty-code-title", json("")), ("data-language", json(lang))], at, false);
+      self.text(title, at);
+      self.close("figcaption", at);
+    }
+    let pre = self.tag("pre");
+    self.open(&pre, &[("data-language", json(lang))], at, false);
+    let ctag = self.tag("code");
+    self.open(&ctag, &[(class, json(&format!("language-{lang}"))), ("data-language", json(lang))], at, false);
+    let mut text = value.to_owned();
+    text.push('\n');
+    self.text(&text, at);
+    self.close(&ctag, at);
+    self.close(&pre, at);
+    if fence.title.is_some() {
+      self.close("figure", at);
+    }
   }
 
   #[cfg(feature = "highlight")]

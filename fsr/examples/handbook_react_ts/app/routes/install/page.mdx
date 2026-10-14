@@ -22,3 +22,11 @@ cargo install snapfire_fsr_cli
 fsr use app mdx
 fsr build app
 ```
+
+A build prints what it found, one row per kind:
+
+```shell-session title="terminal"
+$ fsr build app
+routes    /install               routes/install
+plan      generated/plan.sexp    18.7 KB written
+```

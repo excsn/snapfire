@@ -244,6 +244,8 @@ let lines = highlight::lines("let x = 1;\n", "ts").unwrap();
 assert_eq!(lines.len(), 1);
 ```
 
+A `shell-session` fence, or `console`, `sh-session` or `shellsession`, is a terminal session. A line starting with a prompt (`$`, `#`, `%`, `>`, `❯` or `➜`, then a space, after an optional `(env)`) is `hl-meta hl-prompt`, its prompt `hl-punctuation hl-definition hl-prompt` and its command highlighted as Bash. A command ending in `\` goes on to the next line. Every other line is `hl-meta hl-output`.
+
 ### Fence options
 
 ~~~text

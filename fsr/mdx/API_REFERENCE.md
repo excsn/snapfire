@@ -133,7 +133,7 @@ The one-based line and column, in characters, of byte `offset`, clamped to the s
 
 ## 3. Highlighting
 
-The `highlight` feature. Grammars are bat's (two-face 0.5) on fancy-regex; `jsx` reads with the TSX grammar; `text`, `txt`, `plain` and `plaintext` name none.
+The `highlight` feature. Grammars are bat's (two-face 0.5) on fancy-regex; `jsx` reads with the TSX grammar; `text`, `txt`, `plain` and `plaintext` name none. `SESSIONS`, `shell-session`, `console`, `sh-session` and `shellsession` in any case, read a terminal session: prompt lines `hl-meta hl-prompt` with the command through Bash, other lines `hl-meta hl-output`.
 
 ### highlight::lines
 

@@ -441,5 +441,7 @@
 [data-rehype-pretty-code-title] { font-family: ui-monospace, monospace; font-size: 0.85em; opacity: 0.8; padding: 0.25rem 0; }
 .hl-code { padding: 0.75rem 1rem; overflow-x: auto; border-radius: 6px; }
 .hl-code code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }
+.hl-code .hl-punctuation.hl-definition.hl-prompt { opacity: 0.6; user-select: none; }
+.hl-code .hl-meta.hl-output { opacity: 0.75; }
 .hl-code [data-line] { display: inline-block; min-width: 100%; }
 .hl-code [data-highlighted-line] { background: rgba(127, 127, 127, 0.18); }

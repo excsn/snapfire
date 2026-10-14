@@ -303,7 +303,7 @@ pub fn code_sheet() -> Option<String> {
       out.push_str(line);
       out.push('\n');
     }
-    out.push_str("}\n\n[data-rehype-pretty-code-figure] { margin: 1rem 0; }\n[data-rehype-pretty-code-title] { font-family: ui-monospace, monospace; font-size: 0.85em; opacity: 0.8; padding: 0.25rem 0; }\n.hl-code { padding: 0.75rem 1rem; overflow-x: auto; border-radius: 6px; }\n.hl-code code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }\n.hl-code [data-line] { display: inline-block; min-width: 100%; }\n.hl-code [data-highlighted-line] { background: rgba(127, 127, 127, 0.18); }\n");
+    out.push_str("}\n\n[data-rehype-pretty-code-figure] { margin: 1rem 0; }\n[data-rehype-pretty-code-title] { font-family: ui-monospace, monospace; font-size: 0.85em; opacity: 0.8; padding: 0.25rem 0; }\n.hl-code { padding: 0.75rem 1rem; overflow-x: auto; border-radius: 6px; }\n.hl-code code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }\n.hl-code .hl-punctuation.hl-definition.hl-prompt { opacity: 0.6; user-select: none; }\n.hl-code .hl-meta.hl-output { opacity: 0.75; }\n.hl-code [data-line] { display: inline-block; min-width: 100%; }\n.hl-code [data-highlighted-line] { background: rgba(127, 127, 127, 0.18); }\n");
     Some(out)
   }
   #[cfg(not(feature = "mdx-highlight"))]

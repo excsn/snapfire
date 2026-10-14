@@ -36,49 +36,119 @@ fn syntax(lang: &str) -> Option<&'static SyntaxReference> {
   }
 }
 
+/// The fence names a terminal session reads as, GitHub's `ShellSession` among them.
+pub const SESSIONS: &[&str] = &["shell-session", "console", "sh-session", "shellsession"];
+
+fn is_session(lang: &str) -> bool {
+  SESSIONS.contains(&lang.to_ascii_lowercase().as_str())
+}
+
 /// Whether a fence's language names a grammar.
 pub fn knows(lang: &str) -> bool {
-  syntax(lang).is_some()
+  is_session(lang) || syntax(lang).is_some()
 }
 
 /// `code` as highlighted lines, each its own tree of spans with every scope
 /// open at its start reopened, the newline left out. `None` when `lang` names
 /// no grammar.
 pub fn lines(code: &str, lang: &str) -> Option<Vec<Vec<Piece>>> {
+  if is_session(lang) {
+    return session(code);
+  }
   let syntax = syntax(lang)?;
-  let set = syntaxes();
   let mut state = ParseState::new(syntax);
   let mut stack = ScopeStack::new();
+  LinesWithEndings::from(code).map(|line| highlight_line(&mut state, &mut stack, line)).collect()
+}
+
+/// One line through a grammar whose state carries over from the line before.
+fn highlight_line(state: &mut ParseState, stack: &mut ScopeStack, line: &str) -> Option<Vec<Piece>> {
+  let ops = state.parse_line(line, syntaxes()).ok()?;
+  let text = line.strip_suffix('\n').unwrap_or(line);
+  let text = text.strip_suffix('\r').unwrap_or(text);
+  let mut frames: Vec<(String, Vec<Piece>)> = vec![(String::new(), Vec::new())];
+  for scope in stack.as_slice() {
+    frames.push((classes(*scope), Vec::new()));
+  }
+  let mut last = 0;
+  for (at, op) in ops {
+    let at = at.min(text.len());
+    if at > last {
+      push_text(&mut frames, &text[last..at]);
+      last = at;
+    }
+    stack
+      .apply_with_hook(&op, |basic, _| match basic {
+        BasicScopeStackOp::Push(scope) => frames.push((classes(scope), Vec::new())),
+        BasicScopeStackOp::Pop => close(&mut frames),
+      })
+      .ok()?;
+  }
+  if last < text.len() {
+    push_text(&mut frames, &text[last..]);
+  }
+  while frames.len() > 1 {
+    close(&mut frames);
+  }
+  Some(frames.pop().map(|(_, pieces)| pieces).unwrap_or_default())
+}
+
+/// The bytes of a line's prompt, the space after it included: an optional
+/// `(env)` and one of `$ # % > ❯ ➜` followed by a space or the line's end, as
+/// GitHub's `ShellSession` grammar reads them.
+fn prompt_of(line: &str) -> Option<usize> {
+  let mut at = 0;
+  if let Some(rest) = line.strip_prefix('(') {
+    let close = rest.find(')')?;
+    at = 1 + close + 1;
+    at += line[at..].len() - line[at..].trim_start_matches(' ').len();
+  }
+  let mark = line[at..].chars().next()?;
+  if !matches!(mark, '$' | '#' | '%' | '>' | '❯' | '➜') {
+    return None;
+  }
+  let after = at + mark.len_utf8();
+  match line[after..].chars().next() {
+    None => Some(after),
+    Some(' ') => Some(after + 1),
+    Some(_) => None,
+  }
+}
+
+/// A terminal session: each line after a prompt is a command through the Bash
+/// grammar, a command ending in `\\` going on to the next line, and every other
+/// line output.
+fn session(code: &str) -> Option<Vec<Vec<Piece>>> {
+  let bash = syntaxes().find_syntax_by_token("bash")?;
   let mut out = Vec::new();
+  let mut command: Option<(ParseState, ScopeStack)> = None;
   for line in LinesWithEndings::from(code) {
-    let ops = state.parse_line(line, set).ok()?;
-    let text = line.strip_suffix('\n').unwrap_or(line);
-    let text = text.strip_suffix('\r').unwrap_or(text);
-    let mut frames: Vec<(String, Vec<Piece>)> = vec![(String::new(), Vec::new())];
-    for scope in stack.as_slice() {
-      frames.push((classes(*scope), Vec::new()));
-    }
-    let mut last = 0;
-    for (at, op) in ops {
-      let at = at.min(text.len());
-      if at > last {
-        push_text(&mut frames, &text[last..at]);
-        last = at;
+    let text = line.trim_end_matches(['\n', '\r']);
+    let continued = command.is_some();
+    let prompt = if continued { Some(0) } else { prompt_of(text) };
+    let Some(prompt) = prompt else {
+      out.push(match text.is_empty() {
+        true => Vec::new(),
+        false => vec![Piece::Span { classes: format!("{PREFIX}meta {PREFIX}output"), children: vec![Piece::Text(text.to_owned())] }],
+      });
+      continue;
+    };
+    let (state, stack) = command.get_or_insert_with(|| (ParseState::new(bash), ScopeStack::new()));
+    let mut children = Vec::new();
+    if prompt > 0 {
+      let mark = text[..prompt].trim_end();
+      let (env, sign) = mark.split_at(mark.len() - mark.chars().last().map(char::len_utf8).unwrap_or(0));
+      if !env.is_empty() {
+        children.push(Piece::Text(env.to_owned()));
       }
-      stack
-        .apply_with_hook(&op, |basic, _| match basic {
-          BasicScopeStackOp::Push(scope) => frames.push((classes(scope), Vec::new())),
-          BasicScopeStackOp::Pop => close(&mut frames),
-        })
-        .ok()?;
+      children.push(Piece::Span { classes: format!("{PREFIX}punctuation {PREFIX}definition {PREFIX}prompt"), children: vec![Piece::Text(sign.to_owned())] });
+      children.push(Piece::Text(text[mark.len()..prompt].to_owned()));
     }
-    if last < text.len() {
-      push_text(&mut frames, &text[last..]);
+    children.extend(highlight_line(state, stack, &line[prompt..])?);
+    out.push(vec![Piece::Span { classes: format!("{PREFIX}meta {PREFIX}prompt"), children }]);
+    if !text.trim_end().ends_with('\\') {
+      command = None;
     }
-    while frames.len() > 1 {
-      close(&mut frames);
-    }
-    out.push(frames.pop().map(|(_, pieces)| pieces).unwrap_or_default());
   }
   Some(out)
 }
@@ -181,6 +251,30 @@ mod tests {
     let Piece::Span { children, .. } = &second[0] else { panic!("source span") };
     let Piece::Span { classes, .. } = &children[0] else { panic!("comment span") };
     assert!(classes.contains("hl-comment"), "{classes}");
+  }
+
+  /// REQUESTS 11.52: a session fence came out as plain text, the prompt
+  /// lines and the output alike.
+  #[test]
+  fn a_terminal_session_scopes_prompts_commands_and_output_apart() {
+    let lines = lines("$ cargo build --release\n   Compiling fsr\n(venv) % echo \"one\" \\\n  two\n\n# rm -rf target\n", "shell-session").expect("a session");
+    assert_eq!(lines.len(), 6);
+    let Piece::Span { classes, children } = &lines[0][0] else { panic!("a prompt span") };
+    assert_eq!(classes, "hl-meta hl-prompt");
+    assert_eq!(children[0], Piece::Span { classes: "hl-punctuation hl-definition hl-prompt".into(), children: vec![Piece::Text("$".into())] });
+    assert_eq!(children[1], Piece::Text(" ".into()));
+    assert!(matches!(&children[2], Piece::Span { classes, .. } if classes.starts_with("hl-source hl-shell")), "the command through the Bash grammar: {:?}", children[2]);
+    assert_eq!(flat(&lines[0]), "$ cargo build --release");
+    assert_eq!(lines[1], vec![Piece::Span { classes: "hl-meta hl-output".into(), children: vec![Piece::Text("   Compiling fsr".into())] }]);
+    assert_eq!(flat(&lines[2]), "(venv) % echo \"one\" \\");
+    let Piece::Span { classes, .. } = &lines[3][0] else { panic!("a continuation") };
+    assert_eq!(classes, "hl-meta hl-prompt", "a command ending in a backslash goes on to the next line");
+    assert!(lines[4].is_empty());
+    assert_eq!(flat(&lines[5]), "# rm -rf target");
+    for lang in ["console", "shellsession", "sh-session", "Shell-Session"] {
+      assert!(knows(lang), "{lang}");
+    }
+    assert_eq!(super::lines("$notaprompt\n", "console").expect("a session")[0], vec![Piece::Span { classes: "hl-meta hl-output".into(), children: vec![Piece::Text("$notaprompt".into())] }], "a prompt is followed by a space");
   }
 
   #[test]

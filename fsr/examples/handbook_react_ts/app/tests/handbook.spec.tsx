@@ -26,6 +26,14 @@ test("an MDX page reads its loader's data as props and highlights its code", asy
   expect(figure?.querySelector("[data-highlighted-line]")?.textContent).toEqual("cargo install snapfire_fsr_cli");
 });
 
+test("a terminal session marks its prompt and its output apart", async () => {
+  await load("/install");
+  const session = document.querySelectorAll("[data-rehype-pretty-code-figure]")[1];
+  expect(session?.querySelector("pre")?.getAttribute("data-language")).toEqual("shell-session");
+  expect(session?.querySelector(".hl-prompt .hl-punctuation")?.textContent).toEqual("$");
+  expect(Array.from(session?.querySelectorAll(".hl-output") ?? []).map((o) => o.textContent)).toEqual(["routes    /install               routes/install", "plan      generated/plan.sexp    18.7 KB written"]);
+});
+
 test("a markdown page takes its title from frontmatter and its headings from the map", async () => {
   await load("/faq");
   expect(document.title).toEqual("FAQ · The FSR handbook");

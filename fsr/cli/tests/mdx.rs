@@ -209,6 +209,7 @@ fn fsr_use_mdx_writes_the_component_map_and_the_code_sheet() {
   assert!(css.contains("[data-sf-scheme=\"dark\"] .hl-code"), "{css}");
   assert!(css.contains(":root:not([data-sf-scheme]) .hl-code"), "{css}");
   assert!(css.contains(".hl-code code { background: none;"), "an application's own code style stops at a highlighted block: {css}");
+  assert!(css.contains(".hl-code .hl-meta.hl-output {") && css.contains("hl-prompt { opacity: 0.6; user-select: none; }"), "a session's output and prompts: {css}");
   let built = build(&app, &Options::default()).expect("the example builds");
   assert!(built.report.routes.iter().any(|(pattern, _)| pattern == "/notes"));
   let again = snapfire_fsr_cli::direction::adopt(&app, &["mdx".to_owned()], snapfire_fsr_cli::direction::UseOptions { fetch: false, example: false }).expect("adopts again");

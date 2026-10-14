@@ -246,6 +246,17 @@ fn highlighted_code_is_classed_spans_per_line() {
   let body = body(&c);
   assert!(body.starts_with("<figure data-rehype-pretty-code-figure={\"\"}><figcaption data-rehype-pretty-code-title={\"\"} data-language={\"ts\"}>{\"a.ts\"}</figcaption><pre className={\"hl-code\"} data-language={\"ts\"}><code data-language={\"ts\"}><span data-line={\"\"}><span className={\"hl-source hl-ts\"}>"), "{body}");
   assert!(body.contains("{\"\\n\"}<span data-line={\"\"} data-highlighted-line={\"\"}>"), "{body}");
-  assert!(body.contains("<pre><code className={\"language-text\"}>{\"plain\\n\"}</code></pre>"), "{body}");
+  assert!(body.contains("<pre data-language={\"text\"}><code className={\"language-text\"} data-language={\"text\"}>{\"plain\\n\"}</code></pre>"), "{body}");
   assert!(c.classes.contains("hl-storage") && c.classes.contains("hl-ts"), "{:?}", c.classes);
+}
+
+#[cfg(feature = "highlight")]
+#[test]
+fn a_fence_with_no_grammar_keeps_its_title_and_language() {
+  let mut o = options(Format::Mdx);
+  o.highlight = true;
+  let c = convert("```tera title=\"app/routes/page.tera\"\n<ul>{{ x }}</ul>\n```\n", &o).expect("converts");
+  let body = body(&c);
+  assert!(body.contains("<figcaption data-rehype-pretty-code-title={\"\"} data-language={\"tera\"}>{\"app/routes/page.tera\"}</figcaption>"), "{body}");
+  assert!(body.contains("<pre data-language={\"tera\"}><code className={\"language-tera\"} data-language={\"tera\"}>"), "{body}");
 }
