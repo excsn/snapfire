@@ -20,6 +20,8 @@ A stylesheet under `styles/` that imports Tailwind is the opt-in:
 }
 ```
 
+`fsr new shop --with tailwind` starts an application that way. On one that already has stylesheets, `fsr use shop/app tailwind` adds `styles/tailwind.css` with Tailwind's theme and utilities and leaves its preflight reset out, so the existing pages keep their look while classes are added to them.
+
 Everything Tailwind CSS v4 reads in a stylesheet works: `@theme`, `@utility`, `@variant`, `@custom-variant`, `@apply`, `@source inline(...)`, `theme()` and `--spacing()`. There is no `tailwind.config.js` and no Node: the engine is `snapfire_tailwind`, a Rust port of Tailwind's own compiler. A JavaScript plugin or config is refused by name. So is a stylesheet that points Tailwind at files to scan, `@source "../node_modules/some-ui"` or `source("../src")` on the import, since the build reads classes from what it compiles and never scans; the error says to list such classes with `@source inline(...)`.
 
 ## Where the classes come from

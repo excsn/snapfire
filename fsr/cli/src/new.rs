@@ -117,6 +117,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
   let mut created = Created::default();
 
   let htmx = options.with.iter().any(|d| d == "htmx");
+  let tailwind = options.with.iter().any(|d| d == "tailwind");
   // A site runs alone beside a shell during development, so it takes another
   // port. Its `[cache]` is the shell's once mounted.
   let (scope, home, port, cache) = match &site_scope {
@@ -139,6 +140,12 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
       .replace("{{htmx_import}}", if htmx { "import htmx from \"htmx.org\";\n" } else { "" })
       .replace("{{htmx_bind_import}}", if htmx { "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";\n" } else { "" })
       .replace("{{htmx_bind}}", if htmx { "bindHtmx(htmx);\n" } else { "" });
+    let contents = match (tailwind && path.starts_with("app/styles/"), &site_scope) {
+      (true, None) => format!("@import \"tailwindcss\";\n\n{contents}"),
+      // A site's sheet joins the shell's document, whose preflight is already the base.
+      (true, Some(_)) => format!("@import \"tailwindcss/theme\" layer(theme);\n@import \"tailwindcss/utilities\" layer(utilities);\n\n{contents}"),
+      (false, _) => contents,
+    };
     let path = root.join(path);
     if let Some(parent) = path.parent() {
       std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
@@ -183,7 +190,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     created.next.push(format!("fsr build {}", app.display()));
   }
   if options.with.is_empty() {
-    created.next.push(format!("fsr use {} react      # only if the application wants React; also vue, elements, htmx or tera", app.display()));
+    created.next.push(format!("fsr use {} react      # only if the application wants React; also vue, elements, htmx, tailwind or tera", app.display()));
   }
   created.next.push(format!("fsr dev {}", app.display()));
 

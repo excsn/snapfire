@@ -1,7 +1,8 @@
-//! `fsr use`: gives an existing application a client direction. The adapter's
-//! line goes into the import map, the framework the direction pins is vendored
-//! and the declarations and generated files follow, so a bare application takes
-//! on React, Vue, custom elements or htmx at any point rather than at `fsr new`.
+//! `fsr use`: gives an existing application a direction. A client direction's
+//! adapter line goes into the import map, the framework it pins is vendored and
+//! the declarations and generated files follow, so a bare application takes on
+//! React, Vue, custom elements or htmx at any point rather than at `fsr new`.
+//! Tailwind adds a stylesheet beside the application's own.
 
 use std::path::{Path, PathBuf};
 
@@ -45,9 +46,21 @@ pub const DIRECTIONS: &[Direction] = &[
     vendors: &[("htmx.org", HTMX, None)],
     edits: &[("src/main.ts", "import htmx from \"htmx.org\";"), ("src/main.ts", "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";"), ("src/main.ts", "bindHtmx(htmx); after enableNavigation()")],
   },
+  Direction { name: "tailwind", maps: &[], adapter: None, vendors: &[], edits: &[] },
   #[cfg(feature = "tera")]
   Direction { name: "tera", maps: &[], adapter: None, vendors: &[], edits: &[] },
 ];
+
+/// The stylesheet `fsr use <app> tailwind` adds beside an application's own.
+pub const TAILWIND_SHEET: &str = "tailwind.css";
+
+/// Theme and utilities without the preflight reset, so the stylesheets an
+/// application already has keep their look.
+const TAILWIND_ADDED: &str = "/* Tailwind's theme and utilities. Its preflight reset is left out so the other stylesheets here keep their look; add `@import \"tailwindcss/preflight\" layer(base);` to take it. */\n@import \"tailwindcss/theme\" layer(theme);\n@import \"tailwindcss/utilities\" layer(utilities);\n";
+
+const TAILWIND_PAGE: &str = "export default function Styled() {\n  return (\n    <main className=\"mx-auto max-w-xl p-8\">\n      <h1 className=\"text-3xl font-bold tracking-tight\">Styled with Tailwind</h1>\n      <p className=\"mt-2 text-gray-600 dark:text-gray-300\">Each class on this page is a utility the build generated because the page renders it.</p>\n      <a href=\"/\" className=\"mt-6 inline-block rounded-md bg-sky-600 px-4 py-2 text-white hover:bg-sky-700\">Back home</a>\n    </main>\n  );\n}\n";
+
+const TAILWIND_THEME: &str = "@theme {\n  --color-sky-600: #0e7490;\n  --color-sky-700: #155e75;\n}\n";
 
 impl Direction {
   /// Each import map line the direction writes: the specifier and its URL
@@ -69,6 +82,7 @@ impl Direction {
       "elements" => (vec![("elements/hello-tag.tsx", ELEMENT_TEMPLATE), ("src/elements/hello-tag.ts", ELEMENT_CLASS)], vec![("src/main.ts", "import \"./elements/hello-tag.js\";"), ("a page", "<hello-tag name=\"world\" />")]),
       "htmx" => (vec![("routes/pulse/page.loader.ts", HTMX_LOADER), ("routes/pulse/page.tsx", HTMX_PAGE)], vec![("a page", "<div hx-get=\"/pulse?__fragment\" hx-trigger=\"every 5s\" hx-swap=\"innerHTML\" />")]),
       "tera" => (vec![("routes/hello/page.loader.ts", TERA_LOADER), ("routes/hello/page.tera", TERA_PAGE)], vec![("routes/layout.tera", "in place of routes/layout.tsx, which puts the shell in templates too")]),
+      "tailwind" => (vec![("routes/styled/page.tsx", TAILWIND_PAGE), ("styles/themes/ocean.css", TAILWIND_THEME)], vec![("a page", "<a href=\"/styled\">Styled</a>"), ("routes/layout.tsx", "export const theme = \"ocean\"; to switch the document to styles/themes/ocean.css")]),
       _ => (Vec::new(), Vec::new()),
     }
   }
@@ -216,8 +230,41 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
 
   for direction in &directions {
     adopted.edits.extend(direction.edits.iter().map(|(file, line)| ((*file).to_owned(), (*line).to_owned())));
+    if direction.name == "tailwind" {
+      adopt_tailwind(app, &mut adopted)?;
+    }
   }
   Ok(adopted)
+}
+
+/// Tailwind for an application: nothing when a stylesheet under the styles
+/// directory already imports it, else `tailwind.css` beside the others, which
+/// the document links with them. An application that lists `[document]
+/// styles` itself is told to list the new sheet.
+fn adopt_tailwind(app: &Path, adopted: &mut Adopted) -> Result<(), BuildError> {
+  let dir = app.join(crate::assets::Sections::of(app).dirs.styles);
+  let sheets: Vec<PathBuf> = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "css")).collect();
+  if let Some(sheet) = sheets.iter().find(|p| std::fs::read_to_string(p).is_ok_and(|css| imports_tailwind(&css))) {
+    adopted.present.push(format!("tailwind in {}", sheet.strip_prefix(app).unwrap_or(sheet).display()));
+    return Ok(());
+  }
+  std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
+  let path = dir.join(TAILWIND_SHEET);
+  std::fs::write(&path, TAILWIND_ADDED).map_err(|e| BuildError::Io(path.clone(), e))?;
+  adopted.written.push(path);
+  let listed = crate::config_beside(app).is_some_and(|config| config.document.styles.is_some() && !config.inferred.iter().any(|row| row.starts_with("document.styles from")));
+  if listed {
+    adopted.edits.push(("config/app.toml".to_owned(), format!("[document] styles gains the compiled {}/{TAILWIND_SHEET}", crate::assets::Sections::of(app).dirs.styles)));
+  }
+  Ok(())
+}
+
+/// Whether a stylesheet imports Tailwind or one of its parts.
+fn imports_tailwind(css: &str) -> bool {
+  css.lines().any(|line| {
+    let line = line.trim_start();
+    line.starts_with("@import") && (line.contains("\"tailwindcss") || line.contains("'tailwindcss"))
+  })
 }
 
 /// Writes the direction's lines into the map. A line already at the host's

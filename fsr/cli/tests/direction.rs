@@ -86,7 +86,7 @@ fn a_bare_application_given_vue_builds_a_vue_island() {
 fn the_refusals_name_the_table_the_url_and_the_version() {
   let dir = bare(&[]);
   let unknown = adopt(&dir, &["svelte".to_owned()], offline()).unwrap_err().to_string();
-  assert!(unknown.contains("`svelte` is not a direction") && unknown.contains("react, vue, elements, htmx, tera"), "{unknown}");
+  assert!(unknown.contains("`svelte` is not a direction") && unknown.contains("react, vue, elements, htmx, tailwind, tera"), "{unknown}");
 
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/cdn/react.js"}}"#).unwrap();
   let url = adopt(&dir, &["react".to_owned()], offline()).unwrap_err().to_string();
@@ -119,5 +119,46 @@ fn an_example_is_written_once_and_placed_by_the_next_lines() {
 
   let again = adopt(&dir, &["htmx".to_owned()], UseOptions { fetch: false, example: true }).unwrap_err().to_string();
   assert!(again.contains("routes/pulse/page.loader.ts already exists"), "{again}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn tailwind_adds_a_stylesheet_beside_the_applications_own_and_its_classes_build() {
+  let page = "export default function Page() {\n  return <p className=\"rounded-md bg-sky-600 px-4\">page</p>;\n}\n";
+  let dir = bare(&[("routes/page.tsx", page), ("styles/app.css", "body { margin: 0; }\n")]);
+  let adopted = adopt(&dir, &["tailwind".to_owned()], offline()).unwrap();
+  assert_eq!(adopted.written, [dir.join("styles/tailwind.css")]);
+  let sheet = std::fs::read_to_string(dir.join("styles/tailwind.css")).unwrap();
+  assert!(sheet.contains("@import \"tailwindcss/theme\" layer(theme);") && sheet.contains("@import \"tailwindcss/utilities\" layer(utilities);") && !sheet.contains("@import \"tailwindcss\";"), "no preflight reset over the application's own styles: {sheet}");
+  assert_eq!(std::fs::read_to_string(dir.join("styles/app.css")).unwrap(), "body { margin: 0; }\n", "the application's sheet is its own");
+  assert!(adopted.mapped.is_empty() && !adopted.next.iter().any(|s| s.starts_with("fsr add")), "nothing to map or vendor: {:?}", adopted.next);
+  let built = build(&dir, &Options::default()).unwrap();
+  let classes = built.files.iter().find(|(name, _)| name == "generated/tailwind.classes").map(|(_, text)| text.clone()).expect("the classes file");
+  for class in ["rounded-md", "bg-sky-600", "px-4"] {
+    assert!(classes.contains(&format!("{class}\t")), "{class}: {classes}");
+  }
+  let again = adopt(&dir, &["tailwind".to_owned()], offline()).unwrap();
+  assert!(again.written.is_empty(), "{:?}", again.written);
+  assert_eq!(again.present, ["tailwind in styles/tailwind.css"]);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn tailwind_leaves_an_application_that_already_imports_it_alone() {
+  let dir = bare(&[("styles/site.css", "@import \"tailwindcss\";\n")]);
+  let adopted = adopt(&dir, &["tailwind".to_owned()], offline()).unwrap();
+  assert!(adopted.written.is_empty() && !dir.join("styles/tailwind.css").exists(), "{:?}", adopted.written);
+  assert_eq!(adopted.present, ["tailwind in styles/site.css"]);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn tailwinds_example_is_a_styled_page_and_a_theme() {
+  let dir = bare(&[]);
+  let adopted = adopt(&dir, &["tailwind".to_owned()], UseOptions { fetch: false, example: true }).unwrap();
+  assert!(dir.join("routes/styled/page.tsx").is_file() && dir.join("styles/themes/ocean.css").is_file(), "{:?}", adopted.written);
+  assert!(adopted.edits.iter().any(|(file, _)| file == "routes/layout.tsx"), "{:?}", adopted.edits);
+  let built = build(&dir, &Options::default()).unwrap();
+  assert!(built.report.themes.contains(&"ocean".to_owned()), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }

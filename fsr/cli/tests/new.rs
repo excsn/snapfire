@@ -270,3 +270,44 @@ fn a_configuration_that_does_not_load_fails_the_build() {
   assert!(err.to_string().contains("not_a_key"), "{err}");
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn a_project_with_tailwind_imports_it_in_its_own_stylesheet_and_builds_its_classes() {
+  let root = root("tailwind");
+  let created = create(&root, NewOptions { with: vec!["tailwind".to_owned()], ..offline() }).unwrap();
+  let css = std::fs::read_to_string(root.join("app/styles/app.css")).unwrap();
+  assert!(css.starts_with("@import \"tailwindcss\";\n"), "{css}");
+  assert!(!root.join("app/styles/tailwind.css").exists(), "the scaffold's own sheet carries it: {:?}", created.written);
+  std::fs::write(root.join("app/routes/page.tsx"), "export default function Page() {\n  return <p className=\"mt-4 text-sky-600\">page</p>;\n}\n").unwrap();
+  let built = build(&root.join("app"), &Options::beside(&root.join("app"))).unwrap();
+  let classes = built.files.iter().find(|(name, _)| name == "generated/tailwind.classes").map(|(_, text)| text.clone()).expect("the classes file");
+  assert!(classes.contains("mt-4\t") && classes.contains("text-sky-600\t"), "{classes}");
+}
+
+#[test]
+fn a_site_with_tailwind_takes_its_theme_and_utilities_and_leaves_the_reset_to_the_shell() {
+  let root = root("tailwind-site");
+  create(&root, NewOptions { with: vec!["tailwind".to_owned()], site: Some(SiteScaffold { at: "/docs".to_owned(), name: Some("docs".to_owned()), into: None }), ..offline() }).unwrap();
+  let css = std::fs::read_to_string(root.join("app/styles/docs.css")).unwrap();
+  assert!(css.starts_with("@import \"tailwindcss/theme\" layer(theme);\n@import \"tailwindcss/utilities\" layer(utilities);\n"), "{css}");
+}
+
+#[test]
+fn tailwind_in_an_application_that_lists_its_styles_says_to_list_the_new_sheet() {
+  let root = root("tailwind-listed");
+  create(&root, offline()).unwrap();
+  let config = root.join("config/app.toml");
+  let text = std::fs::read_to_string(&config).unwrap().replacen("[document]\n", "[document]\nstyles = [\"/static/css/app.css\"]\n", 1);
+  std::fs::write(&config, text).unwrap();
+  let adopted = snapfire_fsr_cli::direction::adopt(&root.join("app"), &["tailwind".to_owned()], snapfire_fsr_cli::direction::UseOptions { fetch: false, example: false }).unwrap();
+  assert!(root.join("app/styles/tailwind.css").is_file());
+  assert!(adopted.edits.iter().any(|(file, line)| file == "config/app.toml" && line.contains("styles/tailwind.css")), "{:?}", adopted.edits);
+}
+
+#[test]
+fn tailwind_in_an_application_whose_styles_are_inferred_needs_no_edit() {
+  let root = root("tailwind-inferred");
+  create(&root, offline()).unwrap();
+  let adopted = snapfire_fsr_cli::direction::adopt(&root.join("app"), &["tailwind".to_owned()], snapfire_fsr_cli::direction::UseOptions { fetch: false, example: false }).unwrap();
+  assert!(!adopted.edits.iter().any(|(file, _)| file == "config/app.toml"), "the document links every styles/*.css: {:?}", adopted.edits);
+}
