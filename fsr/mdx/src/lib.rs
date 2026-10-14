@@ -132,6 +132,9 @@ pub struct Converted {
   pub meta: bool,
   /// The names the file exports, `default` aside.
   pub exports: Vec<String>,
+  /// The text of the first paragraph at the top level with any, whitespace
+  /// collapsed; an expression or JSX inside it contributes nothing.
+  pub excerpt: Option<String>,
   /// Every class the highlighter wrote.
   pub classes: BTreeSet<String>,
   /// The keys of [`Options::mapped`] the module places.
@@ -274,6 +277,7 @@ struct Emitter<'a> {
   toc: Vec<TocEntry>,
   meta: bool,
   exports: Vec<String>,
+  excerpt: Option<String>,
   layout: Option<String>,
   classes: BTreeSet<String>,
   placed: BTreeSet<String>,
@@ -297,6 +301,7 @@ impl<'a> Emitter<'a> {
       toc: Vec::new(),
       meta: false,
       exports: Vec::new(),
+      excerpt: None,
       layout: None,
       classes: BTreeSet::new(),
       placed: BTreeSet::new(),
@@ -307,7 +312,7 @@ impl<'a> Emitter<'a> {
   }
 
   fn finish(self) -> Converted {
-    Converted { tsx: self.out, segments: self.segments, toc: self.toc, meta: self.meta, exports: self.exports, classes: self.classes, placed: self.placed, warnings: self.warnings }
+    Converted { tsx: self.out, segments: self.segments, toc: self.toc, meta: self.meta, exports: self.exports, excerpt: self.excerpt, classes: self.classes, placed: self.placed, warnings: self.warnings }
   }
 
   fn push(&mut self, text: &str, original: usize, verbatim: bool) {
@@ -360,6 +365,10 @@ impl<'a> Emitter<'a> {
 
   fn module(&mut self, root: &'a Node) -> Result<(), Error> {
     let children = root.children().map(Vec::as_slice).unwrap_or(&[]);
+    self.excerpt = children.iter().find_map(|node| match node {
+      Node::Paragraph(p) => Some(plain(&p.children).split_whitespace().collect::<Vec<_>>().join(" ")).filter(|text| !text.is_empty()),
+      _ => None,
+    });
     let mut frontmatter = None;
     for node in children {
       match node {

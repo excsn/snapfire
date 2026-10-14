@@ -27,6 +27,7 @@ Without a feature, asking for what it adds is an `Error::Feature`.
 | Place an application's components for markdown's elements | `Options::mapped` |
 | Name a source line from a byte of the written module | `Converted::origin`, `original_offset`, `position` |
 | List a file's headings | `Converted::toc` |
+| Show a file's first paragraph in a list | `Converted::excerpt` |
 | Tell whether a file exports `meta` | `Converted::meta`, `Converted::exports` |
 | Keep highlight classes out of a class list | `Converted::classes` |
 | Colour highlighted code | `highlight::theme_css` |

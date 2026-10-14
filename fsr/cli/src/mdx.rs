@@ -164,7 +164,7 @@ mod built {
   }
 
   /// `generated/content.ts`: per collection, every `.mdx` and `.md` file in
-  /// its directory by name, with its slug, its name there, its `meta` and its `toc`.
+  /// its directory by name, with its slug, its name there, its `meta`, its `toc` and its first paragraph as `excerpt`.
   pub fn collections(app: &Path, installed: &Installed) -> Result<Option<String>, BuildError> {
     if installed.settings.collections.is_empty() {
       return Ok(None);
@@ -208,7 +208,8 @@ mod built {
         if !named.is_empty() {
           imports.push_str(&format!("import {{ {} }} from {};\n", named.join(", "), serde_json::to_string(&specifier).expect("a string")));
         }
-        body.push_str(&format!("  {{ slug: {}, file: {}, meta: {meta}, toc: {toc} }},\n", serde_json::to_string(slug).expect("a string"), serde_json::to_string(&file).expect("a string")));
+        let excerpt = serde_json::to_string(&converted.excerpt).expect("an excerpt serializes");
+        body.push_str(&format!("  {{ slug: {}, file: {}, meta: {meta}, toc: {toc}, excerpt: {excerpt} }},\n", serde_json::to_string(slug).expect("a string"), serde_json::to_string(&file).expect("a string")));
         n += 1;
       }
       body.push_str("];\n");

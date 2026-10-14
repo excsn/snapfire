@@ -14,6 +14,7 @@ export default function Tags({ tags }: TagsProps) {
                 <Link href={`/blog/post/${post.slug}`} className="text-accent hover:underline">
                   {post.title}
                 </Link>
+                {post.excerpt ? <p className="text-[13px] text-ink-soft" data-part="excerpt">{post.excerpt}</p> : null}
               </li>
             ))}
           </ul>

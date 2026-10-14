@@ -86,6 +86,7 @@ Parses `source` with markdown-rs in the format `options.format` names and writes
 * `pub tsx: String`
 * `pub segments: Vec<Segment>`: in order of `generated`.
 * `pub toc: Vec<TocEntry>`: empty with `heading_ids` off.
+* `pub excerpt: Option<String>`: the plain text of the first top-level paragraph, whitespace collapsed; `None` when there is none or it holds no text. Frontmatter, headings and ESM are not paragraphs.
 * `pub meta: bool`: the module exports `meta`.
 * `pub exports: Vec<String>`: every exported name but `default`, `toc` last when written.
 * `pub classes: BTreeSet<String>`: each class the highlighter wrote, `hl-code` among them.

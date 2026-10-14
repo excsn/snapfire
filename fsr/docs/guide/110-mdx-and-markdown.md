@@ -100,7 +100,7 @@ export const titles = posts.map((post) => post.meta.title);
 export const paths = () => posts.map((post) => ({ slug: post.slug }));
 ```
 
-Each entry is `{ slug, file, meta, toc }`: `slug` the name without its extension, `file` the name in the directory, which is what a template import takes. A loader sorts and filters the list like any other constant.
+Each entry is `{ slug, file, meta, toc, excerpt }`: `slug` the name without its extension, `file` the name in the directory, which is what a template import takes. `excerpt` is the plain text of the file's first paragraph, or `null` when it has none. A loader sorts and filters the list like any other constant.
 
 ## The component map
 

@@ -100,7 +100,7 @@ fn collections_list_every_content_file_with_its_meta_and_toc() {
   let files = [
     ("routes/page.tsx", page),
     ("routes/page.loader.ts", loader),
-    ("content/posts/b-second.mdx", "export const meta = { title: \"Second\" }\n\n## Part\n"),
+    ("content/posts/b-second.mdx", "export const meta = { title: \"Second\" }\n\n## Part\n\nThe second\none, in *short*.\n\nMore.\n"),
     ("content/posts/a-first.md", "# First\n"),
     ("content/posts/notes.txt", "not content"),
   ];
@@ -112,7 +112,8 @@ fn collections_list_every_content_file_with_its_meta_and_toc() {
   let first = content.find("slug: \"a-first\"").expect("the first entry");
   let second = content.find("slug: \"b-second\"").expect("the second entry");
   assert!(first < second, "{content}");
-  assert!(content.contains("{ slug: \"a-first\", file: \"a-first.md\", meta: {}, toc: toc0 }"), "{content}");
+  assert!(content.contains("{ slug: \"a-first\", file: \"a-first.md\", meta: {}, toc: toc0, excerpt: null }"), "{content}");
+  assert!(content.contains("toc: toc1, excerpt: \"The second one, in short.\" }"), "the first paragraph is the excerpt: {content}");
   assert!(!content.contains("notes"), "{content}");
   assert!(built.manifest.sources.iter().any(|s| s.module.as_deref() == Some("routes/page.loader.ts") && s.body.is_some()), "the loader reading the collection lowered");
   assert!(file(&built, "generated/mdx.d.ts").contains("declare module \"*.mdx\""));

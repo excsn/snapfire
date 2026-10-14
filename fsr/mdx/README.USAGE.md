@@ -35,6 +35,7 @@ How to turn `.mdx` and `.md` files into TSX modules, map what was written back t
 * **Wrapper**: the component that takes the whole content as its children: the file's own `export default`, else the map's `wrapper`.
 * **TOC**: the file's headings with their ids, exported as `toc`.
 * **Meta**: the file's `export const meta`, written or from frontmatter.
+* **Excerpt**: the plain text of the file's first top-level paragraph, whitespace collapsed. It is returned, not exported.
 * **Highlighted code**: a fenced block written as nested spans whose classes are the TextMate scopes of its tokens, `hl-` prefixed.
 * **Theme CSS**: a stylesheet colouring those classes in one syntect theme.
 * **Warning**: something the conversion left out, with the line and column it sits at.
@@ -185,8 +186,9 @@ Without one, a mapped `wrapper` key wraps the content. Either takes the content 
 ```rust
 use snapfire_fsr_mdx::{convert, Format, Options, Target, TocEntry};
 
-let converted = convert("export const meta = { title: \"T\" }\n\n# Intro\n\n## Setup\n", &Options::new(Format::Mdx, Target::Lowered)).unwrap();
+let converted = convert("export const meta = { title: \"T\" }\n\n# Intro\n\nThe *first*\nparagraph.\n\n## Setup\n", &Options::new(Format::Mdx, Target::Lowered)).unwrap();
 assert!(converted.meta);
+assert_eq!(converted.excerpt.as_deref(), Some("The first paragraph."));
 assert_eq!(converted.toc[1], TocEntry { depth: 2, id: "setup".into(), text: "Setup".into() });
 assert_eq!(converted.exports, ["meta", "toc"]);
 ```

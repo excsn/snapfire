@@ -1229,7 +1229,7 @@ import { posts } from "@generated/content";
 export const paths = () => posts.map((post) => ({ slug: post.slug }));
 ```
 
-`generated/content.ts` holds one `{ slug, file, meta, toc }` per `.mdx` or `.md` file in the directory, by file name. `generated/mdx.d.ts` declares `*.mdx` and `*.md` for the type checker.
+`generated/content.ts` holds one `{ slug, file, meta, toc, excerpt }`, `excerpt` the first paragraph as plain text or `null`, per `.mdx` or `.md` file in the directory, by file name. `generated/mdx.d.ts` declares `*.mdx` and `*.md` for the type checker.
 
 ### Mapping markdown's elements
 

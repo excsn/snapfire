@@ -65,3 +65,10 @@ test("a markdown post takes its meta from frontmatter", async () => {
   expect(document.querySelector("[data-part=body] del")?.textContent).toEqual("per request");
   expect(document.querySelectorAll("[data-part=body] ol li").length).toEqual(2);
 });
+
+test("the tag list shows each post's first paragraph from the collection", async () => {
+  await load("/blog/tags");
+  const item = document.querySelector("[data-part=tag] a[href='/blog/post/a-site-is-a-mount']")?.closest("li");
+  expect(item?.querySelector("[data-part=excerpt]")?.textContent?.startsWith("The shell reads the site's artifact from a path")).toEqual(true);
+  expect(document.querySelectorAll("[data-part=tag] li").length).toEqual(document.querySelectorAll("[data-part=tag] [data-part=excerpt]").length);
+});
