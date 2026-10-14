@@ -253,8 +253,42 @@ fn class_value(expr: &Expr, scope: &Scope, found: &mut Found) {
     found.tokens.extend(string.split_whitespace().map(str::to_owned));
   }
   if values.open == Some(Open::Dynamic) {
-    found.unlisted.push(snapfire_fsr_ir::sexpr::print(&[snapfire_fsr_ir::sexpr::expr_to_sx(expr)]).trim().to_owned());
+    found.unlisted.push(as_written(expr).unwrap_or_else(|| snapfire_fsr_ir::sexpr::print(&[snapfire_fsr_ir::sexpr::expr_to_sx(expr)]).trim().to_owned()));
   }
+}
+
+/// `expr` in the TypeScript it was lowered from, for a value a reader wrote as
+/// a template, a field read, a ternary or an operator over those. `None` for
+/// any other form, which the report prints as the plan does.
+fn as_written(expr: &Expr) -> Option<String> {
+  Some(match expr {
+    Expr::Lit(Lit::Str(text)) => serde_json::to_string(text).ok()?,
+    Expr::Lit(Lit::Int(n)) => n.to_string(),
+    Expr::Lit(Lit::Float(n)) => n.to_string(),
+    Expr::Lit(Lit::Bool(b)) => b.to_string(),
+    Expr::Lit(Lit::Null) => "null".to_owned(),
+    Expr::Var(name) => name.trim_start_matches('$').to_owned(),
+    Expr::Param(name) => format!("params.{name}"),
+    Expr::Query(name) => format!("query.{name}"),
+    Expr::Field(target, name) => format!("{}.{name}", as_written(target)?),
+    Expr::Index(target, index) => format!("{}[{}]", as_written(target)?, as_written(index)?),
+    Expr::Template(parts) => {
+      let mut out = String::from("`");
+      for part in parts {
+        match part {
+          Expr::Lit(Lit::Str(text)) => out.push_str(&text.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")),
+          other => out.push_str(&format!("${{{}}}", as_written(other)?)),
+        }
+      }
+      out.push('`');
+      out
+    }
+    Expr::Ternary(cond, then, otherwise) => format!("{} ? {} : {}", as_written(cond)?, as_written(then)?, as_written(otherwise)?),
+    Expr::Logic(op, a, b) => format!("{} {} {}", as_written(a)?, if *op == LogicOp::And { "&&" } else { "||" }, as_written(b)?),
+    Expr::Coalesce(a, b) => format!("{} ?? {}", as_written(a)?, as_written(b)?),
+    Expr::Not(inner) => format!("!{}", as_written(inner)?),
+    _ => return None,
+  })
 }
 
 /// The expression a name or a constant stands for, followed until it is something else.
@@ -467,6 +501,18 @@ mod tests {
     let (tokens, unlisted) = found(el(Expr::Field(Box::new(var("data")), "class".to_owned())), &[]);
     assert!(tokens.is_empty());
     assert_eq!(unlisted.len(), 1);
+  }
+
+  /// REQUESTS 11.51: the warning quoted the plan's s-expression, which a
+  /// reader who wrote a template literal has never seen.
+  #[test]
+  fn an_unlisted_value_is_quoted_as_it_was_written() {
+    let template = Expr::Template(vec![Expr::lit_str("rounded-full px-3 status-"), Expr::Field(Box::new(var("s")), "state".to_owned())]);
+    let (_, unlisted) = found(el(template), &[]);
+    assert_eq!(unlisted, ["`rounded-full px-3 status-${s.state}`"]);
+    let ternary = Expr::Ternary(Box::new(var("open")), Box::new(Expr::lit_str("block")), Box::new(Expr::Field(Box::new(var("data")), "tone".to_owned())));
+    let (_, unlisted) = found(el(ternary), &[]);
+    assert_eq!(unlisted, ["open ? \"block\" : data.tone"]);
   }
 
   #[test]
