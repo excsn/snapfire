@@ -94,7 +94,6 @@ impl Host {
       csrf: TokenCell::default(),
       fresh: true,
       stale: false,
-      borrowed: false,
     };
     let response = self.auth_route(mounted, &request, &opened, path, query).await?;
     let (parts, body) = response.into_parts();

@@ -175,8 +175,10 @@ async fn the_sites_status_names_the_mount() {
   assert_eq!(json["sites"][0]["hash"].as_str().unwrap().len(), 16);
   assert_eq!(json["sites"][1]["name"], "blog");
   assert_eq!(json["sites"][1]["version"], "path", "a linked working tree");
-  assert_eq!(json["sites"][2]["name"], "status");
-  assert_eq!(json["sites"][2]["version"], "1.0.0", "fetched from the store");
+  assert_eq!(json["sites"][2]["name"], "reports");
+  assert_eq!(json["sites"][2]["version"], "path", "a linked working tree");
+  assert_eq!(json["sites"][3]["name"], "status");
+  assert_eq!(json["sites"][3]["version"], "1.0.0", "fetched from the store");
 }
 
 #[tokio::test]
@@ -221,26 +223,11 @@ async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
 }
 
 
-/// The reports site served on a port of its own and the portal mounting it
-/// over that address, as the two processes would.
-async fn portal_over_reports() -> (Arc<Host>, Arc<Host>) {
-  let root: &Path = Path::new(env!("CARGO_MANIFEST_DIR"));
-  let reports = Arc::new(Host::from(root.join("sites/reports")).unwrap().build().unwrap());
-  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-  let address = format!("http://{}", listener.local_addr().unwrap());
-  tokio::spawn(reports.clone().serve_listener(listener));
-  let deployed = deployed();
-  let mut config = snapfire_fsr_host::Config::load(root).unwrap();
-  config.sites.as_mut().unwrap().mounts.get_mut("reports").unwrap().over = vec![address];
-  let builder = snapfire_fsr_sites::mount_all_with(Host::from_config(config).unwrap(), &deployed.store).unwrap();
-  (Arc::new(builder.build().unwrap()), reports)
-}
-
 #[tokio::test]
-async fn the_portal_renders_the_reports_site_from_its_own_process() {
-  let (portal, _reports) = portal_over_reports().await;
+async fn the_portal_mounts_reports_with_a_client_of_its_own() {
+  let portal = portal();
   let report = portal.report().to_string();
-  assert!(report.contains("reports                at /reports over http://127.0.0.1:"), "{report}");
+  assert!(report.contains("reports                at /reports from"), "{report}");
 
   let response = portal.handle(Request::get("/reports").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
@@ -248,13 +235,13 @@ async fn the_portal_renders_the_reports_site_from_its_own_process() {
   let html = body_of(response).await;
   assert!(html.contains(">Acme</a>") && html.contains("3 teams"), "the portal's header wraps the site: {html}");
   assert!(html.contains("<title>Reports</title>"), "the site's title: {html}");
-  assert!(html.contains("Revenue by region") && html.contains("data-sf-module=\"reports:routes/layout.tsx#default\""), "rendered by the other process from its own client: {html}");
+  assert!(html.contains("Revenue by region") && html.contains("data-sf-module=\"reports:routes/layout.tsx#default\""), "rendered from the site's metrics client: {html}");
   assert!(html.contains("href=\"/reports/static/js/app/styles/reports.css\"") && html.contains("src=\"/reports/static/js/app/src/main.js\""), "the site's stylesheet and entry in the portal's head: {html}");
   assert!(html.contains("<!--sf-g:reports:routes/page.tsx#default-->"), "the site's segment keys in the portal's document: {html}");
 
   let css = portal.handle(Request::get("/reports/static/js/app/styles/reports.css").body(Bytes::new()).unwrap()).await;
   assert_eq!(css.status(), StatusCode::OK);
-  assert!(body_of(css).await.contains(".figures"), "the site's static file forwarded from its process");
+  assert!(body_of(css).await.contains(".figures"), "the site's static file");
 
   let html = body_of(portal.handle(Request::get("/reports/1").body(Bytes::new()).unwrap()).await).await;
   assert!(html.contains("Adding up the rows") && html.contains("<template data-sf-fill="), "the deferred segment streams through: {html}");
@@ -263,26 +250,6 @@ async fn the_portal_renders_the_reports_site_from_its_own_process() {
 
   let payload = body_of(portal.handle(Request::get("/reports?__payload").body(Bytes::new()).unwrap()).await).await;
   assert!(payload.contains("E \"/reports/static/js/app/src/main.js\"") && payload.contains("\"k\":\"reports:routes/layout.tsx#default\""), "a navigation into the site carries its entry and keys: {payload}");
-
-  let status = body_of(portal.handle(Request::get("/__fsr/sites").body(Bytes::new()).unwrap()).await).await;
-  let json: serde_json::Value = serde_json::from_str(&status).unwrap();
-  let reports = json["sites"].as_array().unwrap().iter().find(|s| s["name"] == "reports").unwrap();
-  assert_eq!(reports["over"][0]["up"], true, "{status}");
-}
-
-#[tokio::test]
-async fn the_portal_degrades_a_reports_page_while_the_process_is_down() {
-  let root: &Path = Path::new(env!("CARGO_MANIFEST_DIR"));
-  let deployed = deployed();
-  let mut config = snapfire_fsr_host::Config::load(root).unwrap();
-  config.sites.as_mut().unwrap().mounts.get_mut("reports").unwrap().over = vec!["http://127.0.0.1:1".to_owned()];
-  let portal = Arc::new(snapfire_fsr_sites::mount_all_with(Host::from_config(config).unwrap(), &deployed.store).unwrap().build().unwrap());
-  let response = portal.handle(Request::get("/reports").body(Bytes::new()).unwrap()).await;
-  assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-  let html = body_of(response).await;
-  assert!(html.contains(">Acme</a>") && html.contains("data-sf-error"), "the portal's layout around the error: {html}");
-  let response = portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
-  assert_eq!(response.status(), StatusCode::OK, "the other sites are untouched");
 }
 
 /// A candidate holding a billing whose ledger is down is refused by billing's
@@ -353,34 +320,23 @@ mod portal_react_ts_check {
 
 #[tokio::test]
 async fn the_sitemap_lists_what_an_anonymous_visitor_reaches_across_the_sites() {
-  let (portal, reports) = portal_over_reports().await;
+  let portal = portal();
   let get = |host: Arc<Host>, path: &'static str| async move { body_of(host.handle(Request::get(path).body(Bytes::new()).unwrap()).await).await };
 
   let robots = get(portal.clone(), "/robots.txt").await;
   assert!(robots.contains("Disallow: /auth/") && robots.contains("Sitemap: http://127.0.0.1:8100/sitemap.xml"), "{robots}");
 
-  let index = get(portal.clone(), "/sitemap.xml").await;
-  assert!(index.contains("<loc>http://127.0.0.1:8100/sitemap-1.xml</loc>") && index.contains("<loc>http://127.0.0.1:8100/reports/sitemap.xml</loc>"), "a site in its own process gets its own entry: {index}");
-
-  let own = get(portal.clone(), "/sitemap-1.xml").await;
-  for listed in ["8100/</loc>", "8100/login</loc>", "8100/billing</loc>", "8100/blog</loc>", "8100/blog/post/why-a-plan-file</loc>", "8100/status</loc>"] {
+  let own = get(portal.clone(), "/sitemap.xml").await;
+  for listed in ["8100/</loc>", "8100/login</loc>", "8100/billing</loc>", "8100/blog</loc>", "8100/blog/post/why-a-plan-file</loc>", "8100/status</loc>", "8100/reports</loc>", "8100/reports/1</loc>", "8100/reports/3</loc>"] {
     assert!(own.contains(listed), "{listed}: {own}");
   }
   assert!(!own.contains("/account"), "the portal's middleware turns a signed-out visitor away: {own}");
   assert!(!own.contains("/billing/overdue"), "billing's middleware does the same under the mount: {own}");
-  assert!(!own.contains("/reports"), "the reports process lists its own pages: {own}");
-
-  let remote = get(portal.clone(), "/reports/sitemap.xml").await;
-  for listed in ["8100/reports</loc>", "8100/reports/1</loc>", "8100/reports/3</loc>"] {
-    assert!(remote.contains(listed), "the portal forwards the site's own sitemap, its paths from a service: {listed}: {remote}");
-  }
-  let report = reports.report().to_string();
-  assert!(report.contains("/reports/sitemap.xml") && !report.contains("robots"), "a site serves no robots.txt: {report}");
 }
 
 #[tokio::test]
 async fn a_card_image_is_drawn_for_the_shell_and_each_site_and_named_in_its_page() {
-  let (portal, _reports) = portal_over_reports().await;
+  let portal = portal();
   let get = |path: &'static str, accept: &'static str| {
     let portal = portal.clone();
     async move { portal.handle(Request::get(path).header(header::ACCEPT, accept).body(Bytes::new()).unwrap()).await }
@@ -391,7 +347,7 @@ async fn a_card_image_is_drawn_for_the_shell_and_each_site_and_named_in_its_page
     ("/reports/1", "/reports/1/opengraph-image.png"),
   ] {
     let html = body_of(get(page, "text/html").await).await;
-    assert!(html.contains(&format!("<meta property=\"og:image\" content=\"http://127.0.0.1:8100{image}?v=")), "{page} names its image, the reports page through the head row its process sends: {html}");
+    assert!(html.contains(&format!("<meta property=\"og:image\" content=\"http://127.0.0.1:8100{image}?v=")), "{page} names its image: {html}");
     assert!(html.contains("<meta property=\"og:image:width\" content=\"1200\">"), "{page}: {html}");
     let response = get(image, "image/avif,image/webp,*/*").await;
     assert_eq!(response.status(), StatusCode::OK, "{image}");
@@ -412,7 +368,7 @@ async fn a_card_image_is_drawn_for_the_shell_and_each_site_and_named_in_its_page
 
   let html = body_of(get("/reports/1", "text/html").await).await;
   for id in ["total", "rows"] {
-    assert!(html.contains(&format!("<meta name=\"twitter:image\" content=\"http://127.0.0.1:8100/reports/1/twitter-image/{id}?v=")), "each listed image named, through the head row its process sends: {html}");
+    assert!(html.contains(&format!("<meta name=\"twitter:image\" content=\"http://127.0.0.1:8100/reports/1/twitter-image/{id}?v=")), "each listed image named: {html}");
   }
   let rows = get("/reports/1/twitter-image/rows", "*/*").await;
   assert_eq!(rows.status(), StatusCode::OK);
@@ -421,20 +377,20 @@ async fn a_card_image_is_drawn_for_the_shell_and_each_site_and_named_in_its_page
 }
 
 #[tokio::test]
-async fn a_remote_pages_head_elements_reach_the_portals_document() {
-  let (portal, _reports) = portal_over_reports().await;
+async fn a_reports_pages_head_elements_reach_the_portals_document() {
+  let portal = portal();
   let html = body_of(portal.handle(Request::get("/reports").header(header::ACCEPT, "text/html").body(Bytes::new()).unwrap()).await).await;
-  assert!(html.contains("<meta property=\"og:type\" content=\"website\">"), "the head element the reports index's meta returns, carried in the head row its process sends: {html}");
+  assert!(html.contains("<meta property=\"og:type\" content=\"website\">"), "the head element the reports index's meta returns: {html}");
 }
 
 #[tokio::test]
-async fn a_remote_sites_get_handler_answers_through_the_portal_whatever_the_client_accepts() {
-  let (portal, _reports) = portal_over_reports().await;
+async fn the_reports_sites_get_handler_answers_through_the_portal_whatever_the_client_accepts() {
+  let portal = portal();
   for accept in ["*/*", "application/json"] {
     let response = portal.handle(Request::get("/reports/1/rows").header(header::ACCEPT, accept).body(Bytes::new()).unwrap()).await;
     let status = response.status();
     let body = body_of(response).await;
     assert_eq!(status, StatusCode::OK, "{accept}: {body}");
-    assert!(body.contains("Revenue by region"), "{accept}: answered by the reports process: {body}");
+    assert!(body.contains("Revenue by region"), "{accept}: answered by the reports site's handler: {body}");
   }
 }

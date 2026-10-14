@@ -280,20 +280,3 @@ fn copy(from: &Path, to: &Path) {
     std::fs::copy(from, to).unwrap();
   }
 }
-
-#[test]
-fn a_mount_over_an_address_resolves_no_artifact() {
-  let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let dir = std::env::temp_dir().join(format!("fsr-sites-over-{}-{nanos}", std::process::id()));
-  std::fs::create_dir_all(dir.join("generated")).unwrap();
-  std::fs::write(dir.join("generated/plan.sexp"), "(plan 6)\n").unwrap();
-  std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
-  std::fs::write(
-    dir.join("app.toml"),
-    "[app]\ndir = \".\"\n\n[server]\nlisten = \"127.0.0.1:0\"\n\n[session]\nkey = \"test-key\"\n\n[sites.reports]\nat = \"/reports\"\nover = [\"http://127.0.0.1:8104\"]\n",
-  )
-  .unwrap();
-  let config = snapfire_fsr_host::Config::load(&dir).unwrap();
-  assert!(snapfire_fsr_sites::resolve(&config).unwrap().is_empty());
-  std::fs::remove_dir_all(&dir).unwrap();
-}

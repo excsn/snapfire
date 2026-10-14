@@ -83,7 +83,7 @@ pub fn builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<
       let mut config = Config::load(&root)?;
       let section = config.sites.get_or_insert_with(Default::default);
       for (name, path) in &mounts {
-        section.mounts.insert(name.clone(), MountConfig { artifact: Some(path.display().to_string()), hash: None, allow_engine: false, at: None, over: Vec::new(), timeout: None, retry: None, secret: None });
+        section.mounts.insert(name.clone(), MountConfig { artifact: Some(path.display().to_string()), hash: None, allow_engine: false });
       }
       Host::from_config(config)
     }

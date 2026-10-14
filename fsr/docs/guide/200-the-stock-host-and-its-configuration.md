@@ -102,7 +102,7 @@ The value is a W3C date, `2026-06-01` or `2026-06-01T09:30:00Z`. A response with
 
 The candidates are the fixed routes plus one path per value of a route's `paths` export, the one `fsr prerender` reads. A route with a parameter and no `paths` has nothing to list. The boot report names it on the `crawl` rows. With `[locales]` serving prefixes, each page is listed once per locale with `xhtml:link` alternates naming the others, `fr_FR` written as `fr-FR` and the default locale as `x-default`.
 
-Past 50,000 URLs or when the shell mounts a site in its own process, the sitemap becomes an index. The host's own pages go in `sitemap-1.xml`, `sitemap-2.xml` and so on beside it. Each such site's own sitemap is listed under its prefix, `/reports/sitemap.xml`. That site answers it and the shell forwards the request. Its `[crawl]` names only `sitemap`, since only the origin's root has a `robots.txt`. A site mounted in this process is part of the shell's routes and needs nothing of its own.
+Past 50,000 URLs the sitemap becomes an index, the pages going in `sitemap-1.xml`, `sitemap-2.xml` and so on beside it. A mounted site is part of the shell's routes and needs nothing of its own.
 
 ## The host this deployment answers on
 

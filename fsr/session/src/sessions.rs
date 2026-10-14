@@ -38,8 +38,6 @@ pub struct Opened {
   /// The cookie decoded under something the codec no longer writes, a
   /// retired-in-waiting key, so `persist` sets it again under the current one.
   pub stale: bool,
-  /// The id came from a caller that holds the cookie, so the answer sets none.
-  pub borrowed: bool,
 }
 
 /// The session layer facade: `open` before matching, `persist` when the
@@ -106,35 +104,13 @@ impl Sessions {
             csrf: TokenCell::new(record.csrf),
             fresh: false,
             stale,
-            borrowed: false,
           };
         }
         let _ = self.store.delete(&id).await;
       }
-      return Opened { id, cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale, borrowed: false };
+      return Opened { id, cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: false, stale };
     }
-    Opened { id: SessionId::generate(), cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false, borrowed: false }
-  }
-
-  /// The session `id` names, which another host opened from its cookie and
-  /// forwarded: its record when the store holds one, else an empty cell
-  /// under that id, so what this host writes lands where the other reads.
-  /// Never sets a cookie.
-  pub async fn open_id(&self, id: SessionId) -> Opened {
-    if let Some(record) = self.store.load(&id).await {
-      if record.expires > unix_now() {
-        return Opened {
-          id,
-          cell: SessionCell::new(record.data, record.identity).expiring(record.expires),
-          tokens: TokenCell::new(record.tokens),
-          csrf: TokenCell::new(record.csrf),
-          fresh: false,
-          stale: false,
-          borrowed: true,
-        };
-      }
-    }
-    Opened { id, cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false, borrowed: true }
+    Opened { id: SessionId::generate(), cell: self.new_cell(), tokens: TokenCell::default(), csrf: TokenCell::default(), fresh: true, stale: false }
   }
 
   /// An empty cell ending one `ttl` from now.

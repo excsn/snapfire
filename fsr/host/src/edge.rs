@@ -8,8 +8,6 @@ use super::*;
 #[derive(Clone)]
 pub(crate) struct Incoming {
   pub(crate) session: SessionCell,
-  /// The opened session's id, forwarded to a site in its own process.
-  pub(crate) session_id: Option<String>,
   pub(crate) csrf: CsrfHandle,
   pub(crate) credentials: Arc<dyn Credentials>,
   /// The locale whose catalog the navigator already holds, `x-sf-catalog`,
@@ -19,9 +17,6 @@ pub(crate) struct Incoming {
   pub(crate) host: Option<String>,
   /// Set on an intercepted render.
   pub(crate) intercept: Option<Intercept>,
-  /// Whether a shell asked for this render to splice into its own document,
-  /// `x-sf-mount`, so the answer names what the site's islands need loaded.
-  pub(crate) mounted: bool,
   /// What the request decided for the document's theme, when the application has themes.
   pub(crate) theme: Option<snapfire_fsr_runtime::DocumentTheme>,
 }
@@ -30,13 +25,11 @@ impl Incoming {
   pub(crate) fn anonymous(session: SessionCell) -> Self {
     Self {
       session,
-      session_id: None,
       csrf: CsrfHandle::default(),
       credentials: Arc::new(NoCredentials),
       held_catalog: None,
       host: None,
       intercept: None,
-      mounted: false,
       theme: None,
     }
   }
@@ -108,17 +101,6 @@ pub fn percent_decoded(segment: &str) -> String {
 }
 
 impl Host {
-  /// The session a shell forwarded, when this host is a site with a secret and
-  /// the request's `x-sf-mount` signs its path, session and subject with it.
-  fn shared_session(&self, headers: &header::HeaderMap, path: &str) -> Option<SessionId> {
-    let secret = self.mount_secret.as_deref()?;
-    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
-    let (_, signature) = header("x-sf-mount")?.rsplit_once('.')?;
-    let session = header("x-sf-session")?;
-    let subject = header("x-sf-subject").unwrap_or("");
-    crate::remote_site::mount_signature_verifies(secret, path, session, subject, signature).then(|| SessionId(session.to_owned()))
-  }
-
   /// The context a body runs in: the services bound to the session's identity
   /// and the request's custody, the token as `csrf`.
   pub(crate) fn ctx(
@@ -143,7 +125,6 @@ impl Host {
     // Taken rather than read, so the next render does not show it again.
     ctx.failure = incoming.session.remove(snapfire_fsr_runtime::FAILURE_KEY);
     ctx.session = incoming.session;
-    ctx.session_id = incoming.session_id;
     ctx.locale = locale;
     ctx.host = incoming.host;
     ctx.origin = t.origin.clone();
@@ -157,16 +138,15 @@ impl Host {
   /// What a request at the edge carries: the session, its custody and, once
   /// the session is identified, a CSRF token. An anonymous request carries no
   /// token so its renders share the memo; the token joins the memo key.
-  pub(crate) fn incoming_themed(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>, mounted: bool, theme: Option<snapfire_fsr_runtime::DocumentTheme>) -> Incoming {
-    let mut incoming = self.incoming_holding(opened, held_catalog, host, mounted);
+  pub(crate) fn incoming_themed(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>, theme: Option<snapfire_fsr_runtime::DocumentTheme>) -> Incoming {
+    let mut incoming = self.incoming_holding(opened, held_catalog, host);
     incoming.theme = theme;
     incoming
   }
 
-  pub(crate) fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>, mounted: bool) -> Incoming {
+  pub(crate) fn incoming_holding(&self, opened: &Opened, held_catalog: Option<String>, host: Option<String>) -> Incoming {
     let mut incoming = self.incoming(opened, host);
     incoming.held_catalog = held_catalog;
-    incoming.mounted = mounted;
     incoming
   }
 
@@ -192,13 +172,11 @@ impl Host {
     };
     Incoming {
       session: opened.cell.clone(),
-      session_id: Some(opened.id.0.clone()),
       csrf,
       credentials: Arc::new(opened.tokens.clone()),
       held_catalog: None,
       host,
       intercept: None,
-      mounted: false,
       theme: None,
     }
   }
@@ -240,25 +218,9 @@ impl Host {
         .report
         .sites
         .iter()
-        .map(|s| {
-          let mut row = serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash });
-          if let Some(remote) = t.sites.iter().find(|site| site.name == s.name).and_then(|site| site.remote.as_ref()) {
-            let down = remote.down();
-            row["over"] = remote.addresses().iter().enumerate().map(|(i, address)| serde_json::json!({ "address": address, "up": !down.contains(&i) })).collect();
-          }
-          row
-        })
+        .map(|s| serde_json::json!({ "name": s.name, "at": s.at, "version": s.version, "hash": s.hash }))
         .collect();
-      let mut answer = serde_json::json!({ "sites": sites });
-      if let Some(own) = &t.own {
-        answer["site"] = serde_json::json!({ "name": own.name, "at": own.at, "entry": own.entry, "styles": own.styles, "answers": own.answers, "fsr": env!("CARGO_PKG_VERSION") });
-      }
-      return json_response(StatusCode::OK, &answer);
-    }
-    if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
-      if remote.covers_static(&path) && (req.method() == Method::GET || req.method() == Method::HEAD) {
-        return remote.forward(req, None, None).await;
-      }
+      return json_response(StatusCode::OK, &serde_json::json!({ "sites": sites }));
     }
     // The route exists only for an application that installed a sites mounter;
     // for any other host it is not a route at all.
@@ -376,12 +338,7 @@ impl Host {
       }
     }
 
-    if let Some(crawl) = &t.crawl {
-      if crawl.is_remote(&path) {
-        if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
-          return remote.forward(req, None, None).await;
-        }
-      }
+    if t.crawl.is_some() {
       if let Some(response) = self.crawl_response(&t, &req, &path).await {
         return response;
       }
@@ -389,27 +346,11 @@ impl Host {
     let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
     let cookie = header("cookie");
     let accept_language = header("accept-language");
-    let opened = match self.shared_session(req.headers(), &path) {
-      Some(id) => tracing::Instrument::instrument(self.sessions.open_id(id), tracing::info_span!(target: "fsr::trace", "session", op = "open", shared = true)).await,
-      None => tracing::Instrument::instrument(self.sessions.open(cookie.as_deref()), tracing::info_span!(target: "fsr::trace", "session", op = "open")).await,
-    };
+    let opened = tracing::Instrument::instrument(self.sessions.open(cookie.as_deref()), tracing::info_span!(target: "fsr::trace", "session", op = "open")).await;
 
     #[cfg(feature = "ws")]
     if path == "/_sf/socket" && req.method() == Method::GET {
       return self.upgrade(req, &opened);
-    }
-    if let Some(remote) = t.site_for(&path).and_then(|site| site.remote.as_ref()) {
-      let get = req.method() == Method::GET || req.method() == Method::HEAD;
-      if remote.forwards(req.method(), req.headers(), req.uri().query().unwrap_or("")) || (get && remote.answers_itself(&path).await) {
-        let subject = opened.cell.identity().map(|identity| identity.subject);
-        return remote.forward(req, Some(&opened.id.0), subject.as_deref()).await;
-      }
-    }
-    if let Some(id) = path.strip_prefix("/_sf/action/").map(percent_decoded) {
-      if let Some(remote) = t.sites.iter().filter_map(|site| site.remote.as_ref()).find(|remote| remote.owns_action(&id)) {
-        let subject = opened.cell.identity().map(|identity| identity.subject);
-        return remote.forward(req, Some(&opened.id.0), subject.as_deref()).await;
-      }
     }
     if path == "/_sf/live" && req.method() == Method::GET {
       let topics: Vec<String> = req
@@ -809,7 +750,6 @@ impl Host {
       RenderMode::Html | RenderMode::Fragment(_) => (None, None),
     };
     let held_catalog = header("x-sf-catalog");
-    let mounted = header("x-sf-mount").is_some();
     let intercepted = (from.is_some() || into.is_some())
       && self
         .intercept_in(
@@ -890,7 +830,7 @@ impl Host {
           target_query,
           from.as_deref(),
           into.as_deref(),
-          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted, theme.clone()),
+          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), theme.clone()),
         )
         .await
     } else {
@@ -900,7 +840,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted, theme.clone()),
+          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), theme.clone()),
         )
         .await
     };
@@ -912,7 +852,7 @@ impl Host {
           &target_visit,
           target_query,
           mode.clone(),
-          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), mounted, theme.clone()),
+          self.incoming_themed(opened, held_catalog.clone(), self.matched_host(req.headers()), theme.clone()),
         )
         .await
       {
@@ -979,9 +919,6 @@ impl Host {
         return;
       }
     };
-    if opened.borrowed {
-      return;
-    }
     if let Some(set_cookie) = set_cookie {
       if let Ok(value) = HeaderValue::from_str(&set_cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);

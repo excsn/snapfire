@@ -111,12 +111,9 @@ pub struct CrawlReport {
 pub struct SiteReport {
   pub name: String,
   pub at: String,
-  /// Empty for a site in its own process, which `over` names instead.
   pub artifact: PathBuf,
   pub version: String,
   pub hash: String,
-  /// The addresses of a site in its own process.
-  pub over: Vec<String>,
   /// Rows of the site's configuration the shell ignored, `session` and the like.
   pub ignored: Vec<String>,
 }
@@ -132,19 +129,7 @@ impl std::fmt::Display for HostReport {
     }
     for (i, site) in self.sites.iter().enumerate() {
       let label = if i == 0 { "sites" } else { "" };
-      if site.over.is_empty() {
-        writeln!(
-          f,
-          "{label:<9} {:<22} at {} from {} {} {}",
-          site.name,
-          site.at,
-          site.artifact.display(),
-          site.version,
-          site.hash
-        )?;
-      } else {
-        writeln!(f, "{label:<9} {:<22} at {} over {}", site.name, site.at, site.over.join(" "))?;
-      }
+      writeln!(f, "{label:<9} {:<22} at {} from {} {} {}", site.name, site.at, site.artifact.display(), site.version, site.hash)?;
       if !site.ignored.is_empty() {
         writeln!(
           f,

@@ -87,12 +87,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`AssembleError`](#assembleerror)
   * [`ActionError`](#actionerror)
   * [`ServiceError`](#serviceerror)
-* [14. Remote segments](#14-remote-segments)
-  * [`RemoteSegment`](#remotesegment)
-  * [`RemoteWave`](#remotewave)
-  * [`RemoteFill`](#remotefill)
-  * [`node_at`](#node_at)
-* [15. Reading a payload](#15-reading-a-payload)
+* [14. Reading a payload](#14-reading-a-payload)
   * [`Row`](#row)
   * [`row_from_line`](#row_from_line)
   * [`RowReader`](#rowreader)
@@ -241,7 +236,6 @@ The per-process pipeline, shared across requests. Fields are public and readable
 * `pub stores: HashMap<String, Arc<dyn Seeds>>`: by data source id, what a segment seeds the store with.
 * `pub slot_order: Vec<String>`: the application's `[store] slot_order`, as `contribution_order` reads it.
 * `pub reads: Reads`: by `subtree_shape`, what each subtree reads of the request; a subtree with no entry reads everything.
-* `pub remotes: HashMap<String, Arc<dyn RemoteSegment>>`: by module id, the plan nodes another host renders; see [Remote segments](#14-remote-segments).
 * `pub fn builder() -> RuntimeBuilder`
 * `pub fn new(sources: DataSources, evaluators: Evaluators) -> Arc<Self>`: default keyer, no cache.
 * `pub fn with_keyer(sources: DataSources, evaluators: Evaluators, keyer: Arc<dyn SegmentKeyer>) -> Arc<Self>`: no cache.
@@ -263,7 +257,6 @@ Obtained from `Runtime::builder()`; it has no public constructor of its own. Eve
 * `pub fn slot_order(self, slot_order: Vec<String>) -> Self`: the list `contribution_order` ranks parallel slots by, `Runtime::slot_order`; empty by default.
 * `pub fn derives(self, derives: Vec<Derived>) -> Self`: the derived keys, kept in `derive_order` as `Runtime::derives`. Every render applies them after the contributions merge and adds them to the pending keys by `derived_pending`.
 * `pub fn reads(self, reads: Reads) -> Self`
-* `pub fn remote(self, module: impl Into<String>, segment: Arc<dyn RemoteSegment>) -> Self`: every plan node of that module renders through `segment`.
 * `pub fn build(self) -> Arc<Runtime>`
 
 Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `Arc::new(NoCache)`, `Arc::new(NoLoadKey)`, `Arc::new(NoLoadCache)`, no metadata, no head rows, no seeds, an empty `Reads`.
@@ -580,7 +573,6 @@ Everything a loader or action may know about the request. `Clone + Default` and 
 
 * `pub params: Params`
 * `pub session: SessionCell`
-* `pub session_id: Option<String>`: the session's id as the host holds it, for a host that forwards the session to another; `None` under a context nothing opened.
 * `pub locale: Locale`: the request's locale as the host resolved it; the default `Locale` under a context nothing resolved.
 * `pub csrf: CsrfHandle`: the request's CSRF token, minted on first `get` and held for the request; `CsrfHandle::new(memo, mint)` binds one, `CsrfHandle::fixed(token)` holds a given token, `Default` is unbound and `get` answers `None`. `memo_key` is `Some("-")` unbound, `Some(memo)` when the session's token is stable and `None` when every mint differs, which keeps a subtree rendering the token out of the memo.
 * `pub services: ServiceHandle`
@@ -694,7 +686,7 @@ The wire encoding of a streamed response. The first item is the eager wave, newl
 
 * `V {"fmt":<FORMAT_VERSION>,"enc":"json"}`
 * `N <node row json>`, the tree, from `snapfire_fsr_payload::node_to_row_json`.
-* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set. `scripts` holds the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `head` holds every other head element. `meta_from_json` reads `scripts` and `head` back into `head`, so a shell splicing a remote site keeps its meta and link elements as well as its scripts. With `assembly.theme` set, the eager row also carries `theme` and `scheme`, each a string or null, with `forced` as a boolean. The row is then written whatever the meta holds.
+* `H <meta json>`, from [`meta_to_json`](#meta_to_json), when `assembly.meta` sets anything: `title` and `description` when set. `scripts` holds the attributes of each script row in `head`, since a navigation adds no head markup and loads those rows from here. `head` holds every other head element. `meta_from_json` reads `scripts` and `head` back into `head`. With `assembly.theme` set, the eager row also carries `theme` and `scheme`, each a string or null, with `forced` as a boolean. The row is then written whatever the meta holds.
 * `T <contributions json>`, from [`contributions_to_json`](#contributions_to_json), when `assembly.contributions` is not empty.
 * `L <json string>`, the locale tag, when `assembly.locale` has one.
 * `E "<src>"`, when the assembly's `entry` is set: the module the browser must load before the response's islands can mount.
@@ -830,35 +822,7 @@ What fails a request. `Debug + thiserror::Error`.
 
 Because the kind is the same vocabulary, converting one into an `ActionError` or a `LoadError` needs no translation table.
 
-## 14. Remote segments
-
-A plan node whose module `Runtime::remotes` names renders in another process. The assembler fetches every such node of a subtree beside the subtree's eager loads, folds what the waves say about the document into the head before it renders, so a remote page's title and the module and stylesheets its islands need are in the first bytes. It splices each wave in place of its node: the remote's own segment key stands in for the node's, its children are the node's children, its contributions join the assembly's with the node's slot path in front and each slot it left open becomes a pending resolution under a slot id this assembly allocated, filled from the remote's stream. A subtree holding a remote node is never cached. A remote that fails renders the node's error module and fails the page with the remote's kind, so the document answers that status. A remote node under a deferred subtree is fetched when that subtree resolves and its entry and styles no longer reach the head.
-
-### `RemoteSegment`
-
-```rust
-pub trait RemoteSegment: Send + Sync {
-  fn fetch(&self, ctx: &RequestCtx) -> BoxFuture<'static, Result<RemoteWave, LoadError>>;
-}
-```
-
-One call per request that reaches the node, with the node's own context: its path, query, params, session, locale and, when the host opened one, `session_id`.
-
-### `RemoteWave`
-
-`pub struct RemoteWave { pub node: Node, pub segment: SegmentInfo, pub meta: Meta, pub contributions: Vec<Contribution>, pub entry: Option<String>, pub styles: Vec<String>, pub fills: BoxStream<'static, Result<RemoteFill, LoadError>> }`: the remote's eager wave. `node` is the subtree under the remote document's `content` slot and `segment` that subtree's sidecar entry; `contributions` are relative to it, the remote document's own slot already stripped.
-
-* `pub async fn from_rows(source: &str, rows: BoxStream<'static, Result<Row, DecodeError>>) -> Result<Self, LoadError>`: the wave out of a payload's rows: the eager rows up to the sidecar, then the fills grouped from the rest, a `T` row seeding the `S` row after it and an `H` row describing the one before. An answer that ends before its sidecar, carries no tree, has no `content` segment under its root or whose rows do not read is a `LoadError` naming `source`.
-
-### `RemoteFill`
-
-`pub struct RemoteFill { pub slot: u32, pub node: Node, pub segments: Vec<SegmentInfo>, pub meta: Meta, pub contributions: Vec<Contribution> }`: one resolution the remote streamed, under the remote's own slot id.
-
-### `node_at`
-
-`pub fn node_at<'a>(node: &'a Node, path: &[u32]) -> Option<&'a Node>`: the node a sidecar path reaches, each index stepping into a `Seq`'s items or an island's children.
-
-## 15. Reading a payload
+## 14. Reading a payload
 
 `snapfire_fsr_runtime::wire` reads back what [`wire_stream`](#wire_stream) wrote.
 

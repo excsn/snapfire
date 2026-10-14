@@ -18,12 +18,10 @@ mod mount;
 mod prerender;
 mod probe;
 mod remote;
-mod remote_site;
 mod render;
 mod report;
 mod serve;
 mod theme;
-mod upstreams;
 pub mod shell;
 pub mod trace;
 
@@ -87,10 +85,8 @@ pub use mount::{Artifact, Mount};
 pub use prerender::{BUILD_FILE, LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use probe::{Candidate, Probe, ReloadCheck};
 pub use remote::{ServiceProvider, ServiceSessionStore};
-pub use remote_site::{RemoteSite, PAYLOAD_TYPE};
 pub use report::{CrawlReport, HostReport, SiteReport, TlsReport};
 pub use serve::HostService;
-pub use upstreams::{Lease, Upstreams};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 
 use actions::*;
@@ -284,8 +280,6 @@ pub struct Host {
   /// What a Rust host checks a candidate with before a reload swaps it in.
   reload_checks: Vec<Arc<dyn ReloadCheck>>,
   csrf_always: bool,
-  /// `[site] secret`: what a shell's signed requests are checked against.
-  mount_secret: Option<String>,
   report_listen: String,
   /// The most bytes a request body may carry, `server.max_body`.
   max_body: usize,
@@ -399,26 +393,12 @@ struct Tables {
   crawl: Option<crawl::Crawl>,
   /// Every mounted site's `[site] probe` list, by site name.
   probes: Vec<(String, Probe)>,
-  /// This host's own `[site]`, as its status answer describes it to a shell.
-  own: Option<OwnSite>,
   report: Arc<HostReport>,
   /// The shell's lowered `theme.ts`.
   theme: Option<Arc<dyn ActionHandler>>,
   /// The theme each layout or page sets, the mounted sites' among them: its name and whether it
   /// is forced.
   themes: HashMap<String, (String, bool)>,
-}
-
-/// What a site host tells a shell about itself at `/__fsr/sites`.
-struct OwnSite {
-  name: String,
-  at: String,
-  entry: Option<String>,
-  styles: Vec<String>,
-  /// The GET patterns this host answers itself rather than as a page: its
-  /// route handlers' and its generated images'. A shell forwards a GET that
-  /// matches one, whatever the client accepts.
-  answers: Vec<String>,
 }
 
 /// What a request under a site's prefix reads beyond the merged tables: the
@@ -434,8 +414,6 @@ struct SiteTables {
   entry: Option<String>,
   /// The site's own modules to preload, minus what the shell already covers.
   preload: Vec<String>,
-  /// The site's hosts when it runs in its own process; `None` for one in this process.
-  remote: Option<RemoteSite>,
 }
 
 impl Tables {
@@ -462,17 +440,12 @@ impl SiteTables {
     path == self.at || path.strip_prefix(&self.at).is_some_and(|rest| rest.starts_with('/'))
   }
 
-  /// The module the site's islands need: the artifact's, or what a remote's
-  /// first wave named.
   fn entry(&self) -> Option<String> {
-    self.entry.clone().or_else(|| self.remote.as_ref().and_then(RemoteSite::entry))
+    self.entry.clone()
   }
 
   fn styles(&self) -> Vec<String> {
-    match &self.remote {
-      Some(remote) if self.styles.is_empty() => remote.styles(),
-      _ => self.styles.clone(),
-    }
+    self.styles.clone()
   }
 }
 

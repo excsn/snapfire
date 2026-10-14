@@ -7,7 +7,7 @@ export default function ReportsPage({ reports }: RootProps) {
   return (
     <div>
       <h1>Reports</h1>
-      <p className="mb-4 text-slate-400">Read from a metrics service only this process can reach. The portal renders this page inside its own document.</p>
+      <p className="mb-4 text-slate-400">Read from a metrics service this site declares and the portal does not.</p>
       <table className="w-full border-collapse text-left">
         <thead>
           <tr>

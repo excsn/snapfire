@@ -475,8 +475,6 @@ pub struct AppBuilder {
   services: Option<Arc<Services>>,
   cache: Option<Arc<dyn NodeCache>>,
   loads: Option<Arc<dyn LoadCache>>,
-  /// By module id: the plan nodes another process renders.
-  remotes: Vec<(String, Arc<dyn snapfire_fsr_runtime::RemoteSegment>)>,
   slot_order: Vec<String>,
   derives: Vec<snapfire_fsr_plan::DeriveEntry>,
   extensions: Extensions,
@@ -542,7 +540,6 @@ impl App {
       services: None,
       cache: None,
       loads: None,
-      remotes: Vec::new(),
       slot_order: Vec::new(),
       derives: Vec::new(),
       frameworks: snapfire_fsr_ir::Frameworks::default(),
@@ -670,16 +667,9 @@ impl AppBuilder {
     self
   }
 
-
   /// Registers a module of the application's own Rust under the name a body
   /// reaches it with, `ctx.native.<name>.<method>()`. Nothing crosses a wire,
   /// so it takes no contract and passes through no interceptor.
-  /// Plan nodes of module `module` render in another process, through `segment`.
-  pub fn remote(mut self, module: impl Into<String>, segment: Arc<dyn snapfire_fsr_runtime::RemoteSegment>) -> Self {
-    self.remotes.push((module.into(), segment));
-    self
-  }
-
   pub fn native(mut self, name: impl Into<String>, module: Arc<dyn snapfire_fsr_runtime::Native>) -> Self {
     self.natives.register(name, module);
     self
@@ -1266,9 +1256,6 @@ impl AppBuilder {
     }
     if let Some(loads) = self.loads {
       runtime = runtime.loads(loads);
-    }
-    for (module, segment) in std::mem::take(&mut self.remotes) {
-      runtime = runtime.remote(module, segment);
     }
     for (module, lister) in listers {
       runtime = runtime.listed(module, lister);

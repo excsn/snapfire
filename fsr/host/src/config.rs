@@ -327,13 +327,9 @@ pub struct SitesSection {
   pub mounts: BTreeMap<String, MountConfig>,
 }
 
-/// `[sites.<name>]`. A site in this process names `artifact`, `name@version`
-/// under the root or a path, with `hash` the content hash the mount is pinned
-/// to and `allow_engine` whether an artifact carrying engine-owned rows may be
-/// mounted. A site in its own process names `at`, the prefix the shell mounts
-/// it under, and `over`, the addresses of its hosts, with `timeout` per call,
-/// `retry` how long an address that failed rests and `secret` what signs the
-/// identity the shell forwards.
+/// `[sites.<name>]`: `artifact`, `name@version` under the root or a path,
+/// with `hash` the content hash the mount is pinned to and `allow_engine`
+/// whether an artifact carrying engine-owned rows may be mounted.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MountConfig {
@@ -343,76 +339,13 @@ pub struct MountConfig {
   pub hash: Option<String>,
   #[serde(default)]
   pub allow_engine: bool,
-  #[serde(default)]
-  pub at: Option<String>,
-  #[serde(default)]
-  pub over: Vec<String>,
-  #[serde(default)]
-  pub timeout: Option<String>,
-  #[serde(default)]
-  pub retry: Option<String>,
-  #[serde(default)]
-  pub secret: Option<String>,
 }
 
 impl MountConfig {
-  pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(2);
-  pub const DEFAULT_RETRY: Duration = Duration::from_secs(5);
-
-  /// Whether the site runs in its own process, reached over `over`.
-  pub fn is_remote(&self) -> bool {
-    !self.over.is_empty()
-  }
-
-  pub fn timeout(&self) -> Duration {
-    self.timeout.as_deref().and_then(parse_duration).unwrap_or(Self::DEFAULT_TIMEOUT)
-  }
-
-  pub fn retry(&self) -> Duration {
-    self.retry.as_deref().and_then(parse_duration).unwrap_or(Self::DEFAULT_RETRY)
-  }
-
-  /// What the table refuses: a row naming both homes or neither, an address
-  /// without a prefix, an artifact's keys on an address row, a malformed
-  /// prefix or address and a duration that does not parse.
+  /// What the table refuses: a row naming no artifact.
   fn check(&self, name: &str) -> Result<(), String> {
-    let remote = self.is_remote();
-    match (&self.artifact, remote) {
-      (Some(_), true) => return Err(format!("sites.{name} names both artifact and over; a site has one home")),
-      (None, false) => return Err(format!("sites.{name} needs artifact or over")),
-      _ => {}
-    }
-    if remote {
-      let Some(at) = &self.at else {
-        return Err(format!("sites.{name}.over needs at, the prefix the shell mounts the site under"));
-      };
-      if !at.starts_with('/') || at.len() < 2 || at.ends_with('/') {
-        return Err(format!("sites.{name}.at `{at}` is not a prefix: it starts with `/` and does not end with one"));
-      }
-      if self.hash.is_some() || self.allow_engine {
-        return Err(format!("sites.{name}: hash and allow_engine belong to an artifact; the site over an address carries its own"));
-      }
-      for address in &self.over {
-        if !(address.starts_with("http://") || address.starts_with("https://")) || address.ends_with('/') {
-          return Err(format!("sites.{name}.over `{address}` is not an address: `http://host:port` or `https://host`, no trailing slash"));
-        }
-      }
-      if self.secret.as_deref().is_some_and(str::is_empty) {
-        return Err(format!("sites.{name}.secret is empty"));
-      }
-    } else {
-      for (key, value) in [("at", &self.at), ("timeout", &self.timeout), ("retry", &self.retry), ("secret", &self.secret)] {
-        if value.is_some() {
-          return Err(format!("sites.{name}.{key} belongs to a site over an address; an artifact carries its own"));
-        }
-      }
-    }
-    for (key, value) in [("timeout", &self.timeout), ("retry", &self.retry)] {
-      if let Some(raw) = value {
-        if parse_duration(raw).is_none() {
-          return Err(format!("sites.{name}.{key} `{raw}` is not a duration"));
-        }
-      }
+    if self.artifact.is_none() {
+      return Err(format!("sites.{name} needs artifact"));
     }
     Ok(())
   }
@@ -428,11 +361,6 @@ pub struct SiteSection {
   /// What the site was built against: a path to the shell's `generated/shell.json` or a hand-written one.
   #[serde(default)]
   pub shell: Option<String>,
-  /// What a shell mounting this site over an address signs its requests
-  /// with. Set, a signed request's session and identity are honoured;
-  /// unset, every request opens its own session from its cookie.
-  #[serde(default)]
-  pub secret: Option<String>,
   /// Paths a shell renders against a candidate holding this site before the
   /// candidate swaps in: a path alone, anonymously, or `{ path, as }` signed
   /// in as that subject. A page that fails refuses the reload.
@@ -1124,8 +1052,8 @@ pub struct TraceSection {
 }
 
 /// `[crawl]`. Each file is served at the path its key names and not at all
-/// without one. A site in its own process serves its sitemap under its prefix
-/// and no `robots.txt`, which only the origin's root may answer.
+/// without one. A site run alone serves its sitemap under its prefix and no
+/// `robots.txt`, which only the origin's root may answer.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct CrawlSection {
@@ -1844,7 +1772,7 @@ impl Config {
       || !store.key_paths_with_prefix(Some("site")).is_empty()
     {
       let mut json = serde_json::Map::new();
-      for key in ["name", "at", "shell", "secret", "probe"] {
+      for key in ["name", "at", "shell", "probe"] {
         if let Some(value) = store.get(&format!("site.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }

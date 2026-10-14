@@ -15,9 +15,6 @@ pub(crate) struct Crawl {
   origin: String,
   robots: Option<(String, String)>,
   sitemap: Option<String>,
-  /// The sitemap path of each site in its own process, which that site
-  /// answers and the shell forwards.
-  remote: Vec<String>,
   built: tokio::sync::RwLock<Option<Arc<Result<Vec<(String, String)>, String>>>>,
   building: tokio::sync::Mutex<()>,
 }
@@ -25,7 +22,7 @@ pub(crate) struct Crawl {
 impl Crawl {
   /// `own_at` is this host's `[site] at` when it is a site, whose sitemap
   /// sits under the prefix and which serves no `robots.txt`.
-  pub(crate) fn new(section: &CrawlSection, origin: &str, own_at: Option<&str>, remote_at: &[String], auth: bool) -> Self {
+  pub(crate) fn new(section: &CrawlSection, origin: &str, own_at: Option<&str>, auth: bool) -> Self {
     let sitemap = section.sitemap.as_ref().map(|path| format!("{}{path}", own_at.unwrap_or("")));
     let robots = section.robots.as_ref().filter(|_| own_at.is_none()).map(|path| {
       let mut text = String::from("User-agent: *\nAllow: /\nDisallow: /__fsr/\nDisallow: /_sf/\n");
@@ -40,21 +37,12 @@ impl Crawl {
       }
       (path.clone(), text)
     });
-    let remote = match &section.sitemap {
-      Some(path) => remote_at.iter().map(|at| format!("{at}{path}")).collect(),
-      None => Vec::new(),
-    };
-    Self { origin: origin.to_owned(), robots, sitemap, remote, built: tokio::sync::RwLock::new(None), building: tokio::sync::Mutex::new(()) }
+    Self { origin: origin.to_owned(), robots, sitemap, built: tokio::sync::RwLock::new(None), building: tokio::sync::Mutex::new(()) }
   }
 
   /// The robots text when `path` is where it is served.
   pub(crate) fn robots(&self, path: &str) -> Option<&str> {
     self.robots.as_ref().filter(|(at, _)| at == path).map(|(_, text)| text.as_str())
-  }
-
-  /// Whether `path` is a sitemap a site in its own process answers.
-  pub(crate) fn is_remote(&self, path: &str) -> bool {
-    self.remote.iter().any(|at| at == path)
   }
 
   /// Whether `path` is this host's sitemap or one of the files its index names.
@@ -69,10 +57,6 @@ impl Crawl {
 
   pub(crate) fn origin(&self) -> &str {
     &self.origin
-  }
-
-  pub(crate) fn remote_paths(&self) -> &[String] {
-    &self.remote
   }
 
   /// The files as last built, building them first when nothing has been.
@@ -222,12 +206,8 @@ impl Host {
     } else {
       vec![t.locales.default.clone()]
     };
-    let remote_at: Vec<&str> = t.sites.iter().filter(|site| site.remote.is_some()).map(|site| site.at.as_str()).collect();
     let mut pages: Vec<Vec<(String, String, Option<Date>)>> = Vec::new();
     for (pattern, _) in &t.report.app.routes {
-      if remote_at.iter().any(|at| pattern == at || pattern.starts_with(&format!("{at}/"))) {
-        continue;
-      }
       let enumerated = t.app.paths.get(pattern);
       if pattern.contains('{') && enumerated.is_none() {
         continue;
@@ -280,7 +260,7 @@ impl Host {
     }
     let mut parts = Vec::new();
     split(urls, &mut parts)?;
-    if parts.len() == 1 && crawl.remote_paths().is_empty() {
+    if parts.len() == 1 {
       return Ok(vec![(sitemap.to_owned(), parts.remove(0).0)]);
     }
     let mut files = Vec::new();
@@ -293,9 +273,6 @@ impl Host {
         None => entry,
       });
       files.push((at, xml));
-    }
-    for at in crawl.remote_paths() {
-      named.push(Sitemap::new(format!("{origin}{at}")).map_err(sitemap_error)?);
     }
     files.insert(0, (sitemap.to_owned(), SitemapIndex::new(named).and_then(|index| index.to_xml()).map_err(sitemap_error)?));
     Ok(files)

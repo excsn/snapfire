@@ -284,9 +284,8 @@ impl Host {
         extra.push(snapfire_fsr_core::Node::raw(shell::preload_link(href)));
       }
     }
-    let own = t.own.as_ref().filter(|_| incoming.mounted);
-    let entry = site.and_then(SiteTables::entry).or_else(|| own.and_then(|own| own.entry.clone()));
-    let styles: Vec<String> = site.map(SiteTables::styles).or_else(|| own.map(|own| own.styles.clone())).unwrap_or_default();
+    let entry = site.and_then(SiteTables::entry);
+    let styles: Vec<String> = site.map(SiteTables::styles).unwrap_or_default();
     let catalog = t.catalogs.json(&visit.locale.tag);
     let mut payload_catalog = None;
     if let Some(json) = &catalog {

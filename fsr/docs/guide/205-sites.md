@@ -97,43 +97,15 @@ The destinations are derived from the configuration rather than copied from the 
 
 ## How a site reaches the shell
 
-A `[sites.<name>]` row names its artifact one of two ways and a version gets into the cache one of two ways, which gives three shapes in the shell's process. A fourth row shape names no artifact: the site runs as a process of its own. The portal example mounts one site of each.
+A `[sites.<name>]` row names its artifact one of two ways and a version gets into the cache one of two ways, which gives three shapes. The portal example mounts a site of each.
 
 | Row | Where the artifact comes from | For |
 | --- | --- | --- |
 | `artifact = "sites/billing"` | The site's working tree, read in place. Reported as version `path` and never pinned, since it changes on every build. | Developing the shell and its sites together in one repository. |
 | `artifact = "billing@1.4.2"`, installed | `<root>/billing/1.4.2`, placed by `fsr sites install` from an archive before the row moves. | An operator who ships each release by hand or from a job. |
 | `artifact = "billing@1.4.2"`, fetched | The same directory, filled by the shell from `[sites] store` when the cache lacks the version. | A release pipeline that publishes archives to a registry: moving the row is the deploy. |
-| `over = ["http://reports.internal:8104"]` | Nowhere. The site is a host of its own and the shell asks it for each page. | A site that reaches something the shell cannot or that scales alone. The next section. |
 
-In the first three the site runs inside the shell's process. The shell reads the site's plan, runs its loaders and actions and renders its pages under its own root layout. That is how they share one document, session and navigation. A site that needs a backend of its own gets one through `[clients]`, described above. Its pages still render in the shell. The fourth shape is for the site that cannot run there at all.
-
-## A site in its own process
-
-Some sites cannot live in the shell's process: a loader needs a Rust crate the shell will not carry, a client reaches a network the shell is not on or one site takes enough traffic to scale on its own. Such a site runs as its own host, `fsr serve` on its own tree or its own binary, exactly as it runs alone during development. The shell mounts it with a prefix and the addresses of its hosts instead of an artifact.
-
-```toml
-[sites.reports]
-at = "/reports"
-over = ["http://reports-1.internal:8104", "http://reports-2.internal:8104"]
-timeout = "2s"
-retry = "5s"
-secret = "between-us"
-```
-
-The site's configuration carries the same `secret` under `[site]`. Nothing else about the site changes: the same `[site]` block, the same build, the same prefixed ids.
-
-What happens on a request to `/reports/invoices` is not a proxy. The shell renders its own root layout with its own loaders, the header and the sign-in included. It asks one of the addresses for the route as payload rows, the same rows a navigation would fetch. It takes the site's subtree out of those rows and splices it under its root layout where an in-process site's would sit: the site's segment keys, the page's title, what its loaders seeded, the module and stylesheets its islands need all land in the shell's document, so the browser sees one page and a navigation into the site keeps the header. A segment the site deferred streams from the site through the shell to the browser, the shell renumbering the slot into its own sequence on the way. A payload navigation into the site is the same splice in payload mode.
-
-The site's static files, its actions on `/_sf/action/reports:…` and its route handlers never render in the shell. The shell forwards them as bytes to one of the addresses and streams the answer back, carrying the request's content, accept and `x-sf-` headers over and the answer's content and cache headers back. A `GET` under the prefix that asks for neither a document nor a payload is forwarded too. So is a `GET` for a path the site answers itself: the site's `/__fsr/sites` lists its `GET` handlers and its generated card images under `answers`, which the shell fetches the first time it needs it and again on a miss once it is 30 seconds old. So `fetch("/reports/1/rows")`, which accepts `*/*`, reaches the site's handler. A crawler fetching `/reports/1/opengraph-image.png` gets the site's image.
-
-The addresses are taken in turn. One that does not connect, times out or answers `5xx` rests for `retry` and is skipped until then; with every address resting, the one down longest is tried. While a page cannot be fetched the shell still answers: its own layout renders around the error module of its root route, with `kind` `unavailable` and status `503`, so the header and the sign-in stay up while one team's process is down.
-
-The session crosses only under the shared secret. The shell signs the request's path, its session id and the signed-in subject into an `x-sf-mount` header; a site whose `[site] secret` verifies the signature opens that session id in its own store instead of a cookie and sets none, so an action the site runs writes what the shell's next request reads. For that to hold across two processes both point `[session] store = "service"` at the same session service, as chapter 203 describes. Without a secret on either side the site opens a session of its own per request and the shell's identity never reaches it.
-
-What a site in its own process does not get: the shell's store on its server render. The shell fetches the site beside its own loaders, so the site's loaders see their own seeds and the shell's keys reach the site's islands in the browser, where a layout reading `portal/who` shows the name after hydration. Prerender writes nothing for its routes and an intercept into one of its slots is not resolved.
-
-`GET /__fsr/sites` on the shell lists the site with each address and whether the shell reached it last, which `fsr sites list --host` prints under the instance as `up` or `down`. On the site's own host the same route carries a `site` object: its name, prefix, entry module and stylesheets, what it answers a shell with.
+In every shape the site runs inside the shell's process. The shell reads the site's plan, runs its loaders and actions and renders its pages under its own root layout. That is how they share one document, session and navigation. A site that needs a backend of its own gets one through `[clients]`, described above. Its pages still render in the shell.
 
 ## One sitemap across the sites
 
@@ -148,22 +120,9 @@ robots = "/robots.txt"
 sitemap = "/sitemap.xml"
 ```
 
-A site mounted in the shell's process needs nothing of its own. Its routes are the shell's routes once mounted, so the shell's sitemap lists them, each fixed route and each value of a route's `paths` export. The shell finds them by asking itself for every candidate page as a signed-out visitor, through its own middleware and then the site's. So a site page whose middleware sends that visitor to sign in is left out, as billing's `/billing/overdue` is in the portal. A site route with a parameter and no `paths` is listed on the shell's boot report as one the sitemap cannot list.
+A site needs nothing of its own. Its routes are the shell's routes once mounted, so the shell's sitemap lists them, each fixed route and each value of a route's `paths` export. The shell finds them by asking itself for every candidate page as a signed-out visitor, through its own middleware and then the site's. So a site page whose middleware sends that visitor to sign in is left out, as billing's `/billing/overdue` is in the portal. A site route with a parameter and no `paths` is listed on the shell's boot report as one the sitemap cannot list.
 
-A site in its own process lists its own pages, because only it knows its routes. Its `[crawl]` names the sitemap alone, served under its prefix. Its `document.origin` is the shell's, since a crawler reaches its pages through the shell:
-
-```toml
-# sites/reports/config/app.toml
-[document]
-origin = "https://acme.example"
-
-[crawl]
-sitemap = "/sitemap.xml"
-```
-
-The site answers `/reports/sitemap.xml`. It never serves a `robots.txt`, which only the origin's root may answer. The shell's `/sitemap.xml` becomes an index: its own pages and the in-process sites' in `/sitemap-1.xml`, then `/reports/sitemap.xml` for the site, which the shell forwards to the site's process. A crawler reads the index and fetches both. The reports site lists one page per report because its detail route's `paths` calls the metrics client, which the shell cannot reach.
-
-A page's `lastmod` is the date it names in its head with `modified(...)`, the same in a site as in the shell. The portal example has all three shapes: `cargo test -p portal_react_ts` checks the index, what it leaves out and the forwarded site sitemap.
+A page's `lastmod` is the date it names in its head with `modified(...)`, the same in a site as in the shell. `cargo test -p portal_react_ts` checks the portal's sitemap and what it leaves out, the reports pages among it listed from the site's metrics client.
 
 ## Deploying a site version
 
@@ -228,4 +187,4 @@ A proxy rule does not cover a host reached around the proxy or a neighbour on th
 
 ## The lab
 
-Build and run `portal_react_ts` as its README says, then open `/`, sign in as `alice` and click Billing. Watch the header stay while the invoices arrive, open the browser's network view and find the payload with its `E` row, then the site's `main.js` loaded from `/billing/static/js/app/`. Click Overdue: the site's guard let you through on the portal's sign-in. Click Blog, Status and then Billing again: each hop is a payload navigation and the header's team count survives all of them. Now edit the blog's index page, run `fsr build sites/blog/app` and `kill -HUP` the portal. The blog is a linked tree, so `GET /__fsr/sites` shows a new hash and the page shows your edit, with your session intact. For a release rather than an edit, pack status as `1.1.0` into the store and move `[sites.status] artifact` to `status@1.1.0`: within the poll the portal fetches it and `/__fsr/sites` reports the new version. Ship a broken billing: copy `sites/billing` aside, make its `ledger.mock.json` fail `listInvoices`, pack it as `1.1.0` into the store and move the row. The poll fetches it, the warm pass of billing's loader fails with the ledger's message, the log says so and `1.0.0` keeps serving; `fsr sites list --host` shows the instance lagging on purpose. Fix the mock, pack `1.1.1` and the next poll swaps it in. Then run `cargo run -p reports_site_react_ts` in another terminal and click Reports: the page comes from that process, inside the portal's header. The report you open streams its rows through the portal. Stop the process and `/reports` is the portal's layout around an error at `503`; start it again and the next click renders.
+Build and run `portal_react_ts` as its README says, then open `/`, sign in as `alice` and click Billing. Watch the header stay while the invoices arrive, open the browser's network view and find the payload with its `E` row, then the site's `main.js` loaded from `/billing/static/js/app/`. Click Overdue: the site's guard let you through on the portal's sign-in. Click Blog, Status and then Billing again: each hop is a payload navigation and the header's team count survives all of them. Now edit the blog's index page, run `fsr build sites/blog/app` and `kill -HUP` the portal. The blog is a linked tree, so `GET /__fsr/sites` shows a new hash and the page shows your edit, with your session intact. For a release rather than an edit, pack status as `1.1.0` into the store and move `[sites.status] artifact` to `status@1.1.0`: within the poll the portal fetches it and `/__fsr/sites` reports the new version. Ship a broken billing: copy `sites/billing` aside, make its `ledger.mock.json` fail `listInvoices`, pack it as `1.1.0` into the store and move the row. The poll fetches it, the warm pass of billing's loader fails with the ledger's message, the log says so and `1.0.0` keeps serving; `fsr sites list --host` shows the instance lagging on purpose. Fix the mock, pack `1.1.1` and the next poll swaps it in. Then click Reports and open a report: its rows stream in under the portal's header, read from a metrics client the site declares and the portal does not.

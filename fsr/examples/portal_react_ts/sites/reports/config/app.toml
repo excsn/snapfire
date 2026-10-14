@@ -8,15 +8,13 @@ listen = "127.0.0.1:8104"
 name = "reports"
 at = "/reports"
 shell = "../../app/generated/shell.json"
-# The portal signs its requests with the same value, so its session reaches this process.
-secret = "portal-reports"
 
 [document]
 # The portal's origin: a crawler reaches these pages through it.
 origin = "http://127.0.0.1:8100"
 title = "Reports"
 
-# Served under the prefix, /reports/sitemap.xml, which the portal's index names.
+# Served under the prefix, /reports/sitemap.xml, when the site runs alone.
 [crawl]
 sitemap = "/sitemap.xml"
 

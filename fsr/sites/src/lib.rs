@@ -46,8 +46,7 @@ pub struct Resolved {
 
 /// Resolves every `[sites.<name>]` row naming an artifact: `name@version`
 /// under `sites.root`, anything else a path against the configuration's root.
-/// Hashes each directory and refuses one whose pinned `hash` differs. A row
-/// over an address has nothing to resolve and is left out.
+/// Hashes each directory and refuses one whose pinned `hash` differs.
 pub fn resolve(config: &Config) -> Result<Vec<Resolved>, SitesError> {
   let Some(section) = &config.sites else {
     return Ok(Vec::new());

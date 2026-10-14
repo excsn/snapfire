@@ -667,8 +667,6 @@ crawl     /robots.txt            robots
           /item/{id}             not in the sitemap: no `paths` export lists its values
 ```
 
-A shell mounting a site in its own process serves an index instead, naming `/sitemap-1.xml` for its own pages and `<at>/sitemap.xml` for the site, which the site host answers under its prefix from its own `[crawl] sitemap`.
-
 ## Serving Images and Fonts
 
 `fsr build` derives the variants of every image a component imports and the CSS for every face under the fonts directory, writing what it derived as `generated/assets.json`. The host reads that file at boot and the rest follows from it:
@@ -735,7 +733,7 @@ GET /reports/1/twitter-image/total        one image of a module that lists them 
 
 The page's head names each image with its size, type and alt, against `document.origin`. A loader's not found answers 404, as does an id an `images` list does not name. A draw that fails answers 500 with the reason. Every warning the renderer gives is logged on target `fsr::card`. The faces under `[dirs] fonts` draw the text before the bundled Inter; a `[fonts.<key>]` entry with `scripts` draws text in those scripts first. An `<img>` in the card takes a `data:` URI or an image the build placed, by its URL. Nothing is fetched.
 
-Outside development the drawn bytes are kept for the path and the props. `prerender` writes each prerendered page's images beside its document, which production then answers from while the directory is this build's. A site in its own process lists its image patterns under `answers` in `/__fsr/sites`, so a shell forwards those requests to it.
+Outside development the drawn bytes are kept for the path and the props. `prerender` writes each prerendered page's images beside its document, which production then answers from while the directory is this build's.
 
 ## Serving Locales
 
@@ -1131,7 +1129,6 @@ A site's import map names its frameworks at the shell's URLs. Running alone, the
 name = "billing"
 at = "/billing"
 shell = "../portal/app/generated/shell.json"   # what the site is built against, see the cli guide
-secret = "between-us"                          # optional: honours a shell's signed session, see Mounting a Site in Its Own Process
 ```
 
 ```rust
@@ -1160,33 +1157,6 @@ let host = Host::from(shell)?.mount(billing).build()?;
 A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table. A site names the pages a shell renders before a candidate holding the site swaps in with `[site] probe = ["/billing", { path = "/billing/overdue", as = "probe" }]`, a path alone rendered anonymously and `{ path, as }` by a visitor signed in as that subject; any failure of a probed page refuses the reload and names the site and the path, so a release whose loader breaks never replaces the one serving. A site's cache tags take its prefix at mount, `billing:invoices`, so one site's drop never reaches another's answers; a tag written `@catalog` keeps that spelling in every site and the shell, so a write in one site drops what another cached under it. The boot report lists each such tag under `shared` with who caches and who drops.
 
 `snapfire_fsr_sites` turns the `[sites]` table into mounts, fetches a version the cache lacks from `[sites] store`, hashes each artifact, refuses a pinned hash that differs and rereads the table on `SIGHUP` or a poll, so `fsr serve` and a Rust shell built with it need no code beyond `mount_all` and `watch`.
-
-## Mounting a Site in Its Own Process
-
-A site whose loaders reach something the shell cannot, a Rust dependency the shell will not carry or a network the shell is not on, runs as its own host and the shell mounts it over its addresses. The table row names the prefix and the hosts instead of an artifact:
-
-```toml
-[sites.reports]
-at = "/reports"
-over = ["http://reports-1.internal:8104", "http://reports-2.internal:8104"]
-timeout = "2s"      # per call, default 2s; `ms`, `s`, `m`, `h` and `d`
-retry = "5s"        # how long an address that failed rests, default 5s
-secret = "between-us"
-```
-
-The site runs unchanged: `fsr serve` on the site's own tree, with `[site] secret` set to the same value when the shell's session should reach it. A page under the prefix is the shell's document with the site's segment inside it. The shell renders its own root layout, asks one of the addresses for the route as payload rows, `GET <over><path>?__payload` with `x-sf-mount`, `x-sf-catalog`, `x-sf-session` and `x-sf-subject`. It splices the site's subtree under the layout: the site's segment keys, its title, what it seeded and the module and stylesheets its islands need all reach the document. A slot the site deferred streams through the shell to the browser under a slot id the shell allocated. A payload navigation into the site is the same splice in payload mode. The addresses are taken in turn; one that does not connect, times out or answers `5xx` rests for `retry` and the request renders the shell root route's error module with `kind` `unavailable` and status `503`. With every address resting, the one down longest is tried.
-
-```rust
-let shell = Host::from("../portal")?.build()?;
-let html = shell.render_to_string("/reports/invoices", RenderMode::Html, SessionCell::default()).await?;
-assert!(html.contains("data-sf-module=\"reports:routes/invoices/page.tsx#default\""));
-```
-
-Three request shapes under the prefix never render in the shell and are forwarded as bytes with the same headers: the site's static files under `<at>/static/`, `POST /_sf/action/<name>:<id>` and a request that is not a page. That is any method but `GET` and `HEAD`. It is also a `GET` whose `Accept` names neither `text/html` nor `*/*` and asks for no payload. Last, it is a `GET` for a path the site lists under `answers` in its `/__fsr/sites`. The list holds the site's `GET` handlers and its generated images; the shell fetches it on first need and again on a miss once it is 30 seconds old. A forwarded answer brings back its status, body and content headers and nothing else, so a site's cookie never reaches the browser.
-
-The session crosses only under a shared secret. The shell signs the request's path, its session id and its subject into `x-sf-mount` with `[sites.<name>] secret`; a site whose `[site] secret` verifies it opens that id in its own store instead of a cookie and sets none, so an action the site runs writes what the shell's next request reads when both point `[session] store = "service"` at the same client. A site with no secret ignores the identity headers and every forwarded request opens a session of its own. A shell with no secret sends the site's name alone, which is enough for the site to name its entry and styles.
-
-`GET /__fsr/sites` on the shell lists a remote site with each address and whether the shell reached it last, which `fsr sites list --host` prints under the row; on the site it carries a `site` object with the name, prefix, entry and styles the site answers a shell with. `fsr prerender` writes nothing for a remote site's routes and an intercept into a remote site's slots is not resolved.
 
 ## Refreshing the Browser in Development
 

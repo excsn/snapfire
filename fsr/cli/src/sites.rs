@@ -88,9 +88,9 @@ pub fn list(shell: &Path) -> Result<Vec<Row>, BuildError> {
         Err(e) => (None, Some(e.to_string())),
       },
       (None, Some(artifact)) => (None, Some(format!("{artifact} does not resolve"))),
-      (None, None) => (mount.at.clone(), None),
+      (None, None) => (None, None),
     };
-    let artifact = mount.artifact.clone().unwrap_or_else(|| format!("over {}", mount.over.join(" ")));
+    let artifact = mount.artifact.clone().unwrap_or_default();
     rows.push(Row { name: name.clone(), artifact, resolved: resolved_path, at, version, hash, note });
   }
   Ok(rows)
@@ -587,17 +587,6 @@ pub struct Mounted {
   pub at: String,
   pub version: String,
   pub hash: String,
-  /// The addresses of a site in its own process, each with whether the
-  /// instance reached it last; empty for a site in the instance's process.
-  #[serde(default)]
-  pub over: Vec<Address>,
-}
-
-/// One address a site over a transport is reached at, as an instance sees it.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
-pub struct Address {
-  pub address: String,
-  pub up: bool,
 }
 
 /// What one instance answered.

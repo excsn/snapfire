@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use snapfire_fsr_host::Host;
 
-/// The reports site in its own process: every route under `/reports`, its
-/// ids prefixed, reading a metrics client the portal does not carry. The
-/// portal mounts it over this address and renders its pages inside the
-/// portal's document.
+/// The reports site on its own: every route under `/reports`, its ids
+/// prefixed, reading a metrics client the portal does not carry.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
   // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.

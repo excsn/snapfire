@@ -15,7 +15,6 @@ use crate::data::{DataSources, LoadError, LoadKeyer, NoLoadKey};
 use crate::evaluator::{Chunk, EvalError, Evaluator, NullEvaluator};
 use crate::meta::{Head, Meta, Metadata};
 use crate::reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};
-use crate::remote::{RemoteOut, RemoteSegment, RemoteWave};
 use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 use crate::store::{apply_derives, derive_order, derived_pending, merge_contributions, pending_keys, Contribution, Derived, Seeds};
 
@@ -106,9 +105,6 @@ pub struct Runtime {
   pub reads: Reads,
   /// The derived store keys, in [`derive_order`].
   pub derives: Vec<Derived>,
-  /// By module id: the plan nodes another host renders, spliced in by
-  /// [`RemoteSegment`].
-  pub remotes: HashMap<String, Arc<dyn RemoteSegment>>,
 }
 
 pub struct RuntimeBuilder {
@@ -125,16 +121,9 @@ pub struct RuntimeBuilder {
   reads: Reads,
   slot_order: Vec<String>,
   derives: Vec<Derived>,
-  remotes: HashMap<String, Arc<dyn RemoteSegment>>,
 }
 
 impl RuntimeBuilder {
-  /// The plan nodes of module `module` render in another process, through `segment`.
-  pub fn remote(mut self, module: impl Into<String>, segment: Arc<dyn RemoteSegment>) -> Self {
-    self.remotes.insert(module.into(), segment);
-    self
-  }
-
   /// The store keys the browser's `derive` computes, which every subtree's store is completed with after its seeds merge.
   pub fn derives(mut self, derives: Vec<Derived>) -> Self {
     self.derives = derive_order(derives);
@@ -221,7 +210,6 @@ impl RuntimeBuilder {
       reads: self.reads,
       slot_order: self.slot_order,
       derives: self.derives,
-      remotes: self.remotes,
       head_users: parking_lot::Mutex::new(std::collections::HashSet::new()),
     })
   }
@@ -243,7 +231,6 @@ impl Runtime {
       reads: Reads::new(),
       slot_order: Vec::new(),
       derives: Vec::new(),
-      remotes: HashMap::new(),
     }
   }
 
@@ -398,21 +385,11 @@ pub(crate) struct Session {
   pub(crate) runtime: Arc<Runtime>,
   pub(crate) ctx: RequestCtx,
   pub(crate) origin: Option<Origin>,
-  /// Written once by the remote prefetch, with the module and stylesheets
-  /// the remote nodes need, before the document's head renders.
-  pub(crate) head: parking_lot::RwLock<Head>,
+  pub(crate) head: Head,
   pub(crate) next_slot: AtomicU32,
-  /// What the remote nodes said beyond their markup, folded into the assembly.
-  pub(crate) remote_out: parking_lot::Mutex<RemoteOut>,
-  /// The waves the prefetch fetched, by plan node, taken when the node builds.
-  pub(crate) waves: parking_lot::Mutex<HashMap<u32, Result<RemoteWave, LoadError>>>,
 }
 
 impl Session {
-  pub(crate) fn allocate_slot(&self) -> SlotId {
-    SlotId(self.next_slot.fetch_add(1, Ordering::Relaxed))
-  }
-
   /// The request node `id` loads and is keyed under: the document's for a node
   /// the origin names, the navigation's own otherwise.
   pub(crate) fn ctx_of(&self, id: u32) -> &RequestCtx {
@@ -530,10 +507,6 @@ fn has_slot(node: &Node) -> bool {
     Node::Client { children, .. } => children.iter().any(has_slot),
     _ => false,
   }
-}
-
-fn has_remote_descendant(node: &PlanNode, remotes: &HashMap<String, Arc<dyn RemoteSegment>>) -> bool {
-  !remotes.is_empty() && (remotes.contains_key(&node.module.to_string()) || node.children.iter().any(|(_, c)| has_remote_descendant(c, remotes)))
 }
 
 fn has_deferred_descendant(node: &PlanNode) -> bool {
@@ -699,7 +672,7 @@ impl Session {
       future: Box::pin(async move {
         match session.resolve_subtree(&child, path, around).await {
           Ok((node, pending, segments, mut meta, contributions, _digest, _failed)) => {
-            session.head.read().settle(&mut meta);
+            session.head.settle(&mut meta);
             Resolved {
               slot,
               key: resolved_key,
@@ -732,10 +705,8 @@ impl Session {
     path: Vec<String>,
     around: Vec<Contribution>,
   ) -> Result<(Node, Vec<PendingResolution>, Vec<SegmentInfo>, Meta, Vec<Contribution>, u64, Option<FailureKind>), AssembleError> {
-    let (loaded, remote_ids) = futures_util::join!(self.load_eager(plan), self.prefetch_remotes(plan));
-    let loaded = loaded?;
-    let mut meta = self.describe(plan, &loaded).await;
-    self.remote_meta(&remote_ids, &mut meta);
+    let loaded = self.load_eager(plan).await?;
+    let meta = self.describe(plan, &loaded).await;
     let mut own = self.seed(plan, path.clone(), &loaded).await;
     own.extend(self.promise(plan, path.clone()));
     let mut all = around;
@@ -854,7 +825,7 @@ impl Session {
   fn cache_key_for(&self, node: &PlanNode, loaded: &Loaded, seeded: &Seeded, shape: u64, reads: Option<&SubtreeReads>) -> Option<String> {
     let store = &seeded.merged;
     let plan_key = node.cache_key.as_ref()?;
-    if has_deferred_descendant(node) || has_remote_descendant(node, &self.runtime.remotes) || subtree_has_failure(node, &loaded.failed) {
+    if has_deferred_descendant(node) || subtree_has_failure(node, &loaded.failed) {
       return None;
     }
     let data = &loaded.data;
@@ -1066,9 +1037,6 @@ impl Session {
         let digest = node.fingerprint();
         return Ok((node, Vec::new(), false, digest, None));
       }
-      if let Some(remote) = self.runtime.remotes.get(&node.module.to_string()) {
-        return self.build_remote(node, remote, plan_path, out_pending).await;
-      }
       let data = &loaded.data;
       let shape = subtree_shape(node);
       let reads = self.runtime.reads.get(&shape);
@@ -1140,7 +1108,7 @@ impl Session {
           }
           Chunk::Slot(slot) if slot.0 == "head" => {
             used_head = true;
-            let head = self.head.read().node(meta);
+            let head = self.head.node(meta);
             head.write_canonical(&mut own);
             parts.push(head);
           }
@@ -1271,16 +1239,11 @@ async fn assemble_in(
     runtime: Arc::clone(runtime),
     ctx: ctx.clone(),
     origin,
-    head: parking_lot::RwLock::new(head.clone()),
+    head: head.clone(),
     next_slot: AtomicU32::new(1),
-    remote_out: parking_lot::Mutex::new(RemoteOut::default()),
-    waves: parking_lot::Mutex::new(HashMap::new()),
   });
-  let (tree, pending, children, meta, mut contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
-  let remote = std::mem::take(&mut *session.remote_out.lock());
-  contributions.extend(remote.contributions);
-  let failed = failed.or(remote.failed);
-  let head = session.head.read().clone();
+  let (tree, pending, children, meta, contributions, digest, failed) = session.resolve_subtree(plan, Vec::new(), Vec::new()).await?;
+  let head = session.head.clone();
   let store = merge_contributions(&contributions, &runtime.slot_order);
   let segments = SegmentInfo {
     key: session.segment_key(plan),

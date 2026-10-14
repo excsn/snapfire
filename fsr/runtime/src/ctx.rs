@@ -214,9 +214,6 @@ pub struct RequestCtx {
   /// otherwise. `ctx.address` in a body.
   pub address: Option<Address>,
   pub session: SessionCell,
-  /// The session's id as the host holds it, for a host that forwards the
-  /// session to another; `None` under a context nothing opened.
-  pub session_id: Option<String>,
   pub locale: Locale,
   /// The host the request named, already matched against `[server] hosts`.
   /// `None` when that key is unset, so nothing a client sends reaches a body
@@ -249,7 +246,6 @@ impl RequestCtx {
       document: None,
       address: None,
       session: SessionCell::default(),
-      session_id: None,
       locale: Locale::default(),
       host: None,
       origin: None,

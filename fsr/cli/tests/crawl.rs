@@ -134,20 +134,6 @@ fn crawl_without_an_origin_refuses_to_load() {
 }
 
 #[test]
-fn a_shell_with_a_site_in_its_own_process_writes_an_index_naming_the_site_sitemap() {
-  let root = project("shell", "[crawl]\nrobots = \"/robots.txt\"\nsitemap = \"/sitemap.xml\"\n", "[sites.reports]\nat = \"/reports\"\nover = [\"http://127.0.0.1:9\"]\n", &[("routes/about/page.tsx", PAGE), ("routes/about/page.loader.ts", DATED)]);
-  let host = host(&root);
-  let (status, _, index) = get(&host, "/sitemap.xml");
-  assert_eq!(status, 200, "{index}");
-  assert!(index.contains("<sitemapindex") && index.contains("<loc>https://shop.example/sitemap-1.xml</loc>\n    <lastmod>2026-07-04</lastmod>") && index.contains("<loc>https://shop.example/reports/sitemap.xml</loc>"), "{index}");
-  let (status, _, own) = get(&host, "/sitemap-1.xml");
-  assert_eq!(status, 200, "{own}");
-  assert!(own.contains("https://shop.example/about</loc>") && !own.contains("/reports"), "the site's pages are its own sitemap's: {own}");
-  assert_eq!(get(&host, "/sitemap-2.xml").0, 404);
-  std::fs::remove_dir_all(&root).unwrap();
-}
-
-#[test]
 fn the_application_refreshes_the_sitemap_when_it_chooses_and_requests_keep_the_one_held() {
   let root = project("refresh", "[crawl]\nsitemap = \"/sitemap.xml\"\n", "", &[("routes/about/page.tsx", PAGE)]);
   let host = host(&root);
