@@ -13,7 +13,7 @@ cd site && python3 -m http.server 8110
 
 `site/` is the whole thing: a document and a payload per route, plus every static root the configuration names copied in, so the client bundle, the vendored React and the stylesheet sit where the documents ask for them. It is written beside the app rather than under it, since one of those roots is `app/dist` itself.
 
-`fsr dev app` is still the authoring loop, with the live refresh and the rebuild on save. The generator is what you run when the writing is done. Both need an fsr with its MDX features: the build dependency in `Cargo.toml` turns them on and `cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter` gives the command line the same.
+`fsr dev app` is still the authoring loop, with the live refresh and the rebuild on save. The generator is what you run when the writing is done. Both read MDX with fsr's default features.
 
 ## What it holds
 

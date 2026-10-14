@@ -10,16 +10,16 @@
 
 ```sh
 cargo install --path fsr/cli
-cargo install --path fsr/cli --features mdx-highlight,mdx-frontmatter
+cargo install --path fsr/cli --no-default-features --features tera
 ```
 
 | Feature | Default | Adds |
 | --- | --- | --- |
 | `tera` | on | `page.tera` and `layout.tera` routes, rendered by the stock host |
 | `tls` | off | TLS in the stock host |
-| `mdx` | off | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
-| `mdx-highlight` | off | `mdx`, plus fenced code highlighted at build and `styles/code.css` from the direction |
-| `mdx-frontmatter` | off | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
+| `mdx` | on | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
+| `mdx-highlight` | on | `mdx`, plus fenced code highlighted at build and `styles/code.css` from the direction |
+| `mdx-frontmatter` | on | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
 
 It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the bodies, `snapfire_fsr_plan` for the file it writes and `reqwest` with rustls for esm.sh and the npm registry.
 

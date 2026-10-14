@@ -4,10 +4,10 @@
 
 ## MDX is a feature of fsr
 
-Not every application writes MDX, so the parser and the highlighter are Cargo features of the CLI:
+The parser, the highlighter and frontmatter are Cargo features of the CLI, on by default. An install that wants none of them turns the defaults off and keeps what it needs:
 
 ```sh
-cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter
+cargo install snapfire_fsr_cli --no-default-features --features tera
 ```
 
 | Feature | Reads |
@@ -16,12 +16,7 @@ cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter
 | `mdx-highlight` | `mdx`, plus fenced code highlighted at build |
 | `mdx-frontmatter` | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
 
-An fsr built without `mdx` refuses an `.mdx` page or import by name rather than leaving it out. A `build.rs` that builds an application turns the features on in its build dependency:
-
-```toml
-[build-dependencies]
-snapfire_fsr_cli = { path = "../../cli", features = ["mdx-highlight", "mdx-frontmatter"] }
-```
+An fsr built without `mdx` refuses an `.mdx` page or import by name rather than leaving it out. A `build.rs` that builds an application gets the features with the build dependency's defaults.
 
 `fsr use app mdx` writes a starter `mdx-components.tsx` and, with highlighting built in, `styles/code.css`. `fsr new shop --with mdx` starts an application with them.
 

@@ -15,10 +15,10 @@ Four commands take a project from nothing to files on disk.
 
 ## Pages written in MDX
 
-This page is `routes/install/page.mdx`. Its loader still runs first and the page reads what it returned as `props`, so the list above is {props.steps.length} steps from `src/content.ts`. An fsr reads MDX when it is built with the feature:
+This page is `routes/install/page.mdx`. Its loader still runs first and the page reads what it returned as `props`, so the list above is {props.steps.length} steps from `src/content.ts`. An fsr reads MDX with its default features:
 
 ```sh title="terminal" {1}
-cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter
+cargo install snapfire_fsr_cli
 fsr use app mdx
 fsr build app
 ```

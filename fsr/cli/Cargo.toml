@@ -18,7 +18,7 @@ name = "fsr"
 path = "src/main.rs"
 
 [features]
-default = ["tera"]
+default = ["tera", "mdx-highlight", "mdx-frontmatter"]
 tls = ["snapfire_fsr_host/tls"]
 # A `page.tera` or `layout.tera` under `routes/`, served by the stock host.
 tera = ["snapfire_fsr_host/tera"]

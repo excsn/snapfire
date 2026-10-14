@@ -23,7 +23,7 @@ test("an MDX page reads its loader's data as props and highlights its code", asy
   const figure = document.querySelector("[data-rehype-pretty-code-figure]");
   expect(figure?.querySelector("figcaption")?.textContent).toEqual("terminal");
   expect(figure?.querySelectorAll("[data-line]").length).toEqual(3);
-  expect(figure?.querySelector("[data-highlighted-line]")?.textContent).toEqual("cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter");
+  expect(figure?.querySelector("[data-highlighted-line]")?.textContent).toEqual("cargo install snapfire_fsr_cli");
 });
 
 test("a markdown page takes its title from frontmatter and its headings from the map", async () => {

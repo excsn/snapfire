@@ -27,7 +27,7 @@ fsr prerender app
 fsr serve app
 ```
 
-The build needs an fsr with its MDX features, `cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter`; one without them refuses `[mdx.collections]` naming the feature.
+The build reads MDX with fsr's default features; an fsr built without them refuses `[mdx.collections]` naming the feature.
 
 `http://127.0.0.1:8102/blog` is the blog with its own layout as the page. `fsr test app` runs the body tests and the specs.
 

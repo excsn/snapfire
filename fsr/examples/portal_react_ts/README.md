@@ -40,7 +40,7 @@ fsr build sites/blog/app
 fsr build sites/status/app
 ```
 
-The blog's posts are MDX and markdown, so `fsr` needs its MDX features: `cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter`.
+The blog's posts are MDX and markdown, which `fsr` reads with its default features.
 
 Install billing the way an operator would: pack a release and install it into the cache.
 

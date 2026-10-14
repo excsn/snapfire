@@ -1189,7 +1189,7 @@ The feature is `tera`, on by default in the CLI and off in the host crate, so an
 
 ## Writing Pages in MDX
 
-With the `mdx` feature, a route directory may hold `page.mdx` or `page.md` in place of `page.tsx`. The file is turned into TSX and lowered like any page; the loader beside it runs first and its data is `props`. `export const meta` in the file, a plain object, is the route's meta:
+With the `mdx` feature, on by default, a route directory may hold `page.mdx` or `page.md` in place of `page.tsx`. The file is turned into TSX and lowered like any page; the loader beside it runs first and its data is `props`. `export const meta` in the file, a plain object, is the route's meta:
 
 ```mdx
 import { Card } from "@src/ui/Card";
