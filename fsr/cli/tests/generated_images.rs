@@ -241,3 +241,27 @@ fn a_font_entry_names_the_scripts_its_faces_draw_and_an_unknown_one_refuses_the_
     std::fs::remove_dir_all(&root).unwrap();
   }
 }
+
+/// REQUESTS 11.50: an image with a loader of its own has a generated props
+/// type, named for its directory and stem as a page's is, so its component's
+/// parameter is checked against what the loader returns.
+#[test]
+fn an_image_with_its_own_loader_gets_a_generated_props_type() {
+  let root = project("typed", &[
+    ("routes/page.tsx", "export default function Page() {\n  return <main>home</main>;\n}\n"),
+    ("routes/opengraph-image.tsx", "import type { RootOpengraphImageProps } from \"@generated/client\";\nexport default function Image({ count }: RootOpengraphImageProps) {\n  return <div>{count}</div>;\n}\n"),
+    ("routes/opengraph-image.loader.ts", "export async function load() {\n  return { count: 3, latest: \"A post\" };\n}\n"),
+    ("routes/notice/[id]/page.tsx", PAGE),
+    ("routes/notice/[id]/page.loader.ts", LOADER),
+    ("routes/notice/[id]/twitter-image.tsx", "export default function Image({ title }: { title: string }) {\n  return <div>{title}</div>;\n}\n"),
+    ("routes/notice/[id]/twitter-image.loader.ts", "export async function load() {\n  return { title: \"Notice\" };\n}\n"),
+    ("routes/notice/[id]/opengraph-image.tsx", IMAGE),
+  ]);
+  let app = root.join("app");
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
+  assert!(client.contains("export type RootOpengraphImageProps = { count: number; latest: string };"), "{client}");
+  assert!(client.contains("export type NoticeIdTwitterImageProps = { title: string };"), "{client}");
+  assert_eq!(client.matches("export type NoticeIdProps =").count(), 1, "an image drawing from its page's data adds no second page type: {client}");
+  std::fs::remove_dir_all(&root).unwrap();
+}

@@ -225,6 +225,16 @@ export async function load() {
 }
 ```
 
+The build generates the component's props type from it, named for the directory and the image as a page's is: `RootOpengraphImageProps` here, `PostSlugTwitterImageProps` for a `twitter-image.loader.ts` under `post/[slug]/`.
+
+```tsx
+import type { RootOpengraphImageProps } from "@generated/client";
+
+export default function Image({ count, latest }: RootOpengraphImageProps) {
+  return <h1>{count} posts, the latest {latest}</h1>;
+}
+```
+
 A page with several cards lists them with `images` (Next calls it `generateImageMetadata`). It takes the context and returns an entry per image, each with an `id` and, where it differs from the module's, an `alt`, a `size` or a `contentType`:
 
 ```tsx
