@@ -1,0 +1,34 @@
+import { Aside } from "@src/ui/Aside";
+
+export const meta = {
+  title: "Why the server reads a plan file",
+  posted: "2026-09-02",
+  tags: ["design", "runtime"],
+  summary: "A route is data the host can read, which is what lets it prerender, cache and reason about a page.",
+};
+
+A loader is lowered to a form the host runs itself, so nothing on the serving path evaluates JavaScript. The plan file is the whole description of a route: its pattern, its loader, its layout and what each one reads.
+
+That is why a page whose loader reads nothing from the request can be written to disk once. The host can tell from the plan, without running anything.
+
+## What a loader becomes
+
+The loader below reads the route's parameter and nothing else, so its body is a row of the plan rather than code the server runs:
+
+```ts title="routes/post/[slug]/page.loader.ts" {2}
+export async function load({ params }: Ctx<"/post/{slug}">) {
+  return { slug: params.slug };
+}
+```
+
+## Who reads which part
+
+| Part of the plan | Read by |
+| --- | --- |
+| The pattern | the router |
+| The loader | the host, in Rust[^rust] |
+| The layout | the renderer |
+
+<Aside label="Tags">This post carries {meta.tags.length} tags: {meta.tags.join(" and ")}.</Aside>
+
+[^rust]: From the lowered body, with no JavaScript engine on the request path.

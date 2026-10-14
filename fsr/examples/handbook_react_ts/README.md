@@ -1,6 +1,6 @@
 # handbook_react_ts
 
-A documentation site with no server. Three routes, no backend, nothing on any plan that reads the request, so every route is fixed and the whole site is files: `cargo run -p handbook_react_ts` builds the host, writes each route to `app/dist/prerender` and exits. What serves the directory afterwards is not this program's business.
+A documentation site with no server, written mostly in MDX. Four routes, no backend, nothing on any plan that reads the request, so every route is fixed and the whole site is files: `cargo run -p handbook_react_ts` builds the host, writes each route to `app/dist/prerender` and exits. What serves the directory afterwards is not this program's business.
 
 It exists to prove that a different deployment is a different build of the same framework rather than a different framework: the routes, the loaders, the layout and the islands are written exactly as the storefront's are.
 
@@ -13,17 +13,18 @@ cd site && python3 -m http.server 8110
 
 `site/` is the whole thing: a document and a payload per route, plus every static root the configuration names copied in, so the client bundle, the vendored React and the stylesheet sit where the documents ask for them. It is written beside the app rather than under it, since one of those roots is `app/dist` itself.
 
-`fsr dev app` is still the authoring loop, with the live refresh and the rebuild on save. The generator is what you run when the writing is done.
+`fsr dev app` is still the authoring loop, with the live refresh and the rebuild on save. The generator is what you run when the writing is done. Both need an fsr with its MDX features: the build dependency in `Cargo.toml` turns them on and `cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter` gives the command line the same.
 
 ## What it holds
 
 | Path | What it is |
 | --- | --- |
 | `/` | three cards from a loader that reads a module constant |
-| `/install` | the commands, in order |
-| `/faq` | questions, including this one |
+| `/install` | `routes/install/page.mdx`: the commands read from its loader's data as `props`, then a highlighted code block |
+| `/faq` | `routes/faq/page.md`: markdown with its title in YAML frontmatter and a GFM table |
+| `/tips` | `routes/tips/page.mdx`: an `export default` layout, a task list, a footnote and an island that renders `content/tip.mdx` in the browser |
 
-Every page's data comes from `app/src/content.ts` through an ordinary `page.loader.ts`. A loader that calls no service is still a loader: it lowers, it runs in Rust and its return type is what types the page's props.
+The home page and `/install` take their data from `app/src/content.ts` through an ordinary `page.loader.ts`. A loader that calls no service is still a loader: it lowers, it runs in Rust and its return type is what types the page's props. `mdx-components.tsx` maps every page's second-level headings to a component with an anchor and wraps each page in `div.page.prose`; `styles/code.css` from `fsr use app mdx` colours the highlighted code.
 
 ## What a static host does and does not give you
 
@@ -35,7 +36,7 @@ Client navigation is the part that depends on what serves the files. The navigat
 
 `cargo test -p handbook_react_ts`: that every route is prerenderable and none is left out, that the whole site is written as documents and payloads, that a written document carries the page's markup, its own title and no reference to a host and that a render with a session full of junk is byte for byte the render without one.
 
-`fsr test app`: the home page's cards come from the loader's constant and the layout wraps every page.
+`fsr test app`: the home page's cards come from the loader's constant, the layout wraps every page, the MDX page reads its loader's data and highlights its code, the markdown page is titled by its frontmatter, `/tips` keeps its own layout in place of the wrapper and the tip island renders `content/tip.mdx` in the browser on a click.
 
 Checked in a browser over `python3 -m http.server`: every document and every asset answers, the client modules included, since `prerender` writes them beside the documents, the page hydrates with an empty console and following a link lands on the next page with its own title.
 

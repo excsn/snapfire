@@ -18,3 +18,9 @@ ttl = "1h"
 
 [typecheck]
 version = "7.0.2"
+
+[mdx]
+frontmatter = true
+
+[mdx.collections]
+posts = "content/posts"

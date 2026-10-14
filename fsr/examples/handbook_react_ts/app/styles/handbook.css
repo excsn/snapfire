@@ -55,3 +55,11 @@ footer { border-top: 1px solid var(--rule); margin-top: 3rem; padding-top: 1rem;
 .plain-cover img { border-radius: 4px; }
 
 .plain-cover::before { content: ""; width: 1.5rem; height: 1.5rem; background: url(../src/img/cover.png) center / cover no-repeat; }
+
+.prose table { border-collapse: collapse; margin: 1rem 0; }
+.prose th, .prose td { padding: 0.3rem 1.25rem 0.3rem 0; border-bottom: 1px solid var(--rule); text-align: left; }
+.contains-task-list { list-style: none; padding-left: 0; }
+.tip { margin: 1rem 0; }
+
+/* The footnote heading GFM writes is for screen readers. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }

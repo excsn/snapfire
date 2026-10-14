@@ -209,7 +209,14 @@ async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
   let response = portal.handle(Request::get("/blog/post/static-under-a-shell").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
   let html = body_of(response).await;
-  assert!(html.contains("<title>Static pages under a shell that reads the session · Blog</title>") && html.contains("<code>fsr prerender</code>"), "{html}");
+  assert!(html.contains("<title>Static pages under a shell that reads the session · Blog</title>") && html.contains("<code>fsr prerender</code>"), "the markdown post and its frontmatter title: {html}");
+
+  let response = portal.handle(Request::get("/blog/post/why-a-plan-file").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  let html = body_of(response).await;
+  assert!(html.contains("<pre class=\"hl-code\" data-language=\"ts\">"), "the MDX post's code was highlighted at build: {html}");
+  assert!(html.contains("href=\"/blog/static/js/app/styles/code.css\""), "the site links its code sheet: {html}");
+  assert!(html.contains("<aside class=\"my-4 rounded-lg"), "a component the MDX post imports: {html}");
 
   let response = portal.handle(Request::get("/blog/post/nope").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::NOT_FOUND, "a slug off the blog is a 404 document");

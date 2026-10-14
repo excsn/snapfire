@@ -1,7 +1,8 @@
 import type { PostSlugProps } from "@generated/client";
 import { Link } from "@snapfire/fsr-authoring/template";
 
-export default function PostPage({ post }: PostSlugProps) {
+export default async function PostPage({ post }: PostSlugProps) {
+  const { default: Body } = await import(`../../../content/posts/${post.file}`);
   return (
     <article>
       <h1 className="mb-2 font-serif text-3xl">{post.title}</h1>
@@ -13,7 +14,18 @@ export default function PostPage({ post }: PostSlugProps) {
           </Link>
         ))}
       </p>
-      <div className="space-y-3 leading-relaxed text-ink [&_code]:rounded [&_code]:bg-accent-soft [&_code]:px-1 [&_code]:text-accent" data-part="body" dangerouslySetInnerHTML={{ __html: post.body }} />
+      {post.toc.length > 0 ? (
+        <nav className="mb-4 text-sm" data-part="toc">
+          {post.toc.map((entry) => (
+            <a key={entry.id} href={`#${entry.id}`} className="mr-3 text-accent hover:underline">
+              {entry.text}
+            </a>
+          ))}
+        </nav>
+      ) : null}
+      <div className="space-y-3 leading-relaxed text-ink [&_code]:rounded [&_code]:px-1 [&_table]:w-full [&_td]:border-t [&_td]:border-line [&_th]:text-left" data-part="body">
+        <Body components={{ a: Link }} />
+      </div>
       <p className="mt-6">
         <Link href="/blog" className="text-accent hover:underline">
           All posts

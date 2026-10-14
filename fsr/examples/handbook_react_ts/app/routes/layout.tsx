@@ -11,6 +11,7 @@ export default function HandbookLayout({ children }: { children: ReactNode }) {
         <nav>
           <Link href="/install">Install</Link>
           <Link href="/faq">FAQ</Link>
+          <Link href="/tips">Tips</Link>
         </nav>
       </header>
       <main>{children}</main>

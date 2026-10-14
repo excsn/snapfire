@@ -1,0 +1,23 @@
+import { Island } from "@snapfire/fsr-authoring/template";
+import { Claps } from "@src/ui/Claps";
+
+export const meta = {
+  title: "A site is a mount, not a dependency",
+  posted: "2026-09-09",
+  tags: ["sites", "design"],
+  summary: "The portal mounts this blog from its build output. Nothing here imports the portal and nothing there imports this.",
+};
+
+The shell reads the site's artifact from a path and nests its routes under the shell's root layout. One session, one store, one navigation, and the site still runs alone on its own port.
+
+This blog vendors nothing: React comes from the shell contract the site was built against. [This post](/blog/post/a-site-is-a-mount) and [the tag list](/blog/tags) are links the post page places as `Link`.
+
+## What a mount needs
+
+- [x] A build under the site's own prefix
+- [x] The shell's contract, read at build
+- [ ] A dependency on the shell's code
+
+> A site that imports its shell is not a site.
+
+<Island><Claps /></Island>

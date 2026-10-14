@@ -6,7 +6,7 @@ use std::path::Path;
 use futures::executor::block_on;
 use snapfire_fsr_host::{Config, Host, RenderMode};
 
-const ROUTES: [&str; 3] = ["/", "/faq", "/install"];
+const ROUTES: [&str; 4] = ["/", "/faq", "/install", "/tips"];
 
 fn handbook() -> Host {
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
@@ -38,7 +38,7 @@ fn the_whole_site_is_written_to_files_and_each_document_stands_alone() {
   for route in ROUTES {
     assert_eq!(written.iter().filter(|(pattern, _)| pattern == route).count(), 2, "a document and a payload for {route}: {written:?}");
   }
-  for file in ["index.html", "faq/index.html", "install/index.html", "index.payload", "static/js/fsr/index.js", "static/js/fsr/react.js"] {
+  for file in ["index.html", "faq/index.html", "install/index.html", "tips/index.html", "index.payload", "static/js/fsr/index.js", "static/js/fsr/react.js"] {
     assert!(out.join(file).is_file(), "{file} was written");
   }
 
@@ -57,9 +57,22 @@ fn the_whole_site_is_written_to_files_and_each_document_stands_alone() {
   }
 
   let faq = std::fs::read_to_string(out.join("faq/index.html")).unwrap();
-  assert!(faq.contains("<title>FAQ · The FSR handbook</title>"), "{faq}");
+  assert!(faq.contains("<title>FAQ · The FSR handbook</title>"), "frontmatter titled the markdown page: {faq}");
   assert!(faq.contains("Does this site run a server?"), "{faq}");
   assert!(faq.contains("wordmark"), "the layout wraps every page: {faq}");
+  assert!(faq.contains("<div class=\"page prose\"><h1 id=\"questions\">Questions</h1>"), "the map's wrapper holds the markdown: {faq}");
+  assert!(faq.contains("<th align=\"left\">Route</th>"), "GFM tables are on: {faq}");
+
+  let install = std::fs::read_to_string(out.join("install/index.html")).unwrap();
+  assert!(install.contains("<title>Install · The FSR handbook</title>"), "the MDX page's meta titled it: {install}");
+  assert!(install.contains("<code>fsr build app</code>"), "the loader's data reached the MDX page as props: {install}");
+  assert!(install.contains("<pre class=\"hl-code\" data-language=\"sh\">"), "the code block was highlighted at build: {install}");
+  assert!(install.contains("<link rel=\"stylesheet\" href=\"/static/js/app/styles/code.css\">"), "the code sheet is linked: {install}");
+
+  let tips = std::fs::read_to_string(out.join("tips/index.html")).unwrap();
+  assert!(tips.contains("<section class=\"page tips\"><h1 id=\"tips\">Tips</h1>"), "the page's own layout: {tips}");
+  assert!(tips.contains("Show the tip"), "the island rendered on the server: {tips}");
+  assert!(Path::new(env!("CARGO_MANIFEST_DIR")).join("app/dist/content/tip.js").is_file(), "the MDX the island imports was compiled for the browser");
 
   std::fs::remove_dir_all(&out).ok();
 }

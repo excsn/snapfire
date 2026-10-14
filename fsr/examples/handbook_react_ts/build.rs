@@ -1,6 +1,6 @@
 fn main() {
   let app = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("app");
-  for watched in ["routes", "src", "styles", "importmap.json"] {
+  for watched in ["routes", "src", "styles", "content", "mdx-components.tsx", "importmap.json"] {
     println!("cargo:rerun-if-changed={}", app.join(watched).display());
   }
   let mut options = snapfire_fsr_cli::DevOptions::beside(&app);

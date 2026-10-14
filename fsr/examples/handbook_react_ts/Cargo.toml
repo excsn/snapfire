@@ -12,7 +12,7 @@ snapfire_fsr_host = { path = "../../host" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [build-dependencies]
-snapfire_fsr_cli = { path = "../../cli" }
+snapfire_fsr_cli = { path = "../../cli", features = ["mdx-highlight", "mdx-frontmatter"] }
 
 [dev-dependencies]
 futures = "0.3"

@@ -1,0 +1,22 @@
+import { Island } from "@snapfire/fsr-client/react";
+import { Tip } from "@src/ui/Tip";
+
+export const meta = { title: "Tips · The FSR handbook" };
+
+export default function TipsLayout({ children }) {
+  return <section className="page tips">{children}</section>;
+}
+
+# Tips
+
+Each tip here is MDX. The page's `export default` is its layout, which stands in for the `wrapper` that `mdx-components.tsx` gives every other page.
+
+- [x] Write a page as `page.mdx` or `page.md`
+- [x] Keep long content under `content/` and import it
+- [ ] Turn highlighting off with `[mdx] highlight = false`
+
+The last tip opens in the browser[^browser].
+
+<Island><Tip /></Island>
+
+[^browser]: The island imports `content/tip.mdx`, which the bundle compiles from the module `fsr build` writes for it.

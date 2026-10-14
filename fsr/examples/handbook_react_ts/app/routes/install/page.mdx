@@ -1,0 +1,24 @@
+export const meta = { title: "Install · The FSR handbook" };
+
+# Install
+
+Four commands take a project from nothing to files on disk.
+
+<ol className="steps">
+  {props.steps.map((step) => (
+    <li key={step.command}>
+      <code>{step.command}</code>
+      <span>{step.explains}</span>
+    </li>
+  ))}
+</ol>
+
+## Pages written in MDX
+
+This page is `routes/install/page.mdx`. Its loader still runs first and the page reads what it returned as `props`, so the list above is {props.steps.length} steps from `src/content.ts`. An fsr reads MDX when it is built with the feature:
+
+```sh title="terminal" {1}
+cargo install snapfire_fsr_cli --features mdx-highlight,mdx-frontmatter
+fsr use app mdx
+fsr build app
+```
