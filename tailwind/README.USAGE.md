@@ -19,6 +19,7 @@ How to build Tailwind stylesheets from Rust: compiling a configuration, giving i
 * [Switching Themes](#switching-themes)
   * [Adding Named Themes](#adding-named-themes)
   * [Tokens Only a Theme Defines](#tokens-only-a-theme-defines)
+  * [Taking the Root Theme Back](#taking-the-root-theme-back)
 * [Drawing Classes on Cards](#drawing-classes-on-cards)
 * [Error Handling](#error-handling)
 
@@ -192,6 +193,19 @@ assert!(compiler.build(["bg-brand"]).contains("background-color: var(--color-bra
 ```
 
 The utility exists and falls back to the theme's value; the root never takes it.
+
+### Taking the Root Theme Back
+
+```rust
+use snapfire_tailwind::{CompileOptions, Compiler, NamedTheme};
+
+let ocean = NamedTheme { selector: "[data-theme=\"ocean\"]".to_owned(), css: "@theme {\n  --color-accent: #0e7490;\n}".to_owned(), from: None };
+let options = CompileOptions { themes: vec![ocean], root_selectors: vec!["[data-theme=\"default\"]".to_owned()], ..CompileOptions::default() };
+let mut compiler = Compiler::new("@import \"tailwindcss\";\n@theme {\n  --color-accent: #1f6feb;\n}", options).unwrap();
+assert!(compiler.build(["text-accent"]).contains(":root, :host, [data-theme=\"default\"] {"));
+```
+
+A named theme's selector matches any element, so `<div data-theme="ocean">` previews a theme inside a page in another. A root selector does the same for the root theme. A variable declared as `var(--other)` resolves on the element that declares it, so a token derived from another has to be declared again wherever a theme changes the one it reads.
 
 ## Drawing Classes on Cards
 

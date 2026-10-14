@@ -41,3 +41,12 @@ fn a_breakpoint_in_a_named_theme_is_a_warning() {
   let (_, warnings) = build("@import \"tailwindcss/utilities.css\";\n@theme {\n  --color-ink: #111;\n}", vec![named("wide", "@theme {\n  --breakpoint-md: 60rem;\n}")], &[]);
   assert_eq!(warnings, ["themes/wide.css: `--breakpoint-md` is read when the stylesheet is built, so a theme that sets it changes no media or container query"]);
 }
+
+#[test]
+fn a_root_selector_takes_the_root_theme_back_inside_a_named_one() {
+  let options = CompileOptions { banner: false, themes: vec![named("ocean", "@theme {\n  --color-accent: #0e7490;\n}")], root_selectors: vec!["[data-theme=\"default\"]".to_owned()], ..CompileOptions::default() };
+  let mut compiler = Compiler::new("@import \"tailwindcss/theme.css\" layer(theme);\n@import \"tailwindcss/utilities.css\" layer(utilities);\n@theme {\n  --color-accent: #1f6feb;\n}", options).unwrap();
+  let css = optimize(&compiler.build(["text-accent"]), &OptimizeOptions::default()).unwrap();
+  let root = css.find(":root, :host, [data-theme=\"default\"] {\n    --color-accent: #1f6feb;").expect(&css);
+  assert!(root < css.find("[data-theme=\"ocean\"]").unwrap(), "{css}");
+}

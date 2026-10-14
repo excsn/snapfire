@@ -80,6 +80,9 @@ pub struct CompileOptions<'a> {
   /// Themes the document switches between, each written after the root theme under its own
   /// selector.
   pub themes: Vec<NamedTheme>,
+  /// More selectors the root theme's variables apply under, after `:root, :host`, so an element
+  /// inside a named theme can take the root's values back.
+  pub root_selectors: Vec<String>,
 }
 
 /// A stylesheet of `@theme` blocks whose variables apply under `selector`, such as
@@ -102,6 +105,7 @@ impl Default for CompileOptions<'_> {
       banner: true,
       from: None,
       themes: Vec::new(),
+      root_selectors: Vec::new(),
     }
   }
 }
@@ -776,6 +780,9 @@ fn parse_css(parsed: Vec<Node>, options: &CompileOptions) -> Result<Compiler, Er
     }
     fill_theme(&mut ast, nodes);
   }
+  if !options.root_selectors.is_empty() {
+    extend_root_theme_selector(&mut ast, &options.root_selectors);
+  }
   if !named_rules.is_empty() && !insert_after_root_theme(&mut ast, &mut named_rules) {
     ast.extend(named_rules);
   }
@@ -1024,6 +1031,26 @@ fn insert_after_root_theme(ast: &mut Vec<Node>, rules: &mut Vec<Node>) -> bool {
     }
     if let Some(children) = ast[i].children_mut()
       && insert_after_root_theme(children, rules)
+    {
+      return true;
+    }
+  }
+  false
+}
+
+fn extend_root_theme_selector(ast: &mut [Node], extra: &[String]) -> bool {
+  for node in ast.iter_mut() {
+    if let Node::Rule { selector, nodes } = node
+      && nodes.iter().any(|n| matches!(n, Node::Context { context, .. } if context.contains_key("theme")))
+    {
+      for more in extra {
+        selector.push_str(", ");
+        selector.push_str(more);
+      }
+      return true;
+    }
+    if let Some(children) = node.children_mut()
+      && extend_root_theme_selector(children, extra)
     {
       return true;
     }

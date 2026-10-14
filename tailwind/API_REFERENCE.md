@@ -53,6 +53,7 @@ What `Compiler::new` reads besides the stylesheet. `Default` is every field belo
 * `pub banner: bool`: starts the output with Tailwind's license comment. Default `true`.
 * `pub from: Option<String>`: the stylesheet's file name; a syntax error then starts with `file:line:column`, columns in UTF-16 code units. Default `None`.
 * `pub themes: Vec<NamedTheme>`: written after the root theme in this order. Default empty.
+* `pub root_selectors: Vec<String>`: more selectors the root theme's rule applies under, after `:root, :host`, such as `[data-theme="default"]`. Default empty.
 
 ### NamedTheme
 

@@ -405,15 +405,26 @@ export function theme({ theme, session }: ThemeCtx): ThemeChoice {
 The report lists what the build found:
 
 ```text
-themes    forest, ocean
+themes    default, forest, ocean
 theme     routes/layout.tsx#default          ledger forced
 theme.ts  theme                  lowered     theme.ts
 ```
 
-The host writes the answer as `<html data-sf-theme="ocean" data-sf-scheme="dark">`. Key a `dark` variant on the attribute in the stylesheet:
+`default` is the root theme's name once there is a theme file, so `theme.ts` can return it to override a route's own and a `styles/themes/default.css` is `BuildError::ReservedTheme`.
+
+The host writes the answer as `<html data-sf-theme="ocean" data-sf-scheme="dark">`. A `null` scheme leaves the attribute off, so the browser's preference can decide. Key a `dark` variant on the attribute and on the preference when it is absent:
 
 ```css
-@custom-variant dark (&:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *));
+@custom-variant dark {
+  &:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-sf-scheme]), :root:not([data-sf-scheme]) *) {
+      @slot;
+    }
+  }
+}
 ```
 
 ## Signing In

@@ -78,6 +78,8 @@ pub enum BuildError {
   UnknownComponent { module: String },
   #[error("`{module}` mounts through `{adapter}`, but the import map does not name {missing}{remedy}")]
   IslandImports { module: String, adapter: String, missing: String, remedy: String },
+  #[error("{file} names a theme `default`, which is the root theme's name; rename the file")]
+  ReservedTheme { file: String },
   #[error("{module} sets theme `{name}`, which is not a theme; the themes are {known}")]
   UnknownTheme { module: String, name: String, known: String },
   #[error("`{name}` is not a direction; the directions are {known}")]
@@ -1365,7 +1367,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     Some(path) => Some((path, ShellContract::read(path)?)),
     None => None,
   };
-  let mut theme_names = theme_files(&app.join(&sections.dirs.styles).join(THEMES_DIR));
+  let mut theme_names = theme_files(&app.join(&sections.dirs.styles).join(THEMES_DIR))?;
   for name in shell.iter().flat_map(|(_, contract)| contract.themes.iter()) {
     if !theme_names.contains(name) {
       theme_names.push(name.clone());
@@ -1927,7 +1929,7 @@ fn ctx_module(routes: &[Route], session_import: Option<&str>, config: &[(String,
     "}\n\nexport interface Address {\n  path: string;\n  params: Record<string, string>;\n  query: Record<string, string>;\n}\n\nexport interface Ctx<P extends keyof Routes = keyof Routes> {\n  params: Routes[P];\n  query: Record<string, string>;\n  /** The path this request matched, query excluded, locale prefix included. Empty under an action, whose path is the action endpoint rather than the document's. */\n  path: string;\n  session: Session;\n  identity: Identity | null;\n  locale: string;\n  /** The host the request named, when `[server] hosts` lists it; null when it does not, null whenever that key is unset. */\n  host: string | null;\n  /** `document.origin` for this deployment, the scheme and host it is reached over; null when the configuration names none. The same on every request, so a body reading it still prerenders. */\n  origin: string | null;\n  /** The navigation's own request when this render is an intercept, null otherwise. A layout the document keeps loads under the document's request, so `params`, `query` and `path` are the document's there and this is the navigation's. */\n  address: Address | null;\n  /** `[public]` from the configuration, one field per key, typed from the value written there. */\n  config: Config;\n  services: Services;\n  /** The application's own Rust, in this process. A method the build read as `fn` answers a value; an `async fn` answers a promise. */\n  native: Natives;\n  now: bigint;\n}\n\n/** What an action, a route handler or middleware can do to the session beyond reading and writing its keys. */\nexport interface SessionControl {\n  /** Moves the session's end to `seconds` from now once the body commits; the cookie and the store follow. Nothing extends on its own. */\n  extend(seconds: number): void;\n}\n\nexport interface ActionCtx<Input = void, P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  input: Input;\n  session: Session & SessionControl;\n}\n\n/** A `route.ts` handler's context: a loader's plus `session.extend`. */\nexport interface HandlerCtx<P extends keyof Routes = keyof Routes> extends Ctx<P> {\n  session: Session & SessionControl;\n}\n\nexport interface RequestLine {\n  method: string;\n  path: string;\n  /** Whether the request is a navigation's payload rather than a document; absent under a body test. */\n  payload?: boolean;\n}\n\nexport interface MiddlewareCtx extends Ctx {\n  request: RequestLine;\n  session: Session & SessionControl;\n}\n\nexport interface Meta {\n  title?: string;\n  /** `title` is written as given rather than through `[document] title_template`. */\n  absolute?: boolean;\n  description?: string;\n  head?: HeadEl[];\n}\n\nexport interface MetaCtx<Data> {\n  data: Data;\n}\n\nexport type DataOf<Load> = Load extends (...args: never[]) => Promise<infer Data> ? Data : never;\n\nexport interface MiddlewareResult {\n  redirect?: string;\n  rewrite?: string;\n  status?: number;\n  body?: unknown;\n  headers?: Record<string, string>;\n}\n\nexport function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out> {\n  return declare<Input, Out>(body as never) as never;\n}\n",
   );
   let names: Vec<String> = themes.iter().map(|t| format!("{t:?}")).collect();
-  let _ = writeln!(out, "\n/** A named theme, one per file under `styles/themes/`. */\nexport type Theme = {};", if names.is_empty() { "never".to_owned() } else { names.join(" | ") });
+  let _ = writeln!(out, "\n/** A named theme: one per file under `styles/themes/` or the root theme as `default`. */\nexport type Theme = {};", if names.is_empty() { "never".to_owned() } else { names.join(" | ") });
   out.push_str("\n/** Light or dark, written as `<html data-sf-scheme>` and independent of the theme. */\nexport type Scheme = \"light\" | \"dark\";\n\n/** The theme the route's layouts and page set: the deepest one, unless a level above it forces its own. */\nexport interface RouteTheme {\n  name: Theme | null;\n  forced: boolean;\n}\n\nexport interface ThemeCtx extends Ctx {\n  theme: RouteTheme;\n}\n\n/** What `theme.ts` decides for the document: no `name` is the root theme, no `scheme` leaves the attribute off. */\nexport interface ThemeChoice {\n  name?: Theme | null;\n  scheme?: Scheme | null;\n}\n");
   out.push_str("\nexport type { HeadEl } from \"./head\";\n");
   out
@@ -2904,8 +2906,13 @@ pub const THEMES_DIR: &str = "themes";
 /// The attribute on `<html>` a named theme is selected by.
 pub const THEME_ATTRIBUTE: &str = "data-sf-theme";
 
-/// The names of the themes in `dir`, one per `<name>.css`.
-pub fn theme_files(dir: &Path) -> Vec<String> {
+/// The name the root theme answers to once an app has named themes, so a part of a page can take
+/// the root's values back inside another theme.
+pub const ROOT_THEME: &str = "default";
+
+/// The names of the themes in `dir` (one per `<name>.css`) with [`ROOT_THEME`] when there is one.
+/// A `default.css` is refused.
+pub fn theme_files(dir: &Path) -> Result<Vec<String>, BuildError> {
   let mut names: Vec<String> = std::fs::read_dir(dir)
     .into_iter()
     .flatten()
@@ -2914,8 +2921,14 @@ pub fn theme_files(dir: &Path) -> Vec<String> {
     .filter(|p| p.extension().is_some_and(|e| e == "css"))
     .filter_map(|p| p.file_stem().map(|s| s.to_string_lossy().into_owned()))
     .collect();
+  if names.iter().any(|n| n == ROOT_THEME) {
+    return Err(BuildError::ReservedTheme { file: dir.join(format!("{ROOT_THEME}.css")).display().to_string() });
+  }
+  if !names.is_empty() {
+    names.push(ROOT_THEME.to_owned());
+  }
   names.sort();
-  names
+  Ok(names)
 }
 
 /// Every module a plan node and its children render, the node's own first.

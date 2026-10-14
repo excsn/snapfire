@@ -95,7 +95,8 @@ struct Args {
   tailwind_classes: Option<PathBuf>,
 
   /// A directory of named themes, relative to root: each `<name>.css` holds `@theme` blocks a
-  /// stylesheet using Tailwind writes under `[<attribute>="<name>"]`
+  /// stylesheet using Tailwind writes under `[<attribute>="<name>"]`; the root theme also
+  /// answers to `[<attribute>="default"]`
   #[arg(long)]
   tailwind_themes: Option<PathBuf>,
 

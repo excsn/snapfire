@@ -235,6 +235,14 @@ fn test_driven_refreshes_stylesheets_that_read_each_other_once() {
   assert!(css.contains("[data-theme=\"ocean\"]") && css.contains("[data-theme=\"forest\"]"), "{css}");
 }
 
+#[test]
+fn test_driven_writes_the_root_theme_under_default_too() {
+  let fixture = Fixture::new("tailwind-islands");
+  let _driven = Driven::start_themed(fixture.root());
+  let css = fs::read_to_string(fixture.root().join("dist/styles/app.css")).unwrap();
+  assert!(css.contains(":root, :host, [data-theme=\"default\"]"), "{css}");
+}
+
 /// A class an island's source names is in the stylesheet. One added to the source arrives in
 /// the batch that names the source.
 #[test]

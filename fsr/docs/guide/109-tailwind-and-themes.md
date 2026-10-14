@@ -101,7 +101,7 @@ A theme is a file of `@theme` blocks under `styles/themes/`, named by the file:
 }
 ```
 
-Every theme is in the stylesheet as `[data-sf-theme="ocean"] { ... }`, written after the root theme, so switching is one attribute on `<html>`. The generated types declare `Theme` as the union of the names, a site's own and its shell's.
+Every theme is in the stylesheet as `[data-sf-theme="ocean"] { ... }`, written after the root theme, so switching is one attribute on `<html>`. The root theme is named `default` once there is a theme file and is written under `[data-sf-theme="default"]` too, so `theme.ts` can choose it over a route's own; a `styles/themes/default.css` fails the build. The generated types declare `Theme` as the union of the names, a site's own and its shell's.
 
 A layout or a page picks one with a literal export, plain or forced:
 
@@ -135,18 +135,62 @@ A route whose forced theme was kept also carries `data-sf-theme-forced` on `<htm
 <span className="hidden [[data-sf-theme-forced]_&]:inline">This site keeps its own theme</span>
 ```
 
-Light and dark are the scheme, not a theme, so a brand theme and the visitor's scheme combine. Key the variant on the attribute and give the dark values a selector that outranks a theme's:
+Light and dark are the scheme, not a theme, so a brand theme and the visitor's scheme combine. A `null` scheme writes no attribute and leaves it to the browser's `prefers-color-scheme`. Key the variant on the attribute and on the preference when it is absent:
 
 ```css
-@custom-variant dark (&:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *));
-
-@layer theme {
-  :root[data-sf-scheme="dark"] {
-    --color-canvas: #0d1117;
-    --color-ink: #e6edf3;
+@custom-variant dark {
+  &:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-sf-scheme]), :root:not([data-sf-scheme]) *) {
+      @slot;
+    }
   }
 }
 ```
+
+The dark values go in the stylesheet's own `@layer theme`, which comes after the named themes, so at equal specificity the scheme wins over a theme's neutrals:
+
+```css
+@layer theme {
+  [data-sf-scheme="dark"] {
+    --color-canvas: #0d1117;
+    --color-ink: #e6edf3;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-sf-scheme]) {
+      --color-canvas: #0d1117;
+      --color-ink: #e6edf3;
+    }
+  }
+}
+```
+
+## Previewing a theme inside a page
+
+The theme and scheme selectors match any element, so a part of a page can be drawn in another theme with real utilities:
+
+```tsx
+<div data-sf-theme="default">
+  <figure data-sf-theme="ocean" data-sf-scheme="dark" className="bg-canvas p-4 font-sans text-ink">
+    <a href="/">A link</a> beside <code>code</code>
+  </figure>
+</div>
+```
+
+The `default` wrapper resets the root's values beneath whatever theme the document has. Two things do not carry into a preview by themselves. A value set on `<html>` or `body`, such as the font, is resolved there, so the preview sets `font-sans` and `bg-canvas` again. A token declared as another's `var()`, such as `--color-accent: var(--color-brand)`, resolves where it is declared, so declare it again wherever a theme applies:
+
+```css
+@layer theme {
+  [data-sf-theme] {
+    --color-accent: var(--color-brand);
+  }
+}
+```
+
+A `dark:` variant keys on an ancestor's attribute, so inside a light preview on a dark page it still applies; draw previews from tokens rather than `dark:` classes.
 
 A theme never reaches a body, so it changes no cache key.
 
@@ -168,4 +212,4 @@ An inline `style` still wins over a class, as on a page. A breakpoint variant ap
 
 ## Lab
 
-In the portal example, open `/?theme=forest`: the whole document turns green and serif for that one request. Sign in, pick Ocean and Dark on `/account` and follow the header into the blog, billing and status. The blog takes your pick over its own `editorial`, billing keeps `ledger` and every site follows the dark scheme. Then change the status page's lookup to `` `status-${system.state}` `` and run `fsr build sites/status/app`: the report names the module and the value it cannot list.
+In the portal example, open `/themes`: each cell is drawn in its own theme and scheme and "Use this" saves both. Open `/?theme=forest`: the whole document turns green and serif for that one request. Sign in, pick Ocean and Dark on `/account` and follow the header into the blog, billing and status. The blog takes your pick over its own `editorial`, billing keeps `ledger` and every site follows the dark scheme. Then change the status page's lookup to `` `status-${system.state}` `` and run `fsr build sites/status/app`: the report names the module and the value it cannot list.

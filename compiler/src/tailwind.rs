@@ -44,6 +44,10 @@ pub fn read_classes(path: &Path) -> Vec<(String, String)> {
     .collect()
 }
 
+/// The name the root theme also answers to when named themes are given, so an element inside
+/// one can take the root's values back.
+pub const ROOT_THEME: &str = "default";
+
 /// The named themes in `dir`, one per `<name>.css`, selected by `[<attribute>="<name>"]`, in
 /// name order.
 pub fn named_themes(dir: &Path, attribute: &str) -> Vec<(PathBuf, NamedTheme)> {
@@ -77,7 +81,9 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
   listed.extend(extra.iter().filter(|(class, _)| !known.contains(class)).cloned());
   let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_string_lossy().into_owned();
   let mut named = Vec::new();
+  let mut root_selectors = Vec::new();
   if let Some((themes_dir, attribute)) = themes {
+    root_selectors.push(format!("[{attribute}=\"{ROOT_THEME}\"]"));
     reads.borrow_mut().push(themes_dir.clone());
     for (file, theme) in named_themes(&themes_dir, attribute) {
       reads.borrow_mut().push(file);
@@ -95,7 +101,7 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
     Ok(Loaded { path: file.to_string_lossy().into_owned(), base: file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content })
   };
 
-  let options = CompileOptions { base: dir, load_stylesheet: Some(Box::new(load)), from: Some(source_name.to_owned()), themes: named, ..CompileOptions::default() };
+  let options = CompileOptions { base: dir, load_stylesheet: Some(Box::new(load)), from: Some(source_name.to_owned()), themes: named, root_selectors, ..CompileOptions::default() };
   let compiled = Compiler::new(content, options).map(|mut compiler| {
     let css = compiler.build(listed.iter().map(|(class, _)| class.as_str()));
     let invalid = compiler.invalid_candidates();

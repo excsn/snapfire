@@ -205,7 +205,7 @@ snapfirec
 | `--copy-assets` | Copy every selected file that is not compiled | off |
 | `--asset-map <path>` | Rewrite every image and font reference from the driver's map and emit none | off |
 | `--tailwind-classes <path>` | Classes a Tailwind stylesheet generates utilities for, one per line, beside those the sources name | off |
-| `--tailwind-themes <dir>` | Each `<name>.css` there is a named theme every Tailwind stylesheet writes | off |
+| `--tailwind-themes <dir>` | Each `<name>.css` there is a named theme every Tailwind stylesheet writes; the root theme answers to `default` too | off |
 | `--tailwind-theme-attribute <name>` | The attribute that selects a named theme | `data-theme` |
 | `--source-map` | Emit a `.map` beside each output | `sourceMap` |
 | `--inline-source-map` | Embed each map as a data URI | `inlineSourceMap` |
@@ -806,7 +806,7 @@ A class that is neither a utility nor named by a selector in any stylesheet is a
 snapfirec --root ./app --tailwind-themes styles/themes --tailwind-theme-attribute data-theme
 ```
 
-Every Tailwind stylesheet writes each theme after its root theme as `[data-theme="ocean"] { ... }`, every variable included, so `<html data-theme="ocean">` switches the page. A theme file is not built as a stylesheet of its own.
+Every Tailwind stylesheet writes each theme after its root theme as `[data-theme="ocean"] { ... }`, every variable included, so `<html data-theme="ocean">` switches the page. The root theme is written under `[data-theme="default"]` too, so `<div data-theme="default">` takes the root's values back inside another theme. A theme file is not built as a stylesheet of its own.
 
 ## Compiling Framework Components
 
