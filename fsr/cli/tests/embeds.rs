@@ -108,3 +108,21 @@ fn a_check_typechecks_against_the_client_this_binary_carries() {
   assert!(std::fs::read_to_string(&held).unwrap().contains("export declare function Embed"), "the stale declarations are replaced before the checker reads them");
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+/// DEFECTS 1.98: the authoring module's declarations had `Island`, `Link`,
+/// `Picture` and `Slot` but no `Embed`, which the client exports and the build
+/// lowers, so a bare application placing one failed its typecheck.
+#[test]
+fn a_bare_application_placing_an_embed_typechecks() {
+  let root = project("typed", PAGE, "[media]\nembed_stills = \"local\"\n\n[typecheck]\nversion = \"7.0.2\"\n");
+  let app = root.join("app");
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  write(&app, &built).unwrap();
+  let (_, checked) = snapfire_fsr_cli::check(&app, &Options::beside(&app), &snapfire_fsr_cli::typecheck::Typecheck::beside(&app), |_| {}).unwrap_or_else(|e| panic!("checks: {e}"));
+  let checked = checked.expect("the checker ran");
+  let errors: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
+  assert!(errors.is_empty(), "{errors:?}");
+  let declared = std::fs::read_to_string(app.join("types/@snapfire/fsr-authoring/template.d.ts")).unwrap();
+  assert!(declared.contains("export function Embed(props: EmbedProps): TemplateNode;"), "{declared}");
+  std::fs::remove_dir_all(&root).unwrap();
+}

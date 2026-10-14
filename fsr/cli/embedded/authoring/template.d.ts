@@ -550,6 +550,18 @@ export interface PictureProps extends Omit<ImageAttributes, "src"> {
 /** A `<picture>` with a `<source>` per format and the hashed original as its `<img>`, width and height filled from the file; an `<img>` alone for an image served as it is or a string `src`. Lowered by the build. */
 export function Picture(props: PictureProps): TemplateNode;
 
+/** A video hosted elsewhere, shown as a still with a play button until the visitor plays it. */
+export interface EmbedProps {
+  provider: "youtube" | "vimeo";
+  id: string;
+  /** Names the video on the placeholder and to a screen reader, and titles the player. */
+  title: string;
+  className?: string;
+}
+
+/** A 16:9 placeholder the server renders, the provider's still or the application's own under `[media] embed_stills = "local"`, swapped for the player on a click. Lowered by the build. */
+export function Embed(props: EmbedProps): TemplateNode;
+
 /** A value a template provides to every component it renders inline, read with `use`. Lowered by the build: the server resolves it whole, so nothing reads it in the browser. An island is a root of its own and reads the default. */
 export interface Context<T> {
   /** Provides `value` to the components rendered inside it, in place of the default: `<Theme value="dark">`. */
