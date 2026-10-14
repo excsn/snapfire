@@ -370,6 +370,8 @@ snapfirec --root app --config build/tsconfig.json --overlay .fsr-bundle
 
 `app/routes/venue/page.island0.tsx` does not exist and `app/.fsr-bundle/routes/venue/page.island0.tsx` does, so the build compiles the overlay's copy as that input.
 
+An `.mdx` or `.md` input is compiled only from the overlay: `fsr build` writes the TSX module it made from the file there, the build compiles that as TSX and an import of the file names the `.js` beside it. Without an overlay copy the file is no input, so a `README.md` a glob matches is left as it is.
+
 A pattern that matches nothing is reported and skipped, so a directory produced by an earlier step can be listed before that step has run:
 
 ```json

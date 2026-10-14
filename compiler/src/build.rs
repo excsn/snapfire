@@ -168,8 +168,17 @@ enum Supplied {
   Style { source: String },
 }
 
+/// MDX and markdown: compiled from the TSX module `fsr build` writes for each
+/// into the overlay, never from the file itself.
+pub const WRITTEN_BY_FSR: [&str; 2] = ["mdx", "md"];
+
 pub fn classify(path: &Path) -> bool {
-  asset(path).is_some()
+  asset(path).is_some() && !written_by_fsr(path)
+}
+
+/// Whether `path` is MDX or markdown, an input only when the overlay holds the module fsr wrote for it.
+pub fn written_by_fsr(path: &Path) -> bool {
+  path.extension().and_then(|e| e.to_str()).is_some_and(|ext| WRITTEN_BY_FSR.contains(&ext.to_ascii_lowercase().as_str()))
 }
 
 fn asset(path: &Path) -> Option<Asset> {
@@ -203,6 +212,11 @@ fn asset(path: &Path) -> Option<Asset> {
       out_ext: "mjs",
     }),
     "css" => Some(Asset::Style),
+    ext if WRITTEN_BY_FSR.contains(&ext) => Some(Asset::Script {
+      dialect: Dialect::TypeScript,
+      markup: Markup::Allowed,
+      out_ext: "js",
+    }),
     other => crate::plugin::claimed(other).map(|ext| Asset::Plugin { ext }),
   }
 }
@@ -251,7 +265,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     include: tsconfig.include,
     exclude: tsconfig.exclude,
     root_dir: compiler_options.root_dir,
-    is_input: &|path| classify(path),
+    is_input: &|path| classify(path) || (written_by_fsr(path) && overlay_dir.as_deref().is_some_and(|dir| path.strip_prefix(&mirrored).is_ok_and(|rel| dir.join(rel).is_file()))),
     overlay: overlay_dir.as_deref().map(|dir| (mirrored.as_path(), dir)),
   })?;
 
@@ -1006,6 +1020,9 @@ fn plugin_jobs(opts: &Options, build: &mut Build, path: &Path, check_collisions:
 }
 
 fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bool) -> Option<Vec<Job>> {
+  if written_by_fsr(path) && !build.compiler.overlay_holds(path) {
+    return None;
+  }
   let asset = asset(path)?;
 
   // A plugin source is two outputs at most and neither is read from disk, so it
@@ -1500,7 +1517,7 @@ fn copy_assets(opts: &Options, build: &mut Build, referenced: Vec<PathBuf>) {
       continue;
     };
 
-    if path.is_file() && !classify(&path) {
+    if path.is_file() && !classify(&path) && !(written_by_fsr(&path) && build.compiler.overlay_holds(&path)) {
       to_copy.push(path);
     }
   }

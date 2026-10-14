@@ -227,6 +227,11 @@ impl Compiler {
     self
   }
 
+  /// Whether the overlay holds its own copy of `path`.
+  pub fn overlay_holds(&self, path: &Path) -> bool {
+    self.overlay.as_ref().is_some_and(|(root, overlay)| path.strip_prefix(root).is_ok_and(|relative| overlay.join(relative).is_file()))
+  }
+
   /// The text of `path`: the overlay's copy when it has one, else the file itself.
   pub fn read_source(&self, path: &Path) -> Result<String> {
     if let Some((root, overlay)) = &self.overlay {
@@ -236,6 +241,9 @@ impl Compiler {
           return std::fs::read_to_string(&shadow).with_context(|| format!("Failed to read file: {:?}", shadow));
         }
       }
+    }
+    if crate::build::written_by_fsr(path) {
+      anyhow::bail!("{:?} is compiled from the module `fsr build` writes for it under its bundle overlay, and the overlay holds none; build it with an fsr that has the `mdx` feature", path);
     }
     std::fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))
   }

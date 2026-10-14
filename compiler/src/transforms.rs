@@ -254,7 +254,7 @@ pub fn resolve_specifier(dir: &Path, specifier: &str) -> String {
     .map(|e| e.to_ascii_lowercase());
 
   match extension.as_deref() {
-    Some(ext) if COMPILED_TO_JS.contains(&ext) => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
+    Some(ext) if COMPILED_TO_JS.contains(&ext) || crate::build::WRITTEN_BY_FSR.contains(&ext) => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
     // A framework source becomes a module the same way a `.ts` does, so an
     // import of one names the `.js` beside it rather than the source.
     Some(ext) if crate::plugin::claimed(ext).is_some() => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),

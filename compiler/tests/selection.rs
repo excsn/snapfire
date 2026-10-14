@@ -223,3 +223,38 @@ fn a_config_in_a_subdirectory_finds_the_overlay_copy_of_a_file_it_names_through_
 
   assert!(root.join(".test/dist/src/page.island0.js").is_file());
 }
+
+#[test]
+fn an_mdx_or_md_file_is_compiled_from_the_module_the_overlay_holds_for_it() {
+  let root = tempfile::tempdir().unwrap();
+  let root = root.path();
+  fs::create_dir_all(root.join("src")).unwrap();
+  fs::create_dir_all(root.join(".overlay/content")).unwrap();
+  fs::create_dir_all(root.join("content")).unwrap();
+  fs::write(root.join("src/tip.ts"), "import Tip from \"../content/tip.mdx\";\nimport Note from \"../content/note.md\";\nexport const both = [Tip, Note];\n").unwrap();
+  fs::write(root.join("content/tip.mdx"), "# Not TypeScript {at all}\n").unwrap();
+  fs::write(root.join("content/note.md"), "# Not TypeScript either\n").unwrap();
+  fs::write(root.join(".overlay/content/tip.mdx"), "export default function MDXContent() {\n  return null;\n}\n").unwrap();
+  fs::write(root.join(".overlay/content/note.md"), "export default function MDXContent() {\n  return null;\n}\n").unwrap();
+  fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"outDir":"dist","rootDir":"."},"files":["src/tip.ts","content/tip.mdx","content/note.md"]}"#).unwrap();
+
+  run_snapfirec(get_snapfirec_cmd().arg("--root").arg(root).args(["--overlay", ".overlay"]));
+
+  assert_eq!(emitted(root), vec!["content/note.js", "content/tip.js", "src/tip.js"]);
+  let importer = fs::read_to_string(root.join("dist/src/tip.js")).unwrap();
+  assert!(importer.contains("from \"../content/tip.js\"") && importer.contains("from \"../content/note.js\""), "{importer}");
+}
+
+#[test]
+fn a_markdown_file_with_no_overlay_copy_is_left_as_a_file() {
+  let root = tempfile::tempdir().unwrap();
+  let root = root.path();
+  fs::create_dir_all(root.join("src")).unwrap();
+  fs::write(root.join("src/page.ts"), "export const page = 1;\n").unwrap();
+  fs::write(root.join("src/README.md"), "# Not compiled\n").unwrap();
+  fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"outDir":"dist"},"include":["src/**/*"]}"#).unwrap();
+
+  run_snapfirec(get_snapfirec_cmd().arg("--root").arg(root).args(["--overlay", ".overlay"]));
+
+  assert_eq!(emitted(root), vec!["page.js"]);
+}
