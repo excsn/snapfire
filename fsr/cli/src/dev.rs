@@ -391,6 +391,15 @@ impl Project {
         None => change.project = true,
       }
     }
+    // The build reads the configuration and the crate's own sources too, so a
+    // change outside every application rebuilds each of them whole.
+    if change.project {
+      for (i, app) in self.apps.iter().enumerate() {
+        if !app.served {
+          change.apps[i] = Some(Vec::new());
+        }
+      }
+    }
     change
   }
 }
@@ -1214,7 +1223,7 @@ mod tests {
     let change = p.classify(&[PathBuf::from("/p/app/routes/index/page.tsx")]);
     assert!(change.apps[0].is_some() && !change.project);
     let change = p.classify(&[PathBuf::from("/p/src/main.rs"), PathBuf::from("/p/config/app.toml")]);
-    assert!(change.apps[0].is_none() && change.project);
+    assert!(change.apps[0] == Some(Vec::new()) && change.project);
     let change = p.classify(&[PathBuf::from("/p/app/.fsr-something"), PathBuf::from("/p/app/importmap.json")]);
     assert!(change.apps[0].is_some());
   }
@@ -1235,7 +1244,20 @@ mod tests {
     let change = p.classify(&[PathBuf::from("/p/sites/learn/app/types/react/index.d.ts"), PathBuf::from("/p/sites/learn/app/generated/plan.sexp"), PathBuf::from("/p/sites/learn/app/dist/src/main.js")]);
     assert!(!change.any());
     let change = p.classify(&[PathBuf::from("/p/sites/learn/content/010.md")]);
-    assert!(change.project && change.apps.iter().all(Option::is_none));
+    assert!(change.project && change.apps.iter().all(|a| *a == Some(Vec::new())));
+  }
+
+  /// DEFECTS 1.97: a key the build reads, `[media] embed_stills` among them,
+  /// changed in `config/app.toml` restarted the host without a build, so the
+  /// page kept what the previous setting built until a source was saved.
+  #[test]
+  fn a_configuration_change_rebuilds_every_application_whole() {
+    let p = with_site(Path::new("/p/app"), Path::new("/p/sites/learn/app"));
+    let change = p.classify(&[PathBuf::from("/p/config/app.toml")]);
+    assert!(change.project);
+    assert_eq!(change.apps, vec![Some(Vec::new()), Some(Vec::new())], "every application, no source named, which is a whole build");
+    let change = p.classify(&[PathBuf::from("/p/app/routes/page.tsx"), PathBuf::from("/p/config/production.toml")]);
+    assert_eq!(change.apps[0], Some(Vec::new()), "a source saved beside it does not narrow the build");
   }
 
   #[test]
