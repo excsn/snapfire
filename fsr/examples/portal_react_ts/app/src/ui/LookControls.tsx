@@ -5,14 +5,14 @@ import { actions } from "@generated/client";
 
 const themes = [
   { value: "", label: "Page's own" },
+  { value: "default", label: "Default" },
   { value: "ocean", label: "Ocean" },
   { value: "forest", label: "Forest" },
 ];
 
-/** The visitor's theme and light or dark, saved in the session; the page redraws from the server's answer, so a site that forces its theme keeps it. */
-export function LookControls({ theme, scheme }: { theme: string; scheme: string }) {
+/** The visitor's theme and light or dark, saved in the session; the page redraws from the server's answer, so a site that forces its theme keeps it. With no saved scheme the browser's preference decides, which only the browser knows, so the button's label follows the `dark` variant. */
+export function LookControls({ theme }: { theme: string }) {
   const [picked, setPicked] = useState(theme);
-  const [dark, setDark] = useState(scheme === "dark");
 
   return (
     <div className="flex items-center gap-2">
@@ -36,17 +36,18 @@ export function LookControls({ theme, scheme }: { theme: string; scheme: string 
       <button
         type="button"
         data-scheme-toggle=""
-        aria-pressed={dark ? "true" : "false"}
-        aria-label={dark ? "Use the light scheme" : "Use the dark scheme"}
+        aria-label="Switch between light and dark"
         className="pill cursor-pointer hover:border-accent hover:text-accent"
         onClick={async () => {
-          const next = !dark;
-          setDark(next);
-          document.documentElement.setAttribute("data-sf-scheme", next ? "dark" : "light");
-          await actions.account.setScheme({ scheme: next ? "dark" : "light" });
+          const root = document.documentElement;
+          const now = root.getAttribute("data-sf-scheme") ?? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+          const next = now === "dark" ? "light" : "dark";
+          root.setAttribute("data-sf-scheme", next);
+          await actions.account.setScheme({ scheme: next });
         }}
       >
-        {dark ? "Light" : "Dark"}
+        <span className="dark:hidden">Dark</span>
+        <span className="hidden dark:inline">Light</span>
       </button>
     </div>
   );

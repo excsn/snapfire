@@ -9,13 +9,13 @@ export const setScheme = action(async ({ input, session }: ActionCtx<SchemeChoic
 });
 
 export const setTheme = action(async ({ input, session }: ActionCtx<ThemeChoice>) => {
-  if (!["", "ocean", "forest"].includes(input.theme)) fail("invalid", "not a theme");
+  if (!["", "default", "ocean", "forest"].includes(input.theme)) fail("invalid", "not a theme");
   session.theme = input.theme;
   return { theme: input.theme };
 });
 
 export const setLook = action(async ({ input, session }: ActionCtx<LookForm>) => {
-  if (!["", "ocean", "forest"].includes(input.theme)) fail("invalid", "not a theme");
+  if (!["", "default", "ocean", "forest"].includes(input.theme)) fail("invalid", "not a theme");
   if (!["", "light", "dark"].includes(input.scheme)) fail("invalid", "not a scheme");
   session.theme = input.theme;
   session.scheme = input.scheme;

@@ -2,12 +2,13 @@ import type { AccountProps } from "@generated/client";
 
 const themes = [
   { value: "", label: "Each page's own" },
+  { value: "default", label: "Default" },
   { value: "ocean", label: "Ocean" },
   { value: "forest", label: "Forest" },
 ];
 
 const schemes = [
-  { value: "", label: "No preference" },
+  { value: "", label: "Match system" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
 ];

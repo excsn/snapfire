@@ -2,7 +2,7 @@ export interface Session {
   visits: number;
   /** A theme the visitor picked on the account page; empty follows each route's own. */
   theme: string;
-  /** `light`, `dark` or empty for none. */
+  /** `light`, `dark` or empty to match the browser's preference. */
   scheme: string;
 }
 

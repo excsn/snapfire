@@ -1,6 +1,15 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *));
+@custom-variant dark {
+  &:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-sf-scheme]), :root:not([data-sf-scheme]) *) {
+      @slot;
+    }
+  }
+}
 
 @theme {
   --color-canvas: #f6f7f9;
@@ -16,9 +25,17 @@
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* The scheme beats a theme's neutrals: `:root` with the attribute outranks `[data-sf-theme]`. */
+/* Written after the named themes, so a scheme beats a theme's neutrals at equal specificity. With no `data-sf-scheme` on `<html>` the browser's preference decides. The accent is derived again wherever a theme applies, since a custom property's `var()` resolves where it is declared. */
 @layer theme {
-  :root[data-sf-scheme="dark"] {
+  [data-sf-theme] {
+    --color-accent: var(--color-brand);
+  }
+
+  [data-sf-scheme="light"] {
+    color-scheme: light;
+  }
+
+  [data-sf-scheme="dark"] {
     color-scheme: dark;
     --color-canvas: #0d1117;
     --color-card: #161b22;
@@ -27,6 +44,19 @@
     --color-ink-soft: #8b949e;
     --color-accent: color-mix(in oklab, var(--color-brand) 70%, white);
     --color-accent-soft: color-mix(in oklab, var(--color-brand) 30%, #161b22);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-sf-scheme]) {
+      color-scheme: dark;
+      --color-canvas: #0d1117;
+      --color-card: #161b22;
+      --color-line: #30363d;
+      --color-ink: #e6edf3;
+      --color-ink-soft: #8b949e;
+      --color-accent: color-mix(in oklab, var(--color-brand) 70%, white);
+      --color-accent-soft: color-mix(in oklab, var(--color-brand) 30%, #161b22);
+    }
   }
 }
 
