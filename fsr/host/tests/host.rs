@@ -1380,6 +1380,30 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
   assert_eq!(value, Value::str("en_US"));
 }
 
+/// A minified client is loaded by `.min.js` names: a production document's
+/// import map and each module's imports of its siblings. A directory a static
+/// host serves held only the plain names, so every page 404ed on `index.min.js`.
+#[tokio::test]
+async fn prerender_writes_the_names_a_minified_client_is_loaded_by() {
+  let out = std::env::temp_dir().join(format!("fsr-host-prerender-min-{}-{}", std::process::id(), rand_suffix()));
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let host = Host::from(production(localised_dir()).join("app.toml")).unwrap().services_over(transport).prerendered(&out).build().unwrap();
+  assert!(host.report().to_string().contains("modules, minified,"), "{}", host.report());
+  host.prerender(&out).await.unwrap();
+  let dir = out.join("static/js/fsr");
+  let mut checked = 0;
+  for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+    let body = std::fs::read_to_string(entry.path()).unwrap();
+    for sibling in body.split("\"./").skip(1).filter_map(|rest| rest.split('"').next()).filter(|name| name.ends_with(".min.js")) {
+      assert!(dir.join(sibling).is_file(), "{} imports ./{sibling}, which was not written", entry.path().display());
+      checked += 1;
+    }
+  }
+  assert!(checked > 0, "the minified modules import their siblings by name");
+  assert!(dir.join("index.min.js").is_file());
+  std::fs::remove_dir_all(&out).ok();
+}
+
 #[tokio::test]
 async fn prerender_writes_every_locale_and_the_edge_serves_each_from_its_own_directory() {
   let out = std::env::temp_dir().join(format!("fsr-host-prerender-{}-{}", std::process::id(), rand_suffix()));

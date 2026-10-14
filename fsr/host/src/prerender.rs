@@ -373,9 +373,14 @@ impl Host {
       std::fs::create_dir_all(&dir).map_err(|e| HostError::Io(dir.clone(), e))?;
       for (name, _) in client::FILES {
         let Some(body) = client::get(name, t.client_minified) else { continue };
-        let file = dir.join(name);
-        write_whole(&file, body.as_bytes())?;
-        written.push((format!("{}/{name}", client::ROUTE), file));
+        // A minified client is loaded by its `.min.js` names, the documents'
+        // import map and each module's own imports alike.
+        let twin = (t.client_minified && name.ends_with(".js") && !name.ends_with(".d.ts")).then(|| name.replace(".js", ".min.js"));
+        for name in std::iter::once(name.to_string()).chain(twin) {
+          let file = dir.join(&name);
+          write_whole(&file, body.as_bytes())?;
+          written.push((format!("{}/{name}", client::ROUTE), file));
+        }
       }
     }
     let relative = |file: &Path| file.strip_prefix(out).ok().map(|rel| rel.to_string_lossy().replace('\\', "/"));
