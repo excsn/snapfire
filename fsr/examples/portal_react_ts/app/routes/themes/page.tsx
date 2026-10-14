@@ -1,6 +1,7 @@
 import type { ThemesProps } from "@generated/client";
 
 import { ThemePick } from "@src/ui/ThemePick";
+import { Vendored } from "@src/ui/Vendored";
 
 const cells = [
   { theme: "default", scheme: "light", label: "Default", note: "The portal's own blue." },
@@ -22,6 +23,11 @@ export default function ThemesPage({ theme, scheme }: ThemesProps) {
         <ThemePick theme="" label="Use each page's own theme" />
         <ThemePick scheme="" label="Match the system's light or dark" />
       </div>
+      <section className="grid gap-2">
+        <h2 className="text-lg font-semibold">Vendored components</h2>
+        <p className="text-ink-soft">These come from packages under <code>vendor/@acme/</code>. Their classes reach the stylesheet from the package's class list or from its module.</p>
+        <Vendored />
+      </section>
       <div data-sf-theme="default" className="grid gap-4 sm:grid-cols-2">
         {cells.map((cell) => (
           <figure

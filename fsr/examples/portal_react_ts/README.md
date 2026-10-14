@@ -27,6 +27,7 @@ Each site shows a different side of mounting:
 | A site with a client of its own that the portal builds from the site's configuration at mount, plus a deferred segment streamed under the portal's header | `[clients.metrics]` in `sites/reports/config/app.toml`, `sites/reports/app/routes/[id]/loading.tsx` |
 | A `robots.txt` and a sitemap across the mounts, leaving out what the middleware turns a signed-out visitor away from, the reports detail pages listed from a service | `[crawl]` in `config/app.toml`, `/sitemap.xml`, `paths` in `sites/reports/app/routes/[id]/page.loader.ts` |
 | A card image drawn from each page's data, in the shell and in the sites, named by `og:image` in the portal's document; the shell's and the blog's styled with Tailwind classes, each drawn from its own build's table | `app/routes/opengraph-image.tsx`, `sites/blog/app/routes/post/[slug]/opengraph-image.tsx`, `sites/reports/app/routes/[id]/opengraph-image.tsx`, `/blog/post/why-a-plan-file/opengraph-image.png` |
+| Vendored packages styled by the shell's Tailwind build: one carrying its class list, one read from its minified module | `packages/`, `app/vendor/@acme/`, `app/src/ui/Vendored.tsx` on `/themes` |
 | A release whose loader fails refused before it swaps in, the running version kept | `probe` in `sites/billing/config/app.toml`, `TeamsListed` in `src/main.rs`, the `409` from `fsr sites reload` |
 
 ## Run it

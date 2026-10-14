@@ -1,0 +1,10 @@
+name = acme/ui
+version = 0.1.0
+description = Badges the portal's pages share, styled with Tailwind classes the consuming app builds
+root = dist
+entry = index.js
+minified = .min
+types = index.d.ts
+
+[externals]
+react = 18.3.1

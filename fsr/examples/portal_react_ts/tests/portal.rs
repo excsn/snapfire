@@ -394,3 +394,17 @@ async fn the_reports_sites_get_handler_answers_through_the_portal_whatever_the_c
     assert!(body.contains("Revenue by region"), "{accept}: answered by the reports site's handler: {body}");
   }
 }
+
+/// Classes only vendored packages name reach the shell's stylesheet: `@acme/ui` from the class
+/// list its build wrote, a lookup table's included; `@acme/charts`, which ships none, from its
+/// minified module.
+#[tokio::test]
+async fn the_shell_stylesheet_carries_the_classes_its_vendored_packages_name() {
+  let portal = portal();
+  let html = body_of(portal.handle(Request::get("/themes").body(Bytes::new()).unwrap()).await).await;
+  assert!(html.contains("data-sf-module=\"src/ui/Vendored.tsx#Vendored\""), "{html}");
+  let css = body_of(portal.handle(Request::get("/static/js/app/styles/app.css").body(Bytes::new()).unwrap()).await).await;
+  for class in [".bg-violet-100", ".bg-teal-100", ".ring-inset", ".size-1\\.5", ".bg-fuchsia-500", ".text-fuchsia-700", ".tracking-tighter"] {
+    assert!(css.contains(class), "{class}");
+  }
+}

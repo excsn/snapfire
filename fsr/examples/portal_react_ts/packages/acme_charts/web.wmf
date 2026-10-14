@@ -1,0 +1,10 @@
+name = acme/charts
+version = 0.1.0
+description = A figure with a bar, shipped minified and with no class list, the way a third-party bundle arrives
+root = dist
+entry = index.js
+minified = .min
+types = index.d.ts
+
+[externals]
+react = 18.3.1

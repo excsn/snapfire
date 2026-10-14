@@ -1,5 +1,23 @@
 {
   "packages": {
+    "@acme/charts": {
+      "version": "0.1.0",
+      "externals": [
+        "react"
+      ],
+      "entries": {
+        "@acme/charts": "@acme/charts/index.min.js"
+      }
+    },
+    "@acme/ui": {
+      "version": "0.1.0",
+      "externals": [
+        "react"
+      ],
+      "entries": {
+        "@acme/ui": "@acme/ui/index.min.js"
+      }
+    },
     "react": {
       "version": "18.3.1",
       "externals": [

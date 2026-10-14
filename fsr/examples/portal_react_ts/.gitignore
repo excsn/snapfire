@@ -13,3 +13,5 @@ app/.fsr-bundle/
 deploy/
 # the pins `fsr sites install --layer local` and `fsr sites pin --layer local` write for the artifacts this checkout built
 config/local.toml
+# written by snapfirec from src/; the portal vendors a copy under app/vendor/
+packages/*/dist/
