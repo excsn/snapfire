@@ -15,6 +15,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -31,6 +32,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -43,6 +45,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -55,6 +58,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -69,6 +73,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -84,6 +89,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -99,6 +105,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -121,6 +128,7 @@
       "\n          @theme {\n            --color-potato: #7a4724;\n          }\n        ",
       "<base>"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -140,6 +148,7 @@
       "\n          @theme {\n            --color-potato: #7a4724;\n          }\n        ",
       "<base>"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -160,6 +169,7 @@
       "\n          @theme {\n            --color-potato: #7a4724;\n          }\n          @tailwind utilities;\n        ",
       "<base>"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -179,6 +189,7 @@
       "\n          @theme {\n            --color-potato: #7a4724;\n          }\n          @tailwind utilities;\n        ",
       "<base>"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -191,6 +202,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -206,6 +218,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   }
 ]

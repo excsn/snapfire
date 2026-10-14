@@ -43,6 +43,12 @@ mod conformance {
       "unescape" => serde_json::json!(escape::unescape(string(&args[0]))),
       "toKeyPath" => serde_json::json!(to_key_path(string(&args[0]))),
       "compare" => serde_json::json!(compare::compare(string(&args[0]), string(&args[1])) as i8 as f64),
+      "isValidStaticUtilityName" => serde_json::json!(crate::utilities::css::is_valid_static_utility_name(string(&args[0]))),
+      "isValidFunctionalUtilityName" => serde_json::json!(crate::utilities::css::is_valid_functional_utility_name(string(&args[0]))),
+      "compoundsForSelectors" => {
+        let selectors: Vec<&str> = args[0].as_array().unwrap().iter().map(string).collect();
+        serde_json::json!(f64::from(crate::variants::compounds_for_selectors(&selectors).0))
+      }
       "sortCompare" => {
         let mut items: Vec<&str> = args[0].as_array().unwrap().iter().map(string).collect();
         items.sort_by(|a, z| compare::compare(a, z));

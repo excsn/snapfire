@@ -1,0 +1,127 @@
+[
+  {
+    "test": "compoundsForSelectors: %s [0]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        ".foo"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 2.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [1]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        "&:is(:hover)"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 2.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [2]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        "@media foo"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [3]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        "@supports foo"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [4]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        "@container foo"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 1.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [5]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        ".foo",
+        "@media foo"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 3.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [6]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        ".foo::before"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 0.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [7]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        "@starting-style"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 0.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [8]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        ".foo",
+        "@media foo",
+        ".foo::before"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 0.0
+  },
+  {
+    "test": "compoundsForSelectors: %s [9]",
+    "function": "compoundsForSelectors",
+    "args": [
+      [
+        ".foo",
+        "@media foo",
+        "@starting-style"
+      ]
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": 0.0
+  }
+]

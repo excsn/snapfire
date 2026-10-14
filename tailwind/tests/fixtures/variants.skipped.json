@@ -6,45 +6,5 @@
   {
     "test": "matchVariant sorts deterministically",
     "reason": "candidates are not a list this extractor can read"
-  },
-  {
-    "test": "compoundsForSelectors: %s [0]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [1]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [2]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [3]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [4]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [5]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [6]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [7]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [8]",
-    "reason": "asserts on `compoundsForSelectors`"
-  },
-  {
-    "test": "compoundsForSelectors: %s [9]",
-    "reason": "asserts on `compoundsForSelectors`"
   }
 ]

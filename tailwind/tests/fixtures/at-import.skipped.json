@@ -1,138 +1,14 @@
 [
   {
-    "test": "can resolve relative @imports",
-    "reason": "asserts on `base`"
-  },
-  {
-    "test": "can resolve relative @imports",
-    "reason": "asserts on `id`"
-  },
-  {
-    "test": "can resolve relative @imports",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "can recursively resolve relative @imports",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "extracts path from @import nodes",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "extracts path from @import nodes",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "extracts path from @import nodes",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "url() imports are passed-through",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "url() imports are passed-through",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "url() imports are passed-through",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "url() imports are passed-through",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "url() imports are passed-through",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "url() imports are passed-through",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "handles case-insensitive @import directive",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@media",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@media",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@media",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@media",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@supports",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@supports",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@supports",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@supports",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@layer",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "@layer",
-    "reason": "a custom loadStylesheet"
-  },
-  {
     "test": "updates the base when loading modules inside nested files",
-    "reason": "a custom loadStylesheet"
+    "reason": "option `loadModule`"
   },
   {
-    "test": "emits the right base for @source directives inside nested files",
-    "reason": "asserts on `compiler.sources`"
+    "test": "emits the right base for @source found inside JS configs and plugins from nested imports",
+    "reason": "option `loadModule`"
   },
   {
     "test": "emits the right base for @source found inside JS configs and plugins from nested imports",
     "reason": "asserts on `compiler.sources`"
-  },
-  {
-    "test": "it crashes when inside a cycle",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "resolves @reference as `@import \"…\" reference`",
-    "reason": "asserts on `base`"
-  },
-  {
-    "test": "resolves @reference as `@import \"…\" reference`",
-    "reason": "asserts on `id`"
-  },
-  {
-    "test": "resolves @reference as `@import \"…\" reference`",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "resolves `@variant` used as `@custom-variant` inside `@reference`",
-    "reason": "asserts on `base`"
-  },
-  {
-    "test": "resolves `@variant` used as `@custom-variant` inside `@reference`",
-    "reason": "asserts on `id`"
-  },
-  {
-    "test": "resolves `@variant` used as `@custom-variant` inside `@reference`",
-    "reason": "a custom loadStylesheet"
   }
 ]

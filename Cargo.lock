@@ -4036,6 +4036,7 @@ dependencies = [
  "oxc_ast_visit",
  "oxc_parser",
  "oxc_span",
+ "oxc_syntax",
  "proptest",
  "regex",
  "serde",

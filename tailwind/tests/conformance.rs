@@ -20,7 +20,41 @@ struct Fixture {
   polyfills: Option<String>,
   base: Option<String>,
   stylesheet: Option<(String, String)>,
+  #[serde(default)]
+  loads: Option<Vec<Load>>,
   shuffled: bool,
+}
+
+/// One row of a test's loader: the first whose conditions all hold answers, or throws.
+#[derive(Deserialize, Clone)]
+struct Load {
+  when: Vec<Cond>,
+  answer: Option<(String, String)>,
+}
+
+#[derive(Deserialize, Clone)]
+struct Cond {
+  arg: String,
+  op: String,
+  value: String,
+}
+
+impl Cond {
+  fn holds(&self, id: &str, base: &str) -> bool {
+    let subject = if self.arg == "id" { id } else { base };
+    let value = self.value.as_str();
+    match self.op.as_str() {
+      "eq" => subject == value,
+      "ne" => subject != value,
+      "ends" => subject.ends_with(value),
+      "starts" => subject.starts_with(value),
+      "includes" => subject.contains(value),
+      "not-ends" => !subject.ends_with(value),
+      "not-starts" => !subject.starts_with(value),
+      "not-includes" => !subject.contains(value),
+      other => panic!("a loader condition `{other}` the runner does not read"),
+    }
+  }
 }
 
 static HIGH_PRECISION: LazyLock<Regex> = LazyLock::new(|| {
@@ -78,6 +112,19 @@ fn run(fixture: &Fixture) -> Result<String, String> {
 }
 
 fn run_in(fixture: &Fixture, candidates: Vec<String>) -> Result<String, String> {
+  let mut compiler = Compiler::new(&fixture.css, options_for(fixture)).map_err(|e| e.to_string())?;
+  let built = compiler.build(candidates.iter().map(String::as_str));
+  let optimized = optimize(&built, &OptimizeOptions::default()).map_err(|e| e.to_string())?;
+  Ok(pretty(&optimized))
+}
+
+/// What `compiler.sources` holds, as Tailwind's test compares it.
+fn sources_of(fixture: &Fixture) -> Result<serde_json::Value, String> {
+  let compiler = Compiler::new(&fixture.css, options_for(fixture)).map_err(|e| e.to_string())?;
+  Ok(compiler.sources().iter().map(|s| serde_json::json!({ "pattern": s.pattern, "base": s.base, "negated": s.negated })).collect())
+}
+
+fn options_for(fixture: &Fixture) -> CompileOptions<'static> {
   let mut options = CompileOptions {
     polyfills: polyfills(fixture.polyfills.as_deref()),
     base: fixture.base.clone().unwrap_or_default(),
@@ -98,14 +145,29 @@ fn run_in(fixture: &Fixture, candidates: Vec<String>) -> Result<String, String> 
       })
     }));
   }
+  if let Some(rows) = fixture.loads.clone() {
+    options.load_stylesheet = Some(Box::new(move |id, given| {
+      let row = rows.iter().find(|row| row.when.iter().all(|c| c.holds(id, given)));
+      match row.and_then(|row| row.answer.clone()) {
+        Some((content, base)) => Ok(Loaded { path: String::new(), base: if base == "<base>" { given.to_owned() } else { base }, content }),
+        None => Err(snapfire_tailwind::Error::Message(format!("Unexpected import: {id}"))),
+      }
+    }));
+  }
   let _ = fixture.loader;
-  let mut compiler = Compiler::new(&fixture.css, options).map_err(|e| e.to_string())?;
-  let built = compiler.build(candidates.iter().map(String::as_str));
-  let optimized = optimize(&built, &OptimizeOptions::default()).map_err(|e| e.to_string())?;
-  Ok(pretty(&optimized))
+  options
 }
 
 fn check(fixture: &Fixture) -> Option<String> {
+  if fixture.kind == "sources" {
+    let expected: serde_json::Value = serde_json::from_str(&fixture.expected).unwrap();
+    return match std::panic::catch_unwind(|| sources_of(fixture)) {
+      Ok(Ok(got)) if got == expected => None,
+      Ok(Ok(got)) => Some(format!("--- expected sources\n{expected}\n--- got\n{got}")),
+      Ok(Err(e)) => Some(format!("error: {e}")),
+      Err(_) => Some("panicked".to_owned()),
+    };
+  }
   let result = std::panic::catch_unwind(|| run(fixture));
   let result = match result {
     Ok(r) => r,

@@ -1,0 +1,312 @@
+[
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [0]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [1]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-123"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [2]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-2.5"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [3]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "-foo"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [4]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-bar"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [5]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo_bar"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [6]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-50%"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [7]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-1/2"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [8]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-sm/8"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [9]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-4/snug"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [10]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo_"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [11]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo/bar"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [12]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "Foo"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [13]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "-Foo"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [14]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [15]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-1/"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [16]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-p%"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [17]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo.bar"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [18]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo-1..5"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [19]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo..bar"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid static utility name \"%s\" (%s) [20]",
+    "function": "isValidStaticUtilityName",
+    "args": [
+      "foo/bar/baz"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [0]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "foo"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [1]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "foo-*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [2]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "foo--*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [3]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "-foo-*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [4]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "foo-bar-*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [5]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "foo_bar-*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": true
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [6]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "Foo-*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [7]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "-Foo-*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [8]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "foo!-*"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  },
+  {
+    "test": "custom utilities > valid functional name \"%s\" (%s) [9]",
+    "function": "isValidFunctionalUtilityName",
+    "args": [
+      "foo-[…]"
+    ],
+    "post": null,
+    "kind": "value",
+    "expected": false
+  }
+]

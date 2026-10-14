@@ -76,18 +76,6 @@
     "reason": "option `loadModule`"
   },
   {
-    "test": "@source > emits @source files",
-    "reason": "asserts on `sources`"
-  },
-  {
-    "test": "@source > emits multiple @source files",
-    "reason": "asserts on `sources`"
-  },
-  {
-    "test": "@source > emits negated @source files",
-    "reason": "asserts on `sources`"
-  },
-  {
     "test": "addBase",
     "reason": "option `loadModule`"
   },
@@ -100,28 +88,20 @@
     "reason": "asserts on `async`"
   },
   {
-    "test": "`@reference \"…\" imports` > recursively removes styles",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "`@reference \"…\" imports` > does not generate utilities",
-    "reason": "a custom loadStylesheet"
-  },
-  {
     "test": "`@reference \"…\" imports` > removes all @keyframes, even those contributed by JavasScript plugins",
     "reason": "option `loadModule`"
   },
   {
-    "test": "`@reference \"…\" imports` > emits CSS variable fallback and keyframes defined inside @reference-ed files",
-    "reason": "a custom loadStylesheet"
-  },
-  {
-    "test": "`@reference \"…\" imports` > supports `@import \"…\" reference` syntax",
-    "reason": "a custom loadStylesheet"
-  },
-  {
     "test": "@variant > comma-separated `@variant` rules",
     "reason": "the stylesheet is not a literal"
+  },
+  {
+    "test": "feature detection > using `@plugin`",
+    "reason": "option `loadModule`"
+  },
+  {
+    "test": "feature detection > using `@config`",
+    "reason": "option `loadModule`"
   },
   {
     "test": "feature detection > using `@theme`",

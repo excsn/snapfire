@@ -1,5 +1,642 @@
 [
   {
+    "test": "can resolve relative @imports",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import './foo/bar.css';\n      ",
+    "expected": "\n.foo {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "base",
+            "op": "ne",
+            "value": "/root"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "ne",
+            "value": "./foo/bar.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n        .foo {\n          color: red;\n        }\n      ",
+          "/root/foo"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "can recursively resolve relative @imports",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import './foo/bar.css';\n      ",
+    "expected": "\n.baz {\n  color: #00f;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "base",
+            "op": "eq",
+            "value": "/root"
+          },
+          {
+            "arg": "id",
+            "op": "eq",
+            "value": "./foo/bar.css"
+          }
+        ],
+        "answer": [
+          "\n          @import './bar/baz.css';\n        ",
+          "/root/foo"
+        ]
+      },
+      {
+        "when": [
+          {
+            "arg": "base",
+            "op": "eq",
+            "value": "/root/foo"
+          },
+          {
+            "arg": "id",
+            "op": "eq",
+            "value": "./bar/baz.css"
+          }
+        ],
+        "answer": [
+          "\n          .baz {\n            color: blue;\n          }\n        ",
+          "/root/foo/bar"
+        ]
+      },
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "extracts path from @import nodes",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css';\n      ",
+    "expected": "\na {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "extracts path from @import nodes",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import './example.css';\n      ",
+    "expected": "\na {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "extracts path from @import nodes",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import '/example.css';\n      ",
+    "expected": "\na {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "url() imports are passed-through",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import url('example.css');\n      ",
+    "expected": "\n@import \"example.css\";\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "url() imports are passed-through",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import url('./example.css');\n      ",
+    "expected": "\n@import \"./example.css\";\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "url() imports are passed-through",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import url('/example.css');\n      ",
+    "expected": "\n@import \"/example.css\";\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "url() imports are passed-through",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import url(example.css);\n      ",
+    "expected": "\n@import \"example.css\";\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "url() imports are passed-through",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import url(./example.css);\n      ",
+    "expected": "\n@import \"./example.css\";\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "url() imports are passed-through",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import url(/example.css);\n      ",
+    "expected": "\n@import \"/example.css\";\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "handles case-insensitive @import directive",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css';\n      ",
+    "expected": "\na {\n  color: red;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@media",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' print;\n      ",
+    "expected": "\n@media print {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@media",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' print, screen;\n      ",
+    "expected": "\n@media print, screen {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@media",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' screen and (orientation: landscape);\n      ",
+    "expected": "\n@media screen and (orientation: landscape) {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@media",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' foo(bar);\n      ",
+    "expected": "\n@media foo(bar) {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@supports",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' supports(display: grid);\n      ",
+    "expected": "\n@supports (display: grid) {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@supports",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' supports(display: grid) screen and (max-width: 400px);\n      ",
+    "expected": "\n@supports (display: grid) {\n  @media screen and (max-width: 400px) {\n    a {\n      color: red;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@supports",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' supports((not (display: grid)) and (display: flex)) screen and\n          (max-width: 400px);\n      ",
+    "expected": "\n@supports (not (display: grid)) and (display: flex) {\n  @media screen and (max-width: 400px) {\n    a {\n      color: red;\n    }\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@supports",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css'\n        supports((selector(h2 > p)) and (font-tech(color-COLRv1)));\n      ",
+    "expected": "\n@supports selector(h2 > p) and font-tech(color-COLRv1) {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@layer",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' layer(utilities);\n      ",
+    "expected": "\n@layer utilities {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "@layer",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n        @import 'example.css' layer();\n      ",
+    "expected": "\n@layer {\n  a {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "not-ends",
+            "value": "example.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n  a {\n    color: red;\n  }\n",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
     "test": "supports theme(reference) imports",
     "kind": "css",
     "candidates": [
@@ -13,6 +650,135 @@
     "stylesheet": [
       "\n              @theme {\n                --color-red-500: red;\n              }\n            ",
       ""
+    ],
+    "loads": null,
+    "shuffled": false
+  },
+  {
+    "test": "emits the right base for @source directives inside nested files",
+    "kind": "sources",
+    "candidates": [],
+    "css": "\n      @import './foo/bar.css';\n      @source './root/**/*.css';\n    ",
+    "expected": "[{\"base\":\"/root/foo\",\"negated\":false,\"pattern\":\"./nested/**/*.css\"},{\"base\":\"/root\",\"negated\":false,\"pattern\":\"./root/**/*.css\"}]",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": [
+          "\n        @source './nested/**/*.css';\n      ",
+          "/root/foo"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "it crashes when inside a cycle",
+    "kind": "error",
+    "candidates": [],
+    "css": "\n    @import 'foo.css';\n  ",
+    "expected": "Exceeded maximum recursion depth while resolving `foo.css` in `/root`)",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": [
+          "\n    @import 'foo.css';\n  ",
+          "/root"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "resolves @reference as `@import \"…\" reference`",
+    "kind": "css",
+    "candidates": [
+      "text-red-500"
+    ],
+    "css": "\n        @reference './foo/bar.css';\n        @tailwind utilities;\n      ",
+    "expected": "\n.text-red-500 {\n  color: var(--color-red-500, red);\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "base",
+            "op": "ne",
+            "value": "/root"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "ne",
+            "value": "./foo/bar.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n        @theme {\n          --color-red-500: red;\n        }\n        .foo {\n          color: red;\n        }\n      ",
+          "/root/foo"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "resolves `@variant` used as `@custom-variant` inside `@reference`",
+    "kind": "css",
+    "candidates": [
+      "dark:flex"
+    ],
+    "css": "\n        @reference './foo/bar.css';\n        @tailwind utilities;\n      ",
+    "expected": "\n.dark\\:flex:where([data-theme=\"dark\"] *) {\n  display: flex;\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "base",
+            "op": "ne",
+            "value": "/root"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "ne",
+            "value": "./foo/bar.css"
+          }
+        ],
+        "answer": null
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n        @variant dark {\n          &:where([data-theme='dark'] *) {\n            @slot;\n          }\n        }\n      ",
+          "/root/foo"
+        ]
+      }
     ],
     "shuffled": false
   }

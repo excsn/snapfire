@@ -28,8 +28,74 @@ struct Fixture {
   base: Option<String>,
   /// A loader that answers every `@import` with this stylesheet and base.
   stylesheet: Option<(String, String)>,
+  /// A loader read from the test's function: the first row whose conditions hold answers.
+  loads: Option<Vec<Load>>,
   /// The test shuffles the candidates, so the output must not depend on their order.
   shuffled: bool,
+}
+
+/// One row of a test's loader: what it answers when every condition holds, or that it throws.
+#[derive(Clone, Serialize)]
+struct Load {
+  when: Vec<Cond>,
+  /// The stylesheet and base answered; `None` when the row throws.
+  answer: Option<(String, String)>,
+}
+
+/// `arg` is `id` or `base`; `op` is `eq`, `ne`, `ends`, `starts`, `includes` or one of the last
+/// three prefixed `not-`.
+#[derive(Clone, Serialize)]
+struct Cond {
+  arg: &'static str,
+  op: String,
+  value: String,
+}
+
+/// A function declared in the file: its name, the span of the function itself and the span of
+/// the function it sits in, if any.
+struct Declared {
+  name: String,
+  start: u32,
+  end: u32,
+  inside: Option<(u32, u32)>,
+}
+
+#[derive(Default)]
+struct Declarations {
+  found: Vec<Declared>,
+  enclosing: Vec<(u32, u32)>,
+}
+
+impl<'a> Visit<'a> for Declarations {
+  fn visit_function(&mut self, it: &oxc_ast::ast::Function<'a>, flags: oxc_syntax::scope::ScopeFlags) {
+    if let Some(id) = &it.id {
+      self.found.push(Declared { name: id.name.to_string(), start: it.span.start, end: it.span.end, inside: self.enclosing.last().copied() });
+    }
+    self.enclosing.push((it.span.start, it.span.end));
+    walk::walk_function(self, it, flags);
+    self.enclosing.pop();
+  }
+
+  fn visit_arrow_function_expression(&mut self, it: &oxc_ast::ast::ArrowFunctionExpression<'a>) {
+    self.enclosing.push((it.span.start, it.span.end));
+    walk::walk_arrow_function_expression(self, it);
+    self.enclosing.pop();
+  }
+
+  fn visit_variable_declarator(&mut self, it: &oxc_ast::ast::VariableDeclarator<'a>) {
+    if let (oxc_ast::ast::BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
+      && matches!(init, Expression::ArrowFunctionExpression(_) | Expression::FunctionExpression(_))
+    {
+      let span = init.span();
+      self.found.push(Declared { name: id.name.to_string(), start: span.start, end: span.end, inside: self.enclosing.last().copied() });
+    }
+    walk::walk_variable_declarator(self, it);
+  }
+}
+
+thread_local! {
+  /// The loader function being read, wrapped as an expression, which its spans index.
+  static LOADER_SOURCE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 
 /// The base a loader answers with when it hands back the base it was given.
@@ -41,8 +107,10 @@ struct Options {
   polyfills: Option<String>,
   base: Option<String>,
   stylesheet: Option<(String, String)>,
+  loads: Option<Vec<Load>>,
 }
 
+#[derive(Clone)]
 struct Call {
   candidates: Vec<String>,
   css: String,
@@ -50,6 +118,7 @@ struct Call {
   polyfills: Option<String>,
   base: Option<String>,
   stylesheet: Option<(String, String)>,
+  loads: Option<Vec<Load>>,
   shuffled: bool,
 }
 
@@ -86,6 +155,9 @@ const UNIT_FUNCTIONS: &[&str] = &[
   "unescape",
   "toKeyPath",
   "compare",
+  "isValidStaticUtilityName",
+  "isValidFunctionalUtilityName",
+  "compoundsForSelectors",
 ];
 
 /// A `candidate.test.ts` case: the utilities and variants the test registers, then the parse.
@@ -124,6 +196,10 @@ struct Extractor<'s> {
   units: Vec<UnitFixture>,
   fixtures: Vec<Fixture>,
   skipped: Vec<Skipped>,
+  declared: Vec<Declared>,
+  /// Names bound to a `compile(...)` result, `compiler` in `let compiler = await compile(...)`
+  /// or `sources` in `let { sources } = ...`, with the call and whether the name is the list.
+  compiled: std::collections::HashMap<String, (Call, bool)>,
 }
 
 fn cooked_template(t: &TemplateLiteral) -> Option<String> {
@@ -344,6 +420,148 @@ impl<'s> Extractor<'s> {
     });
   }
 
+  /// The rows a test's loader answers with: the function the option names, resolved to the
+  /// nearest declaration before `at` in scope there, or the function written in place.
+  fn loader_table(&self, value: &Expression, at: u32) -> Result<Vec<Load>, String> {
+    let function_text = match value {
+      Expression::Identifier(id) => {
+        let declared = self
+          .declared
+          .iter()
+          .filter(|d| d.name == id.name.as_str() && d.start < at && d.inside.is_none_or(|(start, end)| start < at && at < end))
+          .max_by_key(|d| d.start)
+          .ok_or_else(|| format!("a loader `{}` declared nowhere this extractor finds", id.name))?;
+        self.source[declared.start as usize..declared.end as usize].to_owned()
+      }
+      other => self.source[other.span().start as usize..other.span().end as usize].to_owned(),
+    };
+    let wrapped = format!("({function_text})");
+    LOADER_SOURCE.with(|text| *text.borrow_mut() = wrapped.clone());
+    let allocator = Allocator::default();
+    let parsed = Parser::new(&allocator, &wrapped, SourceType::ts()).parse_expression().map_err(|_| "a loader that does not parse alone".to_owned())?;
+    let expr = match &parsed {
+      Expression::ParenthesizedExpression(p) => &p.expression,
+      other => other,
+    };
+    let (params, statements): (Vec<String>, &[oxc_ast::ast::Statement]) = match expr {
+      Expression::FunctionExpression(f) => (f.params.items.iter().map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()).unwrap_or_default()).collect(), f.body.as_ref().map(|b| b.statements.as_slice()).unwrap_or(&[])),
+      Expression::ArrowFunctionExpression(f) => match &f.body {
+        oxc_ast::ast::ArrowFunctionBody::FunctionBody(body) => (f.params.items.iter().map(|p| p.pattern.get_identifier_name().map(|n| n.to_string()).unwrap_or_default()).collect(), body.statements.as_slice()),
+        other => match other.as_expression() {
+          Some(Expression::CallExpression(c)) if &wrapped[c.callee.span().start as usize..c.callee.span().end as usize] == "Promise.reject" => {
+            return Ok(vec![Load { when: Vec::new(), answer: None }]);
+          }
+          _ => return Err("a custom loadStylesheet".to_owned()),
+        },
+      },
+      _ => return Err("a custom loadStylesheet".to_owned()),
+    };
+    let mut rows = Vec::new();
+    self.loader_rows(&params, statements, &[], &mut rows)?;
+    if rows.is_empty() {
+      return Err("a loader that answers nothing".to_owned());
+    }
+    Ok(rows)
+  }
+
+  /// The text of an expression in the loader being read.
+  fn source_of(&self, expr: &Expression) -> String {
+    LOADER_SOURCE.with(|text| text.borrow()[expr.span().start as usize..expr.span().end as usize].to_owned())
+  }
+
+  fn loader_rows(&self, params: &[String], statements: &[oxc_ast::ast::Statement], when: &[Cond], rows: &mut Vec<Load>) -> Result<(), String> {
+    use oxc_ast::ast::Statement;
+    for statement in statements {
+      match statement {
+        Statement::ExpressionStatement(e) => match &e.expression {
+          // `expect(id).toBe('./foo.css')`: a call with anything else throws, so the case fails.
+          Expression::CallExpression(c)
+            if let Expression::StaticMemberExpression(m) = &c.callee
+              && m.property.name == "toBe"
+              && let Expression::CallExpression(expect) = &m.object
+              && callee_name(expect).is_some_and(|n| n == "expect") =>
+          {
+            let subject = expect.arguments.first().and_then(|a| a.as_expression()).ok_or("a loader expectation this extractor cannot read")?;
+            let expected = c.arguments.first().and_then(|a| a.as_expression()).ok_or("a loader expectation this extractor cannot read")?;
+            let test = format!("{} === {}", &self.source_of(subject), &self.source_of(expected));
+            let allocator = Allocator::default();
+            let parsed = Parser::new(&allocator, &test, SourceType::ts()).parse_expression().map_err(|_| "a loader expectation this extractor cannot read".to_owned())?;
+            for conjunction in loader_conditions(params, &parsed)? {
+              for cond in conjunction {
+                let mut inner = when.to_vec();
+                inner.push(Cond { op: "ne".to_owned(), ..cond });
+                rows.push(Load { when: inner, answer: None });
+              }
+            }
+          }
+          _ => return Err("a loader statement this extractor cannot read".to_owned()),
+        },
+        Statement::ReturnStatement(r) => {
+          let object = match r.argument.as_ref() {
+            Some(Expression::ObjectExpression(o)) => o,
+            _ => return Err("a loader return that is not an object".to_owned()),
+          };
+          rows.push(Load { when: when.to_vec(), answer: Some(self.loader_answer(params, object)?) });
+          return Ok(());
+        }
+        Statement::ThrowStatement(_) => {
+          rows.push(Load { when: when.to_vec(), answer: None });
+          return Ok(());
+        }
+        Statement::BlockStatement(b) => self.loader_rows(params, &b.body, when, rows)?,
+        Statement::SwitchStatement(sw) => {
+          let Expression::Identifier(subject) = &sw.discriminant else { return Err("a loader switch on an expression".to_owned()) };
+          let arg = match params.iter().position(|p| *p == subject.name.as_str()) {
+            Some(0) => "id",
+            Some(1) => "base",
+            _ => return Err("a loader switch on an expression".to_owned()),
+          };
+          for case in &sw.cases {
+            let mut inner = when.to_vec();
+            if let Some(test) = &case.test {
+              let Expression::StringLiteral(value) = test else { return Err("a loader case that is not a string".to_owned()) };
+              inner.push(Cond { arg, op: "eq".to_owned(), value: value.value.to_string() });
+            }
+            self.loader_rows(params, &case.consequent, &inner, rows)?;
+          }
+        }
+        Statement::IfStatement(i) => {
+          for conjunction in loader_conditions(params, &i.test)? {
+            let mut inner = when.to_vec();
+            inner.extend(conjunction);
+            self.loader_rows(params, std::slice::from_ref(&i.consequent), &inner, rows)?;
+          }
+          if let Some(alternate) = &i.alternate {
+            self.loader_rows(params, std::slice::from_ref(alternate), when, rows)?;
+          }
+        }
+        _ => return Err("a loader statement this extractor cannot read".to_owned()),
+      }
+    }
+    Ok(())
+  }
+
+  fn loader_answer(&self, params: &[String], object: &oxc_ast::ast::ObjectExpression) -> Result<(String, String), String> {
+    let mut content = None;
+    let mut base = None;
+    for property in &object.properties {
+      let ObjectPropertyKind::ObjectProperty(p) = property else { return Err("a loader answer with a spread".to_owned()) };
+      let key = p.key.static_name().map(|k| k.to_string()).unwrap_or_default();
+      match key.as_str() {
+        "content" => content = self.string_of(&p.value),
+        "base" => {
+          base = match &p.value {
+            Expression::Identifier(id) if params.get(1).is_some_and(|b| *b == id.name.as_str()) => Some(PASSTHROUGH.to_owned()),
+            other => self.string_of(other),
+          }
+        }
+        "path" => {}
+        _ => return Err(format!("a loader answer naming `{key}`")),
+      }
+    }
+    Ok((content.ok_or("a loader content this extractor cannot read")?, base.ok_or("a loader base this extractor cannot read")?))
+  }
+
   /// The stylesheet and base a loader with no parameters always answers with.
   fn constant_loader(&self, value: &Expression) -> Option<(String, String)> {
     let params = match value {
@@ -434,7 +652,7 @@ impl<'s> Extractor<'s> {
           } else if let Some(constant) = self.constant_loader(&p.value) {
             options.stylesheet = Some(constant);
           } else {
-            return Err("a custom loadStylesheet".to_owned());
+            options.loads = Some(self.loader_table(&p.value, p.span.start)?);
           }
         }
         "base" => match self.string_of(&p.value) {
@@ -522,6 +740,7 @@ impl<'s> Extractor<'s> {
       polyfills,
       base,
       stylesheet,
+      loads,
     } = options;
     Some(Call {
       candidates,
@@ -530,6 +749,7 @@ impl<'s> Extractor<'s> {
       polyfills,
       base,
       stylesheet,
+      loads,
       shuffled,
     })
   }
@@ -569,6 +789,16 @@ impl<'s> Extractor<'s> {
         }
       }
       Expression::Identifier(id) if self.json_variable(&id.name).is_some() => self.json_variable(&id.name)?,
+      Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(id) if id.name == "Compounds") => match m.property.name.as_str() {
+        "Never" => serde_json::json!(0.0),
+        "AtRules" => serde_json::json!(1.0),
+        "StyleRules" => serde_json::json!(2.0),
+        _ => return None,
+      },
+      Expression::BinaryExpression(b) if b.operator == oxc_ast::ast::BinaryOperator::BitwiseOR => {
+        let (left, right) = (self.json_of(&b.left)?.as_f64()?, self.json_of(&b.right)?.as_f64()?);
+        serde_json::json!(((left as u64) | (right as u64)) as f64)
+      }
       Expression::CallExpression(call)
         if call.arguments.is_empty()
           && let Expression::StaticMemberExpression(member) = &call.callee
@@ -916,6 +1146,41 @@ impl<'s> Extractor<'s> {
     let Some(subject) = expect.arguments.first().and_then(|a| a.as_expression()) else {
       return;
     };
+    if self.declared.iter().any(|d| d.name == "loadStylesheet" && d.start <= call.span.start && call.span.end <= d.end) {
+      return;
+    }
+    let sources_of = match subject {
+      Expression::Identifier(id) => self.compiled.get(id.name.as_str()).filter(|(_, list)| *list),
+      Expression::StaticMemberExpression(m) if m.property.name == "sources" => match &m.object {
+        Expression::Identifier(id) => self.compiled.get(id.name.as_str()).filter(|(_, list)| !*list),
+        _ => None,
+      },
+      _ => None,
+    };
+    if let Some((compiled, _)) = sources_of {
+      let compiled = compiled.clone();
+      let expected = (matcher == "toEqual").then(|| call.arguments.first().and_then(|a| a.as_expression()).and_then(|e| self.json_of(e))).flatten();
+      match expected {
+        Some(expected) => {
+          let fixture = Fixture {
+            test: self.test_name(),
+            kind: "sources",
+            candidates: Vec::new(),
+            css: compiled.css,
+            expected: expected.to_string(),
+            loader: compiled.loader,
+            polyfills: compiled.polyfills,
+            base: compiled.base,
+            stylesheet: compiled.stylesheet,
+            loads: compiled.loads,
+            shuffled: false,
+          };
+          self.fixtures.push(fixture);
+        }
+        None => self.skip("a sources expectation this extractor cannot read"),
+      }
+      return;
+    }
 
     let is_compile = |e: &Expression| {
       let e = match e {
@@ -951,6 +1216,7 @@ impl<'s> Extractor<'s> {
       polyfills,
       base,
       stylesheet,
+      loads,
       shuffled,
     }) = self.compile_call(subject)
     else {
@@ -970,6 +1236,7 @@ impl<'s> Extractor<'s> {
           polyfills,
           base,
           stylesheet,
+          loads,
           shuffled,
         });
         return;
@@ -1048,6 +1315,7 @@ impl<'s> Extractor<'s> {
       polyfills,
       base,
       stylesheet,
+      loads,
       shuffled,
     });
   }
@@ -1076,6 +1344,30 @@ impl<'a> Visit<'a> for Extractor<'_> {
   }
 
   fn visit_variable_declarator(&mut self, it: &oxc_ast::ast::VariableDeclarator<'a>) {
+    if let Some(Expression::AwaitExpression(a)) = &it.init
+      && let Expression::CallExpression(c) = &a.argument
+      && callee_name(c) == Some("compile")
+    {
+      let bound: Vec<(String, bool)> = match &it.id {
+        oxc_ast::ast::BindingPattern::BindingIdentifier(id) => vec![(id.name.to_string(), false)],
+        oxc_ast::ast::BindingPattern::ObjectPattern(o) => o.properties.iter().filter_map(|p| p.key.static_name()).filter(|k| k == "sources").map(|k| (k.to_string(), true)).collect(),
+        _ => Vec::new(),
+      };
+      if !bound.is_empty() {
+        match self.compile_call(it.init.as_ref().unwrap()) {
+          Some(call) => {
+            for (name, list) in bound {
+              self.compiled.insert(name, (call.clone(), list));
+            }
+          }
+          None => {
+            for (name, _) in bound {
+              self.compiled.remove(&name);
+            }
+          }
+        }
+      }
+    }
     if let oxc_ast::ast::BindingPattern::BindingIdentifier(id) = &it.id
       && let Some(init) = &it.init
       && let Some((items, _)) = self.string_list(init)
@@ -1299,6 +1591,75 @@ fn file_snapshot(value: &str) -> Option<String> {
   Some(inner.strip_prefix('"')?.strip_suffix('"')?.to_owned())
 }
 
+/// A loader's `if` test as alternatives, each a list of conditions that all hold.
+fn loader_conditions(params: &[String], test: &Expression) -> Result<Vec<Vec<Cond>>, String> {
+  use oxc_ast::ast::{BinaryOperator, LogicalOperator, UnaryOperator};
+  let arg = |e: &Expression| -> Option<&'static str> {
+    let Expression::Identifier(id) = e else { return None };
+    match params.iter().position(|p| *p == id.name.as_str()) {
+      Some(0) => Some("id"),
+      Some(1) => Some("base"),
+      _ => None,
+    }
+  };
+  let literal = |e: &Expression| -> Option<String> {
+    match e {
+      Expression::StringLiteral(s) => Some(s.value.to_string()),
+      Expression::TemplateLiteral(t) if t.expressions.is_empty() => t.quasis.first().and_then(|q| q.value.cooked.as_ref()).map(|c| c.to_string()),
+      _ => None,
+    }
+  };
+  let unreadable = || "a loader condition this extractor cannot read".to_owned();
+  match test {
+    Expression::ParenthesizedExpression(p) => loader_conditions(params, &p.expression),
+    Expression::LogicalExpression(l) if l.operator == LogicalOperator::Or => {
+      let mut out = loader_conditions(params, &l.left)?;
+      out.extend(loader_conditions(params, &l.right)?);
+      Ok(out)
+    }
+    Expression::LogicalExpression(l) if l.operator == LogicalOperator::And => {
+      let (left, right) = (loader_conditions(params, &l.left)?, loader_conditions(params, &l.right)?);
+      Ok(left.iter().flat_map(|a| right.iter().map(move |b| a.iter().chain(b).cloned().collect())).collect())
+    }
+    Expression::BinaryExpression(b) => {
+      let op = match b.operator {
+        BinaryOperator::StrictEquality | BinaryOperator::Equality => "eq",
+        BinaryOperator::StrictInequality | BinaryOperator::Inequality => "ne",
+        _ => return Err(unreadable()),
+      };
+      let (side, value) = match (arg(&b.left), literal(&b.right), arg(&b.right), literal(&b.left)) {
+        (Some(side), Some(value), _, _) | (_, _, Some(side), Some(value)) => (side, value),
+        _ => return Err(unreadable()),
+      };
+      Ok(vec![vec![Cond { arg: side, op: op.to_owned(), value }]])
+    }
+    Expression::UnaryExpression(u) if u.operator == UnaryOperator::LogicalNot => {
+      let inner = loader_conditions(params, &u.argument)?;
+      match inner.as_slice() {
+        [single] if single.len() == 1 && ["ends", "starts", "includes", "eq"].contains(&single[0].op.as_str()) => {
+          let mut cond = single[0].clone();
+          cond.op = if cond.op == "eq" { "ne".to_owned() } else { format!("not-{}", cond.op) };
+          Ok(vec![vec![cond]])
+        }
+        _ => Err(unreadable()),
+      }
+    }
+    Expression::CallExpression(c) => {
+      let Expression::StaticMemberExpression(m) = &c.callee else { return Err(unreadable()) };
+      let side = arg(&m.object).ok_or_else(unreadable)?;
+      let op = match m.property.name.as_str() {
+        "endsWith" => "ends",
+        "startsWith" => "starts",
+        "includes" => "includes",
+        _ => return Err(unreadable()),
+      };
+      let value = c.arguments.first().and_then(|a| a.as_expression()).and_then(literal).ok_or_else(unreadable)?;
+      Ok(vec![vec![Cond { arg: side, op: op.to_owned(), value }]])
+    }
+    _ => Err(unreadable()),
+  }
+}
+
 fn main() {
   let args: Vec<String> = std::env::args().collect();
   let (src, out) = (Path::new(&args[1]), Path::new(&args[2]));
@@ -1354,6 +1715,12 @@ fn main() {
       units: Vec::new(),
       fixtures: Vec::new(),
       skipped: Vec::new(),
+      declared: {
+        let mut declarations = Declarations::default();
+        declarations.visit_program(&parsed.program);
+        declarations.found
+      },
+      compiled: Default::default(),
     };
     extractor.visit_program(&parsed.program);
 

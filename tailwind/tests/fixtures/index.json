@@ -14,6 +14,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -28,6 +29,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -43,6 +45,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -60,6 +63,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -74,6 +78,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -90,6 +95,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -108,6 +114,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -122,6 +129,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -136,6 +144,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -150,6 +159,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -164,6 +174,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -178,6 +189,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -190,6 +202,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -202,6 +215,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -217,6 +231,7 @@
       "\n                @theme {\n                  --spacing: 0.25rem;\n                }\n                @tailwind utilities;\n              ",
       "/"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -232,6 +247,7 @@
       "\n                @theme {\n                  --spacing: 0.25rem;\n                }\n                @tailwind utilities;\n              ",
       "/"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -244,6 +260,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -259,6 +276,7 @@
       "\n                .foo {\n                  @apply underline;\n                }\n              ",
       "/bar.css"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -271,6 +289,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -283,6 +302,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -295,6 +315,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -307,6 +328,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -319,6 +341,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -331,6 +354,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -349,6 +373,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -363,6 +388,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -379,6 +405,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -396,6 +423,7 @@
       "@tailwind utilities;",
       "<base>"
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -408,6 +436,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -420,6 +449,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -432,6 +462,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -444,6 +475,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -458,6 +490,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -472,6 +505,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -488,6 +522,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -502,6 +537,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -516,6 +552,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -530,6 +567,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -545,6 +583,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -559,6 +598,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -573,6 +613,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -587,6 +628,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -601,6 +643,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -619,6 +662,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": true
   },
   {
@@ -635,6 +679,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -651,6 +696,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": true
   },
   {
@@ -676,6 +722,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": true
   },
   {
@@ -693,6 +740,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": true
   },
   {
@@ -711,6 +759,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": true
   },
   {
@@ -737,6 +786,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": true
   },
   {
@@ -752,6 +802,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -766,6 +817,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -780,6 +832,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -795,6 +848,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -810,6 +864,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -825,6 +880,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -839,6 +895,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -857,6 +914,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -875,6 +933,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -893,6 +952,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -910,6 +970,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -928,6 +989,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -947,6 +1009,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -962,6 +1025,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -976,6 +1040,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -990,6 +1055,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1002,6 +1068,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1016,6 +1083,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1030,6 +1098,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1044,6 +1113,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1056,6 +1126,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1070,6 +1141,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1082,6 +1154,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1097,6 +1170,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1111,6 +1185,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1126,6 +1201,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1140,6 +1216,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1154,6 +1231,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1170,6 +1248,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1187,6 +1266,7 @@
       "\n                @theme {\n                  --color-tomato: #e10c04;\n                  --color-potato: #ac855b;\n                  --color-primary: var(--primary);\n                }\n\n                @tailwind utilities;\n              ",
       ""
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1203,6 +1283,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1219,6 +1300,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1236,6 +1318,7 @@
       "\n                @theme {\n                  --color-tomato: #e10c04;\n                  --color-potato: #ac855b;\n                  --color-primary: var(--primary);\n                }\n\n                @tailwind utilities;\n              ",
       ""
     ],
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1250,6 +1333,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1264,6 +1348,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1280,6 +1365,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1296,6 +1382,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1312,6 +1399,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1326,6 +1414,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1340,6 +1429,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1354,6 +1444,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1368,6 +1459,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1383,6 +1475,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1398,6 +1491,46 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
+    "shuffled": false
+  },
+  {
+    "test": "@source > emits @source files",
+    "kind": "sources",
+    "candidates": [],
+    "css": "\n        @source \"./foo/bar/*.ts\";\n      ",
+    "expected": "[{\"base\":\"/root\",\"negated\":false,\"pattern\":\"./foo/bar/*.ts\"}]",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": null,
+    "shuffled": false
+  },
+  {
+    "test": "@source > emits multiple @source files",
+    "kind": "sources",
+    "candidates": [],
+    "css": "\n        @source \"./foo/**/*.ts\";\n        @source \"./php/secr3t/smarty.php\";\n      ",
+    "expected": "[{\"base\":\"/root\",\"negated\":false,\"pattern\":\"./foo/**/*.ts\"},{\"base\":\"/root\",\"negated\":false,\"pattern\":\"./php/secr3t/smarty.php\"}]",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": null,
+    "shuffled": false
+  },
+  {
+    "test": "@source > emits negated @source files",
+    "kind": "sources",
+    "candidates": [],
+    "css": "\n        @source not \"./foo/**/*.ts\";\n        @source not \"./php/secr3t/smarty.php\";\n      ",
+    "expected": "[{\"base\":\"/root\",\"negated\":true,\"pattern\":\"./foo/**/*.ts\"},{\"base\":\"/root\",\"negated\":true,\"pattern\":\"./php/secr3t/smarty.php\"}]",
+    "loader": false,
+    "polyfills": null,
+    "base": "/root",
+    "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1410,6 +1543,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1422,6 +1556,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1434,6 +1569,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1446,6 +1582,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1460,6 +1597,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1475,6 +1613,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1487,6 +1626,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1499,6 +1639,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1511,6 +1652,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1523,6 +1665,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1535,6 +1678,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1547,6 +1691,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1559,6 +1704,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1571,6 +1717,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1583,6 +1730,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1595,6 +1743,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1607,6 +1756,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1619,6 +1769,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1631,6 +1782,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1643,6 +1795,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1655,6 +1808,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1667,6 +1821,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1679,6 +1834,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1691,6 +1847,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1703,6 +1860,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1715,6 +1873,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1727,6 +1886,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1742,6 +1902,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1756,6 +1917,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1770,6 +1932,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1785,6 +1948,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1800,6 +1964,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1815,6 +1980,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1829,6 +1995,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1843,6 +2010,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1858,6 +2026,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1873,6 +2042,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1887,6 +2057,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1901,6 +2072,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1915,6 +2087,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1929,6 +2102,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1945,6 +2119,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1963,6 +2138,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1977,6 +2153,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -1991,6 +2168,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2005,6 +2183,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2019,6 +2198,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2036,6 +2216,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2053,6 +2234,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2067,6 +2249,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2081,6 +2264,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2093,6 +2277,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2105,6 +2290,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2117,6 +2303,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2132,6 +2319,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2144,6 +2332,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2156,6 +2345,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2170,6 +2360,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2182,6 +2373,156 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
+    "shuffled": false
+  },
+  {
+    "test": "`@reference \"…\" imports` > recursively removes styles",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @reference './foo/bar.css';\n\n          .bar {\n            @apply md:hocus:foo;\n          }\n        ",
+    "expected": "\n@media (min-width: 768px) {\n  .bar:hover, .bar:focus {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "eq",
+            "value": "./foo/baz.css"
+          }
+        ],
+        "answer": [
+          "\n            .foo {\n              color: red;\n            }\n            @utility foo {\n              color: red;\n            }\n            @theme {\n              --breakpoint-md: 768px;\n            }\n            @custom-variant hocus (&:hover, &:focus);\n          ",
+          "<base>"
+        ]
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n          @import './foo/baz.css';\n        ",
+          "/root/foo"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "`@reference \"…\" imports` > does not generate utilities",
+    "kind": "css",
+    "candidates": [
+      "text-underline",
+      "border"
+    ],
+    "css": "\n          @reference './foo/bar.css';\n        ",
+    "expected": "",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "eq",
+            "value": "./foo/baz.css"
+          }
+        ],
+        "answer": [
+          "\n                  @layer utilities {\n                    @tailwind utilities;\n                  }\n                ",
+          "<base>"
+        ]
+      },
+      {
+        "when": [],
+        "answer": [
+          "\n                @import './foo/baz.css';\n              ",
+          "/root/foo"
+        ]
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "`@reference \"…\" imports` > emits CSS variable fallback and keyframes defined inside @reference-ed files",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @reference './one.css';\n          .bar {\n            @apply text-red animate-wiggle;\n          }\n        ",
+    "expected": "\n.bar {\n  animation: var(--animate-wiggle, wiggle 1s ease-in-out infinite);\n  color: var(--color-red, red);\n}\n\n@keyframes wiggle {\n  0%, 100% {\n    transform: rotate(-3deg);\n  }\n\n  50% {\n    transform: rotate(3deg);\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "eq",
+            "value": "./one.css"
+          }
+        ],
+        "answer": [
+          "\n              @import './two.css' layer(two);\n            ",
+          "<base>"
+        ]
+      },
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "eq",
+            "value": "./two.css"
+          }
+        ],
+        "answer": [
+          "\n              @import './three.css' layer(three);\n            ",
+          "<base>"
+        ]
+      },
+      {
+        "when": [
+          {
+            "arg": "id",
+            "op": "eq",
+            "value": "./three.css"
+          }
+        ],
+        "answer": [
+          "\n              .foo {\n                color: red;\n              }\n              @theme {\n                --color-red: red;\n                --animate-wiggle: wiggle 1s ease-in-out infinite;\n                @keyframes wiggle {\n                  0%,\n                  100% {\n                    transform: rotate(-3deg);\n                  }\n                  50% {\n                    transform: rotate(3deg);\n                  }\n                }\n              }\n            ",
+          "<base>"
+        ]
+      },
+      {
+        "when": [],
+        "answer": null
+      }
+    ],
+    "shuffled": false
+  },
+  {
+    "test": "`@reference \"…\" imports` > supports `@import \"…\" reference` syntax",
+    "kind": "css",
+    "candidates": [],
+    "css": "\n          @import './foo/bar.css' reference;\n\n          .bar {\n            @apply md:hocus:foo;\n          }\n        ",
+    "expected": "\n@media (min-width: 768px) {\n  .bar:hover, .bar:focus {\n    color: red;\n  }\n}\n",
+    "loader": false,
+    "polyfills": null,
+    "base": null,
+    "stylesheet": null,
+    "loads": [
+      {
+        "when": [],
+        "answer": [
+          "\n          .foo {\n            color: red;\n          }\n          @utility foo {\n            color: red;\n          }\n          @theme {\n            --breakpoint-md: 768px;\n          }\n          @custom-variant hocus (&:hover, &:focus);\n        ",
+          "/root/foo"
+        ]
+      }
+    ],
     "shuffled": false
   },
   {
@@ -2194,6 +2535,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2208,6 +2550,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2222,6 +2565,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2234,6 +2578,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2246,6 +2591,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2260,6 +2606,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2272,6 +2619,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2284,6 +2632,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2296,6 +2645,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2308,6 +2658,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2320,6 +2671,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2332,6 +2684,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2344,6 +2697,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2356,6 +2710,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2368,6 +2723,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2380,6 +2736,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2392,6 +2749,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2404,6 +2762,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2416,6 +2775,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2430,6 +2790,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2444,6 +2805,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2456,6 +2818,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2468,6 +2831,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2480,6 +2844,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2492,6 +2857,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2508,6 +2874,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2522,6 +2889,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2536,6 +2904,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2548,6 +2917,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2562,6 +2932,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2576,6 +2947,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2592,6 +2964,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2606,6 +2979,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2618,6 +2992,7 @@
     "polyfills": null,
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   },
   {
@@ -2630,6 +3005,7 @@
     "polyfills": "Polyfills.None",
     "base": null,
     "stylesheet": null,
+    "loads": null,
     "shuffled": false
   }
 ]
