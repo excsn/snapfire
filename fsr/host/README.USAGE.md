@@ -183,10 +183,12 @@ expose = ["/"]                    # path prefixes whose requests a page may read
 embed_stills = "provider"         # the default: an <Embed>'s still loads from the provider; "local" fetches it at build
 
 [crawl]                           # optional: needs document.origin, see Serving robots.txt and a Sitemap
-[mdx]                             # optional: read by an fsr built with its mdx features
 robots = "/robots.txt"            # served here; no key, no robots.txt
 sitemap = "/sitemap.xml"          # served here; no key, no sitemap
 disallow = ["/drafts/"]           # beside /__fsr/, /_sf/ and /auth/ when [auth] is set
+
+[mdx]                             # optional: read by an fsr built with its mdx features, none of it by the host
+frontmatter = false               # the default; true takes YAML or TOML frontmatter as export const meta
 
 [public]                          # optional: the deployment's own values, read by a body as ctx.config.<key>
 analytics_id = ""                 # a scalar under an identifier; an overlay sets the deployment's own
