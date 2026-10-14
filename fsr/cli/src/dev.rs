@@ -158,7 +158,21 @@ impl App {
     if self.dir.join(&themes).is_dir() {
       command.args(["--tailwind-themes", &themes, "--tailwind-theme-attribute", crate::THEME_ATTRIBUTE]);
     }
+    if let Some((vendor, base)) = self.vendor_tree() {
+      command.arg("--tailwind-vendor").arg(vendor).args(["--tailwind-vendor-base", &base]);
+    }
     command
+  }
+
+  /// The vendor tree the import map names and its URL prefix: the app's own, else for a site
+  /// the shell's, which the site's import map points at.
+  fn vendor_tree(&self) -> Option<(PathBuf, String)> {
+    if self.dir.join(&self.layout.vendor).is_dir() {
+      return Some((PathBuf::from(&self.layout.vendor), self.layout.base.clone()));
+    }
+    let shell = crate::site_beside(&self.dir)?.shell?;
+    let vendor = shell.parent()?.parent()?.join("vendor");
+    vendor.is_dir().then(|| (vendor, crate::VENDOR_BASE.to_owned()))
   }
 
   /// One bundle of everything, through a driven child that is dropped once it has answered.
@@ -1164,6 +1178,19 @@ mod tests {
     let args = args(&built);
     let at = args.iter().position(|a| a == "--minify").expect("--minify is passed");
     assert_eq!(args[at + 1], "compact");
+  }
+
+  #[test]
+  fn a_vendor_tree_is_named_to_the_compiler_for_tailwind_and_none_is_not() {
+    let root = std::env::temp_dir().join(format!("fsr-cli-dev-vendor-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    assert!(!args(&app(&root)).iter().any(|a| a == "--tailwind-vendor"), "no vendor directory, no flag");
+    std::fs::create_dir_all(root.join("vendor")).unwrap();
+    let args = args(&app(&root));
+    let at = args.iter().position(|a| a == "--tailwind-vendor").expect("--tailwind-vendor is passed");
+    assert_eq!(&args[at + 1..at + 4], ["vendor", "--tailwind-vendor-base", "/static/js/vendor"]);
+    std::fs::remove_dir_all(&root).unwrap();
   }
 
   fn project(shell: &Path) -> Project {

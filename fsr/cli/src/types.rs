@@ -44,7 +44,7 @@ const FSR_AUTHORING: &[(&str, &str)] = &[
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TypedPackage {
   pub version: String,
-  /// The package the declarations came from: the package itself, `@types/<name>` or `fsr`.
+  /// The package the declarations came from: the package itself, `@types/<name>`, `fsr` or `vendor` for those a vendored package carries.
   pub from: String,
   /// The declaration entry relative to `types/<name>/`.
   pub entry: String,
@@ -434,6 +434,9 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
           typed.ambient = is_ambient(&text);
         }
       }
+    } else if let Some(vendored) = vendored_declarations(app, layout, &package)? {
+      report.fetched.push((package.clone(), vendored.version.clone(), vendored.from.clone()));
+      manifest.packages.insert(package.clone(), vendored);
     } else if package.starts_with("@snapfire/") {
       report.missing.push((package, "not a package fsr knows".to_owned()));
       continue;
@@ -469,6 +472,34 @@ fn fill(app: &Path, layout: &Layout, manifest: &mut TypesManifest, roots: Vec<St
     }
   }
   Ok(())
+}
+
+/// Declarations a vendored package carries beside its entry, `index.d.ts` for
+/// `index.min.js` or `index.bundle.mjs`, copied into `<types>/<package>/` with
+/// every other `.d.ts` in that directory. `None` when the package is not
+/// vendored or ships none, so the registry is asked instead.
+fn vendored_declarations(app: &Path, layout: &Layout, package: &str) -> Result<Option<TypedPackage>, BuildError> {
+  let manifest = vendor::VendorManifest::read(app, layout)?;
+  let Some(vendored) = manifest.packages.get(package) else { return Ok(None) };
+  let Some(entry) = vendored.entries.get(package).or_else(|| vendored.entries.values().next()) else { return Ok(None) };
+  let entry = app.join(&layout.vendor).join(entry);
+  let (Some(dir), Some(name)) = (entry.parent(), entry.file_name().and_then(|n| n.to_str())) else { return Ok(None) };
+  let stem = name.split('.').next().unwrap_or(name);
+  let declaration = format!("{stem}.d.ts");
+  if !dir.join(&declaration).is_file() {
+    return Ok(None);
+  }
+  let into = app.join(&layout.types).join(package);
+  std::fs::create_dir_all(&into).map_err(|e| BuildError::Io(into.clone(), e))?;
+  for file in std::fs::read_dir(dir).map_err(|e| BuildError::Io(dir.to_path_buf(), e))?.flatten() {
+    let path = file.path();
+    if path.to_string_lossy().ends_with(".d.ts") {
+      let to = into.join(file.file_name());
+      std::fs::copy(&path, &to).map_err(|e| BuildError::Io(to, e))?;
+    }
+  }
+  let text = std::fs::read_to_string(into.join(&declaration)).unwrap_or_default();
+  Ok(Some(TypedPackage { version: vendored.version.clone(), from: "vendor".to_owned(), entry: declaration, ambient: is_ambient(&text) }))
 }
 
 pub fn source_dirs(app: &Path) -> Vec<&'static str> {
@@ -1384,6 +1415,26 @@ mod tests {
   }
 
   use super::*;
+
+  #[test]
+  fn a_vendored_package_that_carries_declarations_is_declared_from_the_vendor_tree_offline() {
+    let app = std::env::temp_dir().join(format!("fsr-types-vendored-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(app.join("vendor/@acme/ui")).unwrap();
+    std::fs::write(app.join("vendor/@acme/ui/index.min.js"), "export function Badge(){}\n").unwrap();
+    std::fs::write(app.join("vendor/@acme/ui/index.d.ts"), "import type { Tone } from \"./tone\";\nexport declare function Badge(props: { tone?: Tone }): unknown;\n").unwrap();
+    std::fs::write(app.join("vendor/@acme/ui/tone.d.ts"), "export type Tone = \"violet\";\n").unwrap();
+    std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"@acme/ui":{"version":"0.1.0","externals":[],"entries":{"@acme/ui":"@acme/ui/index.min.js"}}}}"#).unwrap();
+    std::fs::write(app.join("importmap.json"), r#"{"imports":{"@acme/ui":"/static/js/vendor/@acme/ui/index.min.js"}}"#).unwrap();
+    let layout = Layout::default();
+    let mut manifest = TypesManifest::default();
+    let mut report = TypesReport::default();
+    fill(&app, &layout, &mut manifest, vec!["@acme/ui".to_owned()], false, "http://127.0.0.1:1", &mut report).unwrap();
+    assert_eq!(manifest.packages["@acme/ui"], TypedPackage { version: "0.1.0".to_owned(), from: "vendor".to_owned(), entry: "index.d.ts".to_owned(), ambient: false });
+    assert!(app.join("types/@acme/ui/index.d.ts").is_file() && app.join("types/@acme/ui/tone.d.ts").is_file(), "every declaration beside the entry");
+    assert!(report.missing.is_empty(), "{:?}", report.missing);
+    std::fs::remove_dir_all(&app).unwrap();
+  }
 
   /// Cases from node-semver's README and its range tests, `loose` ones left out.
   #[test]

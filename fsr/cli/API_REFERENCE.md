@@ -481,7 +481,7 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 ### Manifests
 
 * `pub struct vendor::VendorManifest { pub packages: BTreeMap<String, VendoredPackage> }`, `vendor::VendoredPackage { pub version: String, pub externals: Vec<String>, pub entries: BTreeMap<String, String> }`, entries from specifier to file relative to the vendor directory; read and written as `<vendor>/.fsr-vendor.json`.
-* `pub struct types::TypesManifest { pub packages: BTreeMap<String, TypedPackage> }`, `types::TypedPackage { pub version: String, pub from: String, pub entry: String, pub ambient: bool }`; read and written as `<types>/.fsr-types.json`.
+* `pub struct types::TypesManifest { pub packages: BTreeMap<String, TypedPackage> }`, `types::TypedPackage { pub version: String, pub from: String, pub entry: String, pub ambient: bool }`; read and written as `<types>/.fsr-types.json`. `from` is the package, `@types/<name>`, `fsr` or `vendor` for declarations a vendored package carries beside its entry.
 * Both: `read(app, &layout)`, `write(&self, app, &layout)`; a missing file reads as empty.
 
 ### assets

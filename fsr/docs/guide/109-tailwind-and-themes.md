@@ -30,7 +30,24 @@ Tailwind's CLI scans your files for anything that looks like a class. fsr alread
 tailwind  51 classes in generated/tailwind.classes
 ```
 
-A component that renders in the browser alone has no lowered tree, so the bundle reads its source instead: `className` and `class` attributes and the arguments of `clsx`, `cn` and Vue's `normalizeClass`. In `fsr dev` a save that changes the set rebuilds the stylesheet with it.
+A component that renders in the browser alone has no lowered tree, so the bundle reads its source instead: `className` and `class` attributes, the arguments of `clsx`, `cn` and Vue's `normalizeClass` and the constants they name, a lookup table among them. In `fsr dev` a save that changes the set rebuilds the stylesheet with it.
+
+## Classes from vendored packages
+
+A component library under `vendor/` names classes too. The bundle reads them from the packages your sources import. A package built with `snapfirec --emit-tailwind-classes` carries its class list as `tailwind.classes` beside its modules, read from its sources before anything was minified:
+
+```text
+app/vendor/@acme/ui/
+  index.min.js
+  index.d.ts
+  tailwind.classes
+```
+
+A package without one, the way a third-party bundle arrives, is read from its modules, its imports followed. A minifier may rename a `cn` helper, so a class composed through one in such a package is not seen; list it with `@source inline(...)`. A site with no vendor tree of its own reads its shell's.
+
+A package that carries `index.d.ts` beside its entry needs nothing from `fsr types`: the build takes its declarations from the vendor tree.
+
+In the portal, `packages/acme_ui` and `packages/acme_charts` are built into `app/vendor/@acme/`. `/themes` shows their components styled by classes nothing else in the portal names.
 
 ## A class the build cannot list
 
