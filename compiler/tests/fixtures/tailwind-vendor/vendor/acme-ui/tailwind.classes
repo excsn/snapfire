@@ -1,0 +1,4 @@
+rounded-full	src/Badge.tsx
+bg-violet-100	src/Badge.tsx
+ring-1	src/Badge.tsx
+ring-inset	src/Badge.tsx

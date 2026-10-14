@@ -45,6 +45,20 @@ impl ImportMap {
   pub fn uses_scopes(&self) -> bool {
     !self.scopes.is_empty()
   }
+
+  /// The URL `specifier` resolves to through `imports`: the exact key, else the longest key
+  /// ending in `/` that prefixes it with the rest appended.
+  pub fn url_of(&self, specifier: &str) -> Option<String> {
+    if let Some(url) = self.imports.get(specifier) {
+      return Some(url.clone());
+    }
+    self
+      .imports
+      .iter()
+      .filter(|(key, _)| key.ends_with('/') && specifier.starts_with(key.as_str()))
+      .max_by_key(|(key, _)| key.len())
+      .map(|(key, url)| format!("{url}{}", &specifier[key.len()..]))
+  }
 }
 
 fn lookup(mappings: &BTreeMap<String, String>, specifier: &str) -> bool {

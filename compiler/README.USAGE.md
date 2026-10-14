@@ -207,6 +207,9 @@ snapfirec
 | `--tailwind-classes <path>` | Classes a Tailwind stylesheet generates utilities for, one per line, beside those the sources name | off |
 | `--tailwind-themes <dir>` | Each `<name>.css` there is a named theme every Tailwind stylesheet writes; the root theme answers to `default` too | off |
 | `--tailwind-theme-attribute <name>` | The attribute that selects a named theme | `data-theme` |
+| `--tailwind-vendor <dir>` | The vendor tree a Tailwind stylesheet reads the imported packages' classes from; needs `--tailwind-vendor-base` and `--import-map` | off |
+| `--tailwind-vendor-base <url>` | The URL prefix the import map names the vendor tree under | none |
+| `--emit-tailwind-classes` | Write the classes the sources name to `tailwind.classes` in the output directory | off |
 | `--source-map` | Emit a `.map` beside each output | `sourceMap` |
 | `--inline-source-map` | Embed each map as a data URI | `inlineSourceMap` |
 | `--minify[=compact\|full]` | Additionally emit a minified `.min` graph | off |
@@ -779,7 +782,7 @@ export function Badge({ on }: { on: boolean }) {
 }
 ```
 
-The compiler reads every script and every plugin's output for class names where a class goes: a `class` or `className` attribute or property and the arguments of `clsx`, `cn`, `cx`, `classnames`, `twMerge` and Vue's `normalizeClass`. A token a template expression touches, the `bg-` of `` `bg-${tone}` ``, is left out; list such values in the stylesheet with `@source inline("bg-{red,amber}-500")`. A tool that knows more classes than the sources show passes them in a file, one per line, optionally followed by a tab and where they come from:
+The compiler reads every script and every plugin's output for class names where a class goes: a `class` or `className` attribute or property and the arguments of `clsx`, `cn`, `cx`, `classnames`, `twMerge` and Vue's `normalizeClass`. A `const` named there is read for what it holds: a string, a template, an array, an object read as a lookup table for `tones[tone]` or one field for `tones.violet`. A token a template expression touches, the `bg-` of `` `bg-${tone}` ``, is left out; list such values in the stylesheet with `@source inline("bg-{red,amber}-500")`. A tool that knows more classes than the sources show passes them in a file, one per line, optionally followed by a tab and where they come from:
 
 ```bash
 snapfirec --root ./app --tailwind-classes generated/tailwind.classes
@@ -796,6 +799,22 @@ The compiler never scans files for classes, so a stylesheet that names some is r
 ```text
 ❌ Error compiling "styles/app.css": `@source "../node_modules/acme-ui"`: snapfirec reads classes from the sources it compiles and from --tailwind-classes, not from files a stylesheet names; list the classes with `@source inline("...")` instead
 ```
+
+#### Classes from vendored packages
+
+A package's components name classes the app's stylesheet has to build. A package built with `--emit-tailwind-classes` writes them to `tailwind.classes` in its output, the same format `--tailwind-classes` reads. The file is one of the build's outputs:
+
+```bash
+snapfirec --root packages/acme_ui --minify compact --declaration --emit-tailwind-classes
+```
+
+An app names its vendor tree and the URL prefix its import map uses for it:
+
+```bash
+snapfirec --root ./app --import-map importmap.json --tailwind-vendor vendor --tailwind-vendor-base /static/js/vendor
+```
+
+For every bare specifier the sources import, the import map gives the vendored file. A package directory holding `tailwind.classes` is read from that list and its modules are not parsed. Any other vendored module is read for classes like a source with its imports followed: relative ones, absolute ones under the prefix and bare ones through the map. A minifier keeps `className:"..."` but may rename `cn` or `clsx`, so a class composed through a renamed helper in a package without a list is not seen; list it with `@source inline(...)`. A vendored class that is no utility is not reported, since it is not the app's typo.
 
 `@import` of a relative file is resolved against the stylesheet and inlined. Under `--watch` or `--driven`, a change to a script whose classes changed, to the classes file or to an imported stylesheet rebuilds the Tailwind stylesheets that read it.
 

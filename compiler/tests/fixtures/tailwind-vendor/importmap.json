@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "@acme/ui": "/vendor/acme-ui/index.js",
+    "@acme/charts": "/vendor/acme-charts/index.min.js",
+    "react/jsx-runtime": "/vendor/react/jsx-runtime.js"
+  }
+}

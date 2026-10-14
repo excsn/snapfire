@@ -52,6 +52,12 @@ pub struct Options {
   /// The directory of named themes a stylesheet using Tailwind writes, relative to the root.
   pub tailwind_themes: Option<PathBuf>,
   pub tailwind_theme_attribute: String,
+  /// The vendor tree a stylesheet using Tailwind reads classes from, relative to the root, with
+  /// the URL prefix the import map names it under.
+  pub tailwind_vendor: Option<(PathBuf, String)>,
+  /// Writes the classes the sources name to `tailwind.classes` in the output directory, so a
+  /// package carries its class list to the applications that vendor it.
+  pub emit_tailwind_classes: bool,
 }
 
 /// Everything a rebuild needs to reuse without re-reading the config.
@@ -95,6 +101,11 @@ pub struct Build {
   /// The classes each script and each plugin source names where a class goes, read when a
   /// stylesheet uses Tailwind, so islands the driver never listed get their utilities.
   source_classes: BTreeMap<PathBuf, Vec<String>>,
+  /// The specifiers each script imports, read beside its classes, for the vendored modules they
+  /// reach.
+  source_imports: BTreeMap<PathBuf, Vec<String>>,
+  /// The classes the vendored modules the sources import name, each package's list in place of its modules.
+  vendor_classes: Vec<(String, String)>,
   /// The paths a `refresh` is working on, outermost first.
   refreshing: HashSet<PathBuf>,
   surfaces: HashMap<PathBuf, Surface>,
@@ -301,6 +312,8 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     tailwind_unknown: BTreeMap::new(),
     plain_classes: BTreeMap::new(),
     source_classes: BTreeMap::new(),
+    source_imports: BTreeMap::new(),
+    vendor_classes: Vec::new(),
     refreshing: HashSet::new(),
     surfaces: HashMap::new(),
     emitted: 0,
@@ -341,7 +354,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
     }
   }
 
-  read_source_classes(&mut build);
+  read_source_classes(opts, &mut build);
   let extra = build.extra_classes(opts);
   let jobs = plan(opts, &mut build);
 
@@ -350,7 +363,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   // progress order and error order identical to a single-threaded build.
   let results: Vec<JobResult> = jobs
     .par_iter()
-    .map(|job| run(&build.compiler, opts, build.map_options, job, &extra))
+    .map(|job| run(&build.compiler, opts, build.map_options, job, &extra, &build.vendor_classes))
     .collect();
 
   let mut referenced: Vec<PathBuf> = Vec::new();
@@ -380,6 +393,7 @@ pub fn full(opts: &Options, banner: bool) -> Result<Build> {
   let previous = previous_outputs(&build.out_dir);
   let facts = build.out_dir.join(BUILD_FACTS);
   build.claimed.insert(facts.clone(), facts);
+  write_package_classes(opts, &mut build);
 
   if !build.failed() {
     prune_stale(opts, &build, &previous)?;
@@ -506,12 +520,14 @@ fn refresh_one(opts: &Options, build: &mut Build, path: &Path) {
   let extra = build.extra_classes(opts);
 
   for job in &jobs {
-    let result = run(&build.compiler, opts, build.map_options, job, &extra);
+    let result = run(&build.compiler, opts, build.map_options, job, &extra, &build.vendor_classes);
     report(build, result, &mut referenced);
   }
 
   check_graph(opts, build);
   if !build.source_classes.is_empty() && build.reread_source_classes(path) {
+    build.read_vendor_classes(opts);
+    write_package_classes(opts, build);
     let sheets: Vec<PathBuf> = build.tailwind_unknown.keys().cloned().collect();
     for sheet in sheets {
       refresh(opts, build, &sheet);
@@ -520,15 +536,37 @@ fn refresh_one(opts: &Options, build: &mut Build, path: &Path) {
 }
 
 /// Reads the classes every script and plugin source names, when a stylesheet in the build
-/// uses Tailwind.
-fn read_source_classes(build: &mut Build) {
+/// uses Tailwind or the build writes its class list, then the vendored modules they import.
+fn read_source_classes(opts: &Options, build: &mut Build) {
   let tailwind = build.files.iter().any(|f| matches!(asset(f), Some(Asset::Style)) && fs::read_to_string(f).is_ok_and(|css| crate::tailwind::uses_tailwind(&css)));
-  if !tailwind {
+  if !tailwind && !opts.emit_tailwind_classes {
     return;
   }
   let files: Vec<PathBuf> = build.files.clone();
   for file in files {
     build.reread_source_classes(&file);
+  }
+  if tailwind {
+    build.read_vendor_classes(opts);
+  }
+}
+
+/// `tailwind.classes` in the output directory: every class the sources name with the source
+/// naming it first, one per line, the format `--tailwind-classes` reads.
+fn write_package_classes(opts: &Options, build: &mut Build) {
+  if !opts.emit_tailwind_classes {
+    return;
+  }
+  let path = build.out_dir.join(crate::tailwind::PACKAGE_CLASSES);
+  let text: String = build.extra_classes(opts).into_iter().map(|(class, file)| format!("{class}\t{}\n", file.trim_matches('"'))).collect();
+  match fs::write(&path, text) {
+    Ok(()) => {
+      build.claimed.insert(path.clone(), path);
+    }
+    Err(e) => {
+      eprintln!("❌ Could not write {:?}: {e}", path);
+      build.has_error = true;
+    }
   }
 }
 
@@ -542,13 +580,22 @@ impl Build {
     };
     let Some(text) = text else { return false };
     let classes = crate::tailwind::source_classes(path, &text);
-    match self.source_classes.get(path) == Some(&classes) {
-      true => false,
-      false => {
-        self.source_classes.insert(path.to_path_buf(), classes);
-        true
-      }
-    }
+    let imports: Vec<String> = crate::tailwind::module_imports(path, &text).into_iter().filter(|s| !s.starts_with('.') && !s.starts_with('/')).collect();
+    let changed = self.source_classes.get(path) != Some(&classes) || self.source_imports.get(path) != Some(&imports);
+    self.source_classes.insert(path.to_path_buf(), classes);
+    self.source_imports.insert(path.to_path_buf(), imports);
+    changed
+  }
+
+  /// The classes of the vendored modules the sources import, when the build names a vendor
+  /// tree and an import map.
+  fn read_vendor_classes(&mut self, opts: &Options) {
+    let (Some((dir, base)), Some(map_path)) = (&opts.tailwind_vendor, &opts.import_map) else { return };
+    let Ok(map) = crate::importmap::ImportMap::load(map_path) else { return };
+    let dir = opts.root.join(dir);
+    let specifiers: BTreeSet<String> = self.source_imports.values().flatten().cloned().collect();
+    let vendor = crate::tailwind::Vendor { dir: &dir, base, map: &map };
+    self.vendor_classes = vendor.classes(&specifiers.into_iter().collect::<Vec<_>>());
   }
 
   /// Every class the sources name, once each, with the first file naming it.
@@ -1042,7 +1089,7 @@ fn jobs_for(opts: &Options, build: &mut Build, path: &Path, check_collisions: bo
   Some(jobs)
 }
 
-fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job, extra: &[(String, String)]) -> JobResult {
+fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job, extra: &[(String, String)], quiet: &[(String, String)]) -> JobResult {
   let mut expanded = None;
   let mut plain = None;
   if matches!(job.asset, Asset::Style)
@@ -1053,7 +1100,7 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job, 
     if crate::tailwind::uses_tailwind(&content) && !theme_file {
       let classes = opts.tailwind_classes.as_ref().map(|c| opts.root.join(c));
       let themes = opts.tailwind_themes.as_ref().map(|dir| (opts.root.join(dir), opts.tailwind_theme_attribute.as_str()));
-      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), extra, themes, &display(&job.source, &opts.root)));
+      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), extra, quiet, themes, &display(&job.source, &opts.root)));
     } else if job.emit.minify().is_none() {
       plain = Some(crate::tailwind::defined_classes(&content).into_iter().map(str::to_owned).collect());
     }

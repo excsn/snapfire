@@ -65,10 +65,12 @@ pub fn named_themes(dir: &Path, attribute: &str) -> Vec<(PathBuf, NamedTheme)> {
 }
 
 /// Runs `content`, the stylesheet at `path`, through Tailwind with the classes in `classes` and
-/// the named themes in `themes`, a directory and the attribute that selects one.
+/// `extra` and the named themes in `themes`, a directory and the attribute that selects one.
+/// `quiet` classes build their utilities too but are never reported as unknown: they come from
+/// vendored code, where a string that is not a utility is not the app's typo.
 /// An import resolves to one of Tailwind's own stylesheets first, then to a file relative to
 /// the stylesheet that names it.
-pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(String, String)], themes: Option<(PathBuf, &str)>, source_name: &str) -> Expanded {
+pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(String, String)], quiet: &[(String, String)], themes: Option<(PathBuf, &str)>, source_name: &str) -> Expanded {
   let reads = RefCell::new(Vec::new());
   let mut listed = match classes {
     Some(file) => {
@@ -103,7 +105,7 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
 
   let options = CompileOptions { base: dir, load_stylesheet: Some(Box::new(load)), from: Some(source_name.to_owned()), themes: named, root_selectors, ..CompileOptions::default() };
   let compiled = Compiler::new(content, options).and_then(|compiler| unread_sources(&compiler).map_or(Ok(compiler), Err)).map(|mut compiler| {
-    let css = compiler.build(listed.iter().map(|(class, _)| class.as_str()));
+    let css = compiler.build(listed.iter().chain(quiet).map(|(class, _)| class.as_str()));
     let invalid = compiler.invalid_candidates();
     let defined = defined_classes(&css);
     let unknown: Vec<(String, String)> = listed.iter().filter(|(class, _)| invalid.binary_search(class).is_ok() && !defined.contains(class.as_str())).cloned().collect();
@@ -188,28 +190,116 @@ pub fn source_classes(path: &Path, source: &str) -> Vec<String> {
   let allocator = oxc_allocator::Allocator::default();
   let source_type = oxc_span::SourceType::from_path(path).unwrap_or_else(|_| oxc_span::SourceType::tsx());
   let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
-  let mut collector = Classes::default();
+  let mut consts = Consts::default();
+  consts.visit_program(&parsed.program);
+  let mut collector = Classes { consts: Some(&consts.table), ..Classes::default() };
   collector.visit_program(&parsed.program);
   let mut found: Vec<String> = collector.found.into_iter().collect();
   found.sort();
   found
 }
 
+/// What each `const` holds read as classes, by name: as a whole, as a lookup table indexed by
+/// any key and field by field. Read in declaration order, so a constant naming an earlier one
+/// reads what that one holds.
 #[derive(Default)]
-struct Classes {
+struct ConstTable {
+  whole: std::collections::HashMap<String, Vec<String>>,
+  lookup: std::collections::HashMap<String, Vec<String>>,
+  fields: std::collections::HashMap<(String, String), Vec<String>>,
+}
+
+#[derive(Default)]
+struct Consts {
+  table: ConstTable,
+}
+
+impl<'a> oxc_ast_visit::Visit<'a> for Consts {
+  fn visit_variable_declaration(&mut self, it: &oxc_ast::ast::VariableDeclaration<'a>) {
+    if it.kind == oxc_ast::ast::VariableDeclarationKind::Const {
+      for declarator in &it.declarations {
+        let (oxc_ast::ast::BindingPattern::BindingIdentifier(id), Some(init)) = (&declarator.id, &declarator.init) else { continue };
+        let read = |f: &mut dyn FnMut(&mut Classes)| {
+          let mut sub = Classes { consts: Some(&self.table), ..Classes::default() };
+          f(&mut sub);
+          sub.found.into_iter().collect::<Vec<_>>()
+        };
+        let whole = read(&mut |c| c.expression(init));
+        let lookup = read(&mut |c| c.lookup(init));
+        let mut fields = Vec::new();
+        if let oxc_ast::ast::Expression::ObjectExpression(o) = init.without_parentheses() {
+          for property in &o.properties {
+            if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property
+              && let Some(key) = p.key.static_name()
+            {
+              fields.push((key.to_string(), read(&mut |c| c.expression(&p.value))));
+            }
+          }
+        }
+        let name = id.name.to_string();
+        self.table.whole.insert(name.clone(), whole);
+        self.table.lookup.insert(name.clone(), lookup);
+        for (key, classes) in fields {
+          self.table.fields.insert((name.clone(), key), classes);
+        }
+      }
+    }
+    oxc_ast_visit::walk::walk_variable_declaration(self, it);
+  }
+}
+
+#[derive(Default)]
+struct Classes<'t> {
   found: std::collections::BTreeSet<String>,
+  consts: Option<&'t ConstTable>,
 }
 
 const CLASS_CALLS: &[&str] = &["clsx", "cn", "cx", "classnames", "classNames", "twMerge", "normalizeClass", "_normalizeClass"];
 
-impl Classes {
+impl Classes<'_> {
   fn words(&mut self, text: &str) {
     self.found.extend(text.split_whitespace().map(str::to_owned));
+  }
+
+  fn from_table(&mut self, pick: impl FnOnce(&ConstTable) -> Option<&Vec<String>>) {
+    if let Some(classes) = self.consts.and_then(pick) {
+      self.found.extend(classes.iter().cloned());
+    }
+  }
+
+  /// The values of a lookup object or the elements of a lookup array: what `table[key]` can be.
+  fn lookup(&mut self, table: &oxc_ast::ast::Expression) {
+    use oxc_ast::ast::Expression;
+    match table {
+      Expression::ObjectExpression(o) => {
+        for property in &o.properties {
+          if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property {
+            self.expression(&p.value);
+          }
+        }
+      }
+      Expression::ArrayExpression(_) => self.expression(table),
+      Expression::TSAsExpression(e) => self.lookup(&e.expression),
+      Expression::TSSatisfiesExpression(e) => self.lookup(&e.expression),
+      _ => {}
+    }
   }
 
   fn expression(&mut self, expr: &oxc_ast::ast::Expression) {
     use oxc_ast::ast::Expression;
     match expr {
+      Expression::Identifier(id) => self.from_table(|t| t.whole.get(id.name.as_str())),
+      Expression::ComputedMemberExpression(m) => {
+        if let Expression::Identifier(id) = &m.object {
+          self.from_table(|t| t.lookup.get(id.name.as_str()));
+        }
+      }
+      Expression::StaticMemberExpression(m) => {
+        if let Expression::Identifier(id) = &m.object {
+          let key = (id.name.to_string(), m.property.name.to_string());
+          self.from_table(|t| t.fields.get(&key));
+        }
+      }
       Expression::StringLiteral(s) => self.words(&s.value),
       Expression::TemplateLiteral(t) => {
         let last = t.quasis.len().saturating_sub(1);
@@ -280,7 +370,7 @@ impl Classes {
   }
 }
 
-impl<'a> oxc_ast_visit::Visit<'a> for Classes {
+impl<'a> oxc_ast_visit::Visit<'a> for Classes<'_> {
   fn visit_jsx_attribute(&mut self, attribute: &oxc_ast::ast::JSXAttribute<'a>) {
     let named = matches!(&attribute.name, oxc_ast::ast::JSXAttributeName::Identifier(id) if id.name == "class" || id.name == "className");
     if named {
@@ -315,6 +405,111 @@ impl<'a> oxc_ast_visit::Visit<'a> for Classes {
   }
 }
 
+/// The specifiers a script imports: static imports and re-exports, side-effect imports and
+/// `import("x")` with a literal argument.
+pub fn module_imports(path: &Path, source: &str) -> Vec<String> {
+  use oxc_ast_visit::Visit;
+  let allocator = oxc_allocator::Allocator::default();
+  let source_type = oxc_span::SourceType::from_path(path).unwrap_or_else(|_| oxc_span::SourceType::mjs());
+  let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
+  let mut collector = Imports::default();
+  collector.visit_program(&parsed.program);
+  collector.found.into_iter().collect()
+}
+
+#[derive(Default)]
+struct Imports {
+  found: std::collections::BTreeSet<String>,
+}
+
+impl<'a> oxc_ast_visit::Visit<'a> for Imports {
+  fn visit_import_declaration(&mut self, it: &oxc_ast::ast::ImportDeclaration<'a>) {
+    self.found.insert(it.source.value.to_string());
+  }
+
+  fn visit_export_all_declaration(&mut self, it: &oxc_ast::ast::ExportAllDeclaration<'a>) {
+    self.found.insert(it.source.value.to_string());
+  }
+
+  fn visit_export_from_declaration(&mut self, it: &oxc_ast::ast::ExportFromDeclaration<'a>) {
+    self.found.insert(it.source.value.to_string());
+  }
+
+  fn visit_import_expression(&mut self, it: &oxc_ast::ast::ImportExpression<'a>) {
+    if let oxc_ast::ast::Expression::StringLiteral(s) = &it.source {
+      self.found.insert(s.value.to_string());
+    }
+    oxc_ast_visit::walk::walk_import_expression(self, it);
+  }
+}
+
+/// The file a package's build writes its class list to, beside its modules.
+pub const PACKAGE_CLASSES: &str = "tailwind.classes";
+
+/// A vendor tree: the directory the vendored modules sit in and the URL prefix the import map
+/// names them under.
+pub struct Vendor<'a> {
+  pub dir: &'a Path,
+  pub base: &'a str,
+  pub map: &'a crate::importmap::ImportMap,
+}
+
+impl Vendor<'_> {
+  fn file_of(&self, url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix(self.base.trim_end_matches('/'))?.strip_prefix('/')?;
+    Some(crate::graph::normalise(&self.dir.join(rest)))
+  }
+
+  /// The directory holding a package's class list at or above `file`, inside the tree.
+  fn listing_package(&self, file: &Path) -> Option<PathBuf> {
+    let mut dir = file.parent()?;
+    while dir.starts_with(self.dir) && dir != self.dir {
+      if dir.join(PACKAGE_CLASSES).is_file() {
+        return Some(dir.to_path_buf());
+      }
+      dir = dir.parent()?;
+    }
+    None
+  }
+
+  /// The classes of every vendored module `specifiers` reach, each with the vendored path it
+  /// came from. A package that ships a class list is read from the list and its modules are
+  /// not parsed; any other module is read for classes where a class goes and its imports are
+  /// followed, bare ones through the import map.
+  pub fn classes(&self, specifiers: &[String]) -> Vec<(String, String)> {
+    let mut queue: Vec<PathBuf> = specifiers.iter().filter_map(|s| self.map.url_of(s)).filter_map(|url| self.file_of(&url)).collect();
+    let mut seen_files = std::collections::BTreeSet::new();
+    let mut seen_packages = std::collections::BTreeSet::new();
+    let mut out: Vec<(String, String)> = Vec::new();
+    let label = |path: &Path| path.strip_prefix(self.dir.parent().unwrap_or(self.dir)).unwrap_or(path).to_string_lossy().replace('\\', "/");
+    while let Some(file) = queue.pop() {
+      if !seen_files.insert(file.clone()) {
+        continue;
+      }
+      if let Some(package) = self.listing_package(&file) {
+        if seen_packages.insert(package.clone()) {
+          let listed = package.join(PACKAGE_CLASSES);
+          out.extend(read_classes(&listed).into_iter().map(|(class, _)| (class, label(&listed))));
+        }
+        continue;
+      }
+      let Ok(text) = std::fs::read_to_string(&file) else { continue };
+      out.extend(source_classes(&file, &text).into_iter().map(|class| (class, label(&file))));
+      for specifier in module_imports(&file, &text) {
+        let next = if specifier.starts_with("./") || specifier.starts_with("../") {
+          file.parent().map(|dir| crate::graph::normalise(&dir.join(&specifier)))
+        } else if specifier.starts_with('/') {
+          self.file_of(&specifier)
+        } else {
+          self.map.url_of(&specifier).and_then(|url| self.file_of(&url))
+        };
+        queue.extend(next);
+      }
+    }
+    out
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -340,6 +535,19 @@ mod tests {
   }
 
   #[test]
+  fn reads_the_classes_a_constant_holds_where_a_class_goes() {
+    let tsx = "const tones = { violet: \"bg-violet-100 text-violet-800\", teal: \"bg-teal-100\" } as const;\nconst base = \"inline-flex rounded-full\";\nconst sizes = [\"text-xs\", \"text-sm\"];\nconst unused = \"not-a-class-anywhere\";\nexport function Badge({ tone, big }: { tone: keyof typeof tones; big: boolean }) {\n  return <span className={cn(base, tones[tone], sizes[big ? 1 : 0])}><i className={tones.teal} /></span>;\n}\n";
+    let found = source_classes(Path::new("src/Badge.tsx"), tsx);
+    assert_eq!(found, ["bg-teal-100", "bg-violet-100", "inline-flex", "rounded-full", "text-sm", "text-violet-800", "text-xs"]);
+  }
+
+  #[test]
+  fn a_constant_that_names_another_reads_what_that_one_holds() {
+    let tsx = "const ring = \"ring-1 ring-inset\";\nconst tones = { violet: `${ring} bg-violet-100` };\nexport const B = ({ t }: { t: \"violet\" }) => <b className={tones[t]} />;\n";
+    assert_eq!(source_classes(Path::new("src/B.tsx"), tsx), ["bg-violet-100", "ring-1", "ring-inset"]);
+  }
+
+  #[test]
   fn reads_the_classes_selectors_name() {
     let css = ".a, .b-c:hover > .d_e { margin: .5rem; background: url(x.png); }\n@media (width > 1px) {\n  .f { color: red; }\n}\n/* .g */\n.h { content: \".i\"; &.j { color: red; } }";
     let defined: Vec<&str> = defined_classes(css).into_iter().collect();
@@ -356,7 +564,7 @@ mod tests {
     let sheet = dir.join("app.css");
     let content = "@import \"tailwindcss/utilities\";\n@import \"./brand.css\";\n.hero {\n  margin: 0 .5rem;\n}\n";
 
-    let expanded = expand(&sheet, content, Some(&classes), &[], None, "styles/app.css");
+    let expanded = expand(&sheet, content, Some(&classes), &[], &[], None, "styles/app.css");
     let css = expanded.css.unwrap();
     assert!(css.contains(".flex {\n  display: flex;\n}"), "{css}");
     assert!(css.contains("background-color: var(--color-brand)"), "{css}");
@@ -374,11 +582,11 @@ mod tests {
       ("@import \"tailwindcss\";\n@source not \"./legacy\";\n", "`@source not \"./legacy\"`"),
       ("@import \"tailwindcss\" source(\"../src\");\n", "`source(\"../src\")`"),
     ] {
-      let error = expand(sheet, content, None, &[], None, "styles/app.css").css.unwrap_err();
+      let error = expand(sheet, content, None, &[], &[], None, "styles/app.css").css.unwrap_err();
       assert!(error.starts_with(&format!("{line}: ")) && error.contains("@source inline("), "{error}");
     }
     for content in ["@import \"tailwindcss\" source(none);\n", "@import \"tailwindcss\";\n@source inline(\"flex\");\n"] {
-      let css = expand(sheet, content, None, &[], None, "styles/app.css").css.unwrap();
+      let css = expand(sheet, content, None, &[], &[], None, "styles/app.css").css.unwrap();
       assert!(!css.is_empty(), "{content}");
     }
   }

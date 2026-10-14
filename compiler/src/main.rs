@@ -104,6 +104,20 @@ struct Args {
   #[arg(long, default_value = "data-theme")]
   tailwind_theme_attribute: String,
 
+  /// The vendor tree a stylesheet using Tailwind reads the imported packages' classes from,
+  /// relative to root: a package's `tailwind.classes` when it ships one, else its modules
+  #[arg(long, requires = "tailwind_vendor_base")]
+  tailwind_vendor: Option<PathBuf>,
+
+  /// The URL prefix the import map names the vendor tree under
+  #[arg(long, requires = "tailwind_vendor")]
+  tailwind_vendor_base: Option<String>,
+
+  /// Writes the classes the sources name to `tailwind.classes` in the output directory, the
+  /// class list a package carries to the applications that vendor it
+  #[arg(long)]
+  emit_tailwind_classes: bool,
+
   #[arg(long)]
   typecheck: bool,
 
@@ -149,6 +163,8 @@ fn main() -> Result<()> {
     tailwind_classes: args.tailwind_classes,
     tailwind_themes: args.tailwind_themes,
     tailwind_theme_attribute: args.tailwind_theme_attribute,
+    tailwind_vendor: args.tailwind_vendor.zip(args.tailwind_vendor_base),
+    emit_tailwind_classes: args.emit_tailwind_classes,
     driven: args.driven,
   };
 

@@ -1,0 +1,1 @@
+import{jsx as a}from"react/jsx-runtime";const b=(...c)=>c.filter(Boolean).join(" ");export function Badge({children:c}){return a("span",{className:b("rounded-full","bg-violet-100"),children:c,title:"underline"})}
