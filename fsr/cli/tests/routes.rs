@@ -1420,3 +1420,25 @@ fn a_file_the_entry_imports_by_its_compiled_name_is_compiled() {
   assert!(include.contains(&"src/elements/x-a.ts".to_owned()), "{include:?}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// DEFECTS 1.95: `fail` returns `never`, so after `if (!recipe) fail(...)`
+/// the value is not null, as tsc reads it. The props said `| null` and every
+/// read of it in the page failed the typecheck.
+#[test]
+fn a_value_a_fail_guard_rules_out_is_not_nullable_in_the_props() {
+  const RECIPES: &str = "export const RECIPES = [{ slug: \"a\", title: \"A\" }, { slug: \"b\", title: \"B\" }];\n";
+  let guarded = |guard: &str| format!("import {{ fail }} from \"@snapfire/fsr\";\nimport type {{ Ctx }} from \"@snapfire/fsr\";\nimport {{ RECIPES }} from \"../../../src/recipes\";\nexport async function load({{ params }}: Ctx<\"/recipe/{{slug}}\">) {{\n  const recipe = RECIPES.find((r) => r.slug === params.slug);\n  {guard}\n  return {{ recipe }};\n}}\n");
+  for guard in ["if (!recipe) fail(\"not_found\", `there is no recipe ${params.slug}`);", "if (recipe === undefined) fail(\"not_found\", \"gone\");", "if (recipe == null || params.slug === \"\") fail(\"not_found\", \"gone\");", "if (!recipe) {\n    fail(\"not_found\", \"gone\");\n  }", "if (!recipe) return { recipe: { slug: \"none\", title: \"None\" } };"] {
+    let dir = app(&[("routes/recipe/[slug]/page.tsx", PAGE), ("routes/recipe/[slug]/page.loader.ts", &guarded(guard)), ("src/recipes.ts", RECIPES)]);
+    let built = build(&dir, &Options::default()).unwrap();
+    let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
+    let props = client.lines().find(|l| l.starts_with("export type RecipeSlugProps")).unwrap_or_else(|| panic!("{client}"));
+    assert_eq!(props, "export type RecipeSlugProps = { recipe: { slug: string; title: string } };", "after `{guard}`");
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
+  let dir = app(&[("routes/recipe/[slug]/page.tsx", PAGE), ("routes/recipe/[slug]/page.loader.ts", &guarded("")), ("src/recipes.ts", RECIPES)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
+  assert!(client.contains("export type RecipeSlugProps = { recipe: { slug: string; title: string } | null };"), "unguarded it stays nullable: {client}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

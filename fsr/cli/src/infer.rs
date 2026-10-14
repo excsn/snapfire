@@ -3,7 +3,7 @@
 //! root, so this is a walk over the IR with the contract at hand; anything it
 //! cannot settle is `unknown`, never a guess.
 
-use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, Consts, Entry, Expr, Lit, Stmt};
+use snapfire_fsr_ir::ast::{ArithOp, Body, Builtin, CompareOp, Consts, Entry, Expr, Lit, LogicOp, Stmt};
 use snapfire_fsr_service::typescript::{type_name_for, Flavour};
 use snapfire_fsr_service::{Contract, Type, TypeDef};
 
@@ -113,6 +113,44 @@ fn union(arms: Vec<Ts>) -> Ts {
   }
 }
 
+/// Past a statement that leaves when `cond` holds, every name `cond` tests
+/// for null holds a value: rebound non-null for the rest of the block.
+fn narrow(cond: &Expr, env: &mut Vec<(String, Ts)>) {
+  let mut names = Vec::new();
+  ruled_out(cond, &mut names);
+  for name in names {
+    if let Some((_, t)) = env.iter().rev().find(|(n, _)| *n == name) {
+      let t = non_null(t.clone());
+      env.push((name, t));
+    }
+  }
+}
+
+/// The names `cond` is true for when they are null: `!x`, `x == null` and either side of `||`.
+fn ruled_out(cond: &Expr, out: &mut Vec<String>) {
+  match cond {
+    Expr::Not(inner) => {
+      if let Expr::Var(name) = &**inner {
+        out.push(name.clone());
+      }
+    }
+    Expr::Compare(CompareOp::Eq, a, b) => match (&**a, &**b) {
+      (Expr::Var(name), Expr::Lit(Lit::Null)) | (Expr::Lit(Lit::Null), Expr::Var(name)) => out.push(name.clone()),
+      _ => {}
+    },
+    Expr::Logic(LogicOp::Or, a, b) => {
+      ruled_out(a, out);
+      ruled_out(b, out);
+    }
+    _ => {}
+  }
+}
+
+/// Whether a block always leaves the body: its last statement returns or fails unconditionally.
+fn never_falls_through(body: &Body) -> bool {
+  matches!(body.last(), Some(Stmt::Return(_)) | Some(Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), .. }))
+}
+
 fn non_null(t: Ts) -> Ts {
   match t {
     Ts::Union(arms) => union(arms.into_iter().filter(|a| *a != Ts::Null).collect()),
@@ -157,10 +195,14 @@ impl<'a> Inferer<'a> {
           let t = self.expr(expr, env);
           env.push((name.clone(), t));
         }
-        Stmt::If { then, r#else, .. } => {
+        Stmt::If { cond, then, r#else } => {
           self.block(then, env, returns);
           self.block(r#else, env, returns);
+          if r#else.is_empty() && never_falls_through(then) {
+            narrow(cond, env);
+          }
         }
+        Stmt::Guard { cond, .. } => narrow(cond, env),
         Stmt::ForOf { name, over, body } => {
           let elem = element(self.expr(over, env));
           env.push((name.clone(), elem));
@@ -168,7 +210,7 @@ impl<'a> Inferer<'a> {
           env.pop();
         }
         Stmt::Return(e) => returns.push(self.expr(e, env)),
-        Stmt::Guard { .. } | Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } | Stmt::Expr(_) => {}
+        Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } | Stmt::Expr(_) => {}
       }
     }
     env.truncate(depth);
