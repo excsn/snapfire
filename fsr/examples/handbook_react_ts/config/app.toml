@@ -13,6 +13,9 @@ ttl = "1h"
 [typecheck]
 version = "7.0.2"
 
+[build]
+entry = "generate"
+
 [images]
 rewrite = false
 

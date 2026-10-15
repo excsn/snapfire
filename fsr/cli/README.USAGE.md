@@ -60,6 +60,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Answering a Residue Diagnostic](#answering-a-residue-diagnostic)
 * [Counting What Does Not Lower](#counting-what-does-not-lower)
 * [Building From Rust](#building-from-rust)
+* [Running a Program After the Build](#running-a-program-after-the-build)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -1699,6 +1700,29 @@ for path in emitted.written {
   println!("wrote {}", path.display());
 }
 ```
+
+
+## Running a Program After the Build
+
+A Cargo project's `src/main.rs` is the app: `fsr dev` builds it and runs it as the server. A program that does something with the built app and then exits, such as writing a whole static site, is not an app. It goes in its own Cargo project, named by `[build] entry`:
+
+```toml
+[build]
+entry = "generate"   # a Cargo project, relative to the project root
+```
+
+`fsr build` builds the app, then builds that project and runs its binary to completion from the project root, with `FSR_ROOT` set to the project root and `FSR_APP` to the app directory. The build runs with `FSR_DEV_OWNS_BUILD` set, so a build script in it that calls `emit` skips, as it does under `fsr dev`. A project that does not build, builds more than one binary or exits non-zero fails `fsr build` and the report names the entry. `fsr dev` runs it on start and after every rebuild, watches its `src/`, `build.rs` and `Cargo.toml` and keeps serving when it fails.
+
+```rust
+// generate/src/main.rs
+fn main() {
+  let root = std::path::PathBuf::from(std::env::var("FSR_ROOT").unwrap());
+  let app = std::path::PathBuf::from(std::env::var("FSR_APP").unwrap());
+  // read app/dist and app/generated, write under root
+}
+```
+
+An app under `fsr dev` that exits 0 stops `fsr dev` with an error saying so, since a server listens until it is stopped; one that fails is started again by the next change. The handbook example is a site with no server: no `src/main.rs`, `fsr dev app` served by the stock host and `generate/` as its entry, which prerenders every route into `site/`.
 
 ## Error Handling
 

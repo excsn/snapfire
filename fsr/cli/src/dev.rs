@@ -273,6 +273,8 @@ struct Project {
   /// A site served under a shell artifact: the site's name and its project
   /// root, which the shell is told to mount for the run.
   mount: Option<(String, PathBuf)>,
+  /// `[build] entry`, resolved against the project root.
+  entry: Option<PathBuf>,
 }
 
 impl Project {
@@ -285,7 +287,7 @@ impl Project {
       site_options.under = None;
       let site_app = App::open(app, site_options)?;
       println!("dev: serving {} under the shell at {}", site.name, root.display());
-      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)) });
+      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), entry: None });
     }
     let shell = App::open(app, options)?;
     let cargo = shell.dir.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file());
@@ -296,7 +298,8 @@ impl Project {
       options.snapfirec = Some(apps[0].snapfirec.clone());
       apps.push(App::open(&dir, options)?);
     }
-    Ok(Self { apps, cargo, mount: None })
+    let entry = entry_of(&apps[0].dir);
+    Ok(Self { apps, cargo, mount: None, entry })
   }
 
   /// The arguments `fsr serve` takes for the run: the shell's app directory
@@ -366,13 +369,17 @@ impl Project {
 
   /// What to watch besides the applications: the Cargo project's sources or the configuration the stock host reads.
   fn watched(&self) -> Vec<PathBuf> {
-    match &self.cargo {
+    let mut watched: Vec<PathBuf> = match &self.cargo {
       Some(cargo) => ["src", "config", "build.rs", "Cargo.toml"].iter().map(|name| cargo.join(name)).collect(),
       None => {
         let root = crate::serve::project_root(&self.shell().dir);
         ["config", "app.toml", "app.yaml"].iter().map(|name| root.join(name)).collect()
       }
+    };
+    if let Some(entry) = &self.entry {
+      watched.extend(["src", "build.rs", "Cargo.toml"].iter().map(|name| entry.join(name)));
     }
+    watched
   }
 
   /// Which application each changed path belongs to, else that it is the project around them.
@@ -810,14 +817,20 @@ impl Server {
     }
   }
 
-  /// Notices a server that exited on its own, so the next change starts one.
-  fn poll(&mut self) {
+  /// Notices a server that exited on its own. One that failed is started again by the next
+  /// change, so a fix brings it back. One that exited 0 finished as a program does, which a
+  /// server never does, so `fsr dev` stops on it.
+  fn poll(&mut self) -> Result<(), BuildError> {
     if let Some(child) = &mut self.child {
       if let Ok(Some(status)) = child.try_wait() {
-        eprintln!("dev: server exited with {status}; the next change starts it again");
         self.child = None;
+        if status.success() {
+          return Err(BuildError::Dev("dev: the app exited 0; fsr dev runs it as the server and a server listens until it is stopped. A program that writes files and exits is a `[build] entry`, not `src/main.rs`".to_owned()));
+        }
+        eprintln!("dev: server exited with {status}; the next change starts it again");
       }
     }
+    Ok(())
   }
 }
 
@@ -983,12 +996,21 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       } else if !failed && !reload {
         project.shell().notify_changed();
       }
+      if !failed {
+        if let Some(entry) = &project.entry {
+          if let Err(e) = run_entry(&root, entry, &project.shell().dir) {
+            eprintln!("{e}");
+            refusals.push(e.to_string());
+            failed = true;
+          }
+        }
+      }
       if failed {
         project.shell().notify_failed(&refusals.join("\n\n"));
         println!("dev: waiting for changes");
       }
     }
-    let Some(batch) = collect(&rx, &mut server) else {
+    let Some(batch) = collect(&rx, &mut server)? else {
       println!("dev: stopping");
       return Ok(());
     };
@@ -1113,12 +1135,12 @@ struct Batch {
 /// Takes whatever is already queued, else blocks for the first event, polling the server
 /// meanwhile, then keeps draining until the filesystem has been quiet for `SETTLE`. `None` on a
 /// stop signal or once the watcher has hung up.
-fn collect(rx: &UnboundedSyncReceiver<Msg>, server: &mut Server) -> Option<Batch> {
+fn collect(rx: &UnboundedSyncReceiver<Msg>, server: &mut Server) -> Result<Option<Batch>, BuildError> {
   let mut paths: HashSet<PathBuf> = HashSet::new();
   loop {
     match rx.try_recv() {
       Ok(Msg::Fs(event)) => absorb(event, &mut paths),
-      Ok(Msg::Stop) | Err(TryRecvError::Disconnected) => return None,
+      Ok(Msg::Stop) | Err(TryRecvError::Disconnected) => return Ok(None),
       Err(TryRecvError::Empty) => break,
     }
   }
@@ -1126,18 +1148,18 @@ fn collect(rx: &UnboundedSyncReceiver<Msg>, server: &mut Server) -> Option<Batch
   while paths.is_empty() {
     match rx.recv_timeout(POLL) {
       Ok(Msg::Fs(event)) => absorb(event, &mut paths),
-      Ok(Msg::Stop) | Err(RecvErrorTimeout::Disconnected) => return None,
-      Err(RecvErrorTimeout::Timeout) => server.poll(),
+      Ok(Msg::Stop) | Err(RecvErrorTimeout::Disconnected) => return Ok(None),
+      Err(RecvErrorTimeout::Timeout) => server.poll()?,
     }
   }
   loop {
     match rx.recv_timeout(SETTLE) {
       Ok(Msg::Fs(event)) => absorb(event, &mut paths),
-      Ok(Msg::Stop) | Err(RecvErrorTimeout::Disconnected) => return None,
+      Ok(Msg::Stop) | Err(RecvErrorTimeout::Disconnected) => return Ok(None),
       Err(RecvErrorTimeout::Timeout) => break,
     }
   }
-  Some(Batch { paths: paths.into_iter().collect(), queued })
+  Ok(Some(Batch { paths: paths.into_iter().collect(), queued }))
 }
 
 fn absorb(event: notify::Result<notify::Event>, paths: &mut HashSet<PathBuf>) {
@@ -1145,6 +1167,51 @@ fn absorb(event: notify::Result<notify::Event>, paths: &mut HashSet<PathBuf>) {
     Ok(event) => paths.extend(event.paths),
     Err(e) => eprintln!("dev: watch error: {e}"),
   }
+}
+
+/// `[build] entry` of the configuration beside `app`, resolved against the project root; `None`
+/// when it is absent or empty.
+pub fn entry_of(app: &Path) -> Option<PathBuf> {
+  let entry = crate::config_beside(app)?.build?.entry?;
+  (!entry.is_empty()).then(|| crate::serve::project_root(app).join(entry))
+}
+
+/// Builds the `[build] entry` project and runs its binary to completion from `root`, with
+/// `FSR_ROOT` and `FSR_APP` naming the project and the application. The build runs with
+/// [`OWNS_BUILD`] set, since the application is built already.
+pub fn run_entry(root: &Path, entry: &Path, app: &Path) -> Result<(), BuildError> {
+  let shown = entry.strip_prefix(root).unwrap_or(entry).display().to_string();
+  let fail = |why: String| BuildError::Dev(format!("[build] entry {shown}: {why}"));
+  if !entry.join("Cargo.toml").is_file() {
+    return Err(fail("no Cargo.toml there".to_owned()));
+  }
+  let mut child = Command::new("cargo")
+    .args(["build", "--message-format=json-render-diagnostics"])
+    .env(OWNS_BUILD, "1")
+    .current_dir(entry)
+    .stdout(Stdio::piped())
+    .spawn()
+    .map_err(|e| fail(format!("cargo build: {e}")))?;
+  let stdout = child.stdout.take().expect("a piped stdout");
+  let executables: Vec<PathBuf> = BufReader::new(stdout).lines().map_while(Result::ok).filter_map(|line| executable_of(&line)).collect();
+  let status = child.wait().map_err(|e| fail(format!("cargo build: {e}")))?;
+  if !status.success() {
+    return Err(fail(format!("cargo build exited with {status}")));
+  }
+  let [executable] = executables.as_slice() else {
+    return Err(fail(format!("cargo build made {} binaries; an entry is one", executables.len())));
+  };
+  println!("entry     {shown}");
+  let status = Command::new(executable)
+    .current_dir(root)
+    .env("FSR_ROOT", root)
+    .env("FSR_APP", app)
+    .status()
+    .map_err(|e| fail(format!("{}: {e}", executable.display())))?;
+  if !status.success() {
+    return Err(fail(format!("exited with {status}")));
+  }
+  Ok(())
 }
 
 #[cfg(test)]
@@ -1203,11 +1270,11 @@ mod tests {
   }
 
   fn project(shell: &Path) -> Project {
-    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None }
+    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, entry: None }
   }
 
   fn with_site(shell: &Path, site: &Path) -> Project {
-    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None }
+    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, entry: None }
   }
 
   #[test]
@@ -1675,3 +1742,34 @@ mod under_tests {
     assert!(change.apps[1].is_some() && !change.project);
   }
 }
+
+#[cfg(test)]
+mod server_tests {
+  use super::*;
+
+  /// Polls until the child has been seen to exit, returning what `poll` said then.
+  fn polled(command: &str) -> Result<(), BuildError> {
+    let mut server = Server { child: Some(Command::new(command).spawn().unwrap()) };
+    for _ in 0..500 {
+      let result = server.poll();
+      if server.child.is_none() {
+        return result;
+      }
+      std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("{command} did not exit");
+  }
+
+  /// DEFECTS 1.103: an app that exited 0 was reported as a crash the next change would restart while nothing served.
+  #[test]
+  fn an_app_that_exits_0_stops_dev() {
+    let e = polled("true").expect_err("an exit 0 is an error");
+    assert!(e.to_string().contains("exited 0") && e.to_string().contains("[build] entry"), "{e}");
+  }
+
+  #[test]
+  fn an_app_that_fails_waits_for_the_next_change() {
+    polled("false").expect("a failure is started again by the next change");
+  }
+}
+

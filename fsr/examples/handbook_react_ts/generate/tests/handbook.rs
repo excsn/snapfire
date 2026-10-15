@@ -9,7 +9,7 @@ use snapfire_fsr_host::{Config, Host, RenderMode};
 const ROUTES: [&str; 4] = ["/", "/faq", "/install", "/tips"];
 
 fn handbook() -> Host {
-  let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+  let config = Config::load(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))).unwrap();
   Host::from_config(config).unwrap().build().unwrap()
 }
 
@@ -72,7 +72,7 @@ fn the_whole_site_is_written_to_files_and_each_document_stands_alone() {
   let tips = std::fs::read_to_string(out.join("tips/index.html")).unwrap();
   assert!(tips.contains("<section class=\"page tips\"><h1 id=\"tips\">Tips</h1>"), "the page's own layout: {tips}");
   assert!(tips.contains("Show the tip"), "the island rendered on the server: {tips}");
-  assert!(Path::new(env!("CARGO_MANIFEST_DIR")).join("app/dist/content/tip.js").is_file(), "the MDX the island imports was compiled for the browser");
+  assert!(Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/..")).join("app/dist/content/tip.js").is_file(), "the MDX the island imports was compiled for the browser");
 
   std::fs::remove_dir_all(&out).ok();
 }

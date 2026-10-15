@@ -177,6 +177,7 @@ enabled = true                    # the default; false builds without checking t
 strict = false                    # the default; true refuses a component that renders in the browser alone
 target = "es2022"                 # the default; the target every generated tsconfig carries, es2017 or later or esnext
 lib = ["es2023", "dom"]           # optional: the tsconfig lib; left to the target when absent
+entry = "generate"                # optional: a Cargo project fsr build and fsr dev run once the app is built
 
 [trace]                           # optional: without it no client reads a trace outside dev
 expose = ["/"]                    # path prefixes whose requests a page may read its own trace of

@@ -2,20 +2,19 @@ use std::path::{Path, PathBuf};
 
 use snapfire_fsr_host::Host;
 
-/// The handbook has no server. It builds the host to render, writes every
-/// fixed route and every static root into `site/` and exits, so what serves
-/// the directory afterwards can be anything. The output sits beside the app
-/// rather than under it, since one of the static roots is `app/dist` itself.
-/// `fsr dev app` is still the authoring loop.
+/// The handbook has no server. This is its `[build] entry`: it builds the host to render, writes
+/// every fixed route and every static root into `site/` and exits, so what serves the directory
+/// afterwards can be anything. The output sits beside the app rather than under it, since one of
+/// the static roots is `app/dist` itself.
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+  let root = project_root();
   // Events out to fibre_logging's appenders, spans kept for `/__fsr/traces`.
-  let logging = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fibre_logging.yaml");
+  let logging = root.join("fibre_logging.yaml");
   let (traces, _logging, why) = snapfire_fsr_host::trace::observe(&logging);
   if let Some(why) = why {
     eprintln!("logging disabled: {why}");
   }
-  let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
   let host = Host::from(&root).and_then(|builder| builder.traces(traces).build()).map_err(std::io::Error::other)?;
   print!("{}", host.report());
 
@@ -39,6 +38,11 @@ async fn main() -> std::io::Result<()> {
   routes.dedup();
   println!("{} routes in {} files: serve {} with anything", routes.len(), written.len(), out.display());
   Ok(())
+}
+
+/// The handbook's root: `FSR_ROOT` when `fsr` runs this, else the directory above this crate.
+fn project_root() -> PathBuf {
+  std::env::var_os("FSR_ROOT").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
 }
 
 /// Every file under `from`, into `to` and how many. A static root the

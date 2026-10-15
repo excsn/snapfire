@@ -1,19 +1,19 @@
 # handbook_react_ts
 
-A documentation site with no server, written mostly in MDX. Four routes, no backend, nothing on any plan that reads the request, so every route is fixed and the whole site is files: `cargo run -p handbook_react_ts` builds the host, writes each route to `app/dist/prerender` and exits. What serves the directory afterwards is not this program's business.
+A documentation site with no server, written mostly in MDX. Four routes, no backend, nothing on any plan that reads the request, so every route is fixed and the whole site is files. It has no `src/main.rs`, since it has no app to serve. Its Rust is `generate/`, the `[build] entry` in `config/app.toml`: `fsr build app` builds the app and then runs it. It builds the host, writes every route and every static root into `site/` and exits. What serves the directory afterwards is not its business.
 
 It exists to prove that a different deployment is a different build of the same framework rather than a different framework: the routes, the loaders, the layout and the islands are written exactly as the storefront's are.
 
 ## Running it
 
 ```sh
-cargo run -p handbook_react_ts          # writes site/ and exits
+fsr build app                           # builds the app, then generate/ writes site/
 cd site && python3 -m http.server 8110
 ```
 
 `site/` is the whole thing: a document and a payload per route, plus every static root the configuration names copied in, so the client bundle, the vendored React and the stylesheet sit where the documents ask for them. It is written beside the app rather than under it, since one of those roots is `app/dist` itself.
 
-`fsr dev app` is still the authoring loop, with the live refresh and the rebuild on save. The generator is what you run when the writing is done. Both read MDX with fsr's default features.
+`fsr dev app` is the authoring loop: the stock host serves the app with the live refresh. Every rebuild on save runs `generate/` again, so `site/` follows the edit. Both read MDX with fsr's default features.
 
 ## What it holds
 
@@ -35,7 +35,7 @@ Client navigation is the part that depends on what serves the files. The navigat
 
 ## Tests
 
-`cargo test -p handbook_react_ts`: that every route is prerenderable and none is left out, that the whole site is written as documents and payloads, that a written document carries the page's markup, its own title and no reference to a host and that a render with a session full of junk is byte for byte the render without one.
+`cargo test -p handbook_react_ts`, in `generate/`: that every route is prerenderable and none is left out, that the whole site is written as documents and payloads, that a written document carries the page's markup, its own title and no reference to a host and that a render with a session full of junk is byte for byte the render without one.
 
 `fsr test app`: the home page's cards come from the loader's constant, the layout wraps every page, the `(docs)` group's layout wraps the doc pages and not the home page, the MDX page reads its loader's data and highlights its code, the markdown page is titled by its frontmatter, `/tips` keeps its own layout in place of the wrapper and the tip island renders `content/tip.mdx` in the browser on a click.
 

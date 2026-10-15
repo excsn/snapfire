@@ -572,7 +572,14 @@ fn main() -> ExitCode {
         for path in emitted.written {
           println!("wrote {}", path.display());
         }
-        types_row(emitted.checked.as_ref())
+        let code = types_row(emitted.checked.as_ref());
+        match snapfire_fsr_cli::dev::entry_of(&args.app_dir) {
+          Some(entry) => match snapfire_fsr_cli::dev::run_entry(&snapfire_fsr_cli::serve::project_root(&args.app_dir), &entry, &args.app_dir) {
+            Ok(()) => code,
+            Err(e) => failed(e),
+          },
+          None => code,
+        }
       }
       Err(e) => failed(e),
     },

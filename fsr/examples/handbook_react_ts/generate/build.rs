@@ -1,5 +1,9 @@
 fn main() {
-  let app = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("app");
+  println!("cargo:rerun-if-env-changed={}", snapfire_fsr_cli::dev::OWNS_BUILD);
+  if snapfire_fsr_cli::dev::owns_build() {
+    return;
+  }
+  let app = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../app");
   for watched in ["routes", "src", "styles", "content", "mdx-components.tsx", "importmap.json"] {
     println!("cargo:rerun-if-changed={}", app.join(watched).display());
   }
@@ -14,6 +18,6 @@ fn snapfirec() -> Option<std::path::PathBuf> {
   if let Some(path) = std::env::var_os("SNAPFIREC") {
     return Some(path.into());
   }
-  let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../..");
+  let root = std::path::PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../../..");
   ["target/debug/snapfirec", "target/release/snapfirec"].iter().map(|p| root.join(p)).find(|p| p.is_file())
 }

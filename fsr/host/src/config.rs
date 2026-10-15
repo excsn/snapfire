@@ -1007,6 +1007,10 @@ pub struct BuildSection {
   /// The `lib` every generated tsconfig carries; left to the target when absent.
   #[serde(default)]
   pub lib: Option<Vec<String>>,
+  /// A Cargo project, relative to the project root, that `fsr build` and `fsr dev` build and run
+  /// to completion after the application builds. Absent or empty, there is none.
+  #[serde(default)]
+  pub entry: Option<String>,
 }
 
 /// The target a build writes when `[build] target` is absent.
@@ -1725,7 +1729,7 @@ impl Config {
 
     let build: Option<BuildSection> = if store.path_exists("build") || !store.key_paths_with_prefix(Some("build")).is_empty() {
       let mut json = serde_json::Map::new();
-      for key in ["strict", "target", "lib"] {
+      for key in ["strict", "target", "lib", "entry"] {
         if let Some(value) = store.get(&format!("build.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }
