@@ -10,7 +10,7 @@ What an image or a font file says about itself. An image's header gives the size
 
 ```toml
 [dependencies]
-snapfire_media = "0.1"
+snapfire_media = "0.2"
 ```
 
 No features. The header read is `imagesize` and `kamadak-exif`; the face read is `wuff` and `ttf-parser`.
