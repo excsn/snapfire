@@ -83,6 +83,26 @@ test("a step back returns the window to where the visitor left the venue", async
   expect(window.scrollY).toEqual(300);
 });
 
+test("a step forward returns the window to where the visitor left the schedule", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  window.scrollTo(0, 700);
+  await fireEvent.click(screen.getByText("Schedule"));
+  await settle();
+  window.scrollTo(0, 300);
+  // A browser restores the entry it steps to on its own, between popstate and the navigator's patch.
+  const restore = () => window.scrollTo(0, 700);
+  window.addEventListener("popstate", restore);
+  history.back();
+  await settle();
+  window.removeEventListener("popstate", restore);
+  expect(location.pathname).toEqual("/venue");
+  history.forward();
+  await settle();
+  expect(location.pathname).toEqual("/");
+  expect(window.scrollY).toEqual(300);
+});
+
 test("a link back to the venue puts it back too", async () => {
   const { note } = await leaveTheVenue();
   await fireEvent.click(screen.getByText("Venue"));

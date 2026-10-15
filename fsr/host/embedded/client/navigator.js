@@ -136,6 +136,7 @@ let leftAt = {
     x: 0,
     y: 0
 };
+let poppedAt = null;
 let restored = null;
 function takeRestored() {
     const back = restored;
@@ -749,6 +750,8 @@ function scrollToFragment(hash) {
     else window.scrollTo(0, 0);
 }
 export async function navigate(href, push = true, options = {}) {
+    const popped = push ? null : poppedAt;
+    poppedAt = null;
     const url = new URL(href, window.location.href);
     const record = (same)=>options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href);
     if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
@@ -778,7 +781,7 @@ export async function navigate(href, push = true, options = {}) {
     await transitioned(options.transition ?? fallbackTransitions, ()=>{
         if (gen !== generation) return;
         holding = options.activity ?? fallbackActivity;
-        leftAt = {
+        leftAt = popped ?? {
             x: window.scrollX,
             y: window.scrollY
         };
@@ -912,6 +915,10 @@ export function enableNavigation(options = {}) {
         markLinks();
     });
     window.addEventListener("popstate", ()=>{
+        poppedAt = {
+            x: window.scrollX,
+            y: window.scrollY
+        };
         void navigate(window.location.pathname + window.location.search + window.location.hash, false);
     });
 }

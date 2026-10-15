@@ -166,6 +166,8 @@ let heldLimit = 10;
 let holding = false;
 /** Where the window was scrolled as the navigation began to change the document. Read before the patch: the browser moves the scroll as soon as the document changes, anchoring it on an insertion and clamping it on a removal. */
 let leftAt = { x: 0, y: 0 };
+/** Where the window was scrolled when the last step through history fired, before the browser restored the scroll of the entry it steps to. */
+let poppedAt: { x: number; y: number } | null = null;
 /** The held region the navigation being applied put back, whose scroll a step through history returns to. */
 let restored: Held | null = null;
 
@@ -907,6 +909,8 @@ function scrollToFragment(hash: string): void {
 
 /** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling, as does one whose `options.scroll` is false; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
 export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
+  const popped = push ? null : poppedAt;
+  poppedAt = null;
   const url = new URL(href, window.location.href);
   const record = (same: boolean) => (options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href));
   if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
@@ -936,7 +940,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   await transitioned(options.transition ?? fallbackTransitions, () => {
     if (gen !== generation) return;
     holding = options.activity ?? fallbackActivity;
-    leftAt = { x: window.scrollX, y: window.scrollY };
+    leftAt = popped ?? { x: window.scrollX, y: window.scrollY };
     restored = null;
     try {
       applied = patch(eager, false, keep);
@@ -1082,6 +1086,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     markLinks();
   });
   window.addEventListener("popstate", () => {
+    poppedAt = { x: window.scrollX, y: window.scrollY };
     void navigate(window.location.pathname + window.location.search + window.location.hash, false);
   });
 }
