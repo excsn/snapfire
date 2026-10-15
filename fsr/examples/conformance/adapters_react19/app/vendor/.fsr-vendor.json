@@ -1,7 +1,7 @@
 {
   "packages": {
     "react": {
-      "version": "19.1.0",
+      "version": "19.3.1",
       "externals": [
         "react"
       ],
@@ -11,7 +11,7 @@
       }
     },
     "react-dom": {
-      "version": "19.1.0",
+      "version": "19.3.1",
       "externals": [
         "react"
       ],
