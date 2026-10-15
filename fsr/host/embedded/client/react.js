@@ -1,5 +1,5 @@
 import * as ReactModule from "react";
-import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { islandState, patchIsland, scan } from "./boot.js";
 import { encodeValue } from "./values.js";
@@ -487,11 +487,23 @@ function HydratedRoot({ box, initial }) {
 const Activity = ReactModule.Activity;
 const inner = new WeakMap();
 const hidden = new WeakSet();
+const showing = new Map();
+const SHOWN_LIMIT_MS = 1000;
+function Shown({ el }) {
+    useLayoutEffect(()=>{
+        showing.get(el)?.();
+    }, [
+        el
+    ]);
+    return null;
+}
 function underActivity(el, element) {
     inner.set(el, element);
     return Activity ? createElement(Activity, {
         mode: hidden.has(el) ? "hidden" : "visible"
-    }, element) : element;
+    }, createElement(Fragment, null, element, createElement(Shown, {
+        el
+    }))) : element;
 }
 function markActivity(el) {
     if (!Activity) return;
@@ -545,10 +557,22 @@ export const reactPauser = (handle, el, paused)=>{
     const element = inner.get(el);
     const box = held.get(el);
     if (!Activity || element === undefined || box !== undefined && !box.done) return false;
-    if (paused) hidden.add(el);
-    else hidden.delete(el);
+    if (paused) {
+        hidden.add(el);
+        handle.render(underActivity(el, element));
+        return true;
+    }
+    hidden.delete(el);
+    const shown = new Promise((resolve)=>{
+        const done = ()=>{
+            showing.delete(el);
+            resolve();
+        };
+        showing.set(el, done);
+        setTimeout(done, SHOWN_LIMIT_MS);
+    });
     handle.render(underActivity(el, element));
-    return true;
+    return shown;
 };
 export const reactUnmounter = (handle)=>{
     const root = handle;

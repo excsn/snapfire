@@ -7,8 +7,8 @@ export type Mounter = (module: unknown, props: Props, el: Element, hydrate: bool
 export type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void;
 /** Ends a mounted island, running whatever its framework runs when a root goes away; `handle` is what the mounter returned. */
 export type Unmounter = (handle: unknown, el: Element) => void;
-/** With `paused` true, hides a mounted island in place while its DOM is out of the document, its state kept and its effects stopped. With `paused` false, shows it again. False when the framework cannot, which leaves the caller to end the island instead. */
-export type Pauser = (handle: unknown, el: Element, paused: boolean) => boolean;
+/** With `paused` true, hides a mounted island in place while its DOM is out of the document, its state kept and its effects stopped. With `paused` false, shows it again, returning a promise that settles once the island is shown when the framework shows it later. False when the framework cannot pause, which leaves the caller to end the island instead. */
+export type Pauser = (handle: unknown, el: Element, paused: boolean) => boolean | Promise<void>;
 export type MountTiming = "load" | "visible" | "idle";
 export interface IslandEntry {
 	loader: () => Promise<unknown>;
@@ -38,8 +38,8 @@ export declare function serverRendered(el: Element): boolean;
 export declare function discard(root: ParentNode): void;
 /** Readies every island under `root` for a stay outside the document that may end with the nodes put back. A mounted island whose entry pauses is paused and kept. Any other island whose entry has an `unmount` is ended as `discard` ends it and its marker unmarked, so a later morph replaces it and a scan mounts it afresh; a server island and a mount still waiting on its timing the same. An island with no `unmount`, a custom element's, stays as it is: the browser disconnects the element and connects it again when the nodes come back. */
 export declare function release(root: ParentNode): void;
-/** Shows again every island under `root` that `release` paused, now that its nodes are back in the document. */
-export declare function resume(root: ParentNode): void;
+/** Shows again every island under `root` that `release` paused, now that its nodes are back in the document. Settles once each adapter that says when has shown its island. */
+export declare function resume(root: ParentNode): Promise<void>;
 /** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
 export declare function islandState(el: Element): {
 	props: Props;

@@ -132,16 +132,33 @@ function namedSlotOf(region, name) {
 const held = new Map();
 let heldLimit = 10;
 let holding = false;
-let leftAt = {
-    x: 0,
-    y: 0
-};
-let poppedAt = null;
-let restored = null;
-function takeRestored() {
-    const back = restored;
-    restored = null;
-    return back;
+let revealing = [];
+const scrolls = new Map();
+let entry = "";
+let entries = 0;
+function newEntry() {
+    return `${Date.now().toString(36)}.${(entries++).toString(36)}`;
+}
+function entryOf(state) {
+    const id = state !== null && typeof state === "object" ? state.sfEntry : undefined;
+    return typeof id === "string" ? id : null;
+}
+function adoptEntry() {
+    const state = history.state;
+    const id = entryOf(state);
+    if (id !== null) return id;
+    const fresh = newEntry();
+    history.replaceState({
+        ...state !== null && typeof state === "object" ? state : {},
+        sfEntry: fresh
+    }, "");
+    return fresh;
+}
+function leave() {
+    scrolls.set(entry, {
+        x: window.scrollX,
+        y: window.scrollY
+    });
 }
 function dropHeld(entry) {
     for (const node of entry.nodes)if (node instanceof Element) discard(node);
@@ -163,9 +180,7 @@ function holdRegion(key, region) {
     held.delete(key);
     held.set(key, {
         nodes,
-        state: sessionState(),
-        x: leftAt.x,
-        y: leftAt.y
+        state: sessionState()
     });
     while(held.size > heldLimit){
         const [oldest, entry] = held.entries().next().value;
@@ -193,7 +208,7 @@ function holdAndReplace(old, region, node, seg) {
     const back = takeHeld(seg.k);
     if (back) {
         for (const n of back.nodes)parent.insertBefore(n, region.start);
-        for (const n of back.nodes)if (n instanceof Element) resume(n);
+        for (const n of back.nodes)if (n instanceof Element) revealing.push(resume(n));
     } else {
         const template = document.createElement("template");
         writeMarkup(template, renderSegment(node, seg, ids));
@@ -201,7 +216,6 @@ function holdAndReplace(old, region, node, seg) {
     }
     holdRegion(old.k, region);
     if (!back) return true;
-    restored = back;
     return morphStatic(seg.k, node, seg, false, "kept");
 }
 function replaceChild(old, node, seg) {
@@ -636,7 +650,7 @@ async function transitioned(wanted, update) {
     const start = document.startViewTransition;
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!wanted || typeof start !== "function" || reduced || document.visibilityState === "hidden") {
-        update();
+        await update();
         return;
     }
     await start.call(document, update).updateCallbackDone.catch(()=>{});
@@ -750,12 +764,21 @@ function scrollToFragment(hash) {
     else window.scrollTo(0, 0);
 }
 export async function navigate(href, push = true, options = {}) {
-    const popped = push ? null : poppedAt;
-    poppedAt = null;
     const url = new URL(href, window.location.href);
-    const record = (same)=>options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href);
+    const record = (same)=>{
+        entry = newEntry();
+        if (options.replace || same) history.replaceState({
+            sfEntry: entry
+        }, "", href);
+        else history.pushState({
+            sfEntry: entry
+        }, "", href);
+    };
     if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
-        if (push) record(url.href === window.location.href);
+        if (push) {
+            leave();
+            record(url.href === window.location.href);
+        }
         if (options.scroll !== false) scrollToFragment(url.hash);
         return;
     }
@@ -778,29 +801,30 @@ export async function navigate(href, push = true, options = {}) {
         return;
     }
     let applied = false;
-    await transitioned(options.transition ?? fallbackTransitions, ()=>{
+    await transitioned(options.transition ?? fallbackTransitions, async ()=>{
         if (gen !== generation) return;
         holding = options.activity ?? fallbackActivity;
-        leftAt = popped ?? {
-            x: window.scrollX,
-            y: window.scrollY
-        };
-        restored = null;
+        if (push) leave();
+        revealing = [];
         try {
             applied = patch(eager, false, keep);
         } finally{
             holding = false;
         }
-        const back = takeRestored();
         if (!applied) return;
         if (push) record(false);
         currentPath = `${url.pathname}${url.search}`;
+        let back;
         if (openSlot === null) {
             documentPath = currentPath;
-            if (back && !push && options.scroll !== false) window.scrollTo(back.x, back.y);
-            else if (options.scroll !== false) scrollToFragment(url.hash);
+            back = push ? undefined : scrolls.get(entry);
+            if (options.scroll !== false && !back && (push || url.hash !== "")) scrollToFragment(url.hash);
         }
         markLinks();
+        if (back && options.scroll !== false) {
+            await Promise.all(revealing);
+            if (gen === generation) window.scrollTo(back.x, back.y);
+        }
     });
     if (gen !== generation) return;
     if (!applied) {
@@ -882,6 +906,7 @@ export function enableNavigation(options = {}) {
     openSlot = null;
     currentPath = `${window.location.pathname}${window.location.search}`;
     documentPath = currentPath;
+    entry = adoptEntry();
     document.addEventListener("click", (event)=>{
         if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
             return;
@@ -915,10 +940,8 @@ export function enableNavigation(options = {}) {
         markLinks();
     });
     window.addEventListener("popstate", ()=>{
-        poppedAt = {
-            x: window.scrollX,
-            y: window.scrollY
-        };
+        leave();
+        entry = adoptEntry();
         void navigate(window.location.pathname + window.location.search + window.location.hash, false);
     });
 }

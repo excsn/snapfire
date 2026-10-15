@@ -155,8 +155,6 @@ function namedSlotOf(region: Region, name: string): Element | null {
 interface Held {
   nodes: Node[];
   state: string;
-  x: number;
-  y: number;
 }
 
 /** Held regions by segment key, the least recently held first. */
@@ -164,18 +162,36 @@ const held = new Map<string, Held>();
 let heldLimit = 10;
 /** Whether the navigation being applied holds what it replaces and puts back what it finds held. */
 let holding = false;
-/** Where the window was scrolled as the navigation began to change the document. Read before the patch: the browser moves the scroll as soon as the document changes, anchoring it on an insertion and clamping it on a removal. */
-let leftAt = { x: 0, y: 0 };
-/** Where the window was scrolled when the last step through history fired, before the browser restored the scroll of the entry it steps to. */
-let poppedAt: { x: number; y: number } | null = null;
-/** The held region the navigation being applied put back, whose scroll a step through history returns to. */
-let restored: Held | null = null;
+/** The paused islands the navigation being applied showed again, settling once each is shown. */
+let revealing: Promise<void>[] = [];
 
-/** The held region the last applied navigation put back, cleared as it is read. */
-function takeRestored(): Held | null {
-  const back = restored;
-  restored = null;
-  return back;
+/** The scroll each history entry was left at, by the id its state carries. A link reads it just before the patch and a step through history in the `popstate` listener, before the browser restores the entry it steps to; either is ahead of anything that moves it, since the browser anchors the scroll on an insertion and clamps it on a removal. */
+const scrolls = new Map<string, { x: number; y: number }>();
+/** The id of the history entry the document shows. */
+let entry = "";
+let entries = 0;
+
+function newEntry(): string {
+  return `${Date.now().toString(36)}.${(entries++).toString(36)}`;
+}
+
+function entryOf(state: unknown): string | null {
+  const id = state !== null && typeof state === "object" ? (state as { sfEntry?: unknown }).sfEntry : undefined;
+  return typeof id === "string" ? id : null;
+}
+
+/** The id of the entry history shows now, written into its state when it has none. */
+function adoptEntry(): string {
+  const state: unknown = history.state;
+  const id = entryOf(state);
+  if (id !== null) return id;
+  const fresh = newEntry();
+  history.replaceState({ ...(state !== null && typeof state === "object" ? state : {}), sfEntry: fresh }, "");
+  return fresh;
+}
+
+function leave(): void {
+  scrolls.set(entry, { x: window.scrollX, y: window.scrollY });
 }
 
 /** Ends what a held region's islands still hold and forgets it. */
@@ -201,7 +217,7 @@ function holdRegion(key: string, region: Region): void {
   const before = held.get(key);
   if (before) dropHeld(before);
   held.delete(key);
-  held.set(key, { nodes, state: sessionState(), x: leftAt.x, y: leftAt.y });
+  held.set(key, { nodes, state: sessionState() });
   while (held.size > heldLimit) {
     const [oldest, entry] = held.entries().next().value as [string, Held];
     dropHeld(entry);
@@ -232,7 +248,7 @@ function holdAndReplace(old: Segment, region: Region, node: SfNode, seg: Segment
   const back = takeHeld(seg.k);
   if (back) {
     for (const n of back.nodes) parent.insertBefore(n, region.start);
-    for (const n of back.nodes) if (n instanceof Element) resume(n);
+    for (const n of back.nodes) if (n instanceof Element) revealing.push(resume(n));
   } else {
     const template = document.createElement("template");
     writeMarkup(template, renderSegment(node, seg, ids));
@@ -240,7 +256,6 @@ function holdAndReplace(old: Segment, region: Region, node: SfNode, seg: Segment
   }
   holdRegion(old.k, region);
   if (!back) return true;
-  restored = back;
   return morphStatic(seg.k, node, seg, false, "kept");
 }
 
@@ -765,11 +780,11 @@ let fallbackTransitions = false;
 let fallbackActivity = false;
 
 /** Runs `update` inside a view transition when `wanted` and the browser can, else at once; resolves once `update` has run. */
-async function transitioned(wanted: boolean, update: () => void): Promise<void> {
-  const start = (document as Document & { startViewTransition?: (cb: () => void) => { updateCallbackDone: Promise<void> } }).startViewTransition;
+async function transitioned(wanted: boolean, update: () => void | Promise<void>): Promise<void> {
+  const start = (document as Document & { startViewTransition?: (cb: () => void | Promise<void>) => { updateCallbackDone: Promise<void> } }).startViewTransition;
   const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   if (!wanted || typeof start !== "function" || reduced || document.visibilityState === "hidden") {
-    update();
+    await update();
     return;
   }
   await start.call(document, update).updateCallbackDone.catch(() => {});
@@ -907,14 +922,19 @@ function scrollToFragment(hash: string): void {
   else window.scrollTo(0, 0);
 }
 
-/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling, as does one whose `options.scroll` is false; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
+/** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling, as does one whose `options.scroll` is false; a step back or forward returns the window to where that entry was left; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
 export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
-  const popped = push ? null : poppedAt;
-  poppedAt = null;
   const url = new URL(href, window.location.href);
-  const record = (same: boolean) => (options.replace || same ? history.replaceState(null, "", href) : history.pushState(null, "", href));
+  const record = (same: boolean) => {
+    entry = newEntry();
+    if (options.replace || same) history.replaceState({ sfEntry: entry }, "", href);
+    else history.pushState({ sfEntry: entry }, "", href);
+  };
   if (!options.full && !options.into && `${url.pathname}${url.search}` === currentPath && (url.hash !== "" || !push)) {
-    if (push) record(url.href === window.location.href);
+    if (push) {
+      leave();
+      record(url.href === window.location.href);
+    }
     if (options.scroll !== false) scrollToFragment(url.hash);
     return;
   }
@@ -937,26 +957,31 @@ export async function navigate(href: string, push = true, options: NavigateOptio
     return;
   }
   let applied = false;
-  await transitioned(options.transition ?? fallbackTransitions, () => {
+  await transitioned(options.transition ?? fallbackTransitions, async () => {
     if (gen !== generation) return;
     holding = options.activity ?? fallbackActivity;
-    leftAt = popped ?? { x: window.scrollX, y: window.scrollY };
-    restored = null;
+    if (push) leave();
+    revealing = [];
     try {
       applied = patch(eager, false, keep);
     } finally {
       holding = false;
     }
-    const back = takeRestored();
     if (!applied) return;
     if (push) record(false);
     currentPath = `${url.pathname}${url.search}`;
+    let back: { x: number; y: number } | undefined;
     if (openSlot === null) {
       documentPath = currentPath;
-      if (back && !push && options.scroll !== false) window.scrollTo(back.x, back.y);
-      else if (options.scroll !== false) scrollToFragment(url.hash);
+      back = push ? undefined : scrolls.get(entry);
+      // A step to an entry with no recorded scroll keeps where the browser restored it.
+      if (options.scroll !== false && !back && (push || url.hash !== "")) scrollToFragment(url.hash);
     }
     markLinks();
+    if (back && options.scroll !== false) {
+      await Promise.all(revealing);
+      if (gen === generation) window.scrollTo(back.x, back.y);
+    }
   });
   if (gen !== generation) return;
   if (!applied) {
@@ -1055,6 +1080,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   openSlot = null;
   currentPath = `${window.location.pathname}${window.location.search}`;
   documentPath = currentPath;
+  entry = adoptEntry();
   document.addEventListener("click", (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
       return;
@@ -1086,7 +1112,8 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     markLinks();
   });
   window.addEventListener("popstate", () => {
-    poppedAt = { x: window.scrollX, y: window.scrollY };
+    leave();
+    entry = adoptEntry();
     void navigate(window.location.pathname + window.location.search + window.location.hash, false);
   });
 }

@@ -1,3 +1,4 @@
+import { navigate } from "@snapfire/fsr-client";
 import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
 
 const talks = [
@@ -101,6 +102,40 @@ test("a step forward returns the window to where the visitor left the schedule",
   await settle();
   expect(location.pathname).toEqual("/");
   expect(window.scrollY).toEqual(300);
+});
+
+test("a step back to a page activity did not hold returns the window to where it was", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  window.scrollTo(0, 400);
+  await navigate("/", true, { activity: false });
+  await settle();
+  expect(document.querySelector("textarea[name=note]"), "the venue was rendered afresh rather than held").toBeNull();
+  window.scrollTo(0, 0);
+  history.back();
+  await settle();
+  expect(location.pathname).toEqual("/venue");
+  expect(window.scrollY).toEqual(400);
+});
+
+test("a step back scrolls once the paused island is shown again", async () => {
+  await leaveTheVenue();
+  const shown: boolean[] = [];
+  const scrollTo = window.scrollTo;
+  window.scrollTo = ((x: number, y: number) => {
+    const checklist = document.querySelector(".checklist") as HTMLElement | null;
+    shown.push(checklist !== null && checklist.style.display !== "none");
+    scrollTo(x, y);
+  }) as typeof window.scrollTo;
+  try {
+    history.back();
+    await settle();
+  } finally {
+    window.scrollTo = scrollTo;
+  }
+  expect(location.pathname).toEqual("/venue");
+  expect(shown.length > 0, "the step back restored a scroll").toEqual(true);
+  expect(shown[shown.length - 1], "the island was shown when the window was scrolled").toEqual(true);
 });
 
 test("a link back to the venue puts it back too", async () => {

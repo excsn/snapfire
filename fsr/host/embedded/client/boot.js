@@ -96,11 +96,14 @@ export function release(root) {
 export function resume(root) {
     const markers = Array.from(root.querySelectorAll("sf-i"));
     if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
+    const shown = [];
     for (const el of markers){
         if (!paused.delete(el)) continue;
         const island = mounted.get(el);
-        if (island && island.root !== undefined) island.entry.pause?.(island.root, el, false);
+        const showing = island && island.root !== undefined ? island.entry.pause?.(island.root, el, false) : undefined;
+        if (showing instanceof Promise) shown.push(showing);
     }
+    return Promise.all(shown).then(()=>{});
 }
 export function islandState(el) {
     const island = mounted.get(el);

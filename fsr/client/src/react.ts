@@ -1,5 +1,5 @@
 import * as ReactModule from "react";
-import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { discard, islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Pauser, type Props, type Unmounter } from "./boot.js";
@@ -565,9 +565,23 @@ const inner = new WeakMap<Element, ReactElement>();
 /** The roots hidden now. */
 const hidden = new WeakSet<Element>();
 
+/** What settles the promise `reactPauser` returned for a root it is showing again, by the root's element. */
+const showing = new Map<Element, () => void>();
+
+/** How long `reactPauser` waits for a root it shows again to commit before settling anyway. */
+const SHOWN_LIMIT_MS = 1000;
+
+/** Inside the root's `<Activity>`, whose layout effects run again each time it is shown. */
+function Shown({ el }: { el: Element }): null {
+  useLayoutEffect(() => {
+    showing.get(el)?.();
+  }, [el]);
+  return null;
+}
+
 function underActivity(el: Element, element: ReactElement): ReactElement {
   inner.set(el, element);
-  return Activity ? createElement(Activity, { mode: hidden.has(el) ? "hidden" : "visible" }, element) : element;
+  return Activity ? createElement(Activity, { mode: hidden.has(el) ? "hidden" : "visible" }, createElement(Fragment, null, element, createElement(Shown, { el }))) : element;
 }
 
 /** Brackets the server's markup the way React's own server writes an `<Activity>` boundary, `<!--&-->` and `<!--/&-->`, so a root hydrating under one finds it. */
@@ -618,10 +632,22 @@ export const reactPauser: Pauser = (handle, el, paused) => {
   const element = inner.get(el);
   const box = held.get(el);
   if (!Activity || element === undefined || (box !== undefined && !box.done)) return false;
-  if (paused) hidden.add(el);
-  else hidden.delete(el);
+  if (paused) {
+    hidden.add(el);
+    (handle as Root).render(underActivity(el, element));
+    return true;
+  }
+  hidden.delete(el);
+  const shown = new Promise<void>((resolve) => {
+    const done = () => {
+      showing.delete(el);
+      resolve();
+    };
+    showing.set(el, done);
+    setTimeout(done, SHOWN_LIMIT_MS);
+  });
   (handle as Root).render(underActivity(el, element));
-  return true;
+  return shown;
 };
 
 export const reactUnmounter: Unmounter = (handle) => {
