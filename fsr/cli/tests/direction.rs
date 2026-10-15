@@ -50,7 +50,8 @@ fn adopting_twice_changes_nothing() {
   let dir = bare(&[]);
   adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.1.0"},"react-dom":{"version":"19.1.0"},"htmx.org":{"version":"4.0.0"}}}"#).unwrap();
+  let react = snapfire_fsr_cli::direction::REACT;
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"react":{{"version":"{react}"}},"react-dom":{{"version":"{react}"}},"htmx.org":{{"version":"4.0.0"}}}}}}"#)).unwrap();
   let before = std::fs::read(dir.join("importmap.json")).unwrap();
   let again = adopt(&dir, &["react".to_owned(), "htmx".to_owned()], offline()).unwrap();
   assert!(again.mapped.is_empty(), "{:?}", again.mapped);
@@ -96,7 +97,7 @@ fn the_refusals_name_the_table_the_url_and_the_version() {
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"}}}"#).unwrap();
   let pinned = adopt(&dir, &["react".to_owned()], offline()).unwrap_err().to_string();
-  assert!(pinned.contains("react@19.1.0") && pinned.contains("react@18.3.1") && pinned.contains("`react` pins"), "{pinned}");
+  assert!(pinned.contains(&format!("react@{}", snapfire_fsr_cli::direction::REACT)) && pinned.contains("react@18.3.1") && pinned.contains("`react` pins"), "{pinned}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -161,4 +162,10 @@ fn tailwinds_example_is_a_styled_page_and_a_theme() {
   let built = build(&dir, &Options::default()).unwrap();
   assert!(built.report.themes.contains(&"ocean".to_owned()), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_react_a_direction_vendors_pauses_an_island_under_activity() {
+  let pinned: Vec<u32> = snapfire_fsr_cli::direction::REACT.split('.').map(|part| part.parse().unwrap()).collect();
+  assert!((pinned[0], pinned[1]) >= (19, 2), "React {} unmounts an island activity holds; <Activity> is 19.2 and later", snapfire_fsr_cli::direction::REACT);
 }

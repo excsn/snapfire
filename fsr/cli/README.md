@@ -38,7 +38,7 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Count what the build refuses or leaves to the browser across applications | `fsr census <app>...` |
 | See what the server runs for one loader, action, handler or component | `fsr ir view <app> <id> [section]` |
 | Write the deploy tree, checked first | `fsr bundle <app> [--out <dir>]` |
-| Vendor a package for the browser | `fsr add <app> react@19.1.0` |
+| Vendor a package for the browser | `fsr add <app> react@19.3.1` |
 | Fetch declarations for the editor and `tsc` | `fsr types <app>` |
 | Keep an xwpm application in step | an `xwpm.wmf` in the app; the same commands |
 | Name the document module or the slot pages land in | `--shell`, `--slot` |
