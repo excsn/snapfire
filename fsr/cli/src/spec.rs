@@ -509,6 +509,11 @@ fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path, shell: Option<&crat
 
 /// Follows an esm.sh stub to its bundle, writes it under `dir/<specifier>/` with same-package imports rewritten to siblings and returns the file relative to `dir`.
 fn fetch_bundle(client: &reqwest::blocking::Client, url: &str, dir: &Path, specifier: &str) -> Result<String, BuildError> {
+  fetch_bundle_from(client, ESM_HOST, url, dir, specifier)
+}
+
+/// `fetch_bundle` against `host`. Every file the stub reaches is written again: the names carry no version, so a file left by an earlier version of the package would otherwise stand in for the new one.
+fn fetch_bundle_from(client: &reqwest::blocking::Client, host: &str, url: &str, dir: &Path, specifier: &str) -> Result<String, BuildError> {
   let stub = vendor::get(client, url)?.ok_or_else(|| BuildError::Http(url.to_owned(), "HTTP 404".to_owned()))?;
   let stub = String::from_utf8(stub).map_err(|e| BuildError::Http(url.to_owned(), e.to_string()))?;
   let path = vendor::stub_paths(&stub).into_iter().find(|p| p.ends_with(".mjs") || p.ends_with(".js")).ok_or_else(|| BuildError::Http(url.to_owned(), format!("esm.sh answered with no module path:\n{stub}")))?;
@@ -516,16 +521,17 @@ fn fetch_bundle(client: &reqwest::blocking::Client, url: &str, dir: &Path, speci
   std::fs::create_dir_all(&folder).map_err(|e| BuildError::Io(folder.clone(), e))?;
   let mut queue = vec![path];
   let mut first = None;
+  let mut written = std::collections::HashSet::new();
   while let Some(path) = queue.pop() {
     let name = vendor::file_name(&path);
     let file = folder.join(&name);
     if first.is_none() {
       first = Some(format!("{}/{name}", specifier.replace('/', "__")));
     }
-    if file.is_file() {
+    if !written.insert(file.clone()) {
       continue;
     }
-    let module_url = format!("{ESM_HOST}{path}");
+    let module_url = format!("{host}{path}");
     let bytes = vendor::get(client, &module_url)?.ok_or_else(|| BuildError::Http(module_url.clone(), "HTTP 404".to_owned()))?;
     let mut text = String::from_utf8(bytes).map_err(|e| BuildError::Http(module_url.clone(), e.to_string()))?;
     for import in vendor::absolute_imports(&text) {
@@ -1181,6 +1187,47 @@ impl FetchHooks {
 #[cfg(test)]
 mod dev_build_tests {
   use super::*;
+
+  /// Answers `/pkg@<v>` with an esm.sh stub and the module it names with `export const version = "<v>";`, from a thread, at the address it returns.
+  fn registry() -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+      for stream in listener.incoming().flatten() {
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut first = String::new();
+        reader.read_line(&mut first).unwrap();
+        let path = first.split_whitespace().nth(1).unwrap_or("/").to_owned();
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() > 0 && line != "\r\n" {
+          line.clear();
+        }
+        let version = path.trim_start_matches("/pkg@").split(['/', '?']).next().unwrap_or("").to_owned();
+        let body = match path.contains("/es2022/") {
+          true => format!("export const version = \"{version}\";\n"),
+          false => format!("export * from \"/pkg@{version}/X/es2022/pkg.development.bundle.mjs\";\n"),
+        };
+        let mut stream = stream;
+        write!(stream, "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).unwrap();
+      }
+    });
+    host
+  }
+
+  /// DEFECTS 1.104: a file already on disk was skipped, so after a version change the runner kept the old version's bundle under the new URL.
+  #[test]
+  fn a_new_version_of_a_package_replaces_the_bundle_an_earlier_one_left() {
+    let host = registry();
+    let dir = std::env::temp_dir().join(format!("fsr-dev-build-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let client = reqwest::blocking::Client::new();
+    for version in ["18.3.1", "19.3.1"] {
+      let file = fetch_bundle_from(&client, &host, &format!("{host}/pkg@{version}?target=es2022&bundle&dev"), &dir, "pkg").unwrap();
+      assert_eq!(std::fs::read_to_string(dir.join(file)).unwrap(), format!("export const version = \"{version}\";\n"));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+  }
 
   #[test]
   fn each_vendored_framework_gets_its_development_build() {
