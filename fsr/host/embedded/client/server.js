@@ -208,7 +208,8 @@ export function morphNodes(parent, old, fresh, end, hooks) {
     }
 }
 export function morphElement(current, next, hooks) {
-    morphAttributes(current, next);
+    morphAttributes(current, next, hooks.values === "kept");
+    if (hooks.values === "kept" && current.tagName === "TEXTAREA") return;
     morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks);
 }
 function morphNode(current, next, hooks) {
@@ -246,7 +247,7 @@ function morphNested(current, next) {
     }
     void patchIsland(current, decodeValue(raw));
 }
-function morphAttributes(current, next) {
+function morphAttributes(current, next, keepValues = false) {
     for (const attr of Array.from(current.attributes)){
         if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
     }
@@ -254,7 +255,7 @@ function morphAttributes(current, next) {
         if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
     }
     const focused = typeof document !== "undefined" && document.activeElement === current;
-    if (!focused && "value" in current && "value" in next) {
+    if (!focused && !keepValues && "value" in current && "value" in next) {
         const control = current;
         const wanted = next;
         if (control.value !== wanted.value) control.value = wanted.value;

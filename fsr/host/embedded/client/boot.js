@@ -76,6 +76,17 @@ export function discard(root) {
         if (island.root !== undefined) island.entry.unmount?.(island.root, el);
     }
 }
+export function release(root) {
+    const markers = Array.from(root.querySelectorAll("sf-i"));
+    if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
+    for (const el of markers.reverse()){
+        const island = mounted.get(el);
+        if (island && !island.entry.unmount) continue;
+        discard(el);
+        el.removeAttribute(SCHEDULED);
+        el.removeAttribute(MOUNTED);
+    }
+}
 export function islandState(el) {
     const island = mounted.get(el);
     return island ? {

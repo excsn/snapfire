@@ -32,6 +32,8 @@ export declare const defineMounter: Mounter;
 export declare function serverRendered(el: Element): boolean;
 /** Ends every island under `root`, `root` itself included when it is a marker, before the caller takes those nodes out of the document: a mount still waiting on its timing is called off, one whose loader is in flight mounts nothing when it lands and a mounted one is handed to its entry's `unmount`, nested islands before the island around them. What was mounted there is forgotten, so `islandState` answers null and `patchIsland` false. Call it on every node removed by anything other than a mounted root's own render, since a root left in a detached element keeps running: its effects never clean up and whatever they hold stays held. */
 export declare function discard(root: ParentNode): void;
+/** Readies every island under `root` for a stay outside the document that may end with the nodes put back. An island whose entry has an `unmount` is ended as `discard` ends it and its marker unmarked, so a later morph replaces it and a scan mounts it afresh; a server island and a mount still waiting on its timing the same. An island with no `unmount`, a custom element's, stays as it is: the browser disconnects the element and connects it again when the nodes come back. */
+export declare function release(root: ParentNode): void;
 /** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
 export declare function islandState(el: Element): {
 	props: Props;

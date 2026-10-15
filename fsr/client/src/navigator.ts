@@ -1,5 +1,5 @@
 import { loadMarkedScript } from "./script.js";
-import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, release, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
@@ -151,10 +151,99 @@ function namedSlotOf(region: Region, name: string): Element | null {
   return null;
 }
 
+/** A region a navigation took out of the document with activity on: its nodes, delimiters included, the session generation it left under and the window's scroll at the time. */
+interface Held {
+  nodes: Node[];
+  state: string;
+  x: number;
+  y: number;
+}
+
+/** Held regions by segment key, the least recently held first. */
+const held = new Map<string, Held>();
+let heldLimit = 10;
+/** Whether the navigation being applied holds what it replaces and puts back what it finds held. */
+let holding = false;
+/** The held region the navigation being applied put back, whose scroll a step through history returns to. */
+let restored: Held | null = null;
+
+/** The held region the last applied navigation put back, cleared as it is read. */
+function takeRestored(): Held | null {
+  const back = restored;
+  restored = null;
+  return back;
+}
+
+/** Ends what a held region's islands still hold and forgets it. */
+function dropHeld(entry: Held): void {
+  for (const node of entry.nodes) if (node instanceof Element) discard(node);
+}
+
+/** Drops every held region, which is what a mutation or a move of the session calls for. */
+function clearHeld(): void {
+  for (const entry of held.values()) dropHeld(entry);
+  held.clear();
+}
+
+/** Takes a region's nodes out of the document and holds them under `key`, its islands released, dropping the oldest held region past the limit. */
+function holdRegion(key: string, region: Region): void {
+  const nodes: Node[] = [];
+  for (let n: Node | null = region.start; n; n = n.nextSibling) {
+    nodes.push(n);
+    if (n === region.end) break;
+  }
+  for (const node of nodes) if (node instanceof Element) release(node);
+  for (const node of nodes) node.parentNode?.removeChild(node);
+  const before = held.get(key);
+  if (before) dropHeld(before);
+  held.delete(key);
+  held.set(key, { nodes, state: sessionState(), x: window.scrollX, y: window.scrollY });
+  while (held.size > heldLimit) {
+    const [oldest, entry] = held.entries().next().value as [string, Held];
+    dropHeld(entry);
+    held.delete(oldest);
+  }
+}
+
+/** The region held for `key` under the current session generation, taken out of the store. A region held under an older generation is dropped with every other one held then. */
+function takeHeld(key: string): Held | null {
+  const entry = held.get(key);
+  if (!entry) return null;
+  held.delete(key);
+  if (entry.state === sessionState()) return entry;
+  dropHeld(entry);
+  for (const [other, rest] of held) {
+    if (rest.state === entry.state) {
+      dropHeld(rest);
+      held.delete(other);
+    }
+  }
+  return null;
+}
+
+/** Replaces a region the way `replaceRegion` does but holds the old nodes rather than ending them. When nodes are held for `seg` they go back in its place and are morphed to what the payload renders now, so the DOM and the custom elements keep what the visitor left. */
+function holdAndReplace(old: Segment, region: Region, node: SfNode, seg: Segment): boolean {
+  const parent = region.start.parentNode;
+  if (!(parent instanceof Element)) return false;
+  const back = takeHeld(seg.k);
+  if (back) {
+    for (const n of back.nodes) parent.insertBefore(n, region.start);
+  } else {
+    const template = document.createElement("template");
+    writeMarkup(template, renderSegment(node, seg, ids));
+    parent.insertBefore(template.content, region.start);
+  }
+  holdRegion(old.k, region);
+  if (!back) return true;
+  restored = back;
+  return morphStatic(seg.k, node, seg, false, "kept");
+}
+
 /** Replaces what an old child segment occupies: its delimited region, or, while it is still streaming, its slot element. `seg` is the segment `node` renders as, null for a pending node written bare. */
 function replaceChild(old: Segment, node: SfNode, seg: Segment | null): boolean {
   const html = () => (seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
   const region = findRegion(old.k);
+  if (region && holding && seg !== null) return holdAndReplace(old, region, node, seg);
   if (region) return replaceRegion(region, html());
   if (old.s === undefined) return false;
   const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
@@ -297,7 +386,7 @@ function isBetween(el: Element, region: Region): boolean {
 }
 
 /** Patches a static segment's markup in place by the rules of `morph`, so every element that stands where it stood keeps its DOM, a scrolled pane its scroll and a focused control its value. An island the new payload places again, by region key, keeps its root and its state wherever in the region it stood and takes the new props in place. A root nothing has mounted yet reads the rewritten props script when its turn comes. False when the region is not in the document, which leaves the caller to swap. */
-function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = false): boolean {
+function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = false, values?: "kept"): boolean {
   const region = findRegion(key);
   if (!region) return false;
   const parent = region.start.parentNode;
@@ -318,6 +407,7 @@ function morphStatic(key: string, node: SfNode, seg: Segment, slotsSettled = fal
       if (node instanceof Element) discard(node);
     },
     opaque: slotsSettled ? isSegmentSlot : undefined,
+    values,
   };
   morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
   return true;
@@ -625,6 +715,8 @@ export interface NavigateOptions {
   scroll?: boolean;
   /** Whether the swap runs inside a view transition, over the document's `transitions` setting. */
   transition?: boolean;
+  /** Whether the navigation holds the regions it replaces and puts back one held for where it goes, over the document's `activity` setting. */
+  activity?: boolean;
 }
 
 function askFor(options: NavigateOptions): Ask {
@@ -636,7 +728,8 @@ function askFor(options: NavigateOptions): Ask {
 function askOf(anchor: Element): NavigateOptions {
   const keep = anchor.getAttribute("data-sf-keep");
   const transition = anchor.getAttribute("data-sf-transition");
-  return { full: anchor.hasAttribute("data-sf-full"), into: anchor.getAttribute("data-sf-into") ?? undefined, keep: keep === null ? undefined : keep !== "false", transition: transition === null ? undefined : transition !== "none" };
+  const activity = anchor.getAttribute("data-sf-activity");
+  return { full: anchor.hasAttribute("data-sf-full"), into: anchor.getAttribute("data-sf-into") ?? undefined, keep: keep === null ? undefined : keep !== "false", transition: transition === null ? undefined : transition !== "none", activity: activity === null ? undefined : activity !== "none" };
 }
 
 function headersOf(ask: Ask): Record<string, string> {
@@ -655,10 +748,16 @@ export interface NavigationOptions {
   cacheMs?: number;
   /** Whether a navigation swaps the page inside a view transition, `document.startViewTransition`, so the browser animates from the old page to the new one. A link's own `data-sf-transition` overrides it. Skipped where the browser has no view transitions, when the visitor prefers reduced motion and when the tab is hidden. Defaults to false. */
   transitions?: boolean;
+  /** Whether a navigation keeps the page it leaves, out of the document, so a later navigation back to it, by a link or through history, puts it back as the visitor left it: its DOM, a custom element's state, a video's position and, through history, the window's scroll. An island whose framework would keep running while detached, React's and Vue's, is unmounted instead and mounts afresh when the page comes back. A link's own `data-sf-activity` overrides it. A mutation, a refresh and a move of the session drop what is held. Defaults to false. */
+  activity?: boolean;
+  /** How many pages `activity` holds, the least recently left dropped first. Defaults to 10. */
+  activityLimit?: number;
 }
 
 /** The document's view transition setting for a navigation that names none. */
 let fallbackTransitions = false;
+/** The document's activity setting for a navigation that names none. */
+let fallbackActivity = false;
 
 /** Runs `update` inside a view transition when `wanted` and the browser can, else at once; resolves once `update` has run. */
 async function transitioned(wanted: boolean, update: () => void): Promise<void> {
@@ -749,6 +848,7 @@ export async function prefetch(href: string, options: NavigateOptions = {}): Pro
 /** Drops every held payload, which is what a mutation calls for. */
 export function clearRouterCache(): void {
   cache.clear();
+  clearHeld();
 }
 
 /** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and applies it, every kept island taking its new props in place and every kept region that is not an island replaced, so layouts and pages keep their DOM and their state while what they show follows the mutation. */
@@ -756,6 +856,7 @@ export async function refresh(): Promise<void> {
   const bail = () => window.location.reload();
   if (!current) return bail();
   cache.clear();
+  clearHeld();
   const gen = ++generation;
   const feed = fetchFeed(new URL(window.location.href), headersOf({ from: null, into: openSlot }));
   if (!(await feed.ok)) return bail();
@@ -831,13 +932,21 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   let applied = false;
   await transitioned(options.transition ?? fallbackTransitions, () => {
     if (gen !== generation) return;
-    applied = patch(eager, false, keep);
+    holding = options.activity ?? fallbackActivity;
+    restored = null;
+    try {
+      applied = patch(eager, false, keep);
+    } finally {
+      holding = false;
+    }
+    const back = takeRestored();
     if (!applied) return;
     if (push) record(false);
     currentPath = `${url.pathname}${url.search}`;
     if (openSlot === null) {
       documentPath = currentPath;
-      if (options.scroll !== false) scrollToFragment(url.hash);
+      if (back && !push && options.scroll !== false) window.scrollTo(back.x, back.y);
+      else if (options.scroll !== false) scrollToFragment(url.hash);
     }
     markLinks();
   });
@@ -916,6 +1025,8 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   g.__sf = Object.assign(g.__sf ?? {}, { refresh });
   if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
   if (options.transitions !== undefined) fallbackTransitions = options.transitions;
+  if (options.activity !== undefined) fallbackActivity = options.activity;
+  if (options.activityLimit !== undefined) heldLimit = options.activityLimit;
   if (wired === document) {
     if (options.prefetch !== undefined && options.prefetch !== fallbackPrefetch) {
       fallbackPrefetch = options.prefetch;
@@ -945,6 +1056,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
   });
   fallbackPrefetch = options.prefetch ?? "hover";
   fallbackTransitions = options.transitions ?? false;
+  fallbackActivity = options.activity ?? false;
   resetViewport();
   const warm = (event: Event) => {
     const anchor = linkOf(event.target);

@@ -123,6 +123,19 @@ export function discard(root: ParentNode): void {
   }
 }
 
+/** Readies every island under `root` for a stay outside the document that may end with the nodes put back. An island whose entry has an `unmount` is ended as `discard` ends it and its marker unmarked, so a later morph replaces it and a scan mounts it afresh; a server island and a mount still waiting on its timing the same. An island with no `unmount`, a custom element's, stays as it is: the browser disconnects the element and connects it again when the nodes come back. */
+export function release(root: ParentNode): void {
+  const markers = Array.from(root.querySelectorAll("sf-i"));
+  if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
+  for (const el of markers.reverse()) {
+    const island = mounted.get(el);
+    if (island && !island.entry.unmount) continue;
+    discard(el);
+    el.removeAttribute(SCHEDULED);
+    el.removeAttribute(MOUNTED);
+  }
+}
+
 /** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
 export function islandState(el: Element): { props: Props; regions: unknown; children: string | null } | null {
   const island = mounted.get(el);

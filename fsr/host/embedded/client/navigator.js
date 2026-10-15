@@ -1,5 +1,5 @@
 import { loadMarkedScript } from "./script.js";
-import { applyStyles, discard, loadEntry, patchIsland, scan } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, release, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
@@ -129,9 +129,79 @@ function namedSlotOf(region, name) {
     }
     return null;
 }
+const held = new Map();
+let heldLimit = 10;
+let holding = false;
+let restored = null;
+function takeRestored() {
+    const back = restored;
+    restored = null;
+    return back;
+}
+function dropHeld(entry) {
+    for (const node of entry.nodes)if (node instanceof Element) discard(node);
+}
+function clearHeld() {
+    for (const entry of held.values())dropHeld(entry);
+    held.clear();
+}
+function holdRegion(key, region) {
+    const nodes = [];
+    for(let n = region.start; n; n = n.nextSibling){
+        nodes.push(n);
+        if (n === region.end) break;
+    }
+    for (const node of nodes)if (node instanceof Element) release(node);
+    for (const node of nodes)node.parentNode?.removeChild(node);
+    const before = held.get(key);
+    if (before) dropHeld(before);
+    held.delete(key);
+    held.set(key, {
+        nodes,
+        state: sessionState(),
+        x: window.scrollX,
+        y: window.scrollY
+    });
+    while(held.size > heldLimit){
+        const [oldest, entry] = held.entries().next().value;
+        dropHeld(entry);
+        held.delete(oldest);
+    }
+}
+function takeHeld(key) {
+    const entry = held.get(key);
+    if (!entry) return null;
+    held.delete(key);
+    if (entry.state === sessionState()) return entry;
+    dropHeld(entry);
+    for (const [other, rest] of held){
+        if (rest.state === entry.state) {
+            dropHeld(rest);
+            held.delete(other);
+        }
+    }
+    return null;
+}
+function holdAndReplace(old, region, node, seg) {
+    const parent = region.start.parentNode;
+    if (!(parent instanceof Element)) return false;
+    const back = takeHeld(seg.k);
+    if (back) {
+        for (const n of back.nodes)parent.insertBefore(n, region.start);
+    } else {
+        const template = document.createElement("template");
+        writeMarkup(template, renderSegment(node, seg, ids));
+        parent.insertBefore(template.content, region.start);
+    }
+    holdRegion(old.k, region);
+    if (!back) return true;
+    restored = back;
+    return morphStatic(seg.k, node, seg, false, "kept");
+}
 function replaceChild(old, node, seg) {
     const html = ()=>seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids);
     const region = findRegion(old.k);
+    if (region && holding && seg !== null) return holdAndReplace(old, region, node, seg);
     if (region) return replaceRegion(region, html());
     if (old.s === undefined) return false;
     const el = document.querySelector(`[data-sf-slot="${old.s}"]`);
@@ -258,7 +328,7 @@ function isBetween(el, region) {
     }
     return false;
 }
-function morphStatic(key, node, seg, slotsSettled = false) {
+function morphStatic(key, node, seg, slotsSettled = false, values) {
     const region = findRegion(key);
     if (!region) return false;
     const parent = region.start.parentNode;
@@ -278,7 +348,8 @@ function morphStatic(key, node, seg, slotsSettled = false) {
         drop: (node)=>{
             if (node instanceof Element) discard(node);
         },
-        opaque: slotsSettled ? isSegmentSlot : undefined
+        opaque: slotsSettled ? isSegmentSlot : undefined,
+        values
     };
     morphNodes(parent, old, Array.from(template.content.childNodes), region.end.nextSibling, hooks);
     return true;
@@ -536,11 +607,13 @@ function askFor(options) {
 function askOf(anchor) {
     const keep = anchor.getAttribute("data-sf-keep");
     const transition = anchor.getAttribute("data-sf-transition");
+    const activity = anchor.getAttribute("data-sf-activity");
     return {
         full: anchor.hasAttribute("data-sf-full"),
         into: anchor.getAttribute("data-sf-into") ?? undefined,
         keep: keep === null ? undefined : keep !== "false",
-        transition: transition === null ? undefined : transition !== "none"
+        transition: transition === null ? undefined : transition !== "none",
+        activity: activity === null ? undefined : activity !== "none"
     };
 }
 function headersOf(ask) {
@@ -552,6 +625,7 @@ function headersOf(ask) {
     return headers;
 }
 let fallbackTransitions = false;
+let fallbackActivity = false;
 async function transitioned(wanted, update) {
     const start = document.startViewTransition;
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -621,11 +695,13 @@ export async function prefetch(href, options = {}) {
 }
 export function clearRouterCache() {
     cache.clear();
+    clearHeld();
 }
 export async function refresh() {
     const bail = ()=>window.location.reload();
     if (!current) return bail();
     cache.clear();
+    clearHeld();
     const gen = ++generation;
     const feed = fetchFeed(new URL(window.location.href), headersOf({
         from: null,
@@ -696,13 +772,21 @@ export async function navigate(href, push = true, options = {}) {
     let applied = false;
     await transitioned(options.transition ?? fallbackTransitions, ()=>{
         if (gen !== generation) return;
-        applied = patch(eager, false, keep);
+        holding = options.activity ?? fallbackActivity;
+        restored = null;
+        try {
+            applied = patch(eager, false, keep);
+        } finally{
+            holding = false;
+        }
+        const back = takeRestored();
         if (!applied) return;
         if (push) record(false);
         currentPath = `${url.pathname}${url.search}`;
         if (openSlot === null) {
             documentPath = currentPath;
-            if (options.scroll !== false) scrollToFragment(url.hash);
+            if (back && !push && options.scroll !== false) window.scrollTo(back.x, back.y);
+            else if (options.scroll !== false) scrollToFragment(url.hash);
         }
         markLinks();
     });
@@ -766,6 +850,8 @@ export function enableNavigation(options = {}) {
     });
     if (options.cacheMs !== undefined) cacheMs = options.cacheMs;
     if (options.transitions !== undefined) fallbackTransitions = options.transitions;
+    if (options.activity !== undefined) fallbackActivity = options.activity;
+    if (options.activityLimit !== undefined) heldLimit = options.activityLimit;
     if (wired === document) {
         if (options.prefetch !== undefined && options.prefetch !== fallbackPrefetch) {
             fallbackPrefetch = options.prefetch;
@@ -795,6 +881,7 @@ export function enableNavigation(options = {}) {
     });
     fallbackPrefetch = options.prefetch ?? "hover";
     fallbackTransitions = options.transitions ?? false;
+    fallbackActivity = options.activity ?? false;
     resetViewport();
     const warm = (event)=>{
         const anchor = linkOf(event.target);

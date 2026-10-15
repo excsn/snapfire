@@ -277,6 +277,7 @@ const retire = (doc) => {
 };
 globalThis.__sf.load = (html, url) => {
   globalThis.__sf_location(url);
+  globalThis.history.restart();
   const page = L.parseHTML(String(html)).document;
   declareShadowRoots(page);
   retire(globalThis.document);

@@ -3,4 +3,4 @@ import { registerIslands } from "@generated/islands.js";
 
 registerIslands();
 boot();
-enableNavigation({ transitions: true });
+enableNavigation({ transitions: true, activity: true });

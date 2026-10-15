@@ -35,6 +35,10 @@ export default function VenuePage({ venue, talks }: VenueProps) {
       <Island mode="server">
         <AskDesk desk="help" />
       </Island>
+      <label className="venue-note">
+        A note for the day
+        <textarea name="note" rows={2} />
+      </label>
       <p className="note">The time zone is the visitor's, which only a browser knows, so the clock renders in the browser. The rooms are a Vue island, the talk count a custom element and the help desk a server island. The walk from the station is a plain video element whose files the page imports.</p>
     </section>
   );

@@ -28,6 +28,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Placing a Picture](#placing-a-picture)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Animating a Navigation](#animating-a-navigation)
+* [Keeping the Page a Visitor Left](#keeping-the-page-a-visitor-left)
 * [Loading a Third-Party Script](#loading-a-third-party-script)
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Wiring Another Library to the Navigator](#wiring-another-library-to-the-navigator)
@@ -566,6 +567,18 @@ header.site {
 ```
 
 A link turns it off for itself with `data-sf-transition="none"` and on with `data-sf-transition` when the document leaves it off. From code, `navigate(href, true, { transition: false })` does the same. The navigator skips the transition where the browser has no view transitions, when the visitor's system asks for reduced motion and when the tab is hidden, so the swap happens at once in those cases. Only a navigation animates: a `refresh` after an action and a scroll to a fragment on the same page do not.
+
+## Keeping the Page a Visitor Left
+
+Turn on activity and a navigation keeps the page it replaces out of the document instead of ending it. Going back to that page, through history or by a link, puts the held page back and patches it to the new payload:
+
+```ts
+enableNavigation({ transitions: true, activity: true, activityLimit: 10 });
+```
+
+What comes back is what the visitor left: the same elements, text typed into a field, a video at the second it was paused on and a custom element with whatever it held, since the browser disconnects the element and connects it again. A step back through history also returns the window to where it was scrolled; a link scrolls as any navigation does. React and Vue islands keep running while their DOM is out of the document, so they are unmounted when the page is held and mount afresh from the payload when it comes back. A server island answers again the same way.
+
+`activityLimit` is how many pages are held, 10 by default, the one left longest ago dropped first. An action that revalidates, a `refresh` and a move of the session drop every held page, so nothing from before a mutation comes back after it. A link opts out with `data-sf-activity="none"` and in with `data-sf-activity` when the document leaves it off; `navigate(href, true, { activity: false })` does the same from code.
 
 ## Loading a Third-Party Script
 

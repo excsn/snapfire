@@ -200,6 +200,8 @@ export interface MorphHooks {
   drop?: (node: Node) => void;
   /** An element the walk keeps as it stands, attributes and children alike, when the new markup places one like it there. */
   opaque?: (current: Element) => boolean;
+  /** Whether a form control keeps the value and the check the visitor left in it rather than taking the new markup's. A textarea keeps its text as well. */
+  values?: "kept";
 }
 
 function keyOf(node: Node): string | null {
@@ -251,7 +253,8 @@ export function morphNodes(parent: Node, old: Node[], fresh: Node[], end: Node |
 
 /** Patches `current` to match `next`: attributes by name, then children by the rules of `morph`. */
 export function morphElement(current: Element, next: Element, hooks: MorphHooks): void {
-  morphAttributes(current, next);
+  morphAttributes(current, next, hooks.values === "kept");
+  if (hooks.values === "kept" && current.tagName === "TEXTAREA") return;
   morphNodes(current, Array.from(current.childNodes), Array.from(next.childNodes), null, hooks);
 }
 
@@ -294,7 +297,7 @@ function morphNested(current: Element, next: Element): void {
   void patchIsland(current, decodeValue(raw as SfValue) as Props);
 }
 
-function morphAttributes(current: Element, next: Element): void {
+function morphAttributes(current: Element, next: Element, keepValues = false): void {
   for (const attr of Array.from(current.attributes)) {
     if (!next.hasAttribute(attr.name)) current.removeAttribute(attr.name);
   }
@@ -302,7 +305,7 @@ function morphAttributes(current: Element, next: Element): void {
     if (current.getAttribute(attr.name) !== attr.value) current.setAttribute(attr.name, attr.value);
   }
   const focused = typeof document !== "undefined" && document.activeElement === current;
-  if (!focused && "value" in current && "value" in next) {
+  if (!focused && !keepValues && "value" in current && "value" in next) {
     const control = current as HTMLInputElement;
     const wanted = next as HTMLInputElement;
     if (control.value !== wanted.value) control.value = wanted.value;

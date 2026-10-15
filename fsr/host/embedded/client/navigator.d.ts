@@ -15,6 +15,8 @@ export interface NavigateOptions {
 	scroll?: boolean;
 	/** Whether the swap runs inside a view transition, over the document's `transitions` setting. */
 	transition?: boolean;
+	/** Whether the navigation holds the regions it replaces and puts back one held for where it goes, over the document's `activity` setting. */
+	activity?: boolean;
 }
 export interface NavigationOptions {
 	/** When a link's payload is fetched ahead of its click: on hover, focus or touch; as the link enters the viewport; or never. A link's own `data-sf-prefetch` overrides it. Defaults to `"hover"`. */
@@ -23,6 +25,10 @@ export interface NavigationOptions {
 	cacheMs?: number;
 	/** Whether a navigation swaps the page inside a view transition, `document.startViewTransition`, so the browser animates from the old page to the new one. A link's own `data-sf-transition` overrides it. Skipped where the browser has no view transitions, when the visitor prefers reduced motion and when the tab is hidden. Defaults to false. */
 	transitions?: boolean;
+	/** Whether a navigation keeps the page it leaves, out of the document, so a later navigation back to it, by a link or through history, puts it back as the visitor left it: its DOM, a custom element's state, a video's position and, through history, the window's scroll. An island whose framework would keep running while detached, React's and Vue's, is unmounted instead and mounts afresh when the page comes back. A link's own `data-sf-activity` overrides it. A mutation, a refresh and a move of the session drop what is held. Defaults to false. */
+	activity?: boolean;
+	/** How many pages `activity` holds, the least recently left dropped first. Defaults to 10. */
+	activityLimit?: number;
 }
 /** Fetches a same-origin route's payload ahead of a click so the navigation that follows applies it without a round trip. A payload already held or in flight is left alone, and so is the page being shown, whose link the pointer rests on after every view transition. Resolves once the payload has arrived whole. */
 export declare function prefetch(href: string, options?: NavigateOptions): Promise<void>;

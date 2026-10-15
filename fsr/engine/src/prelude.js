@@ -185,18 +185,48 @@ globalThis.__sf_location = (url) => {
   Object.assign(location, { href: u.href, origin: u.origin, protocol: u.protocol, host: u.host, hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash });
 };
 globalThis.navigator = { userAgent: "fsr-test", language: "en" };
+/** The session history: one entry per `pushState`, the ones after the current entry dropped by a push, as a browser keeps them. A step with `back`, `forward` or `go` moves the address and dispatches `popstate` once the calling task has finished. */
 globalThis.history = {
+  entries: [{ state: null, url: "http://localhost/" }],
+  index: 0,
+  get state() {
+    return this.entries[this.index].state;
+  },
+  get length() {
+    return this.entries.length;
+  },
   pushState(state, _title, url) {
-    this.state = state;
-    this.length++;
     if (url != null) globalThis.__sf_location(url);
+    this.entries.splice(this.index + 1, this.entries.length, { state, url: location.href });
+    this.index = this.entries.length - 1;
   },
   replaceState(state, _title, url) {
-    this.state = state;
     if (url != null) globalThis.__sf_location(url);
+    this.entries[this.index] = { state, url: location.href };
   },
-  state: null,
-  length: 1,
+  go(delta = 0) {
+    const to = this.index + Number(delta);
+    if (delta === 0 || to < 0 || to >= this.entries.length) return;
+    this.index = to;
+    globalThis.__sf_location(this.entries[to].url);
+    const state = this.entries[to].state;
+    setTimeout(() => {
+      const event = new globalThis.Event("popstate");
+      event.state = state;
+      globalThis.document.dispatchEvent(event);
+    }, 0);
+  },
+  back() {
+    this.go(-1);
+  },
+  forward() {
+    this.go(1);
+  },
+  /** A document just loaded starts a history of its own, at the address it was loaded from. */
+  restart() {
+    this.entries = [{ state: null, url: location.href }];
+    this.index = 0;
+  },
 };
 globalThis.CSS = { escape: (s) => String(s).replace(/([^\w-])/g, "\\$1") };
 globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(now), 16);

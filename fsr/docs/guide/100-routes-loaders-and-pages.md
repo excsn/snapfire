@@ -298,6 +298,8 @@ The payload is usually already there when the click lands. Moving the pointer ov
 
 To animate a navigation, pass `transitions: true` to `enableNavigation` in `src/main.ts`. The swap then runs inside the browser's view transition, which crossfades the old page into the new one unless your CSS says otherwise; the conference app gives its header a `view-transition-name` so it holds still while the page changes. A link opts out with `data-sf-transition="none"`. The navigator skips the animation for a visitor whose system asks for reduced motion.
 
+Pass `activity: true` as well and the page a visitor leaves is held out of the document. Going back to it, by the back button or a link, puts it back as it was left: what was typed in a field, a video's position, a custom element's state and, through history, the scroll. React and Vue islands are the exception: they would keep running while held, so they are unmounted and mount afresh when the page returns. The conference app turns both on; type a note on `/venue`, go to the schedule and press back.
+
 ## The lab
 
 Add a route: `routes/deals/page.tsx` with a component that returns a paragraph. Run `fsr check app` and read the report: `/deals` is listed, with no source since there is no loader. Add a `page.loader.ts` that returns `{ when: ctx.now }`, check again and `deals` appears under sources as `lowered`. The page can now import `DealsProps` and it has a `when: bigint`.
