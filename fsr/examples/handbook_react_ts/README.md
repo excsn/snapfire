@@ -22,6 +22,7 @@ cd site && python3 -m http.server 8110
 | `/` | three cards from a loader that reads a module constant |
 | `/install` | `routes/(docs)/install/page.mdx`: the commands read from its loader's data as `props`, then a highlighted code block |
 | `/faq` | `routes/(docs)/faq/page.md`: markdown with its title in YAML frontmatter and a GFM table |
+| `/robots.txt` | `app/public/robots.txt`, copied to the top of `site/` under its own name |
 | `/tips` | `routes/(docs)/tips/page.mdx`: an `export default` layout, a task list, a footnote and an island that renders `content/tip.mdx` in the browser |
 
 The three doc pages sit in `routes/(docs)/`, a group: the directory adds nothing to their URLs and its `layout.tsx` puts a contents list beside each of them and not beside the home page. The home page and `/install` take their data from `app/src/content.ts` through an ordinary `page.loader.ts`. A loader that calls no service is still a loader: it lowers, it runs in Rust and its return type is what types the page's props. `mdx-components.tsx` maps every page's second-level headings to a component with an anchor and wraps each page in `div.page.prose`; `styles/code.css` from `fsr use app mdx` colours the highlighted code.

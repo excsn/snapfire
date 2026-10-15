@@ -415,3 +415,15 @@ async fn the_shell_stylesheet_carries_the_classes_its_vendored_packages_name() {
     assert!(css.contains(class), "{class}");
   }
 }
+
+#[tokio::test]
+async fn the_shells_public_files_answer_beside_the_crawl_files_and_the_mounted_sites() {
+  let portal = portal();
+  let response = portal.handle(Request::get("/.well-known/security.txt").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert!(body_of(response).await.starts_with("Contact: mailto:security@acme.example"));
+  assert!(body_of(portal.handle(Request::get("/humans.txt").body(Bytes::new()).unwrap()).await).await.contains("Acme platform team"));
+  assert!(body_of(portal.handle(Request::get("/robots.txt").body(Bytes::new()).unwrap()).await).await.contains("Disallow: /_sf/"), "[crawl] still writes robots.txt");
+  let response = portal.handle(Request::get("/billing").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "a mounted site's path falls through to it");
+}

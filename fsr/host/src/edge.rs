@@ -284,7 +284,7 @@ impl Host {
 
     // A browser asks for the root icon on its own when it shows anything but
     // a document; with none to serve, it is told so without a logged 404.
-    if path == "/favicon.ico" && t.favicon.is_none() && (req.method() == Method::GET || req.method() == Method::HEAD) && !t.statics.iter().any(|(route, _)| route == "/") {
+    if path == "/favicon.ico" && t.favicon.is_none() && (req.method() == Method::GET || req.method() == Method::HEAD) && !t.statics.iter().any(|(route, _, root)| route.is_empty() && root.join("favicon.ico").is_file()) {
       let mut response = Response::builder().status(StatusCode::NO_CONTENT).body(Body::default()).expect("an empty response");
       let cache = if self.changed.is_some() { Some(HeaderValue::from_static("no-cache")) } else { t.static_cache.clone() };
       if let Some(value) = cache {
@@ -296,8 +296,11 @@ impl Host {
       Some(at) if path == "/favicon.ico" => at.as_str(),
       _ => path.as_str(),
     };
-    for (route, dir) in &t.statics {
+    for (route, dir, root) in &t.statics {
       if let Some(rest) = lookup.strip_prefix(route.as_str()) {
+        if route.is_empty() && !names_file(root, rest) {
+          continue;
+        }
         if rest.is_empty() || rest.starts_with('/') {
           let mut inner = Request::builder()
             .method(req.method().clone())
@@ -930,4 +933,18 @@ impl Host {
       }
     }
   }
+}
+
+/// Whether the URL path `rest` names a file under `root`, read as `ServeDir`
+/// reads it: percent-decoded, with no component that leaves the directory.
+fn names_file(root: &Path, rest: &str) -> bool {
+  let Ok(decoded) = percent_encoding::percent_decode_str(rest).decode_utf8() else { return false };
+  let mut path = root.to_path_buf();
+  for part in decoded.split('/').filter(|p| !p.is_empty()) {
+    if part == "." || part == ".." || part.contains('\\') {
+      return false;
+    }
+    path.push(part);
+  }
+  path != root && path.is_file()
 }

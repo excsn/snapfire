@@ -157,6 +157,10 @@ pub struct DirsSection {
   pub images: String,
   #[serde(default = "default_icons_dir")]
   pub icons: String,
+  /// Files served at the site root under the names they have, as a static
+  /// root at `/` that a request no file answers falls through.
+  #[serde(default = "default_public_dir")]
+  pub public: String,
 }
 
 impl Default for DirsSection {
@@ -176,6 +180,9 @@ fn default_images_dir() -> String {
 }
 fn default_icons_dir() -> String {
   "icons".to_owned()
+}
+fn default_public_dir() -> String {
+  "public".to_owned()
 }
 
 /// `[images]`: the variant policy every image is built under, whether a
@@ -1987,6 +1994,13 @@ impl Config {
       inferred.push(format!("static {vendor_route} from vendor/"));
     }
     let dirs: DirsSection = section(store, "dirs", &at)?;
+    if site.is_none() && app.join(&dirs.public).is_dir() && !statics.iter().any(|s| s.route.trim_end_matches('/').is_empty() || s.dir.trim_end_matches('/') == dirs.public) {
+      statics.push(StaticRoot {
+        route: "/".to_owned(),
+        dir: dirs.public.clone(),
+      });
+      inferred.push(format!("static / from {}/", dirs.public));
+    }
     let images: ImagesSection = section(store, "images", &at)?;
     let media: MediaSection = section(store, "media", &at)?;
     for width in &images.widths {

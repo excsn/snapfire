@@ -957,7 +957,7 @@ impl HostBuilder {
     };
     let csp = config.document.csp.as_ref().and_then(&compose);
     let csp_report_only = config.document.csp_report_only.as_ref().and_then(&compose);
-    let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (s.route.clone(), s.dir.clone())).collect();
+    let static_rows: Vec<(String, PathBuf)> = statics.iter().map(|s| (if s.route.is_empty() { "/".to_owned() } else { s.route.clone() }, s.dir.clone())).collect();
     // Longest route first, so the most specific root answers a path whatever
     // order the file, the inference and the mounts named them in.
     statics.sort_by(|a, b| b.route.len().cmp(&a.route.len()));
@@ -968,7 +968,7 @@ impl HostBuilder {
       }
       fields.into()
     };
-    let statics: Vec<(String, ServeDir)> = statics.into_iter().map(|s| (s.route, ServeDir::new(s.dir))).collect();
+    let statics: Vec<(String, ServeDir, PathBuf)> = statics.into_iter().map(|s| (s.route, ServeDir::new(&s.dir), s.dir)).collect();
     let static_cache = match config.server.static_max_age {
       None => Some(HeaderValue::from_static("no-cache")),
       Some(0) => None,

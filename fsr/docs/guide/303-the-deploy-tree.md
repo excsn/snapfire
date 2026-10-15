@@ -128,6 +128,22 @@ location / {
 }
 ```
 
+An application with an `app/public/` directory has its files at the top of `serve/`, `serve/robots.txt` for `/robots.txt`, so the root location tries the disk first and hands a miss to the process:
+
+```nginx
+location / {
+  root /excsn/apps/snapfire/www/current/serve/;
+  try_files $uri @fsr;
+}
+
+location @fsr {
+  proxy_pass http://127.0.0.1:11110;
+  proxy_set_header Host $host;
+}
+```
+
+`try_files $uri` without `$uri/` matters: a directory is not a file, so `/` and `/docs/` reach the process and its pages rather than an index nginx would look for. `fsr build` refuses a file in `public/` whose path a route, a card image, `robots.txt` or the sitemap from `[crawl]` or the root icon also answers, since nginx would answer the file and development the other one.
+
 The process still knows those routes, so it answers them when nothing is in front of it, which is what `fsr serve` does and what a container without a web server does. The two agree because both read the same configuration.
 
 ## The lab

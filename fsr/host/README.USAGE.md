@@ -24,6 +24,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Prerendering the Routes That Never Change](#prerendering-the-routes-that-never-change)
 * [Warming the Loads a Route Cannot Prerender](#warming-the-loads-a-route-cannot-prerender)
 * [Rendering a Template Route](#rendering-a-template-route)
+* [Serving Files Under Their Own Names](#serving-files-under-their-own-names)
 * [Serving robots.txt and a Sitemap](#serving-robotstxt-and-a-sitemap)
 * [Serving Images and Fonts](#serving-images-and-fonts)
 * [Drawing Card Images](#drawing-card-images)
@@ -62,7 +63,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * **Client** is a `[clients.<name>]` entry: a document and a base URL, imported into one service registry with a transport per client, HTTP for an OpenAPI document and gRPC for a `.proto`.
 * **Shell** is the evaluator for the document module every route's root node names, `shell#document` by default; the stock one emits the doctype, the head and the mount point.
 * **Head** is what the stock shell puts in `<head>`: the title, a `<link>` per stylesheet, the inlined import map and the entry module from `[document]`.
-* **Static root** is a `[[static]]` entry, a route prefix served from a directory by `tower-http`'s `ServeDir`, checked before any route.
+* **Static root** is a `[[static]]` entry, a route prefix served from a directory by `tower-http`'s `ServeDir`, checked before any route. A root at `/` answers only a path that names a file in it and lets every other path through to the routes.
 * **Route declaration** is a `[[route]]` entry, a pattern the application registers with `.route`, written down so the configuration says the deployment answers it; the report names one nothing registered.
 * **Session** is opened from the cookie on every request and persisted into the response when it changed, through `snapfire_fsr_session`. A response that saved a written session also sets `sf_state`, a cookie the page reads, with a fresh generation, as does signing out; the client's router cache holds a payload only under the generation it was fetched in, so a form another library posted or a write from another tab invalidates it the same as the client's own `action` does.
 * **Edge** is `Host::handle`: one `http::Request<Bytes>` in, one streaming `http::Response` out, covering static roots, `/_sf/action/<id>` and pages in either mode.
@@ -123,6 +124,7 @@ styles = "styles"
 fonts = "fonts"
 images = "images"
 icons = "icons"
+public = "public"                 # served at / under the names the files have
 
 [images]                          # optional: the variants every imported image is built with
 widths = [640, 960, 1280, 1920, 2560]
@@ -630,6 +632,20 @@ let host = Host::from("config")?
   .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
   .build()?;
 ```
+
+## Serving Files Under Their Own Names
+
+A file under `app/public/` is answered at its path from the site root, with no hash in the name:
+
+```
+app/public/robots.txt                  /robots.txt
+app/public/.well-known/security.txt    /.well-known/security.txt
+app/public/guide.pdf                   /guide.pdf
+```
+
+The host infers a static root at `/` from the directory when it exists and the boot report says `static / from public/`. `[dirs] public` moves it. A path that names no file falls through to the routes, so the root takes nothing from them. It is tried after every prefix root, so a file under `public/static/` cannot stand in for the bundle. A site gets no root of its own; the shell's `public/` answers for the whole origin. A `public/` that a written `[[static]]` entry already serves under a prefix is left there.
+
+`fsr bundle` copies the directory to the top of `serve/`, where a web server in front answers it from disk. `fsr build` refuses a file whose URL something else answers: a route without parameters, a generated card image, `[crawl]`'s `robots.txt` or sitemap or an `icons/favicon.ico`. The web server would answer the file and the host the other one, so the deployment would not answer what development did. A file under a route with a parameter, `public/notes/plan.pdf` beside `routes/notes/[slug]/`, is not refused; the file answers its path in every mode.
 
 ## Serving robots.txt and a Sitemap
 

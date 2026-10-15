@@ -506,6 +506,7 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `NoRoutes(PathBuf)`, when `app/routes` is not a directory.
 * `Segment { path: PathBuf, name: String }`
 * `ClaimedPattern { pattern: String, first: String, second: String }`, two routes answering the same URLs.
+* `PublicClaimed { file: String, path: String, by: String }`, a file under the root static root, `public/` by default, at a URL a route without parameters, a generated card image, `[crawl]` `robots` or `sitemap` or the icons root's `favicon.ico` also answers. `by` names which.
 * `Lower(LowerError)`, transparent; see `snapfire_fsr_lower`.
 * `VueMajor { version: String, supported: String }`, a vendored Vue whose markup the renderer does not write.
 * `Plugin(String)`, a framework plugin that started and then failed to answer a describe batch, with the host's message.

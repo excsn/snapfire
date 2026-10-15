@@ -59,6 +59,8 @@ pub enum BuildError {
   NoRoutes(PathBuf),
   #[error("{path}: `{name}` is not a route segment; use a name, `[param]`, `[...rest]` or `(group)`")]
   Segment { path: PathBuf, name: String },
+  #[error("{file} is answered at `{path}` by {by} as well; a web server in front answers the file and the host the other, so rename one")]
+  PublicClaimed { file: String, path: String, by: String },
   #[error("two routes answer `{pattern}`: {first} and {second}")]
   ClaimedPattern { pattern: String, first: String, second: String },
   #[error(transparent)]
@@ -1618,6 +1620,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   report.types = declarations.status();
   let missing_declarations = declarations.missing();
   claimed(&report, &routes, &handler_routes, &layout_ids)?;
+  public_claimed(app, routes.iter().chain(&handler_routes).map(|r| r.pattern.as_str()).chain(manifest.images.iter().map(|i| i.pattern.as_str())))?;
   Ok(Built { manifest, contract, report, files, defaults, browser_routes: browser_route_files, browser_files, missing_declarations, added: generated_files, composition_files, assets: assets_manifest, resolver })
 }
 
@@ -2322,6 +2325,40 @@ fn claimed(report: &Report, routes: &[Route], handler_routes: &[Route], layout_i
   for id in routes.iter().map(|r| r.id.as_str()).chain(layout_ids.iter().map(String::as_str)) {
     if let Some(first) = named.insert(props_name(id), id) {
       return Err(BuildError::ClaimedId { kind: "props type".to_owned(), id: props_name(id), first: first.to_owned(), second: id.to_owned() });
+    }
+  }
+  Ok(())
+}
+
+/// Refuses a file under the public root whose URL a route, a generated image,
+/// `[crawl]`'s `robots.txt` or sitemap or the root icon also answers. A
+/// pattern with a parameter is not compared: the file wins it in every mode.
+fn public_claimed<'a>(app: &Path, patterns: impl Iterator<Item = &'a str>) -> Result<(), BuildError> {
+  let Some(config) = config_beside(app) else { return Ok(()) };
+  let Some(root) = config.statics.iter().find(|s| s.route.trim_end_matches('/').is_empty()) else { return Ok(()) };
+  let dir = config.resolve(&root.dir);
+  let mut answered: Vec<(String, String)> = patterns.filter(|p| !p.contains('{')).map(|p| (p.to_owned(), "a route".to_owned())).collect();
+  if let Some(crawl) = &config.crawl {
+    answered.extend(crawl.robots.iter().map(|p| (p.clone(), "[crawl] robots".to_owned())));
+    answered.extend(crawl.sitemap.iter().map(|p| (p.clone(), "[crawl] sitemap".to_owned())));
+  }
+  if let Some(icon) = &config.favicon {
+    answered.push(("/favicon.ico".to_owned(), format!("the icons root's {icon}")));
+  }
+  let mut stack = vec![dir.clone()];
+  while let Some(at) = stack.pop() {
+    let Ok(entries) = std::fs::read_dir(&at) else { continue };
+    for entry in entries.filter_map(Result::ok) {
+      let path = entry.path();
+      if path.is_dir() {
+        stack.push(path);
+        continue;
+      }
+      let rel = path.strip_prefix(&dir).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+      let url = format!("/{rel}");
+      if let Some((_, by)) = answered.iter().find(|(p, _)| p.trim_end_matches('/') == url) {
+        return Err(BuildError::PublicClaimed { file: format!("{}/{rel}", root.dir.trim_end_matches('/')), path: url, by: by.clone() });
+      }
     }
   }
   Ok(())

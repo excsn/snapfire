@@ -346,7 +346,7 @@ struct Tables {
   /// The bundle's build facts file, read for its id when `dev` is on; the
   /// plain head is what `prerender` writes.
   dev_bundle: Option<PathBuf>,
-  statics: Vec<(String, ServeDir)>,
+  statics: Vec<(String, ServeDir, PathBuf)>,
   /// The static path `/favicon.ico` is looked up as, `config.favicon`.
   favicon: Option<String>,
   /// The `Cache-Control` a static answer carries, from `server.static_max_age`.

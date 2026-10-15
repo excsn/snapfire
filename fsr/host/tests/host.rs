@@ -6379,3 +6379,59 @@ async fn a_stylesheet_under_styles_is_linked_as_the_bundle_compiled_it() {
   let html = render(styled_app(false, false)).await;
   assert!(html.contains(r#"href="/static/css/site.css""#), "a bundle that did not compile it leaves the directory's own file: {html}");
 }
+
+fn app_with_public() -> PathBuf {
+  let dir = app_dir_with("\n[dirs]\npublic = \"web\"\n");
+  std::fs::create_dir_all(dir.join("web/.well-known")).unwrap();
+  std::fs::write(dir.join("web/robots.txt"), "User-agent: *\nDisallow:\n").unwrap();
+  std::fs::write(dir.join("web/.well-known/security.txt"), "Contact: mailto:a@b.example\n").unwrap();
+  std::fs::write(dir.join("web/hand book.pdf"), "pdf").unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_public_file_answers_at_the_root_under_its_own_name() {
+  let dir = app_with_public();
+  let host = host_at(&dir).unwrap();
+  assert!(host.report().to_string().contains("static / from web/"), "{}", host.report());
+  for (path, body) in [("/robots.txt", "User-agent: *\nDisallow:\n"), ("/.well-known/security.txt", "Contact: mailto:a@b.example\n"), ("/hand%20book.pdf", "pdf")] {
+    let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
+    assert_eq!(response.status(), StatusCode::OK, "{path}");
+    assert_eq!(&body_of(response).await, body, "{path}");
+  }
+}
+
+#[tokio::test]
+async fn a_path_no_public_file_answers_reaches_the_routes() {
+  let dir = app_with_public();
+  let host = host_at(&dir).unwrap();
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert!(body_of(response).await.contains("<html"), "the root page, not the directory");
+  let response = host.handle(Request::get("/static/app.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(&body_of(response).await, "console.log('hello')", "a prefix root still answers its own files");
+  for path in ["/.well-known", "/../app.toml", "/%2e%2e/app.toml", "/nothing.txt"] {
+    let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
+    let status = response.status();
+    let body = body_of(response).await;
+    assert!(!body.contains("[server]") && !body.contains("Contact:"), "{path} answered {status} with {body}");
+  }
+}
+
+#[tokio::test]
+async fn a_favicon_in_the_public_directory_answers_the_root_icon() {
+  let dir = app_with_public();
+  std::fs::write(dir.join("web/favicon.ico"), b"ico").unwrap();
+  let host = host_at(&dir).unwrap();
+  let response = host.handle(Request::get("/favicon.ico").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(&body_of(response).await, "ico");
+}
+
+#[tokio::test]
+async fn a_public_directory_a_written_root_already_serves_is_not_served_again_at_the_root() {
+  let host = host_at(&app_dir()).unwrap();
+  assert!(!host.report().to_string().contains("static / from"), "{}", host.report());
+  let response = host.handle(Request::get("/app.js").body(Bytes::new()).unwrap()).await;
+  assert_ne!(&body_of(response).await, "console.log('hello')");
+}

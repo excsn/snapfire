@@ -220,7 +220,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### StaticRoot
 
-* `route: String`, `dir: String` relative to the app directory. A trailing slash on `route` is ignored. A written root with the same `route` as an inferred one replaces it.
+* `route: String`, `dir: String` relative to the app directory. A trailing slash on `route` is ignored. A written root with the same `route` as an inferred one replaces it. A root at `/` answers only the paths that name a file under `dir`; every other path goes on to the routes.
 
 ### RouteDecl
 
@@ -293,7 +293,8 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 `[dirs]`: where each kind of asset lives under the app directory. Every key defaults to the conventional name, so an application that writes nothing changes nothing. The routes stay fixed: `/static/css`, `/static/icons` and the bundle's public path answer whatever directory a key names.
 
-* `pub struct DirsSection { pub styles: String, pub fonts: String, pub images: String, pub icons: String }`, `#[non_exhaustive]`, defaults `styles`, `fonts`, `images` and `icons`.
+* `pub struct DirsSection { pub styles: String, pub fonts: String, pub images: String, pub icons: String, pub public: String }`, `#[non_exhaustive]`, defaults `styles`, `fonts`, `images`, `icons` and `public`.
+* `public`, when the directory exists and the configuration is not a site's, is inferred as a static root at `/` unless a written root is already at `/` or already serves the directory. A static root at `/` answers a path only when it names a file under the directory, read percent-decoded with no `.` or `..` component. It is tried after every other root.
 * `styles`, `fonts` and `icons` are scanned, so the key moves where discovery looks. `images` are found by reference, so the key is the directory `fsr build` scans into the asset manifest for a template's `fsr_picture` to name.
 
 ### MediaSection
