@@ -2,7 +2,7 @@ import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { discard, islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Props, type Unmounter } from "./boot.js";
+import { discard, islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Pauser, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -557,8 +557,29 @@ function HydratedRoot({ box, initial }: { box: Held; initial: ReactElement }): R
   return useSyncExternalStore(subscribe, () => box.element, () => initial);
 }
 
+/** React's `<Activity>`, from 19.2. Every root renders under one, visible until activity holds its page, so hiding it keeps the tree it wraps; a boundary added later would rebuild that tree. */
+const Activity = (ReactModule as unknown as { Activity?: ComponentType<{ mode: "visible" | "hidden"; children?: ReactNode }> }).Activity;
+
+/** What each root renders inside its `<Activity>`. */
+const inner = new WeakMap<Element, ReactElement>();
+/** The roots hidden now. */
+const hidden = new WeakSet<Element>();
+
+function underActivity(el: Element, element: ReactElement): ReactElement {
+  inner.set(el, element);
+  return Activity ? createElement(Activity, { mode: hidden.has(el) ? "hidden" : "visible" }, element) : element;
+}
+
+/** Brackets the server's markup the way React's own server writes an `<Activity>` boundary, `<!--&-->` and `<!--/&-->`, so a root hydrating under one finds it. */
+function markActivity(el: Element): void {
+  if (!Activity) return;
+  el.insertBefore(el.ownerDocument.createComment("&"), el.firstChild);
+  el.appendChild(el.ownerDocument.createComment("/&"));
+}
+
 export const reactMounter: Mounter = (component, props, el, hydrate) => {
   const element = islandElement(component, props, el, false);
+  hidden.delete(el);
   if (hydrate) {
     let commit = () => {};
     const committed = new Promise<void>((resolve) => (commit = resolve));
@@ -568,14 +589,15 @@ export const reactMounter: Mounter = (component, props, el, hydrate) => {
       commit();
     };
     held.set(el, box);
-    const root = hydrateRoot(el, createElement(HydratedRoot, { box, initial: element }));
+    markActivity(el);
+    const root = hydrateRoot(el, underActivity(el, createElement(HydratedRoot, { box, initial: element })));
     heldByRoot.set(root, box);
     return root;
   }
   held.delete(el);
   suspending.add(el);
   const root = createRoot(el);
-  root.render(rootElement(element, el));
+  root.render(underActivity(el, rootElement(element, el)));
   return root;
 };
 
@@ -584,11 +606,22 @@ export const reactPatcher: Patcher = (handle, component, props, el) => {
   const element = rootElement(islandElement(component, props, el, true), el);
   const box = held.get(el);
   if (box === undefined) {
-    (handle as Root).render(element);
+    (handle as Root).render(underActivity(el, element));
     return;
   }
   box.element = element;
   for (const listener of Array.from(box.listeners)) listener();
+};
+
+/** Hides or shows a root through its `<Activity>`. False where React has no `Activity`, which arrived in 19.2. False too for a root still hydrating, which a render would make React abandon. */
+export const reactPauser: Pauser = (handle, el, paused) => {
+  const element = inner.get(el);
+  const box = held.get(el);
+  if (!Activity || element === undefined || (box !== undefined && !box.done)) return false;
+  if (paused) hidden.add(el);
+  else hidden.delete(el);
+  (handle as Root).render(underActivity(el, element));
+  return true;
 };
 
 export const reactUnmounter: Unmounter = (handle) => {

@@ -1,6 +1,7 @@
 import { Embed, Island } from "@snapfire/fsr-client/react";
 
 import AskDesk from "@src/ui/AskDesk";
+import Checklist from "@src/ui/Checklist";
 import Floors from "@src/ui/Floors.vue";
 import LocalClock from "@src/ui/LocalClock";
 import type { VenueProps } from "@generated/client";
@@ -34,6 +35,9 @@ export default function VenuePage({ venue, talks }: VenueProps) {
       </Island>
       <Island mode="server">
         <AskDesk desk="help" />
+      </Island>
+      <Island when="load">
+        <Checklist />
       </Island>
       <label className="venue-note">
         A note for the day

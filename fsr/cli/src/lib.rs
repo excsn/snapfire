@@ -2547,12 +2547,14 @@ pub(crate) struct Adapter {
   mounter: &'static str,
   patcher: &'static str,
   unmounter: &'static str,
+  /// Hides a mounted island in place while activity holds its page, where the framework can.
+  pauser: Option<&'static str>,
   needs: &'static [&'static str],
 }
 
-pub(crate) const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactMounter", patcher: "reactPatcher", unmounter: "reactUnmounter", needs: &["react", "react-dom/client"] };
+pub(crate) const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react", mounter: "reactMounter", patcher: "reactPatcher", unmounter: "reactUnmounter", pauser: Some("reactPauser"), needs: &["react", "react-dom/client"] };
 
-pub(crate) const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", needs: &["vue"] };
+pub(crate) const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", pauser: None, needs: &["vue"] };
 
 const ADAPTERS: &[&Adapter] = &[&REACT, &VUE];
 
@@ -2627,7 +2629,7 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
         &mut imported.last_mut().unwrap().1
       }
     };
-    for name in [adapter.mounter, adapter.patcher, adapter.unmounter] {
+    for name in [adapter.mounter, adapter.patcher, adapter.unmounter].into_iter().chain(adapter.pauser) {
       if !names.contains(&name) {
         names.push(name);
       }
@@ -2657,7 +2659,8 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
     } else if snapfire_fsr_lower::component::is_transformed(path) {
       out.push_str("  // @ts-ignore: the bundle overlay holds the module the build wrote from this file\n");
     }
-    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
+    let pause = adapter.pauser.map(|name| format!(", pause: {name}")).unwrap_or_default();
+    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {}{pause} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
   }
   out.push_str("}\n");
   Ok(out)

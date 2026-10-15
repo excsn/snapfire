@@ -5,6 +5,7 @@ import { endServer, isServerIsland, mountServer, patchServer } from "./server.js
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue } from "./values.js";
 const mounted = new WeakMap();
+const paused = new WeakSet();
 const pending = new WeakMap();
 const islands = new Map();
 export function registerIsland(moduleId, entry) {
@@ -68,6 +69,7 @@ export function discard(root) {
     for (const el of markers.reverse()){
         pending.get(el)?.();
         pending.delete(el);
+        paused.delete(el);
         endServer(el);
         const island = mounted.get(el);
         if (!island) continue;
@@ -82,9 +84,22 @@ export function release(root) {
     for (const el of markers.reverse()){
         const island = mounted.get(el);
         if (island && !island.entry.unmount) continue;
+        if (island && island.root !== undefined && island.entry.pause?.(island.root, el, true)) {
+            paused.add(el);
+            continue;
+        }
         discard(el);
         el.removeAttribute(SCHEDULED);
         el.removeAttribute(MOUNTED);
+    }
+}
+export function resume(root) {
+    const markers = Array.from(root.querySelectorAll("sf-i"));
+    if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
+    for (const el of markers){
+        if (!paused.delete(el)) continue;
+        const island = mounted.get(el);
+        if (island && island.root !== undefined) island.entry.pause?.(island.root, el, false);
     }
 }
 export function islandState(el) {

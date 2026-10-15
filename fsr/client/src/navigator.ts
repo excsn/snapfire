@@ -1,5 +1,5 @@
 import { loadMarkedScript } from "./script.js";
-import { applyStyles, discard, loadEntry, patchIsland, release, scan } from "./boot.js";
+import { applyStyles, discard, loadEntry, patchIsland, release, resume, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
@@ -228,6 +228,7 @@ function holdAndReplace(old: Segment, region: Region, node: SfNode, seg: Segment
   const back = takeHeld(seg.k);
   if (back) {
     for (const n of back.nodes) parent.insertBefore(n, region.start);
+    for (const n of back.nodes) if (n instanceof Element) resume(n);
   } else {
     const template = document.createElement("template");
     writeMarkup(template, renderSegment(node, seg, ids));

@@ -484,8 +484,23 @@ function HydratedRoot({ box, initial }) {
     ]);
     return useSyncExternalStore(subscribe, ()=>box.element, ()=>initial);
 }
+const Activity = ReactModule.Activity;
+const inner = new WeakMap();
+const hidden = new WeakSet();
+function underActivity(el, element) {
+    inner.set(el, element);
+    return Activity ? createElement(Activity, {
+        mode: hidden.has(el) ? "hidden" : "visible"
+    }, element) : element;
+}
+function markActivity(el) {
+    if (!Activity) return;
+    el.insertBefore(el.ownerDocument.createComment("&"), el.firstChild);
+    el.appendChild(el.ownerDocument.createComment("/&"));
+}
 export const reactMounter = (component, props, el, hydrate)=>{
     const element = islandElement(component, props, el, false);
+    hidden.delete(el);
     if (hydrate) {
         let commit = ()=>{};
         const committed = new Promise((resolve)=>commit = resolve);
@@ -501,17 +516,18 @@ export const reactMounter = (component, props, el, hydrate)=>{
             commit();
         };
         held.set(el, box);
-        const root = hydrateRoot(el, createElement(HydratedRoot, {
+        markActivity(el);
+        const root = hydrateRoot(el, underActivity(el, createElement(HydratedRoot, {
             box,
             initial: element
-        }));
+        })));
         heldByRoot.set(root, box);
         return root;
     }
     held.delete(el);
     suspending.add(el);
     const root = createRoot(el);
-    root.render(rootElement(element, el));
+    root.render(underActivity(el, rootElement(element, el)));
     return root;
 };
 export const reactPatcher = (handle, component, props, el)=>{
@@ -519,11 +535,20 @@ export const reactPatcher = (handle, component, props, el)=>{
     const element = rootElement(islandElement(component, props, el, true), el);
     const box = held.get(el);
     if (box === undefined) {
-        handle.render(element);
+        handle.render(underActivity(el, element));
         return;
     }
     box.element = element;
     for (const listener of Array.from(box.listeners))listener();
+};
+export const reactPauser = (handle, el, paused)=>{
+    const element = inner.get(el);
+    const box = held.get(el);
+    if (!Activity || element === undefined || box !== undefined && !box.done) return false;
+    if (paused) hidden.add(el);
+    else hidden.delete(el);
+    handle.render(underActivity(el, element));
+    return true;
 };
 export const reactUnmounter = (handle)=>{
     const root = handle;

@@ -34,6 +34,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [MountTiming](#mounttiming)
   * [defineMounter](#definemounter)
   * [Unmounter](#unmounter)
+  * [Pauser](#pauser)
   * [IslandEntry](#islandentry)
   * [registerIsland](#registerisland)
   * [scan](#scan)
@@ -103,6 +104,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [foreign](#foreign)
   * [reactPatcher](#reactpatcher)
   * [reactUnmounter](#reactunmounter)
+  * [reactPauser](#reactpauser)
 * [11. The Vue Mounter](#11-the-vue-mounter)
   * [vueMounter](#vuemounter)
   * [vuePatcher](#vuepatcher)
@@ -403,6 +405,12 @@ The mounter for an island whose module defines a custom element rather than expo
 
 Ends the island mounted at `el`; `handle` is what the mounter returned. Called by `discard`, so an entry without one has its root dropped as it stands when the marker leaves the document.
 
+### Pauser
+
+* `type Pauser = (handle: unknown, el: Element, paused: boolean) => boolean`
+
+With `paused` true it hides the island mounted at `el` in place, its state kept and its effects stopped. With `paused` false it shows the island again. Called when navigation activity holds the island's page and again when the page comes back. False when the framework cannot pause, which leaves the navigator to end the island with its `unmount` and mount it again later.
+
 ### IslandEntry
 
 What a module id is registered with.
@@ -412,6 +420,7 @@ What a module id is registered with.
 * `when?: MountTiming`, defaulting to `"load"`. Per island, not per page.
 * `patch?: Patcher`
 * `unmount?: Unmounter`
+* `pause?: Pauser`. `fsr build` registers React islands with `reactPauser`; a Vue island has none and is unmounted while its page is held.
 
 ### registerIsland
 
@@ -943,6 +952,12 @@ Requires `react` and `react-dom/client` in the page's import map. A component co
 * `const reactUnmounter: Unmounter`
 
 Calls `unmount` on the root the mounter returned, so every effect cleanup in the island runs. A hydrated root whose hydration has not committed is unmounted once it commits, since `unmount` is an update React 18 refuses on such a root; a navigation that discards an island the moment it lands is the case.
+
+### reactPauser
+
+* `const reactPauser: Pauser`
+
+Where React has `Activity`, from 19.2, every root `reactMounter` creates renders under `<Activity mode="visible">`. A root it hydrates has `<!--&-->` and `<!--/&-->` written around the server's markup first, the boundary React's own server writes. `reactPauser` renders the root again under `mode="hidden"` or `"visible"`, so its state survives and its effects stop while hidden. It answers false where React has no `Activity` and for a hydrated root whose hydration has not committed.
 
 ## 11. The Vue Mounter
 

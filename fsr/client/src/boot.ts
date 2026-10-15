@@ -11,6 +11,8 @@ export type Mounter = (module: unknown, props: Props, el: Element, hydrate: bool
 export type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void;
 /** Ends a mounted island, running whatever its framework runs when a root goes away; `handle` is what the mounter returned. */
 export type Unmounter = (handle: unknown, el: Element) => void;
+/** With `paused` true, hides a mounted island in place while its DOM is out of the document, its state kept and its effects stopped. With `paused` false, shows it again. False when the framework cannot, which leaves the caller to end the island instead. */
+export type Pauser = (handle: unknown, el: Element, paused: boolean) => boolean;
 
 export type MountTiming = "load" | "visible" | "idle";
 
@@ -22,6 +24,8 @@ export interface IslandEntry {
   patch?: Patcher;
   /** Called by `discard` for an island whose marker is leaving the document. Left out, the root is dropped as it stands. */
   unmount?: Unmounter;
+  /** Called by `release` for an island whose page activity holds and by `resume` when the page comes back. Left out, `release` ends the island. */
+  pause?: Pauser;
 }
 
 interface Mounted {
@@ -41,6 +45,9 @@ interface Mounted {
 }
 
 const mounted = new WeakMap<Element, Mounted>();
+
+/** Islands `release` paused, which `resume` shows again. */
+const paused = new WeakSet<Element>();
 
 /** How to call off a mount whose timing has not fired, by marker. */
 const pending = new WeakMap<Element, () => void>();
@@ -114,6 +121,7 @@ export function discard(root: ParentNode): void {
   for (const el of markers.reverse()) {
     pending.get(el)?.();
     pending.delete(el);
+    paused.delete(el);
     endServer(el);
     const island = mounted.get(el);
     if (!island) continue;
@@ -123,16 +131,31 @@ export function discard(root: ParentNode): void {
   }
 }
 
-/** Readies every island under `root` for a stay outside the document that may end with the nodes put back. An island whose entry has an `unmount` is ended as `discard` ends it and its marker unmarked, so a later morph replaces it and a scan mounts it afresh; a server island and a mount still waiting on its timing the same. An island with no `unmount`, a custom element's, stays as it is: the browser disconnects the element and connects it again when the nodes come back. */
+/** Readies every island under `root` for a stay outside the document that may end with the nodes put back. A mounted island whose entry pauses is paused and kept. Any other island whose entry has an `unmount` is ended as `discard` ends it and its marker unmarked, so a later morph replaces it and a scan mounts it afresh; a server island and a mount still waiting on its timing the same. An island with no `unmount`, a custom element's, stays as it is: the browser disconnects the element and connects it again when the nodes come back. */
 export function release(root: ParentNode): void {
   const markers = Array.from(root.querySelectorAll("sf-i"));
   if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
   for (const el of markers.reverse()) {
     const island = mounted.get(el);
     if (island && !island.entry.unmount) continue;
+    if (island && island.root !== undefined && island.entry.pause?.(island.root, el, true)) {
+      paused.add(el);
+      continue;
+    }
     discard(el);
     el.removeAttribute(SCHEDULED);
     el.removeAttribute(MOUNTED);
+  }
+}
+
+/** Shows again every island under `root` that `release` paused, now that its nodes are back in the document. */
+export function resume(root: ParentNode): void {
+  const markers = Array.from(root.querySelectorAll("sf-i"));
+  if (root instanceof Element && root.tagName === "SF-I") markers.unshift(root);
+  for (const el of markers) {
+    if (!paused.delete(el)) continue;
+    const island = mounted.get(el);
+    if (island && island.root !== undefined) island.entry.pause?.(island.root, el, false);
   }
 }
 

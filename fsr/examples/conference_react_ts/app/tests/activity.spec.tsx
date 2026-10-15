@@ -22,17 +22,20 @@ async function leaveTheVenue() {
   const count = document.querySelector("talk-count") as HTMLElement & { seen?: number };
   count.seen = 1;
   await fireEvent.click(screen.getByText("Room 2"));
+  await fireEvent.click(screen.getByLabelText("Coffee"));
   await settle();
+  expect(document.querySelector(".checklist-count")?.textContent, "the React island holds a ticked item").toEqual("1 of 3 packed");
+  const checklist = document.querySelector(".checklist");
   expect(document.querySelector(".floors-chosen")?.textContent, "the Vue island holds a room").toEqual("Room 2");
   await fireEvent.click(screen.getByText("Schedule"));
   await settle();
   expect(location.pathname).toEqual("/");
   expect(document.querySelector("textarea[name=note]"), "the venue left the document").toBeNull();
-  return { note, count };
+  return { note, count, checklist };
 }
 
-test("a step back puts the venue back as the visitor left it, with the framework islands mounted afresh", async () => {
-  const { note, count } = await leaveTheVenue();
+test("a step back puts the venue back as the visitor left it, the React island paused and the Vue island mounted afresh", async () => {
+  const { note, count, checklist } = await leaveTheVenue();
   history.back();
   await settle();
   expect(location.pathname).toEqual("/venue");
@@ -42,7 +45,10 @@ test("a step back puts the venue back as the visitor left it, with the framework
   expect(count.seen, "with what was set on it").toEqual(1);
   expect(document.querySelector(".floors-room"), "the Vue island mounted again").toBeTruthy();
   expect(document.querySelector(".floors-chosen"), "from the payload, so its room is not chosen").toBeNull();
-  expect(document.querySelector('sf-i[data-sf-module="src/ui/LocalClock.tsx#default"][data-sf-mounted] .local-clock'), "the React island mounted again").toBeTruthy();
+  expect(document.querySelector(".checklist"), "React 19.2 and later pause a root under <Activity>, so the same checklist came back").toBe(checklist);
+  expect(document.querySelector(".checklist-count")?.textContent, "with its state").toEqual("1 of 3 packed");
+  expect((screen.getByLabelText("Coffee") as HTMLInputElement).checked).toEqual(true);
+  expect(document.querySelector('sf-i[data-sf-module="src/ui/LocalClock.tsx#default"][data-sf-mounted] .local-clock'), "the clock is there too").toBeTruthy();
 });
 
 test("a link back to the venue puts it back too", async () => {

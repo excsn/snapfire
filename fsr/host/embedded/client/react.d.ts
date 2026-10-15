@@ -1,5 +1,5 @@
 import { createContext, useContext, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
-import { MountTiming, Mounter, Patcher, type Props, type Unmounter } from "./boot.js";
+import { MountTiming, Mounter, Patcher, type Pauser, type Props, type Unmounter } from "./boot.js";
 import { type PrefetchTiming } from "./navigator.js";
 import { type EmbedOptions } from "./embed.js";
 import { type ImageAsset } from "./picture.js";
@@ -122,6 +122,8 @@ export declare function useHoisted(module: string): HoistReader;
 export declare function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement;
 export declare const reactMounter: Mounter;
 export declare const reactPatcher: Patcher;
+/** Hides or shows a root through its `<Activity>`. False where React has no `Activity`, which arrived in 19.2. False too for a root still hydrating, which a render would make React abandon. */
+export declare const reactPauser: Pauser;
 export declare const reactUnmounter: Unmounter;
 /** The template dialect's context where an island reaches a template file: the build points that file's import of the dialect here, so its contexts are React's and `use` is `useContext`. */
 export { createContext, useContext as use };
