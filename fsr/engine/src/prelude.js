@@ -233,7 +233,13 @@ globalThis.requestAnimationFrame = (fn) => setTimeout(() => fn(now), 16);
 globalThis.cancelAnimationFrame = cancel;
 globalThis.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
 globalThis.getComputedStyle = (el) => el.style ?? {};
-globalThis.scrollTo = () => {};
+globalThis.scrollX = 0;
+globalThis.scrollY = 0;
+globalThis.scrollTo = (x, y) => {
+  const to = typeof x === "object" && x !== null ? x : { left: x, top: y };
+  if (typeof to.left === "number") globalThis.scrollX = to.left;
+  if (typeof to.top === "number") globalThis.scrollY = to.top;
+};
 
 /** The URL each `URLSearchParams` is the query of, which a change to the params writes back to, as a browser's `url.searchParams` does. */
 const searchOwners = new WeakMap();

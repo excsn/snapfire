@@ -132,6 +132,10 @@ function namedSlotOf(region, name) {
 const held = new Map();
 let heldLimit = 10;
 let holding = false;
+let leftAt = {
+    x: 0,
+    y: 0
+};
 let restored = null;
 function takeRestored() {
     const back = restored;
@@ -159,8 +163,8 @@ function holdRegion(key, region) {
     held.set(key, {
         nodes,
         state: sessionState(),
-        x: window.scrollX,
-        y: window.scrollY
+        x: leftAt.x,
+        y: leftAt.y
     });
     while(held.size > heldLimit){
         const [oldest, entry] = held.entries().next().value;
@@ -774,6 +778,10 @@ export async function navigate(href, push = true, options = {}) {
     await transitioned(options.transition ?? fallbackTransitions, ()=>{
         if (gen !== generation) return;
         holding = options.activity ?? fallbackActivity;
+        leftAt = {
+            x: window.scrollX,
+            y: window.scrollY
+        };
         restored = null;
         try {
             applied = patch(eager, false, keep);
@@ -844,6 +852,9 @@ function linkOf(target) {
     return anchor;
 }
 let wired = null;
+export function navigates() {
+    return typeof document !== "undefined" && wired === document;
+}
 export function enableNavigation(options = {}) {
     const g = globalThis;
     g.__sf = Object.assign(g.__sf ?? {}, {

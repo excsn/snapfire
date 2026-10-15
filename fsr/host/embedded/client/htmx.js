@@ -1,16 +1,22 @@
 import { adopt } from "./store.js";
 import { scan } from "./boot.js";
+import { navigates } from "./navigator.js";
 const SETTLED = [
     "htmx:after:settle",
     "htmx:afterSettle"
 ];
+const RESTORE = "htmx:before:history:restore";
 export function bindHtmx(htmx) {
     const settled = ()=>{
         adopt();
         scan(document);
     };
     const rewire = ()=>htmx.process(document.body);
+    const restore = (event)=>{
+        if (navigates()) event.preventDefault();
+    };
     for (const name of SETTLED)document.body.addEventListener(name, settled);
+    document.addEventListener(RESTORE, restore);
     document.addEventListener("sf:navigate", rewire);
     document.addEventListener("sf:fill", rewire);
     rewire();
@@ -18,6 +24,7 @@ export function bindHtmx(htmx) {
         for (const name of SETTLED)document.body.removeEventListener(name, settled);
         document.removeEventListener("sf:navigate", rewire);
         document.removeEventListener("sf:fill", rewire);
+        document.removeEventListener(RESTORE, restore);
     };
 }
 //# sourceMappingURL=htmx.js.map

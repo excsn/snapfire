@@ -164,6 +164,8 @@ const held = new Map<string, Held>();
 let heldLimit = 10;
 /** Whether the navigation being applied holds what it replaces and puts back what it finds held. */
 let holding = false;
+/** Where the window was scrolled as the navigation began to change the document. Read before the patch: the browser moves the scroll as soon as the document changes, anchoring it on an insertion and clamping it on a removal. */
+let leftAt = { x: 0, y: 0 };
 /** The held region the navigation being applied put back, whose scroll a step through history returns to. */
 let restored: Held | null = null;
 
@@ -197,7 +199,7 @@ function holdRegion(key: string, region: Region): void {
   const before = held.get(key);
   if (before) dropHeld(before);
   held.delete(key);
-  held.set(key, { nodes, state: sessionState(), x: window.scrollX, y: window.scrollY });
+  held.set(key, { nodes, state: sessionState(), x: leftAt.x, y: leftAt.y });
   while (held.size > heldLimit) {
     const [oldest, entry] = held.entries().next().value as [string, Held];
     dropHeld(entry);
@@ -934,6 +936,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   await transitioned(options.transition ?? fallbackTransitions, () => {
     if (gen !== generation) return;
     holding = options.activity ?? fallbackActivity;
+    leftAt = { x: window.scrollX, y: window.scrollY };
     restored = null;
     try {
       applied = patch(eager, false, keep);
@@ -1021,6 +1024,11 @@ function linkOf(target: EventTarget | null): Element | null {
 let wired: Document | null = null;
 
 /** Reads the sidecar the server embedded, intercepts same-origin link clicks, prefetches links when they are hovered, focused or touched; or as they enter the viewport where one asks for that. It owns history from then on. A second call on the same document, which a mounted site's entry module makes when a payload imports it, keeps the spine, the paths and the listeners the first one installed and changes only the options it names. */
+/** Whether `enableNavigation` has wired the document, so the navigator answers a step through history. */
+export function navigates(): boolean {
+  return typeof document !== "undefined" && wired === document;
+}
+
 export function enableNavigation(options: NavigationOptions = {}): void {
   const g = globalThis as { __sf?: Record<string, unknown> };
   g.__sf = Object.assign(g.__sf ?? {}, { refresh });

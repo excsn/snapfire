@@ -1,5 +1,6 @@
 import { adopt } from "./store.js";
 import { scan } from "./boot.js";
+import { navigates } from "./navigator.js";
 
 /** The one method this adapter calls on htmx: the library's own re-scan of a subtree. */
 export interface HtmxProcessor {
@@ -18,9 +19,15 @@ export interface HtmxProcessor {
  * htmx 4 names the settle event `htmx:after:settle` and htmx 2
  * `htmx:afterSettle`; each fires only its own, so both are heard.
  *
+ * While the navigator is enabled a step back or forward is its own: htmx 4
+ * otherwise fetches the page again on `popstate` for an entry it stamped and
+ * swaps the body under the navigator's patch, so the binding cancels
+ * `htmx:before:history:restore`.
+ *
  * Returns the function that takes the listeners off again.
  */
 const SETTLED = ["htmx:after:settle", "htmx:afterSettle"];
+const RESTORE = "htmx:before:history:restore";
 
 export function bindHtmx(htmx: HtmxProcessor): () => void {
   const settled = () => {
@@ -28,7 +35,11 @@ export function bindHtmx(htmx: HtmxProcessor): () => void {
     scan(document);
   };
   const rewire = () => htmx.process(document.body);
+  const restore = (event: Event) => {
+    if (navigates()) event.preventDefault();
+  };
   for (const name of SETTLED) document.body.addEventListener(name, settled);
+  document.addEventListener(RESTORE, restore);
   document.addEventListener("sf:navigate", rewire);
   document.addEventListener("sf:fill", rewire);
   rewire();
@@ -36,5 +47,6 @@ export function bindHtmx(htmx: HtmxProcessor): () => void {
     for (const name of SETTLED) document.body.removeEventListener(name, settled);
     document.removeEventListener("sf:navigate", rewire);
     document.removeEventListener("sf:fill", rewire);
+    document.removeEventListener(RESTORE, restore);
   };
 }

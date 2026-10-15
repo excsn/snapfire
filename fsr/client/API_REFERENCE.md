@@ -1044,6 +1044,8 @@ On `htmx:after:settle`, htmx 4's settle event, or `htmx:afterSettle`, htmx 2's, 
 
 Once as it binds and then on `sf:navigate` and `sf:fill` on `document`: `htmx.process(document.body)`, so htmx wires the `hx-` attributes in markup the navigator wrote. htmx leaves an element it already processed alone. Without this direction a form or an anchor reached by a soft navigation is markup htmx never processed, so the browser submits or follows it natively.
 
+On `htmx:before:history:restore` on `document`, while `enableNavigation` has wired the document: `preventDefault()`, so a step back or forward is the navigator's. htmx 4 stamps the entry it loaded on and, on a step back to it, fetches the page and swaps the body under the navigator's patch.
+
 ## 14. The Standard Library
 
 `@snapfire/fsr-client/std`: the browser half of the standard library the server's interpreter carries under the same names. Every `render` member agrees with the server byte for byte under the same locale, which is `currentLocale()`; a member marked server only has no such promise and the build refuses it on a component's render path. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.

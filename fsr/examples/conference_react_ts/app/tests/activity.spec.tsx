@@ -51,6 +51,38 @@ test("a step back puts the venue back as the visitor left it, the React island p
   expect(document.querySelector('sf-i[data-sf-module="src/ui/LocalClock.tsx#default"][data-sf-mounted] .local-clock'), "the clock is there too").toBeTruthy();
 });
 
+test("a step back returns the window to where the visitor left the venue", async () => {
+  await load("/venue", { ctx: day() });
+  await settle();
+  window.scrollTo(0, 300);
+  // A browser moves the scroll as soon as the document changes under it: scroll anchoring on an insertion, a clamp on a removal.
+  const patched: [object, string, (...args: never[]) => unknown][] = [];
+  for (let proto: object | null = Object.getPrototypeOf(document.body); proto; proto = Object.getPrototypeOf(proto)) {
+    for (const name of ["removeChild", "insertBefore", "appendChild", "replaceChild"]) {
+      if (!Object.prototype.hasOwnProperty.call(proto, name)) continue;
+      const original = (proto as Record<string, (...args: never[]) => unknown>)[name];
+      patched.push([proto, name, original]);
+      (proto as Record<string, unknown>)[name] = function (this: Node, ...args: never[]) {
+        const result = original.apply(this, args);
+        window.scrollTo(0, window.scrollY + 135);
+        return result;
+      };
+    }
+  }
+  try {
+    await fireEvent.click(screen.getByText("Schedule"));
+    await settle();
+  } finally {
+    for (const [proto, name, original] of patched) (proto as Record<string, unknown>)[name] = original;
+  }
+  expect(location.pathname).toEqual("/");
+  window.scrollTo(0, 0);
+  history.back();
+  await settle();
+  expect(location.pathname).toEqual("/venue");
+  expect(window.scrollY).toEqual(300);
+});
+
 test("a link back to the venue puts it back too", async () => {
   const { note } = await leaveTheVenue();
   await fireEvent.click(screen.getByText("Venue"));

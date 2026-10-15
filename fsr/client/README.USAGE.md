@@ -675,7 +675,7 @@ import { bindHtmx } from "@snapfire/fsr-client/htmx";
 bindHtmx(htmx);
 ```
 
-htmx is passed in rather than imported, so the binding works with whatever version the import map names. The call returns the function that takes the listeners off again. What it does is worth knowing, since another library needs the same two directions written by hand.
+htmx is passed in rather than imported, so the binding works with whatever version the import map names. The call returns the function that takes the listeners off again. While navigation is enabled the binding also cancels htmx 4's history restore, so a step back or forward is the navigator's and htmx does not fetch the page again and swap the body under it. What it does is worth knowing, since another library needs the same two directions written by hand.
 
 A navigation writes markup this package did not read and another library may have to: htmx wires its `hx-` attributes when it processes a node; a node the navigator wrote has not been processed. The navigator dispatches `sf:navigate` on `document` once it has applied a payload's eager wave, with the path in `detail` and `sf:fill` for every deferred segment it fills afterwards, the same event the server's fill script dispatches for a streamed one. A library that wires markup listens to both:
 
