@@ -334,19 +334,29 @@ export function useStore<T>(k: StoreKey<T>, initial: T): [T, (next: T) => void] 
   // A root the server did not render, on its first render, waits for a key a
   // deferred segment has yet to seed rather than showing the value it is about
   // to replace. A mounted root keeps what it shows and moves when the seed lands.
-  if (rendered === null && !committed.current && isPending(k)) suspend(whenSettled([k]));
+  if (rendered === null && !committed.current) suspendOn(k);
   return [value, setter];
 }
 
 /** React 19's `use`, which suspends on a promise; React 18 has none and suspends on a thrown one. */
 const reactUse = (ReactModule as unknown as { use?: <V>(promise: Promise<V>) => V }).use;
 
-function suspend(promise: Promise<void>): void {
+/** The promise a first render waited on for each key, kept once it settles: React replays a render that suspended in `use` and requires the replay to call `use` as often, so the render after the seed lands takes the same promise and goes on. A settled one carries the `status` React reads off a thenable, so `use` returns at once rather than suspending on it. */
+const seeds = new Map<string, Promise<void> & { status?: string; value?: undefined }>();
+
+function suspendOn(k: string): void {
+  let seed = seeds.get(k);
+  if (isPending(k) && (seed === undefined || seed.status === "fulfilled")) {
+    const waiting: Promise<void> & { status?: string; value?: undefined } = whenSettled([k]);
+    void waiting.then(() => Object.assign(waiting, { status: "fulfilled", value: undefined }));
+    seeds.set(k, waiting);
+    seed = waiting;
+  }
   if (reactUse) {
-    reactUse(promise);
+    if (seed !== undefined) reactUse(seed);
     return;
   }
-  throw promise;
+  if (isPending(k) && seed !== undefined) throw seed;
 }
 
 /** The document's locale as the application spells it, `fr_FR` or `fr`. The server renders it from the request, so the first paint and the hydration agree; a navigation that changes it re-renders every island reading it. The build lowers this call. */

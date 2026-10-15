@@ -284,21 +284,32 @@ export function useStore(k, initial) {
     const setter = useCallback((next)=>set(k, next), [
         k
     ]);
-    if (rendered === null && !committed.current && isPending(k)) suspend(whenSettled([
-        k
-    ]));
+    if (rendered === null && !committed.current) suspendOn(k);
     return [
         value,
         setter
     ];
 }
 const reactUse = ReactModule.use;
-function suspend(promise) {
+const seeds = new Map();
+function suspendOn(k) {
+    let seed = seeds.get(k);
+    if (isPending(k) && (seed === undefined || seed.status === "fulfilled")) {
+        const waiting = whenSettled([
+            k
+        ]);
+        void waiting.then(()=>Object.assign(waiting, {
+                status: "fulfilled",
+                value: undefined
+            }));
+        seeds.set(k, waiting);
+        seed = waiting;
+    }
     if (reactUse) {
-        reactUse(promise);
+        if (seed !== undefined) reactUse(seed);
         return;
     }
-    throw promise;
+    if (isPending(k) && seed !== undefined) throw seed;
 }
 export function useLocale() {
     return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
