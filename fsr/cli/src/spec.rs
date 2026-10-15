@@ -429,7 +429,7 @@ struct TestVendor {
   entries: BTreeMap<String, (String, String)>,
 }
 
-/// The test vendor manifest's format. Before 2 a changed URL could be recorded beside the file an earlier version left (DEFECTS 1.104), so a manifest of an older format is not trusted.
+/// The test vendor manifest's format. A manifest of an older format can record a changed URL beside the file an earlier version left, so it is not trusted.
 const TEST_VENDOR_FORMAT: u32 = 2;
 
 impl TestVendor {
@@ -1228,7 +1228,6 @@ mod dev_build_tests {
     host
   }
 
-  /// DEFECTS 1.104: a manifest the old fetch wrote may name a new URL beside an old file, so one without the current format is read as empty.
   #[test]
   fn a_test_vendor_manifest_of_an_older_format_is_not_trusted() {
     let dir = std::env::temp_dir().join(format!("fsr-test-vendor-{}", std::process::id()));
@@ -1241,7 +1240,6 @@ mod dev_build_tests {
     let _ = std::fs::remove_dir_all(&dir);
   }
 
-  /// DEFECTS 1.104: a file already on disk was skipped, so after a version change the runner kept the old version's bundle under the new URL.
   #[test]
   fn a_new_version_of_a_package_replaces_the_bundle_an_earlier_one_left() {
     let host = registry();

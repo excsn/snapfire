@@ -1,7 +1,4 @@
-//! DEFECTS 1.98: the configuration listing in README.USAGE.md had `[mdx]`
-//! between `[crawl]` and its keys, so copied as written `robots`, `sitemap`
-//! and `disallow` were `[mdx]`'s and `[crawl]` served nothing. The listing is
-//! read here as the TOML a reader copies.
+//! The configuration listing in README.USAGE.md, read as the TOML a reader copies.
 
 fn listing() -> toml::Table {
   let guide = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/README.USAGE.md")).unwrap();

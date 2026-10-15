@@ -261,8 +261,6 @@ fn a_fence_with_no_grammar_keeps_its_title_and_language() {
   assert!(body.contains("<pre data-language={\"tera\"}><code className={\"language-tera\"} data-language={\"tera\"}>"), "{body}");
 }
 
-/// REQUESTS 11.53: an index had no way to read a file's opening paragraph,
-/// since the body is a component and not data.
 #[test]
 fn the_excerpt_is_the_first_paragraph_as_plain_text() {
   let c = lowered("import { Card } from \"./card\"\nexport const meta = { title: \"T\" }\n\n# Title\n\n{meta.title}\n\nThe *first* paragraph,\nwith `code` and [a link](/x).\n\nThe second.\n");

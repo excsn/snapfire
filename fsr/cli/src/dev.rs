@@ -1402,8 +1402,6 @@ mod tests {
     assert!(change.project && change.apps.iter().all(|a| *a == Some(Vec::new())));
   }
 
-  /// DEFECTS 1.110: a path a `[build] before` program read, a guide outside every application,
-  /// was watched by nothing, so an edit to it reran nothing under `fsr dev`.
   #[test]
   fn a_path_a_program_declared_reruns_the_programs_and_rebuilds_nothing() {
     let p = project(Path::new("/p/app"));
@@ -1424,9 +1422,6 @@ mod tests {
     assert_eq!(declared_input(Path::new("/p"), "wrote site/index.html"), None);
   }
 
-  /// DEFECTS 1.97: a key the build reads, `[media] embed_stills` among them,
-  /// changed in `config/app.toml` restarted the host without a build, so the
-  /// page kept what the previous setting built until a source was saved.
   #[test]
   fn a_configuration_change_rebuilds_every_application_whole() {
     let p = with_site(Path::new("/p/app"), Path::new("/p/sites/learn/app"));
@@ -1835,8 +1830,6 @@ mod under_tests {
     assert!(e.contains("--under"), "{e}");
   }
 
-  /// DEFECTS 1.111: a site served under its shell took no programs, so its own `[build] before`
-  /// and `after` never ran under `fsr dev`.
   #[test]
   fn a_site_under_a_shell_runs_its_own_programs() {
     let (shell, site) = shell_and_site("programs");
@@ -1893,7 +1886,6 @@ mod server_tests {
     panic!("{command} did not exit");
   }
 
-  /// DEFECTS 1.103: an app that exited 0 was reported as a crash the next change would restart while nothing served.
   #[test]
   fn an_app_that_exits_0_stops_dev() {
     let e = polled("true").expect_err("an exit 0 is an error");

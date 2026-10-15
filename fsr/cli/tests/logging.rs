@@ -1,8 +1,3 @@
-//! DEFECTS 1.96: `fsr serve`, which `fsr dev` runs, installed the trace
-//! collector and nothing that writes events, so every `tracing::warn!` the host
-//! emits reached no log. A card property the renderer leaves out drew with a
-//! 200 and said nothing.
-
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};

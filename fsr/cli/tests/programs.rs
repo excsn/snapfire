@@ -90,7 +90,6 @@ fn an_after_program_that_fails_fails_the_build() {
   let _ = std::fs::remove_dir_all(&root);
 }
 
-/// DEFECTS 1.110: a program had no way to say what it reads, so `fsr dev` watched none of it.
 #[test]
 fn a_program_declares_what_it_reads_and_the_declaration_is_not_output() {
   let root = project("declares", "before = [\"reads\"]", &[]);
@@ -105,8 +104,6 @@ fn a_program_declares_what_it_reads_and_the_declaration_is_not_output() {
   let _ = std::fs::remove_dir_all(&root);
 }
 
-/// DEFECTS 1.112: `FSR_APP` was the application path as given, so a relative one named nothing
-/// from the project root the program runs in.
 #[test]
 fn a_relative_app_path_reaches_the_program_absolute() {
   let root = project("relative", "after = [\"one\"]", &["one"]);

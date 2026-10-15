@@ -1421,9 +1421,7 @@ fn a_file_the_entry_imports_by_its_compiled_name_is_compiled() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// DEFECTS 1.95: `fail` returns `never`, so after `if (!recipe) fail(...)`
-/// the value is not null, as tsc reads it. The props said `| null` and every
-/// read of it in the page failed the typecheck.
+/// `fail` returns `never`, so after `if (!recipe) fail(...)` tsc reads the value as not null.
 #[test]
 fn a_value_a_fail_guard_rules_out_is_not_nullable_in_the_props() {
   const RECIPES: &str = "export const RECIPES = [{ slug: \"a\", title: \"A\" }, { slug: \"b\", title: \"B\" }];\n";

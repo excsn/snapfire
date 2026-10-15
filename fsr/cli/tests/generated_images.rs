@@ -242,9 +242,6 @@ fn a_font_entry_names_the_scripts_its_faces_draw_and_an_unknown_one_refuses_the_
   }
 }
 
-/// REQUESTS 11.50: an image with a loader of its own has a generated props
-/// type, named for its directory and stem as a page's is, so its component's
-/// parameter is checked against what the loader returns.
 #[test]
 fn an_image_with_its_own_loader_gets_a_generated_props_type() {
   let root = project("typed", &[

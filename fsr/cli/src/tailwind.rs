@@ -503,8 +503,6 @@ mod tests {
     assert_eq!(unlisted.len(), 1);
   }
 
-  /// REQUESTS 11.51: the warning quoted the plan's s-expression, which a
-  /// reader who wrote a template literal has never seen.
   #[test]
   fn an_unlisted_value_is_quoted_as_it_was_written() {
     let template = Expr::Template(vec![Expr::lit_str("rounded-full px-3 status-"), Expr::Field(Box::new(var("s")), "state".to_owned())]);

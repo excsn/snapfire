@@ -253,8 +253,6 @@ mod tests {
     assert!(classes.contains("hl-comment"), "{classes}");
   }
 
-  /// REQUESTS 11.52: a session fence came out as plain text, the prompt
-  /// lines and the output alike.
   #[test]
   fn a_terminal_session_scopes_prompts_commands_and_output_apart() {
     let lines = lines("$ cargo build --release\n   Compiling fsr\n(venv) % echo \"one\" \\\n  two\n\n# rm -rf target\n", "shell-session").expect("a session");

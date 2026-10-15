@@ -109,9 +109,6 @@ fn a_check_typechecks_against_the_client_this_binary_carries() {
   std::fs::remove_dir_all(&root).unwrap();
 }
 
-/// DEFECTS 1.98: the authoring module's declarations had `Island`, `Link`,
-/// `Picture` and `Slot` but no `Embed`, which the client exports and the build
-/// lowers, so a bare application placing one failed its typecheck.
 #[test]
 fn a_bare_application_placing_an_embed_typechecks() {
   let root = project("typed", PAGE, "[media]\nembed_stills = \"local\"\n\n[typecheck]\nversion = \"7.0.2\"\n");

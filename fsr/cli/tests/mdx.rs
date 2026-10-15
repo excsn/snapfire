@@ -219,8 +219,6 @@ fn fsr_use_mdx_writes_the_component_map_and_the_code_sheet() {
   cleanup(&app);
 }
 
-/// DEFECTS 1.102: the light theme's rules were unscoped, so a scope the dark
-/// theme leaves uncoloured kept its light colour in a dark document.
 #[test]
 fn every_coloured_rule_in_the_code_sheet_names_its_scheme() {
   let mut css = snapfire_fsr_cli::direction::code_sheet().expect("built with mdx-highlight");
