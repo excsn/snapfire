@@ -422,9 +422,25 @@ fn discover(app: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildE
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct TestVendor {
+  #[serde(default)]
+  format: u32,
   /// Specifier to `(the URL it was fetched from, file under the test vendor dir)`, so a changed URL fetches again.
   #[serde(default)]
   entries: BTreeMap<String, (String, String)>,
+}
+
+/// The test vendor manifest's format. Before 2 a changed URL could be recorded beside the file an earlier version left (DEFECTS 1.104), so a manifest of an older format is not trusted.
+const TEST_VENDOR_FORMAT: u32 = 2;
+
+impl TestVendor {
+  /// The manifest at `path`, empty when there is none, it does not read or it is of an older format.
+  fn read(path: &Path) -> TestVendor {
+    let read: TestVendor = std::fs::read_to_string(path).ok().and_then(|text| serde_json::from_str(&text).ok()).unwrap_or_default();
+    match read.format == TEST_VENDOR_FORMAT {
+      true => read,
+      false => TestVendor { format: TEST_VENDOR_FORMAT, entries: BTreeMap::new() },
+    }
+  }
 }
 
 /// The development build a spec loads for each framework module the
@@ -475,10 +491,7 @@ fn dev_builds(vendored: &VendorManifest, served: &serde_json::Map<String, serde_
 fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path, shell: Option<&crate::ShellContract>) -> Result<HashMap<String, PathBuf>, BuildError> {
   let dir = test_dir.join("vendor");
   let manifest_path = dir.join("manifest.json");
-  let mut manifest: TestVendor = match std::fs::read_to_string(&manifest_path) {
-    Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
-    Err(_) => TestVendor::default(),
-  };
+  let mut manifest = TestVendor::read(&manifest_path);
   let vendored = VendorManifest::read(app, layout)?;
   let served = imports_of(&vendor::read_import_map(app, layout)?);
   let mut wanted: Vec<(String, String)> = vec![("linkedom".to_owned(), format!("{ESM_HOST}/linkedom@{LINKEDOM}/worker?target=es2022&bundle&dev"))];
@@ -1213,6 +1226,19 @@ mod dev_build_tests {
       }
     });
     host
+  }
+
+  /// DEFECTS 1.104: a manifest the old fetch wrote may name a new URL beside an old file, so one without the current format is read as empty.
+  #[test]
+  fn a_test_vendor_manifest_of_an_older_format_is_not_trusted() {
+    let dir = std::env::temp_dir().join(format!("fsr-test-vendor-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("manifest.json");
+    std::fs::write(&path, r#"{"entries":{"react":["https://esm.sh/react@19.3.1?dev","react/react.development.bundle.mjs"]}}"#).unwrap();
+    assert!(TestVendor::read(&path).entries.is_empty());
+    std::fs::write(&path, format!(r#"{{"format":{TEST_VENDOR_FORMAT},"entries":{{"react":["u","f"]}}}}"#)).unwrap();
+    assert_eq!(TestVendor::read(&path).entries.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
   }
 
   /// DEFECTS 1.104: a file already on disk was skipped, so after a version change the runner kept the old version's bundle under the new URL.
