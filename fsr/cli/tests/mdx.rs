@@ -218,3 +218,28 @@ fn fsr_use_mdx_writes_the_component_map_and_the_code_sheet() {
   assert!(again.present.contains(&"mdx-components.tsx".to_owned()));
   cleanup(&app);
 }
+
+/// DEFECTS 1.102: the light theme's rules were unscoped, so a scope the dark
+/// theme leaves uncoloured kept its light colour in a dark document.
+#[test]
+fn every_coloured_rule_in_the_code_sheet_names_its_scheme() {
+  let mut css = snapfire_fsr_cli::direction::code_sheet().expect("built with mdx-highlight");
+  while let Some(start) = css.find("/*") {
+    let end = css[start..].find("*/").map(|e| start + e + 2).unwrap_or(css.len());
+    css.replace_range(start..end, "");
+  }
+  let scoped = ["[data-sf-scheme=\"light\"] ", "[data-sf-scheme=\"dark\"] ", ":root:not([data-sf-scheme]) "];
+  let mut checked = 0;
+  for block in css.split('}') {
+    let Some((selectors, body)) = block.split_once('{') else { continue };
+    if !body.replace("color: inherit", "").contains("color:") || !selectors.contains(".hl-") {
+      continue;
+    }
+    for selector in selectors.split(',') {
+      let selector = selector.trim();
+      assert!(scoped.iter().any(|s| selector.starts_with(s)), "`{selector}` colours code in every scheme");
+      checked += 1;
+    }
+  }
+  assert!(checked > 100, "{checked} selectors checked");
+}

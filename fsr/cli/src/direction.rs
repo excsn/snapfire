@@ -285,25 +285,31 @@ fn adopt_mdx(app: &Path, adopted: &mut Adopted) -> Result<(), BuildError> {
   Ok(())
 }
 
-/// The stylesheet for highlighted code: [`CODE_THEMES`] light at the root,
-/// dark under `data-sf-scheme="dark"` and under the browser's preference when
-/// the document names no scheme. `None` without the highlighter.
+/// The stylesheet for highlighted code: [`CODE_THEMES`] light under
+/// `data-sf-scheme="light"` and dark under `data-sf-scheme="dark"`, each also
+/// under the browser's preference when the document names no scheme. Neither
+/// theme is unscoped, so a scope one theme colours and the other does not never
+/// keeps the first theme's colour in the second scheme. `None` without the
+/// highlighter.
 pub fn code_sheet() -> Option<String> {
   #[cfg(feature = "mdx-highlight")]
   {
     use snapfire_fsr_mdx::highlight::theme_css;
     let (light, dark) = CODE_THEMES;
     let mut out = format!("/* Code highlighted at build: {light} in a light scheme, {dark} in a dark one. Each class is a TextMate scope; regenerate with another pair of themes from snapfire_fsr_mdx::highlight::themes(). */\n\n");
-    out.push_str(&theme_css(light, "")?);
+    out.push_str(&theme_css(light, "[data-sf-scheme=\"light\"]")?);
     out.push('\n');
     out.push_str(&theme_css(dark, "[data-sf-scheme=\"dark\"]")?);
-    out.push_str("\n@media (prefers-color-scheme: dark) {\n");
-    for line in theme_css(dark, ":root:not([data-sf-scheme])")?.lines() {
-      out.push_str("  ");
-      out.push_str(line);
-      out.push('\n');
+    for (preference, theme) in [("light", light), ("dark", dark)] {
+      out.push_str(&format!("\n@media (prefers-color-scheme: {preference}) {{\n"));
+      for line in theme_css(theme, ":root:not([data-sf-scheme])")?.lines() {
+        out.push_str("  ");
+        out.push_str(line);
+        out.push('\n');
+      }
+      out.push_str("}\n");
     }
-    out.push_str("}\n\n[data-rehype-pretty-code-figure] { margin: 1rem 0; }\n[data-rehype-pretty-code-title] { font-family: ui-monospace, monospace; font-size: 0.85em; opacity: 0.8; padding: 0.25rem 0; }\n.hl-code { padding: 0.75rem 1rem; overflow-x: auto; border-radius: 6px; }\n.hl-code code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }\n.hl-code .hl-punctuation.hl-definition.hl-prompt { opacity: 0.6; user-select: none; }\n.hl-code .hl-meta.hl-output { opacity: 0.75; }\n.hl-code [data-line] { display: inline-block; min-width: 100%; }\n.hl-code [data-highlighted-line] { background: rgba(127, 127, 127, 0.18); }\n");
+    out.push_str("\n[data-rehype-pretty-code-figure] { margin: 1rem 0; }\n[data-rehype-pretty-code-title] { font-family: ui-monospace, monospace; font-size: 0.85em; opacity: 0.8; padding: 0.25rem 0; }\n.hl-code { padding: 0.75rem 1rem; overflow-x: auto; border-radius: 6px; }\n.hl-code code { background: none; padding: 0; border-radius: 0; font-size: inherit; color: inherit; }\n.hl-code .hl-punctuation.hl-definition.hl-prompt { opacity: 0.6; user-select: none; }\n.hl-code .hl-meta.hl-output { opacity: 0.75; }\n.hl-code [data-line] { display: inline-block; min-width: 100%; }\n.hl-code [data-highlighted-line] { background: rgba(127, 127, 127, 0.18); }\n");
     Some(out)
   }
   #[cfg(not(feature = "mdx-highlight"))]

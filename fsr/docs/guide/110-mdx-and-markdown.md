@@ -158,7 +158,7 @@ export async function load({ params }: Ctx<"/post/{slug}">) {
 ```
 ~~~
 
-No colours are written: `styles/code.css` from `fsr use app mdx` colours the classes in GitHub for a light scheme and OneHalfDark under `data-sf-scheme="dark"` or the system's preference. It also resets an application's own `code` style inside a highlighted block. The classes stay out of the Tailwind class list. A fence with no language or with one no grammar knows is `<pre><code className="language-x">`.
+No colours are written: `styles/code.css` from `fsr use app mdx` colours the classes in GitHub under `data-sf-scheme="light"` and OneHalfDark under `data-sf-scheme="dark"`, each also under the system's preference when the document names no scheme. It also resets an application's own `code` style inside a highlighted block. The classes stay out of the Tailwind class list. A fence with no language is `<pre><code>`. A fence whose language no grammar knows keeps its `title` as a `figcaption` and is `<pre data-language="x"><code className="language-x" data-language="x">` with its text unhighlighted.
 
 ## In the browser
 
