@@ -260,7 +260,7 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 ### BuildSection
 
-* `pub struct config::BuildSection { pub strict: Option<bool>, pub target: Option<String>, pub lib: Option<Vec<String>>, pub entry: Option<String> }`, the `[build]` section. The host reads none of it; `fsr` does. `entry` is a Cargo project, relative to the project root, that `fsr build` and `fsr dev` run once the app is built; empty is none. `strict` refuses a build that leaves a component to render in the browser alone, off when absent. `target` and `lib` are what every tsconfig the build writes carries, `config::DEFAULT_TARGET` (`es2022`) and the target's own library when absent. A target older than `es2017`, a name that is not `esnext` or `es` and a four-digit edition and an empty `lib` entry refuse the configuration.
+* `pub struct config::BuildSection { pub strict: Option<bool>, pub target: Option<String>, pub lib: Option<Vec<String>>, pub before: Vec<String>, pub after: Vec<String> }`, the `[build]` section. The host reads none of it; `fsr` does. `before` and `after` are Cargo projects, relative to the project root, that `fsr build` and `fsr dev` run in order ahead of the app build and once it is built; empty is none. A key the section does not take and an empty project name refuse the configuration. `strict` refuses a build that leaves a component to render in the browser alone, off when absent. `target` and `lib` are what every tsconfig the build writes carries, `config::DEFAULT_TARGET` (`es2022`) and the target's own library when absent. A target older than `es2017`, a name that is not `esnext` or `es` and a four-digit edition and an empty `lib` entry refuse the configuration.
 
 ### TraceSection
 

@@ -9,5 +9,5 @@ app/dist/
 # written by `fsr test`: compiled spec files and test-only vendor builds
 app/.fsr-test/
 app/.fsr-bundle/
-# written by generate/, the `[build] entry` `fsr build app` and `fsr dev app` run: the whole site, documents and static roots
+# written by generate/, the `[build] after` `fsr build app` and `fsr dev app` run: the whole site, documents and static roots
 site/

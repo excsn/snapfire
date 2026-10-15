@@ -1,0 +1,8 @@
+[package]
+name = "handbook_contents"
+version = "0.1.0"
+publish = false
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }

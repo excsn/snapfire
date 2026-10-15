@@ -1,19 +1,19 @@
 # handbook_react_ts
 
-A documentation site with no server, written mostly in MDX. Four routes, no backend, nothing on any plan that reads the request, so every route is fixed and the whole site is files. It has no `src/main.rs`, since it has no app to serve. Its Rust is `generate/`, the `[build] entry` in `config/app.toml`: `fsr build app` builds the app and then runs it. It builds the host, writes every route and every static root into `site/` and exits. What serves the directory afterwards is not its business.
+A documentation site with no server, written mostly in MDX. Four routes, no backend, nothing on any plan that reads the request, so every route is fixed and the whole site is files. It has no `src/main.rs`, since it has no app to serve. Its Rust is two programs `config/app.toml` names. `contents/`, the `[build] before`, runs ahead of the app build and writes `app/src/chapters.ts`, the chapter list, from each doc page's `title` and `order`. `generate/`, the `[build] after`, runs once the app is built: it builds the host, writes every route and every static root into `site/` and exits. What serves the directory afterwards is not its business.
 
 It exists to prove that a different deployment is a different build of the same framework rather than a different framework: the routes, the loaders, the layout and the islands are written exactly as the storefront's are.
 
 ## Running it
 
 ```sh
-fsr build app                           # builds the app, then generate/ writes site/
+fsr build app                           # contents/ writes the chapter list, the app builds, then generate/ writes site/
 cd site && python3 -m http.server 8110
 ```
 
 `site/` is the whole thing: a document and a payload per route, plus every static root the configuration names copied in, so the client bundle, the vendored React and the stylesheet sit where the documents ask for them. It is written beside the app rather than under it, since one of those roots is `app/dist` itself.
 
-`fsr dev app` is the authoring loop: the stock host serves the app with the live refresh. Every rebuild on save runs `generate/` again, so `site/` follows the edit. Both read MDX with fsr's default features.
+`fsr dev app` is the authoring loop: the stock host serves the app with the live refresh. Every rebuild on save runs `contents/` ahead of the app and `generate/` after it, so a new chapter reaches the masthead and `site/` follows the edit. Both read MDX with fsr's default features.
 
 ## What it holds
 
@@ -25,7 +25,7 @@ cd site && python3 -m http.server 8110
 | `/robots.txt` | `app/public/robots.txt`, copied to the top of `site/` under its own name |
 | `/tips` | `routes/(docs)/tips/page.mdx`: an `export default` layout, a task list, a footnote and an island that renders `content/tip.mdx` in the browser |
 
-The three doc pages sit in `routes/(docs)/`, a group: the directory adds nothing to their URLs and its `layout.tsx` puts a contents list beside each of them and not beside the home page. The home page and `/install` take their data from `app/src/content.ts` through an ordinary `page.loader.ts`. A loader that calls no service is still a loader: it lowers, it runs in Rust and its return type is what types the page's props. `mdx-components.tsx` maps every page's second-level headings to a component with an anchor and wraps each page in `div.page.prose`; `styles/code.css` from `fsr use app mdx` colours the highlighted code.
+The three doc pages sit in `routes/(docs)/`, a group: the directory adds nothing to their URLs and its `layout.tsx` puts a contents list beside each of them and not beside the home page. The list and the masthead's links both come from `app/src/chapters.ts`, which `contents/` writes; it is committed, so a checkout builds before the first `fsr build`. The home page and `/install` take their data from `app/src/content.ts` through an ordinary `page.loader.ts`. A loader that calls no service is still a loader: it lowers, it runs in Rust and its return type is what types the page's props. `mdx-components.tsx` maps every page's second-level headings to a component with an anchor and wraps each page in `div.page.prose`; `styles/code.css` from `fsr use app mdx` colours the highlighted code.
 
 ## What a static host does and does not give you
 

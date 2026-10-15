@@ -14,7 +14,8 @@ ttl = "1h"
 version = "7.0.2"
 
 [build]
-entry = "generate"
+before = ["contents"]
+after = ["generate"]
 
 [images]
 rewrite = false

@@ -60,7 +60,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Answering a Residue Diagnostic](#answering-a-residue-diagnostic)
 * [Counting What Does Not Lower](#counting-what-does-not-lower)
 * [Building From Rust](#building-from-rust)
-* [Running a Program After the Build](#running-a-program-after-the-build)
+* [Running Programs Before and After the Build](#running-programs-before-and-after-the-build)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -1702,16 +1702,17 @@ for path in emitted.written {
 ```
 
 
-## Running a Program After the Build
+## Running Programs Before and After the Build
 
-A Cargo project's `src/main.rs` is the app: `fsr dev` builds it and runs it as the server. A program that does something with the built app and then exits, such as writing a whole static site, is not an app. It goes in its own Cargo project, named by `[build] entry`:
+A Cargo project's `src/main.rs` is the app: `fsr dev` builds it and runs it as the server. A program that runs and exits is not an app. One that writes sources the app compiles, such as a module generated from other files, runs before the build. One that does something with the built app, such as writing a whole static site, runs after it. Each goes in its own Cargo project, named in `[build] before` or `after`:
 
 ```toml
 [build]
-entry = "generate"   # a Cargo project, relative to the project root
+before = ["contents"]   # Cargo projects, relative to the project root, run in order ahead of the app build
+after = ["generate"]    # run in order once the app is built
 ```
 
-`fsr build` builds the app, then builds that project and runs its binary to completion from the project root, with `FSR_ROOT` set to the project root and `FSR_APP` to the app directory. The build runs with `FSR_DEV_OWNS_BUILD` set, so a build script in it that calls `emit` skips, as it does under `fsr dev`. A project that does not build, builds more than one binary or exits non-zero fails `fsr build` and the report names the entry. `fsr dev` runs it on start and after every rebuild, watches its `src/`, `build.rs` and `Cargo.toml` and keeps serving when it fails.
+`fsr build` runs each `before` project, builds the app, then runs each `after` project. Running one means building it and running its binary to completion from the project root, with `FSR_ROOT` set to the project root and `FSR_APP` to the app directory. The build runs with `FSR_DEV_OWNS_BUILD` set, so a build script in it that calls `emit` skips, as it does under `fsr dev`. A project that does not build, builds more than one binary or exits non-zero stops `fsr build` there, the report names it as `[build] before <dir>` or `[build] after <dir>` and nothing after it runs.
 
 ```rust
 // generate/src/main.rs
@@ -1722,7 +1723,9 @@ fn main() {
 }
 ```
 
-An app under `fsr dev` that exits 0 stops `fsr dev` with an error saying so, since a server listens until it is stopped; one that fails is started again by the next change. The handbook example is a site with no server: no `src/main.rs`, `fsr dev app` served by the stock host and `generate/` as its entry, which prerenders every route into `site/`.
+`fsr dev` runs the same lists on start and on every change: the `before` projects, the rebuild, then the `after` projects. It watches each project's `src/`, `build.rs` and `Cargo.toml` and keeps serving when one fails; a failed `before` holds the rebuild until the next change. A `before` program that writes a file the app compiles makes the next change the watcher sees, so an edit that changes its output rebuilds twice and then stops, as the second run writes the same bytes. Write the output only when it differs and an edit that leaves it alone rebuilds once.
+
+An app under `fsr dev` that exits 0 stops `fsr dev` with an error saying so, since a server listens until it is stopped; one that fails is started again by the next change. The handbook example is a site with no server: it has no `src/main.rs` and `fsr dev app` serves it through the stock host. Its `before` is `contents/`, which writes `app/src/chapters.ts` from each doc page's title and order. Its `after` is `generate/`, which prerenders every route into `site/`.
 
 ## Error Handling
 

@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use snapfire_fsr_host::Host;
 
-/// The handbook has no server. This is its `[build] entry`: it builds the host to render, writes
+/// The handbook has no server. This is its `[build] after`: it builds the host to render, writes
 /// every fixed route and every static root into `site/` and exits, so what serves the directory
 /// afterwards can be anything. The output sits beside the app rather than under it, since one of
 /// the static roots is `app/dist` itself.

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "@snapfire/fsr-client/react";
+import { chapters } from "@src/chapters";
 
 export default function HandbookLayout({ children }: { children: ReactNode }) {
   return (
@@ -9,9 +10,9 @@ export default function HandbookLayout({ children }: { children: ReactNode }) {
           FSR handbook
         </Link>
         <nav>
-          <Link href="/install">Install</Link>
-          <Link href="/faq">FAQ</Link>
-          <Link href="/tips">Tips</Link>
+          {chapters.map((chapter) => (
+            <Link key={chapter.href} href={chapter.href}>{chapter.title}</Link>
+          ))}
         </nav>
       </header>
       <main>{children}</main>

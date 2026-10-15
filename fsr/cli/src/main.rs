@@ -566,23 +566,27 @@ fn main() -> ExitCode {
       Err(e) => failed(e),
     },
     Command::Bundle(args) => run_bundle(args),
-    Command::Build(args) => match emit(&args.app_dir, args.options()) {
-      Ok(emitted) => {
-        print!("{}", emitted.built.report);
-        for path in emitted.written {
-          println!("wrote {}", path.display());
-        }
-        let code = types_row(emitted.checked.as_ref());
-        match snapfire_fsr_cli::dev::entry_of(&args.app_dir) {
-          Some(entry) => match snapfire_fsr_cli::dev::run_entry(&snapfire_fsr_cli::serve::project_root(&args.app_dir), &entry, &args.app_dir) {
+    Command::Build(args) => {
+      let programs = snapfire_fsr_cli::dev::programs_of(&args.app_dir);
+      let root = snapfire_fsr_cli::serve::project_root(&args.app_dir);
+      if let Err(e) = snapfire_fsr_cli::dev::run_programs(&root, "before", &programs.before, &args.app_dir) {
+        return failed(e);
+      }
+      match emit(&args.app_dir, args.options()) {
+        Ok(emitted) => {
+          print!("{}", emitted.built.report);
+          for path in emitted.written {
+            println!("wrote {}", path.display());
+          }
+          let code = types_row(emitted.checked.as_ref());
+          match snapfire_fsr_cli::dev::run_programs(&root, "after", &programs.after, &args.app_dir) {
             Ok(()) => code,
             Err(e) => failed(e),
-          },
-          None => code,
+          }
         }
+        Err(e) => failed(e),
       }
-      Err(e) => failed(e),
-    },
+    }
     Command::Doctor(args) => match doctor::run(&snapfire_fsr_cli::serve::project_root(&args.app_dir)) {
       Ok(report) => {
         print!("{report}");

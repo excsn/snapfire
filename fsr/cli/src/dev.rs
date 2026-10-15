@@ -273,8 +273,8 @@ struct Project {
   /// A site served under a shell artifact: the site's name and its project
   /// root, which the shell is told to mount for the run.
   mount: Option<(String, PathBuf)>,
-  /// `[build] entry`, resolved against the project root.
-  entry: Option<PathBuf>,
+  /// `[build] before` and `after`, resolved against the project root.
+  programs: Programs,
 }
 
 impl Project {
@@ -287,7 +287,7 @@ impl Project {
       site_options.under = None;
       let site_app = App::open(app, site_options)?;
       println!("dev: serving {} under the shell at {}", site.name, root.display());
-      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), entry: None });
+      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), programs: Programs::default() });
     }
     let shell = App::open(app, options)?;
     let cargo = shell.dir.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file());
@@ -298,8 +298,8 @@ impl Project {
       options.snapfirec = Some(apps[0].snapfirec.clone());
       apps.push(App::open(&dir, options)?);
     }
-    let entry = entry_of(&apps[0].dir);
-    Ok(Self { apps, cargo, mount: None, entry })
+    let programs = programs_of(&apps[0].dir);
+    Ok(Self { apps, cargo, mount: None, programs })
   }
 
   /// The arguments `fsr serve` takes for the run: the shell's app directory
@@ -376,8 +376,8 @@ impl Project {
         ["config", "app.toml", "app.yaml"].iter().map(|name| root.join(name)).collect()
       }
     };
-    if let Some(entry) = &self.entry {
-      watched.extend(["src", "build.rs", "Cargo.toml"].iter().map(|name| entry.join(name)));
+    for program in self.programs.before.iter().chain(&self.programs.after) {
+      watched.extend(["src", "build.rs", "Cargo.toml"].iter().map(|name| program.join(name)));
     }
     watched
   }
@@ -825,7 +825,7 @@ impl Server {
       if let Ok(Some(status)) = child.try_wait() {
         self.child = None;
         if status.success() {
-          return Err(BuildError::Dev("dev: the app exited 0; fsr dev runs it as the server and a server listens until it is stopped. A program that writes files and exits is a `[build] entry`, not `src/main.rs`".to_owned()));
+          return Err(BuildError::Dev("dev: the app exited 0; fsr dev runs it as the server and a server listens until it is stopped. A program that writes files and exits is named in `[build] before` or `after`, not `src/main.rs`".to_owned()));
         }
         eprintln!("dev: server exited with {status}; the next change starts it again");
       }
@@ -956,9 +956,18 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       let mut reload = false;
       let mut failed = false;
       let mut refusals: Vec<String> = Vec::new();
+      if let Err(e) = run_programs(&root, "before", &project.programs.before, &project.shell().dir) {
+        eprintln!("{e}");
+        refusals.push(e.to_string());
+        failed = true;
+      }
       for (state, sources) in tracked.iter_mut().zip(want.apps.iter_mut()) {
         let Some(sources) = sources.take() else { continue };
         if state.app.served {
+          continue;
+        }
+        if failed {
+          state.pending.extend(sources);
           continue;
         }
         match state.rebuild(sources) {
@@ -997,12 +1006,10 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
         project.shell().notify_changed();
       }
       if !failed {
-        if let Some(entry) = &project.entry {
-          if let Err(e) = run_entry(&root, entry, &project.shell().dir) {
-            eprintln!("{e}");
-            refusals.push(e.to_string());
-            failed = true;
-          }
+        if let Err(e) = run_programs(&root, "after", &project.programs.after, &project.shell().dir) {
+          eprintln!("{e}");
+          refusals.push(e.to_string());
+          failed = true;
         }
       }
       if failed {
@@ -1169,26 +1176,39 @@ fn absorb(event: notify::Result<notify::Event>, paths: &mut HashSet<PathBuf>) {
   }
 }
 
-/// `[build] entry` of the configuration beside `app`, resolved against the project root; `None`
-/// when it is absent or empty.
-pub fn entry_of(app: &Path) -> Option<PathBuf> {
-  let entry = crate::config_beside(app)?.build?.entry?;
-  (!entry.is_empty()).then(|| crate::serve::project_root(app).join(entry))
+/// The `[build] before` and `after` projects of one application, resolved against the project root.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Programs {
+  pub before: Vec<PathBuf>,
+  pub after: Vec<PathBuf>,
 }
 
-/// Builds the `[build] entry` project and runs its binary to completion from `root`, with
-/// `FSR_ROOT` and `FSR_APP` naming the project and the application. The build runs with
-/// [`OWNS_BUILD`] set, since the application is built already.
-pub fn run_entry(root: &Path, entry: &Path, app: &Path) -> Result<(), BuildError> {
-  let shown = entry.strip_prefix(root).unwrap_or(entry).display().to_string();
-  let fail = |why: String| BuildError::Dev(format!("[build] entry {shown}: {why}"));
-  if !entry.join("Cargo.toml").is_file() {
+/// `[build] before` and `after` of the configuration beside `app`; both empty when there is no
+/// `[build]` section.
+pub fn programs_of(app: &Path) -> Programs {
+  let Some(build) = crate::config_beside(app).and_then(|config| config.build) else { return Programs::default() };
+  let root = crate::serve::project_root(app);
+  Programs { before: build.before.iter().map(|project| root.join(project)).collect(), after: build.after.iter().map(|project| root.join(project)).collect() }
+}
+
+/// Runs each of `projects` with [`run_program`] in order, stopping at the first that fails.
+pub fn run_programs(root: &Path, key: &str, projects: &[PathBuf], app: &Path) -> Result<(), BuildError> {
+  projects.iter().try_for_each(|project| run_program(root, key, project, app))
+}
+
+/// Builds `project`, named in `[build] <key>`, and runs its binary to completion from `root`,
+/// with `FSR_ROOT` and `FSR_APP` naming the project and the application. The build runs with
+/// [`OWNS_BUILD`] set, since `fsr` builds the application itself.
+pub fn run_program(root: &Path, key: &str, project: &Path, app: &Path) -> Result<(), BuildError> {
+  let shown = project.strip_prefix(root).unwrap_or(project).display().to_string();
+  let fail = |why: String| BuildError::Dev(format!("[build] {key} {shown}: {why}"));
+  if !project.join("Cargo.toml").is_file() {
     return Err(fail("no Cargo.toml there".to_owned()));
   }
   let mut child = Command::new("cargo")
     .args(["build", "--message-format=json-render-diagnostics"])
     .env(OWNS_BUILD, "1")
-    .current_dir(entry)
+    .current_dir(project)
     .stdout(Stdio::piped())
     .spawn()
     .map_err(|e| fail(format!("cargo build: {e}")))?;
@@ -1199,9 +1219,9 @@ pub fn run_entry(root: &Path, entry: &Path, app: &Path) -> Result<(), BuildError
     return Err(fail(format!("cargo build exited with {status}")));
   }
   let [executable] = executables.as_slice() else {
-    return Err(fail(format!("cargo build made {} binaries; an entry is one", executables.len())));
+    return Err(fail(format!("cargo build made {} binaries; a program is one", executables.len())));
   };
-  println!("entry     {shown}");
+  println!("{key:<9} {shown}");
   let status = Command::new(executable)
     .current_dir(root)
     .env("FSR_ROOT", root)
@@ -1270,11 +1290,11 @@ mod tests {
   }
 
   fn project(shell: &Path) -> Project {
-    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, entry: None }
+    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default() }
   }
 
   fn with_site(shell: &Path, site: &Path) -> Project {
-    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, entry: None }
+    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default() }
   }
 
   #[test]
@@ -1764,7 +1784,7 @@ mod server_tests {
   #[test]
   fn an_app_that_exits_0_stops_dev() {
     let e = polled("true").expect_err("an exit 0 is an error");
-    assert!(e.to_string().contains("exited 0") && e.to_string().contains("[build] entry"), "{e}");
+    assert!(e.to_string().contains("exited 0") && e.to_string().contains("`[build] before` or `after`"), "{e}");
   }
 
   #[test]

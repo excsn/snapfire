@@ -1007,10 +1007,14 @@ pub struct BuildSection {
   /// The `lib` every generated tsconfig carries; left to the target when absent.
   #[serde(default)]
   pub lib: Option<Vec<String>>,
-  /// A Cargo project, relative to the project root, that `fsr build` and `fsr dev` build and run
-  /// to completion after the application builds. Absent or empty, there is none.
+  /// Cargo projects, relative to the project root, that `fsr build` and `fsr dev` build and run
+  /// to completion in order before the application builds.
   #[serde(default)]
-  pub entry: Option<String>,
+  pub before: Vec<String>,
+  /// Cargo projects, relative to the project root, that `fsr build` and `fsr dev` build and run
+  /// to completion in order after the application builds.
+  #[serde(default)]
+  pub after: Vec<String>,
 }
 
 /// The target a build writes when `[build] target` is absent.
@@ -1031,6 +1035,11 @@ impl BuildSection {
     }
     if self.lib.as_ref().is_some_and(|lib| lib.iter().any(|entry| entry.trim().is_empty())) {
       return Err("build.lib names an empty library".to_owned());
+    }
+    for (key, projects) in [("before", &self.before), ("after", &self.after)] {
+      if projects.iter().any(|project| project.trim().is_empty()) {
+        return Err(format!("build.{key} names an empty project"));
+      }
     }
     Ok(())
   }
@@ -1728,8 +1737,15 @@ impl Config {
       };
 
     let build: Option<BuildSection> = if store.path_exists("build") || !store.key_paths_with_prefix(Some("build")).is_empty() {
+      const KEYS: [&str; 5] = ["strict", "target", "lib", "before", "after"];
+      for key in store.key_paths_with_prefix(Some("build")) {
+        let name = key.strip_prefix("build.").and_then(|rest| rest.split('.').next()).unwrap_or_default();
+        if !name.is_empty() && !KEYS.contains(&name) {
+          return Err(HostError::Config(at.clone(), format!("build.{name} is not a key; [build] takes strict, target, lib, before and after")));
+        }
+      }
       let mut json = serde_json::Map::new();
-      for key in ["strict", "target", "lib", "entry"] {
+      for key in KEYS {
         if let Some(value) = store.get(&format!("build.{key}")) {
           json.insert(key.to_owned(), to_json(&value));
         }

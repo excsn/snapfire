@@ -5327,6 +5327,23 @@ fn the_build_section_reads_a_target_and_lib_and_refuses_what_tsc_or_snapfirec_ca
   }
 }
 
+#[test]
+fn the_build_section_reads_before_and_after_in_order_and_refuses_a_key_it_does_not_take() {
+  let read = |toml: &str| snapfire_fsr_host::config::Config::load(tuned_app_with(false, "", "", toml).join("app.toml"));
+  let build = read("[build]\nbefore = [\"contents\"]\nafter = [\"generate\", \"sitemap\"]").unwrap().build.expect("the section is read");
+  assert_eq!(build.before, ["contents"]);
+  assert_eq!(build.after, ["generate", "sitemap"]);
+  assert!(read("[build]\ntarget = \"es2023\"").unwrap().build.unwrap().after.is_empty());
+  for (toml, why) in [
+    ("[build]\nentry = \"generate\"", "build.entry is not a key; [build] takes strict, target, lib, before and after"),
+    ("[build]\nafter = [\"\"]", "build.after names an empty project"),
+    ("[build]\nbefore = \"contents\"", "build: invalid type: string"),
+  ] {
+    let err = read(toml).err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(err.contains(why), "{toml}: {err}");
+  }
+}
+
 #[tokio::test]
 async fn no_csp_key_sends_no_policy() {
   let (host, _) = host();
