@@ -2055,7 +2055,8 @@ fn write_attr(name: &str, text: &str, out: &mut String) {
 /// Under React a custom element's attribute follows that major's own rules.
 /// Under plain markup a custom element takes a scalar like any element and
 /// refuses anything else, since nothing will set it as a property. On every
-/// other element `false` omits it, `true` on a boolean attribute writes
+/// other element `false` omits it, except where React writes it as `"false"`,
+/// `true` on a boolean attribute writes
 /// `name=""`, a `style` with nothing in it is omitted and anything else is
 /// stringified.
 fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
@@ -2075,7 +2076,7 @@ fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut Str
       Markup::Plain | Markup::Vue(_) => {}
     }
   }
-  if matches!(value, Value::Bool(false)) {
+  if matches!(value, Value::Bool(false)) && !markup.writes_false(name) {
     return Ok(());
   }
   if name == "style" {
@@ -2969,6 +2970,23 @@ mod markup_tests {
     assert!(fail.message.contains("`rows` on `<x-grid>`") && fail.message.contains("`array`"), "{}", fail.message);
     let scalar = props(&[("rows", Value::str("1")), ("count", Value::int(3i64))]);
     assert_eq!(render_under(None, BY_REACT, tree, &scalar, &Components::new()).unwrap(), "<x-grid rows=\"1\" count=\"3\"></x-grid>", "a React component with no React vendored is plain markup, which takes a scalar");
+  }
+
+  #[test]
+  fn false_on_an_aria_data_or_booleanish_attribute_is_written_as_react_dom_writes_it() {
+    let f = || Expr::Lit(Lit::Bool(false));
+    let tree = element(
+      "button",
+      vec![("aria-expanded", f()), ("data-open", f()), ("spellCheck", f()), ("draggable", f()), ("contentEditable", f()), ("hidden", f()), ("title", f())],
+      Vec::new(),
+    );
+    for major in [ReactMajor::V18, ReactMajor::V19] {
+      assert_eq!(
+        render_under(Some(major), BY_REACT, tree.clone(), &ValueMap::default(), &Components::new()).unwrap(),
+        "<button aria-expanded=\"false\" data-open=\"false\" spellcheck=\"false\" draggable=\"false\" contentEditable=\"false\"></button>",
+        "{major:?}"
+      );
+    }
   }
 
   #[test]

@@ -60,6 +60,14 @@ impl Markup {
     }
   }
 
+  /// Whether `false` on `name` is written as `"false"` rather than omitted.
+  pub(super) fn writes_false(self, name: &str) -> bool {
+    match self {
+      Markup::Plain | Markup::Vue(_) => false,
+      Markup::React(major) => major.writes_false(name),
+    }
+  }
+
   /// Whether `true` on `name` writes nothing.
   pub(super) fn drops_true(self, name: &str) -> bool {
     match self {

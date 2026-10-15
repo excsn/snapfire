@@ -10,6 +10,11 @@ use snapfire_fsr_core::Value;
 use super::{react18, react19};
 use crate::interp::Fail;
 
+/// The attributes React DOM writes a boolean on as text, by the name the
+/// renderer prints: `contentEditable`, `draggable`, `spellCheck` and `value`,
+/// plus four SVG ones.
+const BOOLEANISH: &[&str] = &["contentEditable", "contenteditable", "draggable", "spellcheck", "value", "autoReverse", "externalResourcesRequired", "focusable", "preserveAlpha"];
+
 /// A React major the renderer writes markup for.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum ReactMajor {
@@ -54,6 +59,14 @@ impl ReactMajor {
       Self::V18 => react18::is_boolean(name),
       Self::V19 => react19::is_boolean(name),
     }
+  }
+
+  /// Whether `false` on `name` is written as `"false"`: an `aria-*` or
+  /// `data-*` attribute and one React DOM reads as a booleanish string. Both
+  /// majors hold the same list.
+  pub(super) fn writes_false(self, name: &str) -> bool {
+    let prefix = name.get(..5).map(str::to_ascii_lowercase);
+    matches!(prefix.as_deref(), Some("aria-" | "data-")) || BOOLEANISH.contains(&name)
   }
 
   /// Whether `true` on `name` writes nothing, which is what React does with a
