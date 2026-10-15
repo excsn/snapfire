@@ -15,6 +15,15 @@ test("every page is wrapped by the layout", async () => {
   expect(document.querySelectorAll(".qa").length, "one entry per question").toEqual(3);
 });
 
+test("the doc pages share the (docs) group's layout and the home page does not", async () => {
+  await load("/faq");
+  const listed = Array.from(document.querySelectorAll(".contents a")).map((a) => a.getAttribute("href"));
+  expect(listed).toEqual(["/install", "/faq", "/tips"]);
+  expect(document.querySelector(".docs .chapter .qa"), "the page sits inside the group's layout").toBeTruthy();
+  await load("/");
+  expect(document.querySelector(".contents"), "the group adds nothing outside it").toEqual(null);
+});
+
 test("an MDX page reads its loader's data as props and highlights its code", async () => {
   await load("/install");
   expect(document.title).toEqual("Install · The FSR handbook");

@@ -57,8 +57,10 @@ pub enum BuildError {
   Configuration(String),
   #[error("no `routes/` directory under {0}")]
   NoRoutes(PathBuf),
-  #[error("{path}: `{name}` is not a route segment; use a name, `[param]` or `[...rest]`")]
+  #[error("{path}: `{name}` is not a route segment; use a name, `[param]`, `[...rest]` or `(group)`")]
   Segment { path: PathBuf, name: String },
+  #[error("two routes answer `{pattern}`: {first} and {second}")]
+  ClaimedPattern { pattern: String, first: String, second: String },
   #[error(transparent)]
   Lower(#[from] LowerError),
   #[error("{document}: {error}")]
@@ -2310,6 +2312,12 @@ fn claimed(report: &Report, routes: &[Route], handler_routes: &[Route], layout_i
       }
     }
   }
+  let mut answered: std::collections::HashMap<String, &Path> = std::collections::HashMap::new();
+  for route in routes.iter().chain(handler_routes) {
+    if let Some(first) = answered.insert(matched_shape(&route.pattern), &route.dir) {
+      return Err(BuildError::ClaimedPattern { pattern: route.pattern.clone(), first: first.display().to_string(), second: route.dir.display().to_string() });
+    }
+  }
   let mut named: std::collections::HashMap<String, &str> = std::collections::HashMap::new();
   for id in routes.iter().map(|r| r.id.as_str()).chain(layout_ids.iter().map(String::as_str)) {
     if let Some(first) = named.insert(props_name(id), id) {
@@ -2319,12 +2327,27 @@ fn claimed(report: &Report, routes: &[Route], handler_routes: &[Route], layout_i
   Ok(())
 }
 
+/// A pattern with its parameters' names left out, which is what two patterns
+/// match the same URLs by.
+fn matched_shape(pattern: &str) -> String {
+  pattern
+    .split('/')
+    .map(|segment| match segment.strip_prefix('{') {
+      Some(param) if param.starts_with('*') => "{*}",
+      Some(_) => "{}",
+      None => segment,
+    })
+    .collect::<Vec<_>>()
+    .join("/")
+}
+
 /// `$root` is `RootProps`, `product.$id` is `ProductIdProps`, `admin.users` is
-/// `AdminUsersProps`. A parameter's `$` marker is not part of the name.
+/// `AdminUsersProps`, `(shop).cart` is `ShopCartProps`. A parameter's `$`
+/// marker and a group's parentheses are not part of the name.
 fn props_name(id: &str) -> String {
   let mut name = String::new();
   for part in id.split(['.', '-', '_']) {
-    let mut chars = part.trim_start_matches('$').chars();
+    let mut chars = part.trim_start_matches(['$', '(']).trim_end_matches(')').chars();
     if let Some(first) = chars.next() {
       name.extend(first.to_uppercase());
       name.push_str(chars.as_str());
@@ -3666,6 +3689,13 @@ fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
   let mut id_parts = Vec::new();
   for component in rel.components() {
     let name = component.as_os_str().to_string_lossy().to_string();
+    if let Some(group) = name.strip_prefix('(').and_then(|n| n.strip_suffix(')')) {
+      if group.is_empty() || !group.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(BuildError::Segment { path: dir.to_path_buf(), name });
+      }
+      id_parts.push(name);
+      continue;
+    }
     if let Some(inner) = name.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
       if let Some(rest) = inner.strip_prefix("...") {
         segments.push(format!("{{*{rest}}}"));

@@ -1442,3 +1442,69 @@ fn a_value_a_fail_guard_rules_out_is_not_nullable_in_the_props() {
   assert!(client.contains("export type RecipeSlugProps = { recipe: { slug: string; title: string } | null };"), "unguarded it stays nullable: {client}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+const SHELL: &str = "export default function Layout({ children }: { children: unknown }) {\n  return <div>{children}</div>;\n}\n";
+
+fn layouts_of(route: &serde_json::Value) -> Vec<String> {
+  let mut out = Vec::new();
+  let mut node = &route["plan"];
+  while let Some(child) = node["children"].get(0) {
+    node = &child["node"];
+    if let Some(module) = node["module"].as_str() {
+      out.push(module.to_owned());
+    }
+  }
+  out
+}
+
+#[test]
+fn a_group_directory_adds_nothing_to_the_url_and_keeps_its_own_layout() {
+  let dir = app(&[
+    ("routes/layout.tsx", SHELL),
+    ("routes/(marketing)/layout.tsx", SHELL),
+    ("routes/(marketing)/page.tsx", PAGE),
+    ("routes/(marketing)/about/page.tsx", PAGE),
+    ("routes/(marketing)/about/page.loader.ts", "export async function load() {\n  return { team: 3 };\n}\n"),
+    ("routes/(app)/layout.tsx", SHELL),
+    ("routes/(app)/dashboard/[id]/page.tsx", PAGE),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let patterns: Vec<&str> = built.report.routes.iter().map(|(pattern, _)| pattern.as_str()).collect();
+  assert_eq!(patterns.len(), 3, "{patterns:?}");
+  for pattern in ["/", "/about", "/dashboard/{id}"] {
+    assert!(patterns.contains(&pattern), "{patterns:?}");
+  }
+  let sources: Vec<&str> = built.report.sources.iter().map(|(id, _)| id.as_str()).collect();
+  assert!(sources.contains(&"(marketing).about"), "{sources:?}");
+  let client = &built.files.iter().find(|(name, _)| name == "generated/client.ts").unwrap().1;
+  assert!(client.contains("export type MarketingAboutProps = { team: number };"), "{client}");
+
+  let plan = plan_json(&dir);
+  let route = |pattern: &str| plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == pattern).cloned().unwrap_or_else(|| panic!("no {pattern} in {plan}"));
+  assert_eq!(layouts_of(&route("/about")), ["routes/layout.tsx#default", "routes/(marketing)/layout.tsx#default", "routes/(marketing)/about/page.tsx#default"]);
+  assert_eq!(layouts_of(&route("/dashboard/{id}")), ["routes/layout.tsx#default", "routes/(app)/layout.tsx#default", "routes/(app)/dashboard/[id]/page.tsx#default"]);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn two_groups_answering_one_url_are_refused() {
+  let dir = app(&[("routes/(shop)/cart/[id]/page.tsx", PAGE), ("routes/(account)/cart/[slug]/page.tsx", PAGE)]);
+  match fails(&dir) {
+    BuildError::ClaimedPattern { pattern, first, second } => {
+      assert!(pattern == "/cart/{id}" || pattern == "/cart/{slug}", "{pattern}");
+      assert!(format!("{first} {second}").contains("(account)") && format!("{first} {second}").contains("(shop)"), "{first} and {second}");
+    }
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+  let dir = app(&[("routes/page.tsx", PAGE), ("routes/(home)/page.tsx", PAGE)]);
+  assert!(matches!(fails(&dir), BuildError::ClaimedPattern { pattern, .. } if pattern == "/"));
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_group_needs_a_name() {
+  let dir = app(&[("routes/()/page.tsx", PAGE)]);
+  assert!(matches!(fails(&dir), BuildError::Segment { name, .. } if name == "()"));
+  std::fs::remove_dir_all(&dir).unwrap();
+}

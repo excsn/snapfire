@@ -6,7 +6,7 @@ The question this chapter answers: how does a directory become a route, where do
 
 ## Directories and routes
 
-Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern, with no name treated specially: `routes/` itself is `/`, `routes/cart/` is `/cart`, `routes/index/` is `/index`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart` and the one in `routes/` is `$root`, a name no directory can produce; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
+Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern, with no name treated specially: `routes/` itself is `/`, `routes/cart/` is `/cart`, `routes/index/` is `/index`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. A directory named in parentheses, `routes/(marketing)/`, is a group: it adds nothing to the URL, so `routes/(marketing)/about/` is `/about`. Its `layout.tsx` wraps only the routes beneath it. Two groups give one URL space two layouts with no prefix to tell them apart. Two routes in different groups that answer the same URL are refused, naming both directories. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart` and the one in `routes/` is `$root`, a name no directory can produce; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
 
 Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` (plus an `error.<kind>.tsx` per failure kind) and a `loading.tsx`. The build discovers them all, so adding the file registers it. A `layout.tsx` in any directory on the way wraps the pages beneath it, with its own `layout.loader.ts`. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
 
@@ -30,8 +30,9 @@ Every route has a **source id** and it is the name you see in the boot report, i
 | `routes/cart/` | `/cart` | `cart` | `CartProps` |
 | `routes/product/[id]/` | `/product/{id}` | `product.$id` | `ProductIdProps` |
 | `routes/admin/users/` | `/admin/users` | `admin.users` | `AdminUsersProps` |
+| `routes/(shop)/cart/` | `/cart` | `(shop).cart` | `ShopCartProps` |
 
-The `$` keeps ids unique. A directory name may hold alphanumerics, `_` and `-` and nothing else, so no static segment can ever produce a `$` part, which is why `routes/a/x/` and `routes/a/[x]/` cannot collide on a name. The marker is dropped when the props type is derived, so `product.$id` is `ProductIdProps` and the `$` never reaches your TypeScript.
+The `$` keeps ids unique. A directory name may hold alphanumerics, `_` and `-` and nothing else, so no static segment can ever produce a `$` part, which is why `routes/a/x/` and `routes/a/[x]/` cannot collide on a name. The marker is dropped when the props type is derived, so `product.$id` is `ProductIdProps` and the `$` never reaches your TypeScript. A group keeps its parentheses in the id, which is how `(shop)/layout.tsx` and `(account)/layout.tsx` stay two layouts. The type name drops them.
 
 Actions and slots extend the same id. An `addToCart` exported from `routes/cart/actions.ts` is `cart.addToCart` and a parallel slot beside a layout is `layout.<name>`. Under a site prefix the full id carries the prefix, so the billing site's root is `billing:$root`.
 

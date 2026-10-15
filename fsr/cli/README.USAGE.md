@@ -137,7 +137,19 @@ routes/index/page.tsx            /index
 routes/product/[id]/page.tsx     /product/{id}
 routes/docs/[...rest]/page.tsx   /docs/{*rest}
 routes/admin/users/page.tsx      /admin/users     source id admin.users
+routes/(shop)/cart/page.tsx      /cart            source id (shop).cart
 ```
+
+A directory named in parentheses is a group: it adds nothing to the URL and its `layout.tsx` wraps only the routes beneath it, so `/about` and `/dashboard` can take different layouts with no prefix between them:
+
+```
+routes/(marketing)/layout.tsx
+routes/(marketing)/about/page.tsx     /about
+routes/(app)/layout.tsx
+routes/(app)/dashboard/page.tsx       /dashboard
+```
+
+Two routes in different groups that match the same URL fail the build with `BuildError::ClaimedPattern`, naming both directories.
 
 Routes are emitted sorted by pattern, so entry ids are stable across builds regardless of file system order. A directory holding `route.ts` instead of a page is a handler route with the same pattern rules; one holding both fails the build.
 

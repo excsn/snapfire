@@ -311,16 +311,17 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 * A page, a layout, a slot page and a route's boundaries are composition. Before one is lowered, `ComponentSet::extract_route` moves its state, handlers and effects into an island beside it and the build reports the split under `extracted`; one that cannot be split stays a React root and is reported under `kept`. `ComponentSet::lower_route` does the same for residue in the module's own body. A component a framework hydrates that composition renders inline is registered as an island, since the renderer places it as one. A component that does not lower is a `client` row and a React island; in an application without React it is `BuildError::NoJsxFramework`; the module placing it lowers around it.
 * `export default tree(...)` in any route module is `BuildError::Lower` holding `LowerError::Retired`, which says to `export default` the layout itself and share state with the page through the store.
 * Node ids are assigned in tree order per plan, the shell at 0.
-* A segment is a name of ASCII letters, digits, `_` and `-`, `[name]` for a parameter or `[...name]` for a catch-all. Anything else is `BuildError::Segment`.
+* A segment is a name of ASCII letters, digits, `_` and `-`, `[name]` for a parameter, `[...name]` for a catch-all or `(name)` for a group. A group adds nothing to the pattern; the layouts and boundaries in its directory wrap the routes beneath it as any directory's do. Anything else, `()` included, is `BuildError::Segment`.
 * `index` as the first segment is the root. `index` deeper in a path is a literal segment.
 * Routes are sorted by pattern before ids are assigned.
 
 ### Ids
 
-* Source id: every segment joined with `.`; `index` for the root. A parameter contributes `$<name>`, a catch-all `$<name>` too, so `routes/product/[id]` is `product.$id` and `routes/docs/[...rest]` is `docs.$rest`. The marker is what makes an id injective: a directory name is alphanumerics, `_` and `-` only, so no static segment can produce a `$` part and a route can never share an id with its parameterised child.
+* Source id: every segment joined with `.`; `index` for the root. A parameter contributes `$<name>`, a catch-all `$<name>` too, so `routes/product/[id]` is `product.$id` and `routes/docs/[...rest]` is `docs.$rest`. The marker is what makes an id injective: a directory name is alphanumerics, `_` and `-` only, so no static segment can produce a `$` part and a route can never share an id with its parameterised child. A group contributes `(<name>)`, so `routes/(shop)/cart` is `(shop).cart`. Two groups' layouts at the same depth stay apart by it.
 * Action id: `<source id>.<export>` for each export `lower_actions` returns.
 * Layout id: `layout` for `routes/layout.tsx`, `<segments joined with .>.layout` deeper, parameters marked the same way; it names the layout's loader as a source.
-* Two rows deriving one id stop the build with `ClaimedId`, naming the kind, the id and both files. Route, source, action, handler and props-type names are each checked. The marker keeps ids apart but `props_name` drops it, so `routes/a/x` beside `routes/a/[x]` builds two distinct ids and one type name and is refused on that.
+* Two rows deriving one id stop the build with `ClaimedId`, naming the kind, the id and both files. Route, source, action, handler and props-type names are each checked. The marker keeps ids apart but `props_name` drops it, so `routes/a/x` beside `routes/a/[x]` builds two distinct ids and one type name and is refused on that. `props_name` drops a group's parentheses as well: `(shop).cart` is `ShopCartProps`.
+* Two routes or handler routes matching the same URLs stop the build with `ClaimedPattern`, naming the pattern and both directories. Parameter names are not compared, so `(shop)/cart/[id]` beside `(account)/cart/[slug]` is refused, as is `routes/page.tsx` beside `routes/(home)/page.tsx`.
 * Every `derive` in a script file the browser loads becomes a plan `derive` row through `ComponentSet::lower_derives`. A key derived in two places stops the build with `DerivedTwice { key, first, second }`. Derived keys that read each other in a loop stop it with `DeriveCycle { keys }`, naming the loop.
 * A component placed as an island in server mode stops the build with `ServerIsland { module, reason }` in three cases: a handler that did not lower, in the island's component or in one it renders, naming the placing module, the component, the line and why; a handler that reads a name the markup around it bound; or the same module placed in server mode and also as a browser island, since a module has one owner. A server island takes no adapter and no registry entry. The components the island renders are walked to any depth and their handlers count in the report's row.
 * Handler id: `<route id>.<METHOD>` for each export of `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`; the row also carries the method and the pattern. An `action<T>` export names `T` as its input, which must be a schema type or the build fails with `UnknownHandlerInput`.
@@ -504,6 +505,7 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `Io(PathBuf, std::io::Error)`
 * `NoRoutes(PathBuf)`, when `app/routes` is not a directory.
 * `Segment { path: PathBuf, name: String }`
+* `ClaimedPattern { pattern: String, first: String, second: String }`, two routes answering the same URLs.
 * `Lower(LowerError)`, transparent; see `snapfire_fsr_lower`.
 * `VueMajor { version: String, supported: String }`, a vendored Vue whose markup the renderer does not write.
 * `Plugin(String)`, a framework plugin that started and then failed to answer a describe batch, with the host's message.

@@ -20,11 +20,11 @@ cd site && python3 -m http.server 8110
 | Path | What it is |
 | --- | --- |
 | `/` | three cards from a loader that reads a module constant |
-| `/install` | `routes/install/page.mdx`: the commands read from its loader's data as `props`, then a highlighted code block |
-| `/faq` | `routes/faq/page.md`: markdown with its title in YAML frontmatter and a GFM table |
-| `/tips` | `routes/tips/page.mdx`: an `export default` layout, a task list, a footnote and an island that renders `content/tip.mdx` in the browser |
+| `/install` | `routes/(docs)/install/page.mdx`: the commands read from its loader's data as `props`, then a highlighted code block |
+| `/faq` | `routes/(docs)/faq/page.md`: markdown with its title in YAML frontmatter and a GFM table |
+| `/tips` | `routes/(docs)/tips/page.mdx`: an `export default` layout, a task list, a footnote and an island that renders `content/tip.mdx` in the browser |
 
-The home page and `/install` take their data from `app/src/content.ts` through an ordinary `page.loader.ts`. A loader that calls no service is still a loader: it lowers, it runs in Rust and its return type is what types the page's props. `mdx-components.tsx` maps every page's second-level headings to a component with an anchor and wraps each page in `div.page.prose`; `styles/code.css` from `fsr use app mdx` colours the highlighted code.
+The three doc pages sit in `routes/(docs)/`, a group: the directory adds nothing to their URLs and its `layout.tsx` puts a contents list beside each of them and not beside the home page. The home page and `/install` take their data from `app/src/content.ts` through an ordinary `page.loader.ts`. A loader that calls no service is still a loader: it lowers, it runs in Rust and its return type is what types the page's props. `mdx-components.tsx` maps every page's second-level headings to a component with an anchor and wraps each page in `div.page.prose`; `styles/code.css` from `fsr use app mdx` colours the highlighted code.
 
 ## What a static host does and does not give you
 
@@ -36,7 +36,7 @@ Client navigation is the part that depends on what serves the files. The navigat
 
 `cargo test -p handbook_react_ts`: that every route is prerenderable and none is left out, that the whole site is written as documents and payloads, that a written document carries the page's markup, its own title and no reference to a host and that a render with a session full of junk is byte for byte the render without one.
 
-`fsr test app`: the home page's cards come from the loader's constant, the layout wraps every page, the MDX page reads its loader's data and highlights its code, the markdown page is titled by its frontmatter, `/tips` keeps its own layout in place of the wrapper and the tip island renders `content/tip.mdx` in the browser on a click.
+`fsr test app`: the home page's cards come from the loader's constant, the layout wraps every page, the `(docs)` group's layout wraps the doc pages and not the home page, the MDX page reads its loader's data and highlights its code, the markdown page is titled by its frontmatter, `/tips` keeps its own layout in place of the wrapper and the tip island renders `content/tip.mdx` in the browser on a click.
 
 Checked in a browser over `python3 -m http.server`: every document and every asset answers, the client modules included, since `prerender` writes them beside the documents, the page hydrates with an empty console and following a link lands on the next page with its own title.
 

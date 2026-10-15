@@ -32,6 +32,14 @@ body {
 .page a { border-bottom: 1px solid currentColor; }
 .masthead a:hover { text-decoration: underline; }
 
+.docs { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 2rem; }
+.contents { padding-top: 2.4rem; font-size: 0.9rem; }
+.contents p { margin: 0 0 0.5rem; color: var(--muted); }
+.contents ol { margin: 0; padding-left: 1.1rem; }
+.contents a { color: var(--accent); text-decoration: none; }
+.contents a[aria-current="page"] { font-weight: 700; }
+@media (max-width: 40rem) { .docs { grid-template-columns: 1fr; gap: 0; } .contents { padding-top: 1rem; } }
+
 h1 { font-size: 2rem; line-height: 1.2; margin: 2rem 0 0.75rem; }
 h2 { font-size: 1.05rem; margin: 0 0 0.35rem; }
 .lede { color: var(--muted); font-size: 1.1rem; }
