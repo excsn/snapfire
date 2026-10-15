@@ -568,8 +568,8 @@ fn main() -> ExitCode {
     Command::Bundle(args) => run_bundle(args),
     Command::Build(args) => {
       let programs = snapfire_fsr_cli::dev::programs_of(&args.app_dir);
-      let root = snapfire_fsr_cli::serve::project_root(&args.app_dir);
-      if let Err(e) = snapfire_fsr_cli::dev::run_programs(&root, "before", &programs.before, &args.app_dir) {
+      let mut declared = std::collections::BTreeMap::new();
+      if let Err(e) = snapfire_fsr_cli::dev::run_programs("before", &programs.before, &programs, &mut declared) {
         return failed(e);
       }
       match emit(&args.app_dir, args.options()) {
@@ -579,7 +579,7 @@ fn main() -> ExitCode {
             println!("wrote {}", path.display());
           }
           let code = types_row(emitted.checked.as_ref());
-          match snapfire_fsr_cli::dev::run_programs(&root, "after", &programs.after, &args.app_dir) {
+          match snapfire_fsr_cli::dev::run_programs("after", &programs.after, &programs, &mut declared) {
             Ok(()) => code,
             Err(e) => failed(e),
           }

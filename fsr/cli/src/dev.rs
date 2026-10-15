@@ -11,7 +11,7 @@
 //! [`OWNS_BUILD`], since a script that built them too would build each one
 //! twice per change and write over what the loop wrote.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -287,7 +287,7 @@ impl Project {
       site_options.under = None;
       let site_app = App::open(app, site_options)?;
       println!("dev: serving {} under the shell at {}", site.name, root.display());
-      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), programs: Programs::default() });
+      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), programs: programs_of(app) });
     }
     let shell = App::open(app, options)?;
     let cargo = shell.dir.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file());
@@ -382,9 +382,10 @@ impl Project {
     watched
   }
 
-  /// Which application each changed path belongs to, else that it is the project around them.
-  fn classify(&self, changed: &[PathBuf]) -> Change {
-    let mut change = Change { apps: vec![None; self.apps.len()], project: false };
+  /// Which application each changed path belongs to, else a program's declared input, else the project around them.
+  fn classify(&self, changed: &[PathBuf], declared: &[PathBuf]) -> Change {
+    let watched = self.watched();
+    let mut change = Change { apps: vec![None; self.apps.len()], project: false, programs: false };
     for path in changed {
       let owner = self.apps.iter().enumerate().filter(|(_, app)| path.starts_with(&app.dir)).max_by_key(|(_, app)| app.dir.as_os_str().len());
       match owner {
@@ -395,6 +396,7 @@ impl Project {
             change.apps[i].get_or_insert_with(Vec::new).push(path.clone());
           }
         }
+        None if !watched.iter().any(|root| path.starts_with(root)) && declared.iter().any(|input| path.starts_with(input)) => change.programs = true,
         None => change.project = true,
       }
     }
@@ -497,15 +499,18 @@ struct Change {
   /// changed, none of them meaning everything.
   apps: Vec<Option<Vec<PathBuf>>>,
   project: bool,
+  /// A path a `[build] before` or `after` program declared it reads changed, and nothing else
+  /// outside the applications did.
+  programs: bool,
 }
 
 impl Change {
   fn everything(apps: usize) -> Self {
-    Self { apps: vec![Some(Vec::new()); apps], project: true }
+    Self { apps: vec![Some(Vec::new()); apps], project: true, programs: false }
   }
 
   fn any(&self) -> bool {
-    self.project || self.apps.iter().any(Option::is_some)
+    self.project || self.programs || self.apps.iter().any(Option::is_some)
   }
 }
 
@@ -950,13 +955,16 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   let mut seen = Seen::default();
   let mut self_triggered = 0u32;
   let mut want = Change::everything(project.apps.len());
+  let mut declared: BTreeMap<PathBuf, Vec<PathBuf>> = BTreeMap::new();
+  let mut declared_watched: HashSet<PathBuf> = HashSet::new();
   loop {
     if want.any() {
       let mut restart = want.project || server.child.is_none();
+      let rebuilds = want.project || want.apps.iter().any(Option::is_some);
       let mut reload = false;
       let mut failed = false;
       let mut refusals: Vec<String> = Vec::new();
-      if let Err(e) = run_programs(&root, "before", &project.programs.before, &project.shell().dir) {
+      if let Err(e) = run_programs("before", &project.programs.before, &project.programs, &mut declared) {
         eprintln!("{e}");
         refusals.push(e.to_string());
         failed = true;
@@ -1002,16 +1010,17 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
             failed = true;
           }
         }
-      } else if !failed && !reload {
+      } else if !failed && !reload && rebuilds {
         project.shell().notify_changed();
       }
       if !failed {
-        if let Err(e) = run_programs(&root, "after", &project.programs.after, &project.shell().dir) {
+        if let Err(e) = run_programs("after", &project.programs.after, &project.programs, &mut declared) {
           eprintln!("{e}");
           refusals.push(e.to_string());
           failed = true;
         }
       }
+      rewatch(&mut watcher, &mut watching, &mut declared_watched, declared.values().flatten())?;
       if failed {
         project.shell().notify_failed(&refusals.join("\n\n"));
         println!("dev: waiting for changes");
@@ -1022,7 +1031,8 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       return Ok(());
     };
     let changed = seen.changed(batch.paths);
-    want = project.classify(&changed);
+    let inputs: Vec<PathBuf> = declared.values().flatten().cloned().collect();
+    want = project.classify(&changed, &inputs);
     if !want.any() {
       continue;
     }
@@ -1050,14 +1060,33 @@ fn describe(root: &Path, changed: &[PathBuf]) -> String {
 
 /// Watches a path once, recursively. Anything under a watched path is already covered and a
 /// path that is not there yet is nothing to watch.
-fn watch(watcher: &mut RecommendedWatcher, watching: &mut HashSet<PathBuf>, path: PathBuf) -> Result<(), BuildError> {
+fn watch(watcher: &mut RecommendedWatcher, watching: &mut HashSet<PathBuf>, path: PathBuf) -> Result<bool, BuildError> {
   if !path.exists() || watching.iter().any(|root| path.starts_with(root)) {
-    return Ok(());
+    return Ok(false);
   }
   watcher
     .watch(&path, RecursiveMode::Recursive)
     .map_err(|e| BuildError::Dev(format!("watch {}: {e}", path.display())))?;
   watching.insert(path);
+  Ok(true)
+}
+
+/// Makes the programs' declared inputs the watched set they add: watches each new one and stops
+/// watching each that no program declares any more. `added` holds the paths watched for a
+/// declaration alone, so a path the project watches anyway is never unwatched. A declared path
+/// that does not exist yet is watched once a later run declares it again and it does.
+fn rewatch<'a>(watcher: &mut RecommendedWatcher, watching: &mut HashSet<PathBuf>, added: &mut HashSet<PathBuf>, declared: impl Iterator<Item = &'a PathBuf>) -> Result<(), BuildError> {
+  let wanted: HashSet<&PathBuf> = declared.collect();
+  for gone in added.iter().filter(|path| !wanted.contains(path)).cloned().collect::<Vec<_>>() {
+    let _ = watcher.unwatch(&gone);
+    watching.remove(&gone);
+    added.remove(&gone);
+  }
+  for path in wanted {
+    if watch(watcher, watching, path.clone())? {
+      added.insert(path.clone());
+    }
+  }
   Ok(())
 }
 
@@ -1176,30 +1205,50 @@ fn absorb(event: notify::Result<notify::Event>, paths: &mut HashSet<PathBuf>) {
   }
 }
 
-/// The `[build] before` and `after` projects of one application, resolved against the project root.
+/// The `[build] before` and `after` projects of one application, resolved against its project
+/// root, with the root they run from and the application they are told about.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Programs {
+  pub root: PathBuf,
+  pub app: PathBuf,
   pub before: Vec<PathBuf>,
   pub after: Vec<PathBuf>,
 }
 
 /// `[build] before` and `after` of the configuration beside `app`; both empty when there is no
-/// `[build]` section.
+/// `[build]` section. The root and the application are absolute, since a program runs from the
+/// root and a relative `app` names a path from where `fsr` ran.
 pub fn programs_of(app: &Path) -> Programs {
-  let Some(build) = crate::config_beside(app).and_then(|config| config.build) else { return Programs::default() };
   let root = crate::serve::project_root(app);
-  Programs { before: build.before.iter().map(|project| root.join(project)).collect(), after: build.after.iter().map(|project| root.join(project)).collect() }
+  let app = &app.canonicalize().unwrap_or_else(|_| app.to_path_buf());
+  let Some(build) = crate::config_beside(app).and_then(|config| config.build) else { return Programs { root, app: app.to_path_buf(), ..Programs::default() } };
+  Programs {
+    before: build.before.iter().map(|project| root.join(project)).collect(),
+    after: build.after.iter().map(|project| root.join(project)).collect(),
+    root,
+    app: app.to_path_buf(),
+  }
 }
 
-/// Runs each of `projects` with [`run_program`] in order, stopping at the first that fails.
-pub fn run_programs(root: &Path, key: &str, projects: &[PathBuf], app: &Path) -> Result<(), BuildError> {
-  projects.iter().try_for_each(|project| run_program(root, key, project, app))
+/// The line a program prints to declare a path it reads, relative to `FSR_ROOT` or absolute.
+pub const DECLARE: &str = "fsr:watch=";
+
+/// Runs each of `projects`, the `[build] <key>` list of `programs`, with [`run_program`] in order,
+/// stopping at the first that fails. Each that succeeds replaces what it declared in `declared`;
+/// one that fails keeps what it declared last.
+pub fn run_programs(key: &str, projects: &[PathBuf], programs: &Programs, declared: &mut BTreeMap<PathBuf, Vec<PathBuf>>) -> Result<(), BuildError> {
+  for project in projects {
+    let inputs = run_program(&programs.root, key, project, &programs.app)?;
+    declared.insert(project.clone(), inputs);
+  }
+  Ok(())
 }
 
 /// Builds `project`, named in `[build] <key>`, and runs its binary to completion from `root`,
 /// with `FSR_ROOT` and `FSR_APP` naming the project and the application. The build runs with
-/// [`OWNS_BUILD`] set, since `fsr` builds the application itself.
-pub fn run_program(root: &Path, key: &str, project: &Path, app: &Path) -> Result<(), BuildError> {
+/// [`OWNS_BUILD`] set, since `fsr` builds the application itself. Returns the paths the program
+/// declared with [`DECLARE`] lines, which are not printed; every other line is.
+pub fn run_program(root: &Path, key: &str, project: &Path, app: &Path) -> Result<Vec<PathBuf>, BuildError> {
   let shown = project.strip_prefix(root).unwrap_or(project).display().to_string();
   let fail = |why: String| BuildError::Dev(format!("[build] {key} {shown}: {why}"));
   if !project.join("Cargo.toml").is_file() {
@@ -1222,16 +1271,35 @@ pub fn run_program(root: &Path, key: &str, project: &Path, app: &Path) -> Result
     return Err(fail(format!("cargo build made {} binaries; a program is one", executables.len())));
   };
   println!("{key:<9} {shown}");
-  let status = Command::new(executable)
+  let mut child = Command::new(executable)
     .current_dir(root)
     .env("FSR_ROOT", root)
     .env("FSR_APP", app)
-    .status()
+    .stdout(Stdio::piped())
+    .spawn()
     .map_err(|e| fail(format!("{}: {e}", executable.display())))?;
+  let mut stdout = BufReader::new(child.stdout.take().expect("a piped stdout"));
+  let mut inputs = Vec::new();
+  let mut line = Vec::new();
+  while stdout.read_until(b'\n', &mut line).map_err(|e| fail(format!("reading its output: {e}")))? > 0 {
+    let text = String::from_utf8_lossy(&line);
+    match declared_input(root, text.trim_end_matches(['\n', '\r'])) {
+      Some(input) => inputs.push(input),
+      None => print!("{text}"),
+    }
+    line.clear();
+  }
+  let status = child.wait().map_err(|e| fail(format!("{}: {e}", executable.display())))?;
   if !status.success() {
     return Err(fail(format!("exited with {status}")));
   }
-  Ok(())
+  Ok(inputs)
+}
+
+/// The path a [`DECLARE`] line names, resolved against `root`.
+fn declared_input(root: &Path, line: &str) -> Option<PathBuf> {
+  let path = line.strip_prefix(DECLARE)?.trim();
+  (!path.is_empty()).then(|| root.join(path))
 }
 
 #[cfg(test)]
@@ -1300,38 +1368,60 @@ mod tests {
   #[test]
   fn generated_output_is_never_a_reason_to_rebuild() {
     let p = project(Path::new("/p/app"));
-    let change = p.classify(&[PathBuf::from("/p/app/generated/plan.json"), PathBuf::from("/p/app/dist/src/main.js"), PathBuf::from("/p/app/types/react/index.d.ts"), PathBuf::from("/p/app/tsconfig.json"), PathBuf::from("/p/app/.fsr-dev"), PathBuf::from("/p/app/tests/cart/loader.test.ts"), PathBuf::from("/p/app/routes/cart/loader.test.ts")]);
+    let change = p.classify(&[PathBuf::from("/p/app/generated/plan.json"), PathBuf::from("/p/app/dist/src/main.js"), PathBuf::from("/p/app/types/react/index.d.ts"), PathBuf::from("/p/app/tsconfig.json"), PathBuf::from("/p/app/.fsr-dev"), PathBuf::from("/p/app/tests/cart/loader.test.ts"), PathBuf::from("/p/app/routes/cart/loader.test.ts")], &[]);
     assert!(!change.any());
   }
 
   #[test]
   fn app_sources_and_project_sources_are_told_apart() {
     let p = project(Path::new("/p/app"));
-    let change = p.classify(&[PathBuf::from("/p/app/routes/index/page.tsx")]);
+    let change = p.classify(&[PathBuf::from("/p/app/routes/index/page.tsx")], &[]);
     assert!(change.apps[0].is_some() && !change.project);
-    let change = p.classify(&[PathBuf::from("/p/src/main.rs"), PathBuf::from("/p/config/app.toml")]);
+    let change = p.classify(&[PathBuf::from("/p/src/main.rs"), PathBuf::from("/p/config/app.toml")], &[]);
     assert!(change.apps[0] == Some(Vec::new()) && change.project);
-    let change = p.classify(&[PathBuf::from("/p/app/.fsr-something"), PathBuf::from("/p/app/importmap.json")]);
+    let change = p.classify(&[PathBuf::from("/p/app/.fsr-something"), PathBuf::from("/p/app/importmap.json")], &[]);
     assert!(change.apps[0].is_some());
   }
 
   #[test]
   fn a_changed_source_is_named_for_the_compiler() {
     let p = project(Path::new("/p/app"));
-    let change = p.classify(&[PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/app/dist/src/main.js")]);
+    let change = p.classify(&[PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/app/dist/src/main.js")], &[]);
     assert_eq!(change.apps[0], Some(vec![PathBuf::from("/p/app/routes/index/page.tsx")]));
   }
 
   #[test]
   fn a_site_source_is_the_site_s_change_and_its_output_is_nobody_s() {
     let p = with_site(Path::new("/p/app"), Path::new("/p/sites/learn/app"));
-    let change = p.classify(&[PathBuf::from("/p/sites/learn/app/src/ui/Prose.tsx")]);
+    let change = p.classify(&[PathBuf::from("/p/sites/learn/app/src/ui/Prose.tsx")], &[]);
     assert_eq!(change.apps, vec![None, Some(vec![PathBuf::from("/p/sites/learn/app/src/ui/Prose.tsx")])]);
     assert!(!change.project);
-    let change = p.classify(&[PathBuf::from("/p/sites/learn/app/types/react/index.d.ts"), PathBuf::from("/p/sites/learn/app/generated/plan.sexp"), PathBuf::from("/p/sites/learn/app/dist/src/main.js")]);
+    let change = p.classify(&[PathBuf::from("/p/sites/learn/app/types/react/index.d.ts"), PathBuf::from("/p/sites/learn/app/generated/plan.sexp"), PathBuf::from("/p/sites/learn/app/dist/src/main.js")], &[]);
     assert!(!change.any());
-    let change = p.classify(&[PathBuf::from("/p/sites/learn/content/010.md")]);
+    let change = p.classify(&[PathBuf::from("/p/sites/learn/content/010.md")], &[]);
     assert!(change.project && change.apps.iter().all(|a| *a == Some(Vec::new())));
+  }
+
+  /// DEFECTS 1.110: a path a `[build] before` program read, a guide outside every application,
+  /// was watched by nothing, so an edit to it reran nothing under `fsr dev`.
+  #[test]
+  fn a_path_a_program_declared_reruns_the_programs_and_rebuilds_nothing() {
+    let p = project(Path::new("/p/app"));
+    let declared = [PathBuf::from("/p/guide")];
+    let change = p.classify(&[PathBuf::from("/p/guide/010.md")], &declared);
+    assert!(change.programs && !change.project && change.apps.iter().all(Option::is_none));
+    let change = p.classify(&[PathBuf::from("/p/guide/010.md")], &[]);
+    assert!(change.project, "undeclared, it is the project's");
+    let change = p.classify(&[PathBuf::from("/p/config/app.toml")], &[PathBuf::from("/p/config")]);
+    assert!(change.project, "a path the project watches anyway rebuilds the project");
+  }
+
+  #[test]
+  fn a_declaration_is_a_path_against_the_root_and_any_other_line_is_output() {
+    assert_eq!(declared_input(Path::new("/p"), "fsr:watch=guide"), Some(PathBuf::from("/p/guide")));
+    assert_eq!(declared_input(Path::new("/p"), "fsr:watch=/elsewhere/guide"), Some(PathBuf::from("/elsewhere/guide")));
+    assert_eq!(declared_input(Path::new("/p"), "fsr:watch="), None);
+    assert_eq!(declared_input(Path::new("/p"), "wrote site/index.html"), None);
   }
 
   /// DEFECTS 1.97: a key the build reads, `[media] embed_stills` among them,
@@ -1340,10 +1430,10 @@ mod tests {
   #[test]
   fn a_configuration_change_rebuilds_every_application_whole() {
     let p = with_site(Path::new("/p/app"), Path::new("/p/sites/learn/app"));
-    let change = p.classify(&[PathBuf::from("/p/config/app.toml")]);
+    let change = p.classify(&[PathBuf::from("/p/config/app.toml")], &[]);
     assert!(change.project);
     assert_eq!(change.apps, vec![Some(Vec::new()), Some(Vec::new())], "every application, no source named, which is a whole build");
-    let change = p.classify(&[PathBuf::from("/p/app/routes/page.tsx"), PathBuf::from("/p/config/production.toml")]);
+    let change = p.classify(&[PathBuf::from("/p/app/routes/page.tsx"), PathBuf::from("/p/config/production.toml")], &[]);
     assert_eq!(change.apps[0], Some(Vec::new()), "a source saved beside it does not narrow the build");
   }
 
@@ -1745,6 +1835,29 @@ mod under_tests {
     assert!(e.contains("--under"), "{e}");
   }
 
+  /// DEFECTS 1.111: a site served under its shell took no programs, so its own `[build] before`
+  /// and `after` never ran under `fsr dev`.
+  #[test]
+  fn a_site_under_a_shell_runs_its_own_programs() {
+    let (shell, site) = shell_and_site("programs");
+    let config = site.join("config/app.toml");
+    let text = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&config, format!("{text}\n[build]\nbefore = [\"contents\"]\n")).unwrap();
+    let project = Project::open(&site.join("app"), DevOptions { under: Some(shell.clone()), ..DevOptions::default() }).unwrap();
+    let root = crate::serve::project_root(&site.join("app"));
+    assert_eq!(project.programs.before, [root.join("contents")]);
+    assert!(project.watched().contains(&root.join("contents/src")));
+  }
+
+  #[test]
+  fn a_site_s_programs_run_from_the_site_and_are_told_the_site() {
+    let (shell, site) = shell_and_site("programs-app");
+    let app = site.join("app");
+    let project = Project::open(&app, DevOptions { under: Some(shell.clone()), ..DevOptions::default() }).unwrap();
+    assert_eq!(project.programs.root, crate::serve::project_root(&app));
+    assert_eq!(project.programs.app, app.canonicalize().unwrap());
+  }
+
   #[test]
   fn a_site_under_a_shell_is_the_one_app_built_and_the_shell_is_told_to_mount_it() {
     let (shell, site) = shell_and_site("project");
@@ -1757,7 +1870,7 @@ mod under_tests {
     assert_eq!(args[0], "serve");
     assert_eq!(args[2], "--mount");
     assert_eq!(args[3], format!("billing={}", site.canonicalize().unwrap().display()));
-    let change = project.classify(&[project.apps[0].dir.join("routes/page.tsx"), project.apps[1].dir.join("routes/page.tsx")]);
+    let change = project.classify(&[project.apps[0].dir.join("routes/page.tsx"), project.apps[1].dir.join("routes/page.tsx")], &[]);
     assert!(change.apps[0].is_none(), "nothing under a served shell is a change");
     assert!(change.apps[1].is_some() && !change.project);
   }

@@ -1723,7 +1723,20 @@ fn main() {
 }
 ```
 
-`fsr dev` runs the same lists on start and on every change: the `before` projects, the rebuild, then the `after` projects. It watches each project's `src/`, `build.rs` and `Cargo.toml` and keeps serving when one fails; a failed `before` holds the rebuild until the next change. A `before` program that writes a file the app compiles makes the next change the watcher sees, so an edit that changes its output rebuilds twice and then stops, as the second run writes the same bytes. Write the output only when it differs and an edit that leaves it alone rebuilds once.
+`fsr dev` runs the same lists on start and on every change: the `before` projects, the rebuild, then the `after` projects. It watches each project's `src/`, `build.rs` and `Cargo.toml` and keeps serving when one fails; a failed `before` holds the rebuild until the next change. A site served under its shell runs its own lists, from the site's project root.
+
+A program says what else it reads by printing `fsr:watch=<path>` on stdout, relative to `FSR_ROOT` or absolute. `fsr dev` watches each declared path, and a change under one reruns the programs without rebuilding an application. A program's declarations are the ones its last successful run printed, so a path it stops printing stops being watched; one that does not exist yet is watched from the first run that declares it once it does. The lines are not printed, and `fsr build` ignores them.
+
+```rust
+// contents/src/main.rs
+fn main() {
+  let root = std::path::PathBuf::from(std::env::var("FSR_ROOT").unwrap());
+  println!("fsr:watch=guide");
+  for chapter in std::fs::read_dir(root.join("guide")).unwrap() {
+    // read each chapter, write a module under FSR_APP
+  }
+}
+``` A `before` program that writes a file the app compiles makes the next change the watcher sees, so an edit that changes its output rebuilds twice and then stops, as the second run writes the same bytes. Write the output only when it differs and an edit that leaves it alone rebuilds once.
 
 An app under `fsr dev` that exits 0 stops `fsr dev` with an error saying so, since a server listens until it is stopped; one that fails is started again by the next change. The handbook example is a site with no server: it has no `src/main.rs` and `fsr dev app` serves it through the stock host. Its `before` is `contents/`, which writes `app/src/chapters.ts` from each doc page's title and order. Its `after` is `generate/`, which prerenders every route into `site/`.
 
