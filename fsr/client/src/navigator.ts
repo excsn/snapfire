@@ -875,8 +875,30 @@ export function clearRouterCache(): void {
   clearHeld();
 }
 
-/** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and applies it, every kept island taking its new props in place and every kept region that is not an island replaced, so layouts and pages keep their DOM and their state while what they show follows the mutation. */
-export async function refresh(): Promise<void> {
+/** Revalidation after a mutation: drops the router cache, re-fetches the current route's payload and applies it, every kept island taking its new props in place and every kept region that is not an island replaced, so layouts and pages keep their DOM and their state while what they show follows the mutation. Calls made while one runs share one more run after it, so a burst fetches twice at most. */
+export function refresh(): Promise<void> {
+  if (refreshing) {
+    again = true;
+    return refreshing;
+  }
+  refreshing = (async () => {
+    try {
+      do {
+        again = false;
+        await refreshOnce();
+      } while (again);
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+/** The refresh running now, which a call that arrives during it joins, and whether one arrived, which runs it once more when it is done so the page ends at what the last call asked for. */
+let refreshing: Promise<void> | null = null;
+let again = false;
+
+async function refreshOnce(): Promise<void> {
   const bail = () => window.location.reload();
   if (!current) return bail();
   cache.clear();

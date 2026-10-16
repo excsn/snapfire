@@ -721,7 +721,26 @@ export function clearRouterCache() {
     cache.clear();
     clearHeld();
 }
-export async function refresh() {
+export function refresh() {
+    if (refreshing) {
+        again = true;
+        return refreshing;
+    }
+    refreshing = (async ()=>{
+        try {
+            do {
+                again = false;
+                await refreshOnce();
+            }while (again)
+        } finally{
+            refreshing = null;
+        }
+    })();
+    return refreshing;
+}
+let refreshing = null;
+let again = false;
+async function refreshOnce() {
     const bail = ()=>window.location.reload();
     if (!current) return bail();
     cache.clear();
