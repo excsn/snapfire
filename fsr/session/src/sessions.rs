@@ -191,14 +191,17 @@ impl Sessions {
   }
 
   /// Logout: deletes the record and returns the expiring cookie.
-  /// Saves the session whether or not it changed, so its id survives to the
-  /// next request; the cookie to set when the session is fresh. For a host
-  /// that bound something to the id, such as a CSRF token, before the
-  /// session held anything.
+  /// Saves a fresh session whether or not it changed, so its id survives to the
+  /// next request, and returns its cookie; an established one is saved as
+  /// `persist` saves it. For a host that bound something to the id, such as
+  /// a CSRF token, before the session held anything.
   pub async fn establish(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
+    if !opened.fresh {
+      return self.persist(opened).await;
+    }
     self.refuse_oversized(opened)?;
     self.store.save(&opened.id, Self::record(opened)).await?;
-    Ok((opened.fresh || opened.stale || opened.cell.is_extended()).then(|| self.set_cookie(opened)))
+    Ok(Some(self.set_cookie(opened)))
   }
 
   pub async fn destroy(&self, opened: &Opened) -> Result<String, StoreError> {

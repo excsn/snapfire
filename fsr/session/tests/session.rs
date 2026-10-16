@@ -399,6 +399,41 @@ mod lifetime {
     }
   }
 
+  #[derive(Default)]
+  struct CountsSaves(Keeps, std::sync::atomic::AtomicUsize);
+
+  impl SessionStore for CountsSaves {
+    fn load(&self, id: &SessionId) -> BoxFuture<'_, Option<SessionRecord>> {
+      self.0.load(id)
+    }
+    fn save(&self, id: &SessionId, record: SessionRecord) -> BoxFuture<'_, Result<(), StoreError>> {
+      self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+      self.0.save(id, record)
+    }
+    fn delete(&self, id: &SessionId) -> BoxFuture<'_, Result<(), StoreError>> {
+      self.0.delete(id)
+    }
+  }
+
+  #[test]
+  fn establish_saves_a_fresh_session_and_a_later_read_of_it_writes_nothing() {
+    let store = Arc::new(CountsSaves::default());
+    let layer = Sessions::new(store.clone(), KEY, SessionConfig::default()).with_csrf(Arc::new(Derived::new(KEY)));
+    let saves = || store.1.load(std::sync::atomic::Ordering::Relaxed);
+
+    let opened = block_on(layer.open(None));
+    let cookie = block_on(layer.establish(&opened)).unwrap().expect("a fresh session sets its cookie");
+    assert_eq!(saves(), 1);
+
+    let back = block_on(layer.open(Some(&header(&cookie))));
+    assert_eq!(block_on(layer.establish(&back)).unwrap(), None);
+    assert_eq!(saves(), 1, "a read of an established session writes nothing");
+
+    back.cell.insert("who", Value::str("alice"));
+    block_on(layer.establish(&back)).unwrap();
+    assert_eq!(saves(), 2, "a write still saves");
+  }
+
   #[test]
   fn a_session_ends_one_ttl_from_open_and_the_cookie_and_the_record_count_down_to_it() {
     let store = Arc::new(MemorySessionStore::new(16));
