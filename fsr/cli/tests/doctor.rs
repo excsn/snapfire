@@ -509,6 +509,33 @@ fn a_link_to_a_path_nothing_answers_is_reported() {
   assert!(!found.contains(&"links".to_owned()), "{out}");
 }
 
+/// The root at `/` inferred from `public/` answers a path that names a file
+/// in it and nothing else.
+#[test]
+fn a_link_to_a_file_under_public_is_answered() {
+  let plan = |href: &str| {
+    format!("(plan 2)\n(route / (node 0 shell#document))\n(component routes/page.tsx#default\n  (render (el a ((href \"{href}\")) \"go\")))\n")
+  };
+  let of = |href: &str| {
+    let plan = plan(href);
+    let dir = app("", &[("app/generated/plan.sexp", plan.as_str()), ("app/public/llms.txt", "# llms\n"), ("app/public/docs/guide.txt", "guide\n")]);
+    (findings(&dir), report(&dir))
+  };
+
+  let (found, out) = of("/llms.txt");
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+  let (found, out) = of("/docs/guide.txt?v=2");
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+
+  let (found, out) = of("/missing.txt");
+  assert_eq!(found, vec!["links"], "{out}");
+  assert!(out.contains("/missing.txt"), "{out}");
+
+  // A directory under the root is not a file it answers.
+  let (found, out) = of("/docs");
+  assert_eq!(found, vec!["links"], "{out}");
+}
+
 /// A site's links reach into a shell it cannot see. The shell it was built
 /// against need not be the one it runs in.
 #[test]

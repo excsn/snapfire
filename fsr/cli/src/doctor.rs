@@ -557,10 +557,16 @@ fn links(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
     .chain(["/_sf".to_owned(), "/__fsr".to_owned(), "/auth".to_owned()])
     .filter(|p| !p.is_empty())
     .collect();
+  let roots: Vec<PathBuf> = config
+    .statics
+    .iter()
+    .filter(|r| r.route.trim_end_matches('/').is_empty())
+    .map(|r| config.resolve(&r.dir))
+    .collect();
 
   let dead: Vec<String> = hrefs
     .into_iter()
-    .filter(|href| !answered(href, &locales, &patterns, &prefixes))
+    .filter(|href| !answered(href, &locales, &patterns, &prefixes) && !in_root(href, &roots))
     .collect();
   if dead.is_empty() {
     return Vec::new();
@@ -571,7 +577,7 @@ fn links(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
       "{} is linked to and matches no route, static root or mounted site",
       dead.join(", ")
     ),
-    "correct the link, add the route it names or declare it under [[route]] when Rust registers it; a path this deployment does not answer is a 404 at the moment someone clicks it",
+    "correct the link, add the route it names, put the file it names under the static root at / or declare it under [[route]] when Rust registers it; a path this deployment does not answer is a 404 at the moment someone clicks it",
   )]
 }
 
@@ -645,6 +651,16 @@ fn answered(href: &str, locales: &[&str], patterns: &[&str], prefixes: &[String]
     .map(|rest| if rest.is_empty() { "/" } else { rest })
     .unwrap_or(path);
   patterns.iter().any(|pattern| matches_pattern(pattern, bare))
+}
+
+/// Whether `href` names a file under a static root at `/`, which answers a
+/// path only when the file is there.
+fn in_root(href: &str, roots: &[PathBuf]) -> bool {
+  let relative = href.trim_start_matches('/');
+  if relative.is_empty() || relative.split('/').any(|segment| segment == "..") {
+    return false;
+  }
+  roots.iter().any(|root| root.join(relative).is_file())
 }
 
 /// One path against one route pattern, where a `{name}` segment takes any one
