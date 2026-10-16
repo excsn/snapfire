@@ -5853,6 +5853,15 @@ export function Page(props: { className: string; children: React.ReactNode; cart
   }
 
   #[test]
+  fn a_module_level_iife_is_named_with_a_hint() {
+    let page = "const env = (() => {\n  return \"prod\";\n})();\nexport default function Page() {\n  return <p>{env}</p>;\n}\n";
+    let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
+    let LowerError::Residue(residue) = err else { panic!("{err}") };
+    assert_eq!(residue.message, "a function called where it is written");
+    assert!(residue.hint.as_deref().is_some_and(|h| h.contains("named function")), "{residue:?}");
+  }
+
+  #[test]
   fn residue_names_the_line_and_the_construct() {
     let page = "export default function Page() {\n  const params = new WeakMap();\n  return <a href={String(params)}>x</a>;\n}\n";
     let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();

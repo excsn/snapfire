@@ -1854,6 +1854,13 @@ impl<'a> Lowerer<'a> {
     }
 
     let js::Expr::Member(member) = &**callee else {
+      if matches!(crate::meaning::bare(callee), js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+        return Err(self.residue_with(
+          callee.span(),
+          "a function called where it is written",
+          "the build does not run a function to produce a value; write the value as an expression, or move the steps into a named function the body calls",
+        ));
+      }
       return Err(self.residue(callee.span(), "a call to a computed target"));
     };
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
