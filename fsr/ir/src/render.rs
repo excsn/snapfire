@@ -2114,8 +2114,38 @@ fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut Str
   if matches!(value, Value::Str(text) if text.is_empty()) && markup.drops_empty(tag, name) {
     return Ok(());
   }
-  write_attr(name, &crate::interp::scalar_str(value)?, out);
+  let text = crate::interp::scalar_str(value)?;
+  if is_url_attr(name) && is_javascript_url(&text) {
+    write_attr(name, BLOCKED_JAVASCRIPT_URL, out);
+    return Ok(());
+  }
+  write_attr(name, &text, out);
   Ok(())
+}
+
+/// What React 19 writes in place of a `javascript:` URL, so hydration agrees with the server.
+const BLOCKED_JAVASCRIPT_URL: &str = "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')";
+
+fn is_url_attr(name: &str) -> bool {
+  ["href", "src", "action", "formaction", "xlink:href"].iter().any(|n| name.eq_ignore_ascii_case(n))
+}
+
+/// React's test: leading C0 controls and spaces, then `javascript:` with tabs and newlines allowed between letters, case-insensitive.
+fn is_javascript_url(url: &str) -> bool {
+  let mut chars = url.chars().skip_while(|c| *c <= '\u{1F}' || *c == ' ');
+  for expected in "javascript:".chars() {
+    let next = loop {
+      match chars.next() {
+        Some('\r' | '\n' | '\t') if expected != 'j' => continue,
+        other => break other,
+      }
+    };
+    match next {
+      Some(c) if c.eq_ignore_ascii_case(&expected) => {}
+      _ => return false,
+    }
+  }
+  true
 }
 
 fn is_scalar(value: &Value) -> bool {
@@ -2996,6 +3026,30 @@ mod markup_tests {
         "<button aria-expanded=\"false\" data-open=\"false\" spellcheck=\"false\" draggable=\"false\" contentEditable=\"false\"></button>",
         "{major:?}"
       );
+    }
+  }
+
+  #[test]
+  fn a_javascript_url_is_written_the_way_react_19_blocks_it() {
+    let blocked = format!("\"{BLOCKED_JAVASCRIPT_URL}\"");
+    let tree = Tmpl::Fragment(vec![
+      element("a", vec![("href", p("a"))], Vec::new()),
+      element("img", vec![("src", p("b"))], Vec::new()),
+      element("form", vec![("action", p("c"))], Vec::new()),
+      element("a", vec![("href", p("safe"))], Vec::new()),
+      element("a", vec![("title", p("a"))], Vec::new()),
+    ]);
+    let values = props(&[
+      ("a", Value::str("javascript:alert(1)")),
+      ("b", Value::str(" \u{1}JaVa\tScRi\npt:alert(1)")),
+      ("c", Value::str("JAVASCRIPT:x")),
+      ("safe", Value::str("/javascript:ok")),
+    ]);
+    for react in [None, Some(ReactMajor::V18), Some(ReactMajor::V19)] {
+      let html = render_under(react, BY_REACT, tree.clone(), &values, &Components::new()).unwrap();
+      assert_eq!(html.matches(blocked.as_str()).count(), 3, "{react:?}: {html}");
+      assert!(html.contains("href=\"/javascript:ok\""), "{react:?}: {html}");
+      assert!(html.contains("title=\"javascript:alert(1)\""), "{react:?}: a non-URL attribute is left alone: {html}");
     }
   }
 
