@@ -713,6 +713,8 @@ Every document then carries the policy, the inline font CSS, the preloads and, f
 
 The inline style's hash is widened into `style-src`, so a `[document.csp]` keeps its `'self'` and nothing else inline. A file the build named with a content hash, the original, every variant and every font copy, answers `Cache-Control: public, max-age=31536000, immutable`; everything else revalidates on every request unless `static_max_age` sets a lifetime.
 
+Every document and navigation payload carries `Vary: Cookie`. One answered to a request that brought a session cookie or one that sets a session cookie also carries `Cache-Control: private, no-cache`, so a shared cache never hands one visitor's page to another.
+
 A static tree a CDN serves sets the base at build time, since the URLs are written into the markup:
 
 ```toml

@@ -846,6 +846,7 @@ impl Host {
           .expect("a response with a valid header");
         set_csp(t, &mode, &mut response);
         self.set_cookie(opened, &mut response).await;
+        set_document_cache(opened, &mut response);
         return response;
       }
     }
@@ -927,6 +928,7 @@ impl Host {
           .expect("a response with a valid header");
         set_csp(t, &mode, &mut response);
         self.set_cookie(opened, &mut response).await;
+        set_document_cache(opened, &mut response);
         response
       }
       Err(HostError::NoSlot(name)) => text_response(StatusCode::NOT_FOUND, format!("no slot named `{name}` on this route")),
@@ -985,6 +987,15 @@ fn names_file(root: &Path, rest: &str) -> bool {
     path.push(part);
   }
   path != root && path.is_file()
+}
+
+/// A document differs by cookie. One for a visitor holding a session or one that starts a session is theirs alone.
+fn set_document_cache(opened: &Opened, response: &mut Response<Body>) {
+  let headers = response.headers_mut();
+  headers.append(header::VARY, HeaderValue::from_static("Cookie"));
+  if !opened.fresh || headers.contains_key(header::SET_COOKIE) {
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, no-cache"));
+  }
 }
 
 /// Whether a request's body is declared `application/json`, which a page on

@@ -5230,6 +5230,19 @@ mod key_rotation {
   }
 
   #[tokio::test]
+  async fn a_document_for_a_visitor_with_a_session_is_private_and_every_document_varies_by_cookie() {
+    let dir = app_dir();
+    let host = host_at(&dir).unwrap();
+    let anonymous = host.handle(Request::get("/hello/x").body(Bytes::new()).unwrap()).await;
+    assert_eq!(anonymous.status(), StatusCode::OK);
+    assert_eq!(anonymous.headers().get(header::VARY).map(|v| v.to_str().unwrap()), Some("Cookie"));
+    assert_eq!(anonymous.headers().get(header::CACHE_CONTROL), None, "{:?}", anonymous.headers());
+    let held = get_with(&host, &cookie_under(b"test-key", "s1")).await;
+    assert_eq!(held.headers().get(header::VARY).map(|v| v.to_str().unwrap()), Some("Cookie"));
+    assert_eq!(held.headers().get(header::CACHE_CONTROL).map(|v| v.to_str().unwrap()), Some("private, no-cache"));
+  }
+
+  #[tokio::test]
   async fn a_reload_rotates_the_keys_and_retires_one_removed_from_the_list() {
     let dir = app_dir();
     with_session(&dir, "key = \"a\"");
