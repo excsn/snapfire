@@ -243,6 +243,12 @@ impl Host {
       };
     }
     if self.changed.is_some() {
+      // `fsr dev` calls the control routes with no `Origin`; a request
+      // carrying one came from a page.
+      let control = ["/__fsr/changed", "/__fsr/failed", "/__fsr/reload"].contains(&path.as_str()) && req.method() == Method::POST;
+      if control && req.headers().contains_key(header::ORIGIN) {
+        return text_response(StatusCode::FORBIDDEN, "a development control route is called by fsr dev, not a page".to_owned());
+      }
       // The traces the collector kept, newest last. Development only: what a
       // source cost is nothing a production client should read.
       if path == "/__fsr/traces" && req.method() == Method::GET {
@@ -269,7 +275,7 @@ impl Host {
       if path == "/__fsr/reload" && req.method() == Method::POST {
         return match self.reload() {
           Ok(report) => text_response(StatusCode::OK, report.to_string()),
-          Err(e) => text_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+          Err(e) => text_response(StatusCode::CONFLICT, e.to_string()),
         };
       }
     }
@@ -673,6 +679,10 @@ impl Host {
     }
 
     if t.app.handlers.match_request(req.method().as_str(), &path).is_some() {
+      let writes = !matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
+      if writes && !super::live::upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+        return text_response(StatusCode::FORBIDDEN, "a route handler takes a write from this site's own pages".to_owned());
+      }
       let multipart = multipart_boundary(req.headers());
       let form = multipart.is_some()
         || req

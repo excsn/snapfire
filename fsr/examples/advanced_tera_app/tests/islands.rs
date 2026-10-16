@@ -28,6 +28,18 @@ fn the_card_is_rendered_by_the_server_before_anything_mounts() {
 }
 
 #[test]
+fn every_route_holds_its_contract_against_hostile_requests() {
+  use snapfire_fsr_host::conformance::{self, Route};
+  let host = app();
+  let mut routes = conformance::framework_routes(&host);
+  routes.push(Route::action("add_server", r#"{"name":"web-4","load":0.9}"#));
+  routes.push(Route::form("/_sf/action/add_server", "name=web-4&load=0.9&_csrf=probe"));
+  routes.push(Route::island("fleet.tera#default", r#"{"props":{},"state":{"filter":"all"},"handler":"filter","event":{"target":{"value":"busy"}}}"#));
+  let breaches = block_on(conformance::check(&host, &routes));
+  assert!(breaches.is_empty(), "{}", breaches.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"));
+}
+
+#[test]
 fn a_template_island_step_is_refused_a_body_a_cross_site_page_can_send_without_preflight() {
   let host = app();
   let step = |content_type: Option<&str>, origin: Option<&str>| {

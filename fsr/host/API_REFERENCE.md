@@ -79,7 +79,12 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
   * [DocumentShell](#documentshell)
   * [head](#head)
   * [canonical](#canonical)
-* [7. Error Handling](#7-error-handling)
+* [7. Conformance](#7-conformance)
+  * [Class](#class)
+  * [Route](#route)
+  * [Breach](#breach)
+  * [framework_routes and check](#framework_routes-and-check)
+* [8. Error Handling](#8-error-handling)
   * [HostError](#hosterror)
 
 ## 1. Configuration
@@ -432,7 +437,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * `with_fragment(location: &str, slot: Option<&str>) -> String`: `location` with that key asked for again, which is how a form posted from a fragment is answered with one.
 * `referer_path(referer: &str) -> Option<String>`: the path of a `Referer` on this origin, where a form post lands again; `None` for another origin. The three are public so a test runner answers a form post the way the edge does.
 * `percent_decoded(segment: &str) -> String`: a path segment with each `%` followed by two hex digits decoded, `+` and any other `%` kept as they are; a segment that decodes to invalid UTF-8 is returned as given. The edge decodes an action id and an island module with it.
-* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the locale, `Locales::resolve` over the path, the `Cookie` header and `Accept-Language` or for the action route over the `x-sf-from` header's path instead of the request's, the stripped path standing in for the rest and a prefixed `/_sf/`, `/__fsr/` or, with a provider mounted, `/auth/` path answered `404`; then, with a provider mounted, the identity routes: `GET /auth/login` answers 303 to what `Auth::login` returns, its `return_to` the query's when that is a path on this origin, else the `Referer`'s path, else `/`; `/auth/callback` reads its params from a form-encoded or JSON `POST` body or from a `GET` query, answers 303 to the flow's destination, 303 to `<login>?error=denied&return_to=<pending>` on `AuthError::Denied` and 400 with the message on `Invalid`; `POST /auth/logout` verifies `_csrf` from the body or `x-sf-csrf` from the headers with `Sessions::verify_csrf`, 403 when it fails, else `Auth::logout`, `Sessions::destroy` and 303 `/` carrying the expiring cookie and no persist; a `GET` of the login page calls `Auth::ensure_flow` with the query's `return_to`, else the `Referer`'s path when that is not the login page, else `/`, then continues; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows, the shell's first with `site` in its input naming the mounted site the path belongs to or null, then, when the path is under a mounted site's prefix, that site's on the same path (the shell's rewrite re-matched once), which may redirect, respond, add headers or rewrite within its own prefix and is `Internal` when it rewrites outside it, headers appending in order; then `POST /_sf/action/<id>`, the id's `%XX` escapes decoded since a site's carries a colon: `403` when the request's `Origin` names neither its `Host` nor `[document] origin`, a request with no `Origin` taken as not a browser; `415` for a body that is neither `application/json` nor a form; with a JSON body, `400` on a body that does not parse, the value as JSON, the failure kind's status on error; with a form-encoded body, `_csrf` taken out and verified with `Sessions::verify_csrf`, `403` when it fails, the remaining fields the input read against the action's declared input type, since a form body carries text and nothing else, a success answered `303` to the `Referer`'s path on this origin (else `/`) and a failure as the JSON error; then a handler matching the method and path, its JSON body as the input or `null` when empty, a form-encoded one having its `_csrf` verified and its fields read against the handler's declared input type, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`, unless the route is prerendered for anonymous visitors and the session carries an identity; then a page, `__payload` in the query selecting the payload mode, in which an `enc` outside `PAYLOAD_ENCODINGS` is `406` and in that mode an `x-sf-from` or `x-sf-into` header makes it `render_navigation`, which skips the prerender directory when an intercept applies, answered with the status of the route's own page loader's failure kind when that loader failed, `404` for `not_found`, the document still rendered around the error segment and a payload or a fragment carrying the same status, while a layout or a slot failing degrades its segment at `200`; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed; so is the locale cookie a `Resolution` asks for. Every body under `handle` runs with the session's token custody bound to its services and, once the session is identified, the session's CSRF token as `ctx.csrf`; an anonymous request carries no token, so its renders share the memo.
+* `handle(&self, req: Request<Bytes>) -> Response<Body>`: static roots first, by prefix; then the locale, `Locales::resolve` over the path, the `Cookie` header and `Accept-Language` or for the action route over the `x-sf-from` header's path instead of the request's, the stripped path standing in for the rest and a prefixed `/_sf/`, `/__fsr/` or, with a provider mounted, `/auth/` path answered `404`; then, with a provider mounted, the identity routes: `GET /auth/login` answers 303 to what `Auth::login` returns, its `return_to` the query's when that is a path on this origin, else the `Referer`'s path, else `/`; `/auth/callback` reads its params from a form-encoded or JSON `POST` body or from a `GET` query, answers 303 to the flow's destination, 303 to `<login>?error=denied&return_to=<pending>` on `AuthError::Denied` and 400 with the message on `Invalid`; `POST /auth/logout` verifies `_csrf` from the body or `x-sf-csrf` from the headers with `Sessions::verify_csrf`, 403 when it fails, else `Auth::logout`, `Sessions::destroy` and 303 `/` carrying the expiring cookie and no persist; a `GET` of the login page calls `Auth::ensure_flow` with the query's `return_to`, else the `Referer`'s path when that is not the login page, else `/`, then continues; then the middleware, whose redirect or response is answered at once, whose rewrite replaces the path for the rest and whose headers join whatever response follows, the shell's first with `site` in its input naming the mounted site the path belongs to or null, then, when the path is under a mounted site's prefix, that site's on the same path (the shell's rewrite re-matched once), which may redirect, respond, add headers or rewrite within its own prefix and is `Internal` when it rewrites outside it, headers appending in order; then `POST /_sf/action/<id>`, the id's `%XX` escapes decoded since a site's carries a colon: `403` when the request's `Origin` names neither its `Host` nor `[document] origin` (the rule a route handler's write and a step take too), a request with no `Origin` taken as not a browser; `415` for a body that is neither `application/json` nor a form; with a JSON body, `400` on a body that does not parse, the value as JSON, the failure kind's status on error; with a form-encoded body, `_csrf` taken out and verified with `Sessions::verify_csrf`, `403` when it fails, the remaining fields the input read against the action's declared input type, since a form body carries text and nothing else, a success answered `303` to the `Referer`'s path on this origin (else `/`) and a failure as the JSON error; then a handler matching the method and path, its JSON body as the input or `null` when empty, a form-encoded one having its `_csrf` verified and its fields read against the handler's declared input type, answered with the value as JSON, `400` on a body that does not parse and the failure kind's status on error; then, for a `GET` the prerender directory holds, that text with `x-sf-prerendered: 1`, unless the route is prerendered for anonymous visitors and the session carries an identity; then a page, `__payload` in the query selecting the payload mode, in which an `enc` outside `PAYLOAD_ENCODINGS` is `406` and in that mode an `x-sf-from` or `x-sf-into` header makes it `render_navigation`, which skips the prerender directory when an intercept applies, answered with the status of the route's own page loader's failure kind when that loader failed, `404` for `not_found`, the document still rendered around the error segment and a payload or a fragment carrying the same status, while a layout or a slot failing degrades its segment at `200`; for no route, the not-found tree with status `404` when the application has one, else `404` with a line of text. The session is opened from `Cookie` and a `Set-Cookie` is appended when it changed; so is the locale cookie a `Resolution` asks for. Every body under `handle` runs with the session's token custody bound to its services and, once the session is identified, the session's CSRF token as `ctx.csrf`; an anonymous request carries no token, so its renders share the memo.
 * `GET /_sf/socket?topic=a` upgrades to a WebSocket, the `ws` feature: `HostBuilder::topics` decides whether this visitor may open it at all, `HostBuilder::socket` answers what it sends and each frame is one row, `{"key": ..., "value": ...}` in, `{"rows": [...]}` out. No handler is 404, no topic is 400, a topic the rule refuses is 403 and a request that is not an upgrade is 400. Framework-owned and never locale-prefixed. Serving a connection `with_upgrades` is what `serve_listener` does, so an upgrade works on the hyper listener without any arrangement.
 * `GET /_sf/live?topics=a,b` answers with a `text/event-stream`, whatever `dev` says, after `HostBuilder::topics` has allowed every topic asked for: a `: open` comment frame at once, then one `data: {"topic":"a"}` per `publish` of a topic in the list, until the client goes away. No topics is 400. The path is framework-owned and never locale-prefixed.
 * `GET /__fsr/sites` answers, whatever `dev` says, with `{"sites": [{"name", "at", "version", "hash"}, ..]}` for every mounted site, before statics, middleware and sessions.
@@ -442,7 +447,7 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 * On a mounted site's routes the head gains the site's stylesheets and `<script type="module">` for its entry and the payload an `E` row naming the entry, so the navigator loads the site's islands on first arrival.
 * With `dev` on, `handle` also answers `GET /__fsr/traces` with the last 50 traces as [`trace::to_value`](#reading) writes them, newest last or `[]` when no collector was given to `traces`. Development only.
 * For a request whose path `trace.expose` covers (any path with `dev` on), when a collector was given to `traces`: the response carries `x-sf-request: <id>.<hmac>`, the trace id and an HMAC-SHA256 of `fsr.trace:<id>` under the session keyring's current key. A document's head carries `<meta name="sf-request" content="<token>">`. `GET /__fsr/trace/{token}` answers that one trace as [`trace::one_value`](#reading) writes it, with `Cache-Control: no-store`, once the request has finished and while the collector's ring holds it; a token that verifies under no key in the ring, an id the ring no longer holds and a trace still in flight are 404 `no such trace`. With `expose` empty and `dev` off, no response carries a token and the path is not a route.
-* With `dev` on, `handle` answers `GET /__fsr/events` with a `text/event-stream` body, one `data: {"bundle":"<id>","boot":"<id>","generation":<n>,"styles":[...]}` event on open and one per `changed`, `styles` the document's stylesheets as the tables serving now link them, `POST /__fsr/changed` with 204 after calling `changed` and `POST /__fsr/reload` with 200 and the new report as text after `reload` or 500 with the error, all before statics, middleware and sessions; static files gain `Cache-Control: no-cache`. The bundle id is a hash over every output `dist/.snapfire-build.json` lists, source maps aside, `-` without a bundle; a served document's head carries `dev_script` with the id of that moment and `prerender` writes the plain head.
+* With `dev` on, `handle` answers `GET /__fsr/events` with a `text/event-stream` body, one `data: {"bundle":"<id>","boot":"<id>","generation":<n>,"styles":[...]}` event on open and one per `changed`, `styles` the document's stylesheets as the tables serving now link them, `POST /__fsr/changed` with 204 after calling `changed` and `POST /__fsr/reload` with 200 and the new report as text after `reload` or 409 with the error, each of the three `403` for a request carrying `Origin`, which `fsr dev` never sends, all before statics, middleware and sessions; static files gain `Cache-Control: no-cache`. The bundle id is a hash over every output `dist/.snapfire-build.json` lists, source maps aside, `-` without a bundle; a served document's head carries `dev_script` with the id of that moment and `prerender` writes the plain head.
 * `service(self: &Arc<Self>) -> HostService`.
 * `owner_of_source(&self, name: &str) -> Option<Owner>`.
 
@@ -638,7 +643,50 @@ With no collector installed each is a relaxed atomic load and a branch.
 
 * `pub fn shell::canonical(path: &str) -> String`: `<link rel="canonical" href="<path>">`, which a prefixed request for the default locale carries in its head.
 
-## 7. Error Handling
+## 7. Conformance
+
+Module `conformance`: the requests a hostile page or client sends, against every route a host answers before an application's pages, each answer judged by its route's class. An application runs it in a test against the host it builds, with its own state-changing routes added to the framework's.
+
+```rust
+use snapfire_fsr_host::conformance::{self, Route};
+
+let mut routes = conformance::framework_routes(&host);
+routes.push(Route::action("cart.addToCart", r#"{"product_id":1,"quantity":1}"#));
+routes.push(Route::handler("/api/cart", r#"{"product_id":1,"quantity":1}"#));
+let breaches = conformance::check(&host, &routes).await;
+assert!(breaches.is_empty(), "{breaches:?}");
+```
+
+`conformance::AUTHORITY`, `app.example`, is the `Host` every probe names and so the origin a page of this site sends.
+
+### Class
+
+* `BrowserWrite`: changes state for the visitor whose session it carries; refused from another origin, from a sibling subdomain and with a `text/plain` body or no content type.
+* `HandlerWrite`: a route handler's write; refused from another origin and a sibling subdomain. It is taken from this site's origin with the `text/plain` body a string `fetch` sends.
+* `DevControl`: called by `fsr dev` alone, which sends no `Origin`; refused whenever a request carries one.
+* `CrossOrigin`: called from another origin by design, `POST /auth/callback`.
+* `Read`: changes nothing.
+
+### Route
+
+`Route { method, path, class, body, content_type }`, the body and content type a request this site's own pages send. `Debug`, `Clone`.
+
+* `Route::read(path)`: `GET`.
+* `Route::write(path, json)`: a `BrowserWrite` sent as `application/json`.
+* `Route::form(path, fields)`: a `BrowserWrite` sent as a form; its own-origin probe is not judged, since the probe cannot forge its token.
+* `Route::action(id, json)`, `Route::island(module, json)`: `/_sf/action/<id>` and `/_sf/island/<module>`, `#` percent-encoded.
+* `Route::handler(path, json)`: a `HandlerWrite` answering `POST`.
+
+### Breach
+
+`Breach { method, path, probe, status, wanted }`, an answer that broke its route's contract. `Display` prints `POST /api/cart with a foreign Origin: 200, wanted a 4xx refusal`.
+
+### framework_routes and check
+
+* `pub fn framework_routes(host: &Host) -> Vec<Route>`: `/__fsr/sites`, `/_sf/live`, `/__fsr/trace/<token>` and the client modules; with `dev` on, `/__fsr/traces`, `/__fsr/events` and the three control routes; with `[auth]`, `/auth/login`, `/auth/logout` and `/auth/callback`.
+* `pub async fn check(host: &Host, routes: &[Route]) -> Vec<Breach>`: sends each route a foreign `Origin`, a sibling subdomain's, this site's, HTTP/1.0 and no `Host`; a write also a `text/plain` body, no content type, a malformed, an empty and an oversized body; a read also a `POST`. A socket upgrade from another origin is sent once. No probe may be answered with a 5xx.
+
+## 8. Error Handling
 
 ### HostError
 

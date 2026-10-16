@@ -11,6 +11,7 @@ mod card;
 mod crawl;
 pub mod client;
 pub mod config;
+pub mod conformance;
 mod edge;
 mod live;
 pub mod locale;

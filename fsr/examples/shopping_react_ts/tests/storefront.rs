@@ -648,6 +648,18 @@ fn body_text(response: http::Response<snapfire_fsr_host::Body>) -> (u16, String)
   (status, text)
 }
 
+#[test]
+fn every_route_holds_its_contract_against_hostile_requests() {
+  use snapfire_fsr_host::conformance::{self, Route};
+  let app = app_over(Arc::new(MockTransport::new()));
+  let mut routes = conformance::framework_routes(&app);
+  routes.push(Route::action("cart.addToCart", r#"{"product_id":1,"quantity":1}"#));
+  routes.push(Route::island("src/ui/OrderHelp.tsx#OrderHelp", r#"{"props":{"orderId":5001},"state":{"open":false},"handler":0,"event":null}"#));
+  routes.push(Route::handler("/api/cart", r#"{"product_id":1,"quantity":1}"#));
+  let breaches = block_on(conformance::check(&app, &routes));
+  assert!(breaches.is_empty(), "{}", breaches.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n"));
+}
+
 /// A step runs handlers that dispatch actions with the visitor's session, so
 /// it takes the same bodies from the same origins an action does.
 #[test]
