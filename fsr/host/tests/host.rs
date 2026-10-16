@@ -6486,3 +6486,11 @@ async fn a_public_directory_a_written_root_already_serves_is_not_served_again_at
   let response = host.handle(Request::get("/app.js").body(Bytes::new()).unwrap()).await;
   assert_ne!(&body_of(response).await, "console.log('hello')");
 }
+
+#[test]
+fn an_empty_data_cache_table_turns_the_data_cache_on() {
+  let dir = app_dir_with("\n[cache]\nttl = \"1m\"\n\n[cache.data]\n");
+  let config = snapfire_fsr_host::config::Config::load(&dir.join("app.toml")).unwrap();
+  let cache = config.cache.expect("the cache section is read");
+  assert!(cache.data.is_some(), "an empty [cache.data] asks for the data cache at its defaults");
+}

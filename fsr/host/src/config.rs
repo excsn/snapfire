@@ -909,6 +909,20 @@ pub struct DataCacheSection {
   pub capacity: Option<u64>,
 }
 
+/// Whether the TOML file at `file` writes the table at `path`, which c5store drops from the store when it holds no keys.
+fn declares_empty_table(file: &Path, path: &[&str]) -> bool {
+  let Some(text) = file.extension().filter(|e| *e == "toml").and_then(|_| std::fs::read_to_string(file).ok()) else { return false };
+  let Ok(value) = text.parse::<toml::Table>() else { return false };
+  let mut at = toml::Value::Table(value);
+  for key in path {
+    match at.get(*key) {
+      Some(next) => at = next.clone(),
+      None => return false,
+    }
+  }
+  at.is_table()
+}
+
 fn default_cache_capacity() -> u64 {
   1000
 }
@@ -1493,6 +1507,11 @@ impl Config {
   pub fn from_store<S: C5Store>(store: &S, located: Located) -> Result<Self, HostError> {
     let at = located.sources.first().cloned().unwrap_or_else(|| located.root.clone());
     let mut config = Self::sections(store, &located.root, at)?;
+    if let Some(cache) = config.cache.as_mut() {
+      if cache.data.is_none() && located.sources.iter().any(|file| declares_empty_table(file, &["cache", "data"])) {
+        cache.data = Some(DataCacheSection::default());
+      }
+    }
     config.sources = located.sources;
     Ok(config)
   }
