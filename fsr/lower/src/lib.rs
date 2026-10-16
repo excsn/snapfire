@@ -540,6 +540,13 @@ fn bound_names<'a>(pat: &'a js::Pat, out: &mut impl FnMut(&'a str, Span)) {
   }
 }
 
+/// Whether `source` declares `name` at module level without exporting it, which is a component the build can mount only once the bundle overlay exports it.
+pub fn declares_unexported(file: &str, source: &str, name: &str) -> bool {
+  let tsx = file.ends_with(".tsx") || file.ends_with(".jsx");
+  let Ok(parsed) = parse_with(file, source, tsx) else { return false };
+  parsed.local(name).is_some() && !parsed.exports().any(|(exported, _)| exported == name)
+}
+
 pub(crate) fn parse(file: &str, source: &str) -> Result<Parsed, LowerError> {
   parse_with(file, source, false)
 }
@@ -2515,5 +2522,16 @@ fn describe_expr(expr: &js::Expr) -> (&'static str, &'static str) {
     js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => ("JSX in a body", "a body returns data; the page it feeds is where the markup goes"),
     js::Expr::MetaProp(_) => ("`import.meta`", "the build resolves every import, so nothing reads them while serving"),
     _ => ("an expression outside the IR", "section 2 of snapfire_fsr_lower's API reference lists what a body may say"),
+  }
+}
+
+#[cfg(test)]
+mod declares_unexported_tests {
+  #[test]
+  fn a_local_component_is_declared_and_unexported() {
+    let source = "function Strong({ children }: { children: string }) { return <strong>{children}</strong>; }\nexport function Shown() { return <Strong>x</Strong>; }\nexport default function Page() { return <Shown />; }\n";
+    assert!(super::declares_unexported("a.tsx", source, "Strong"));
+    assert!(!super::declares_unexported("a.tsx", source, "Shown"), "an exported component needs nothing");
+    assert!(!super::declares_unexported("a.tsx", source, "Missing"), "a name the file does not declare is not this case");
   }
 }
