@@ -688,8 +688,19 @@ impl ComponentSet {
         }
       }
     }
+    // A component only the browser renders has no lowered tree to follow, so
+    // whatever its file imports may mount fresh with no table beside it.
+    let browser_roots: Vec<String> = self.browser_only.iter().map(|(module, _)| module.split('#').next().unwrap_or(module).to_owned()).collect();
+    let mut browser_files: Vec<String> = Vec::new();
+    for root in browser_roots {
+      for file in self.local_reach(&root) {
+        if !browser_files.contains(&file) {
+          browser_files.push(file);
+        }
+      }
+    }
     for rewrite in &mut self.rewrites {
-      if dynamic || self.mounted.contains(&rewrite.module) || reached.contains(&rewrite.module) {
+      if dynamic || self.mounted.contains(&rewrite.module) || reached.contains(&rewrite.module) || browser_files.contains(&rewrite.file) {
         rewrite.chunks.iter_mut().for_each(|chunk| chunk.proven = false);
       }
     }
@@ -5239,6 +5250,27 @@ export default function Cart({ lines, total }: { lines: { price: number }[]; tot
     assert!(source.contains("<i>{money(total * qty)}</i>"), "a state read stays a call: {source}");
     assert!(source.contains("<ul>{lines.map(__sfh.l((l) => <li key={l.price}>{__sfh.r(6, () => (money(l.price)))}{money(l.price * qty)}</li>))}</ul>"), "{source}");
     assert!(source.contains("{__sfh.r(10, () => (money(1)))}</button>"), "{source}");
+  }
+
+  #[test]
+  fn a_component_a_browser_only_one_imports_keeps_its_chunks_jsx() {
+    let card = "import { money } from \"@src/ui/money\";\nexport default function Card({ total }: { total: number }) {\n  return <div><b>{money(total)}</b></div>;\n}\n";
+    let files = [
+      ("routes/a/page.tsx", "import Card from \"@src/ui/Card\";\nexport default function A({ total }: { total: number }) {\n  return <Card total={total} />;\n}\n"),
+      ("routes/b/page.tsx", "import Shell from \"@src/ui/Shell\";\nexport default function B({ total }: { total: number }) {\n  return <Shell total={total} />;\n}\n"),
+      ("src/ui/Shell.tsx", "import Card from \"./Card\";\nclass Clock {}\nexport default function Shell({ total }: { total: number }) {\n  const clock = new Clock();\n  return <section data-clock={String(clock)}><Card total={total} /></section>;\n}\n"),
+      ("src/ui/Card.tsx", card),
+      ("src/ui/money.ts", "export function money(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`;\n}\n"),
+    ];
+    let mut set = ComponentSet::new(&app(&files));
+    set.lower("routes/a/page.tsx#default").unwrap();
+    set.lower("routes/b/page.tsx#default").unwrap();
+    assert!(set.browser_only.iter().any(|(m, _)| m == "src/ui/Shell.tsx#default"), "{:?}", set.browser_only);
+    set.settle_proofs();
+    let rewrite = set.rewrites.iter().find(|r| r.module == "src/ui/Card.tsx#default").expect("Card is rewritten");
+    assert!(!rewrite.chunks.is_empty() && rewrite.chunks.iter().all(|c| !c.proven), "Shell mounts Card fresh in the browser: {:?}", rewrite.chunks);
+    let (_, source) = set.rewritten().into_iter().find(|(f, _)| f == "src/ui/Card.tsx").unwrap();
+    assert!(source.contains("money(total)"), "the chunk keeps the JSX it falls back to: {source}");
   }
 
   #[test]
