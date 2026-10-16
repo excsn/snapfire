@@ -912,7 +912,13 @@ impl Host {
         response
       }
       Err(HostError::NoSlot(name)) => text_response(StatusCode::NOT_FOUND, format!("no slot named `{name}` on this route")),
-      Err(e) => text_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+      Err(e) => {
+        tracing::error!(target: "fsr::render", path = %path, error = %e, "the page did not render");
+        match self.changed.is_some() {
+          true => text_response(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+          false => text_response(StatusCode::INTERNAL_SERVER_ERROR, "the page could not be rendered".to_owned()),
+        }
+      }
     }
   }
 
