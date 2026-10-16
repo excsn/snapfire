@@ -90,3 +90,16 @@ fn a_logging_configuration_beside_the_project_takes_the_events() {
   assert!(!stderr.contains("card image"), "and the fallback does not: {stderr}");
   let _ = std::fs::remove_dir_all(&configured);
 }
+
+#[test]
+fn a_port_already_taken_fails_serve_without_announcing_the_server() {
+  let root = project("taken", None);
+  let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let listen = taken.local_addr().unwrap().to_string();
+  let output = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("serve").arg(root.join("app")).args(["--listen", &listen]).output().unwrap();
+  let (stdout, stderr) = (String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+  assert!(!output.status.success());
+  assert!(!stdout.contains("fsr server on"), "{stdout}");
+  assert!(stderr.contains(&listen), "{stderr}");
+  let _ = std::fs::remove_dir_all(&root);
+}

@@ -40,16 +40,17 @@ pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
     true => "https",
     false => "http",
   };
-  println!("fsr server on {scheme}://{listen}/");
-  if traces.is_some() {
-    println!("fsr traces on {scheme}://{listen}/__fsr/traces");
-  }
   let root = project_root(app);
   let poll = Config::load(&root).ok().and_then(|config| snapfire_fsr_sites::poll_of(&config));
   let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| BuildError::Serve(format!("runtime: {e}")))?;
   runtime.block_on(async {
+    let listener = tokio::net::TcpListener::bind(&listen).await?;
+    println!("fsr server on {scheme}://{listen}/");
+    if traces.is_some() {
+      println!("fsr traces on {scheme}://{listen}/__fsr/traces");
+    }
     snapfire_fsr_sites::watch(host.clone(), root, poll);
-    host.serve(&listen).await
+    host.serve_listener(listener).await
   })
   .map_err(|e| BuildError::Serve(format!("serve {listen}: {e}")))
 }
