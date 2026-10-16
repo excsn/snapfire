@@ -49,6 +49,7 @@ The route handlers a host dispatches before matching a page.
 * `App::from_manifest(manifest: &str) -> Result<AppBuilder, BindError>`: the plan file's text; its routes, its lowered sources with their `meta`, `store` and `paths` bodies, actions and components and its declared actions are remembered for `build`. A lowered source's `meta` is registered on the runtime as an `IrMeta` under the source id when the source itself binds as lowered; a source Rust overrides loses its `meta` with it. A `meta` that reads the request beyond its data keeps its route out of `prerenderable`. A lowered source's `paths` is bound as an `IrPaths` under the pattern of every route whose plan names the source, when the source binds as lowered; `build` refuses one that reads the request (`PathsReadRequest`), one on a route with no parameter (`PathsWithoutParameter`) and one no route names (`PathsOffRoute`).
 
 * `fn conform_text_input(&self, id: &str, input: &mut Value)` reads the input of the action `id` against its declared type, for an edge whose encoding carries strings only: the host calls it on a form body between the CSRF check and dispatch. An action with no declared input changes nothing, as does an application with no contract. A value that arrived typed must not be passed through it, since a string where a number is declared is a mismatch rather than a spelling.
+* `fn lowered_handler(&self, body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler>`: `body` as a handler that runs with this application's constants, extensions and catalogs, every mounted site's included. A host binds a mounted site's middleware and the themes through it, since a large literal a body reads is a named constant in the plan.
 
 ### Images
 
@@ -93,7 +94,7 @@ Every method takes and returns the builder. Registration order is the evaluators
 ### mount_manifest and middleware_from
 
 * `AppBuilder::mount_manifest(&mut self, manifest: &str) -> Result<(), BindError>`: adds every lowered row of another plan file beside this builder's, its routes and intercepts as plan-file entries, its sources with their metas and stores, its actions, components and handlers; the ids are the file's, so a mounted site's arrive prefixed. Its middleware and not-found tree are the caller's to place.
-* `middleware_from(body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler>`: a lowered middleware body as the handler the edge runs, for a host chaining a mounted site's after its own.
+* `middleware_from(body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler>`: a lowered middleware body as a handler on an interpreter with the standard extensions alone, no constants, catalogs or application extensions. A body that reads any of those, a mounted site's middleware or a theme, goes through `App::lowered_handler`.
 
 ## 2. Routes and Plans
 

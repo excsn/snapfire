@@ -574,11 +574,12 @@ impl HostBuilder {
     let manifest =
       Manifest::from_text(&plan).map_err(|e| HostError::Config(config.resolve(&config.server.plan), e.to_string()))?;
     let shell_module = config.document.shell.clone();
-    let shell_theme = manifest.theme.clone().map(snapfire_fsr::middleware_from);
+    let shell_theme = manifest.theme.clone();
     let mut themes: HashMap<String, (String, bool)> = manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))).collect();
     let mut app = self.app.take().expect("the builder holds its app until build");
     let mut taken: Vec<String> = manifest.routes.iter().map(|r| r.pattern.clone()).collect();
     let mut sites = Vec::new();
+    let mut site_bodies: HashMap<String, (Option<snapfire_fsr_ir::Body>, Option<snapfire_fsr_ir::Body>)> = HashMap::new();
     let mut probes: Vec<(String, Probe)> = Vec::new();
     let mut site_reports = Vec::new();
     let mut statics: Vec<StaticRootResolved> = config
@@ -668,8 +669,7 @@ impl HostBuilder {
         ));
       }
       leaks(&mount.artifact.config, &mount.artifact.plan).map_err(|e| HostError::Mount(mount.name.clone(), e.to_string()))?;
-      let middleware = site_manifest.middleware.take().map(snapfire_fsr::middleware_from);
-      let site_theme = site_manifest.theme.take().map(snapfire_fsr::middleware_from);
+      site_bodies.insert(mount.name.clone(), (site_manifest.middleware.take(), site_manifest.theme.take()));
       themes.extend(site_manifest.themes.iter().map(|row| (row.module.clone(), (row.name.clone(), row.force))));
       graft(&manifest, &mut site_manifest, &shell_module);
       site_manifest.not_found = None;
@@ -736,8 +736,8 @@ impl HostBuilder {
       sites.push(SiteTables {
         name: mount.name.clone(),
         at: site.at.clone(),
-        middleware,
-        theme: site_theme,
+        middleware: None,
+        theme: None,
         styles: minified_urls(mount.artifact.config.document.styles.clone().unwrap_or_default(), site_bundle),
         entry: mount.artifact.config.document.entry.as_deref().map(|entry| minified_url(entry, site_bundle)),
         preload: match config.document.module_preload {
@@ -871,6 +871,13 @@ impl HostBuilder {
       _ => (app, None),
     };
     let app = app.evaluator(move |m: &ModuleId| m.path == shell_path, shell).build()?;
+    let shell_theme = shell_theme.map(|body| app.lowered_handler(body));
+    for site in &mut sites {
+      if let Some((middleware, theme)) = site_bodies.remove(&site.name) {
+        site.middleware = middleware.map(|body| app.lowered_handler(body));
+        site.theme = theme.map(|body| app.lowered_handler(body));
+      }
+    }
     let unanswered_routes: Vec<String> = config.routes.iter().filter(|declared| !app.report.routes.iter().any(|(pattern, _)| pattern == &declared.pattern)).map(|declared| declared.pattern.clone()).collect();
     for (index, _) in app.patterns.iter().enumerate() {
       let Some(plan) = app.resolver.resolve(snapfire_fsr_runtime::EntryId(index as u32), &Params::new()) else { continue };

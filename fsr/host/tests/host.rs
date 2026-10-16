@@ -2982,6 +2982,20 @@ async fn a_mounted_site_serves_under_the_shells_root_layout_with_its_own_middlew
   );
 }
 
+#[tokio::test]
+async fn a_mounted_sites_middleware_reads_the_constants_its_plan_declares() {
+  let site = site_dir();
+  let mut json = read_plan(&site);
+  json["middleware"] = serde_json::from_str(r#"[ { "return": { "object": [ { "field": [ "headers", { "object": [ { "field": [ "x-site", { "const": "src/moved.ts#WHERE" } ] } ] } ] } ] } } ]"#).unwrap();
+  json["consts"] = serde_json::json!({ "src/moved.ts#WHERE": { "lit": { "str": "moved" } } });
+  write_plan_value(&site, json);
+  let host = shell_with(&site);
+
+  let response = host.handle(Request::get("/shop").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "{}", body_of(response).await);
+  assert_eq!(response.headers().get("x-site").unwrap(), "moved");
+}
+
 #[test]
 fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_is_a_site() {
   let site = site_dir();

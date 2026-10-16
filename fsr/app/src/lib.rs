@@ -249,6 +249,9 @@ pub struct App {
   /// Each lowered action's or handler's declared input type, by its id.
   pub declared_inputs: HashMap<String, String>,
   pub report: Report,
+  /// What a lowered body runs on: the plan's constants, extensions and
+  /// catalogs, every mounted site's included.
+  interpreter: Interpreter,
 }
 
 impl std::fmt::Debug for App {
@@ -491,6 +494,13 @@ pub struct AppBuilder {
 }
 
 impl App {
+  /// `body` as a handler that runs with this app's constants, extensions and
+  /// catalogs, for a lowered body bound outside the plan's own tables: a
+  /// mounted site's middleware or a theme.
+  pub fn lowered_handler(&self, body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler> {
+    Arc::new(IrAction::new(body).with_interpreter(self.interpreter.clone()))
+  }
+
   /// The input of the action or handler `id` read against its declared type,
   /// for an edge whose encoding carries strings only: a form body. A value
   /// that arrived typed must not be passed through here, since a string where
@@ -1298,6 +1308,7 @@ impl AppBuilder {
       contract: self.contract,
       declared_inputs,
       report,
+      interpreter,
     })
   }
 }
@@ -1316,8 +1327,9 @@ fn unknown_extension(body: &snapfire_fsr_ir::Body, extensions: &Extensions) -> O
   found
 }
 
-/// A lowered middleware body as the handler the edge runs it through, for a
-/// host that chains a mounted site's middleware after its own.
+/// A lowered middleware body as a handler on an interpreter with the standard
+/// extensions alone: no constants, catalogs or application extensions. A body
+/// that reads any of those runs through `App::lowered_handler` instead.
 pub fn middleware_from(body: snapfire_fsr_ir::Body) -> Arc<dyn ActionHandler> {
   Arc::new(IrAction::new(body))
 }
