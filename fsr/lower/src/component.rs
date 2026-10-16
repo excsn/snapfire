@@ -1293,7 +1293,12 @@ impl ComponentSet {
         self.exported_component(&declared, &declared_name)
       }
       Some(Meaning::Foreign) => {
-        let source = find_import(&self.parsed[file].clone(), looked).map(|(source, _)| source).unwrap_or_default();
+        let parsed = self.parsed[file].clone();
+        let lazy = || match find_value(&parsed, looked) {
+          Some(Global::Const(js::Expr::Call(call))) => lazy_import_source(call),
+          _ => None,
+        };
+        let source = find_import(&parsed, looked).map(|(source, _)| source).or_else(lazy).unwrap_or_default();
         Err(format!("`{looked}` comes from `{source}`, which the build cannot follow"))
       }
       _ => Err(format!("`{name}` is not a component this file declares or imports")),
@@ -5855,6 +5860,9 @@ export function Page(props: { className: string; children: React.ReactNode; cart
     let page = "import { Chart } from \"chart-lib\";\nexport default function Page() {\n  return <Chart />;\n}\n";
     let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
     assert!(err.to_string().contains("`Chart` comes from `chart-lib`, which the build cannot follow"), "{err}");
+    let page = "import { lazy } from \"react\";\nconst Chart = lazy(() => import(\"chart-lib\"));\nexport default function Page() {\n  return <Chart />;\n}\n";
+    let err = lower(&[("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap_err();
+    assert!(err.to_string().contains("`Chart` comes from `chart-lib`, which the build cannot follow"), "a lazy import names its specifier: {err}");
   }
 
   #[test]
