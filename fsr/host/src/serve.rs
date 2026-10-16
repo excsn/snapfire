@@ -28,7 +28,13 @@ where
         Err(e) if e.is::<http_body_util::LengthLimitError>() => return Ok::<_, Infallible>(host.too_large()),
         Err(_) => Bytes::new(),
       };
-      Ok::<_, Infallible>(host.handle(Request::from_parts(parts, bytes)).await)
+      let version = parts.version;
+      let mut response = host.handle(Request::from_parts(parts, bytes)).await;
+      // HTTP/1.0 has no chunked encoding, so a body of unknown length ends with the connection; hyper keeps it open for a 1.1 response.
+      if version == http::Version::HTTP_10 && !response.headers().contains_key(header::CONTENT_LENGTH) && http_body::Body::size_hint(response.body()).exact().is_none() {
+        *response.version_mut() = http::Version::HTTP_10;
+      }
+      Ok::<_, Infallible>(response)
     }
   });
   if http2 {

@@ -381,6 +381,29 @@ async fn hyper_serves_the_same_edge() {
   assert!(response.contains("hi hyper via tcp"), "{response}");
 }
 
+#[tokio::test]
+async fn an_http_1_0_keep_alive_request_gets_a_streamed_document_that_ends_with_the_connection() {
+  let (host, _) = host();
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  tokio::spawn(host.clone().serve_listener(listener));
+
+  let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+  stream
+    .write_all(b"GET /hello/hyper HTTP/1.0\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n")
+    .await
+    .unwrap();
+  let mut response = String::new();
+  tokio::time::timeout(std::time::Duration::from_secs(5), stream.read_to_string(&mut response))
+    .await
+    .expect("the server closes the connection after the body")
+    .unwrap();
+  let head = response.split("\r\n\r\n").next().unwrap().to_ascii_lowercase();
+  assert!(head.starts_with("http/1.0 200 ok"), "{head}");
+  assert!(!head.contains("keep-alive") && !head.contains("content-length"), "{head}");
+  assert!(response.contains("hi hyper"), "{response}");
+}
+
 /// One request over a prior-knowledge HTTP/2 connection, since the listener
 /// carries no TLS and so no ALPN.
 async fn over_h2(
