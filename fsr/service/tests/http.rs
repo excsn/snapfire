@@ -193,3 +193,20 @@ async fn an_unreachable_backend_is_unavailable_not_a_panic() {
     .unwrap_err();
   assert_eq!(err.kind, FailureKind::Unavailable);
 }
+
+#[tokio::test]
+async fn a_server_failure_or_an_unreachable_backend_keeps_its_details_out_of_the_message() {
+  let (base, _) = serve(vec![(503, "stack trace at db-7.internal:5432"), (409, "already exists")]);
+  let services = Services::builder().contract(contract()).default_transport(Arc::new(HttpTransport::new(&base))).build();
+  let handle = services.bind_anonymous();
+  let call = || handle.call("fleet", "add", args(vec![("name", Value::str("x")), ("load", Value::F64(0.1))]));
+  let down = call().await.unwrap_err();
+  assert_eq!(down.kind, FailureKind::Unavailable);
+  assert!(!down.message.contains("db-7"), "a 5xx body is logged, not carried to the page: {down}");
+  assert!(call().await.unwrap_err().message.contains("already exists"), "a conflict's body is for the user");
+
+  let gone = Services::builder().contract(contract()).default_transport(Arc::new(HttpTransport::new("http://127.0.0.1:9"))).build();
+  let unreachable = gone.bind_anonymous().call("fleet", "add", args(vec![("name", Value::str("x")), ("load", Value::F64(0.1))])).await.unwrap_err();
+  assert_eq!(unreachable.kind, FailureKind::Unavailable);
+  assert!(!unreachable.message.contains("127.0.0.1"), "the backend's address stays in the log: {unreachable}");
+}

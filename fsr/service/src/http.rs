@@ -162,13 +162,23 @@ impl Transport for HttpTransport {
 
     Box::pin(async move {
       let response = request.send().await.map_err(|e| {
-        let kind = if e.is_timeout() { FailureKind::Timeout } else { FailureKind::Unavailable };
-        fail(kind, e.to_string())
+        tracing::warn!(target: "fsr::service", error = %e, "backend request failed");
+        match e.is_timeout() {
+          true => fail(FailureKind::Timeout, "the backend timed out".to_owned()),
+          false => fail(FailureKind::Unavailable, "the backend did not answer".to_owned()),
+        }
       })?;
       let status = response.status().as_u16();
       let text = response.text().await.map_err(|e| fail(FailureKind::Internal, e.to_string()))?;
       if !(200..300).contains(&status) {
-        return Err(fail(kind_for_status(status), format!("{status}: {}", text.trim())));
+        let kind = kind_for_status(status);
+        return Err(match kind {
+          FailureKind::Invalid | FailureKind::Conflict => fail(kind, format!("{status}: {}", text.trim())),
+          _ => {
+            tracing::warn!(target: "fsr::service", status, body = %text.trim(), "backend answered with a failure");
+            fail(kind, status.to_string())
+          }
+        });
       }
       if text.trim().is_empty() {
         return Ok(Value::Null);
