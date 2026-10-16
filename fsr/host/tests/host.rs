@@ -268,6 +268,27 @@ async fn the_client_serves_the_dialects_template_entry() {
 }
 
 #[tokio::test]
+async fn an_action_is_refused_a_body_a_cross_site_page_can_send_without_preflight() {
+  let (host, _) = host();
+  let call = |content_type: Option<&'static str>, origin: Option<&'static str>| {
+    let mut req = Request::post("/_sf/action/index.bump").header(header::HOST, "app.example");
+    if let Some(ct) = content_type {
+      req = req.header(header::CONTENT_TYPE, ct);
+    }
+    if let Some(o) = origin {
+      req = req.header(header::ORIGIN, o);
+    }
+    req.body(Bytes::from(r#"{"by": 1}"#)).unwrap()
+  };
+  assert_eq!(host.handle(call(Some("text/plain"), None)).await.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE, "a text/plain body is what a page on another origin sends without a preflight");
+  assert_eq!(host.handle(call(None, None)).await.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+  assert_eq!(host.handle(call(Some("application/json"), Some("https://evil.example"))).await.status(), StatusCode::FORBIDDEN);
+  assert_eq!(host.handle(call(Some("application/json"), Some("https://sub.app.example"))).await.status(), StatusCode::FORBIDDEN, "a sibling subdomain is another origin");
+  assert_eq!(host.handle(call(Some("application/json; charset=utf-8"), Some("https://app.example"))).await.status(), StatusCode::OK);
+  assert_eq!(host.handle(call(Some("application/json"), None)).await.status(), StatusCode::OK, "a client that sends no Origin is not a browser");
+}
+
+#[tokio::test]
 async fn the_edge_serves_static_files_actions_and_pages_with_a_session_cookie() {
   let (host, _) = host();
 
@@ -306,6 +327,7 @@ async fn the_edge_serves_static_files_actions_and_pages_with_a_session_cookie() 
   let response = host
     .handle(
       Request::post("/_sf/action/index.bump")
+        .header(header::CONTENT_TYPE, "application/json")
         .header(header::COOKIE, &cookie_value)
         .body(Bytes::from(r#"{"by": 3}"#))
         .unwrap(),
@@ -317,6 +339,7 @@ async fn the_edge_serves_static_files_actions_and_pages_with_a_session_cookie() 
   let response = host
     .handle(
       Request::post("/_sf/action/index.bump")
+        .header(header::CONTENT_TYPE, "application/json")
         .body(Bytes::from(r#"{"by": "two"}"#))
         .unwrap(),
     )
@@ -1327,6 +1350,7 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
   let response = host
     .handle(
       Request::post("/_sf/action/index.where")
+        .header(header::CONTENT_TYPE, "application/json")
         .header("x-sf-from", "/fr_FR/hello/x?from=y")
         .body(Bytes::from("{}"))
         .unwrap(),
@@ -1338,6 +1362,7 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
   let response = host
     .handle(
       Request::post("/_sf/action/index.where")
+        .header(header::CONTENT_TYPE, "application/json")
         .header("x-sf-from", "/hello/x")
         .header(header::COOKIE, "sf_locale=de")
         .body(Bytes::from("{}"))
@@ -1349,6 +1374,7 @@ async fn an_action_runs_in_the_locale_of_the_document_that_called_it() {
   let response = host
     .handle(
       Request::post("/_sf/action/index.where")
+        .header(header::CONTENT_TYPE, "application/json")
         .body(Bytes::from("{}"))
         .unwrap(),
     )
@@ -2508,6 +2534,7 @@ async fn a_reload_swaps_the_tables_in_place_and_keeps_the_sessions() {
   let response = host
     .handle(
       Request::post("/_sf/action/index.bump")
+        .header(header::CONTENT_TYPE, "application/json")
         .header(header::COOKIE, &cookie)
         .body(Bytes::from(r#"{"by": 3}"#))
         .unwrap(),
@@ -5225,14 +5252,14 @@ async fn an_action_that_extends_the_session_sets_the_cookie_to_the_new_end_and_a
   let cookie_value = opened.split(';').next().unwrap().to_owned();
 
   let response = host
-    .handle(Request::post("/_sf/action/index.stay").header(header::COOKIE, &cookie_value).body(Bytes::from("{}")).unwrap())
+    .handle(Request::post("/_sf/action/index.stay").header(header::COOKIE, &cookie_value).header(header::CONTENT_TYPE, "application/json").body(Bytes::from("{}")).unwrap())
     .await;
   assert_eq!(response.status(), StatusCode::OK);
   let extended = session_cookie(&response).expect("an extension sets the cookie again");
   assert!((7190..=7200).contains(&max_age(&extended)), "the cookie counts down to the new end: {extended}");
 
   let response = host
-    .handle(Request::post("/_sf/action/index.where").header(header::COOKIE, &cookie_value).body(Bytes::from("{}")).unwrap())
+    .handle(Request::post("/_sf/action/index.where").header(header::COOKIE, &cookie_value).header(header::CONTENT_TYPE, "application/json").body(Bytes::from("{}")).unwrap())
     .await;
   assert_eq!(response.status(), StatusCode::OK);
   assert!(session_cookie(&response).is_none(), "a request that only reads the session writes nothing");

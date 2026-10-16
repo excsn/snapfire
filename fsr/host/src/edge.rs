@@ -552,6 +552,20 @@ impl Host {
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|ct| ct.starts_with("application/x-www-form-urlencoded"));
+        if !super::live::upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+          return text_response(StatusCode::FORBIDDEN, "an action is called from this site's own pages".to_owned());
+        }
+        let is_json = req
+          .headers()
+          .get(header::CONTENT_TYPE)
+          .and_then(|v| v.to_str().ok())
+          .is_some_and(|ct| ct.split(';').next().is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json")));
+        if !is_form && !is_json {
+          return json_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            &serde_json::json!({ "kind": "invalid", "message": "an action takes application/json, or a form with its _csrf token" }),
+          );
+        }
         let input = if is_form {
           let mut fields = match &multipart {
             Some(boundary) => match multipart_params(req.body(), boundary, self.max_upload).await {
