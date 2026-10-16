@@ -368,6 +368,17 @@ fn identity_and_now_are_reads() {
 }
 
 #[test]
+fn the_identity_whole_is_null_for_nobody_and_not_null_for_a_signed_in_visitor() {
+  let anonymous = Expr::Compare(CompareOp::Eq, Box::new(Expr::Identity(vec![])), Box::new(Expr::Lit(Lit::Null)));
+  let body = vec![Stmt::Return(anonymous)];
+  let nobody = RequestCtx::anonymous(Params::new());
+  assert_eq!(run(&body, &nobody, None).unwrap(), Value::Bool(true));
+  let mut signed_in = RequestCtx::anonymous(Params::new());
+  signed_in.session = SessionCell::new(ValueMap::default(), Some(Identity { subject: "u1".into(), claims: ValueMap::default() }));
+  assert_eq!(run(&body, &signed_in, None).unwrap(), Value::Bool(false));
+}
+
+#[test]
 fn a_query_read_is_a_string_or_null() {
   let mock = Arc::new(Mock::default());
   let mut c = ctx(mock, &[], ValueMap::default());

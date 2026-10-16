@@ -173,6 +173,23 @@ export async function load(ctx: Ctx) {
   assert_eq!(entries[2], Entry::Field("at".into(), Expr::Now));
 }
 
+#[test]
+fn a_loader_tests_the_identity_whole_against_null() {
+  let src = r#"
+export async function load({ identity }: Ctx) {
+  return { signedIn: identity !== null };
+}
+"#;
+  let body = lower_loader("page.loader.ts", src).unwrap();
+  let Stmt::Return(Expr::Object(entries)) = &body[0] else { panic!("{body:?}") };
+  assert_eq!(entries[0], Entry::Field("signedIn".into(), Expr::Compare(CompareOp::Ne, Box::new(Expr::Identity(vec![])), Box::new(Expr::Lit(Lit::Null)))));
+
+  let src = "export async function load(ctx: Ctx) {\n  return { anonymous: ctx.identity === null };\n}\n";
+  let body = lower_loader("page.loader.ts", src).unwrap();
+  let Stmt::Return(Expr::Object(entries)) = &body[0] else { panic!("{body:?}") };
+  assert_eq!(entries[0], Entry::Field("anonymous".into(), Expr::Compare(CompareOp::Eq, Box::new(Expr::Identity(vec![])), Box::new(Expr::Lit(Lit::Null)))));
+}
+
 fn residue(err: LowerError) -> Residue {
   match err {
     LowerError::Residue(r) => r,
