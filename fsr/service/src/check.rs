@@ -333,6 +333,28 @@ impl Contract {
             if let Some(ty) = variants.iter().find(|v| &v.tag == tag).and_then(|v| v.payload.as_ref()) {
               self.conform(ty, payload);
             }
+            return;
+          }
+          if matches!(value, Value::Variant { .. }) {
+            return;
+          }
+          if let Value::Str(text) = &*value {
+            if let Some(unit) = variants.iter().find(|v| v.payload.is_none() && v.tag == text.as_str()) {
+              *value = Value::Variant { tag: unit.tag.clone(), payload: None };
+              return;
+            }
+          }
+          let fitting: Vec<(&str, Value)> = variants
+            .iter()
+            .filter_map(|v| {
+              let ty = v.payload.as_ref()?;
+              let mut candidate = value.clone();
+              self.conform(ty, &mut candidate);
+              self.check_value(ty, &candidate, "").ok().map(|_| (v.tag.as_str(), candidate))
+            })
+            .collect();
+          if let [(tag, payload)] = fitting.as_slice() {
+            *value = Value::Variant { tag: (*tag).to_owned(), payload: Some(Box::new(payload.clone())) };
           }
         }
         None => {}

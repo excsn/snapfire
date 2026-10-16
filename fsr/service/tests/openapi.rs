@@ -216,3 +216,27 @@ fn the_server_url_comes_back_for_the_transport() {
   );
   assert_eq!(import(&d, "s").unwrap().base_url.as_deref(), Some("http://127.0.0.1:8081"));
 }
+
+#[test]
+fn a_json_response_with_a_string_enum_or_an_untagged_union_conforms_and_checks() {
+  use snapfire_fsr_core::{Value, ValueMap};
+  let paths = r##""/page":{"get":{"operationId":"page","responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Page"}}}}}}}"##;
+  let schemas = r##""Page":{"type":"object","required":["slug","format"],"properties":{"slug":{"type":"string","enum":["home","about"]},"format":{"oneOf":[{"type":"integer"},{"type":"string"}]}}}"##;
+  let contract = import(&doc(paths, schemas), "cms").unwrap().contract;
+  for format in [Value::Int(1), Value::str("bold")] {
+    let mut fields = ValueMap::default();
+    fields.insert("slug".to_owned(), Value::str("home"));
+    fields.insert("format".to_owned(), format.clone());
+    let mut value = Value::Map(fields);
+    contract.conform_return("cms", "page", &mut value);
+    contract.check_return("cms", "page", &value).unwrap_or_else(|e| panic!("{format:?}: {e}"));
+    let Value::Map(fields) = &value else { panic!() };
+    assert!(matches!(fields.get("slug"), Some(Value::Variant { tag, payload: None }) if tag == "home"), "{value:?}");
+  }
+  let mut fields = ValueMap::default();
+  fields.insert("slug".to_owned(), Value::str("contact"));
+  fields.insert("format".to_owned(), Value::Int(1));
+  let mut value = Value::Map(fields);
+  contract.conform_return("cms", "page", &mut value);
+  assert!(contract.check_return("cms", "page", &value).is_err(), "a string outside the enum is still refused");
+}
