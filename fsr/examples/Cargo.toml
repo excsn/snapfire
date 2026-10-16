@@ -6,6 +6,7 @@ members = [
   "portal_react_ts/sites/billing",
   "portal_react_ts/sites/reports",
   "chat_react_ts",
+  "corpus",
   "gallery_react_ts",
   "handbook_react_ts/contents",
   "handbook_react_ts/generate",

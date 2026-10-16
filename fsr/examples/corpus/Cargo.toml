@@ -1,0 +1,11 @@
+[package]
+name = "corpus"
+version = "0.1.0"
+publish = false
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dev-dependencies]
+snapfire_fsr_cli = { path = "../../cli" }

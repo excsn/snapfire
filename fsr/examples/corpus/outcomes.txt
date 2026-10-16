@@ -1,0 +1,641 @@
+blog-2023-03-16-introducing-react-dev-1	client: src/App.js:56:43 a call to `Array`, which the build cannot follow
+blog-2023-03-16-introducing-react-dev-2	lowered
+blog-2023-03-16-introducing-react-dev-3	lowered
+blog-2023-03-16-introducing-react-dev-4	lowered
+blog-2023-03-16-introducing-react-dev-5	lowered
+blog-2023-03-16-introducing-react-dev-6	lowered
+blog-2023-03-16-introducing-react-dev-7	lowered
+blog-2023-03-16-introducing-react-dev-8	lowered
+blog-2023-03-16-introducing-react-dev-9	lowered
+learn-adding-interactivity-1	lowered
+learn-adding-interactivity-2	lowered
+learn-adding-interactivity-3	lowered
+learn-adding-interactivity-4	lowered
+learn-adding-interactivity-5	lowered
+learn-adding-interactivity-6	lowered
+learn-adding-interactivity-8	lowered
+learn-choosing-the-state-structure-1	lowered
+learn-choosing-the-state-structure-10	client: src/places.js:2:3 a numeric property name
+learn-choosing-the-state-structure-11	client: src/places.js:2:3 a numeric property name
+learn-choosing-the-state-structure-13	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-choosing-the-state-structure-14	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-choosing-the-state-structure-15	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-choosing-the-state-structure-16	lowered
+learn-choosing-the-state-structure-17	lowered
+learn-choosing-the-state-structure-18	lowered
+learn-choosing-the-state-structure-19	lowered
+learn-choosing-the-state-structure-2	lowered
+learn-choosing-the-state-structure-20	lowered
+learn-choosing-the-state-structure-21	lowered
+learn-choosing-the-state-structure-22	client: src/App.js:32:15 `.has()`, which is not a builtin
+learn-choosing-the-state-structure-3	lowered
+learn-choosing-the-state-structure-4	lowered
+learn-choosing-the-state-structure-5	lowered
+learn-choosing-the-state-structure-6	lowered
+learn-choosing-the-state-structure-7	lowered
+learn-choosing-the-state-structure-8	lowered
+learn-choosing-the-state-structure-9	lowered
+learn-conditional-rendering-1	lowered
+learn-conditional-rendering-10	lowered
+learn-conditional-rendering-11	lowered
+learn-conditional-rendering-12	lowered
+learn-conditional-rendering-13	client: src/App.js:2:7 a declaration without a value
+learn-conditional-rendering-14	lowered
+learn-conditional-rendering-2	lowered
+learn-conditional-rendering-3	lowered
+learn-conditional-rendering-4	lowered
+learn-conditional-rendering-5	lowered
+learn-conditional-rendering-6	lowered
+learn-conditional-rendering-7	client: src/App.js:5:7 JSX in a body
+learn-conditional-rendering-8	lowered
+learn-conditional-rendering-9	lowered
+learn-describing-the-ui-1	lowered
+learn-describing-the-ui-10	lowered
+learn-describing-the-ui-2	lowered
+learn-describing-the-ui-3	refused: src/App.js: 6:7: Expected ',', got 'ident'
+learn-describing-the-ui-4	lowered
+learn-describing-the-ui-5	lowered
+learn-describing-the-ui-6	lowered
+learn-describing-the-ui-7	lowered
+learn-describing-the-ui-8	client: src/App.js:6:5 JSX in a body
+learn-escape-hatches-1	lowered
+learn-escape-hatches-10	lowered
+learn-escape-hatches-2	lowered
+learn-escape-hatches-3	lowered
+learn-escape-hatches-4	lowered
+learn-escape-hatches-5	lowered
+learn-escape-hatches-8	lowered
+learn-escape-hatches-9	lowered
+learn-extracting-state-logic-into-a-reducer-1	client: src/TaskList.js:17:7 a declaration without a value
+learn-extracting-state-logic-into-a-reducer-10	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-extracting-state-logic-into-a-reducer-11	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-extracting-state-logic-into-a-reducer-12	client: src/messengerReducer.js:4:5 a numeric property name
+learn-extracting-state-logic-into-a-reducer-13	client: src/messengerReducer.js:4:5 a numeric property name
+learn-extracting-state-logic-into-a-reducer-14	client: src/messengerReducer.js:4:5 a numeric property name
+learn-extracting-state-logic-into-a-reducer-3	client: src/TaskList.js:17:7 a declaration without a value
+learn-extracting-state-logic-into-a-reducer-4	client: src/TaskList.js:17:7 a declaration without a value
+learn-extracting-state-logic-into-a-reducer-6	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-extracting-state-logic-into-a-reducer-7	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-extracting-state-logic-into-a-reducer-8	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-extracting-state-logic-into-a-reducer-9	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-importing-and-exporting-components-1	lowered
+learn-importing-and-exporting-components-2	lowered
+learn-importing-and-exporting-components-3	lowered
+learn-importing-and-exporting-components-4	lowered
+learn-importing-and-exporting-components-5	lowered
+learn-importing-and-exporting-components-6	lowered
+learn-index-1	lowered
+learn-index-2	lowered
+learn-index-3	client: src/App.js:9:5 JSX in a body
+learn-index-4	lowered
+learn-index-5	lowered
+learn-installation-1	lowered
+learn-javascript-in-jsx-with-curly-braces-1	lowered
+learn-javascript-in-jsx-with-curly-braces-10	lowered
+learn-javascript-in-jsx-with-curly-braces-11	lowered
+learn-javascript-in-jsx-with-curly-braces-12	lowered
+learn-javascript-in-jsx-with-curly-braces-13	lowered
+learn-javascript-in-jsx-with-curly-braces-2	lowered
+learn-javascript-in-jsx-with-curly-braces-3	lowered
+learn-javascript-in-jsx-with-curly-braces-4	client: src/App.js:5:5 a locale named where it formats
+learn-javascript-in-jsx-with-curly-braces-5	lowered
+learn-javascript-in-jsx-with-curly-braces-6	lowered
+learn-javascript-in-jsx-with-curly-braces-7	lowered
+learn-javascript-in-jsx-with-curly-braces-8	lowered
+learn-javascript-in-jsx-with-curly-braces-9	lowered
+learn-keeping-components-pure-1	lowered
+learn-keeping-components-pure-3	lowered
+learn-keeping-components-pure-4	client: src/App.js:7:3 a statement a component cannot hold before its `return`
+learn-keeping-components-pure-5	client: src/Clock.js:2:17 `.getHours()`, which reads the viewer's time zone
+learn-keeping-components-pure-6	client: src/Clock.js:2:17 `.getHours()`, which reads the viewer's time zone
+learn-keeping-components-pure-8	lowered
+learn-lifecycle-of-reactive-effects-1	lowered
+learn-lifecycle-of-reactive-effects-11	lowered
+learn-lifecycle-of-reactive-effects-12	lowered
+learn-lifecycle-of-reactive-effects-14	client: src/chat.js:4:5 a method or accessor in an object literal
+learn-lifecycle-of-reactive-effects-15	lowered
+learn-lifecycle-of-reactive-effects-16	lowered
+learn-lifecycle-of-reactive-effects-17	lowered
+learn-lifecycle-of-reactive-effects-18	client: src/App.js:25:13 JSX in a body
+learn-lifecycle-of-reactive-effects-2	lowered
+learn-lifecycle-of-reactive-effects-3	lowered
+learn-lifecycle-of-reactive-effects-4	lowered
+learn-lifecycle-of-reactive-effects-5	lowered
+learn-lifecycle-of-reactive-effects-6	lowered
+learn-lifecycle-of-reactive-effects-7	lowered
+learn-lifecycle-of-reactive-effects-8	lowered
+learn-lifecycle-of-reactive-effects-9	lowered
+learn-managing-state-1	lowered
+learn-managing-state-2	lowered
+learn-managing-state-3	lowered
+learn-managing-state-4	lowered
+learn-managing-state-5	lowered
+learn-managing-state-6	lowered
+learn-managing-state-7	client: src/TaskList.js:25:7 a declaration without a value
+learn-managing-state-8	client: src/Heading.js:7:5 a `case` that falls through into the next
+learn-managing-state-9	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-manipulating-the-dom-with-refs-1	lowered
+learn-manipulating-the-dom-with-refs-10	lowered
+learn-manipulating-the-dom-with-refs-11	lowered
+learn-manipulating-the-dom-with-refs-12	lowered
+learn-manipulating-the-dom-with-refs-13	client: src/App.js:40:17 `new Array`
+learn-manipulating-the-dom-with-refs-14	client: src/App.js:56:17 `new Array`
+learn-manipulating-the-dom-with-refs-15	lowered
+learn-manipulating-the-dom-with-refs-16	lowered
+learn-manipulating-the-dom-with-refs-2	lowered
+learn-manipulating-the-dom-with-refs-3	client: src/App.js:57:19 `new Array`
+learn-manipulating-the-dom-with-refs-4	lowered
+learn-manipulating-the-dom-with-refs-5	lowered
+learn-manipulating-the-dom-with-refs-6	lowered
+learn-manipulating-the-dom-with-refs-7	lowered
+learn-manipulating-the-dom-with-refs-8	lowered
+learn-manipulating-the-dom-with-refs-9	lowered
+learn-passing-data-deeply-with-context-1	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-passing-data-deeply-with-context-2	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-passing-data-deeply-with-context-3	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-passing-data-deeply-with-context-4	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-passing-data-deeply-with-context-5	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-passing-data-deeply-with-context-6	client: src/Heading.js:7:5 a `case` that falls through into the next
+learn-passing-data-deeply-with-context-7	client: src/Heading.js:7:5 a `case` that falls through into the next
+learn-passing-data-deeply-with-context-8	client: src/App.js:28:5 JSX in a body
+learn-passing-data-deeply-with-context-9	client: src/App.js:31:5 JSX in a body
+learn-passing-props-to-a-component-1	lowered
+learn-passing-props-to-a-component-10	client: src/App.js:3:15 `window` is not bound here; an import the build cannot follow or a name from outside the body
+learn-passing-props-to-a-component-11	lowered
+learn-passing-props-to-a-component-12	lowered
+learn-passing-props-to-a-component-13	lowered
+learn-passing-props-to-a-component-2	lowered
+learn-passing-props-to-a-component-3	lowered
+learn-passing-props-to-a-component-4	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-passing-props-to-a-component-5	lowered
+learn-passing-props-to-a-component-6	lowered
+learn-passing-props-to-a-component-7	lowered
+learn-passing-props-to-a-component-8	lowered
+learn-passing-props-to-a-component-9	lowered
+learn-preserving-and-resetting-state-1	client: src/App.js:4:19 JSX in a body
+learn-preserving-and-resetting-state-10	lowered
+learn-preserving-and-resetting-state-11	lowered
+learn-preserving-and-resetting-state-12	lowered
+learn-preserving-and-resetting-state-13	lowered
+learn-preserving-and-resetting-state-14	lowered
+learn-preserving-and-resetting-state-15	lowered
+learn-preserving-and-resetting-state-16	lowered
+learn-preserving-and-resetting-state-17	client: src/App.js:6:5 JSX in a body
+learn-preserving-and-resetting-state-18	client: src/App.js:6:5 JSX in a body
+learn-preserving-and-resetting-state-19	lowered
+learn-preserving-and-resetting-state-2	lowered
+learn-preserving-and-resetting-state-20	lowered
+learn-preserving-and-resetting-state-21	lowered
+learn-preserving-and-resetting-state-22	lowered
+learn-preserving-and-resetting-state-23	client: src/App.js:9:5 a call for its effect, which a straight-line body cannot hold
+learn-preserving-and-resetting-state-24	client: src/App.js:9:5 a call for its effect, which a straight-line body cannot hold
+learn-preserving-and-resetting-state-3	lowered
+learn-preserving-and-resetting-state-4	lowered
+learn-preserving-and-resetting-state-5	lowered
+learn-preserving-and-resetting-state-6	lowered
+learn-preserving-and-resetting-state-7	lowered
+learn-preserving-and-resetting-state-9	lowered
+learn-queueing-a-series-of-state-updates-1	lowered
+learn-queueing-a-series-of-state-updates-2	lowered
+learn-queueing-a-series-of-state-updates-3	lowered
+learn-queueing-a-series-of-state-updates-4	lowered
+learn-queueing-a-series-of-state-updates-5	lowered
+learn-queueing-a-series-of-state-updates-6	lowered
+learn-queueing-a-series-of-state-updates-7	lowered
+learn-queueing-a-series-of-state-updates-8	client: src/processQueue.js:4:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-reacting-to-input-with-state-10	lowered
+learn-reacting-to-input-with-state-11	lowered
+learn-reacting-to-input-with-state-2	lowered
+learn-reacting-to-input-with-state-3	lowered
+learn-reacting-to-input-with-state-4	lowered
+learn-reacting-to-input-with-state-5	lowered
+learn-reacting-to-input-with-state-6	lowered
+learn-reacting-to-input-with-state-7	lowered
+learn-reacting-to-input-with-state-8	lowered
+learn-referencing-values-with-refs-1	lowered
+learn-referencing-values-with-refs-10	lowered
+learn-referencing-values-with-refs-11	lowered
+learn-referencing-values-with-refs-12	lowered
+learn-referencing-values-with-refs-13	lowered
+learn-referencing-values-with-refs-2	lowered
+learn-referencing-values-with-refs-3	lowered
+learn-referencing-values-with-refs-4	lowered
+learn-referencing-values-with-refs-7	lowered
+learn-referencing-values-with-refs-9	lowered
+learn-removing-effect-dependencies-1	lowered
+learn-removing-effect-dependencies-10	client: src/App.js:8:20 `useEffectEvent`, a hook the build cannot follow
+learn-removing-effect-dependencies-11	lowered
+learn-removing-effect-dependencies-12	lowered
+learn-removing-effect-dependencies-13	lowered
+learn-removing-effect-dependencies-2	lowered
+learn-removing-effect-dependencies-3	lowered
+learn-removing-effect-dependencies-6	lowered
+learn-removing-effect-dependencies-7	lowered
+learn-removing-effect-dependencies-8	lowered
+learn-removing-effect-dependencies-9	lowered
+learn-render-and-commit-3	client: src/App.js:18:18 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-rendering-lists-1	client: src/App.js:11:5 JSX in a body
+learn-rendering-lists-10	lowered
+learn-rendering-lists-11	lowered
+learn-rendering-lists-12	lowered
+learn-rendering-lists-13	client: src/App.js:13:3 a call for its effect, which a straight-line body cannot hold
+learn-rendering-lists-14	lowered
+learn-rendering-lists-2	client: src/App.js:9:5 JSX in a body
+learn-rendering-lists-3	client: src/App.js:6:5 JSX in a body
+learn-rendering-lists-4	client: src/App.js:6:5 JSX in a body
+learn-rendering-lists-5	lowered
+learn-rendering-lists-6	lowered
+learn-rendering-lists-7	lowered
+learn-rendering-lists-8	lowered
+learn-rendering-lists-9	lowered
+learn-responding-to-events-1	lowered
+learn-responding-to-events-10	lowered
+learn-responding-to-events-12	lowered
+learn-responding-to-events-13	lowered
+learn-responding-to-events-14	lowered
+learn-responding-to-events-15	lowered
+learn-responding-to-events-2	lowered
+learn-responding-to-events-3	lowered
+learn-responding-to-events-4	lowered
+learn-responding-to-events-5	lowered
+learn-responding-to-events-6	lowered
+learn-responding-to-events-7	lowered
+learn-responding-to-events-8	lowered
+learn-responding-to-events-9	lowered
+learn-reusing-logic-with-custom-hooks-1	lowered
+learn-reusing-logic-with-custom-hooks-10	client: src/useOnlineStatus.js:13:10 a call to `useSyncExternalStore`, which the build cannot follow
+learn-reusing-logic-with-custom-hooks-11	lowered
+learn-reusing-logic-with-custom-hooks-12	lowered
+learn-reusing-logic-with-custom-hooks-13	client: src/useFadeIn.js:7:31 a function value; lambdas go to `map`, `filter` and their kin
+learn-reusing-logic-with-custom-hooks-14	lowered
+learn-reusing-logic-with-custom-hooks-15	lowered
+learn-reusing-logic-with-custom-hooks-16	lowered
+learn-reusing-logic-with-custom-hooks-17	lowered
+learn-reusing-logic-with-custom-hooks-18	lowered
+learn-reusing-logic-with-custom-hooks-19	lowered
+learn-reusing-logic-with-custom-hooks-2	lowered
+learn-reusing-logic-with-custom-hooks-20	lowered
+learn-reusing-logic-with-custom-hooks-21	client: src/useCounter.js:6:15 a function value; lambdas go to `map`, `filter` and their kin
+learn-reusing-logic-with-custom-hooks-22	client: src/useCounter.js:6:15 a function value; lambdas go to `map`, `filter` and their kin
+learn-reusing-logic-with-custom-hooks-23	client: src/useCounter.js:6:15 a function value; lambdas go to `map`, `filter` and their kin
+learn-reusing-logic-with-custom-hooks-24	lowered
+learn-reusing-logic-with-custom-hooks-25	lowered
+learn-reusing-logic-with-custom-hooks-3	lowered
+learn-reusing-logic-with-custom-hooks-4	lowered
+learn-reusing-logic-with-custom-hooks-5	client: src/useFormInput.js:12:15 `handleChange` is not bound here; an import the build cannot follow or a name from outside the body
+learn-reusing-logic-with-custom-hooks-9	lowered
+learn-rsc-sandbox-test-1	lowered
+learn-rsc-sandbox-test-10	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
+learn-rsc-sandbox-test-2	lowered
+learn-rsc-sandbox-test-3	client: src/App.js:8:27 JSX in a body
+learn-rsc-sandbox-test-4	client: src/App.js:10:27 JSX in a body
+learn-rsc-sandbox-test-5	client: src/DataViewer.js:5:28 `Map` is not bound here; an import the build cannot follow or a name from outside the body
+learn-rsc-sandbox-test-6	refused: src/App.js:15:22: `now` calls `time.now` on a render path; it runs on the server only, and a component's render path runs in the browser too
+learn-rsc-sandbox-test-7	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
+learn-rsc-sandbox-test-8	client: src/actions.js:6:3 a call for its effect, which a straight-line body cannot hold
+learn-rsc-sandbox-test-9	lowered
+learn-scaling-up-with-reducer-and-context-1	client: src/TaskList.js:25:7 a declaration without a value
+learn-scaling-up-with-reducer-and-context-2	client: src/TaskList.js:25:7 a declaration without a value
+learn-scaling-up-with-reducer-and-context-3	client: src/App.js:36:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-scaling-up-with-reducer-and-context-4	client: src/App.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-scaling-up-with-reducer-and-context-5	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-scaling-up-with-reducer-and-context-6	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-separating-events-from-effects-1	lowered
+learn-separating-events-from-effects-10	client: src/App.js:9:18 `useEffectEvent`, a hook the build cannot follow
+learn-separating-events-from-effects-11	client: src/App.js:9:18 `useEffectEvent`, a hook the build cannot follow
+learn-separating-events-from-effects-5	client: src/App.js:8:18 `useEffectEvent`, a hook the build cannot follow
+learn-separating-events-from-effects-7	lowered
+learn-separating-events-from-effects-8	lowered
+learn-separating-events-from-effects-9	client: src/App.js:8:18 `useEffectEvent`, a hook the build cannot follow
+learn-sharing-state-between-components-1	lowered
+learn-sharing-state-between-components-2	lowered
+learn-sharing-state-between-components-3	lowered
+learn-sharing-state-between-components-4	lowered
+learn-sharing-state-between-components-5	lowered
+learn-sharing-state-between-components-6	lowered
+learn-sharing-state-between-components-7	client: src/data.js:2:3 a write to `query`, which this body did not declare
+learn-state-a-components-memory-11	lowered
+learn-state-a-components-memory-12	lowered
+learn-state-a-components-memory-13	lowered
+learn-state-a-components-memory-14	lowered
+learn-state-a-components-memory-2	lowered
+learn-state-a-components-memory-3	lowered
+learn-state-a-components-memory-5	lowered
+learn-state-a-components-memory-6	lowered
+learn-state-a-components-memory-7	lowered
+learn-state-a-components-memory-9	lowered
+learn-state-as-a-snapshot-1	lowered
+learn-state-as-a-snapshot-2	lowered
+learn-state-as-a-snapshot-3	lowered
+learn-state-as-a-snapshot-4	lowered
+learn-state-as-a-snapshot-5	lowered
+learn-state-as-a-snapshot-6	lowered
+learn-state-as-a-snapshot-7	lowered
+learn-synchronizing-with-effects-10	lowered
+learn-synchronizing-with-effects-11	lowered
+learn-synchronizing-with-effects-12	lowered
+learn-synchronizing-with-effects-13	lowered
+learn-synchronizing-with-effects-14	lowered
+learn-synchronizing-with-effects-2	lowered
+learn-synchronizing-with-effects-3	lowered
+learn-synchronizing-with-effects-4	lowered
+learn-synchronizing-with-effects-5	lowered
+learn-synchronizing-with-effects-6	lowered
+learn-synchronizing-with-effects-7	lowered
+learn-synchronizing-with-effects-8	lowered
+learn-synchronizing-with-effects-9	lowered
+learn-thinking-in-react-1	client: src/App.js:29:3 a call for its effect, which a straight-line body cannot hold
+learn-thinking-in-react-2	client: src/App.js:48:3 a call for its effect, which a straight-line body cannot hold
+learn-thinking-in-react-3	client: src/App.js:50:3 a call for its effect, which a straight-line body cannot hold
+learn-tutorial-tic-tac-toe-1	client: src/App.js:56:43 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-10	client: src/App.js:57:43 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-11	client: src/App.js:57:43 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-12	client: src/App.js:57:43 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-13	client: src/App.js:57:43 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-14	client: src/App.js:56:43 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-2	lowered
+learn-tutorial-tic-tac-toe-3	lowered
+learn-tutorial-tic-tac-toe-4	lowered
+learn-tutorial-tic-tac-toe-5	lowered
+learn-tutorial-tic-tac-toe-6	client: src/App.js:8:42 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-7	client: src/App.js:12:42 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-8	client: src/App.js:13:42 a call to `Array`, which the build cannot follow
+learn-tutorial-tic-tac-toe-9	client: src/App.js:13:42 a call to `Array`, which the build cannot follow
+learn-typescript-1	refused: src/App.js: no exported `default`
+learn-typescript-2	refused: src/App.js: no exported `default`
+learn-typescript-3	refused: src/App.js: no exported `default`
+learn-typescript-4	refused: src/App.js: no exported `default`
+learn-typescript-5	refused: src/App.js: no exported `default`
+learn-understanding-your-ui-as-a-tree-1	client: src/InspirationGenerator.js:7:17 `quotes` comes from `./quotes`, which the build cannot follow
+learn-understanding-your-ui-as-a-tree-2	client: src/InspirationGenerator.js:8:23 `inspirations` comes from `./inspirations`, which the build cannot follow
+learn-updating-arrays-in-state-1	lowered
+learn-updating-arrays-in-state-11	lowered
+learn-updating-arrays-in-state-12	lowered
+learn-updating-arrays-in-state-13	lowered
+learn-updating-arrays-in-state-14	lowered
+learn-updating-arrays-in-state-15	client: src/TaskList.js:25:7 a declaration without a value
+learn-updating-arrays-in-state-16	client: src/TaskList.js:25:7 a declaration without a value
+learn-updating-arrays-in-state-2	lowered
+learn-updating-arrays-in-state-3	lowered
+learn-updating-arrays-in-state-4	lowered
+learn-updating-arrays-in-state-5	lowered
+learn-updating-arrays-in-state-6	lowered
+learn-updating-arrays-in-state-7	lowered
+learn-updating-arrays-in-state-8	lowered
+learn-updating-arrays-in-state-9	lowered
+learn-updating-objects-in-state-11	lowered
+learn-updating-objects-in-state-2	lowered
+learn-updating-objects-in-state-4	lowered
+learn-updating-objects-in-state-5	lowered
+learn-updating-objects-in-state-6	lowered
+learn-updating-objects-in-state-9	lowered
+learn-writing-markup-with-jsx-1	refused: src/App.js: 6:7: Expected ',', got 'ident'
+learn-writing-markup-with-jsx-2	lowered
+learn-writing-markup-with-jsx-3	refused: src/App.js: 6:8: Expected ',', got 'class'
+learn-writing-markup-with-jsx-4	lowered
+learn-you-might-not-need-an-effect-2	client: src/todos.js:5:9 `++` or `--`, which mutate
+learn-you-might-not-need-an-effect-4	client: src/todos.js:13:9 `++` or `--`, which mutate
+learn-you-might-not-need-an-effect-5	client: src/todos.js:13:9 `++` or `--`, which mutate
+learn-you-might-not-need-an-effect-7	lowered
+learn-you-might-not-need-an-effect-8	lowered
+learn-you-might-not-need-an-effect-9	lowered
+learn-your-first-component-1	lowered
+learn-your-first-component-10	refused: src/App.js: no exported `default`
+learn-your-first-component-11	lowered
+learn-your-first-component-2	lowered
+learn-your-first-component-3	refused: src/App.js: no exported `default`
+learn-your-first-component-4	lowered
+learn-your-first-component-5	client: src/App.js:2:3 a component must return its tree
+learn-your-first-component-6	lowered
+learn-your-first-component-7	lowered
+learn-your-first-component-8	lowered
+learn-your-first-component-9	lowered
+reference-react-activity-1	lowered
+reference-react-activity-2	client: src/App.js:10:7 `Activity` comes from `react`, which the build cannot follow
+reference-react-activity-3	lowered
+reference-react-activity-4	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
+reference-react-activity-5	client: src/App.js:26:27 JSX in a body
+reference-react-activity-6	client: src/App.js:26:27 JSX in a body
+reference-react-activity-7	lowered
+reference-react-activity-8	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
+reference-react-activity-9	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
+reference-react-captureownerstack-1	client: src/App.js:24:5 `Suspense` comes from `react`, which the build cannot follow
+reference-react-captureownerstack-2	lowered
+reference-react-captureownerstack-3	lowered
+reference-react-children-1	client: src/RowList.js:6:8 `Children` comes from `react`, which the build cannot follow
+reference-react-children-10	client: src/TabSwitcher.js:12:12 a call to a computed target
+reference-react-children-11	client: src/RowList.js:11:12 a call to a computed target
+reference-react-children-2	client: src/RowList.js:6:8 `Children` comes from `react`, which the build cannot follow
+reference-react-children-3	client: src/SeparatorList.js:5:3 a call for its effect, which a straight-line body cannot hold
+reference-react-children-4	client: src/RowList.js:7:22 `Children` comes from `react`, which the build cannot follow
+reference-react-children-5	client: src/ReversedList.js:4:18 `Children` comes from `react`, which the build cannot follow
+reference-react-children-6	lowered
+reference-react-children-7	lowered
+reference-react-children-8	client: src/App.js:6:31 JSX in a body
+reference-react-children-9	client: src/App.js:9:18 JSX in a body
+reference-react-cloneelement-1	client: src/List.js:7:8 `Children` comes from `react`, which the build cannot follow
+reference-react-cloneelement-2	client: src/List.js:9:16 a call to a computed target
+reference-react-cloneelement-3	client: src/List.js:15:14 a call to a computed target
+reference-react-cloneelement-4	lowered
+reference-react-component-1	refused: src/App.js: no exported `Greeting`
+reference-react-component-10	refused: src/App.js: no exported `Button`
+reference-react-component-11	lowered
+reference-react-component-2	refused: src/App.js: no exported `default`
+reference-react-component-3	refused: src/ChatRoom.js: no exported `default`
+reference-react-component-4	refused: src/App.js: no exported `Greeting`
+reference-react-component-5	lowered
+reference-react-component-6	refused: src/App.js: no exported `default`
+reference-react-component-7	lowered
+reference-react-component-8	refused: src/ChatRoom.js: no exported `default`
+reference-react-component-9	lowered
+reference-react-createelement-1	client: src/App.js:14:10 a call to `createElement`, which the build cannot follow
+reference-react-createelement-2	lowered
+reference-react-createref-1	refused: src/App.js: no exported `default`
+reference-react-createref-2	refused: src/App.js: no exported `default`
+reference-react-createref-3	lowered
+reference-react-dom-client-createroot-1	lowered
+reference-react-dom-client-createroot-3	lowered
+reference-react-dom-client-createroot-4	refused: src/App.js: no exported `ErrorBoundary`
+reference-react-dom-client-hydrateroot-1	lowered
+reference-react-dom-client-hydrateroot-2	client: src/App.js:4:22 the current time on a render path, which the server and the browser read at different moments
+reference-react-dom-client-hydrateroot-4	lowered
+reference-react-dom-client-hydrateroot-5	refused: src/App.js: no exported `ErrorBoundary`
+reference-react-dom-components-common-1	lowered
+reference-react-dom-components-common-2	lowered
+reference-react-dom-components-common-4	lowered
+reference-react-dom-components-common-5	lowered
+reference-react-dom-components-common-6	lowered
+reference-react-dom-components-common-7	lowered
+reference-react-dom-components-form-1	lowered
+reference-react-dom-components-form-2	client: src/App.js:7:19 `search` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-dom-components-form-3	client: src/actions.js:2:5 an expression statement other than a write to a local
+reference-react-dom-components-form-4	client: src/actions.js:2:3 an expression statement other than a write to a local
+reference-react-dom-components-form-6	client: src/App.js:15:9 `useActionState`
+reference-react-dom-components-form-7	client: src/App.js:14:19 `publish` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-dom-components-img-1	lowered
+reference-react-dom-components-index-1	refused: src/App.js: no exported `default`
+reference-react-dom-components-index-2	refused: src/App.js: no exported `default`
+reference-react-dom-components-input-1	lowered
+reference-react-dom-components-input-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-input-3	lowered
+reference-react-dom-components-input-4	lowered
+reference-react-dom-components-input-5	lowered
+reference-react-dom-components-link-1	client: src/App.js:5:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-components-link-2	client: src/App.js:5:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-components-link-3	client: src/App.js:5:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-components-link-4	client: src/App.js:5:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-components-meta-1	client: src/App.js:5:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-components-option-1	lowered
+reference-react-dom-components-progress-1	lowered
+reference-react-dom-components-script-1	client: src/App.js:14:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-components-script-2	client: src/App.js:13:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-components-select-1	lowered
+reference-react-dom-components-select-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-select-3	lowered
+reference-react-dom-components-select-4	lowered
+reference-react-dom-components-select-5	lowered
+reference-react-dom-components-select-6	lowered
+reference-react-dom-components-style-1	client: src/App.js:23:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow | src/App.js:5:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-textarea-1	lowered
+reference-react-dom-components-textarea-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-textarea-3	lowered
+reference-react-dom-components-textarea-4	lowered
+reference-react-dom-components-title-1	client: src/App.js:5:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
+reference-react-dom-createportal-1	client: src/App.js:7:8 a call to `createPortal`, which the build cannot follow
+reference-react-dom-createportal-2	client: src/PortalExample.js:12:21 a call to `createPortal`, which the build cannot follow
+reference-react-dom-createportal-3	client: src/App.js:9:8 a call to `createPortal`, which the build cannot follow
+reference-react-dom-flushsync-1	lowered
+reference-react-dom-hooks-useformstatus-1	client: src/actions.js:2:5 an expression statement other than a write to a local
+reference-react-dom-hooks-useformstatus-2	client: src/App.js:8:29 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-dom-server-resume-1	refused: src/App.js: no exported `default`
+reference-react-forwardref-1	refused: src/MyInput.js: no exported `default`
+reference-react-forwardref-2	refused: src/MyVideoPlayer.js: no exported `default`
+reference-react-forwardref-3	refused: src/FormField.js: no exported `default`
+reference-react-forwardref-4	refused: src/MyInput.js: no exported `default`
+reference-react-fragment-1	lowered
+reference-react-fragment-2	lowered
+reference-react-memo-1	refused: src/App.js: no exported `Greeting`
+reference-react-memo-2	refused: src/App.js: no exported `Greeting`
+reference-react-memo-3	refused: src/App.js: no exported `Greeting`
+reference-react-purecomponent-1	refused: src/App.js: no exported `Greeting`
+reference-react-purecomponent-2	refused: src/App.js: no exported `Greeting`
+reference-react-purecomponent-3	refused: src/App.js: no exported `Greeting`
+reference-react-strictmode-1	lowered
+reference-react-strictmode-10	client: src/App.js:63:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-strictmode-11	client: src/App.js:64:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-strictmode-2	lowered
+reference-react-strictmode-3	lowered
+reference-react-strictmode-4	lowered
+reference-react-strictmode-5	lowered
+reference-react-strictmode-6	lowered
+reference-react-strictmode-7	lowered
+reference-react-strictmode-8	lowered
+reference-react-strictmode-9	client: src/App.js:63:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-suspense-1	client: src/ArtistPage.js:8:27 JSX in a body
+reference-react-suspense-10	client: src/App.js:8:25 JSX in a body
+reference-react-suspense-11	client: src/data.js:6:3 an expression statement other than a write to a local
+reference-react-suspense-13	client: src/App.js:27:29 JSX in a body
+reference-react-suspense-2	client: src/ArtistPage.js:8:27 JSX in a body
+reference-react-suspense-3	refused: src/App.js: no exported `default`
+reference-react-suspense-4	client: src/ArtistPage.js:10:27 JSX in a body
+reference-react-suspense-5	client: src/ArtistPage.js:10:27 JSX in a body
+reference-react-suspense-6	client: src/App.js:12:27 JSX in a body
+reference-react-suspense-7	client: src/App.js:6:9 `useDeferredValue`
+reference-react-suspense-8	client: src/App.js:8:25 JSX in a body
+reference-react-suspense-9	client: src/App.js:8:25 JSX in a body
+reference-react-use-1	client: src/App.js:35:11 `use` after a `return`, which React refuses since the hooks would change between renders
+reference-react-use-3	lowered
+reference-react-use-4	client: src/App.js:12:27 JSX in a body
+reference-react-use-5	client: src/data.js:9:5 a call for its effect, which a straight-line body cannot hold
+reference-react-use-6	client: src/App.js:7:9 `useTransition`
+reference-react-use-7	client: src/App.js:5:22 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-useactionstate-1	client: src/App.js:6:9 `useActionState`
+reference-react-useactionstate-2	client: src/App.js:6:9 `useActionState`
+reference-react-useactionstate-3	client: src/App.js:6:9 `useActionState`
+reference-react-useactionstate-4	client: src/App.js:7:9 `useActionState`
+reference-react-useactionstate-5	client: src/App.js:8:9 `useActionState`
+reference-react-useactionstate-6	client: src/App.js:6:9 `useActionState`
+reference-react-usecallback-3	refused: src/ShippingForm.js: no exported `default`
+reference-react-usecontext-1	lowered
+reference-react-usecontext-2	lowered
+reference-react-usecontext-3	client: src/App.js:11:9 `setCurrentUser` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-usecontext-4	client: src/App.js:14:11 `setCurrentUser` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-usecontext-5	client: src/App.js:9:42 `setTheme` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-usecontext-6	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-usecontext-7	lowered
+reference-react-usecontext-8	lowered
+reference-react-usecontext-9	client: src/Heading.js:7:5 a `case` that falls through into the next
+reference-react-usedebugvalue-1	client: src/useOnlineStatus.js:4:9 `useSyncExternalStore`
+reference-react-usedeferredvalue-1	client: src/App.js:12:27 JSX in a body
+reference-react-usedeferredvalue-2	client: src/App.js:6:9 `useDeferredValue`
+reference-react-usedeferredvalue-3	client: src/App.js:6:9 `useDeferredValue`
+reference-react-useeffect-1	lowered
+reference-react-useeffect-11	lowered
+reference-react-useeffect-12	lowered
+reference-react-useeffect-13	lowered
+reference-react-useeffect-14	lowered
+reference-react-useeffect-15	lowered
+reference-react-useeffect-16	lowered
+reference-react-useeffect-17	lowered
+reference-react-useeffect-2	lowered
+reference-react-useeffect-3	lowered
+reference-react-useeffect-4	lowered
+reference-react-useeffect-5	client: src/App.js:17:3 a statement a component cannot hold before its `return`
+reference-react-useeffect-6	lowered
+reference-react-useeffect-7	client: src/App.js:7:36 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-useeffect-8	client: src/App.js:17:3 a statement a component cannot hold before its `return`
+reference-react-useeffectevent-1	client: src/App.js:7:18 `useEffectEvent`, a hook the build cannot follow
+reference-react-useeffectevent-2	client: src/App.js:7:18 `useEffectEvent`, a hook the build cannot follow
+reference-react-useeffectevent-4	client: src/App.js:20:15 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-useid-1	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-useid-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-useid-3	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-useimperativehandle-1	lowered
+reference-react-useimperativehandle-2	client: src/CommentList.js:16:3 a statement a component cannot hold before its `return`
+reference-react-uselayouteffect-1	client: src/App.js:8:11 JSX in a body
+reference-react-uselayouteffect-2	client: src/App.js:8:11 JSX in a body
+reference-react-uselayouteffect-3	client: src/App.js:8:11 JSX in a body
+reference-react-usememo-1	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usememo-2	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usememo-3	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usememo-6	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-useoptimistic-1	client: src/App.js:7:40 `setName` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-useoptimistic-2	client: src/Button.js:4:9 `useOptimistic`
+reference-react-useoptimistic-3	client: src/App.js:6:9 `useOptimistic`
+reference-react-useoptimistic-4	client: src/FollowButton.js:4:9 `useOptimistic`
+reference-react-useoptimistic-5	client: src/actions.js:2:3 an expression statement other than a write to a local
+reference-react-useoptimistic-6	client: src/App.js:9:5 a method or accessor in an object literal
+reference-react-useoptimistic-7	client: src/ItemList.js:5:9 `useOptimistic`
+reference-react-usereducer-1	lowered
+reference-react-usereducer-2	lowered
+reference-react-usereducer-3	client: src/TaskList.js:25:7 a declaration without a value
+reference-react-usereducer-5	client: src/TodoList.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usereducer-6	client: src/TodoList.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-useref-1	lowered
+reference-react-useref-2	lowered
+reference-react-useref-3	lowered
+reference-react-useref-4	lowered
+reference-react-useref-5	lowered
+reference-react-useref-6	lowered
+reference-react-usestate-1	lowered
+reference-react-usestate-11	client: src/App.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usestate-12	client: src/App.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usestate-13	lowered
+reference-react-usestate-14	client: src/CountLabel.js:7:5 a call for its effect, which a straight-line body cannot hold
+reference-react-usestate-2	lowered
+reference-react-usestate-3	lowered
+reference-react-usestate-4	lowered
+reference-react-usestate-5	lowered
+reference-react-usestate-6	lowered
+reference-react-usestate-7	lowered
+reference-react-usestate-8	lowered
+reference-react-usestate-9	client: src/TaskList.js:25:7 a declaration without a value
+reference-react-usesyncexternalstore-1	client: src/App.js:5:9 `useSyncExternalStore`
+reference-react-usesyncexternalstore-2	client: src/App.js:4:9 `useSyncExternalStore`
+reference-react-usesyncexternalstore-3	client: src/useOnlineStatus.js:4:9 `useSyncExternalStore`
+reference-react-usetransition-6	client: src/App.js:10:25 JSX in a body
+reference-react-usetransition-7	client: src/App.js:10:25 JSX in a body
+reference-react-usetransition-8	client: src/App.js:8:25 JSX in a body
+reference-rsc-use-client-1	client: src/InspirationGenerator.js:9:17 `inspirations` comes from `./inspirations`, which the build cannot follow
+reference-rsc-use-client-2	lowered
+reference-rules-components-and-hooks-must-be-pure-1	lowered
