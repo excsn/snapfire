@@ -547,7 +547,7 @@ impl Host {
               ),
             }
           }
-          Err((status, json)) => json_response(status, &json),
+          Err((status, json)) => self.step_failed(&module, status, &json),
         };
         self.set_cookie(opened, &mut response).await;
         return response;

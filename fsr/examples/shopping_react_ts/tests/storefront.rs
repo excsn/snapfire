@@ -672,6 +672,28 @@ fn an_island_step_is_refused_a_body_a_cross_site_page_can_send_without_preflight
   assert_eq!(step(Some("application/json"), None).0, 200);
 }
 
+/// A step that fails inside the interpreter is logged with its error; the
+/// answer outside development names the kind and nothing the interpreter said.
+#[test]
+fn a_step_that_fails_inside_the_interpreter_does_not_name_the_failure_outside_development() {
+  let step = |dev: bool| {
+    let mut config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
+    config.cache = None;
+    config.server.dev = Some(dev);
+    config.session.key = Some("a-test-key-that-is-long-enough-to-sign-cookies-with".to_owned());
+    let app = Host::from_config(config).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap();
+    let request = http::Request::post("/_sf/island/src/ui/OrderHelp.tsx%23OrderHelp")
+      .header("content-type", "application/json")
+      .body(bytes::Bytes::from(r#"{"props":{"orderId":5001},"state":{"open":false,"asked":{"many":true}},"handler":0,"event":null}"#))
+      .unwrap();
+    let (status, text) = body_text(block_on(app.handle(request)));
+    assert_eq!(status, 500, "{text}");
+    serde_json::from_str::<serde_json::Value>(&text).unwrap()
+  };
+  assert_eq!(step(false), serde_json::json!({ "kind": "internal", "message": "the island step failed" }));
+  assert!(step(true)["message"].as_str().unwrap().contains("Add wants numbers"), "development keeps the interpreter's message");
+}
+
 #[test]
 fn the_order_help_island_steps_on_the_server() {
   let app = app_over(Arc::new(MockTransport::new()));

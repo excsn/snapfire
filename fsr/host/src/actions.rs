@@ -540,6 +540,21 @@ impl Host {
       .await
   }
 
+  /// The answer to a step that failed. An internal failure is logged with
+  /// the module and its message, which outside development the answer leaves
+  /// out. Any other kind describes the request and keeps its message.
+  pub(crate) fn step_failed(&self, module: &str, status: StatusCode, json: &serde_json::Value) -> Response<Body> {
+    if json["kind"] != "internal" {
+      return json_response(status, json);
+    }
+    let message = json["message"].as_str().unwrap_or_default();
+    tracing::error!(target: "fsr::island", module, error = message, "the island step failed");
+    if self.changed.is_some() {
+      return json_response(status, json);
+    }
+    json_response(status, &serde_json::json!({ "kind": "internal", "message": "the island step failed" }))
+  }
+
   /// One round trip of an island a template renders. The handler the markup
   /// named answers with the state to render from next, then the module is
   /// rendered again through its own evaluator with that state beside the
@@ -582,10 +597,8 @@ impl Host {
       match t.app.islands.dispatch(module, &name, ctx, event).await {
         Ok(next) => state = next,
         Err(e) => {
-          return json_response(
-            StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
-            &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
-          );
+          let status = StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+          return self.step_failed(module, status, &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }));
         }
       }
     }
@@ -606,13 +619,10 @@ impl Host {
         Ok(Chunk::Node(node)) => nodes.push(node),
         Ok(Chunk::Slot(slot)) => {
           let message = format!("`{module}` emitted the slot `{}`, which an island has no child to fill", slot.0);
-          return json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({ "kind": "internal", "message": message }));
+          return self.step_failed(module, StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({ "kind": "internal", "message": message }));
         }
         Err(e) => {
-          return json_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &serde_json::json!({ "kind": "internal", "message": e.to_string() }),
-          );
+          return self.step_failed(module, StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({ "kind": "internal", "message": e.to_string() }));
         }
       }
     }
