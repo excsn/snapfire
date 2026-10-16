@@ -358,6 +358,13 @@ impl Interceptor for DataCache {
         }
       }
       inner.misses.fetch_add(1, Ordering::Relaxed);
+      if policy.freshness.stale.is_some() {
+        let loaded = cache.fetch_with(&key).await;
+        if let Ok(value) = &loaded.0 {
+          tracing::Span::current().record("cache", "stale");
+          return Ok(value.clone());
+        }
+      }
       tracing::Span::current().record("cache", "miss");
       let result = next.run(call).await;
       if let Ok(value) = &result {

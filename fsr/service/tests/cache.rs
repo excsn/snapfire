@@ -228,3 +228,29 @@ fn the_policy_survives_the_artifact_and_an_openapi_document() {
   assert_eq!(list.cache, Some(Freshness::ttl("5m").tags(["items"]).shared().stale("10m")));
   assert_eq!(imported.contract.method("shop", "add").unwrap().writes, vec!["items".to_owned()]);
 }
+
+#[tokio::test]
+async fn a_stale_answer_is_served_without_waiting_on_the_refresh() {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  let calls = Arc::new(AtomicUsize::new(0));
+  let counter = calls.clone();
+  let slow = snapfire_fsr_service::LocalTransport::new().method("feed.latest", move |_call| {
+    let n = counter.fetch_add(1, Ordering::SeqCst) + 1;
+    async move {
+      tokio::time::sleep(Duration::from_millis(400)).await;
+      Ok(Value::str(format!("v{n}")))
+    }
+  });
+  let services = services(Arc::new(slow));
+  let anon = services.bind_anonymous();
+  assert_eq!(anon.call("feed", "latest", ValueMap::default()).await.unwrap(), Value::str("v1"));
+  // Past the ttl by more than the cache's one-second coarse clock, which otherwise still reads the entry as fresh.
+  tokio::time::sleep(Duration::from_millis(2500)).await;
+  let started = std::time::Instant::now();
+  let served = anon.call("feed", "latest", ValueMap::default()).await.unwrap();
+  assert!(started.elapsed() < Duration::from_millis(200), "the stale answer did not wait on the 400 ms refresh: {:?}", started.elapsed());
+  assert_eq!(served, Value::str("v1"), "inside the stale window the last answer is served");
+  tokio::time::sleep(Duration::from_millis(600)).await;
+  assert_eq!(calls.load(Ordering::SeqCst), 2, "a refresh ran behind it");
+  assert_eq!(anon.call("feed", "latest", ValueMap::default()).await.unwrap(), Value::str("v2"), "and its answer is served next");
+}
