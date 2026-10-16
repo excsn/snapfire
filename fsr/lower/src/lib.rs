@@ -547,10 +547,10 @@ pub fn declares_unexported(file: &str, source: &str, name: &str) -> bool {
   parsed.local(name).is_some() && !parsed.exports().any(|(exported, _)| exported == name)
 }
 
-/// Whether `file` may hold JSX, as TypeScript decides: in every script but a
-/// `.ts`, `.mts` or `.cts`, where `<T>x` is a type assertion.
+/// Whether `file` may hold JSX, as TypeScript decides: a `.tsx` or any
+/// JavaScript file. A `.ts` cannot, since there `<T>x` is a type assertion.
 pub(crate) fn jsx_parses(file: &str) -> bool {
-  ![".ts", ".mts", ".cts"].iter().any(|ext| file.ends_with(ext))
+  [".tsx", ".jsx", ".js", ".mjs", ".cjs"].iter().any(|ext| file.ends_with(ext))
 }
 
 pub(crate) fn parse(file: &str, source: &str) -> Result<Parsed, LowerError> {
