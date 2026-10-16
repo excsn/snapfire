@@ -677,7 +677,9 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
       Entry::Spread(expr) => match env.eval_sync(expr)? {
         Value::Map(map) => {
           for (name, value) in map {
-            put(Cow::Owned(name), value);
+            if !is_baked_name(&name) {
+              put(Cow::Owned(name), value);
+            }
           }
         }
         Value::Null => {}
@@ -685,7 +687,10 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
       },
       Entry::Computed(key, expr) => {
         let key = stringify(&env.eval_sync(key)?)?;
-        put(Cow::Owned(key), env.eval_sync(expr)?);
+        let value = env.eval_sync(expr)?;
+        if !is_baked_name(&key) {
+          put(Cow::Owned(key), value);
+        }
       }
       Entry::Item(_) => return Err(Fail::internal("an item entry among attributes")),
     }
@@ -2040,6 +2045,11 @@ fn writable_attr_name(name: &str) -> bool {
     && !name.chars().any(|c| {
       c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '>' | '<' | '/' | '=' | '&')
     })
+}
+
+/// The shape `Entry::Baked` text takes, which the tag writer prints verbatim; a name from data must never take it.
+fn is_baked_name(name: &str) -> bool {
+  name.is_empty() || name.starts_with(' ')
 }
 
 /// ` name="text"`, the text escaped.
