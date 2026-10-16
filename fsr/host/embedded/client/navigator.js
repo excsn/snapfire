@@ -540,6 +540,7 @@ class Feed {
     at = 0;
     ok;
     unreachable = false;
+    status = 0;
     settle = ()=>{};
     waiters = [];
     constructor(){
@@ -588,6 +589,7 @@ function fetchFeed(url, headers) {
             res = await fetch(payloadUrl(url), {
                 headers
             });
+            feed.status = res.status;
             const payload = res.ok || (res.headers.get("content-type") ?? "").includes("x-sf-payload");
             feed.open(payload);
             if (!payload) return;
@@ -671,7 +673,7 @@ function fetchPayload(url, ask) {
     feed.state = sessionState();
     cache.set(key, feed);
     void feed.ok.then((ok)=>{
-        if (!ok && cache.get(key) === feed) cache.delete(key);
+        if ((!ok || feed.status >= 400) && cache.get(key) === feed) cache.delete(key);
     });
     return feed;
 }

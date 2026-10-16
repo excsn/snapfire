@@ -628,6 +628,8 @@ class Feed {
   readonly ok: Promise<boolean>;
   /** The request failed before any response arrived: the browser is offline or the server did not answer. */
   unreachable = false;
+  /** The response's HTTP status, 0 until its headers arrive. */
+  status = 0;
   private settle: (ok: boolean) => void = () => {};
   private waiters: (() => void)[] = [];
 
@@ -684,6 +686,7 @@ function fetchFeed(url: URL, headers: Record<string, string>): Feed {
     let res: Response | undefined;
     try {
       res = await fetch(payloadUrl(url), { headers });
+      feed.status = res.status;
       const payload = res.ok || (res.headers.get("content-type") ?? "").includes("x-sf-payload");
       feed.open(payload);
       if (!payload) return;
@@ -809,7 +812,7 @@ function fetchPayload(url: URL, ask: Ask): Feed {
   feed.state = sessionState();
   cache.set(key, feed);
   void feed.ok.then((ok) => {
-    if (!ok && cache.get(key) === feed) cache.delete(key);
+    if ((!ok || feed.status >= 400) && cache.get(key) === feed) cache.delete(key);
   });
   return feed;
 }
