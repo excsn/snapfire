@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use snapfire_fsr_core::{TypedArray, Value, ValueMap};
 use snapfire_fsr_runtime::{unix_now, SessionCell};
 
 use crate::codec::{CookieCodec, HmacCodec};
@@ -16,13 +17,18 @@ pub struct SessionConfig {
   pub cookie_name: String,
   pub ttl: Duration,
   pub secure: bool,
+  /// The most a session's data, tokens and CSRF state may hold, about, in bytes; a save over it is refused.
+  pub max_bytes: usize,
 }
 
 impl Default for SessionConfig {
   fn default() -> Self {
-    Self { cookie_name: "sf_session".to_owned(), ttl: Duration::from_secs(8 * 3600), secure: false }
+    Self { cookie_name: "sf_session".to_owned(), ttl: Duration::from_secs(8 * 3600), secure: false, max_bytes: DEFAULT_MAX_BYTES }
   }
 }
+
+/// `session.max_bytes` when unset. The record a signed-in visitor with outstanding form tokens holds is under a kilobyte.
+pub const DEFAULT_MAX_BYTES: usize = 16 * 1024;
 
 /// One request's session as the layer sees it. `cell` is what flows into
 /// `RequestCtx`; `tokens` never does, which is the custody boundary from
@@ -118,6 +124,20 @@ impl Sessions {
     SessionCell::default().expiring(unix_now() + self.config.ttl.as_secs())
   }
 
+  /// About how many bytes `opened` would store when it is over `max_bytes`, else `None`.
+  pub fn too_large(&self, opened: &Opened) -> Option<usize> {
+    let (data, _) = opened.cell.snapshot();
+    let size = map_bytes(&data) + map_bytes(&opened.tokens.snapshot()) + map_bytes(&opened.csrf.snapshot());
+    (size > self.config.max_bytes).then_some(size)
+  }
+
+  fn refuse_oversized(&self, opened: &Opened) -> Result<(), StoreError> {
+    match self.too_large(opened) {
+      Some(size) => Err(StoreError(format!("the session would hold about {size} bytes, over session.max_bytes ({})", self.config.max_bytes))),
+      None => Ok(()),
+    }
+  }
+
   /// `Max-Age` counts down to the cell's end.
   fn set_cookie(&self, opened: &Opened) -> String {
     let secure = if self.config.secure { "; Secure" } else { "" };
@@ -151,6 +171,7 @@ impl Sessions {
     if !opened.cell.is_dirty() && !opened.tokens.is_dirty() && !opened.csrf.is_dirty() && !extended {
       return Ok(opened.stale.then(|| self.set_cookie(opened)));
     }
+    self.refuse_oversized(opened)?;
     self.store.save(&opened.id, Self::record(opened)).await?;
     Ok((opened.fresh || opened.stale || extended).then(|| self.set_cookie(opened)))
   }
@@ -175,6 +196,7 @@ impl Sessions {
   /// that bound something to the id, such as a CSRF token, before the
   /// session held anything.
   pub async fn establish(&self, opened: &Opened) -> Result<Option<String>, StoreError> {
+    self.refuse_oversized(opened)?;
     self.store.save(&opened.id, Self::record(opened)).await?;
     Ok((opened.fresh || opened.stale || opened.cell.is_extended()).then(|| self.set_cookie(opened)))
   }
@@ -252,5 +274,34 @@ fn hex(byte: u8) -> Option<u8> {
     b'a'..=b'f' => Some(byte - b'a' + 10),
     b'A'..=b'F' => Some(byte - b'A' + 10),
     _ => None,
+  }
+}
+
+fn map_bytes(map: &ValueMap) -> usize {
+  map.iter().map(|(key, value)| key.len() + value_bytes(value)).sum()
+}
+
+/// About how many bytes `value` takes: text and binary by length, anything scalar a word.
+fn value_bytes(value: &Value) -> usize {
+  match value {
+    Value::Str(text) => text.len(),
+    Value::Bytes(bytes) => bytes.len(),
+    Value::TypedArray(array) => match array {
+      TypedArray::I8(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::U8(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::I16(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::U16(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::I32(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::U32(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::I64(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::U64(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::F32(v) => std::mem::size_of_val(v.as_slice()),
+      TypedArray::F64(v) => std::mem::size_of_val(v.as_slice()),
+    },
+    Value::Seq(items) => items.iter().map(value_bytes).sum::<usize>() + 8,
+    Value::Map(map) => map_bytes(map) + 8,
+    Value::Variant { tag, payload } => tag.len() + payload.as_deref().map_or(0, value_bytes),
+    Value::Ref { id, .. } => id.len(),
+    _ => 8,
   }
 }

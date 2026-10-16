@@ -839,6 +839,13 @@ pub struct SessionSection {
   /// open form; the oldest is dropped as newer ones are minted.
   #[serde(default = "default_csrf_outstanding")]
   pub csrf_outstanding: u32,
+  /// The most one session may hold, about, in bytes. A write that would take it over is refused.
+  #[serde(default = "default_session_max_bytes")]
+  pub max_bytes: u64,
+}
+
+fn default_session_max_bytes() -> u64 {
+  snapfire_fsr_session::DEFAULT_MAX_BYTES as u64
 }
 
 /// The `session.key` the `fsr new` scaffold writes into `config/production.toml`. A host refuses to
@@ -858,6 +865,7 @@ impl Default for SessionSection {
       csrf: default_csrf(),
       csrf_scheme: default_csrf_scheme(),
       csrf_outstanding: default_csrf_outstanding(),
+      max_bytes: default_session_max_bytes(),
     }
   }
 }

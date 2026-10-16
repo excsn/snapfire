@@ -6494,3 +6494,17 @@ fn an_empty_data_cache_table_turns_the_data_cache_on() {
   let cache = config.cache.expect("the cache section is read");
   assert!(cache.data.is_some(), "an empty [cache.data] asks for the data cache at its defaults");
 }
+
+#[tokio::test]
+async fn an_action_whose_session_write_is_over_max_bytes_is_refused_and_nothing_is_saved() {
+  let dir = app_dir();
+  let file = dir.join("app.toml");
+  let toml = std::fs::read_to_string(&file).unwrap().replacen("ttl = \"10m\"", "ttl = \"10m\"\nmax_bytes = 4", 1);
+  std::fs::write(&file, toml).unwrap();
+  let host = Host::from(file).unwrap().build().unwrap();
+  let response = host
+    .handle(Request::post("/_sf/action/index.bump").header(header::CONTENT_TYPE, "application/json").body(Bytes::from(r#"{"by": 2}"#)).unwrap())
+    .await;
+  assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+  assert!(response.headers().get(header::SET_COOKIE).is_none(), "no session was saved, so none is named");
+}

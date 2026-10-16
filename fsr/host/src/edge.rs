@@ -653,6 +653,10 @@ impl Host {
             &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
           ),
         };
+        if let Some(size) = self.sessions.too_large(opened) {
+          tracing::warn!(target: "fsr::session", action = id, size, "an action's session write is over session.max_bytes; nothing was saved");
+          return json_response(StatusCode::PAYLOAD_TOO_LARGE, &serde_json::json!({ "kind": "invalid", "message": "the session cannot hold that much" }));
+        }
         self.set_cookie(opened, &mut response).await;
         return response;
       }

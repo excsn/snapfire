@@ -468,6 +468,7 @@ impl HostBuilder {
       SessionConfig {
         ttl,
         secure: config.session.secure,
+        max_bytes: usize::try_from(config.session.max_bytes).unwrap_or(usize::MAX),
         ..SessionConfig::default()
       },
     )
