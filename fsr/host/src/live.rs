@@ -34,6 +34,8 @@ pub(crate) struct DevState {
   pub(crate) boot: String,
   /// How many builds have landed in this process.
   pub(crate) generation: u64,
+  /// The document's stylesheets as the tables serving now link them.
+  pub(crate) styles: Vec<String>,
 }
 
 impl Reload {
@@ -58,11 +60,11 @@ pub(crate) fn held_bundle(state: &parking_lot::RwLock<DevState>, facts: &Path) -
 /// One `/__fsr/events` message: the bundle id, the boot and generation that say whether anything landed since the page last heard and, while the last build is refused, why.
 pub(crate) fn dev_event(state: &parking_lot::RwLock<DevState>, facts: &Path) -> String {
   let bundle = held_bundle(state, facts);
-  let (boot, generation) = {
+  let (boot, generation, styles) = {
     let held = state.read();
-    (held.boot.clone(), held.generation)
+    (held.boot.clone(), held.generation, held.styles.clone())
   };
-  let mut event = serde_json::json!({ "bundle": bundle, "boot": boot, "generation": generation });
+  let mut event = serde_json::json!({ "bundle": bundle, "boot": boot, "generation": generation, "styles": styles });
   if let Some(failure) = state.read().failure.clone() {
     event["error"] = serde_json::Value::String(failure);
   }
@@ -107,8 +109,9 @@ impl Host {
   /// refreshes its route in place. Nothing happens when `dev` is off.
   pub fn changed(&self) {
     if let Some(reload) = &self.changed {
+      let styles = self.tables().styles.clone();
       let mut state = reload.state.write();
-      *state = DevState { boot: std::mem::take(&mut state.boot), generation: state.generation + 1, ..DevState::default() };
+      *state = DevState { boot: std::mem::take(&mut state.boot), generation: state.generation + 1, styles, ..DevState::default() };
       drop(state);
       let _ = reload.tx.send((), ());
     }
@@ -237,7 +240,7 @@ impl Host {
   }
 
   /// A server-sent event stream: one event on open and one per `changed` or
-  /// `failed` call, each `data: {"bundle":"<id>","boot":"<id>","generation":<n>}`
+  /// `failed` call, each `data: {"bundle":"<id>","boot":"<id>","generation":<n>,"styles":[...]}`
   /// with the bundle id the last build left, plus `"error"` while that build
   /// is refused, until the client goes away.
   pub(crate) fn events(&self, t: &Tables) -> Response<Body> {
@@ -247,6 +250,7 @@ impl Host {
     let rx = reload.rx.clone();
     rx.subscribe(());
     let state = reload.state.clone();
+    state.write().styles = t.styles.clone();
     let event = move || Ok::<_, std::io::Error>(http_body::Frame::data(Bytes::from(dev_event(&state, &facts))));
     let greeting = event();
     let opened = futures_util::stream::once(async move { greeting });

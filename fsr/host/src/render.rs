@@ -273,7 +273,7 @@ impl Host {
         Some(reload) => held_bundle(&reload.state, facts),
         None => bundle_id(facts),
       };
-      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle, t.dev_nonce.as_deref())));
+      extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle, &t.styles, t.dev_nonce.as_deref())));
     }
     if visit.prefixed && visit.locale.is_default {
       extra.push(snapfire_fsr_core::Node::raw(shell::canonical(self.origin.as_deref(), &visit.path)));

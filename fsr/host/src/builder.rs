@@ -1142,6 +1142,7 @@ impl HostBuilder {
         public,
         origin: config.origin()?,
         dev_bundle,
+        styles,
         statics,
         favicon: config.favicon.clone(),
         static_cache,

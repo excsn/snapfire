@@ -905,6 +905,43 @@ async fn a_development_document_carries_the_bundle_id_the_last_build_left_until_
   assert_ne!(next, first, "the build that landed has an id of its own");
 }
 
+#[tokio::test]
+async fn a_development_document_and_every_dev_event_name_the_documents_stylesheets() {
+  use http_body_util::BodyExt;
+
+  let dir = app_dir();
+  let styled = |styles: &str| {
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    let toml = match toml.find("\nstyles = ") {
+      Some(at) => format!("{}{}", &toml[..at], &toml[at..].splitn(2, ']').nth(1).unwrap()),
+      None => toml,
+    };
+    std::fs::write(dir.join("app.toml"), toml.replace("entry = \"/static/app.js\"", &format!("entry = \"/static/app.js\"\nstyles = {styles}"))).unwrap();
+  };
+  styled(r#"["/static/a.css"]"#);
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a")])));
+  let reload_from = dir.clone();
+  let reload_with = transport.clone();
+  let host = Host::from(dir.join("app.toml"))
+    .unwrap()
+    .services_over(transport)
+    .reloader(move || Host::from(reload_from.join("app.toml")).map(|b| b.services_over(reload_with.clone())))
+    .build()
+    .unwrap();
+  let html = host.render_to_string("/hello/norm", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#",st=["/static/a.css"],"#), "the document carries the stylesheets it was rendered with: {html}");
+
+  let mut body = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await.into_body();
+  let first = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert_eq!(first["styles"], serde_json::json!(["/static/a.css"]));
+
+  styled(r#"["/static/a.css", "/static/b.css"]"#);
+  host.reload().unwrap();
+  host.changed();
+  let next = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert_eq!(next["styles"], serde_json::json!(["/static/a.css", "/static/b.css"]), "a stylesheet the reload added is named to every open document");
+}
+
 /// One `/__fsr/events` frame as the JSON it carries.
 fn dev_event(frame: &[u8]) -> serde_json::Value {
   let text = std::str::from_utf8(frame).unwrap();
