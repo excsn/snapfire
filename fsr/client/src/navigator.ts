@@ -897,7 +897,7 @@ export function refresh(): Promise<void> {
   return refreshing;
 }
 
-/** The refresh running now, which a call that arrives during it joins, and whether one arrived, which runs it once more when it is done so the page ends at what the last call asked for. */
+/** The refresh running now, which a call that arrives during it joins. `again` is set when one arrived and runs it once more when it is done, so the page ends at what the last call asked for. */
 let refreshing: Promise<void> | null = null;
 let again = false;
 

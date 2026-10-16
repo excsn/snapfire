@@ -188,7 +188,7 @@ match lower_loader("routes/x/page.loader.ts", source) {
 ```
 
 ```
-routes/x/page.loader.ts:5:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
+routes/x/page.loader.ts:5:18: `slugify` is not bound here; an import the build cannot follow or a name from outside the body
 ```
 
 ## Splitting a Route Module
@@ -224,7 +224,7 @@ for (module, residue) in &set.browser_only {
 ```
 
 ```text
-src/ui/LocalClock.tsx#default renders in the browser under @snapfire/fsr-client JSX runtime: src/ui/LocalClock.tsx:3:16: `Intl` is not bound here; an import the build cannot follow, or a name from outside the body
+src/ui/LocalClock.tsx#default renders in the browser under @snapfire/fsr-client JSX runtime: src/ui/LocalClock.tsx:3:16: `Intl` is not bound here; an import the build cannot follow or a name from outside the body
 ```
 
 ## Lowering a Vue Component

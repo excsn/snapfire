@@ -563,7 +563,7 @@ impl Host {
         if !is_form && !is_json {
           return json_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
-            &serde_json::json!({ "kind": "invalid", "message": "an action takes application/json, or a form with its _csrf token" }),
+            &serde_json::json!({ "kind": "invalid", "message": "an action takes application/json or a form with its _csrf token" }),
           );
         }
         let input = if is_form {

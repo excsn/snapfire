@@ -101,7 +101,7 @@ const CSP_WATCH: &str = r#"(function(){var seen={},list=[],ext=0,box;function ta
 /// library to refresh the route in place or reloads when no client library
 /// is on the page. An event naming the boot and generation the page last
 /// heard does nothing, so a fresh load and a reconnect to the same server
-/// with nothing new do not refresh, and a reconnect after a restart or after
+/// with nothing new do not refresh. A reconnect after a restart or after
 /// a build it missed does.
 /// The stream closes on `pagehide` and reopens when the page comes back from
 /// the back-forward cache: a cached page holding it open keeps a connection

@@ -46,7 +46,7 @@ The loader runs first, as for `page.tsx`. Its data is `props`. `export const met
 The build turns the file into TSX and lowers that, so everything chapter 102 says about a component holds. An import lowers, a vendored component becomes an island, an expression lowers where it can and what does not is moved into an island the browser renders, as for a page. A residue names the line and column of the `.mdx`, here under `[build] strict`:
 
 ```text
-routes/page.mdx:3:6: `window` is not bound here; an import the build cannot follow, or a name from outside the body
+routes/page.mdx:3:6: `window` is not bound here; an import the build cannot follow or a name from outside the body
 ```
 
 ## Importing a file

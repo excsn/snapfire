@@ -1623,7 +1623,7 @@ impl<'a> Lowerer<'a> {
           self.unbound = Some(name.to_owned());
           match crate::component::find_import(self.parsed, name) {
             Some((source, _)) => Err(self.residue(id.span, format!("`{name}` comes from `{source}`, which the build cannot follow"))),
-            None => Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow, or a name from outside the body"))),
+            None => Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow or a name from outside the body"))),
           }
         }
       },
@@ -1870,7 +1870,7 @@ impl<'a> Lowerer<'a> {
         return Err(self.residue_with(
           callee.span(),
           "a function called where it is written",
-          "the build does not run a function to produce a value; write the value as an expression, or move the steps into a named function the body calls",
+          "the build does not run a function to produce a value; write the value as an expression or move the steps into a named function the body calls",
         ));
       }
       return Err(self.residue(callee.span(), "a call to a computed target"));

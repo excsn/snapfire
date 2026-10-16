@@ -192,7 +192,7 @@ impl Sessions {
 
   /// Logout: deletes the record and returns the expiring cookie.
   /// Saves a fresh session whether or not it changed, so its id survives to the
-  /// next request, and returns its cookie; an established one is saved as
+  /// next request and returns its cookie; an established one is saved as
   /// `persist` saves it. For a host that bound something to the id, such as
   /// a CSRF token, before the session held anything.
   pub async fn establish(&self, opened: &Opened) -> Result<Option<String>, StoreError> {

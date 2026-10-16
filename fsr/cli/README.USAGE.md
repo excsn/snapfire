@@ -1618,7 +1618,7 @@ fsr build app --shell shell#document --slot content
 A body outside the IR stops the build with its position and the construct.
 
 ```
-routes/cart/page.loader.ts:2:18: `slugify` is not bound here; an import the build cannot follow, or a name from outside the body
+routes/cart/page.loader.ts:2:18: `slugify` is not bound here; an import the build cannot follow or a name from outside the body
 ```
 
 Two answers: rewrite the body inside the IR or keep the file and bind the name in Rust with `source_override` on the host builder, which makes the row a Rust override in the report. Removing the `page.loader.ts` and binding the id with `source` also works, since a route without a loader declares no source.
@@ -1630,7 +1630,7 @@ Two answers: rewrite the body inside the IR or keep the file and bind the name i
 ```
 $ fsr census app ../other/app
 census of 2 applications
-refused      2  `…` is not bound here; an import the build cannot follow, or a name from outside the body
+refused      2  `…` is not bound here; an import the build cannot follow or a name from outside the body
                 routes/cart/page.loader.ts:2:18  app
                 routes/feed/page.loader.ts:5:9  ../other/app
 client       1  the `…` operator
