@@ -99,9 +99,10 @@ const CSP_WATCH: &str = r#"(function(){var seen={},list=[],ext=0,box;function ta
 /// server sees now: a different one reloads, since the page's modules
 /// changed; the same one re-links the stylesheets and asks the client
 /// library to refresh the route in place or reloads when no client library
-/// is on the page. The first event after a connect is the greeting and does
-/// nothing on its own, so a reconnect after a restart refreshes and a fresh
-/// load does not.
+/// is on the page. An event naming the boot and generation the page last
+/// heard does nothing, so a fresh load and a reconnect to the same server
+/// with nothing new do not refresh, and a reconnect after a restart or after
+/// a build it missed does.
 /// The stream closes on `pagehide` and reopens when the page comes back from
 /// the back-forward cache: a cached page holding it open keeps a connection
 /// to the dev server, and a few of those stall the next navigation behind
@@ -109,7 +110,7 @@ const CSP_WATCH: &str = r#"(function(){var seen={},list=[],ext=0,box;function ta
 pub fn dev_script(bundle: &str, nonce: Option<&str>) -> String {
   let nonce = nonce.map(|n| format!(" nonce=\"{}\"", escape(n))).unwrap_or_default();
   format!(
-    "<script{nonce}>{CSP_WATCH}(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",first,s;function shown(m){{var o=document.getElementById(\"sf-dev-error\");if(!m){{if(o)o.remove();return}}if(!o){{o=document.createElement(\"pre\");o.id=\"sf-dev-error\";o.setAttribute(\"style\",\"position:fixed;inset:auto 0 0 0;max-height:50vh;overflow:auto;margin:0;padding:12px 16px;background:#2b0f0f;color:#ffd7d7;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647\");document.body.appendChild(o)}}o.textContent=\"fsr dev: the last build was refused\\n\\n\"+m}}function open(){{first=true;s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}shown(d.error);if(d.error)return;if(d.bundle&&d.bundle!==b)return location.reload();if(first){{first=false;return}}document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}}open();addEventListener(\"pagehide\",function(){{s.close()}});addEventListener(\"pageshow\",function(e){{if(e.persisted)open()}})}})()</script>",
+    "<script{nonce}>{CSP_WATCH}(function(){{if(typeof EventSource===\"undefined\")return;var b=\"{}\",seen,s;function shown(m){{var o=document.getElementById(\"sf-dev-error\");if(!m){{if(o)o.remove();return}}if(!o){{o=document.createElement(\"pre\");o.id=\"sf-dev-error\";o.setAttribute(\"style\",\"position:fixed;inset:auto 0 0 0;max-height:50vh;overflow:auto;margin:0;padding:12px 16px;background:#2b0f0f;color:#ffd7d7;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647\");document.body.appendChild(o)}}o.textContent=\"fsr dev: the last build was refused\\n\\n\"+m}}function open(){{s=new EventSource(\"/__fsr/events\");s.onmessage=function(e){{var d={{}};try{{d=JSON.parse(e.data)}}catch(x){{}}shown(d.error);if(d.error)return;if(d.bundle&&d.bundle!==b)return location.reload();var k=d.boot+\":\"+d.generation;if(seen===undefined||seen===k){{seen=k;return}}seen=k;document.querySelectorAll(\"link[rel=stylesheet]\").forEach(function(l){{var u=new URL(l.href);u.searchParams.set(\"__sf\",Date.now());l.href=u.href}});var f=window.__sf&&window.__sf.refresh;f?f():location.reload()}}}}open();addEventListener(\"pagehide\",function(){{s.close()}});addEventListener(\"pageshow\",function(e){{if(e.persisted)open()}})}})()</script>",
     escape(bundle)
   )
 }

@@ -839,12 +839,9 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
   assert_eq!(response.status(), StatusCode::OK);
   assert_eq!(response.headers().get("content-type").unwrap(), "text/event-stream");
   let mut body = response.into_body();
-  let first = body.frame().await.unwrap().unwrap().into_data().unwrap();
-  assert_eq!(
-    &first[..],
-    b"data: {\"bundle\":\"-\"}\n\n",
-    "no bundle under this app, so its id is `-`"
-  );
+  let first = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert_eq!(first["bundle"], "-", "no bundle under this app, so its id is `-`");
+  assert_eq!(first["generation"], 0);
   assert!(
     html.contains("var b=\"-\""),
     "the document carries the id it was rendered against: {html}"
@@ -853,8 +850,10 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
     .handle(Request::post("/__fsr/changed").body(Bytes::new()).unwrap())
     .await;
   assert_eq!(told.status(), StatusCode::NO_CONTENT);
-  let next = body.frame().await.unwrap().unwrap().into_data().unwrap();
-  assert_eq!(&next[..], b"data: {\"bundle\":\"-\"}\n\n");
+  let next = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert_eq!(next["bundle"], "-");
+  assert_eq!(next["generation"], 1, "a build landed");
+  assert_eq!(next["boot"], first["boot"], "in the same process, which a reconnect tells from a restart");
   std::fs::create_dir_all(dir.join("dist")).unwrap();
   std::fs::write(
     dir.join("dist/.snapfire-build.json"),
@@ -863,23 +862,20 @@ async fn development_documents_carry_the_refresh_script_and_the_host_announces_c
   .unwrap();
   std::fs::write(dir.join("dist/main.js"), "one").unwrap();
   host.changed();
-  let with_bundle = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
-  assert!(
-    with_bundle.starts_with("data: {\"bundle\":\"") && !with_bundle.contains("\"-\""),
-    "a bundle that appeared has an id: {with_bundle}"
-  );
+  let with_bundle = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap())["bundle"].clone();
+  assert!(with_bundle.is_string() && with_bundle != "-", "a bundle that appeared has an id: {with_bundle}");
   std::fs::write(dir.join("dist/main.js.map"), "a map").unwrap();
   host.changed();
-  let same = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  let same = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap())["bundle"].clone();
   assert_eq!(same, with_bundle, "a source map is not part of the id");
   std::fs::create_dir_all(dir.join("dist/styles")).unwrap();
   std::fs::write(dir.join("dist/styles/app.css"), "h1{color:red}").unwrap();
   host.changed();
-  let restyled = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  let restyled = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap())["bundle"].clone();
   assert_eq!(restyled, with_bundle, "nor is a stylesheet, which the document re-links in place");
   std::fs::write(dir.join("dist/main.js"), "two").unwrap();
   host.changed();
-  let edited = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
+  let edited = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap())["bundle"].clone();
   assert_ne!(edited, with_bundle, "an edited module changes the id");
   let served = host
     .handle(Request::get("/static/app.js").body(Bytes::new()).unwrap())
@@ -909,6 +905,12 @@ async fn a_development_document_carries_the_bundle_id_the_last_build_left_until_
   assert_ne!(next, first, "the build that landed has an id of its own");
 }
 
+/// One `/__fsr/events` frame as the JSON it carries.
+fn dev_event(frame: &[u8]) -> serde_json::Value {
+  let text = std::str::from_utf8(frame).unwrap();
+  serde_json::from_str(text.strip_prefix("data: ").unwrap().trim_end()).unwrap()
+}
+
 #[tokio::test]
 async fn a_refused_build_reaches_every_open_document_and_the_next_build_clears_it() {
   use http_body_util::BodyExt;
@@ -923,16 +925,16 @@ async fn a_refused_build_reaches_every_open_document_and_the_next_build_clears_i
 
   let told = host.handle(Request::post("/__fsr/failed").body(Bytes::from_static(b"routes/page.loader.ts:3:7: an optional call")).unwrap()).await;
   assert_eq!(told.status(), StatusCode::NO_CONTENT);
-  let refused = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
-  assert_eq!(refused, "data: {\"bundle\":\"-\",\"error\":\"routes/page.loader.ts:3:7: an optional call\"}\n\n");
+  let refused = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert_eq!((&refused["bundle"], &refused["error"]), (&serde_json::json!("-"), &serde_json::json!("routes/page.loader.ts:3:7: an optional call")));
 
   let mut late = host.handle(Request::get("/__fsr/events").body(Bytes::new()).unwrap()).await.into_body();
   let greeting = String::from_utf8(late.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
   assert!(greeting.contains("an optional call"), "a document opened after the refusal is told on arrival: {greeting}");
 
   host.changed();
-  let cleared = String::from_utf8(body.frame().await.unwrap().unwrap().into_data().unwrap().to_vec()).unwrap();
-  assert_eq!(cleared, "data: {\"bundle\":\"-\"}\n\n", "a build that lands clears it");
+  let cleared = dev_event(&body.frame().await.unwrap().unwrap().into_data().unwrap());
+  assert!(cleared.get("error").is_none() && cleared["bundle"] == "-", "a build that lands clears it: {cleared}");
 }
 
 #[tokio::test]

@@ -30,12 +30,17 @@ pub(crate) struct Reload {
 pub(crate) struct DevState {
   pub(crate) bundle: Option<String>,
   pub(crate) failure: Option<String>,
+  /// This process's, so a page tells a restarted server from a dropped connection.
+  pub(crate) boot: String,
+  /// How many builds have landed in this process.
+  pub(crate) generation: u64,
 }
 
 impl Reload {
   pub(crate) fn new(mailbox: usize) -> Self {
     let (tx, rx) = fibre::spmc::topic::channel_async(mailbox);
-    Self { tx, rx, state: Arc::default() }
+    let state = DevState { boot: crate::bundle::dev_nonce(), ..DevState::default() };
+    Self { tx, rx, state: Arc::new(parking_lot::RwLock::new(state)) }
   }
 }
 
@@ -50,10 +55,14 @@ pub(crate) fn held_bundle(state: &parking_lot::RwLock<DevState>, facts: &Path) -
   id
 }
 
-/// One `/__fsr/events` message: the bundle id and, while the last build is refused, why.
+/// One `/__fsr/events` message: the bundle id, the boot and generation that say whether anything landed since the page last heard and, while the last build is refused, why.
 pub(crate) fn dev_event(state: &parking_lot::RwLock<DevState>, facts: &Path) -> String {
   let bundle = held_bundle(state, facts);
-  let mut event = serde_json::json!({ "bundle": bundle });
+  let (boot, generation) = {
+    let held = state.read();
+    (held.boot.clone(), held.generation)
+  };
+  let mut event = serde_json::json!({ "bundle": bundle, "boot": boot, "generation": generation });
   if let Some(failure) = state.read().failure.clone() {
     event["error"] = serde_json::Value::String(failure);
   }
@@ -98,7 +107,9 @@ impl Host {
   /// refreshes its route in place. Nothing happens when `dev` is off.
   pub fn changed(&self) {
     if let Some(reload) = &self.changed {
-      *reload.state.write() = DevState::default();
+      let mut state = reload.state.write();
+      *state = DevState { boot: std::mem::take(&mut state.boot), generation: state.generation + 1, ..DevState::default() };
+      drop(state);
       let _ = reload.tx.send((), ());
     }
   }
@@ -226,9 +237,9 @@ impl Host {
   }
 
   /// A server-sent event stream: one event on open and one per `changed` or
-  /// `failed` call, each `data: {"bundle":"<id>"}` with the bundle id the
-  /// last build left, plus `"error"` while that build is refused, until the
-  /// client goes away.
+  /// `failed` call, each `data: {"bundle":"<id>","boot":"<id>","generation":<n>}`
+  /// with the bundle id the last build left, plus `"error"` while that build
+  /// is refused, until the client goes away.
   pub(crate) fn events(&self, t: &Tables) -> Response<Body> {
     let (Some(reload), Some(facts)) = (&self.changed, t.dev_bundle.clone()) else {
       return text_response(StatusCode::NOT_FOUND, "dev is off".to_owned());
