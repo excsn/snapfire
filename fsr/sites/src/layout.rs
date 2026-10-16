@@ -455,7 +455,7 @@ impl Layer {
     let text = |s: &str| Value::String(s.to_owned());
 
     let mut app = vec![("dir", text(&self.app_dir))];
-    let mut server = vec![("plan", text(&self.plan)), ("contracts", text(&self.contracts))];
+    let mut server = vec![("plan", text(&self.plan)), ("contracts", text(&self.contracts)), ("dev", Value::Boolean(false))];
     if let Some(prerender) = &self.prerender {
       server.push(("prerender", text(prerender)));
     }

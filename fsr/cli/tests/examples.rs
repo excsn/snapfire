@@ -105,6 +105,12 @@ fn skipped(example: &Path, config: &str) -> Option<&'static str> {
 fn boot_and_render(root: &Path) -> (Result<(), String>, Result<(), String>) {
   let host = Config::load(root)
     .map_err(|e| e.to_string())
+    .map(|mut config| {
+      if config.session.key.is_none() {
+        config.session.key = Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_owned());
+      }
+      config
+    })
     .and_then(|config| Host::from_config(config).map_err(|e| e.to_string()))
     .and_then(|builder| builder.build().map_err(|e| e.to_string()));
   let host = match host {
