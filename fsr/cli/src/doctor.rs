@@ -271,6 +271,9 @@ fn catalogs(config: &Config) -> Vec<Finding> {
 /// A plan older than the sources it was lowered from is a plan that answers
 /// yesterday's routes.
 fn stale(config: &Config) -> Vec<Finding> {
+  if is_deploy_tree(config) {
+    return Vec::new();
+  }
   let plan = config.resolve(&config.server.plan);
   let Ok(meta) = std::fs::metadata(&plan) else {
     return vec![Finding::new(
@@ -299,6 +302,11 @@ fn stale(config: &Config) -> Vec<Finding> {
     ),
     "run `fsr build <app dir>`; the host reads the plan and never the sources",
   )]
+}
+
+/// A tree `fsr bundle` wrote, whose files carry the times they were copied at rather than built at.
+fn is_deploy_tree(config: &Config) -> bool {
+  config.sources.iter().any(|source| source.file_name().is_some_and(|name| name == snapfire_fsr_sites::layout::LAYER))
 }
 
 /// The newest modification time anywhere under `root`.
@@ -344,8 +352,18 @@ fn vendor(config: &Config) -> Vec<Finding> {
   let mut missing = Vec::new();
   for (name, target) in imports {
     let Some(target) = target.as_str() else { continue };
-    let Some(rest) = target.split_once("/vendor/").map(|(_, rest)| rest) else { continue };
-    if !config.app.join("vendor").join(rest).exists() {
+    let served = config.statics.iter().filter_map(|root| {
+      let route = root.route.trim_end_matches('/');
+      target.strip_prefix(route).and_then(|rest| rest.strip_prefix('/')).map(|rest| (route.len(), config.resolve(&root.dir).join(rest)))
+    });
+    let file = match served.max_by_key(|(len, _)| *len) {
+      Some((_, file)) => file,
+      None => {
+        let Some(rest) = target.split_once("/vendor/").map(|(_, rest)| rest) else { continue };
+        config.app.join("vendor").join(rest)
+      }
+    };
+    if !file.exists() {
       missing.push(name.clone());
     }
   }

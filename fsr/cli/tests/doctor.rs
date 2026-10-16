@@ -164,6 +164,31 @@ fn an_import_map_naming_an_unvendored_package_is_reported() {
   assert!(doctor::run(&vendored).unwrap().is_clean(), "{}", report(&vendored));
 }
 
+/// A tree laid out the way `fsr bundle` writes one: the configuration under `config/` with `bundle.toml` serving the vendored files from `serve/`.
+fn deploy_tree(files: &[(&str, &str)]) -> PathBuf {
+  let dir = app("", &[]);
+  std::fs::remove_file(dir.join("app.toml")).unwrap();
+  let config = "[app]\ndir = \"app\"\n[session]\nkey = \"k\"\n[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n";
+  let bundle = "[[static]]\ndir = \"../serve/static/js/vendor\"\nroute = \"/static/js/vendor\"\n";
+  for (name, source) in [("config/app.toml", config), ("config/bundle.toml", bundle), ("app/importmap.json", r#"{"imports":{"react":"/static/js/vendor/react/react.js"}}"#)].iter().chain(files) {
+    let path = dir.join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, source).unwrap();
+  }
+  dir
+}
+
+#[test]
+fn a_deploy_tree_is_checked_where_it_serves_the_vendored_files_and_not_by_file_times() {
+  let tree = deploy_tree(&[("serve/static/js/vendor/react/react.js", "export default 1;\n")]);
+  std::thread::sleep(std::time::Duration::from_millis(20));
+  std::fs::write(tree.join("app/routes/page.tsx"), "export default function P() { return <p/>; }\n").unwrap();
+  assert!(doctor::run(&tree).unwrap().is_clean(), "{}", report(&tree));
+
+  let missing = deploy_tree(&[]);
+  assert!(findings(&missing).contains(&"vendor".to_owned()), "{}", report(&missing));
+}
+
 #[test]
 fn an_import_map_that_is_absent_or_malformed_is_reported() {
   let missing = app("[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n", &[]);
