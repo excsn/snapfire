@@ -427,7 +427,8 @@ fn nodes(html: &str) -> Vec<Node> {
         stack.push((tag, attrs, Vec::new()));
       }
     } else {
-      let end = html[i + 1..].find('<').map(|e| i + 1 + e).unwrap_or(bytes.len());
+      let next = i + html[i..].chars().next().map_or(1, char::len_utf8);
+      let end = html[next..].find('<').map(|e| next + e).unwrap_or(bytes.len());
       stack.last_mut().expect("the root stays").2.push(Node::Text(decode(&html[i..end])));
       i = end;
     }
@@ -687,6 +688,12 @@ mod tests {
     let Element::Box { children, .. } = parse("<div>Hello<div>there</div></div>") else { panic!("a box") };
     assert!(matches!(&children[0], Element::Text { tag, .. } if tag == "#text"));
     assert!(matches!(&children[1], Element::Text { tag, .. } if tag == "div"));
+  }
+
+  #[test]
+  fn text_that_starts_with_a_multibyte_character_parses() {
+    let Element::Text { runs, .. } = parse("<div><span>●</span>SnapFire ● FSR</div>") else { panic!("text") };
+    assert_eq!(runs.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["●", "SnapFire ● FSR"]);
   }
 
   #[test]
