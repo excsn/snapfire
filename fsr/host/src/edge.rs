@@ -513,6 +513,15 @@ impl Host {
   ) -> Response<Body> {
     if req.method() == Method::POST {
       if let Some(module) = path.strip_prefix("/_sf/island/").map(percent_decoded) {
+        if !super::live::upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+          return text_response(StatusCode::FORBIDDEN, "an island steps from this site's own pages".to_owned());
+        }
+        if !is_json(req.headers()) {
+          return json_response(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            &serde_json::json!({ "kind": "invalid", "message": "an island step takes application/json" }),
+          );
+        }
         let lowered = t.app.lowered.as_deref().is_some_and(|e| e.components().contains_key(&module));
         if !lowered && t.app.islands.holds(&module) {
           let incoming = self.incoming(opened, self.matched_host(req.headers()));
@@ -555,12 +564,7 @@ impl Host {
         if !super::live::upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
           return text_response(StatusCode::FORBIDDEN, "an action is called from this site's own pages".to_owned());
         }
-        let is_json = req
-          .headers()
-          .get(header::CONTENT_TYPE)
-          .and_then(|v| v.to_str().ok())
-          .is_some_and(|ct| ct.split(';').next().is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json")));
-        if !is_form && !is_json {
+        if !is_form && !is_json(req.headers()) {
           return json_response(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             &serde_json::json!({ "kind": "invalid", "message": "an action takes application/json or a form with its _csrf token" }),
@@ -971,4 +975,13 @@ fn names_file(root: &Path, rest: &str) -> bool {
     path.push(part);
   }
   path != root && path.is_file()
+}
+
+/// Whether a request's body is declared `application/json`, which a page on
+/// another origin cannot send without a preflight.
+fn is_json(headers: &http::HeaderMap) -> bool {
+  headers
+    .get(header::CONTENT_TYPE)
+    .and_then(|v| v.to_str().ok())
+    .is_some_and(|ct| ct.split(';').next().is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json")))
 }

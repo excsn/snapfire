@@ -28,6 +28,24 @@ fn the_card_is_rendered_by_the_server_before_anything_mounts() {
 }
 
 #[test]
+fn a_template_island_step_is_refused_a_body_a_cross_site_page_can_send_without_preflight() {
+  let host = app();
+  let step = |content_type: Option<&str>, origin: Option<&str>| {
+    let mut request = Request::post("/_sf/island/fleet.tera%23default").header(header::HOST, "fleet.example");
+    if let Some(ct) = content_type {
+      request = request.header(header::CONTENT_TYPE, ct);
+    }
+    if let Some(o) = origin {
+      request = request.header(header::ORIGIN, o);
+    }
+    block_on(host.handle(request.body(Bytes::from(r#"{"props":{},"state":{"filter":"all"},"handler":"filter","event":{"target":{"value":"busy"}}}"#)).unwrap())).status().as_u16()
+  };
+  assert_eq!(step(Some("text/plain"), None), 415);
+  assert_eq!(step(Some("application/json"), Some("https://evil.example")), 403);
+  assert_eq!(step(Some("application/json"), Some("https://fleet.example")), 200);
+}
+
+#[test]
 fn a_step_runs_the_named_handler_and_answers_the_markup_it_produced() {
   let host = app();
   let answer = text(step(&host, r#"{"props":{},"state":{"filter":"all"},"handler":"filter","event":{"target":{"value":"busy"}}}"#));

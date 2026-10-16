@@ -648,6 +648,30 @@ fn body_text(response: http::Response<snapfire_fsr_host::Body>) -> (u16, String)
   (status, text)
 }
 
+/// A step runs handlers that dispatch actions with the visitor's session, so
+/// it takes the same bodies from the same origins an action does.
+#[test]
+fn an_island_step_is_refused_a_body_a_cross_site_page_can_send_without_preflight() {
+  let app = app_over(Arc::new(MockTransport::new()));
+  let step = |content_type: Option<&str>, origin: Option<&str>| {
+    let mut request = http::Request::post("/_sf/island/src/ui/OrderHelp.tsx%23OrderHelp").header("host", "shop.example");
+    if let Some(ct) = content_type {
+      request = request.header("content-type", ct);
+    }
+    if let Some(o) = origin {
+      request = request.header("origin", o);
+    }
+    body_text(block_on(app.handle(request.body(bytes::Bytes::from(r#"{"props":{"orderId":5001},"state":{"open":false},"handler":0,"event":null}"#)).unwrap())))
+  };
+  assert_eq!(step(Some("text/plain"), None).0, 415);
+  assert_eq!(step(None, None).0, 415);
+  assert_eq!(step(Some("application/json"), Some("https://evil.example")).0, 403);
+  assert_eq!(step(Some("application/json"), Some("https://sub.shop.example")).0, 403);
+  let (status, text) = step(Some("application/json; charset=utf-8"), Some("https://shop.example"));
+  assert_eq!(status, 200, "{text}");
+  assert_eq!(step(Some("application/json"), None).0, 200);
+}
+
 #[test]
 fn the_order_help_island_steps_on_the_server() {
   let app = app_over(Arc::new(MockTransport::new()));
