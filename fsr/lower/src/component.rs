@@ -891,7 +891,7 @@ impl ComponentSet {
     }
     .and_then(|source: String| match is_transformed(file) {
       true => self.transformed(file, &source, &[]),
-      false => parse_with(file, &source, file.ends_with(".tsx")),
+      false => parse_with(file, &source, crate::jsx_parses(file)),
     });
     match parsed {
       Ok(parsed) => {
@@ -976,11 +976,13 @@ impl ComponentSet {
     let joined = crate::resolve_specifier(from, source)?;
     // TypeScript resolves a `.js` or `.jsx` specifier to the source it compiles to that name.
     let compiled: Vec<String> = match (joined.strip_suffix(".js"), joined.strip_suffix(".jsx")) {
-      (Some(stem), _) => vec![format!("{stem}.ts"), format!("{stem}.tsx")],
+      (Some(stem), _) => vec![format!("{stem}.ts"), format!("{stem}.tsx"), format!("{stem}.jsx")],
       (_, Some(stem)) => vec![format!("{stem}.tsx")],
       _ => Vec::new(),
     };
-    for candidate in [joined.clone(), format!("{joined}.tsx"), format!("{joined}.ts"), format!("{joined}/index.tsx"), format!("{joined}/index.ts")].into_iter().chain(compiled) {
+    let named = [joined.clone(), format!("{joined}.tsx"), format!("{joined}.ts"), format!("{joined}.jsx"), format!("{joined}.js")];
+    let index = ["index.tsx", "index.ts", "index.jsx", "index.js"].map(|name| format!("{joined}/{name}"));
+    for candidate in named.into_iter().chain(index).chain(compiled) {
       if candidate.starts_with("generated/") && candidate != crate::HEAD_MODULE && candidate != crate::CONTENT_MODULE {
         continue;
       }

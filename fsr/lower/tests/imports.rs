@@ -30,3 +30,40 @@ fn the_reach_follows_value_imports_and_re_exports_to_scripts_only() {
   assert_eq!(set.local_reach("src/ui/Card.tsx"), ["src/ui/Card.tsx", "src/ui/parts.ts", "src/ui/Label.tsx", "src/ui/more.ts"], "a type-only import and an asset are not followed");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// TypeScript parses JSX in every file but a `.ts`, where `<T>x` is an
+/// assertion; react.dev and Create React App write components in `.js`.
+#[test]
+fn a_component_in_a_js_or_jsx_file_lowers() {
+  let dir = app(
+    "jsx_in_js",
+    &[
+      ("routes/a/page.tsx", b"import App from \"@src/App.js\";\nexport default function Page() {\n  return <App />;\n}\n"),
+      ("src/App.js", b"import { Title } from './Title.jsx';\nexport default function App() {\n  return <main><Title text=\"hi\" /></main>;\n}\n"),
+      ("src/Title.jsx", b"export function Title({ text }) {\n  return <h1>{text}</h1>;\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/a/page.tsx#default").unwrap();
+  assert!(set.components.iter().any(|(m, _)| m == "src/App.js#default"), "{:?}", set.components.iter().map(|(m, _)| m).collect::<Vec<_>>());
+  assert!(set.components.iter().any(|(m, _)| m == "src/Title.jsx#Title"));
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A JavaScript project names `./Title` for `Title.jsx` and `./util.js` for
+/// `util.jsx`, which TypeScript resolves with `allowJs`.
+#[test]
+fn an_import_resolves_to_a_js_or_jsx_file() {
+  let dir = app(
+    "resolve_js",
+    &[
+      ("src/Card.jsx", b"import { Title } from './Title';\nimport { shout } from './util.js';\nimport { Badge } from './badge';\nexport function Card() {\n  return <Title text={shout('hi')} />;\n}\n"),
+      ("src/Title.jsx", b"export function Title({ text }) {\n  return <h1>{text}</h1>;\n}\n"),
+      ("src/util.jsx", b"export function shout(s) {\n  return s.toUpperCase();\n}\n"),
+      ("src/badge/index.js", b"export function Badge() {\n  return null;\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  assert_eq!(set.local_reach("src/Card.jsx"), ["src/Card.jsx", "src/Title.jsx", "src/util.jsx", "src/badge/index.js"]);
+  std::fs::remove_dir_all(&dir).unwrap();
+}

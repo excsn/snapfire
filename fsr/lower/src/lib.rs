@@ -543,9 +543,14 @@ fn bound_names<'a>(pat: &'a js::Pat, out: &mut impl FnMut(&'a str, Span)) {
 
 /// Whether `source` declares `name` at module level without exporting it, which is a component the build can mount only once the bundle overlay exports it.
 pub fn declares_unexported(file: &str, source: &str, name: &str) -> bool {
-  let tsx = file.ends_with(".tsx") || file.ends_with(".jsx");
-  let Ok(parsed) = parse_with(file, source, tsx) else { return false };
+  let Ok(parsed) = parse_with(file, source, jsx_parses(file)) else { return false };
   parsed.local(name).is_some() && !parsed.exports().any(|(exported, _)| exported == name)
+}
+
+/// Whether `file` may hold JSX, as TypeScript decides: in every script but a
+/// `.ts`, `.mts` or `.cts`, where `<T>x` is a type assertion.
+pub(crate) fn jsx_parses(file: &str) -> bool {
+  ![".ts", ".mts", ".cts"].iter().any(|ext| file.ends_with(ext))
 }
 
 pub(crate) fn parse(file: &str, source: &str) -> Result<Parsed, LowerError> {
