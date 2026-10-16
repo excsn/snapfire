@@ -214,6 +214,28 @@ export default function Page() {
 }
 
 #[test]
+fn a_computed_priority_decides_loading_and_fetchpriority_when_rendered() {
+  let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
+import hero from "../img/hero.png";
+export default function Page({ rank }: { rank: string }) {
+  return <Picture src={hero} alt="x" priority={rank === "high"} />;
+}
+"#;
+  let (set, _) = lower_with(&[("src/ui/Page.tsx", page)], "src/ui/Page.tsx#default", true);
+  let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let render = |rank: &str| {
+    let mut props = ValueMap::default();
+    props.insert("rank".to_owned(), Value::str(rank));
+    Interpreter::default().render_module("src/ui/Page.tsx#default", &library["src/ui/Page.tsx#default"], &props, &library).map(|r| r.html).unwrap()
+  };
+  let high = render("high");
+  assert!(high.contains("loading=\"eager\"") && high.contains("fetchpriority=\"high\""), "{high}");
+  let low = render("low");
+  assert!(low.contains("loading=\"lazy\"") && !low.contains("fetchpriority"), "{low}");
+  assert!(set.heads.get("src/ui/Page.tsx#default").is_none_or(Vec::is_empty), "a computed priority asks for no preload");
+}
+
+#[test]
 fn an_image_served_as_it_is_gets_an_img_alone() {
   let page = r#"import { Picture } from "@snapfire/fsr-authoring/template";
 import logo from "../img/logo.svg";

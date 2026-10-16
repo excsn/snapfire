@@ -489,6 +489,7 @@ pub(crate) fn picture<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At, 
   let mut src: Option<PictureSrc> = None;
   let mut sizes: Option<Expr> = None;
   let mut priority = false;
+  let mut computed_priority: Option<Expr> = None;
   let mut request = ImageRequest::default();
   let mut source_name: Option<String> = None;
   let mut rest: Vec<Entry> = Vec::new();
@@ -505,7 +506,10 @@ pub(crate) fn picture<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At, 
       name if name == RAW_ESCAPE => {}
       "src" => src = Some(picture_src(cx, attr)?),
       "sizes" => sizes = Some(value(cx, attr)?),
-      "priority" => priority = matches!(value(cx, attr)?, Expr::Lit(Lit::Bool(true))),
+      "priority" => match value(cx, attr)? {
+        Expr::Lit(Lit::Bool(set)) => priority = set,
+        computed => computed_priority = Some(computed),
+      },
       "fetchPriority" | "fetchpriority" => {
         if matches!(value(cx, attr)?, Expr::Lit(Lit::Str(ref v)) if v == "high") {
           priority = true;
@@ -534,7 +538,15 @@ pub(crate) fn picture<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At, 
   let Some(src) = src else {
     return Err(refuse(cx, at, if from_img { "an `<img>` with no `src`" } else { "a `<Picture>` needs a `src`" }));
   };
-  let loading = explicit_loading.unwrap_or_else(|| Expr::lit_str(if priority { "eager" } else { "lazy" }));
+  let loading = explicit_loading.unwrap_or_else(|| match (&computed_priority, priority) {
+    (Some(cond), false) => Expr::Ternary(Box::new(cond.clone()), Box::new(Expr::lit_str("eager")), Box::new(Expr::lit_str("lazy"))),
+    _ => Expr::lit_str(if priority { "eager" } else { "lazy" }),
+  });
+  let fetch_priority = match (&computed_priority, priority) {
+    (_, true) => Some(Expr::lit_str("high")),
+    (Some(cond), false) => Some(Expr::Ternary(Box::new(cond.clone()), Box::new(Expr::lit_str("high")), Box::new(Expr::Lit(Lit::Null)))),
+    (None, false) => None,
+  };
   let decoding = explicit_decoding.unwrap_or_else(|| Expr::lit_str("async"));
   let resolver = cx.assets();
   match src {
@@ -542,14 +554,14 @@ pub(crate) fn picture<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At, 
       let Some(facts) = resolver.image(&path, &request) else {
         return Err(refuse(cx, at, format!("`{path}` is not an image under the app")));
       };
-      Ok(picture_markup(cx, &facts, &rest, sizes, priority, true, loading, decoding, wrote_dimensions))
+      Ok(picture_markup(cx, &facts, &rest, sizes, priority, fetch_priority, true, loading, decoding, wrote_dimensions))
     }
     PictureSrc::Keyed(key, entries) => {
       // Lowered once per entry with the same attributes, then chained:
       // `key == "1.png" ? <picture one> : key == "2.png" ? … : nothing`.
       let mut chain: Option<Tmpl> = None;
       for (entry_key, facts) in entries.into_iter().rev() {
-        let branch = picture_markup(cx, &facts, &rest, sizes.clone(), priority, false, loading.clone(), decoding.clone(), wrote_dimensions);
+        let branch = picture_markup(cx, &facts, &rest, sizes.clone(), priority, fetch_priority.clone(), false, loading.clone(), decoding.clone(), wrote_dimensions);
         let cond = Expr::Compare(CompareOp::Eq, Box::new(key.clone()), Box::new(Expr::lit_str(entry_key)));
         chain = Some(match chain {
           Some(rest_chain) => Tmpl::If { cond, then: Box::new(branch), r#else: Some(Box::new(rest_chain)) },
@@ -590,8 +602,8 @@ pub(crate) fn picture<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At, 
       img.extend(rest);
       img.push(Entry::Field("loading".to_owned(), loading));
       img.push(Entry::Field("decoding".to_owned(), decoding));
-      if priority {
-        img.push(Entry::Field("fetchpriority".to_owned(), Expr::lit_str("high")));
+      if let Some(fetch_priority) = fetch_priority {
+        img.push(Entry::Field("fetchpriority".to_owned(), fetch_priority));
       }
       Ok(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() })
     }
@@ -604,7 +616,7 @@ pub(crate) fn picture<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At, 
 /// preload of its first format when `preload`, which a keyed record never
 /// is: the key is a value, so the page's `meta` names the one to preload.
 #[allow(clippy::too_many_arguments)]
-fn picture_markup<'p>(cx: &mut impl Placer<'p>, facts: &ImageFacts, rest: &[Entry], sizes: Option<Expr>, priority: bool, preload: bool, loading: Expr, decoding: Expr, wrote_dimensions: bool) -> Tmpl {
+fn picture_markup<'p>(cx: &mut impl Placer<'p>, facts: &ImageFacts, rest: &[Entry], sizes: Option<Expr>, priority: bool, fetch_priority: Option<Expr>, preload: bool, loading: Expr, decoding: Expr, wrote_dimensions: bool) -> Tmpl {
   let mut img: Vec<Entry> = vec![Entry::Field("src".to_owned(), Expr::lit_str(facts.src.clone()))];
   if !wrote_dimensions {
     img.push(Entry::Field("width".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.width)))));
@@ -613,8 +625,8 @@ fn picture_markup<'p>(cx: &mut impl Placer<'p>, facts: &ImageFacts, rest: &[Entr
   img.extend(rest.iter().cloned());
   img.push(Entry::Field("loading".to_owned(), loading));
   img.push(Entry::Field("decoding".to_owned(), decoding));
-  if priority {
-    img.push(Entry::Field("fetchpriority".to_owned(), Expr::lit_str("high")));
+  if let Some(fetch_priority) = fetch_priority {
+    img.push(Entry::Field("fetchpriority".to_owned(), fetch_priority));
   }
   if facts.sources.is_empty() {
     return Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() };
