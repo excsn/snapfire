@@ -3499,6 +3499,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.premake_expr(&b.right)
       }
       js::Expr::Assign(a) => self.premake_expr(&a.right),
+      js::Expr::Call(call) => {
+        if let js::Callee::Expr(callee) = &call.callee {
+          if let js::Expr::Member(member) = &**callee {
+            self.premake_expr(&member.obj)?;
+          }
+        }
+        for arg in &call.args {
+          self.premake_expr(&arg.expr)?;
+        }
+        Ok(())
+      }
       _ => Ok(()),
     }
   }
@@ -4182,9 +4193,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let (call, name, params, body) = self.markup_call(expr).expect("checked by the guard");
         self.inline_markup_fn(call, name, &params, body)
       }
+      js::Expr::Array(array) if self.holds_markup(expr) => {
+        let mut items = Vec::new();
+        for item in array.elems.iter().flatten() {
+          items.push(self.child_expr(&item.expr)?);
+        }
+        Ok(Tmpl::Fragment(items))
+      }
       js::Expr::Ident(id) if id.sym.as_ref() == "null" || id.sym.as_ref() == "undefined" => Ok(Tmpl::Fragment(Vec::new())),
       js::Expr::Lit(js::Lit::Null(_)) => Ok(Tmpl::Fragment(Vec::new())),
-      other => Ok(Tmpl::Expr(self.lowerer.expr(other)?)),
+      other => {
+        self.premake_expr(other)?;
+        Ok(Tmpl::Expr(self.lowerer.expr(other)?))
+      }
     }
   }
 
@@ -4194,6 +4215,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::Paren(p) => self.holds_markup(&p.expr),
       js::Expr::Cond(c) => self.holds_markup(&c.cons) || self.holds_markup(&c.alt),
       js::Expr::Bin(b) if b.op == js::BinaryOp::LogicalAnd => self.holds_markup(&b.right),
+      js::Expr::Array(array) => array.elems.iter().flatten().any(|item| self.holds_markup(&item.expr)),
       other => holds_jsx(other) || self.markup_call(other).is_some(),
     }
   }
@@ -5194,6 +5216,7 @@ fn holds_jsx(expr: &js::Expr) -> bool {
     js::Expr::Paren(p) => holds_jsx(&p.expr),
     js::Expr::Cond(c) => holds_jsx(&c.cons) || holds_jsx(&c.alt),
     js::Expr::Bin(b) if b.op == js::BinaryOp::LogicalAnd => holds_jsx(&b.right),
+    js::Expr::Array(array) => array.elems.iter().flatten().any(|item| holds_jsx(&item.expr)),
     js::Expr::Call(call) => map_with_jsx(call),
     _ => false,
   }
@@ -6684,7 +6707,7 @@ fn unwrap_literal(expr: &js::Expr) -> &js::Expr {
 mod fills {
   use std::collections::{HashMap, HashSet};
 
-  use snapfire_fsr_ir::ast::{Component, Entry, Expr, Lit, LogicOp, Stmt};
+  use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Lit, LogicOp, Stmt};
   use snapfire_fsr_ir::render::{CONTEXT_PREFIX, SLOT_CONTENT_PREFIX, SLOT_READ_PREFIX};
   use snapfire_fsr_ir::Tmpl;
 
@@ -6732,7 +6755,50 @@ mod fills {
         Some(Tmpl::If { cond: (**c).clone(), then: Box::new(ta.unwrap_or_else(|| value(a))), r#else: Some(Box::new(tb.unwrap_or_else(|| value(b)))) })
       }
       Expr::Logic(LogicOp::And, c, m) => tree_of(m, held).map(|t| Tmpl::If { cond: (**c).clone(), then: Box::new(t), r#else: None }),
+      Expr::Array(entries) => {
+        let trees: Vec<Option<Tmpl>> = entries.iter().map(|entry| match entry {
+          Entry::Item(e) | Entry::Spread(e) => tree_of(e, held),
+          _ => None,
+        }).collect();
+        if trees.iter().all(Option::is_none) {
+          return None;
+        }
+        let mut items = Vec::new();
+        for (entry, tree) in entries.iter().zip(trees) {
+          match (entry, tree) {
+            (_, Some(t)) => items.push(t),
+            (Entry::Item(e) | Entry::Spread(e), None) => items.push(value(e)),
+            _ => return None,
+          }
+        }
+        Some(Tmpl::Fragment(items))
+      }
+      Expr::Filter(over, keep) if truthiness(keep) => match tree_of(over, held)? {
+        Tmpl::Fragment(items) => Some(Tmpl::Fragment(items.into_iter().map(|item| match item {
+          Tmpl::Expr(e) => Tmpl::If { cond: e.clone(), then: Box::new(Tmpl::Expr(e)), r#else: None },
+          other => other,
+        }).collect())),
+        other => Some(other),
+      },
+      Expr::Builtin { name: Builtin::Concat, args } => {
+        let trees: Vec<Option<Tmpl>> = args.iter().map(|e| tree_of(e, held)).collect();
+        if trees.iter().all(Option::is_none) {
+          return None;
+        }
+        Some(Tmpl::Fragment(args.iter().zip(trees).map(|(e, tree)| tree.unwrap_or_else(|| value(e))).collect()))
+      }
       _ => None,
+    }
+  }
+
+  /// `(x) => x` or `(x) => !!x`, which keeps an item when it is truthy.
+  fn truthiness(keep: &Expr) -> bool {
+    let Expr::Lambda { params, body } = keep else { return false };
+    let [param] = params.as_slice() else { return false };
+    match &**body {
+      Expr::Var(v) => v == param,
+      Expr::Not(inner) => matches!(&**inner, Expr::Not(v) if matches!(&**v, Expr::Var(v) if v == param)),
+      _ => false,
     }
   }
 

@@ -2087,6 +2087,13 @@ impl<'a> Lowerer<'a> {
     let target = Box::new(self.expr(&member.obj)?);
     let lambda = |this: &mut Self, i: usize| -> Lowered<Box<Expr>> {
       let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes a function")))?;
+      if let js::Expr::Ident(id) = &*a.expr {
+        let name = id.sym.as_ref();
+        if name == "Boolean" && !this.scope.iter().any(|(n, _)| n == name) && this.root_of(id).is_none() && !this.globals.iter().any(|(n, _)| n == name) {
+          let item = this.temp();
+          return Ok(Box::new(Expr::Lambda { params: vec![item.clone()], body: Box::new(Expr::Not(Box::new(Expr::Not(Box::new(Expr::Var(item)))))) }));
+        }
+      }
       let js::Expr::Arrow(arrow) = &*a.expr else {
         return Err(this.residue(a.expr.span(), format!("`{method}` takes an arrow function written in place")));
       };

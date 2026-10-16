@@ -341,6 +341,14 @@ fn url_search_params_reads_a_value_by_its_key() {
 }
 
 #[test]
+fn filter_takes_boolean_as_its_callback() {
+  let body = lowered("filter_boolean", "params.tags.filter(Boolean)").unwrap_or_else(|e| panic!("{e}"));
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Filter(_, f), .. } if matches!(&**f, Expr::Lambda { .. })), "{body:?}");
+  let err = lowered("filter_named", "params.tags.filter(keep)").unwrap_err();
+  assert!(err.contains("takes an arrow function written in place"), "{err}");
+}
+
+#[test]
 fn boolean_lowers_as_a_double_negation() {
   let loader = |expr: &str| format!("export async function load({{ session, params }}) {{\n  return {{ watched: {expr} }};\n}}\n");
   let lowered = |tag: &str, expr: &str| {

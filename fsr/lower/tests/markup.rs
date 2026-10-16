@@ -150,3 +150,34 @@ fn a_read_no_placement_fills_is_left_plain() {
   let filled = lowered("filled", &[("src/Card.tsx", CARD), ("routes/page.tsx", "import { Card } from \"@src/Card\";\nexport default function Page() {\n  return <Card title=\"t\" body={<i>b</i>} />;\n}\n")]).unwrap();
   assert_eq!(reads(&filled, "src/Card.tsx#Card"), 1, "`body` is filled and `title` is not");
 }
+
+#[test]
+fn an_array_of_markup_renders_as_its_items_would_inline() {
+  let page = |body: &str| format!("import {{ Card, Boxed }} from \"@src/Card\";\nexport default function Page({{ price }}) {{\n{body}\n}}\n");
+  let same = |tag: &str, array: &str, inline: &str| {
+    let a = html(&format!("{tag}_array"), &[("src/Card.tsx", CARD), ("routes/page.tsx", &page(array))]);
+    let b = html(&format!("{tag}_inline"), &[("src/Card.tsx", CARD), ("routes/page.tsx", &page(inline))]);
+    assert!(a.is_ok(), "{tag}: {a:?}");
+    assert_eq!(a, b, "{tag}");
+  };
+  same("returned", "  return [<p key=\"a\">a</p>, <Boxed key=\"b\" title=\"t\" />];", "  return <><p>a</p><Boxed title=\"t\" /></>;");
+  same("held", "  const items = [<li key=\"a\">a</li>, <li key=\"b\">b</li>];\n  return <ul>{items}</ul>;", "  return <ul><li>a</li><li>b</li></ul>;");
+  same("in_place", "  return <ul>{[<li key=\"a\">a</li>, <li key=\"b\">b</li>]}</ul>;", "  return <ul><li>a</li><li>b</li></ul>;");
+  same("values", "  return <p>{[<b key=\"a\">x</b>, \" and \", price]}</p>;", "  return <p><b>x</b>{\" and \"}{price}</p>;");
+  same("of_locals", "  const a = <b>a</b>;\n  const b = <i>b</i>;\n  const both = [a, b];\n  return <div>{both}</div>;", "  return <div><b>a</b><i>b</i></div>;");
+  same("spread", "  const head = [<li key=\"a\">a</li>];\n  const all = [...head, <li key=\"z\">z</li>];\n  return <ul>{all}</ul>;", "  return <ul><li>a</li><li>z</li></ul>;");
+  same("branch", "  const on = price > 1;\n  return <div>{[on && <b key=\"a\">on</b>, <i key=\"b\">i</i>]}</div>;", "  const on = price > 1;\n  return <div>{on && <b>on</b>}<i>i</i></div>;");
+  same("prop", "  return <Card title=\"t\" body={[<p key=\"a\">a</p>, <p key=\"b\">b</p>]} />;", "  return <Boxed title=\"t\"><p>a</p><p>b</p></Boxed>;");
+  for (price, tag) in [("5", "on"), ("0", "off")] {
+    let fixed = |body: &str| body.replace("price > 1", &format!("{price} > 1"));
+    same(&format!("push_{tag}"), &fixed("  const out = [<i key=\"a\">a</i>];\n  if (price > 1) {\n    out.push(<b key=\"b\">b</b>);\n  }\n  return <div>{out}</div>;"), &fixed("  return <div><i>a</i>{price > 1 && <b>b</b>}</div>;"));
+    same(&format!("filter_{tag}"), &fixed("  return <div>{[price > 1 && <b key=\"a\">a</b>, \"\", <i key=\"b\">b</i>].filter(Boolean)}</div>;"), &fixed("  return <div>{price > 1 && <b>a</b>}<i>b</i></div>;"));
+  }
+  same("concat", "  const a = [<b key=\"a\">a</b>];\n  return <div>{a.concat(<i key=\"b\">b</i>, [<u key=\"c\">c</u>])}</div>;", "  return <div><b>a</b><i>b</i><u>c</u></div>;");
+}
+
+#[test]
+fn markup_inside_an_array_of_data_is_still_refused() {
+  let out = html("data_array", &[("routes/page.tsx", "export default function Page() {\n  const tabs = [{ label: \"a\", content: <p>a</p> }];\n  return <div>{tabs.map((t) => <section key={t.label}>{t.content}</section>)}</div>;\n}\n")]);
+  assert!(out.as_ref().is_err_and(|e| e.contains("markup where the build cannot place it")), "{out:?}");
+}
