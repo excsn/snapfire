@@ -164,3 +164,15 @@ fn a_caller_parameter_is_filled_from_the_call_and_kept_out_of_the_arguments() {
   leaked.insert("caller".to_owned(), Value::str("mallory"));
   assert_eq!(block_on(handle.call("server_fleet", "whoami", leaked)).unwrap_err().kind, FailureKind::Invalid);
 }
+
+#[derive(Record, Debug, PartialEq)]
+pub struct Tagged {
+  pub r#type: String,
+}
+
+#[test]
+fn a_raw_identifier_field_is_keyed_without_its_prefix() {
+  let Value::Map(map) = Tagged { r#type: "gift".to_owned() }.into_native_value() else { panic!("a map") };
+  assert_eq!(map.keys().collect::<Vec<_>>(), vec!["type"]);
+  assert_eq!(Tagged::from_native_value(Value::Map(map)).unwrap(), Tagged { r#type: "gift".to_owned() });
+}

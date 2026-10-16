@@ -502,6 +502,7 @@ fn err(spanned: &impl syn::spanned::Spanned, message: &str) -> TokenStream {
 /// `list_rooms` reads as `listRooms`, the way the contract already renames a
 /// method for TypeScript.
 fn camel(name: &str) -> String {
+  let name = name.strip_prefix("r#").unwrap_or(name);
   let mut out = String::with_capacity(name.len());
   let mut upper = false;
   for c in name.chars() {
