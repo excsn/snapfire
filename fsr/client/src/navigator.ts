@@ -626,6 +626,8 @@ class Feed {
   at = 0;
   /** Whether the response was ok, known once its headers are. */
   readonly ok: Promise<boolean>;
+  /** The request failed before any response arrived: the browser is offline or the server did not answer. */
+  unreachable = false;
   private settle: (ok: boolean) => void = () => {};
   private waiters: (() => void)[] = [];
 
@@ -679,13 +681,15 @@ class Feed {
 function fetchFeed(url: URL, headers: Record<string, string>): Feed {
   const feed = new Feed();
   void (async () => {
+    let res: Response | undefined;
     try {
-      const res = await fetch(payloadUrl(url), { headers });
+      res = await fetch(payloadUrl(url), { headers });
       const payload = res.ok || (res.headers.get("content-type") ?? "").includes("x-sf-payload");
       feed.open(payload);
       if (!payload) return;
       for await (const line of linesOf(res)) feed.push(line);
     } catch {
+      if (!res) feed.unreachable = true;
     } finally {
       feed.finish();
     }
@@ -879,7 +883,7 @@ export async function refresh(): Promise<void> {
   clearHeld();
   const gen = ++generation;
   const feed = fetchFeed(new URL(window.location.href), headersOf({ from: null, into: openSlot }));
-  if (!(await feed.ok)) return bail();
+  if (!(await feed.ok)) return feed.unreachable ? undefined : bail();
   const rows = feed.read();
   const eager = await eagerOf(rows).catch(() => null);
   if (gen !== generation) return;

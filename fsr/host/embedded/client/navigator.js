@@ -539,6 +539,7 @@ class Feed {
     state = "";
     at = 0;
     ok;
+    unreachable = false;
     settle = ()=>{};
     waiters = [];
     constructor(){
@@ -582,15 +583,18 @@ class Feed {
 function fetchFeed(url, headers) {
     const feed = new Feed();
     void (async ()=>{
+        let res;
         try {
-            const res = await fetch(payloadUrl(url), {
+            res = await fetch(payloadUrl(url), {
                 headers
             });
             const payload = res.ok || (res.headers.get("content-type") ?? "").includes("x-sf-payload");
             feed.open(payload);
             if (!payload) return;
             for await (const line of linesOf(res))feed.push(line);
-        } catch  {} finally{
+        } catch  {
+            if (!res) feed.unreachable = true;
+        } finally{
             feed.finish();
         }
     })();
@@ -727,7 +731,7 @@ export async function refresh() {
         from: null,
         into: openSlot
     }));
-    if (!await feed.ok) return bail();
+    if (!await feed.ok) return feed.unreachable ? undefined : bail();
     const rows = feed.read();
     const eager = await eagerOf(rows).catch(()=>null);
     if (gen !== generation) return;
