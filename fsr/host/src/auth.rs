@@ -141,11 +141,19 @@ impl Host {
           Err(message) => return Some(text_response(StatusCode::BAD_REQUEST, message)),
         };
         let pending = mounted.auth.pending_return_to(opened);
+        let mut renewed = None;
         let mut response = match mounted.auth.callback(opened, params).await {
-          Ok(destination) => {
-            self.sessions.rotate_csrf(opened);
-            see_other(&destination)
-          }
+          Ok(destination) => match self.sessions.renew(opened).await {
+            Ok(fresh) => {
+              self.sessions.rotate_csrf(&fresh);
+              renewed = Some(fresh);
+              see_other(&destination)
+            }
+            Err(_) => {
+              mounted.auth.logout(opened);
+              text_response(StatusCode::SERVICE_UNAVAILABLE, "the session store did not answer; sign in again".to_owned())
+            }
+          },
           Err(AuthError::Denied(_)) => {
             let back: String = pending
               .map(|p| form_urlencoded::byte_serialize(p.as_bytes()).collect())
@@ -154,7 +162,7 @@ impl Host {
           }
           Err(e @ AuthError::Invalid(_)) => text_response(StatusCode::BAD_REQUEST, e.to_string()),
         };
-        self.set_cookie(opened, &mut response).await;
+        self.set_cookie(renewed.as_ref().unwrap_or(opened), &mut response).await;
         Some(response)
       }
       (&Method::POST, "/auth/logout") => {

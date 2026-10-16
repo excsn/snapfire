@@ -1696,6 +1696,8 @@ async fn the_login_flow_signs_a_session_in_through_the_file_provider() {
         .unwrap(),
     )
     .await;
+    let fixed = cookie.clone();
+    let cookie = cookie_of(&response);
   assert_eq!(response.status(), StatusCode::SEE_OTHER);
   assert_eq!(location(&response), "/who");
 
@@ -1716,6 +1718,8 @@ async fn the_login_flow_signs_a_session_in_through_the_file_provider() {
   );
   let token = field(&html, "csrf_token").expect("the token is a prop once signed in");
   assert!(!html.contains("dev-token-alice"), "custody never renders: {html}");
+  let before = host.handle(Request::get("/who").header(header::COOKIE, &fixed).body(Bytes::new()).unwrap()).await;
+  assert!(body_of(before).await.contains("anonymous"), "the id the browser held before sign-in is not the signed-in one");
 
   let response = host
     .handle(
@@ -2303,6 +2307,7 @@ async fn sessions_and_sign_in_live_behind_the_identity_client() {
         .unwrap(),
     )
     .await;
+    let cookie = cookie_of(&response);
   assert_eq!(location(&response), "/who");
   let stored = identity
     .sessions
@@ -3184,6 +3189,7 @@ async fn a_route_reading_only_the_identity_prerenders_for_anonymous_visitors_and
         .unwrap(),
     )
     .await;
+    let cookie = cookie_of(&response);
   assert_eq!(response.status(), StatusCode::SEE_OTHER);
   let response = host
     .handle(
@@ -4707,6 +4713,7 @@ async fn an_identified_visitor_on_an_expanded_anonymous_route_renders_live() {
         .unwrap(),
     )
     .await;
+    let cookie = cookie_of(&response);
   assert_eq!(response.status(), StatusCode::SEE_OTHER);
   let response = host.handle(Request::get("/me/a").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
   assert!(response.headers().get("x-sf-prerendered").is_none(), "a signed-in visitor is rendered live");

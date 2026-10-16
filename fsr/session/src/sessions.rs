@@ -202,6 +202,12 @@ impl Sessions {
     self.csrf.verify(opened, token)
   }
 
+  /// The same session under a new id, the old record deleted. Called on sign-in, so an id someone else fixed in the visitor's browser before login never becomes the signed-in one.
+  pub async fn renew(&self, opened: &Opened) -> Result<Opened, StoreError> {
+    self.store.delete(&opened.id).await?;
+    Ok(Opened { id: SessionId::generate(), cell: opened.cell.clone(), tokens: opened.tokens.clone(), csrf: opened.csrf.clone(), fresh: true, stale: false })
+  }
+
   /// Tells the scheme the session's standing changed, which the edge calls
   /// once a session is identified; `destroy` calls it itself.
   pub fn rotate_csrf(&self, opened: &Opened) {
