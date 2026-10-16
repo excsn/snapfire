@@ -243,6 +243,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
         }
         engine.take_console();
         hooks.reset();
+        engine.eval_string("__sf_begin_test(); \"\"").map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
         let result = match engine.run_test(i).await {
           Ok(result) => result,
           Err(e) => Err(e.to_string()),
@@ -256,7 +257,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
           (Err(failure), _) if log.is_empty() => Outcome::Failed(indent(&failure)),
           (Err(failure), _) => Outcome::Failed(format!("{}\nconsole during the test:\n{}", indent(&failure), indent(&log))),
         };
-        engine.eval_string("__sf.discard(document.body); document.body.innerHTML = \"\"; \"\"").map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
+        engine.eval_string("__sf.discard(document.body); document.body.innerHTML = \"\"; __sf_end_test(); \"\"").map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
         results.push((name.clone(), result));
       }
       if ran {
@@ -271,8 +272,17 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
       }
       Ok(results)
     }));
-    for (name, result) in outcome? {
-      summary.record(&rel, &name, result);
+    match outcome {
+      Ok(results) => {
+        for (name, result) in results {
+          summary.record(&rel, &name, result);
+        }
+      }
+      Err(e) => {
+        let failure = e.to_string();
+        let failure = failure.strip_prefix(&format!("{rel}: ")).unwrap_or(&failure);
+        summary.record(&rel, "loading the file", Outcome::Failed(indent(failure)));
+      }
     }
   }
   Ok(())

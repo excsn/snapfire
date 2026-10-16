@@ -77,3 +77,28 @@ fn a_spec_fetch_of_an_action_decodes_only_a_percent_and_two_hex_digits() {
   assert_eq!((failed, passed), (0, 1), "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_spec_file_that_fails_to_load_fails_alone_and_the_next_file_runs() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("tests/a.spec.ts", "import { test } from \"@snapfire/fsr-client/testing\";\n\nthrow new Error(\"boom at load\");\ntest(\"never registered\", () => {});\n"),
+    ("tests/b.spec.ts", "import { expect, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"runs\", () => {\n  expect(1).toEqual(1);\n});\n"),
+  ]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  let text = summary.to_string();
+  assert_eq!((summary.failed, summary.passed), (1, 1), "{text}");
+  assert!(text.contains("tests/a.spec.ts: loading the file") && text.contains("boom at load"), "{text}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_timer_a_finished_test_left_behind_does_not_fail_the_next_one() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("tests/b.spec.ts", "import { advance, expect, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"leaves a timer behind\", () => {\n  setTimeout(() => {\n    throw new Error(\"left behind\");\n  }, 5);\n});\n\ntest(\"runs after it\", async () => {\n  await advance(10);\n  expect(1).toEqual(1);\n});\n"),
+  ]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.failed, summary.passed), (0, 2), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

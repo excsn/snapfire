@@ -1,5 +1,7 @@
 let now = 0;
 let seq = 0;
+// The test a timer was scheduled under; 0 while the modules load.
+let test = 0;
 const timers = [];
 const idlers = [];
 const pending = new Map();
@@ -7,7 +9,7 @@ const pending = new Map();
 function schedule(fn, ms, args, repeat) {
   const id = ++seq;
   const delay = Math.max(0, Number(ms) || 0);
-  const entry = { id, seq: id, due: now + delay, fn, args, repeat: repeat ? delay : null };
+  const entry = { id, seq: id, due: now + delay, fn, args, repeat: repeat ? delay : null, test };
   timers.push(entry);
   return id;
 }
@@ -136,6 +138,14 @@ globalThis.__sf_complete = (id, status, body, headers) => {
   });
 };
 
+globalThis.__sf_begin_test = () => {
+  test = seq + 1;
+};
+
+globalThis.__sf_end_test = () => {
+  test = 0;
+};
+
 globalThis.__sf_tick = () => {
   if (timers.length === 0) return false;
   timers.sort((a, b) => a.due - b.due || a.seq - b.seq);
@@ -146,7 +156,15 @@ globalThis.__sf_tick = () => {
     t.seq = ++seq;
     timers.push(t);
   }
-  t.fn(...t.args);
+  if (t.test === 0 || t.test === test) {
+    t.fn(...t.args);
+    return true;
+  }
+  try {
+    t.fn(...t.args);
+  } catch (error) {
+    console.warn(`a timer an earlier test set threw: ${error && error.stack ? error.stack : error}`);
+  }
   return true;
 };
 
