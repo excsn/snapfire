@@ -105,7 +105,7 @@ learn-javascript-in-jsx-with-curly-braces-8	lowered
 learn-javascript-in-jsx-with-curly-braces-9	lowered
 learn-keeping-components-pure-1	lowered
 learn-keeping-components-pure-3	lowered
-learn-keeping-components-pure-4	client: src/App.js:7:3 a statement a component cannot hold before its `return`
+learn-keeping-components-pure-4	lowered
 learn-keeping-components-pure-5	client: src/Clock.js:2:17 `.getHours()`, which reads the viewer's time zone
 learn-keeping-components-pure-6	client: src/Clock.js:2:17 `.getHours()`, which reads the viewer's time zone
 learn-keeping-components-pure-8	lowered
@@ -150,11 +150,11 @@ learn-manipulating-the-dom-with-refs-6	lowered
 learn-manipulating-the-dom-with-refs-7	lowered
 learn-manipulating-the-dom-with-refs-8	lowered
 learn-manipulating-the-dom-with-refs-9	lowered
-learn-passing-data-deeply-with-context-1	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-learn-passing-data-deeply-with-context-2	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-learn-passing-data-deeply-with-context-3	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-learn-passing-data-deeply-with-context-4	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-learn-passing-data-deeply-with-context-5	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-passing-data-deeply-with-context-1	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
+learn-passing-data-deeply-with-context-2	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
+learn-passing-data-deeply-with-context-3	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
+learn-passing-data-deeply-with-context-4	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
+learn-passing-data-deeply-with-context-5	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
 learn-passing-data-deeply-with-context-6	client: src/Heading.js:7:5 a `case` that falls through into the next
 learn-passing-data-deeply-with-context-7	client: src/Heading.js:7:5 a `case` that falls through into the next
 learn-passing-data-deeply-with-context-8	lowered
@@ -202,7 +202,7 @@ learn-queueing-a-series-of-state-updates-4	lowered
 learn-queueing-a-series-of-state-updates-5	lowered
 learn-queueing-a-series-of-state-updates-6	lowered
 learn-queueing-a-series-of-state-updates-7	lowered
-learn-queueing-a-series-of-state-updates-8	client: src/processQueue.js:4:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+learn-queueing-a-series-of-state-updates-8	client: src/processQueue.js:5:9 the `typeof` operator
 learn-reacting-to-input-with-state-10	lowered
 learn-reacting-to-input-with-state-11	lowered
 learn-reacting-to-input-with-state-2	lowered
@@ -521,8 +521,8 @@ reference-react-purecomponent-1	refused: src/App.js: no exported `Greeting`
 reference-react-purecomponent-2	refused: src/App.js: no exported `Greeting`
 reference-react-purecomponent-3	refused: src/App.js: no exported `Greeting`
 reference-react-strictmode-1	lowered
-reference-react-strictmode-10	client: src/App.js:63:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-reference-react-strictmode-11	client: src/App.js:64:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-strictmode-10	lowered
+reference-react-strictmode-11	lowered
 reference-react-strictmode-2	lowered
 reference-react-strictmode-3	lowered
 reference-react-strictmode-4	lowered
@@ -530,7 +530,7 @@ reference-react-strictmode-5	lowered
 reference-react-strictmode-6	lowered
 reference-react-strictmode-7	lowered
 reference-react-strictmode-8	lowered
-reference-react-strictmode-9	client: src/App.js:63:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-strictmode-9	lowered
 reference-react-suspense-1	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/ArtistPage.js:8:7 `Suspense` comes from `react`, which the build cannot follow
 reference-react-suspense-10	client: src/App.js:16:9 `useTransition` | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow
 reference-react-suspense-11	client: src/data.js:6:3 an expression statement other than a write to a local
@@ -580,10 +580,10 @@ reference-react-useeffect-17	lowered
 reference-react-useeffect-2	lowered
 reference-react-useeffect-3	lowered
 reference-react-useeffect-4	lowered
-reference-react-useeffect-5	client: src/App.js:17:3 a statement a component cannot hold before its `return`
+reference-react-useeffect-5	lowered
 reference-react-useeffect-6	lowered
 reference-react-useeffect-7	client: src/App.js:7:36 a function value; lambdas go to `map`, `filter` and their kin
-reference-react-useeffect-8	client: src/App.js:17:3 a statement a component cannot hold before its `return`
+reference-react-useeffect-8	lowered
 reference-react-useeffectevent-1	client: src/App.js:7:18 `useEffectEvent`, a hook the build cannot follow
 reference-react-useeffectevent-2	client: src/App.js:7:18 `useEffectEvent`, a hook the build cannot follow
 reference-react-useeffectevent-4	client: src/App.js:20:15 a function value; lambdas go to `map`, `filter` and their kin
@@ -591,14 +591,14 @@ reference-react-useid-1	client: src/App.js:4:9 `useId`, whose value React derive
 reference-react-useid-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useid-3	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useimperativehandle-1	lowered
-reference-react-useimperativehandle-2	client: src/CommentList.js:16:3 a statement a component cannot hold before its `return`
+reference-react-useimperativehandle-2	lowered
 reference-react-uselayouteffect-1	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:26:10 a call to `createPortal`, which the build cannot follow
 reference-react-uselayouteffect-2	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
 reference-react-uselayouteffect-3	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
-reference-react-usememo-1	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-reference-react-usememo-2	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-reference-react-usememo-3	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-reference-react-usememo-6	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usememo-1	client: src/utils.js:7:18 `Math.random`
+reference-react-usememo-2	client: src/utils.js:7:18 `Math.random`
+reference-react-usememo-3	client: src/utils.js:7:18 `Math.random`
+reference-react-usememo-6	client: src/utils.js:7:18 `Math.random`
 reference-react-useoptimistic-1	client: src/App.js:7:40 `setName` is not bound here; an import the build cannot follow or a name from outside the body
 reference-react-useoptimistic-2	client: src/Button.js:4:9 `useOptimistic`
 reference-react-useoptimistic-3	client: src/App.js:6:9 `useOptimistic`
@@ -609,8 +609,8 @@ reference-react-useoptimistic-7	client: src/ItemList.js:5:9 `useOptimistic`
 reference-react-usereducer-1	lowered
 reference-react-usereducer-2	lowered
 reference-react-usereducer-3	lowered
-reference-react-usereducer-5	client: src/TodoList.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-reference-react-usereducer-6	client: src/TodoList.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usereducer-5	lowered
+reference-react-usereducer-6	lowered
 reference-react-useref-1	lowered
 reference-react-useref-2	lowered
 reference-react-useref-3	lowered
@@ -618,8 +618,8 @@ reference-react-useref-4	lowered
 reference-react-useref-5	lowered
 reference-react-useref-6	lowered
 reference-react-usestate-1	lowered
-reference-react-usestate-11	client: src/App.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-reference-react-usestate-12	client: src/App.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
+reference-react-usestate-11	lowered
+reference-react-usestate-12	lowered
 reference-react-usestate-13	lowered
 reference-react-usestate-14	client: src/CountLabel.js:7:5 a call for its effect, which a straight-line body cannot hold
 reference-react-usestate-2	lowered

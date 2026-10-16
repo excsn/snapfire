@@ -2723,9 +2723,297 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
       }
       Ok(())
     }
+    js::Stmt::ForOf(for_of) => rebind_for_of(lowerer, for_of, writable, assigned),
+    js::Stmt::For(counted) => rebind_counted(lowerer, counted, writable, assigned),
     js::Stmt::Empty(_) => Ok(()),
-    other => Err(lowerer.residue(other.span(), "a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`")),
+    other => Err(lowerer.residue(other.span(), "a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`")),
   }
+}
+
+/// The names a `for…of` lowers under, taken from where it is written so the markup lowered ahead of it and the loop agree: its item, its accumulator and the outer locals its body writes, first write first.
+pub(crate) struct LoopNames {
+  pub(crate) item: String,
+  pub(crate) acc: String,
+  pub(crate) written: Vec<String>,
+}
+
+/// The names a loop body writes and the names it declares itself, outside nested functions.
+#[derive(Default)]
+pub(crate) struct Writes {
+  written: Vec<String>,
+  declared: Vec<String>,
+}
+
+impl Writes {
+  fn wrote(&mut self, name: &str) {
+    if !self.written.iter().any(|w| w == name) {
+      self.written.push(name.to_owned());
+    }
+  }
+}
+
+impl Visit for Writes {
+  fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
+    match &assign.left {
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.wrote(id.id.sym.as_ref()),
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => {
+        if let js::Expr::Ident(id) = &*m.obj {
+          self.wrote(id.sym.as_ref());
+        }
+      }
+      _ => {}
+    }
+    assign.right.visit_with(self);
+  }
+  fn visit_update_expr(&mut self, update: &js::UpdateExpr) {
+    if let js::Expr::Ident(id) = &*update.arg {
+      self.wrote(id.sym.as_ref());
+    }
+    update.visit_children_with(self);
+  }
+  fn visit_call_expr(&mut self, call: &js::CallExpr) {
+    if let js::Callee::Expr(callee) = &call.callee {
+      if let js::Expr::Member(m) = &**callee {
+        if let (js::Expr::Ident(id), Some("push" | "unshift")) = (&*m.obj, prop_name_of(m).as_deref()) {
+          self.wrote(id.sym.as_ref());
+        }
+      }
+    }
+    call.visit_children_with(self);
+  }
+  fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
+    self.declared.push(id.id.sym.to_string());
+  }
+  fn visit_function(&mut self, _: &js::Function) {}
+  fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+}
+
+impl LoopNames {
+  pub(crate) fn of(for_of: &js::ForOfStmt) -> Self {
+    Self::over(for_of.span, &for_of.left, &for_of.body)
+  }
+
+  pub(crate) fn over<H: VisitWith<Writes>>(span: Span, head: &H, body: &js::Stmt) -> Self {
+    let mut writes = Writes::default();
+    head.visit_with(&mut writes);
+    body.visit_with(&mut writes);
+    let Writes { written, declared } = writes;
+    let at = span.lo.0;
+    Self { item: format!("$item{at}"), acc: format!("$acc{at}"), written: written.into_iter().filter(|w| !declared.contains(w)).collect() }
+  }
+
+  /// What a written name reads inside the loop: the accumulator itself for one name, its field for several.
+  pub(crate) fn read(&self, name: &str) -> Expr {
+    match self.written.len() {
+      1 => Expr::Var(self.acc.clone()),
+      _ => Expr::Field(Box::new(Expr::Var(self.acc.clone())), name.to_owned()),
+    }
+  }
+
+  /// The pattern the loop binds each item to: its head's one `const` or `let`.
+  pub(crate) fn head(for_of: &js::ForOfStmt) -> Option<&js::Pat> {
+    match &for_of.left {
+      js::ForHead::VarDecl(var) => match var.decls.as_slice() {
+        [decl] if decl.init.is_none() => Some(&decl.name),
+        _ => None,
+      },
+      _ => None,
+    }
+  }
+}
+
+/// A `for…of` as a fold: each outer local its body writes is the `reduce` over the items of the body's writes, starting from its value before the loop.
+fn rebind_for_of(lowerer: &mut Lowerer<'_>, for_of: &js::ForOfStmt, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
+  if for_of.is_await {
+    return Err(lowerer.residue(for_of.span, "`for await`, which a render cannot wait on"));
+  }
+  let Some(head) = LoopNames::head(for_of) else { return Err(lowerer.residue(for_of.span, "a `for…of` whose head is not one `const` or `let`")) };
+  let names = LoopNames::of(for_of);
+  let over = lowerer.expr(&for_of.right)?;
+  let item = Expr::Var(names.item.clone());
+  fold(lowerer, for_of.span, &names, over, &for_of.body, |lowerer| bind_pattern(lowerer, head, item), writable, assigned)
+}
+
+/// `for (let i = a; i < b; i++)` (also `<=`, `++i` and `i += 1`) whose body does not write `i` and whose bound reads nothing the body writes.
+pub(crate) struct Counted {
+  pub(crate) name: String,
+  from: js::Expr,
+  to: js::Expr,
+  inclusive: bool,
+}
+
+impl Counted {
+  pub(crate) fn of(lowerer: &Lowerer<'_>, f: &js::ForStmt) -> Lowered<Self> {
+    let shape = |why: &str| lowerer.residue_with(f.span, format!("a `for` loop {why}"), "a loop the build reads is `for (const x of items)` or `for (let i = a; i < b; i++)`");
+    let Some(js::VarDeclOrExpr::VarDecl(var)) = f.init.as_ref() else { return Err(shape("that does not declare its counter")) };
+    let [decl] = var.decls.as_slice() else { return Err(shape("that declares more than one counter")) };
+    let (js::Pat::Ident(id), Some(from)) = (&decl.name, decl.init.as_deref()) else { return Err(shape("whose counter has no starting value")) };
+    let name = id.id.sym.to_string();
+    let is_counter = |e: &js::Expr| matches!(e, js::Expr::Ident(i) if i.sym.as_ref() == name);
+    let (to, inclusive) = match f.test.as_deref() {
+      Some(js::Expr::Bin(b)) if is_counter(&b.left) && b.op == js::BinaryOp::Lt => (&*b.right, false),
+      Some(js::Expr::Bin(b)) if is_counter(&b.left) && b.op == js::BinaryOp::LtEq => (&*b.right, true),
+      _ => return Err(shape("whose test is not `i < b` or `i <= b`")),
+    };
+    let steps = match f.update.as_deref() {
+      Some(js::Expr::Update(u)) => u.op == js::UpdateOp::PlusPlus && is_counter(&u.arg),
+      Some(js::Expr::Assign(a)) => a.op == js::AssignOp::AddAssign && matches!(&a.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(i)) if i.id.sym.as_ref() == name) && matches!(&*a.right, js::Expr::Lit(js::Lit::Num(n)) if n.value == 1.0),
+      _ => false,
+    };
+    if !steps {
+      return Err(shape("that does not step by one with `i++`"));
+    }
+    let mut writes = Writes::default();
+    f.body.visit_with(&mut writes);
+    if writes.written.contains(&name) {
+      return Err(shape(&format!("whose body writes `{name}`")));
+    }
+    struct Reads(Vec<String>);
+    impl Visit for Reads {
+      fn visit_ident(&mut self, id: &js::Ident) {
+        self.0.push(id.sym.to_string());
+      }
+    }
+    let mut reads = Reads(Vec::new());
+    to.visit_with(&mut reads);
+    if let Some(read) = reads.0.iter().find(|r| writes.written.contains(r)) {
+      return Err(shape(&format!("whose bound reads `{read}`, which its body writes")));
+    }
+    Ok(Self { name, from: from.clone(), to: to.clone(), inclusive })
+  }
+
+  /// The items the loop runs over (`0..count`) with what the counter is for the item `k`.
+  pub(crate) fn lowered(&self, lowerer: &mut Lowerer<'_>, item: &str) -> Lowered<(Expr, Expr)> {
+    let from = lowerer.expr(&self.from)?;
+    let to = lowerer.expr(&self.to)?;
+    let mut count = Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Sub, Box::new(to), Box::new(from.clone()));
+    if self.inclusive {
+      count = Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Add, Box::new(count), Box::new(Expr::Lit(Lit::Float(1.0))));
+    }
+    let over = Expr::Builtin { name: Builtin::Range, args: vec![Expr::Builtin { name: Builtin::Ceil, args: vec![count] }] };
+    let counter = Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Add, Box::new(from), Box::new(Expr::Var(item.to_owned())));
+    Ok((over, counter))
+  }
+}
+
+fn rebind_counted(lowerer: &mut Lowerer<'_>, f: &js::ForStmt, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
+  let counted = Counted::of(lowerer, f)?;
+  let names = LoopNames::over(f.span, &f.init, &f.body);
+  let (over, counter) = counted.lowered(lowerer, &names.item)?;
+  let name = counted.name.clone();
+  fold(lowerer, f.span, &names, over, &f.body, |lowerer| {
+    lowerer.scope.push((name, counter));
+    Ok(())
+  }, writable, assigned)
+}
+
+/// A loop as a fold: each outer local the body writes is the `reduce` over `over` of the body's writes, `bind` binding the item, starting from its value before the loop.
+#[allow(clippy::too_many_arguments)]
+fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, body: &js::Stmt, bind: impl FnOnce(&mut Lowerer<'_>) -> Lowered<()>, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
+  for name in &names.written {
+    if !writable.local(lowerer, name) {
+      return Err(lowerer.residue_with(span, format!("a write to `{name}` inside a loop, which this body did not declare"), "declare a local with `let` before the loop and write that"));
+    }
+  }
+  let body = match body {
+    js::Stmt::Block(block) => block.stmts.clone(),
+    other => vec![other.clone()],
+  };
+  let body = iteration(lowerer, &body)?;
+  if names.written.is_empty() {
+    return Ok(());
+  }
+  let before: Vec<Expr> = names.written.iter().map(|n| current(lowerer, n)).collect();
+  let depth = lowerer.scope.len();
+  for name in &names.written {
+    lowerer.scope.push((name.clone(), names.read(name)));
+  }
+  let mut inner = Vec::new();
+  let run = bind(lowerer).and_then(|_| body.iter().try_for_each(|s| rebind_stmt(lowerer, s, writable, &mut inner)));
+  let after: Vec<Expr> = names.written.iter().map(|n| current(lowerer, n)).collect();
+  lowerer.scope.truncate(depth);
+  run?;
+  let single = names.written.len() == 1;
+  let gather = |values: Vec<Expr>| match single {
+    true => values.into_iter().next().expect("one name"),
+    false => Expr::Object(names.written.iter().cloned().zip(values).map(|(n, v)| Entry::Field(n, v)).collect()),
+  };
+  let step = Expr::Lambda { params: vec![names.acc.clone(), names.item.clone()], body: Box::new(gather(after)) };
+  let folded = Expr::Reduce(Box::new(over), Box::new(gather(before)), Box::new(step));
+  for name in &names.written {
+    let value = match single {
+      true => folded.clone(),
+      false => Expr::Field(Box::new(folded.clone()), name.clone()),
+    };
+    lowerer.scope.push((name.clone(), value));
+    if !assigned.contains(name) {
+      assigned.push(name.clone());
+    }
+  }
+  Ok(())
+}
+
+/// One pass of a loop body with each `if (...) continue;` turned into a branch around the rest; a `break`, a `return` or a `continue` anywhere else is residue.
+fn iteration(lowerer: &Lowerer<'_>, stmts: &[js::Stmt]) -> Lowered<Vec<js::Stmt>> {
+  let mut out = Vec::new();
+  for (at, stmt) in stmts.iter().enumerate() {
+    match stmt {
+      js::Stmt::Continue(c) if c.label.is_none() => return Ok(out),
+      js::Stmt::If(branch) if branch.alt.is_none() && is_continue(&branch.cons) => {
+        let rest = iteration(lowerer, &stmts[at + 1..])?;
+        let test = js::Expr::Unary(js::UnaryExpr { span: branch.test.span(), op: js::UnaryOp::Bang, arg: branch.test.clone() });
+        out.push(js::Stmt::If(js::IfStmt { span: branch.span, test: Box::new(test), cons: Box::new(js::Stmt::Block(js::BlockStmt { span: branch.span, ctxt: Default::default(), stmts: rest })), alt: None }));
+        return Ok(out);
+      }
+      other => {
+        if let Some((span, what)) = leaves_loop(other) {
+          return Err(lowerer.residue_with(span, format!("{what} inside a loop"), "a loop the build reads runs over every item; filter the items first or put `if (...) continue;` at the top of the loop"));
+        }
+        out.push(other.clone());
+      }
+    }
+  }
+  Ok(out)
+}
+
+fn is_continue(stmt: &js::Stmt) -> bool {
+  match stmt {
+    js::Stmt::Continue(c) => c.label.is_none(),
+    js::Stmt::Block(block) => matches!(block.stmts.as_slice(), [js::Stmt::Continue(c)] if c.label.is_none()),
+    _ => false,
+  }
+}
+
+/// The first `break`, `continue` or `return` in `stmt` that leaves the enclosing loop's iteration, outside a nested function, loop or (for `break`) `switch`.
+fn leaves_loop(stmt: &js::Stmt) -> Option<(Span, &'static str)> {
+  struct Leaves {
+    found: Option<(Span, &'static str)>,
+    switches: usize,
+  }
+  impl Visit for Leaves {
+    fn visit_break_stmt(&mut self, b: &js::BreakStmt) {
+      if self.switches == 0 || b.label.is_some() {
+        self.found.get_or_insert((b.span, "`break`"));
+      }
+    }
+    fn visit_continue_stmt(&mut self, c: &js::ContinueStmt) {
+      self.found.get_or_insert((c.span, "`continue`"));
+    }
+    fn visit_return_stmt(&mut self, r: &js::ReturnStmt) {
+      self.found.get_or_insert((r.span, "`return`"));
+    }
+    fn visit_switch_stmt(&mut self, sw: &js::SwitchStmt) {
+      self.switches += 1;
+      sw.visit_children_with(self);
+      self.switches -= 1;
+    }
+    fn visit_for_of_stmt(&mut self, _: &js::ForOfStmt) {}
+    fn visit_function(&mut self, _: &js::Function) {}
+    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+  }
+  let mut leaves = Leaves { found: None, switches: 0 };
+  stmt.visit_with(&mut leaves);
+  leaves.found
 }
 
 /// Arms tried in order, each a condition and its statements, then the statements when none holds: each name any arm wrote is rebound to the value of the arm that ran.
@@ -3516,6 +3804,26 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// [`Self::premake_expr`] over a statement whose expressions reach
   /// `Lowerer::expr`: a declaration, a write or a branch holding them.
+  /// [`Self::premake_stmt`] over a block's statements with each of its declarations bound as it goes, so markup after one reads it; the bindings end with the block.
+  fn premake_block(&mut self, stmts: &'p [js::Stmt]) -> Lowered<()> {
+    let depth = self.lowerer.scope.len();
+    let result = stmts.iter().try_for_each(|stmt| {
+      self.premake_stmt(stmt)?;
+      if let js::Stmt::Decl(js::Decl::Var(var)) = stmt {
+        for decl in &var.decls {
+          let value = match decl.init.as_deref() {
+            Some(init) => self.lowerer.expr(init)?,
+            None => Expr::Lit(Lit::Null),
+          };
+          bind_pattern(&mut self.lowerer, &decl.name, value)?;
+        }
+      }
+      Ok(())
+    });
+    self.lowerer.scope.truncate(depth);
+    result
+  }
+
   fn premake_stmt(&mut self, stmt: &'p js::Stmt) -> Lowered<()> {
     match stmt {
       js::Stmt::Decl(js::Decl::Var(var)) => {
@@ -3534,19 +3842,37 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           None => Ok(()),
         }
       }
-      js::Stmt::Block(b) => {
-        for s in &b.stmts {
-          self.premake_stmt(s)?;
+      js::Stmt::Block(b) => self.premake_block(&b.stmts),
+      js::Stmt::Switch(sw) => {
+        for case in &sw.cases {
+          self.premake_block(&case.cons)?;
         }
         Ok(())
       }
-      js::Stmt::Switch(sw) => {
-        for case in &sw.cases {
-          for s in &case.cons {
-            self.premake_stmt(s)?;
-          }
+      js::Stmt::ForOf(for_of) => {
+        let Some(head) = LoopNames::head(for_of) else { return Ok(()) };
+        let names = LoopNames::of(for_of);
+        let depth = self.lowerer.scope.len();
+        for name in &names.written {
+          self.lowerer.scope.push((name.clone(), names.read(name)));
         }
-        Ok(())
+        let result = bind_pattern(&mut self.lowerer, head, Expr::Var(names.item.clone())).and_then(|_| self.premake_stmt(&for_of.body));
+        self.lowerer.scope.truncate(depth);
+        result
+      }
+      js::Stmt::For(f) => {
+        let Ok(counted) = Counted::of(&self.lowerer, f) else { return Ok(()) };
+        let names = LoopNames::over(f.span, &f.init, &f.body);
+        let depth = self.lowerer.scope.len();
+        let result = counted.lowered(&mut self.lowerer, &names.item).and_then(|(_, counter)| {
+          for name in &names.written {
+            self.lowerer.scope.push((name.clone(), names.read(name)));
+          }
+          self.lowerer.scope.push((counted.name.clone(), counter));
+          self.premake_stmt(&f.body)
+        });
+        self.lowerer.scope.truncate(depth);
+        result
       }
       _ => Ok(()),
     }
@@ -3634,7 +3960,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.premake_stmt(stmt)?;
               self.rebound(stmt, floor, &early, &mut lets, &guarded)?
             }
-            js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) => {
+            js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) | js::Stmt::ForOf(_) | js::Stmt::For(_) => {
               self.premake_stmt(stmt)?;
               self.rebound(stmt, floor, &early, &mut lets, &guarded)?
             }
@@ -6809,6 +7135,11 @@ mod fills {
         }).collect())),
         other => Some(other),
       },
+      Expr::Reduce(over, init, step) => fold_tree(over, init, step, None, held),
+      Expr::Field(base, name) => match &**base {
+        Expr::Reduce(over, init, step) => fold_tree(over, init, step, Some(name), held),
+        _ => None,
+      },
       Expr::Builtin { name: Builtin::Concat, args } => {
         let trees: Vec<Option<Tmpl>> = args.iter().map(|e| tree_of(e, held)).collect();
         if trees.iter().all(Option::is_none) {
@@ -6816,6 +7147,69 @@ mod fills {
         }
         Some(Tmpl::Fragment(args.iter().zip(trees).map(|(e, tree)| tree.unwrap_or_else(|| value(e))).collect()))
       }
+      _ => None,
+    }
+  }
+
+  /// A fold whose step only appends markup to its accumulator, `field` of it when the loop wrote several names: what it starts from, then a `Tmpl::For` over the items writing what each one appends.
+  fn fold_tree(over: &Expr, init: &Expr, step: &Expr, field: Option<&String>, held: &HashMap<String, Tmpl>) -> Option<Tmpl> {
+    let Expr::Lambda { params, body } = step else { return None };
+    let [acc, item] = params.as_slice() else { return None };
+    let me = match field {
+      None => Expr::Var(acc.clone()),
+      Some(f) => Expr::Field(Box::new(Expr::Var(acc.clone())), f.clone()),
+    };
+    let field_of = |e: &Expr| -> Option<Expr> {
+      match field {
+        None => Some(e.clone()),
+        Some(f) => match e {
+          Expr::Object(entries) => entries.iter().find_map(|entry| match entry {
+            Entry::Field(k, v) if k == f => Some(v.clone()),
+            _ => None,
+          }),
+          _ => None,
+        },
+      }
+    };
+    let (init, body) = (field_of(init)?, field_of(body)?);
+    let mut found = false;
+    let each = appended(&body, &me, held, &mut found)?;
+    let mut reads_acc = false;
+    each.visit(&mut |e| {
+      let mut free = Vec::new();
+      e.free_vars(&mut free);
+      reads_acc |= free.contains(acc);
+    });
+    if !found || reads_acc {
+      return None;
+    }
+    let start = tree_of(&init, held).unwrap_or_else(|| value(&init));
+    Some(Tmpl::Fragment(vec![start, Tmpl::For { over: over.clone(), params: vec![item.clone()], body: Box::new(each) }]))
+  }
+
+  /// What one step of a fold appends to `me`: nothing when it is `me`, the items after a leading `...me`, a branch over either.
+  fn appended(e: &Expr, me: &Expr, held: &HashMap<String, Tmpl>, found: &mut bool) -> Option<Tmpl> {
+    if e == me {
+      return Some(Tmpl::Fragment(Vec::new()));
+    }
+    match e {
+      Expr::Array(entries) if entries.first() == Some(&Entry::Spread(me.clone())) => {
+        let mut items = Vec::new();
+        for entry in &entries[1..] {
+          match entry {
+            Entry::Item(x) | Entry::Spread(x) => items.push(match tree_of(x, held) {
+              Some(t) => {
+                *found = true;
+                t
+              }
+              None => value(x),
+            }),
+            _ => return None,
+          }
+        }
+        Some(Tmpl::Fragment(items))
+      }
+      Expr::Ternary(c, a, b) => Some(Tmpl::If { cond: (**c).clone(), then: Box::new(appended(a, me, held, found)?), r#else: Some(Box::new(appended(b, me, held, found)?)) }),
       _ => None,
     }
   }

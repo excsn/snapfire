@@ -190,3 +190,60 @@ fn an_optional_map_renders_each_item_and_nothing_for_a_missing_list() {
   let held = html("opt_map_held", &[("routes/page.tsx", "export default function Page() {\n  const data = { rows: [\"a\"] };\n  const items = data?.rows?.map((r) => <li key={r}>{r}</li>);\n  return <ul>{items}</ul>;\n}\n")]);
   assert_eq!(held.as_deref(), Ok("<ul><li>a</li></ul>"));
 }
+
+#[test]
+fn a_for_of_that_pushes_markup_renders_as_the_map_it_stands_for() {
+  let page = |body: &str| format!("export default function Page() {{\n  const rows = [{{ id: \"a\", on: true }}, {{ id: \"b\", on: false }}, {{ id: \"c\", on: true }}];\n{body}\n}}\n");
+  let same = |tag: &str, looped: &str, mapped: &str| {
+    let a = html(&format!("{tag}_loop"), &[("routes/page.tsx", &page(looped))]);
+    let b = html(&format!("{tag}_map"), &[("routes/page.tsx", &page(mapped))]);
+    assert!(a.is_ok(), "{tag}: {a:?}");
+    assert_eq!(a, b, "{tag}");
+  };
+  same("push", "  const out = [];\n  for (const r of rows) {\n    out.push(<li key={r.id}>{r.id}</li>);\n  }\n  return <ul>{out}</ul>;", "  return <ul>{rows.map((r) => <li key={r.id}>{r.id}</li>)}</ul>;");
+  same("after_head", "  const out = [<li key=\"h\">head</li>];\n  for (const { id } of rows) {\n    out.push(<li key={id}>{id}</li>);\n  }\n  return <ul>{out}</ul>;", "  return <ul><li>head</li>{rows.map((r) => <li key={r.id}>{r.id}</li>)}</ul>;");
+  same("if_push", "  const out = [];\n  for (const r of rows) {\n    if (r.on) {\n      out.push(<li key={r.id}>{r.id}</li>);\n    }\n  }\n  return <ul>{out}</ul>;", "  return <ul>{rows.map((r) => r.on && <li key={r.id}>{r.id}</li>)}</ul>;");
+  same("continue", "  const out = [];\n  for (const r of rows) {\n    if (!r.on) continue;\n    out.push(<li key={r.id}>{r.id}</li>);\n  }\n  return <ul>{out}</ul>;", "  return <ul>{rows.map((r) => r.on && <li key={r.id}>{r.id}</li>)}</ul>;");
+  same("local_in_body", "  const out = [];\n  for (const r of rows) {\n    const label = r.id.toUpperCase();\n    out.push(<li key={r.id}>{label}</li>);\n  }\n  return <ul>{out}</ul>;", "  return <ul>{rows.map((r) => <li key={r.id}>{r.id.toUpperCase()}</li>)}</ul>;");
+  same("two_lists", "  const on = [];\n  const off = [];\n  for (const r of rows) {\n    if (r.on) {\n      on.push(<b key={r.id}>{r.id}</b>);\n    } else {\n      off.push(<i key={r.id}>{r.id}</i>);\n    }\n  }\n  return <div>{on}{off}</div>;", "  return <div>{rows.map((r) => r.on && <b key={r.id}>{r.id}</b>)}{rows.map((r) => !r.on && <i key={r.id}>{r.id}</i>)}</div>;");
+}
+
+#[test]
+fn a_for_of_that_writes_values_folds_them_in_order() {
+  let page = "export default function Page() {\n  const rows = [{ n: 2, on: true }, { n: 3, on: false }, { n: 4, on: true }];\n  let total = 0;\n  let count = 0;\n  const names = [];\n  for (const r of rows) {\n    if (!r.on) continue;\n    total += r.n;\n    count++;\n    names.push(String(r.n));\n  }\n  return <p>{total} {count} {names.join(\",\")}</p>;\n}\n";
+  let inline = "export default function Page() {\n  return <p>{6} {2} {\"2,4\"}</p>;\n}\n";
+  assert_eq!(html("fold_values", &[("routes/page.tsx", page)]), html("fold_values_inline", &[("routes/page.tsx", inline)]));
+  let lambda = "export default function Page() {\n  const groups = [[1, 2], [3]];\n  return <ul>{groups.map((g, i) => {\n    let sum = 0;\n    for (const n of g) {\n      sum += n;\n    }\n    return <li key={i}>{sum}</li>;\n  })}</ul>;\n}\n";
+  assert_eq!(html("fold_lambda", &[("routes/page.tsx", lambda)]).as_deref(), Ok("<ul><li>3</li><li>3</li></ul>"));
+}
+
+#[test]
+fn a_for_of_that_stops_early_is_refused_by_name() {
+  for (tag, body, says) in [
+    ("break", "if (r.on) break;", "`break` inside a loop"),
+    ("return", "if (r.on) return null;", "`return` inside a loop"),
+    ("late_continue", "total++;\n    if (r.on) { total++; continue; }", "`continue` inside a loop"),
+  ] {
+    let page = format!("export default function Page() {{\n  const rows = [{{ on: true }}];\n  let total = 0;\n  for (const r of rows) {{\n    {body}\n  }}\n  return <p>{{total}}</p>;\n}}\n");
+    let out = html(tag, &[("routes/page.tsx", &page)]);
+    assert!(out.as_ref().is_err_and(|e| e.contains(says)), "{tag}: {out:?}");
+  }
+}
+
+#[test]
+fn a_counted_for_loop_folds_over_its_range() {
+  let markup = "export default function Page() {\n  const out = [];\n  for (let i = 1; i <= 3; i++) {\n    if (i === 2) continue;\n    out.push(<li key={i}>{i}</li>);\n  }\n  return <ul>{out}</ul>;\n}\n";
+  assert_eq!(html("counted_markup", &[("routes/page.tsx", markup)]).as_deref(), Ok("<ul><li>1</li><li>3</li></ul>"));
+  let values = "export default function Page() {\n  const n = 4;\n  let sum = 0;\n  for (let i = 0; i < n; i += 1) {\n    sum += i;\n  }\n  let none = 0;\n  for (let i = 5; i < 2; i++) {\n    none++;\n  }\n  return <p>{sum} {none}</p>;\n}\n";
+  assert_eq!(html("counted_values", &[("routes/page.tsx", values)]), html("counted_values_inline", &[("routes/page.tsx", "export default function Page() {\n  return <p>{6} {0}</p>;\n}\n")]));
+  for (tag, head, says) in [
+    ("down", "let i = 3; i > 0; i--", "whose test is not `i < b` or `i <= b`"),
+    ("step", "let i = 0; i < 3; i += 2", "that does not step by one"),
+    ("writes_counter", "let i = 0; i < 3; i++) { i++; } for (let j = 0; j < 1; j++", "whose body writes `i`"),
+    ("bound_moves", "let i = 0; i < total; i++", "whose bound reads `total`, which its body writes"),
+  ] {
+    let page = format!("export default function Page() {{\n  let total = 1;\n  for ({head}) {{\n    total++;\n  }}\n  return <p>{{total}}</p>;\n}}\n");
+    let out = html(tag, &[("routes/page.tsx", &page)]);
+    assert!(out.as_ref().is_err_and(|e| e.contains(says)), "{tag}: {out:?}");
+  }
+}
