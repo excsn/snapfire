@@ -189,3 +189,24 @@ fn what_the_lowerer_cannot_read_in_a_page_body_moves_with_the_markup_that_shows_
   assert!(!page.owner.hydrates());
   assert_eq!(set.browser_only.iter().map(|(m, _)| m.as_str()).collect::<Vec<_>>(), vec!["routes/venue/page.island0.tsx#default"], "the island is what the browser renders alone");
 }
+
+#[test]
+fn a_route_whose_second_extraction_does_not_lower_keeps_the_island_its_first_one_wrote() {
+  let loading = r#"import { useTranslations } from "i18n-lib";
+import { home } from "urls-lib";
+import { Content } from "../_components/Content";
+
+export default function Loading() {
+  const t = useTranslations("Feature.Redirect");
+  return <Content title={<p dangerouslySetInnerHTML={{ __html: t("Message", { url: home.toString() }) }} />} />;
+}
+"#;
+  let content = "export const Content = ({ title }: { title: unknown }) => <h1>{title}</h1>;\n";
+  let mut set = set(&[("routes/v2/loading.tsx", loading), ("routes/_components/Content.tsx", content)]);
+  let module = "routes/v2/loading.tsx#default";
+  let first = set.extract_route(module).unwrap().expect("the hook moves into an island");
+  let _ = set.lower_route(module);
+  if let Err(snapfire_fsr_lower::LowerError::Parse { file, message }) = set.lower(&first.island) {
+    panic!("{file}: {message}; the island {} was dropped", first.file);
+  }
+}

@@ -653,11 +653,14 @@ impl ComponentSet {
     };
     forget(self);
     let before = self.provided.insert(file.clone(), extraction.page.clone());
-    self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
+    let island_before = self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
     if self.lower(module).is_err() {
       forget(self);
       self.forget(&extraction.island_file);
-      self.provided.remove(&extraction.island_file);
+      match island_before {
+        Some(source) => self.provided.insert(extraction.island_file.clone(), source),
+        None => self.provided.remove(&extraction.island_file),
+      };
       match before {
         Some(source) => self.provided.insert(file.clone(), source),
         None => self.provided.remove(&file),
