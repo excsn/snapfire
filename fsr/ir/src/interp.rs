@@ -1118,8 +1118,9 @@ impl Env {
       return Err(Fail::internal("a builtin takes a lambda"));
     };
     let depth = self.scope.len();
-    for (param, arg) in params.iter().zip(args) {
-      self.scope.push((param.clone(), arg));
+    let mut args = args.into_iter();
+    for param in params {
+      self.scope.push((param.clone(), args.next().unwrap_or(Value::Null)));
     }
     let result = self.eval_sync(body);
     self.scope.truncate(depth);
@@ -1483,8 +1484,9 @@ impl Env {
       return Err(Fail::internal("a builtin takes a lambda"));
     };
     let depth = self.scope.len();
-    for (param, arg) in params.iter().zip(args) {
-      self.scope.push((param.clone(), arg));
+    let mut args = args.into_iter();
+    for param in params {
+      self.scope.push((param.clone(), args.next().unwrap_or(Value::Null)));
     }
     let result = self.eval(body).await;
     self.scope.truncate(depth);
@@ -2575,6 +2577,18 @@ mod held_tests {
     let read = Expr::Const("a#CHAPTERS".to_owned()).index(Expr::var("i")).field("n");
     assert_eq!(env.eval_sync(&read).unwrap(), Value::F64(2.0));
     assert_eq!(env.eval_sync(&read).unwrap(), Value::F64(2.0));
+  }
+
+  #[test]
+  fn a_parameter_the_call_leaves_out_is_undefined_and_takes_its_default() {
+    let pick = Expr::Lambda {
+      params: vec!["a".to_owned(), "b".to_owned(), "c".to_owned()],
+      body: Box::new(Expr::Coalesce(Box::new(Expr::var("c")), Box::new(Expr::lit_str("fallback")))),
+    };
+    let interpreter = interpreter(Vec::new());
+    let mut env = Env::detached(&interpreter, Vec::new());
+    let call = Expr::Apply { f: Box::new(pick), args: vec![int(1), int(2)] };
+    assert_eq!(env.eval_sync(&call).unwrap(), Value::str("fallback"));
   }
 
   #[test]
