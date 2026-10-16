@@ -103,3 +103,50 @@ fn a_port_already_taken_fails_serve_without_announcing_the_server() {
   assert!(stderr.contains(&listen), "{stderr}");
   let _ = std::fs::remove_dir_all(&root);
 }
+
+fn get(listen: &str, path: &str) -> String {
+  let mut stream = TcpStream::connect(listen).unwrap();
+  stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+  write!(stream, "GET {path} HTTP/1.1\r\nHost: {listen}\r\nConnection: close\r\n\r\n").unwrap();
+  let mut response = Vec::new();
+  let _ = stream.read_to_end(&mut response);
+  String::from_utf8_lossy(&response).into_owned()
+}
+
+#[test]
+fn a_production_serve_reads_back_the_trace_of_an_exposed_path() {
+  let root = project("expose", None);
+  let config = root.join("config/app.toml");
+  let text = std::fs::read_to_string(&config).unwrap() + "\n[trace]\nexpose = [\"/notice\"]\n";
+  std::fs::write(&config, text).unwrap();
+  let listen = format!("127.0.0.1:{}", free_port());
+  let mut child = Command::new(env!("CARGO_BIN_EXE_fsr"))
+    .arg("serve")
+    .arg(root.join("app"))
+    .args(["--listen", &listen])
+    .env("RELEASE_ENV", "production")
+    .env("C5_SESSION__KEY", "a-test-session-key-of-at-least-32-bytes")
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped())
+    .spawn()
+    .unwrap();
+  let deadline = Instant::now() + Duration::from_secs(30);
+  while TcpStream::connect(&listen).is_err() {
+    if Instant::now() > deadline {
+      let _ = child.kill();
+      panic!("{:?}", child.wait_with_output().unwrap());
+    }
+    std::thread::sleep(Duration::from_millis(50));
+  }
+  let page = get(&listen, "/notice/roof");
+  let token = page.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("x-sf-request:").map(|v| v.trim().to_owned()));
+  let trace = token.as_ref().map(|token| get(&listen, &format!("/__fsr/trace/{token}")));
+  let _ = child.kill();
+  let output = child.wait_with_output().unwrap();
+  let stdout = String::from_utf8_lossy(&output.stdout);
+  let token = token.unwrap_or_else(|| panic!("an exposed page carries x-sf-request: {page}\n{stdout}"));
+  let trace = trace.unwrap();
+  assert!(trace.starts_with("HTTP/1.1 200"), "/__fsr/trace/{token}: {trace}");
+  assert!(!stdout.contains("/__fsr/traces"), "the trace list is development only: {stdout}");
+  let _ = std::fs::remove_dir_all(&root);
+}
