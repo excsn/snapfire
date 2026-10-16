@@ -81,7 +81,7 @@ async fn body_of(response: http::Response<snapfire_fsr_host::Body>) -> String {
 }
 
 fn cookie_of(response: &http::Response<snapfire_fsr_host::Body>) -> String {
-  response.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().split(';').next().unwrap().to_owned()
+  response.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap()).find(|v| v.starts_with("sf_session=")).expect("a session cookie").split(';').next().unwrap().to_owned()
 }
 
 #[tokio::test]
@@ -123,7 +123,9 @@ async fn one_sign_in_covers_the_site_and_its_guard() {
   let response = portal
     .handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap())
     .await;
+  let signed_in = response.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap()).find(|v| v.starts_with("sf_session=")).map(|v| v.split(';').next().unwrap().to_owned());
   assert_eq!(response.status(), StatusCode::SEE_OTHER, "{}", body_of(response).await);
+  let cookie = signed_in.expect("the sign-in's session cookie");
   let response = portal.handle(Request::get("/billing/overdue").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::OK);
   let html = body_of(response).await;
@@ -147,9 +149,10 @@ async fn the_nav_marks_the_page_being_shown_across_the_mount() {
 
   let response = portal.handle(Request::get("/login").body(Bytes::new()).unwrap()).await;
   let cookie = cookie_of(&response);
-  portal
+  let response = portal
     .handle(Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap())
     .await;
+  let cookie = cookie_of(&response);
 
   let html = body_of(portal.handle(Request::get("/billing").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
   assert!(anchor(&html, "/billing").contains("aria-current=\"true\""), "a section link is marked on the page it covers: {}", anchor(&html, "/billing"));

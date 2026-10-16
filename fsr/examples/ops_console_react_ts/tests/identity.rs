@@ -12,7 +12,7 @@ async fn text(response: http::Response<snapfire_fsr_host::Body>) -> String {
 }
 
 fn cookie_of(response: &http::Response<snapfire_fsr_host::Body>) -> String {
-  let set = response.headers().get(header::SET_COOKIE).expect("a session cookie").to_str().unwrap();
+  let set = response.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap()).find(|v| v.starts_with("sf_session=")).expect("a session cookie");
   set.split(';').next().unwrap().to_owned()
 }
 
@@ -55,6 +55,7 @@ async fn sessions_and_sign_in_are_calls_to_the_identity_service() {
     panic!("callback answered {status}: {}", text(response).await);
   }
   assert_eq!(location(&response), "/account", "the service accepted the password");
+  let cookie = cookie_of(&response);
   let id = cookie.split('=').nth(1).unwrap().split('.').next().unwrap().to_owned();
   let stored = service.session(&id).unwrap_or_else(|| service.sessions_dump());
   assert!(stored.contains("\"alice\""), "the identity is in the service's record: {stored}");

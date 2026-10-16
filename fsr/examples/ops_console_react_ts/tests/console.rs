@@ -279,6 +279,7 @@ fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
   ));
   assert_eq!(response.status(), 303);
   assert_eq!(location(&response), "/account");
+  let cookie = response.headers().get_all(header::SET_COOKIE).iter().map(|v| v.to_str().unwrap()).find(|v| v.starts_with("sf_session=")).expect("the sign-in's session cookie").split(';').next().unwrap().to_owned();
 
   let response = block_on(app.handle(Request::get("/account").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()));
   assert_eq!(response.status(), 200);
