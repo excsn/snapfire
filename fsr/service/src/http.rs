@@ -67,6 +67,48 @@ fn scalar_to_path(value: &Value) -> String {
   }
 }
 
+/// `text` with every `\u` escape of an unpaired surrogate written as `�`, which is what a browser displays for one; JSON allows them and a Rust string cannot hold them.
+fn replace_lone_surrogates(text: &str) -> std::borrow::Cow<'_, str> {
+  if !text.contains("\\u") {
+    return std::borrow::Cow::Borrowed(text);
+  }
+  let bytes = text.as_bytes();
+  let unit = |at: usize| -> Option<u16> {
+    let escape = bytes.get(at..at + 6)?;
+    if escape[0] != b'\\' || escape[1] != b'u' {
+      return None;
+    }
+    u16::from_str_radix(std::str::from_utf8(&escape[2..]).ok()?, 16).ok()
+  };
+  let mut out = String::with_capacity(text.len());
+  let (mut copied, mut i, mut in_string) = (0, 0, false);
+  while i < bytes.len() {
+    match bytes[i] {
+      b'"' => in_string = !in_string,
+      b'\\' if in_string => {
+        match unit(i) {
+          Some(0xD800..=0xDBFF) if matches!(unit(i + 6), Some(0xDC00..=0xDFFF)) => i += 12,
+          Some(0xD800..=0xDFFF) => {
+            out.push_str(&text[copied..i]);
+            out.push_str("\\uFFFD");
+            i += 6;
+            copied = i;
+          }
+          _ => i += 2,
+        }
+        continue;
+      }
+      _ => {}
+    }
+    i += 1;
+  }
+  if copied == 0 {
+    return std::borrow::Cow::Borrowed(text);
+  }
+  out.push_str(&text[copied..]);
+  std::borrow::Cow::Owned(out)
+}
+
 pub fn kind_for_status(status: u16) -> FailureKind {
   match status {
     401 | 403 => FailureKind::Unauthorized,
@@ -184,7 +226,7 @@ impl Transport for HttpTransport {
         return Ok(Value::Null);
       }
       let json: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| fail(FailureKind::Internal, e.to_string()))?;
+        serde_json::from_str(&replace_lone_surrogates(&text)).map_err(|e| fail(FailureKind::Internal, e.to_string()))?;
       json_to_value(&json).map_err(|e| fail(FailureKind::Internal, e.to_string()))
     })
   }

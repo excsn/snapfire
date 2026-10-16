@@ -114,6 +114,24 @@ async fn a_method_posts_its_arguments_and_decodes_the_response() {
 }
 
 #[tokio::test]
+async fn an_unpaired_surrogate_in_a_response_decodes_as_the_replacement_character() {
+  let (base, _) = serve(vec![
+    (200, r#"{"name":"a\ud800b \udc00 \\ud800 \ud83d\ude00","load":0.5}"#),
+  ]);
+  let services = Services::builder()
+    .contract(contract())
+    .default_transport(Arc::new(HttpTransport::new(&base)))
+    .build();
+
+  let got = services
+    .bind_anonymous()
+    .call("fleet", "get", args(vec![("name", Value::str("web-1"))]))
+    .await
+    .unwrap();
+  assert_eq!(got, Value::Map(args(vec![("name", Value::str("a\u{FFFD}b \u{FFFD} \\ud800 \u{1F600}")), ("load", Value::F64(0.5))])));
+}
+
+#[tokio::test]
 async fn interceptor_metadata_becomes_request_headers() {
   let (base, seen) = serve(vec![(200, r#"{"name":"web-1","load":0.5}"#)]);
   let services = Services::builder()
