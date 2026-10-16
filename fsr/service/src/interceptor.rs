@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
@@ -132,12 +131,11 @@ impl Interceptor for CredentialInterceptor {
 /// reused by every call that carries it in.
 pub struct TraceInterceptor {
   key: String,
-  counter: AtomicU64,
 }
 
 impl TraceInterceptor {
   pub fn new() -> Self {
-    Self { key: "x-sf-request-id".to_owned(), counter: AtomicU64::new(1) }
+    Self { key: "x-sf-request-id".to_owned() }
   }
 
   pub fn key(mut self, key: impl Into<String>) -> Self {
@@ -155,8 +153,7 @@ impl Default for TraceInterceptor {
 impl Interceptor for TraceInterceptor {
   fn call(&self, mut call: Call, next: Next) -> BoxFuture<'static, Result<Value, ServiceError>> {
     if call.metadata_str(&self.key).is_none() {
-      let id = self.counter.fetch_add(1, Ordering::Relaxed);
-      call.set_metadata(self.key.clone(), format!("{id:016x}"));
+      call.set_metadata(self.key.clone(), format!("{:016x}", call.request));
     }
     tracing::debug!(
       target: "fsr::service",

@@ -8,7 +8,7 @@ use snapfire_fsr_service::{import_proto, Call, GrpcTransport, NoCredentials, Tra
 fn call(method: &str, product_id: i64) -> Call {
   let mut args = ValueMap::default();
   args.insert("product_id".to_owned(), Value::int(product_id));
-  Call { service: "inventory".to_owned(), method: method.to_owned(), args, identity: None, metadata: ValueMap::default(), credentials: Arc::new(NoCredentials) }
+  Call { service: "inventory".to_owned(), method: method.to_owned(), args, identity: None, metadata: ValueMap::default(), credentials: Arc::new(NoCredentials), request: 0 }
 }
 
 #[tokio::test]

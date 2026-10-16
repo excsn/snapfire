@@ -65,6 +65,7 @@ fn call(method: &str, args: ValueMap) -> Call {
     identity: None,
     metadata: ValueMap::default(),
     credentials: Arc::new(NoCredentials),
+    request: 0,
   }
 }
 

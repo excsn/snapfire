@@ -283,6 +283,7 @@ fn a_route_argument_and_metadata_that_cannot_be_sent_are_refused() {
     identity: None,
     metadata,
     credentials: Arc::new(NoCredentials),
+    request: 0,
   };
 
   let mut args = ValueMap::default();

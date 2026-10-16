@@ -64,6 +64,7 @@ impl Services {
       services: self.clone(),
       identity,
       credentials,
+      request: crate::call::next_request(),
     }))
   }
 
@@ -171,6 +172,7 @@ struct BoundServices {
   services: Arc<Services>,
   identity: Option<Identity>,
   credentials: Arc<dyn Credentials>,
+  request: u64,
 }
 
 impl ServiceCaller for BoundServices {
@@ -208,6 +210,7 @@ impl ServiceCaller for BoundServices {
       identity: self.identity.clone(),
       metadata: ValueMap::default(),
       credentials: self.credentials.clone(),
+      request: self.request,
     };
     let running = Next::start(chain.clone()).run(call);
     let check = self.services.check_responses;

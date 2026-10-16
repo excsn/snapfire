@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use snapfire_fsr_core::{Value, ValueMap};
@@ -14,6 +15,15 @@ pub struct Call {
   pub identity: Option<Identity>,
   pub metadata: ValueMap,
   pub credentials: Arc<dyn Credentials>,
+  /// The request the call is made for, shared by every call one binding makes.
+  pub request: u64,
+}
+
+static REQUESTS: AtomicU64 = AtomicU64::new(1);
+
+/// A request number no other binding in this process holds.
+pub fn next_request() -> u64 {
+  REQUESTS.fetch_add(1, Ordering::Relaxed)
 }
 
 impl Call {

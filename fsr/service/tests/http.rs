@@ -7,7 +7,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, Identity};
 use snapfire_fsr_service::{
   Contract, CredentialInterceptor, Field, HttpTransport, IdentityInterceptor, Method, Route,
-  Services, Type,
+  Services, TraceInterceptor, Type,
 };
 use snapfire_fsr_session::TokenCell;
 
@@ -129,6 +129,28 @@ async fn an_unpaired_surrogate_in_a_response_decodes_as_the_replacement_characte
     .await
     .unwrap();
   assert_eq!(got, Value::Map(args(vec![("name", Value::str("a\u{FFFD}b \u{FFFD} \\ud800 \u{1F600}")), ("load", Value::F64(0.5))])));
+}
+
+#[tokio::test]
+async fn every_call_one_request_makes_carries_the_same_request_id() {
+  let body = r#"{"name":"web-1","load":0.5}"#;
+  let (base, seen) = serve(vec![(200, body), (200, body), (200, body)]);
+  let services = Services::builder()
+    .contract(contract())
+    .intercept(Arc::new(TraceInterceptor::new()))
+    .default_transport(Arc::new(HttpTransport::new(&base)))
+    .build();
+
+  let request = services.bind_anonymous();
+  for _ in 0..2 {
+    request.call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap();
+  }
+  services.bind_anonymous().call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap();
+
+  let seen = seen.lock();
+  let ids: Vec<&str> = seen.iter().map(|r| header_of(r, "x-sf-request-id").unwrap()).collect();
+  assert_eq!(ids[0], ids[1], "{ids:?}");
+  assert_ne!(ids[1], ids[2], "{ids:?}");
 }
 
 #[tokio::test]

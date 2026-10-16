@@ -381,6 +381,7 @@ async fn call(service: &Arc<dyn Transport>, method: &str, args: ValueMap) -> Val
     identity: None,
     metadata: ValueMap::default(),
     credentials: Arc::new(snapfire_fsr_service::NoCredentials),
+    request: 0,
   };
   service.call(call).await.unwrap()
 }
