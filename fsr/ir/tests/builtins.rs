@@ -127,6 +127,9 @@ async fn query_strings_encode_the_way_url_search_params_does() {
   assert_eq!(run(Expr::Builtin { name: Builtin::Unique, args: vec![over(&["a", "b", "a"])] }).await, seq(&["a", "b"]));
   let map = Expr::Builtin { name: Builtin::FromEntries, args: vec![Expr::Array(vec![Entry::Item(Expr::Array(vec![Entry::Item(Expr::Lit(Lit::Float(1.0))), Entry::Item(str("one"))]))])] };
   assert_eq!(run(Expr::Builtin { name: Builtin::HasKey, args: vec![map, Expr::Lit(Lit::Float(1.0))] }).await, Value::Bool(true), "a number key is held as its text");
+  let has = |at: f64| Expr::Builtin { name: Builtin::HasKey, args: vec![over(&["a", "b"]), Expr::Lit(Lit::Float(at))] };
+  assert_eq!(run(has(1.0)).await, Value::Bool(true), "an array holds its indices");
+  assert_eq!(run(has(2.0)).await, Value::Bool(false));
 }
 
 #[tokio::test]

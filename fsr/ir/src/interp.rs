@@ -2409,7 +2409,8 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     },
     Builtin::HasKey => match arg(0)? {
       Value::Map(map) => Value::Bool(map.contains_key(stringify(arg(1)?)?.as_str())),
-      other => return Err(type_error(&format!("{name:?}"), "a map", other)),
+      Value::Seq(items) => Value::Bool(stringify(arg(1)?)?.parse::<usize>().is_ok_and(|i| i < items.len())),
+      other => return Err(type_error(&format!("{name:?}"), "an object or an array", other)),
     },
     Builtin::FormEncode => {
       let pairs: Vec<(String, String)> = match arg(0)? {

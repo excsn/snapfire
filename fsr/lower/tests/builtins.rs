@@ -341,6 +341,12 @@ fn url_search_params_reads_a_value_by_its_key() {
 }
 
 #[test]
+fn in_tests_a_key() {
+  let body = lowered("in_key", "\"slug\" in params.page").unwrap_or_else(|e| panic!("{e}"));
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::HasKey, args }, .. } if matches!(&args[1], Expr::Str(_) | Expr::Lit(_))), "{body:?}");
+}
+
+#[test]
 fn filter_takes_boolean_as_its_callback() {
   let body = lowered("filter_boolean", "params.tags.filter(Boolean)").unwrap_or_else(|e| panic!("{e}"));
   assert!(matches!(&body[0], Stmt::Let { expr: Expr::Filter(_, f), .. } if matches!(&**f, Expr::Lambda { .. })), "{body:?}");

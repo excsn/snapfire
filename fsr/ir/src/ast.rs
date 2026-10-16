@@ -216,7 +216,7 @@ pub enum Builtin {
   FromEntries,
   /// `new Set(items)`: the items without repeats, first occurrence kept.
   Unique,
-  /// `map.has(key)` over an object a `Map` lowered to.
+  /// `map.has(key)` over an object a `Map` lowered to and `key in x`: an object's own key, an array's index.
   HasKey,
   /// `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded.
   FormEncode,

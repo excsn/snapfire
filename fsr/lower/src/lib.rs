@@ -1599,6 +1599,7 @@ impl<'a> Lowerer<'a> {
           js::BinaryOp::LogicalAnd => Expr::Logic(LogicOp::And, l, r),
           js::BinaryOp::LogicalOr => Expr::Logic(LogicOp::Or, l, r),
           js::BinaryOp::NullishCoalescing => Expr::Coalesce(l, r),
+          js::BinaryOp::In => Expr::Builtin { name: Builtin::HasKey, args: vec![*r, *l] },
           other => return Err(self.residue(bin.span, format!("the `{}` operator", other))),
         })
       }
