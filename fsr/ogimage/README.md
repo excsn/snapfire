@@ -10,7 +10,7 @@ Renders a card, a tree of boxes, text and images styled with a subset of CSS, to
 
 ```toml
 [dependencies]
-snapfire_fsr_ogimage = "0.1"
+snapfire_fsr_ogimage = "0.2"
 ```
 
 No features. Everything is pure Rust. A stripped release binary grows by about 1.9 MB.

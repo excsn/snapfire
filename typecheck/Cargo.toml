@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_typecheck"
-version = "0.1.0"
+version = "0.2.0"
 description = "Typecheck a TypeScript project against a pinned tsc. No NodeJS required."
 
 keywords = ["typescript", "typecheck", "tsc", "build-tools"]

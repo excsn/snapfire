@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_sitemap"
-version = "0.1.0"
+version = "0.2.0"
 description = "Sitemap and sitemap index writer with the protocol limits enforced"
 keywords = ["snapfire", "sitemap", "sitemapindex", "seo", "xml"]
 categories = ["web-programming"]

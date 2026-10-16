@@ -18,7 +18,7 @@ The [usage guide](README.USAGE.md) walks the tasks. The [API reference](API_REFE
 
 ```toml
 [dependencies]
-snapfire_sitemap = "0.1"
+snapfire_sitemap = "0.2"
 ```
 
 No feature flags.

@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_ogimage"
-version = "0.1.0"
+version = "0.2.0"
 description = "Renders a card, a tree of boxes, text and images styled with a subset of CSS, to PNG or JPEG"
 keywords = ["snapfire", "fsr", "opengraph", "image", "card"]
 categories = ["graphics", "rendering", "web-programming"]

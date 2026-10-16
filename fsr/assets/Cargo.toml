@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_assets"
-version = "0.2.0"
+version = "0.3.0"
 description = "What FSR derives from an image or a font: resized and re-encoded variants under one policy, a face's metrics and the fallback that matches them"
 keywords = ["snapfire", "fsr", "image", "font", "avif"]
 categories = ["web-programming", "multimedia::images"]
@@ -17,7 +17,7 @@ readme = "README.md"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "ico"] }
 fast_image_resize = { version = "6", features = ["image"] }
 webp = "0.3"
-snapfire_media = { path = "../../media", version = "0.2.0" }
+snapfire_media = { path = "../../media", version = "0.3.0" }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"

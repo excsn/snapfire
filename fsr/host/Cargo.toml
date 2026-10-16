@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_fsr_host"
-version = "0.19.0"
+version = "0.20.0"
 description = "The stock host for SnapFire FSR: an app.toml, a plan file and a contract become a tower service over http types, served by hyper or mounted anywhere."
 keywords = ["snapfire", "fsr", "http-server", "ssr", "tower"]
 categories = ["web-programming::http-server"]
@@ -45,7 +45,7 @@ snapfire_fsr_ogimage.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_service = { workspace = true, features = ["grpc"] }
 snapfire_fsr_session.workspace = true
-snapfire_sitemap = { path = "../../sitemap", version = "0.1.0" }
+snapfire_sitemap = { path = "../../sitemap", version = "0.2.0" }
 bytes = "1"
 c5store = { version = "^0", features = ["toml"] }
 ecies_25519 = "^0"

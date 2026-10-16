@@ -10,7 +10,7 @@ What FSR derives from an image or a font: resized and re-encoded variants under 
 
 ```toml
 [dependencies]
-snapfire_fsr_assets = "0.2"
+snapfire_fsr_assets = "0.3"
 ```
 
 No features. AVIF encoding is pure Rust through `ravif`; WebP encoding links `libwebp` through the `webp` crate.
