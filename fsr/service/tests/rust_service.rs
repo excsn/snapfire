@@ -58,15 +58,7 @@ impl ServerFleet {
 }
 
 fn call(method: &str, args: ValueMap) -> Call {
-  Call {
-    service: "server_fleet".to_owned(),
-    method: method.to_owned(),
-    args,
-    identity: None,
-    metadata: ValueMap::default(),
-    credentials: Arc::new(NoCredentials),
-    request: 0,
-  }
+  Call::new("server_fleet", method, args)
 }
 
 #[test]

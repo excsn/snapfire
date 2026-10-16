@@ -1,14 +1,13 @@
-use std::sync::Arc;
 
 use shopping_react_ts::backend::inventory;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::FailureKind;
-use snapfire_fsr_service::{import_proto, Call, GrpcTransport, NoCredentials, Transport};
+use snapfire_fsr_service::{import_proto, Call, GrpcTransport, Transport};
 
 fn call(method: &str, product_id: i64) -> Call {
   let mut args = ValueMap::default();
   args.insert("product_id".to_owned(), Value::int(product_id));
-  Call { service: "inventory".to_owned(), method: method.to_owned(), args, identity: None, metadata: ValueMap::default(), credentials: Arc::new(NoCredentials), request: 0 }
+  Call::new("inventory", method, args)
 }
 
 #[tokio::test]

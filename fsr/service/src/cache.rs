@@ -20,7 +20,7 @@ use parking_lot::RwLock;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_runtime::{FailureKind, ServiceError};
 
-use crate::call::{Call, NoCredentials};
+use crate::call::Call;
 use crate::contract::{Contract, Freshness, Scope};
 use crate::interceptor::{Chain, Interceptor, Next};
 
@@ -225,7 +225,7 @@ impl DataCache {
           let cache = loader_of.clone();
           async move {
             let path = format!("{}.{}", key.service, key.method);
-            let call = Call { service: key.service.clone(), method: key.method.clone(), args: key.args.clone(), identity: None, metadata: ValueMap::default(), credentials: Arc::new(NoCredentials), request: crate::call::next_request() };
+            let call = Call::new(key.service.clone(), key.method.clone(), key.args.clone());
             let result = match cache.inner.continuation.get() {
               Some(continuation) => continuation.run(call).await,
               None => Err(ServiceError::new(FailureKind::Unavailable, key.service.clone(), key.method.clone(), "the data cache is not attached to a registry")),

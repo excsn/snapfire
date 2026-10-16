@@ -8,6 +8,7 @@ use snapfire_fsr_session::TokenCell;
 /// One outbound call as it travels the chain. Interceptors read the identity
 /// and write metadata; `credentials` is reachable here and nowhere in
 /// application code, which is what the custody claim rests on.
+#[non_exhaustive]
 pub struct Call {
   pub service: String,
   pub method: String,
@@ -27,6 +28,35 @@ pub fn next_request() -> u64 {
 }
 
 impl Call {
+  /// A call with no identity, empty metadata, no credentials and a request
+  /// number of its own.
+  pub fn new(service: impl Into<String>, method: impl Into<String>, args: ValueMap) -> Self {
+    Self {
+      service: service.into(),
+      method: method.into(),
+      args,
+      identity: None,
+      metadata: ValueMap::default(),
+      credentials: Arc::new(NoCredentials),
+      request: next_request(),
+    }
+  }
+
+  pub fn with_identity(mut self, identity: Option<Identity>) -> Self {
+    self.identity = identity;
+    self
+  }
+
+  pub fn with_credentials(mut self, credentials: Arc<dyn Credentials>) -> Self {
+    self.credentials = credentials;
+    self
+  }
+
+  pub fn with_request(mut self, request: u64) -> Self {
+    self.request = request;
+    self
+  }
+
   pub fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>) {
     self.metadata.insert(key.into(), Value::str(value.into()));
   }

@@ -271,19 +271,14 @@ fn a_typedef_is_data_the_build_can_read_back() {
 #[test]
 fn a_route_argument_and_metadata_that_cannot_be_sent_are_refused() {
   use futures::executor::block_on;
-  use snapfire_fsr_service::{Call, HttpTransport, NoCredentials, Route, Transport};
-  use std::sync::Arc;
+  use snapfire_fsr_service::{Call, HttpTransport, Route, Transport};
 
   let transport =
     HttpTransport::new("http://127.0.0.1:1").route("fleet.getServer", Route::get("/servers/{id}"));
-  let call = |args: ValueMap, metadata: ValueMap| Call {
-    service: "fleet".to_owned(),
-    method: "getServer".to_owned(),
-    args,
-    identity: None,
-    metadata,
-    credentials: Arc::new(NoCredentials),
-    request: 0,
+  let call = |args: ValueMap, metadata: ValueMap| {
+    let mut call = Call::new("fleet", "getServer", args);
+    call.metadata = metadata;
+    call
   };
 
   let mut args = ValueMap::default();

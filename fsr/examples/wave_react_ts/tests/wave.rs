@@ -374,15 +374,7 @@ fn titles(listed: &Value) -> Vec<String> {
 }
 
 async fn call(service: &Arc<dyn Transport>, method: &str, args: ValueMap) -> Value {
-  let call = snapfire_fsr_service::Call {
-    service: "waves".to_owned(),
-    method: method.to_owned(),
-    args,
-    identity: None,
-    metadata: ValueMap::default(),
-    credentials: Arc::new(snapfire_fsr_service::NoCredentials),
-    request: 0,
-  };
+  let call = snapfire_fsr_service::Call::new("waves", method, args);
   service.call(call).await.unwrap()
 }
 

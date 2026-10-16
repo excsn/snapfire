@@ -203,15 +203,10 @@ impl ServiceCaller for BoundServices {
       return Box::pin(async move { Err(error) });
     };
 
-    let call = Call {
-      service: service.to_owned(),
-      method: method.to_owned(),
-      args,
-      identity: self.identity.clone(),
-      metadata: ValueMap::default(),
-      credentials: self.credentials.clone(),
-      request: self.request,
-    };
+    let call = Call::new(service, method, args)
+      .with_identity(self.identity.clone())
+      .with_credentials(self.credentials.clone())
+      .with_request(self.request);
     let running = Next::start(chain.clone()).run(call);
     let check = self.services.check_responses;
     let service = service.to_owned();

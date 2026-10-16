@@ -240,16 +240,23 @@ Module `call`, re-exported at the crate root.
 
 ### Call
 
-One outbound call as it travels the chain. Interceptors read the identity and write metadata; `credentials` is reachable here and nowhere in application code.
+One outbound call as it travels the chain. Interceptors read the identity and write metadata; `credentials` is reachable here and nowhere in application code. `#[non_exhaustive]`: build one with `Call::new` outside this crate.
 
+* `fn new(service: impl Into<String>, method: impl Into<String>, args: ValueMap) -> Call` starts with no identity, empty metadata, `NoCredentials` and a fresh `request`
+* `fn with_identity(self, identity: Option<Identity>) -> Call`
+* `fn with_credentials(self, credentials: Arc<dyn Credentials>) -> Call`
+* `fn with_request(self, request: u64) -> Call`
 * `pub service: String`
 * `pub method: String`
 * `pub args: ValueMap`
 * `pub identity: Option<Identity>`
 * `pub metadata: ValueMap`, empty when the chain starts
 * `pub credentials: Arc<dyn Credentials>`
+* `pub request: u64`, the request the call is made for; every call one binding makes carries the same number, which `TraceInterceptor` writes as `x-sf-request-id`
 * `fn set_metadata(&mut self, key: impl Into<String>, value: impl Into<String>)` writes a `Value::Str` entry
 * `fn metadata_str(&self, key: &str) -> Option<&str>` reads one back, returning `None` for an entry that is not a string
+
+`call::next_request() -> u64` returns a request number no other binding in this process holds, counting from 1.
 
 ### Credentials
 
@@ -302,10 +309,10 @@ Writes `{scheme}{token}` under the header key. Writes nothing when custody holds
 
 A request id that survives the whole fanout. Also `Default`.
 
-* `fn new() -> Self` with key `x-sf-request-id` and a counter starting at 1
+* `fn new() -> Self` with key `x-sf-request-id`
 * `fn key(self, key: impl Into<String>) -> Self`
 
-Writes a zero-padded 16-digit lowercase hex counter under that key, but only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`. It opens the `call` span on target `fsr::trace` around the rest of the chain, with fields `service`, `method`, `cache` and `fibre.outcome`. `cache` opens as `none` and `DataCache` records `hit` or `miss` on it when a policy is consulted.
+Writes the call's `request` as a zero-padded 16-digit lowercase hex number under that key, but only when the key is not already set, so an id minted at the edge is left alone. It also emits a `tracing` debug event on target `fsr::service` with fields `service`, `method` and `request_id`. It opens the `call` span on target `fsr::trace` around the rest of the chain, with fields `service`, `method`, `cache` and `fibre.outcome`. `cache` opens as `none` and `DataCache` records `hit` or `miss` on it when a policy is consulted.
 
 ### DataCache
 
