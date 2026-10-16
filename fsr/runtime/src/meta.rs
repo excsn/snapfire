@@ -183,6 +183,23 @@ impl Meta {
     self.title.is_none() && self.description.is_none() && self.head.is_empty()
   }
 
+  /// Adds `og:title` and `og:description` to `head` from the document's
+  /// title and description, each only where no element already names it.
+  pub fn card_text(head: &mut Vec<HeadEl>, title: &str, description: Option<&str>) {
+    let rows = [("og:title", Some(title)), ("og:description", description)];
+    for (property, content) in rows {
+      let Some(content) = content.filter(|c| !c.is_empty()) else { continue };
+      if head.iter().any(|e| e.tag == "meta" && e.attr("property") == Some(property)) {
+        continue;
+      }
+      head.push(HeadEl {
+        tag: "meta".to_owned(),
+        attrs: vec![("property".to_owned(), property.to_owned()), ("content".to_owned(), content.to_owned())],
+        children: None,
+      });
+    }
+  }
+
   /// Folds an inner segment over this one: a title or description it sets
   /// wins and each of its head elements replaces the one of the same
   /// identity in place. An element matching nothing is appended. Outermost is
@@ -377,6 +394,7 @@ impl Head {
     if merged.head.iter().any(|e| e.is_icon() && !e.is_empty_icon()) {
       merged.head.retain(|e| !e.is_empty_icon());
     }
+    Meta::card_text(&mut merged.head, &title, description);
     if let Some(origin) = &self.origin {
       for element in &mut merged.head {
         let attr = |key: &str| element.attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str());

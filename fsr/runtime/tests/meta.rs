@@ -96,7 +96,40 @@ fn a_described_segment_titles_the_document_over_the_defaults() {
     Meta::default().title(Some("Nozzle <XL> · Shop".into())).description(Some("All about Nozzle <XL>".into()))
   );
   let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
-  assert!(html.contains("<meta charset=\"utf-8\"><title>Nozzle &lt;XL&gt; · Shop</title><meta name=\"description\" content=\"All about Nozzle &lt;XL&gt;\"></head>"), "{html}");
+  assert!(html.contains("<meta charset=\"utf-8\"><title>Nozzle &lt;XL&gt; · Shop</title><meta name=\"description\" content=\"All about Nozzle &lt;XL&gt;\"><meta property=\"og:title\" content=\"Nozzle &lt;XL&gt; · Shop\"><meta property=\"og:description\" content=\"All about Nozzle &lt;XL&gt;\"></head>"), "{html}");
+}
+
+/// Titles the document and names its own `og:title`.
+struct OwnCard;
+
+impl Metadata for OwnCard {
+  fn describe(&self, _ctx: &RequestCtx, _data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
+    Box::pin(async move {
+      Ok(Meta::default().title(Some("Nozzle · Shop".into())).head(vec![el("meta", &[("property", "og:title"), ("content", "The nozzle")])]))
+    })
+  }
+}
+
+#[test]
+fn a_card_names_the_document_title_and_description_unless_a_segment_named_its_own() {
+  let mut sources = DataSources::new();
+  sources.insert_fn("product", |_p| async move { Ok(ValueMap::default()) });
+  let mut evaluators = Evaluators::new();
+  evaluators.register(|m: &ModuleId| m.path == "shell", Arc::new(Shell));
+  evaluators.register(|m: &ModuleId| m.path == "page", Arc::new(Page));
+  let rt = Runtime::builder().sources(sources).evaluators(evaluators).meta("product", Arc::new(OwnCard)).build();
+  let assembly = block_on(assemble(&rt, &plan(false), &RequestCtx::anonymous(Params::new()), head())).unwrap();
+  let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
+  assert_eq!(html.matches("property=\"og:title\"").count(), 1, "{html}");
+  assert!(html.contains("<meta property=\"og:title\" content=\"The nozzle\">"), "{html}");
+  assert!(html.contains("<meta property=\"og:description\" content=\"A shop\">"), "the default description fills the card: {html}");
+
+  let mut bare = head();
+  bare.description = None;
+  let assembly = block_on(assemble(&runtime_titled(true), &plan(false), &RequestCtx::anonymous(Params::new()), bare)).unwrap();
+  let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
+  assert!(html.contains("<meta property=\"og:title\" content=\"Nozzle {title}\">"), "{html}");
+  assert!(!html.contains("og:description"), "no description writes no og:description: {html}");
 }
 
 #[test]
