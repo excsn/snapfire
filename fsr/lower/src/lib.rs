@@ -1609,7 +1609,10 @@ impl<'a> Lowerer<'a> {
         "undefined" => Ok(Expr::Lit(Lit::Null)),
         _ => {
           self.unbound = Some(name.to_owned());
-          Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow, or a name from outside the body")))
+          match crate::component::find_import(self.parsed, name) {
+            Some((source, _)) => Err(self.residue(id.span, format!("`{name}` comes from `{source}`, which the build cannot follow"))),
+            None => Err(self.residue(id.span, format!("`{name}` is not bound here; an import the build cannot follow, or a name from outside the body"))),
+          }
         }
       },
     }

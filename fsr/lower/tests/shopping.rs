@@ -213,6 +213,19 @@ export async function load({ params }: Ctx) {
 }
 
 #[test]
+fn a_value_from_a_package_the_build_cannot_follow_names_the_package() {
+  let src = r#"
+import { siteName } from "site-settings";
+
+export async function load() {
+  return { name: siteName };
+}
+"#;
+  let r = residue(lower_loader("page.loader.ts", src).unwrap_err());
+  assert_eq!(r.message, "`siteName` comes from `site-settings`, which the build cannot follow");
+}
+
+#[test]
 fn try_is_residue() {
   let src = r#"
 export async function load({ services }: Ctx) {
