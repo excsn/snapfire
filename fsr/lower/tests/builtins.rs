@@ -293,6 +293,54 @@ fn a_body_writes_its_local_map_and_set() {
 }
 
 #[test]
+fn a_module_level_collection_reads_as_one_in_a_body_and_a_template() {
+  use snapfire_fsr_ir::ast::Builtin;
+  let dir = app(
+    "module_collections",
+    &[
+      ("src/langs.ts", "export const LANGS = new Set([\"en\", \"de\"]);\nexport const NAMES = new Map([[\"en\", \"English\"]]);\n"),
+      ("routes/a/page.loader.ts", "import { LANGS, NAMES } from \"@src/langs\";\nconst KEPT = new Set([\"x\"]);\nexport async function load({ params }) {\n  return { ok: LANGS.has(params.l), kept: KEPT.has(params.l), name: NAMES.get(params.l), n: NAMES.size };\n}\n"),
+      ("routes/a/page.tsx", "import { LANGS } from \"@src/langs\";\nexport default function A({ l }: { l: string }) {\n  return <p>{LANGS.has(l) ? \"known\" : \"other\"}</p>;\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  let body = set.lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+  let Stmt::Return(Expr::Object(fields)) = &body[0] else { panic!("{body:?}") };
+  let field = |name: &str| fields.iter().find_map(|f| match f { snapfire_fsr_ir::ast::Entry::Field(n, e) if n == name => Some(e), _ => None }).unwrap_or_else(|| panic!("{name}: {fields:?}"));
+  assert!(matches!(field("ok"), Expr::Builtin { name: Builtin::Includes, .. }), "an imported `Set`: {fields:?}");
+  assert!(matches!(field("kept"), Expr::Builtin { name: Builtin::Includes, .. }), "a `Set` of the same file: {fields:?}");
+  assert!(matches!(field("name"), Expr::Index(..)), "an imported `Map`: {fields:?}");
+  assert!(matches!(field("n"), Expr::Length(_)), "{fields:?}");
+  set.lower("routes/a/page.tsx#default").unwrap_or_else(|e| panic!("{e}"));
+  let (_, component) = &set.components[0];
+  let mut includes = false;
+  component.visit(&mut |e| includes |= matches!(e, Expr::Builtin { name: Builtin::Includes, .. }));
+  assert!(includes, "{:?}", component.render);
+}
+
+#[test]
+fn url_search_params_reads_a_value_by_its_key() {
+  use snapfire_fsr_ir::ast::Builtin;
+  let read = |body: &[Stmt]| match body.last() {
+    Some(Stmt::Return(Expr::Object(fields))) => match &fields[0] {
+      snapfire_fsr_ir::ast::Entry::Field(_, Expr::Builtin { name, args }) => (*name, matches!(&args[0], Expr::Builtin { name: Builtin::FormEncode, .. } | Expr::Var(_))),
+      other => panic!("{other:?}"),
+    },
+    other => panic!("{other:?}"),
+  };
+  let loader = |tag: &str, source: &str| {
+    let dir = app(tag, &[("routes/a/page.loader.ts", source)]);
+    ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").map_err(|e| e.to_string())
+  };
+  let inline = loader("query_inline", "export async function load({ params }) {\n  return { a: new URLSearchParams(params.q).get(\"a\") };\n}\n").unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(read(&inline), (Builtin::FormGet, true), "{inline:?}");
+  let local = loader("query_local", "export async function load({ params }) {\n  const p = new URLSearchParams(params.q);\n  return { a: p.get(\"a\") };\n}\n").unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(read(&local), (Builtin::FormGet, true), "{local:?}");
+  let err = loader("query_get_all", "export async function load({ params }) {\n  const p = new URLSearchParams(params.q);\n  return { a: p.getAll(\"a\") };\n}\n").unwrap_err();
+  assert!(err.contains("`.getAll()` of a `URLSearchParams`"), "{err}");
+}
+
+#[test]
 fn boolean_lowers_as_a_double_negation() {
   let loader = |expr: &str| format!("export async function load({{ session, params }}) {{\n  return {{ watched: {expr} }};\n}}\n");
   let lowered = |tag: &str, expr: &str| {

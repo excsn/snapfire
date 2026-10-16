@@ -215,6 +215,8 @@ pub enum Builtin {
   HasKey,
   /// `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded.
   FormEncode,
+  /// `new URLSearchParams(x).get(key)` over the string `FormEncode` wrote: the first value under `key`, null for none.
+  FormGet,
   /// `re.test(s)`.
   RegexTest,
   /// `s.match(re)`: the first match and its groups, every match with `g`, null for none.

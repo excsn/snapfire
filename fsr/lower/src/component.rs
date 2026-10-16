@@ -299,7 +299,7 @@ impl ComponentSet {
       .collect();
     let mut calls = DeriveCalls { meanings: &meanings, calls: Vec::new() };
     parsed.module.visit_with(&mut calls);
-    let mut resolved = Resolved { globals: Vec::new(), natives: self.natives.clone() };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), natives: self.natives.clone() };
     let mut rows = Vec::new();
     for call in &calls.calls {
       let at = parsed.residue(call.span, "");
@@ -315,6 +315,9 @@ impl ComponentSet {
           Err(failed) => {
             if let Some(name) = failed.unbound.filter(|name| meanings.bindings.contains_key(name) && !resolved.globals.iter().any(|(n, _)| n == name)) {
               if let Some((expr, key)) = self.global(file, &name)? {
+                if let Some(kind) = self.global_kind(file, &name)? {
+                  resolved.global_kinds.push((name.clone(), kind));
+                }
                 resolved.globals.push((name, self.name_if_large(key, expr)));
                 resolved.natives = self.natives.clone();
                 continue;
@@ -432,7 +435,7 @@ impl ComponentSet {
   fn resolving_loop<T>(&mut self, file: &str, lower: impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
     self.load(file)?;
     self.meanings(file);
-    let mut resolved = Resolved { globals: Vec::new(), natives: self.natives.clone() };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), natives: self.natives.clone() };
     loop {
       let parsed = self.parsed[file].clone();
       let defaults = self.defaults.clone();
@@ -440,6 +443,9 @@ impl ComponentSet {
         Ok(done) => return Ok(done),
         Err((error, Some(name))) if !resolved.globals.iter().any(|(n, _)| *n == name) => match self.global(file, &name)? {
           Some((expr, key)) => {
+            if let Some(kind) = self.global_kind(file, &name)? {
+              resolved.global_kinds.push((name.clone(), kind));
+            }
             resolved.globals.push((name, self.name_if_large(key, expr)));
             resolved.natives = self.natives.clone();
           }
@@ -987,6 +993,7 @@ impl ComponentSet {
 
   fn lower_loaded(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
+    let mut global_kinds = Vec::new();
     let module = format!("{file}#{export}");
     // An element template has no browser half, so nothing would read what
     // hoisting records or rewrites.
@@ -1012,6 +1019,7 @@ impl ComponentSet {
         }
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
+        lowerer.global_kinds = global_kinds.clone();
         lowerer.natives = self.natives.clone();
         lowerer.hoisting = (!element_template).then(Candidates::default);
         lowerer.meanings = Some(meanings);
@@ -1048,6 +1056,9 @@ impl ComponentSet {
             return Err(residue.into());
           }
           let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          if let Some(kind) = self.global_kind(file, &name)? {
+            global_kinds.push((name.clone(), kind));
+          }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
         }
@@ -1190,12 +1201,14 @@ impl ComponentSet {
     self.parse_described(file, &described)?;
     self.meanings(file);
     let mut globals: Vec<(String, Expr)> = Vec::new();
+    let mut global_kinds = Vec::new();
     let component = loop {
       let (result, unbound) = {
         let parsed = self.parsed[file].clone();
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
+        lowerer.global_kinds = global_kinds.clone();
         lowerer.natives = self.natives.clone();
         lowerer.render_path = true;
         let mut vue = crate::vue::VueLowerer::new(lowerer, &described, self.assets.clone());
@@ -1218,6 +1231,9 @@ impl ComponentSet {
             return Err(residue.into());
           }
           let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          if let Some(kind) = self.global_kind(file, &name)? {
+            global_kinds.push((name.clone(), kind));
+          }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
         }
@@ -1576,6 +1592,21 @@ impl ComponentSet {
     }
   }
 
+  /// The collection a module-level `name` holds when it is declared as a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`.
+  fn global_kind(&mut self, file: &str, name: &str) -> Result<Option<crate::Collection>, LowerError> {
+    if let Some(crate::meaning::Meaning::Own { file: declared, name: declared_name }) = self.meanings(file).bindings.get(name).cloned() {
+      if declared != file {
+        self.load(&declared)?;
+        return self.global_kind(&declared, &declared_name);
+      }
+    }
+    let parsed = self.parsed[file].clone();
+    Ok(match find_value(&parsed, name) {
+      Some(Global::Const(init)) => crate::made_collection(init),
+      _ => None,
+    })
+  }
+
   /// A constant the plan names once or the expression itself when naming it
   /// would cost more than copying it. `CONST_WEIGHT` is where a copy per
   /// reference starts to dominate the plan.
@@ -1591,6 +1622,7 @@ impl ComponentSet {
 
   fn lower_global(&mut self, file: &str, item: Global<'_>) -> Result<Expr, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
+    let mut global_kinds = Vec::new();
     loop {
       let parsed = self.parsed[file].clone();
       let defaults = self.defaults.clone();
@@ -1598,6 +1630,7 @@ impl ComponentSet {
       let mut lowerer = Lowerer::new(&parsed, &defaults);
       lowerer.meanings = Some(meanings);
       lowerer.globals = globals.clone();
+      lowerer.global_kinds = global_kinds.clone();
       lowerer.natives = self.natives.clone();
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
@@ -1611,6 +1644,9 @@ impl ComponentSet {
             return Err(residue.into());
           }
           let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          if let Some(kind) = self.global_kind(file, &name)? {
+            global_kinds.push((name.clone(), kind));
+          }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
         }

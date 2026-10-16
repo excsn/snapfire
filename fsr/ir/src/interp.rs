@@ -2418,6 +2418,14 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       };
       Value::str(pairs.iter().map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v))).collect::<Vec<_>>().join("&"))
     }
+    Builtin::FormGet => {
+      let key = stringify(arg(1)?)?;
+      match arg(0)? {
+        Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes()).find(|(k, _)| *k == key.as_str()).map_or(Value::Null, |(_, v)| Value::str(v.into_owned())),
+        Value::Null => Value::Null,
+        other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
+      }
+    }
     Builtin::LooseMatch => {
       let wanted = stringify(args.get(1).unwrap_or(&Value::Null))?;
       match arg(0)? {

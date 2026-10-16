@@ -385,6 +385,7 @@ impl<'a> Inferer<'a> {
         Builtin::Includes | Builtin::StartsWith | Builtin::EndsWith => Ts::Bool,
         Builtin::Range => Ts::List(Box::new(Ts::Big)),
         Builtin::Split => Ts::List(Box::new(Ts::Str)),
+        Builtin::FormGet => Ts::Union(vec![Ts::Str, Ts::Null]),
         _ => Ts::Str,
       },
       Expr::Ext { module, name, .. } => match (module.as_str(), name.as_str()) {

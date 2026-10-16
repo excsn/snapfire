@@ -120,6 +120,10 @@ async fn query_strings_encode_the_way_url_search_params_does() {
   let pairs = Expr::Object(vec![Entry::Field("q".to_owned(), str("tea & cake")), Entry::Field("page".to_owned(), Expr::Lit(Lit::Float(2.0))), Entry::Field("é".to_owned(), str("a+b/c*~"))]);
   assert_eq!(run(Expr::Builtin { name: Builtin::FormEncode, args: vec![pairs] }).await, Value::str("q=tea+%26+cake&page=2&%C3%A9=a%2Bb%2Fc*%7E"));
   assert_eq!(run(Expr::Builtin { name: Builtin::FormEncode, args: vec![str("?a=1+2&b=%41%zz")] }).await, Value::str("a=1+2&b=A%25zz"), "a query string is read and written again, a malformed escape kept");
+  let get = |key: &str| Expr::Builtin { name: Builtin::FormGet, args: vec![str("a=1+2&b=x&a=3&%C3%A9=%26"), str(key)] };
+  assert_eq!(run(get("a")).await, Value::str("1 2"), "the first value under a key, decoded");
+  assert_eq!(run(get("é")).await, Value::str("&"), "a key is matched decoded");
+  assert_eq!(run(get("c")).await, Value::Null, "a key with no value is null");
   assert_eq!(run(Expr::Builtin { name: Builtin::Unique, args: vec![over(&["a", "b", "a"])] }).await, seq(&["a", "b"]));
   let map = Expr::Builtin { name: Builtin::FromEntries, args: vec![Expr::Array(vec![Entry::Item(Expr::Array(vec![Entry::Item(Expr::Lit(Lit::Float(1.0))), Entry::Item(str("one"))]))])] };
   assert_eq!(run(Expr::Builtin { name: Builtin::HasKey, args: vec![map, Expr::Lit(Lit::Float(1.0))] }).await, Value::Bool(true), "a number key is held as its text");

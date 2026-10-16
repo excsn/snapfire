@@ -130,6 +130,7 @@ pub const EXT_DIR: &str = "ext";
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Resolved {
   pub globals: Vec<(String, Expr)>,
+  pub global_kinds: Vec<(String, Collection)>,
   pub natives: Vec<(String, Reach)>,
 }
 
@@ -872,6 +873,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) scope: Vec<(String, Expr)>,
   /// Module-level names a component lowerer has resolved, read after the scope.
   pub(crate) globals: Vec<(String, Expr)>,
+  /// The resolved module-level names that hold a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`.
+  pub(crate) global_kinds: Vec<(String, Collection)>,
   /// The last name `ident` could not resolve, so a caller that can may bind it and retry.
   pub(crate) unbound: Option<String>,
   /// Set by a component lowerer: every helper call and formatting builtin is
@@ -890,7 +893,7 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) reach_violation: bool,
   /// How many temporaries a destructuring has bound, so each gets a name of its own.
   pub(crate) temps: usize,
-  /// Names bound to a `new Map(...)` or a `new Set(...)`, with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
+  /// Names bound to a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`, with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
   pub(crate) kinds: Vec<(String, Expr, Collection)>,
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
@@ -898,22 +901,34 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) reader: Option<js::Id>,
 }
 
-/// What a `new Map` or a `new Set` lowered to: an object keyed by `String(key)` or an array without repeats.
+/// What a `new Map`, a `new Set` or a `new URLSearchParams` lowered to: an object keyed by `String(key)`, an array without repeats or the encoded string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Collection {
   Map,
   Set,
+  Query,
+}
+
+impl Collection {
+  fn name(self) -> &'static str {
+    match self {
+      Collection::Map => "Map",
+      Collection::Set => "Set",
+      Collection::Query => "URLSearchParams",
+    }
+  }
 }
 
 pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
     self.globals = resolved.globals.clone();
+    self.global_kinds = resolved.global_kinds.clone();
     self.natives = resolved.natives.clone();
     self
   }
@@ -1093,17 +1108,14 @@ impl<'a> Lowerer<'a> {
       js::Expr::Paren(p) => self.collection_of(&p.expr),
       js::Expr::TsAs(a) => self.collection_of(&a.expr),
       js::Expr::TsNonNull(a) => self.collection_of(&a.expr),
-      js::Expr::New(n) => match &*n.callee {
-        js::Expr::Ident(id) if id.sym.as_ref() == "Map" => Some(Collection::Map),
-        js::Expr::Ident(id) if id.sym.as_ref() == "Set" => Some(Collection::Set),
-        _ => None,
-      },
       js::Expr::Ident(id) => {
         let name = id.sym.as_ref();
-        let bound = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e)?;
-        self.kinds.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, kind)| *kind)
+        match self.scope.iter().rev().find(|(n, _)| n == name) {
+          Some((_, bound)) => self.kinds.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, kind)| *kind),
+          None => self.global_kinds.iter().find(|(n, _)| n == name).map(|(_, kind)| *kind),
+        }
       }
-      _ => None,
+      other => made_collection(other),
     }
   }
 
@@ -1258,7 +1270,7 @@ impl<'a> Lowerer<'a> {
           (Collection::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
           (Collection::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
           (Collection::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
-          (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", if kind == Collection::Map { "Map" } else { "Set" }))),
+          (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
         };
         Ok(Stmt::Set { name, expr })
       }
@@ -1724,7 +1736,7 @@ impl<'a> Lowerer<'a> {
     let target = self.expr(&member.obj)?;
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
-      Ok(name) if name == "size" && collection.is_some() => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if name == "size" && collection.is_some_and(|kind| kind != Collection::Query) => Ok(Expr::Length(Box::new(target))),
       Ok(name) => Ok(Expr::Field(Box::new(target), name)),
       Err(key) => Ok(Expr::Index(Box::new(target), Box::new(key))),
     }
@@ -2026,7 +2038,17 @@ impl<'a> Lowerer<'a> {
           other => Err(self.residue(member.span, format!("`.{other}()` of a `Set`"))),
         };
       }
-      None => {}
+      Some(Collection::Query) if method != "toString" => {
+        let target = self.expr(&member.obj)?;
+        return match method.as_str() {
+          "get" => {
+            let arg = call.args.first().ok_or_else(|| self.residue(call.span, "`get` without a key"))?;
+            Ok(Expr::Builtin { name: Builtin::FormGet, args: vec![target, Expr::Str(Box::new(self.expr(&arg.expr)?))] })
+          }
+          other => Err(self.residue(member.span, format!("`.{other}()` of a `URLSearchParams`"))),
+        };
+      }
+      _ => {}
     }
 
     let target = Box::new(self.expr(&member.obj)?);
@@ -2434,6 +2456,22 @@ fn strip_optional(e: &js::Expr, guards: &mut Vec<js::Expr>) -> js::Expr {
     js::Expr::Member(m) => js::Expr::Member(js::MemberExpr { span: m.span, obj: Box::new(strip_optional(&m.obj, guards)), prop: m.prop.clone() }),
     js::Expr::Paren(p) => strip_optional(&p.expr, guards),
     other => other.clone(),
+  }
+}
+
+/// The collection `e` makes, a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)` written in place.
+pub(crate) fn made_collection(e: &js::Expr) -> Option<Collection> {
+  match e {
+    js::Expr::Paren(p) => made_collection(&p.expr),
+    js::Expr::TsAs(a) => made_collection(&a.expr),
+    js::Expr::TsNonNull(a) => made_collection(&a.expr),
+    js::Expr::New(n) => match &*n.callee {
+      js::Expr::Ident(id) if id.sym.as_ref() == "Map" => Some(Collection::Map),
+      js::Expr::Ident(id) if id.sym.as_ref() == "Set" => Some(Collection::Set),
+      js::Expr::Ident(id) if id.sym.as_ref() == "URLSearchParams" => Some(Collection::Query),
+      _ => None,
+    },
+    _ => None,
   }
 }
 
