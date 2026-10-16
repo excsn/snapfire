@@ -4171,23 +4171,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::Call(call) if map_with_jsx(call) => {
         let js::Callee::Expr(callee) = &call.callee else { unreachable!() };
         let js::Expr::Member(member) = &**callee else { unreachable!() };
-        let over = self.lowerer.expr(&member.obj)?;
         let js::Expr::Arrow(arrow) = &*call.args[0].expr else { unreachable!() };
-        let depth = self.lowerer.scope.len();
-        let params = bind_params(&mut self.lowerer, &arrow.params)?;
-        let range = self.lowerer.parsed.range(arrow.span);
-        if let Some(candidates) = &mut self.lowerer.hoisting {
-          candidates.open_loops.push(range);
-        }
-        let body = match &*arrow.body {
-          js::ArrowFunctionBody::Expr(e) => self.child_expr(e),
-          js::ArrowFunctionBody::FunctionBody(b) => self.tree_of(&b.stmts.iter().collect::<Vec<_>>(), depth),
-        };
-        if let Some(candidates) = &mut self.lowerer.hoisting {
-          candidates.open_loops.pop();
-        }
-        self.lowerer.scope.truncate(depth);
-        Ok(Tmpl::For { over, params, body: Box::new(body?) })
+        self.map_tree(&member.obj, arrow)
+      }
+      js::Expr::OptChain(_) if optional_map(expr).is_some() => {
+        let (over, arrow) = optional_map(expr).expect("checked by the guard");
+        let missing = Expr::Compare(CompareOp::Eq, Box::new(self.lowerer.expr(over)?), Box::new(Expr::Lit(Lit::Null)));
+        let each = self.map_tree(over, arrow)?;
+        Ok(Tmpl::If { cond: missing, then: Box::new(Tmpl::Fragment(Vec::new())), r#else: Some(Box::new(each)) })
       }
       js::Expr::Call(_) if self.markup_call(expr).is_some() => {
         let (call, name, params, body) = self.markup_call(expr).expect("checked by the guard");
@@ -4207,6 +4198,26 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(Tmpl::Expr(self.lowerer.expr(other)?))
       }
     }
+  }
+
+  /// `over.map(arrow)` where `arrow` returns markup: a `Tmpl::For` over the items.
+  fn map_tree(&mut self, over: &'p js::Expr, arrow: &'p js::ArrowExpr) -> Lowered<Tmpl> {
+    let over = self.lowerer.expr(over)?;
+    let depth = self.lowerer.scope.len();
+    let params = bind_params(&mut self.lowerer, &arrow.params)?;
+    let range = self.lowerer.parsed.range(arrow.span);
+    if let Some(candidates) = &mut self.lowerer.hoisting {
+      candidates.open_loops.push(range);
+    }
+    let body = match &*arrow.body {
+      js::ArrowFunctionBody::Expr(e) => self.child_expr(e),
+      js::ArrowFunctionBody::FunctionBody(b) => self.tree_of(&b.stmts.iter().collect::<Vec<_>>(), depth),
+    };
+    if let Some(candidates) = &mut self.lowerer.hoisting {
+      candidates.open_loops.pop();
+    }
+    self.lowerer.scope.truncate(depth);
+    Ok(Tmpl::For { over, params, body: Box::new(body?) })
   }
 
   /// Whether a child expression is markup: JSX or a call to a function the component declares that returns some, alone or inside a branch or `&&`.
@@ -5218,8 +5229,26 @@ fn holds_jsx(expr: &js::Expr) -> bool {
     js::Expr::Bin(b) if b.op == js::BinaryOp::LogicalAnd => holds_jsx(&b.right),
     js::Expr::Array(array) => array.elems.iter().flatten().any(|item| holds_jsx(&item.expr)),
     js::Expr::Call(call) => map_with_jsx(call),
+    js::Expr::OptChain(_) => optional_map(expr).is_some(),
     _ => false,
   }
+}
+
+/// `xs?.map((x) => <jsx>)`: the array and the callback.
+fn optional_map(expr: &js::Expr) -> Option<(&js::Expr, &js::ArrowExpr)> {
+  let js::Expr::OptChain(chain) = expr else { return None };
+  let js::OptChainBase::Call(call) = &*chain.base else { return None };
+  let js::Expr::OptChain(callee) = &*call.callee else { return None };
+  let js::OptChainBase::Member(member) = &*callee.base else { return None };
+  if !callee.optional || !matches!(&member.prop, js::MemberProp::Ident(id) if id.sym.as_ref() == "map") {
+    return None;
+  }
+  let js::Expr::Arrow(arrow) = &*call.args.first()?.expr else { return None };
+  let jsx = match &*arrow.body {
+    js::ArrowFunctionBody::Expr(e) => holds_jsx(e),
+    js::ArrowFunctionBody::FunctionBody(b) => returns_jsx(&b.stmts),
+  };
+  jsx.then_some((&*member.obj, arrow))
 }
 
 /// `xs.map((x) => <jsx>)` or with a block whose return is JSX.

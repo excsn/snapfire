@@ -116,7 +116,7 @@ learn-lifecycle-of-reactive-effects-14	client: src/chat.js:4:5 a method or acces
 learn-lifecycle-of-reactive-effects-15	lowered
 learn-lifecycle-of-reactive-effects-16	lowered
 learn-lifecycle-of-reactive-effects-17	lowered
-learn-lifecycle-of-reactive-effects-18	client: src/App.js:25:13 JSX in a body
+learn-lifecycle-of-reactive-effects-18	lowered
 learn-lifecycle-of-reactive-effects-2	lowered
 learn-lifecycle-of-reactive-effects-3	lowered
 learn-lifecycle-of-reactive-effects-4	lowered

@@ -181,3 +181,12 @@ fn markup_inside_an_array_of_data_is_still_refused() {
   let out = html("data_array", &[("routes/page.tsx", "export default function Page() {\n  const tabs = [{ label: \"a\", content: <p>a</p> }];\n  return <div>{tabs.map((t) => <section key={t.label}>{t.content}</section>)}</div>;\n}\n")]);
   assert!(out.as_ref().is_err_and(|e| e.contains("markup where the build cannot place it")), "{out:?}");
 }
+
+#[test]
+fn an_optional_map_renders_each_item_and_nothing_for_a_missing_list() {
+  let page = |rows: &str| format!("export default function Page() {{\n  const rows = {rows};\n  return <ul>{{rows?.map((r) => <li key={{r}}>{{r}}</li>)}}</ul>;\n}}\n");
+  assert_eq!(html("opt_map", &[("routes/page.tsx", &page("[\"a\", \"b\"]"))]).as_deref(), Ok("<ul><li>a</li><li>b</li></ul>"));
+  assert_eq!(html("opt_map_null", &[("routes/page.tsx", &page("null"))]).as_deref(), Ok("<ul></ul>"));
+  let held = html("opt_map_held", &[("routes/page.tsx", "export default function Page() {\n  const data = { rows: [\"a\"] };\n  const items = data?.rows?.map((r) => <li key={r}>{r}</li>);\n  return <ul>{items}</ul>;\n}\n")]);
+  assert_eq!(held.as_deref(), Ok("<ul><li>a</li></ul>"));
+}
