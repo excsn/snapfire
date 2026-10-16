@@ -385,7 +385,7 @@ impl Project {
   /// Which application each changed path belongs to, else a program's declared input, else the project around them.
   fn classify(&self, changed: &[PathBuf], declared: &[PathBuf]) -> Change {
     let watched = self.watched();
-    let mut change = Change { apps: vec![None; self.apps.len()], project: false, programs: false };
+    let mut change = Change { apps: vec![None; self.apps.len()], project: false, programs: false, counted: Vec::new() };
     for path in changed {
       let owner = self.apps.iter().enumerate().filter(|(_, app)| path.starts_with(&app.dir)).max_by_key(|(_, app)| app.dir.as_os_str().len());
       match owner {
@@ -394,10 +394,17 @@ impl Project {
           let rel = path.strip_prefix(&app.dir).expect("a prefix");
           if !ignored(rel) {
             change.apps[i].get_or_insert_with(Vec::new).push(path.clone());
+            change.counted.push(path.clone());
           }
         }
-        None if !watched.iter().any(|root| path.starts_with(root)) && declared.iter().any(|input| path.starts_with(input)) => change.programs = true,
-        None => change.project = true,
+        None if !watched.iter().any(|root| path.starts_with(root)) && declared.iter().any(|input| path.starts_with(input)) => {
+          change.programs = true;
+          change.counted.push(path.clone());
+        }
+        None => {
+          change.project = true;
+          change.counted.push(path.clone());
+        }
       }
     }
     // The build reads the configuration and the crate's own sources too, so a
@@ -502,11 +509,13 @@ struct Change {
   /// A path a `[build] before` or `after` program declared it reads changed, and nothing else
   /// outside the applications did.
   programs: bool,
+  /// The changed paths that caused the rest, build output and served applications left out.
+  counted: Vec<PathBuf>,
 }
 
 impl Change {
   fn everything(apps: usize) -> Self {
-    Self { apps: vec![Some(Vec::new()); apps], project: true, programs: false }
+    Self { apps: vec![Some(Vec::new()); apps], project: true, programs: false, counted: Vec::new() }
   }
 
   fn any(&self) -> bool {
@@ -1039,12 +1048,12 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
     self_triggered = if batch.queued { self_triggered + 1 } else { 0 };
     if self_triggered >= SELF_TRIGGERED_LIMIT {
       if self_triggered == SELF_TRIGGERED_LIMIT {
-        eprintln!("dev: rebuilt {SELF_TRIGGERED_LIMIT} times in a row on nothing but its own writes, last {}; waiting for an edit", describe(&root, &changed));
+        eprintln!("dev: rebuilt {SELF_TRIGGERED_LIMIT} times in a row on nothing but its own writes, last {}; waiting for an edit", describe(&root, &want.counted));
       }
       want = Change::default();
       continue;
     }
-    println!("dev: changed {}", describe(&root, &changed));
+    println!("dev: changed {}", describe(&root, &want.counted));
   }
 }
 
@@ -1381,6 +1390,13 @@ mod tests {
     assert!(change.apps[0] == Some(Vec::new()) && change.project);
     let change = p.classify(&[PathBuf::from("/p/app/.fsr-something"), PathBuf::from("/p/app/importmap.json")], &[]);
     assert!(change.apps[0].is_some());
+  }
+
+  #[test]
+  fn a_batch_names_only_the_paths_that_rebuild() {
+    let p = project(Path::new("/p/app"));
+    let change = p.classify(&[PathBuf::from("/p/app/dist/src/main.js"), PathBuf::from("/p/app/.fsr-bundle/routes/page.tsx"), PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/config/app.toml")], &[]);
+    assert_eq!(change.counted, vec![PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/config/app.toml")]);
   }
 
   #[test]
