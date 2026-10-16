@@ -22,6 +22,7 @@ fn the_login_journey_end_to_end() {
   let response = post_form(&host, "/auth/callback", Some(&cookie), "user=alice&password=wonder", None);
   assert_eq!(response.status(), 303);
   assert_eq!(location(&response), "/dash/servers");
+  let cookie = session_cookie(&response);
 
   let html = text(get(&host, "/dash/servers", Some(&cookie)));
   assert!(html.contains("signed in as alice"), "{html}");
