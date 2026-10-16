@@ -14,6 +14,6 @@ A change to the lowerer that moves an outcome fails the test, naming each exampl
 | Path | What it is |
 | --- | --- |
 | `react_dev/` | 641 examples from react.dev, see [NOTICE.md](NOTICE.md) |
-| `template/` | the configuration and import map every example is built with |
+| `template/` | the configuration, `app.toml`, and the import map every example is built with |
 | `outcomes.txt` | one line per example, the outcome it is held to |
 | `tests/corpus.rs` | the build of every example and the comparison |

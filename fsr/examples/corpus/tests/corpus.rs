@@ -23,7 +23,9 @@ fn copy(from: &Path, to: &Path) {
 fn app_of(root: &Path, example: &Path, scratch: &Path) -> PathBuf {
   let dir = scratch.join(example.file_name().unwrap());
   let _ = std::fs::remove_dir_all(&dir);
-  copy(&root.join("template"), &dir);
+  copy(&root.join("template/app"), &dir.join("app"));
+  std::fs::create_dir_all(dir.join("config")).unwrap();
+  std::fs::copy(root.join("template/app.toml"), dir.join("config/app.toml")).unwrap();
   copy(example, &dir.join("app/src"));
   std::fs::create_dir_all(dir.join("app/routes")).unwrap();
   std::fs::write(dir.join("app/routes/page.tsx"), "import App from \"@src/App.js\";\n\nexport default function Page() {\n  return <App />;\n}\n").unwrap();
