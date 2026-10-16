@@ -390,12 +390,15 @@ pub struct Packed {
 }
 
 /// Packs the site at `site` as `version` into `out`, defaulting to
-/// `<name>-<version>.tar.gz` beside the site.
+/// `<name>-<version>.tar.gz` beside the site; an `out` that is a directory
+/// holds that file.
 pub fn pack(site: &Path, version: &str, out: Option<&Path>) -> Result<Packed, BuildError> {
   let hashed = hash(site)?;
+  let file = format!("{}-{version}.tar.gz", hashed.name);
   let out = match out {
+    Some(path) if path.is_dir() => path.join(file),
     Some(path) => path.to_path_buf(),
-    None => site.join(format!("{}-{version}.tar.gz", hashed.name)),
+    None => site.join(file),
   };
   let manifest = snapfire_fsr_sites::pack(site, version, &out).map_err(|e| BuildError::Sites(e.to_string()))?;
   let bytes = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);

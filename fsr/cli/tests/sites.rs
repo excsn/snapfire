@@ -411,3 +411,17 @@ fn a_host_comes_from_the_flag_then_the_shells_listen() {
   assert_eq!(snapfire_fsr_cli::sites::hosts_for(Some(&shell), &[]).unwrap().len(), 1);
   assert!(snapfire_fsr_cli::sites::hosts_for(None, &[]).is_err());
 }
+
+#[test]
+fn a_pack_into_a_directory_writes_the_named_archive_there() {
+  let base = root("pack-dir");
+  let site = base.join("docs");
+  let site_options = snapfire_fsr_cli::new::SiteScaffold { at: "/docs".to_owned(), name: None, into: None };
+  create(&site, NewOptions { fetch: false, site: Some(site_options), ..NewOptions::default() }).unwrap();
+  let out = base.join("out");
+  std::fs::create_dir_all(&out).unwrap();
+  let packed = sites::pack(&site, "1.0.0", Some(&out)).unwrap();
+  assert_eq!(packed.out, out.join("docs-1.0.0.tar.gz"));
+  assert!(packed.out.is_file());
+  let _ = std::fs::remove_dir_all(&base);
+}

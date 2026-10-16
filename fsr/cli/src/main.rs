@@ -327,7 +327,7 @@ enum SitesCommand {
     /// The release this artifact is.
     #[arg(long)]
     version: Option<String>,
-    /// The archive to write.
+    /// The archive to write, or the directory to write `<name>-<version>.tar.gz` into.
     #[arg(short = 'o', long)]
     out: Option<String>,
   },
