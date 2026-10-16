@@ -9,6 +9,7 @@ use crate::value_parser::{self, ValueNode};
 use crate::walk::Action;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CtxValue {
   Bool(bool),
   Str(String),

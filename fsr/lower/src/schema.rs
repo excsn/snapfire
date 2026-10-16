@@ -9,6 +9,7 @@ use crate::{parse, LowerError, Lowerer, Parsed, Residue, SessionDefaults};
 
 /// A named type read from a schema module.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SchemaType {
   pub name: String,
   pub def: TypeDef,
@@ -25,10 +26,10 @@ pub fn builtin_types() -> Vec<SchemaType> {
     name: UPLOAD.to_owned(),
     def: TypeDef::Record {
       fields: vec![
-        Field { name: "filename".to_owned(), ty: Type::Str },
-        Field { name: "content_type".to_owned(), ty: Type::Str },
-        Field { name: "size".to_owned(), ty: Type::I64 },
-        Field { name: "bytes".to_owned(), ty: Type::Bytes },
+        Field::new("filename".to_owned(), Type::Str),
+        Field::new("content_type".to_owned(), Type::Str),
+        Field::new("size".to_owned(), Type::I64),
+        Field::new("bytes".to_owned(), Type::Bytes),
       ],
     },
   }]

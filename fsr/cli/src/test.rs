@@ -33,6 +33,7 @@ pub enum Outcome {
 }
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Summary {
   pub passed: usize,
   pub failed: usize,
@@ -455,7 +456,7 @@ impl<'a> Run<'a> {
             None => ValueMap::default(),
             _ => return Err("identity.claims must be an object".to_owned()),
           };
-          Some(Identity { subject, claims })
+          Some(Identity::new(subject, claims))
         }
         _ => return Err("identity must be an object".to_owned()),
       },

@@ -149,6 +149,7 @@ pub fn template_files(app: &Path) -> Result<Vec<PathBuf>, HostError> {
 pub type Body = http_body_util::combinators::UnsyncBoxBody<Bytes, std::io::Error>;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum HostError {
   #[error("{0}: {1}")]
   Io(PathBuf, std::io::Error),
@@ -200,6 +201,7 @@ pub enum HostError {
 /// by `__fragment` in the query: alone it is the page, `__fragment=<slot>` a
 /// parallel slot by name, wherever it sits on the route.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RenderMode {
   Html,
   Payload,

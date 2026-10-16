@@ -22,6 +22,7 @@ const BUILD_FACTS: &str = ".snapfire-build.json";
 /// The suffix a minified twin carries, which `with_min` inserts before the extension.
 const MIN_SUFFIX: &str = ".min";
 
+#[non_exhaustive]
 pub struct Options {
   pub root: PathBuf,
   pub config_path: PathBuf,
@@ -61,6 +62,7 @@ pub struct Options {
 }
 
 /// Everything a rebuild needs to reuse without re-reading the config.
+#[non_exhaustive]
 pub struct Build {
   pub out_dir: PathBuf,
   pub root_dir: PathBuf,

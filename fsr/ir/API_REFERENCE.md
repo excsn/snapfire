@@ -287,8 +287,9 @@ Re-exported from `snapfire_fsr_core::ext`. `STANDARD` and `standard_reach` are t
 
 Re-exported from `snapfire_fsr_core::ext`.
 
-* `pub struct Ambient { pub locale: String, pub now: i128, pub catalogs: Option<Arc<Catalogs>> }`, `Default`: what a call runs under, the request's locale as the application spells it, empty when none is set, the clock and the message catalogs the interpreter carries.
+* `pub struct Ambient { pub locale: String, pub now: i128, pub catalogs: Option<Arc<Catalogs>> }`, `Default`, `#[non_exhaustive]`: what a call runs under, the request's locale as the application spells it, empty when none is set, the clock and the message catalogs the interpreter carries.
 * `bcp47(&self) -> String`: `fr-FR` for `fr_FR`, `en` when empty. The browser half converts the same way.
+* `locale(self, locale: String) -> Self`, `now(self, now: i128) -> Self`, `catalogs(self, catalogs: Option<Arc<Catalogs>>) -> Self`: setters for the field of the same name; build one with `Default` and these.
 
 ### The Standard Library
 
@@ -328,10 +329,11 @@ Message tables by locale, `catalog::Catalogs`, re-exported from `snapfire_fsr_co
 
 The frameworks an application vendors, each at the major whose server markup the renderer writes.
 
-* `pub struct Frameworks { pub react: Option<ReactMajor>, pub vue: Option<VueMajor> }`; `Default` vendors nothing. Defined in `render` and re-exported at the root.
+* `pub struct Frameworks { pub react: Option<ReactMajor>, pub vue: Option<VueMajor> }`, `#[non_exhaustive]`; `Default` vendors nothing. Defined in `render` and re-exported at the root.
+* `Frameworks::react(self, react: Option<ReactMajor>) -> Self`, `Frameworks::vue(self, vue: Option<VueMajor>) -> Self`: setters for the field of the same name; build one with `Default` and these.
 * `Interpreter::with_frameworks(self, frameworks: Frameworks) -> Interpreter` and `Interpreter::frameworks(&self) -> Frameworks`.
 * `Interpreter::with_island_reads(self, reads: BTreeMap<String, Vec<String>>) -> Interpreter`: the plan's `reads`. An island the renderer has no body for carries `$aw` with those of its keys that are pending.
-* `Interpreter::with_derives(self, derives: Vec<Derive>) -> Interpreter`: the plan's derived keys, each after the derived keys it reads. `pub struct Derive { pub key: String, pub sources: Vec<String>, pub body: Option<Expr> }`, re-exported at the root. A server-mode island that reads a derived key asks the browser for its sources too. `island_step` computes each derived key with a body again after the handler's writes and before the render, except a key the handler wrote itself. A derived key is never answered in `Stepped.store`.
+* `Interpreter::with_derives(self, derives: Vec<Derive>) -> Interpreter`: the plan's derived keys, each after the derived keys it reads. `pub struct Derive { pub key: String, pub sources: Vec<String>, pub body: Option<Expr> }`, `#[non_exhaustive]`, built with `Derive::new(key: String, sources: Vec<String>, body: Option<Expr>) -> Self`, re-exported at the root. A server-mode island that reads a derived key asks the browser for its sources too. `island_step` computes each derived key with a body again after the handler's writes and before the render, except a key the handler wrote itself. A derived key is never answered in `Stepped.store`.
 * `Interpreter::compute(&self, ctx: &RequestCtx, body: &Expr, store: &ValueMap) -> Option<Value>`: `body` evaluated under `ctx` with `store` as the render's store, so `t()` and the locale read the request's, `None` when it fails. The host's derive compute.
 * A component a vendored framework hydrates renders under that framework's rules at the vendored major. A component hydrated by a framework the application does not vendor renders as plain markup. An `Fsr` component keeps its caller's rules. At the top of a render those are plain markup.
 

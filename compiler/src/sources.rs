@@ -10,6 +10,7 @@ const DEFAULT_EXCLUDE: [&str; 3] = ["node_modules", "bower_components", "jspm_pa
 /// Directory names pruned at any depth, whatever `exclude` says.
 const ALWAYS_PRUNED: [&str; 2] = ["node_modules", ".git"];
 
+#[non_exhaustive]
 pub struct Selection {
   pub root_dir: PathBuf,
   pub files: Vec<PathBuf>,
@@ -21,6 +22,7 @@ pub struct Selection {
   pub search_bases: Vec<PathBuf>,
 }
 
+#[non_exhaustive]
 pub struct Request<'a> {
   pub config_dir: &'a Path,
   pub out_dir: &'a Path,

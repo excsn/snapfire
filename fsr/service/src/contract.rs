@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 /// The element kind of a `Value::TypedArray`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ScalarKind {
   I8,
   U8,
@@ -100,6 +101,7 @@ impl Type {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Field {
   pub name: String,
   #[serde(rename = "type")]
@@ -114,6 +116,7 @@ impl Field {
 
 /// A union arm. A payloadless arm is how a proto3 or OpenAPI enum lands here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Variant {
   pub tag: String,
   #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
@@ -142,6 +145,7 @@ pub enum TypeDef {
 /// entry per subject.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Scope {
   #[default]
   Private,
@@ -163,6 +167,7 @@ impl Scope {
 /// the contract: `ttl` and `stale` in the duration spelling (`30s`, `5m`),
 /// `tags` the writes that drop it, `scope` who may share it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Freshness {
   pub ttl: String,
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -199,6 +204,11 @@ impl Freshness {
     self
   }
 
+  pub fn scope(mut self, scope: Scope) -> Self {
+    self.scope = scope;
+    self
+  }
+
   pub fn stale(mut self, window: impl Into<String>) -> Self {
     self.stale = Some(window.into());
     self
@@ -206,6 +216,7 @@ impl Freshness {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Method {
   #[serde(default)]
   pub params: Vec<Field>,
@@ -238,6 +249,7 @@ impl Method {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Service {
   #[serde(default)]
   pub methods: IndexMap<String, Method>,
@@ -258,6 +270,7 @@ impl Service {
 /// a proto or OpenAPI import all produce, plus what the TS stubs, the optional
 /// Rust traits, the plan-file validation and the runtime marshalling all read.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Contract {
   #[serde(default, skip_serializing_if = "IndexMap::is_empty")]
   pub types: IndexMap<String, TypeDef>,

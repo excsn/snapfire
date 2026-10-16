@@ -97,7 +97,7 @@ fn interceptors_attach_identity_and_the_token_without_application_code() {
 
   let tokens = TokenCell::default();
   tokens.set("access_token", Value::str("secret-abc"));
-  let identity = Identity { subject: "alice".into(), claims: Default::default() };
+  let identity = Identity::new("alice".into(), Default::default());
   let handle = services.bind(Some(identity), Arc::new(tokens));
 
   assert_eq!(block_on(handle.call("fleet", "count", ValueMap::default())).unwrap(), Value::Int(3));

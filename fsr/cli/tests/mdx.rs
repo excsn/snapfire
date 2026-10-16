@@ -201,7 +201,7 @@ fn a_residue_in_an_mdx_page_names_its_line() {
 #[test]
 fn fsr_use_mdx_writes_the_component_map_and_the_code_sheet() {
   let app = project("", &[("routes/page.tsx", "export default function Page() {\n  return <p>x</p>;\n}\n")]);
-  let adopted = snapfire_fsr_cli::direction::adopt(&app, &["mdx".to_owned()], snapfire_fsr_cli::direction::UseOptions { fetch: false, example: true }).expect("adopts");
+  let adopted = snapfire_fsr_cli::direction::adopt(&app, &["mdx".to_owned()], snapfire_fsr_cli::direction::UseOptions::default().fetch(false).example(true)).expect("adopts");
   let written: Vec<String> = adopted.written.iter().map(|p| p.strip_prefix(&app).unwrap().display().to_string()).collect();
   assert!(written.contains(&"mdx-components.tsx".to_owned()), "{written:?}");
   assert!(written.contains(&"styles/code.css".to_owned()), "{written:?}");
@@ -213,7 +213,7 @@ fn fsr_use_mdx_writes_the_component_map_and_the_code_sheet() {
   assert!(css.contains(".hl-code .hl-meta.hl-output {") && css.contains("hl-prompt { opacity: 0.6; user-select: none; }"), "a session's output and prompts: {css}");
   let built = build(&app, &Options::default()).expect("the example builds");
   assert!(built.report.routes.iter().any(|(pattern, _)| pattern == "/notes"));
-  let again = snapfire_fsr_cli::direction::adopt(&app, &["mdx".to_owned()], snapfire_fsr_cli::direction::UseOptions { fetch: false, example: false }).expect("adopts again");
+  let again = snapfire_fsr_cli::direction::adopt(&app, &["mdx".to_owned()], snapfire_fsr_cli::direction::UseOptions::default().fetch(false).example(false)).expect("adopts again");
   assert!(again.written.is_empty(), "{:?}", again.written);
   assert!(again.present.contains(&"mdx-components.tsx".to_owned()));
   cleanup(&app);

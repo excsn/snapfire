@@ -260,12 +260,13 @@ Where an extension may run.
 
 ### Ambient
 
-What a call runs under.
+What a call runs under. `#[non_exhaustive]`: build one with `Default` and the setters.
 
 * `pub locale: String` - the request's locale in the application's spelling, `fr_FR`; empty when nothing set one.
 * `pub now: i128` - milliseconds since the Unix epoch, the clock `ctx.now` reads.
 * `pub catalogs: Option<Arc<Catalogs>>` - the catalogs the host loaded, which `i18n.t` reads; `None` when the application has none.
 * `pub fn bcp47(&self) -> String` - the locale as BCP 47, `fr-FR` for `fr_FR`; `en` when the locale is empty. The browser half converts the same way.
+* `pub fn locale(self, locale: String) -> Self`, `pub fn now(self, now: i128) -> Self`, `pub fn catalogs(self, catalogs: Option<Arc<Catalogs>>) -> Self` - setters for the field of the same name.
 * Derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Default`.
 
 ### Table

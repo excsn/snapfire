@@ -11,6 +11,7 @@ use snapfire_fsr_host::{Host, HostBuilder};
 use crate::BuildError;
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct ServeOptions {
   /// Overrides the configured `server.listen`.
   pub listen: Option<String>,
@@ -18,6 +19,18 @@ pub struct ServeOptions {
   /// table's row of that name or adding one: `fsr dev` serves a site under a
   /// shell artifact this way, with nothing written into the artifact.
   pub mounts: Vec<(String, PathBuf)>,
+}
+
+impl ServeOptions {
+  pub fn listen(mut self, listen: Option<String>) -> Self {
+    self.listen = listen;
+    self
+  }
+
+  pub fn mounts(mut self, mounts: Vec<(String, PathBuf)>) -> Self {
+    self.mounts = mounts;
+    self
+  }
 }
 
 /// Where the host reads its configuration from: the directory beside the app
@@ -86,7 +99,7 @@ pub fn builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<
       let mut config = Config::load(&root)?;
       let section = config.sites.get_or_insert_with(Default::default);
       for (name, path) in &mounts {
-        section.mounts.insert(name.clone(), MountConfig { artifact: Some(path.display().to_string()), hash: None, allow_engine: false });
+        section.mounts.insert(name.clone(), MountConfig::new(Some(path.display().to_string()), None, false));
       }
       Host::from_config(config)
     }

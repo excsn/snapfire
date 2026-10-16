@@ -361,7 +361,7 @@ impl Host {
         under.path = document;
         under.params = params;
         under.query = query;
-        assemble_under(&t.app.runtime, plan, &ctx, head, Origin { ctx: under, nodes }).await?
+        assemble_under(&t.app.runtime, plan, &ctx, head, Origin::new(under, nodes)).await?
       }
       None => assemble(&t.app.runtime, plan, &ctx, head).await?,
     };

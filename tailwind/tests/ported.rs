@@ -17,12 +17,7 @@ fn pretty(input: &str) -> String {
 }
 
 fn options<'a>(base: &str, load: Option<Box<LoadStylesheet<'a>>>) -> CompileOptions<'a> {
-  CompileOptions {
-    base: base.to_owned(),
-    load_stylesheet: load,
-    banner: false,
-    ..CompileOptions::default()
-  }
+  CompileOptions::default().base(base.to_owned()).load_stylesheet(load).banner(false)
 }
 
 fn run_with(candidates: &[&str], css: &str, options: CompileOptions) -> Result<String, Error> {
@@ -36,11 +31,7 @@ fn run(candidates: &[&str], css: &str) -> String {
 }
 
 fn loaded(content: &str, base: &str) -> Result<Loaded, Error> {
-  Ok(Loaded {
-    path: String::new(),
-    base: base.to_owned(),
-    content: content.to_owned(),
-  })
+  Ok(Loaded::new(String::new(), base.to_owned(), content.to_owned()))
 }
 
 /// `index.test.ts`: `@apply > should be usable with CSS mixins`, the unoptimized half.
@@ -58,11 +49,7 @@ fn apply_is_usable_with_css_mixins_before_optimizing() {
 /// `emits negated @source files`.
 #[test]
 fn source_emits_files() {
-  let source = |pattern: &str, negated: bool| Source {
-    pattern: pattern.to_owned(),
-    base: "/root".to_owned(),
-    negated,
-  };
+  let source = |pattern: &str, negated: bool| Source::new("/root".to_owned(), pattern.to_owned(), negated);
 
   let compiler = Compiler::new("@source \"./foo/bar/*.ts\";", options("/root", None)).unwrap();
   assert_eq!(compiler.sources(), &[source("./foo/bar/*.ts", false)]);

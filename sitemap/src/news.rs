@@ -3,6 +3,7 @@ use crate::error::{Error, Result};
 use crate::writer;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Publication {
   pub name: String,
   /// ISO 639 language code. `zh-cn` and `zh-tw` are the two accepted

@@ -46,7 +46,7 @@ A `tsc` of a requested version, resolved and verified, and the diagnostics it pr
 
 ### Options
 
-What to run and where it may come from.
+What to run and where it may come from. `#[non_exhaustive]`: build one with `Default` and the setters.
 
 * `pub version: String`: the requested version. Defaults to `DEFAULT_VERSION`.
 * `pub tsc: Option<PathBuf>`: a compiler to use as given. Its `--version` must be `version` or resolution fails with `Error::Mismatch`.
@@ -55,6 +55,7 @@ What to run and where it may come from.
 * `pub expect: Option<String>`: the `sha512-` integrity a fetched tarball must have. A hash this crate pins for the version wins over it.
 * `pub offline: bool`: fetching is refused, so a cache miss is `Error::Offline` rather than a network call.
 * `Default` gives the default version, no explicit compiler, the platform cache, the npm registry and fetching on.
+* `pub fn version(self, version: String) -> Self`, `pub fn tsc(self, tsc: Option<PathBuf>) -> Self`, `pub fn cache(self, cache: Option<PathBuf>) -> Self`, `pub fn registry(self, registry: String) -> Self`, `pub fn expect(self, expect: Option<String>) -> Self`, `pub fn offline(self, offline: bool) -> Self`: setters for the field of the same name.
 
 ### Resolved
 

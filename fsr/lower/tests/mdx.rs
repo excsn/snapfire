@@ -35,11 +35,11 @@ fn transform(mapped: Vec<Mapped>) -> Rc<snapfire_fsr_lower::component::Transform
     options.mapped = mapped.clone();
     for o in overrides {
       options.mapped.retain(|m| m.key != o.key);
-      options.mapped.push(Mapped { key: o.key.clone(), specifier: o.specifier.clone(), export: o.export.clone() });
+      options.mapped.push(Mapped::new(o.key.clone(), o.specifier.clone(), o.export.clone()));
     }
     let converted = snapfire_fsr_mdx::convert(source, &options).map_err(|e| e.to_string())?;
-    let segments = converted.segments.iter().map(|s| OriginSegment { generated: s.generated, len: s.len, original: s.original, verbatim: s.verbatim }).collect();
-    Ok(Transformed { source: converted.tsx, origin: Some(Origin { source: source.to_owned(), segments }) })
+    let segments = converted.segments.iter().map(|s| OriginSegment::new(s.generated, s.len, s.original, s.verbatim)).collect();
+    Ok(Transformed::new(converted.tsx, Some(Origin::new(source.to_owned(), segments))))
   })
 }
 
@@ -134,7 +134,7 @@ fn a_static_meta_object_lowers_as_the_routes_meta() {
 #[test]
 fn a_mapped_element_is_placed_as_its_component() {
   let components = "export function __mdx_h2({ children, id }: { children?: unknown; id?: string }) {\n  return <h2 className=\"fancy\" id={id}><a href={`#${id}`}>#</a> {children}</h2>;\n}\n";
-  let mapped = vec![Mapped { key: "h2".into(), specifier: "../mdx-components".into(), export: "__mdx_h2".into() }];
+  let mapped = vec![Mapped::new("h2".into(), "../mdx-components".into(), "__mdx_h2".into())];
   let mut set = set(&[("routes/page.mdx", "## Setup\n\nText.\n"), ("mdx-components.tsx", components)], mapped);
   set.lower("routes/page.mdx#default").expect("lowers");
   assert_eq!(render(&set, "routes/page.mdx#default", &[]), "<h2 class=\"fancy\" id=\"setup\"><a href=\"#setup\">#</a> Setup</h2><p>Text.</p>");

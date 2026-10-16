@@ -125,12 +125,7 @@ fn sources_of(fixture: &Fixture) -> Result<serde_json::Value, String> {
 }
 
 fn options_for(fixture: &Fixture) -> CompileOptions<'static> {
-  let mut options = CompileOptions {
-    polyfills: polyfills(fixture.polyfills.as_deref()),
-    base: fixture.base.clone().unwrap_or_default(),
-    banner: false,
-    ..CompileOptions::default()
-  };
+  let mut options = CompileOptions::default().polyfills(polyfills(fixture.polyfills.as_deref())).base(fixture.base.clone().unwrap_or_default()).banner(false);
   if let Some((content, base)) = fixture.stylesheet.clone() {
     options.load_stylesheet = Some(Box::new(move |_, given| {
       let base = if base == "<base>" {
@@ -138,18 +133,14 @@ fn options_for(fixture: &Fixture) -> CompileOptions<'static> {
       } else {
         base.clone()
       };
-      Ok(Loaded {
-        path: String::new(),
-        base,
-        content: content.clone(),
-      })
+      Ok(Loaded::new(String::new(), base, content.clone()))
     }));
   }
   if let Some(rows) = fixture.loads.clone() {
     options.load_stylesheet = Some(Box::new(move |id, given| {
       let row = rows.iter().find(|row| row.when.iter().all(|c| c.holds(id, given)));
       match row.and_then(|row| row.answer.clone()) {
-        Some((content, base)) => Ok(Loaded { path: String::new(), base: if base == "<base>" { given.to_owned() } else { base }, content }),
+        Some((content, base)) => Ok(Loaded::new(String::new(), if base == "<base>" { given.to_owned() } else { base }, content)),
         None => Err(snapfire_tailwind::Error::Message(format!("Unexpected import: {id}"))),
       }
     }));

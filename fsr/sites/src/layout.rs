@@ -35,6 +35,7 @@ pub const LAYER: &str = "bundle.toml";
 pub const GENERATED: &str = "generated";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum LayoutError {
   #[error("`{0}` would place a file outside the tree")]
   Escapes(String),
@@ -63,6 +64,7 @@ pub enum Source {
 /// One thing that ships: where it goes in the tree and what it is made of. A
 /// `Path` source is a file or a directory and a directory ships whole.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Placement {
   pub to: String,
   pub from: Source,
@@ -91,12 +93,14 @@ impl Placement {
 
 /// Every placement a configuration implies, in destination order.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Layout {
   pub places: Vec<Placement>,
 }
 
 /// One file of a tree, resolved out of the placement that carries it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Row {
   pub path: String,
   pub from: Source,
@@ -348,7 +352,7 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
     for file in overlays(&config_dir)? {
       let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
       let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-      let deployment = Deployment { release_env: stem.clone(), app_env: stem, region: None };
+      let deployment = Deployment::default().release_env(stem.clone()).app_env(stem).region(None);
       let overlay = Loader::at(&config_dir).deployment(deployment).config().map_err(|e| LayoutError::Overlay(name.clone(), e.to_string()))?;
       place_named(&overlay, &name, false, &mut placer, &mut layer)?;
     }

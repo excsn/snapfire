@@ -44,7 +44,7 @@ pub fn builder(chart_delay: Duration) -> Result<HostBuilder, HostError> {
   let renders = state::Renders::default();
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
   let counting = renders.clone();
-  let artifact = Artifact { config, plan: EMPTY_PLAN.to_owned(), contract: None };
+  let artifact = Artifact::new(config, EMPTY_PLAN.to_owned(), None);
   let builder = Host::from_artifact(artifact)?
     .service(Arc::new(fleet))
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))

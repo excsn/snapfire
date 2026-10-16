@@ -25,6 +25,7 @@ use crate::contract::{Contract, Freshness, Scope};
 use crate::interceptor::{Chain, Interceptor, Next};
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DataCacheError {
   #[error("{method}: cache.ttl `{ttl}` is not a duration")]
   Ttl { method: String, ttl: String },
@@ -39,6 +40,7 @@ pub enum DataCacheError {
 /// Service, method, the arguments and, under `subject` scope, who asked; the
 /// tag generations at the time of the call are part of `canonical`.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct CallKey {
   pub service: String,
   pub method: String,

@@ -114,7 +114,7 @@ impl Host {
   ) -> RequestCtx {
     let services = t.app.services.bind(incoming.session.identity(), incoming.credentials);
     let (document, address) = match incoming.intercept {
-      Some(intercept) => (Some(intercept.document), Some(Address { path: path.to_owned(), params: params.clone(), query: query.clone() })),
+      Some(intercept) => (Some(intercept.document), Some(Address::default().path(path.to_owned()).params(params.clone()).query(query.clone()))),
       None => (None, None),
     };
     let mut ctx = RequestCtx::anonymous(params);

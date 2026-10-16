@@ -7,17 +7,32 @@ use snapfire_fsr_runtime::Identity;
 /// Where `begin` sends the browser, plus whatever the provider needs back at
 /// the callback. The state never leaves the server; `Auth` keeps it in token
 /// custody across the round trip.
+#[non_exhaustive]
 pub struct Begin {
   pub redirect: String,
   pub state: ValueMap,
 }
 
+impl Begin {
+  pub fn new(redirect: String, state: ValueMap) -> Self {
+    Self { redirect, state }
+  }
+}
+
+#[non_exhaustive]
 pub struct AuthOutcome {
   pub identity: Identity,
   pub tokens: ValueMap,
 }
 
+impl AuthOutcome {
+  pub fn new(identity: Identity, tokens: ValueMap) -> Self {
+    Self { identity, tokens }
+  }
+}
+
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum AuthError {
   Denied(String),
   Invalid(String),

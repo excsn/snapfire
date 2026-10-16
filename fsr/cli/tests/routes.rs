@@ -101,7 +101,7 @@ fn an_app_with_no_react_records_no_framework() {
 /// The options a site is built with, against the contract at `shell`.
 fn site_against(shell: PathBuf) -> Options {
   let mut options = Options::default();
-  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: Some(shell) });
+  options.site = Some(snapfire_fsr_cli::SiteOptions::new("billing".to_owned(), "/billing".to_owned()).shell(Some(shell)));
   options
 }
 
@@ -443,7 +443,7 @@ fn a_site_is_checked_against_the_shells_import_map_as_well_as_its_own() {
   let shell = dir.join("shell.json");
   std::fs::write(&shell, r#"{"version":1,"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   let mut options = Options::default();
-  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: Some(shell) });
+  options.site = Some(snapfire_fsr_cli::SiteOptions::new("billing".to_owned(), "/billing".to_owned()).shell(Some(shell)));
   build(&dir, &options).expect("the shell serves React, so the site need not");
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -640,7 +640,7 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
     ("clients/ledger.openapi.json", r##"{"openapi":"3.0.0","info":{"title":"ledger","version":"1"},"paths":{"/list":{"get":{"operationId":"list","responses":{"200":{"description":"ok","content":{"application/json":{"schema":{"type":"array","items":{"$ref":"#/components/schemas/Invoice"}}}}}}}}},"components":{"schemas":{"Invoice":{"type":"object","required":["id"],"properties":{"id":{"type":"integer","format":"int64"}}}}}}"##),
   ]);
   let mut options = Options::default();
-  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: None });
+  options.site = Some(snapfire_fsr_cli::SiteOptions::new("billing".to_owned(), "/billing".to_owned()).shell(None));
   let built = build(&dir, &options).unwrap();
   let plan = built.manifest.to_json();
   for expected in [
@@ -695,7 +695,7 @@ fn a_shell_emits_its_contract_and_a_site_built_against_it_gets_the_declarations(
     ("importmap.json", r#"{"imports":{"react":"/elsewhere/react.mjs","chart":"/billing/static/js/vendor/chart.mjs"}}"#),
   ]);
   let mut options = Options::default();
-  options.site = Some(snapfire_fsr_cli::SiteOptions { name: "billing".to_owned(), at: "/billing".to_owned(), shell: Some(shell.join("generated/shell.json")) });
+  options.site = Some(snapfire_fsr_cli::SiteOptions::new("billing".to_owned(), "/billing".to_owned()).shell(Some(shell.join("generated/shell.json"))));
   let built = build(&site, &options).unwrap();
   assert!(built.files.iter().all(|(n, _)| n != "generated/shell.json"), "a site emits no contract of its own");
   let (_, declarations) = built.files.iter().find(|(n, _)| n == "generated/shell.d.ts").expect("a site gets the shell's declarations");
@@ -1399,7 +1399,7 @@ fn the_document_entry_the_configuration_names_is_a_bundle_root() {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let root = std::env::temp_dir().join(format!("fsr-cli-routes-entry-{}-{n}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  snapfire_fsr_cli::new::create(&root, snapfire_fsr_cli::new::NewOptions { fetch: false, ..Default::default() }).unwrap();
+  snapfire_fsr_cli::new::create(&root, snapfire_fsr_cli::new::NewOptions::default().fetch(false)).unwrap();
   let config = root.join("config/app.toml");
   let text = std::fs::read_to_string(&config).unwrap().replacen("[document]\n", "[document]\nentry = \"/static/js/app/src/boot.js\"\n", 1);
   std::fs::write(&config, text).unwrap();

@@ -101,10 +101,11 @@ The application's stable id for a route entry. `pub struct EntryId(pub u32)`, `D
 
 ### `RouteMatch`
 
-What a matcher returns. `Debug + Clone + PartialEq`.
+What a matcher returns. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
 
 * `pub entry: EntryId`
 * `pub params: Params` (`indexmap::IndexMap<String, String>` from `snapfire_fsr_core`)
+* `pub fn new(entry: EntryId, params: Params) -> Self`
 
 ### `Matcher`
 
@@ -265,7 +266,7 @@ Defaults: `DataSources::new()`, `Evaluators::new()`, `Arc::new(DefaultKeyer)`, `
 
 `pub enum Static { Fixed, Anonymous, Dynamic }`. `Copy`, `Ord`, `Default` (`Dynamic`). How much of the request a body or a subtree depends on: nothing, the identity alone or more. The app crate classifies sources and subtrees with it.
 
-`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String>, pub path: bool, pub csrf: bool }`. What a subtree reads: the most any node in it reads, the store keys any component in it reads, whether a component in it reads its `csrf_token` prop, which is what makes the render carry the token, plus whether a component in it renders the request's path or the document's, which a `<Link>` does to mark itself current. For such a subtree the assembler writes `$path` and `$document` (`PATH_PROP` and `DOCUMENT_PROP`) into the props and keys the memo by both paths.
+`pub struct SubtreeReads { pub class: Static, pub store_keys: Vec<String>, pub path: bool, pub csrf: bool }`. `Default` and `#[non_exhaustive]`: build one with `Default` and the setters `class`, `store_keys`, `path` and `csrf`, each `fn(self, value) -> Self`. What a subtree reads: the most any node in it reads, the store keys any component in it reads, whether a component in it reads its `csrf_token` prop, which is what makes the render carry the token, plus whether a component in it renders the request's path or the document's, which a `<Link>` does to mark itself current. For such a subtree the assembler writes `$path` and `$document` (`PATH_PROP` and `DOCUMENT_PROP`) into the props and keys the memo by both paths.
 
 `pub type Reads = HashMap<u64, SubtreeReads>`, keyed by `subtree_shape`.
 
@@ -331,7 +332,9 @@ pub async fn assemble_under(
 
 ### `Origin`
 
-`pub struct Origin { pub ctx: RequestCtx, pub nodes: Vec<u32> }`. The document's request and the ids of the plan nodes that render under it, which a host takes from the layouts the origin's route shares with the intercept's, from the root down to the one declaring the slot.
+`pub struct Origin { pub ctx: RequestCtx, pub nodes: Vec<u32> }`. `#[non_exhaustive]`: build one with `new`. The document's request and the ids of the plan nodes that render under it, which a host takes from the layouts the origin's route shares with the intercept's, from the root down to the one declaring the slot.
+
+* `pub fn new(ctx: RequestCtx, nodes: Vec<u32>) -> Self`
 
 ### `Contribution`
 
@@ -340,7 +343,7 @@ pub async fn assemble_under(
 * `pub fn contribution_order(a: &[String], b: &[String], slot_order: &[String]) -> Ordering`: by depth, then at the first slot name the paths differ on, by `slot_order`: a name it lists comes after every name it does not and the later listed name is later; names it leaves out compare as strings. The browser merges by the same rule with the same list, so the two agree whatever order contributions arrive in.
 * `pub fn merge_contributions(contributions: &[Contribution], slot_order: &[String]) -> Data`: the store they merge to, each applied in that order.
 * `pub fn pending_keys(contributions: &[Contribution], slot_order: &[String]) -> BTreeSet<String>`: the keys a promise awaits and outranks every seed of, by `contribution_order`. A promise whose segment has seeded is kept and makes nothing pending. The browser store's `isPending` applies the same rule.
-* `pub struct Derived { pub key: String, pub sources: Vec<String>, pub compute: Option<Compute> }`, with `pub type Compute = Arc<dyn Fn(&RequestCtx, &Data) -> Option<Value> + Send + Sync>`: a store key the browser's `derive` computes from `sources`, under the request so a compute reads its locale. `compute` answers `None` where the browser's compute would throw. A derived key with no compute is one the build could not lower. `Debug`.
+* `pub struct Derived { pub key: String, pub sources: Vec<String>, pub compute: Option<Compute> }`, `#[non_exhaustive]`, built with `Derived::new(key: String, sources: Vec<String>, compute: Option<Compute>) -> Self`, with `pub type Compute = Arc<dyn Fn(&RequestCtx, &Data) -> Option<Value> + Send + Sync>`: a store key the browser's `derive` computes from `sources`, under the request so a compute reads its locale. `compute` answers `None` where the browser's compute would throw. A derived key with no compute is one the build could not lower. `Debug`.
 * `pub fn derive_order(derives: Vec<Derived>) -> Vec<Derived>`: each derived key after the derived keys it reads.
 * `pub fn apply_derives(ctx: &RequestCtx, store: &mut Data, derives: &[Derived])`: computes each key in order over the merged store and writes it, so a derived value replaces a seed for the same key. A key whose compute is missing or answers `None` is removed.
 * `pub fn derived_pending(pending: &mut BTreeSet<String>, derives: &[Derived])`: a derived key is pending exactly when it has no compute or a key it reads is pending. A promise for a derived key whose sources are settled holds nothing, as in the browser.
@@ -351,7 +354,7 @@ pub async fn assemble_under(
 * `catalog: Option<String>`: the head's `catalog`, written as the `D` row.
 * `failed: Option<FailureKind>`: the kind the route's own page loader failed with, the page being the node reached from the root along the `content` slots. A layout or a slot failing degrades its segment and leaves this `None`. A host reads it for the document's status.
 
-What one call produced. `Debug` (which prints `pending` as a count); not `Clone`. Both streaming functions consume it by value.
+What one call produced. `Debug` (which prints `pending` as a count); not `Clone`. Both streaming functions consume it by value. `#[non_exhaustive]`: build one with `new`.
 
 * `pub tree: Node`
 * `pub pending: Vec<PendingResolution>`
@@ -362,16 +365,20 @@ What one call produced. `Debug` (which prints `pending` as a count); not `Clone`
 * `pub locale: Locale`: the request's, for the `L` row.
 * `pub entry: Option<String>`: the head's `entry`, for the `E` row.
 * `pub theme: Option<DocumentTheme>`: the head's `theme`, written into the eager `H` row.
+* `pub fn new(tree: Node, pending: Vec<PendingResolution>, segments: SegmentInfo, meta: Meta, contributions: Vec<Contribution>, store: Data, locale: Locale, entry: Option<String>, styles: Vec<String>, catalog: Option<String>, theme: Option<DocumentTheme>, failed: Option<FailureKind>) -> Self`
 
 ### `PendingResolution`
 
-A deferred slot's eventual content.
+A deferred slot's eventual content. `#[non_exhaustive]`: build one with `new`.
 
 * `pub slot: SlotId`
 * `pub key: String`: the deferred segment's key, so its fill is delimited like any region.
 * `pub future: BoxFuture<'static, Resolved>`: infallible. A failed loader or evaluation inside the subtree resolves to an error node instead.
+* `pub fn new(slot: SlotId, key: String, future: BoxFuture<'static, Resolved>) -> Self`
 
 ### `Resolved`
+
+`#[non_exhaustive]`: build one with `new`.
 
 * `pub slot: SlotId`
 * `pub key: String`
@@ -380,11 +387,13 @@ A deferred slot's eventual content.
 * `pub contributions: Vec<Contribution>`: what the subtree's own segments seeded, written ahead of its markup.
 * `pub pending: Vec<PendingResolution>`: nested deferral, new slots the resolution itself introduced.
 * `pub meta: Meta`: what the resolved subtree said about the document; empty when no segment in it has metadata.
+* `pub fn new(slot: SlotId, key: String, node: Node, segments: Vec<SegmentInfo>, pending: Vec<PendingResolution>, meta: Meta, contributions: Vec<Contribution>) -> Self`
 
 ### `Meta`
 
-`pub struct Meta { pub title: Option<String>, pub absolute: bool, pub description: Option<String>, pub head: Vec<HeadEl> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. A field left `None` keeps what the document has. `absolute` writes `title` as given rather than through the head's template.
+`pub struct Meta { pub title: Option<String>, pub absolute: bool, pub description: Option<String>, pub head: Vec<HeadEl> }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. `#[non_exhaustive]`: build one with `Default` and the setters. A field left `None` keeps what the document has. `absolute` writes `title` as given rather than through the head's template.
 
+* `pub fn title(self, title: Option<String>) -> Self`, `pub fn absolute(self, absolute: bool) -> Self`, `pub fn description(self, description: Option<String>) -> Self`, `pub fn head(self, head: Vec<HeadEl>) -> Self`: setters for the field of the same name.
 * `pub fn is_empty(&self) -> bool`
 * `pub fn merge(&mut self, inner: Meta)`: `inner`'s title and description replace these when set. Each of its head elements replaces the one with the same identity (`HeadEl::identity`: the tag and its `rel`, `name`, `property`, `http-equiv`, `itemprop` or `id`, qualified), else is appended. A second element of one identity within `inner` is appended too, so a list of `og:image` rows one `Meta` brings is kept whole.
 * `pub const PATH_MARK: &str = "{fsr:path}"`: in a module head row's value, the request's path.
@@ -424,7 +433,9 @@ A deferred slot's eventual content.
 
 ### `DocumentTheme`
 
-`pub struct DocumentTheme { pub name: Option<String>, pub scheme: Option<String>, pub forced: bool }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. `<html data-sf-theme>` and `<html data-sf-scheme>` for one request: no `name` is the root theme and no `scheme` leaves the attribute off. `forced` is `<html data-sf-theme-forced>`: the route forces its theme and the document kept it.
+`pub struct DocumentTheme { pub name: Option<String>, pub scheme: Option<String>, pub forced: bool }`. `Debug`, `Clone`, `Default`, `PartialEq`, `Eq`. `<html data-sf-theme>` and `<html data-sf-scheme>` for one request: no `name` is the root theme and no `scheme` leaves the attribute off. `forced` is `<html data-sf-theme-forced>`: the route forces its theme and the document kept it. `#[non_exhaustive]`: build one with `Default` and the setters.
+
+* `pub fn name(self, name: Option<String>) -> Self`, `pub fn scheme(self, scheme: Option<String>) -> Self`, `pub fn forced(self, forced: bool) -> Self`: setters for the field of the same name.
 
 ## 7. Segments
 
@@ -442,23 +453,25 @@ Module plus every matched param and every query pair. Unit struct. `snapfire_fsr
 
 ### `SegmentInfo`
 
-The sidecar emitted beside the payload tree. `Debug + Clone + PartialEq`.
+The sidecar emitted beside the payload tree. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
 
 * `pub key: String`
 * `pub digest: u64`: the canonical fingerprint of what the segment rendered, its own child segments elided. Two responses agreeing on it rendered the same DOM for that segment, whatever their keys say, which is what lets a browser keep a region a key change would otherwise replace. Zero for a deferred segment, which arrives as its own fill.
 * `pub path: Vec<u32>`: the subtree's position relative to the parent segment's node. `[]` is the whole node, `[i]` is child `i` of a `Seq`.
 * `pub slot: Option<u32>`: set for a deferred segment, which is slot-addressed and carries no path.
 * `pub children: Vec<SegmentInfo>`
+* `pub fn new(key: String, digest: u64, name: String, path: Vec<u32>, slot: Option<u32>, children: Vec<SegmentInfo>, keep: Vec<String>) -> Self`
 
 ## 8. Caching
 
 ### `CacheEntry`
 
-What a hit restores. `Debug + Clone + PartialEq`.
+What a hit restores. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
 
 * `pub node: Node`
 * `pub segments: Vec<SegmentInfo>`: the subtree's child segments, so navigation identity survives caching.
 * `pub digest: u64`: the subtree's own fingerprint, so a hit carries the digest a miss would have produced.
+* `pub fn new(node: Node, segments: Vec<SegmentInfo>, digest: u64) -> Self`
 
 ### `NodeCache`
 
@@ -538,10 +551,11 @@ For a warm pass filling it and for a Rust host that knows its keyed sources are 
 
 ### `Identity`
 
-Who the request is, resolved by the session layer before anything loads. `Debug + Clone + PartialEq`.
+Who the request is, resolved by the session layer before anything loads. `Debug + Clone + PartialEq`. `#[non_exhaustive]`: build one with `new`.
 
 * `pub subject: String`
 * `pub claims: ValueMap`
+* `pub fn new(subject: String, claims: ValueMap) -> Self`
 
 Application code reads it and never sees a token.
 
@@ -591,7 +605,9 @@ Cloning a context shares the session cell, the service handle and the CSRF handl
 
 ### `Address`
 
-`pub struct Address { pub path: String, pub params: Params, pub query: Params }`. `Clone`, `Debug`, `Default`, `PartialEq`. The request the browser navigated to, carried as `RequestCtx::address` on an intercepted render.
+`pub struct Address { pub path: String, pub params: Params, pub query: Params }`. `Clone`, `Debug`, `Default`, `PartialEq`. `#[non_exhaustive]`: build one with `Default` and the setters. The request the browser navigated to, carried as `RequestCtx::address` on an intercepted render.
+
+* `pub fn path(self, path: String) -> Self`, `pub fn params(self, params: Params) -> Self`, `pub fn query(self, query: Params) -> Self`: setters for the field of the same name.
 
 * `pub fn value(&self) -> Value`: the map a body reads, `path`, `params` and `query`.
 
@@ -786,10 +802,11 @@ Raised by a `DataSource`. In assembly it degrades one segment to its error modul
 
 ### `EvalError`
 
-An evaluator failed. `Debug + Clone + thiserror::Error`, displayed as ``evaluate {module}: {message}``.
+An evaluator failed. `Debug + Clone + thiserror::Error`, displayed as ``evaluate {module}: {message}``. `#[non_exhaustive]`: build one with `new`.
 
 * `pub module: String`
 * `pub message: String`
+* `pub fn new(module: String, message: String) -> Self`
 
 Reaching `assemble` it becomes `AssembleError::Eval`. Inside a deferred resolution it becomes that slot's error node instead.
 

@@ -44,7 +44,7 @@ fn project(tag: &str, files: &[(&str, &str)]) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let root = std::env::temp_dir().join(format!("fsr-cli-generated-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");
   for (path, text) in files {
     let file = app.join(path);

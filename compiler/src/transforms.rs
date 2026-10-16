@@ -25,6 +25,7 @@ const BROWSER_READY: [&str; 3] = ["js", "mjs", "cjs"];
 /// A dynamic import is deliberately deferred by the author, so it is an edge for dependency
 /// purposes but never something to preload.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Import {
   pub specifier: String,
   pub dynamic: bool,
@@ -37,6 +38,7 @@ pub struct Import {
 /// build has one, else relative to the module through `import.meta.url`. With
 /// a map, by the row the driver wrote for it, with nothing emitted.
 #[derive(Clone, Default)]
+#[non_exhaustive]
 pub struct AssetUrls {
   pub root_dir: PathBuf,
   pub out_dir: PathBuf,
@@ -45,6 +47,7 @@ pub struct AssetUrls {
 }
 
 /// What a reference to an asset resolves to under a map.
+#[non_exhaustive]
 pub enum Mapped<'a> {
   /// The driver's row.
   Row(&'a MappedAsset),
@@ -448,6 +451,7 @@ impl Fold for ImportRewriter {
   }
 }
 
+#[non_exhaustive]
 pub struct StripConsole {
   pub strip_log: bool,
   pub strip_debug: bool,

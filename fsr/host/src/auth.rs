@@ -160,7 +160,7 @@ impl Host {
               .unwrap_or_default();
             see_other(&format!("{}?error=denied&return_to={back}", mounted.login_path))
           }
-          Err(e @ AuthError::Invalid(_)) => text_response(StatusCode::BAD_REQUEST, e.to_string()),
+          Err(e) => text_response(StatusCode::BAD_REQUEST, e.to_string()),
         };
         self.set_cookie(renewed.as_ref().unwrap_or(opened), &mut response).await;
         Some(response)

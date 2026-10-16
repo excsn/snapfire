@@ -341,7 +341,7 @@ fn begin(&self, _return_to: &str) -> BoxFuture<'_, Begin> {
   let redirect = format!("{}?state={}", self.authorize_url, nonce);
   let mut state = ValueMap::new();
   state.insert("nonce".to_owned(), Value::Str(nonce));
-  Box::pin(ready(Begin { redirect, state }))
+  Box::pin(ready(Begin::new(redirect, state)))
 }
 ```
 
@@ -365,10 +365,7 @@ fn callback(&self, params: ValueMap, state: ValueMap) -> BoxFuture<'_, Result<Au
 
     let mut tokens = ValueMap::new();
     tokens.insert("access_token".to_owned(), Value::Str(exchange(&params)?));
-    Ok(AuthOutcome {
-      identity: Identity { subject: subject_of(&params), claims: ValueMap::new() },
-      tokens,
-    })
+    Ok(AuthOutcome::new(Identity::new(subject_of(&params), ValueMap::new()), tokens))
   })();
   Box::pin(ready(result))
 }

@@ -18,6 +18,7 @@ use crate::variants::{Variants, create_variants, substitute_at_variant};
 /// which of its parses.
 type CompiledKey = (bool, String, usize);
 
+#[non_exhaustive]
 pub struct DesignSystem {
   pub theme: Theme,
   pub utilities: Utilities,

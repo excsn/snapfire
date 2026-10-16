@@ -14,6 +14,7 @@ use crate::openapi::ImportError;
 /// How one contract method reaches a gRPC server: the request path and the
 /// full names of its request and response messages in the pool.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct GrpcMethod {
   pub path: String,
   pub input: String,
@@ -23,6 +24,7 @@ pub struct GrpcMethod {
 /// What one `.proto` lowers to: the neutral contract, the descriptor pool the
 /// transport encodes with and one `GrpcMethod` per `service.method` key.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ImportedProto {
   pub contract: Contract,
   pub pool: DescriptorPool,

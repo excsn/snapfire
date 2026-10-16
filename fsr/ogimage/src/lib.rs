@@ -21,6 +21,7 @@ pub const MAX_SIDE: u32 = 8192;
 
 /// The encoding [`render`] writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Format {
   Png,
   /// JPEG at a quality from 1 to 100. JPEG has no transparency, so
@@ -40,6 +41,7 @@ impl Format {
 /// Something the renderer skipped or could not draw. The card still
 /// renders.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Warning {
   /// The element, as the path of tags from the root with each tag's
   /// position among its siblings: `div(1) > div(2) > span(1)`.
@@ -75,6 +77,7 @@ pub enum CardError {
 
 /// An encoded card and what the renderer skipped on the way.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Rendered {
   pub bytes: Vec<u8>,
   pub warnings: Vec<Warning>,

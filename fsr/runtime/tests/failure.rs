@@ -96,7 +96,7 @@ fn failing_sources() -> DataSources {
 fn failing_with(kind: snapfire_fsr_runtime::FailureKind, message: &'static str) -> DataSources {
   let mut sources = DataSources::new();
   sources.insert_fn("page_loader", move |_p| async move {
-    Err(LoadError { source_id: "page_loader".into(), message: message.into(), kind })
+    Err(LoadError::new("page_loader", message).with_kind(kind))
   });
   sources
 }
@@ -177,11 +177,7 @@ fn a_failed_subtree_is_never_cached() {
         data.insert("body".to_owned(), Value::str("recovered"));
         Ok(data)
       } else {
-        Err(LoadError {
-          source_id: "page_loader".into(),
-          message: "backend down".into(),
-          kind: snapfire_fsr_runtime::FailureKind::Internal,
-        })
+        Err(LoadError::new("page_loader", "backend down").with_kind(snapfire_fsr_runtime::FailureKind::Internal))
       }
     }
   });

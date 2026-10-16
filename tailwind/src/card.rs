@@ -12,6 +12,7 @@ use crate::Compiler;
 /// What one candidate means on a card: its declarations in order, with the card width they start
 /// to apply at when the candidate carries a breakpoint variant.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CardRule {
   pub candidate: String,
   /// In CSS pixels, a `rem` taken as 16 of them.

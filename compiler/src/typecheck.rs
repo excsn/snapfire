@@ -10,6 +10,7 @@ use anyhow::{bail, Result};
 pub const CHECKER: &str = "snapfiretc";
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Options {
   /// A compiler for the checker to use as given.
   pub tsc: Option<PathBuf>,

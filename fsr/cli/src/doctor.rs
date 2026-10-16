@@ -14,6 +14,7 @@ use snapfire_fsr_ir::ast::{Entry, Expr, Tmpl};
 use snapfire_fsr_plan::Manifest;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DoctorError {
   #[error("{0}: {1}")]
   Io(PathBuf, std::io::Error),
@@ -25,6 +26,7 @@ pub enum DoctorError {
 
 /// One thing that is wrong, what it means and what to do about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Finding {
   /// A short name for the check, so a report can be grepped.
   pub check: &'static str,
@@ -39,6 +41,7 @@ impl Finding {
 }
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Report {
   pub findings: Vec<Finding>,
   /// The checks that ran and found nothing, so a clean report still says what

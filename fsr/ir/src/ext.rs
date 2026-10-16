@@ -14,6 +14,7 @@ use crate::interp::Fail;
 pub type ExtFn = dyn Fn(&Ambient, &[Value]) -> Result<Value, Fail> + Send + Sync;
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Extension {
   pub reach: Reach,
   f: Arc<ExtFn>,

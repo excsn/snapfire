@@ -14,7 +14,7 @@ fn project(tag: &str, toml: &str) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let root = std::env::temp_dir().join(format!("fsr-cli-tsconfig-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   let config = root.join("config/app.toml");
   let mut text = std::fs::read_to_string(&config).unwrap();
   text.push_str(toml);

@@ -42,6 +42,7 @@ const FSR_AUTHORING: &[(&str, &str)] = &[
 ];
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TypedPackage {
   pub version: String,
   /// The package the declarations came from: the package itself, `@types/<name>`, `fsr` or `vendor` for those a vendored package carries.
@@ -53,7 +54,14 @@ pub struct TypedPackage {
   pub ambient: bool,
 }
 
+impl TypedPackage {
+  pub fn new(version: String, from: String, entry: String, ambient: bool) -> Self {
+    Self { version, from, entry, ambient }
+  }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TypesManifest {
   #[serde(default)]
   pub packages: BTreeMap<String, TypedPackage>,
@@ -80,6 +88,7 @@ impl TypesManifest {
 }
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct TypesReport {
   /// Package, version, source.
   pub fetched: Vec<(String, String, String)>,
@@ -575,6 +584,7 @@ pub fn write_foreign_shim(app: &Path, layout: &Layout, placed: &[String]) -> Res
 /// declarations import it, or by the vendored version or a site's shell for a
 /// package the import map names.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Asked {
   pub by: String,
   /// The npm package the range is a range of, the dependency or its
@@ -1065,6 +1075,7 @@ pub mod range {
 
   /// A version without its build metadata, which takes no part in precedence.
   #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+  #[non_exhaustive]
   pub struct Version {
     pub major: u64,
     pub minor: u64,
@@ -1259,6 +1270,7 @@ pub mod range {
 
   /// Any number of comparator sets, one of which a version must satisfy whole.
   #[derive(Debug, Clone, PartialEq, Eq)]
+  #[non_exhaustive]
   pub struct Range {
     sets: Vec<Vec<Comparator>>,
   }

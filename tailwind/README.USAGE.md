@@ -65,7 +65,7 @@ use snapfire_tailwind::{optimize, CompileOptions, Compiler, OptimizeOptions};
 fn main() -> Result<(), snapfire_tailwind::Error> {
   let mut compiler = Compiler::new("@import \"tailwindcss\";", CompileOptions::default())?;
   let built = compiler.build(["grid", "gap-6", "md:grid-cols-3"]);
-  let css = optimize(&built, &OptimizeOptions { minify: true, file: Some("app.css".to_owned()) })?;
+  let css = optimize(&built, &OptimizeOptions::default().minify(true).file(Some("app.css".to_owned())))?;
   assert!(!css.contains("\n  "));
   Ok(())
 }
@@ -91,9 +91,9 @@ fn compile(dir: &Path, css: &str) -> Result<Compiler, Error> {
     let file = Path::new(base).join(id);
     let content = std::fs::read_to_string(&file).map_err(|e| Error::Message(format!("{}: {e}", file.display())))?;
     let base = file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
-    Ok(Loaded { path: file.to_string_lossy().into_owned(), base, content })
+    Ok(Loaded::new(file.to_string_lossy().into_owned(), base, content))
   };
-  let options = CompileOptions { base: dir.to_string_lossy().into_owned(), load_stylesheet: Some(Box::new(load)), ..CompileOptions::default() };
+  let options = CompileOptions::default().base(dir.to_string_lossy().into_owned()).load_stylesheet(Some(Box::new(load)));
   Compiler::new(css, options)
 }
 ```
@@ -105,7 +105,7 @@ A loader handles every import once you give one, which is why it calls `tailwind
 ```rust
 use snapfire_tailwind::{CompileOptions, Compiler};
 
-let options = CompileOptions { from: Some("styles/app.css".to_owned()), ..CompileOptions::default() };
+let options = CompileOptions::default().from(Some("styles/app.css".to_owned()));
 let err = Compiler::new(".a {\n  color: red;\n", options).err().unwrap();
 assert!(err.to_string().starts_with("styles/app.css:"));
 ```
@@ -168,12 +168,8 @@ A candidate your own CSS defines, such as `.brand-card`, is invalid to Tailwind 
 ```rust
 use snapfire_tailwind::{CompileOptions, Compiler, NamedTheme};
 
-let ocean = NamedTheme {
-  selector: "[data-theme=\"ocean\"]".to_owned(),
-  css: "@theme {\n  --color-accent: #0e7490;\n}".to_owned(),
-  from: Some("themes/ocean.css".to_owned()),
-};
-let options = CompileOptions { themes: vec![ocean], ..CompileOptions::default() };
+let ocean = NamedTheme::new("[data-theme=\"ocean\"]".to_owned(), "@theme {\n  --color-accent: #0e7490;\n}".to_owned(), Some("themes/ocean.css".to_owned()));
+let options = CompileOptions::default().themes(vec![ocean]);
 let mut compiler = Compiler::new("@import \"tailwindcss\";\n@theme {\n  --color-accent: #1f6feb;\n}", options).unwrap();
 let css = compiler.build(["text-accent"]);
 assert!(css.find("[data-theme=\"ocean\"]").unwrap() > css.find("--color-accent: #1f6feb").unwrap());
@@ -186,8 +182,8 @@ The named theme's rule follows the root theme inside the same layer, so at equal
 ```rust
 use snapfire_tailwind::{CompileOptions, Compiler, NamedTheme};
 
-let brand = NamedTheme { selector: "[data-theme=\"brand\"]".to_owned(), css: "@theme {\n  --color-brand: #e11d48;\n}".to_owned(), from: None };
-let options = CompileOptions { themes: vec![brand], ..CompileOptions::default() };
+let brand = NamedTheme::new("[data-theme=\"brand\"]".to_owned(), "@theme {\n  --color-brand: #e11d48;\n}".to_owned(), None);
+let options = CompileOptions::default().themes(vec![brand]);
 let mut compiler = Compiler::new("@import \"tailwindcss/utilities\";", options).unwrap();
 assert!(compiler.build(["bg-brand"]).contains("background-color: var(--color-brand, #e11d48)"));
 ```
@@ -199,8 +195,8 @@ The utility exists and falls back to the theme's value; the root never takes it.
 ```rust
 use snapfire_tailwind::{CompileOptions, Compiler, NamedTheme};
 
-let ocean = NamedTheme { selector: "[data-theme=\"ocean\"]".to_owned(), css: "@theme {\n  --color-accent: #0e7490;\n}".to_owned(), from: None };
-let options = CompileOptions { themes: vec![ocean], root_selectors: vec!["[data-theme=\"default\"]".to_owned()], ..CompileOptions::default() };
+let ocean = NamedTheme::new("[data-theme=\"ocean\"]".to_owned(), "@theme {\n  --color-accent: #0e7490;\n}".to_owned(), None);
+let options = CompileOptions::default().themes(vec![ocean]).root_selectors(vec!["[data-theme=\"default\"]".to_owned()]);
 let mut compiler = Compiler::new("@import \"tailwindcss\";\n@theme {\n  --color-accent: #1f6feb;\n}", options).unwrap();
 assert!(compiler.build(["text-accent"]).contains(":root, :host, [data-theme=\"default\"] {"));
 ```
@@ -225,7 +221,7 @@ Rules come in Tailwind's output order, so applying them in order gives the style
 
 ## Error Handling
 
-`Error` has two variants. `Syntax` is the stylesheet failing to parse, with `file:line:column` when `from` was given. `Message` is everything else Tailwind refuses: an unknown utility in `@apply`, an import cycle, a JavaScript plugin.
+`Error` is `#[non_exhaustive]`, so a match ends with a wildcard; today it holds `Syntax` and `Message`. `Syntax` is the stylesheet failing to parse, with `file:line:column` when `from` was given. `Message` is everything else Tailwind refuses: an unknown utility in `@apply`, an import cycle, a JavaScript plugin.
 
 ```rust
 use snapfire_tailwind::{CompileOptions, Compiler, Error};
@@ -233,6 +229,7 @@ use snapfire_tailwind::{CompileOptions, Compiler, Error};
 match Compiler::new(".a {\n  @apply not-a-utility;\n}", CompileOptions::default()) {
   Err(Error::Syntax(at)) => eprintln!("the stylesheet does not parse: {at}"),
   Err(Error::Message(why)) => eprintln!("Tailwind refused it: {why}"),
+  Err(other) => eprintln!("{other}"),
   Ok(_) => {}
 }
 ```

@@ -15,9 +15,22 @@ use crate::ast::Owner;
 /// renderer writes. A framework left `None` is one the application does not
 /// vendor, so a component it would hydrate is written as plain markup.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Frameworks {
   pub react: Option<ReactMajor>,
   pub vue: Option<VueMajor>,
+}
+
+impl Frameworks {
+  pub fn react(mut self, react: Option<ReactMajor>) -> Self {
+    self.react = react;
+    self
+  }
+
+  pub fn vue(mut self, vue: Option<VueMajor>) -> Self {
+    self.vue = vue;
+    self
+  }
 }
 
 /// The rules a render is under at one point in the tree.

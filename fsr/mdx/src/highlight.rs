@@ -16,6 +16,7 @@ pub const CODE_CLASS: &str = "hl-code";
 
 /// One piece of a highlighted line.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Piece {
   Text(String),
   Span { classes: String, children: Vec<Piece> },

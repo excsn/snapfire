@@ -9,6 +9,7 @@ use snapfire_fsr_runtime::{Chunk, Evaluator, Head, NodeChunks};
 /// rides on the element as `data-sf-slot-order`, a JSON array, so the
 /// browser store merges by the rule the server rendered by.
 #[derive(Default)]
+#[non_exhaustive]
 pub struct DocumentShell {
   pub slot_order: Vec<String>,
 }

@@ -416,11 +416,11 @@ fn the_middleware_redirects_rewrites_and_adds_a_header() {
 
   let app = app_over(Arc::new(MockTransport::new()));
   let redirect = block_on(app.preflight("GET", "/basket", SessionCell::default())).unwrap();
-  assert_eq!(redirect, Preflight { action: PreflightAction::Redirect { to: "/cart".into(), status: 307 }, headers: Vec::new() });
+  assert_eq!(redirect, Preflight::new(PreflightAction::Redirect { to: "/cart".into(), status: 307 }, Vec::new()));
   let rewrite = block_on(app.preflight("get", "/shop?q=x", SessionCell::default())).unwrap();
   assert_eq!(rewrite.action, PreflightAction::Rewrite("/".into()));
   let plain = block_on(app.preflight("POST", "/_sf/action/cart.checkout", SessionCell::default())).unwrap();
-  assert_eq!(plain, Preflight { action: PreflightAction::Continue, headers: vec![("x-storefront".into(), "fsr".into())] });
+  assert_eq!(plain, Preflight::new(PreflightAction::Continue, vec![("x-storefront".into(), "fsr".into())]));
   assert_eq!(app.report().app.middleware, Some(snapfire_fsr::Owner::Lowered));
 }
 

@@ -94,11 +94,7 @@ struct Failing;
 impl Seeds for Failing {
   fn seed(&self, _ctx: &RequestCtx, _data: &Data) -> BoxFuture<'static, Result<Data, LoadError>> {
     Box::pin(async move {
-      Err(LoadError {
-        source_id: "page".to_owned(),
-        message: "no".to_owned(),
-        kind: snapfire_fsr_runtime::FailureKind::Internal,
-      })
+      Err(LoadError::new("page".to_owned(), "no".to_owned()).with_kind(snapfire_fsr_runtime::FailureKind::Internal))
     })
   }
 }
@@ -117,7 +113,7 @@ fn runtime_with(page_seeds: Option<Arc<dyn Seeds>>, page_fails: bool) -> Arc<Run
   });
   sources.insert_fn("page", move |_p| async move {
     if page_fails {
-      return Err(LoadError { source_id: "page".to_owned(), message: "down".to_owned(), kind: snapfire_fsr_runtime::FailureKind::Internal });
+      return Err(LoadError::new("page".to_owned(), "down".to_owned()).with_kind(snapfire_fsr_runtime::FailureKind::Internal));
     }
     let mut data = ValueMap::default();
     data.insert("where".to_owned(), Value::str("page"));
@@ -338,7 +334,7 @@ mod derived {
   fn sum(key: &str, sources: &[&str]) -> Derived {
     let read: Vec<String> = sources.iter().map(|s| (*s).to_owned()).collect();
     let from = read.clone();
-    Derived { key: key.to_owned(), sources: read, compute: Some(Arc::new(move |_: &RequestCtx, store: &Data| Some(Value::Int(from.iter().map(|s| int(store, s).unwrap_or(0)).sum::<i64>() as i128)))) }
+    Derived::new(key.to_owned(), read, Some(Arc::new(move |_: &RequestCtx, store: &Data| Some(Value::Int(from.iter().map(|s| int(store, s).unwrap_or(0)).sum::<i64>() as i128)))))
   }
 
   fn store(pairs: &[(&str, i64)]) -> Data {
@@ -382,7 +378,7 @@ mod derived {
   /// A derive the build could not lower is never painted from what a segment seeded for it.
   #[test]
   fn a_derived_key_without_a_compute_is_left_out_of_the_store_and_pending() {
-    let derives = derive_order(vec![Derived { key: "now".to_owned(), sources: Vec::new(), compute: None }]);
+    let derives = derive_order(vec![Derived::new("now".to_owned(), Vec::new(), None)]);
     let mut merged = store(&[("now", 5)]);
     apply_derives(&RequestCtx::anonymous(Default::default()), &mut merged, &derives);
     let mut pending = BTreeSet::new();

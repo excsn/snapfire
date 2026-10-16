@@ -18,12 +18,12 @@ fn fake_tsc(dir: &Path, version: &str, output: &str, code: i32) -> PathBuf {
 fn a_given_compiler_is_taken_only_when_it_reports_the_requested_version() {
   let dir = tempfile::tempdir().unwrap();
   let tsc = fake_tsc(dir.path(), "7.0.2", "", 0);
-  let options = Options { version: "7.0.2".to_owned(), tsc: Some(tsc.clone()), offline: true, ..Options::default() };
+  let options = Options::default().version("7.0.2".to_owned()).tsc(Some(tsc.clone())).offline(true);
   let resolved = resolve(&options).unwrap();
   assert_eq!(resolved.source, Source::Given);
   assert_eq!(resolved.version, "7.0.2");
 
-  let wanted_elsewhere = Options { version: "7.1.0".to_owned(), ..options };
+  let wanted_elsewhere = options.version("7.1.0".to_owned());
   let error = resolve(&wanted_elsewhere).unwrap_err().to_string();
   assert!(error.contains("7.0.2") && error.contains("7.1.0"), "{error}");
 }
@@ -32,7 +32,7 @@ fn a_given_compiler_is_taken_only_when_it_reports_the_requested_version() {
 #[test]
 fn nothing_is_fetched_when_fetching_is_off() {
   let cache = tempfile::tempdir().unwrap();
-  let options = Options { version: "6.6.6".to_owned(), cache: Some(cache.path().to_path_buf()), offline: true, ..Options::default() };
+  let options = Options::default().version("6.6.6".to_owned()).cache(Some(cache.path().to_path_buf())).offline(true);
   let error = resolve(&options).unwrap_err().to_string();
   assert!(error.contains("6.6.6"), "{error}");
 }

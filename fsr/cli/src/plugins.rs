@@ -12,6 +12,7 @@ use snapfire_compiler_wire::{Outcome, Unit};
 
 /// Why a plugin cannot answer, remembered so a command says it once.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Refusal {
   /// The plugin's binary is not on `PATH`; `hint` is the command that installs it.
   Missing { binary: String, hint: String },

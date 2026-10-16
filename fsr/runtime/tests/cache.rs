@@ -270,10 +270,7 @@ fn identity_is_part_of_the_key() {
 
   let user = |subject: &str| {
     let cell = SessionCell::default();
-    cell.set_identity(Some(Identity {
-      subject: subject.to_owned(),
-      claims: ValueMap::default(),
-    }));
+    cell.set_identity(Some(Identity::new(subject.to_owned(), ValueMap::default())));
     let mut ctx = RequestCtx::default();
     ctx.session = cell;
     ctx
@@ -299,11 +296,7 @@ fn identity_is_part_of_the_key() {
 
 #[test]
 fn a_tuned_shard_count_changes_nothing_a_caller_can_observe() {
-  let entry = CacheEntry {
-    node: Node::raw("<p>one</p>"),
-    segments: Vec::new(),
-    digest: 0,
-  };
+  let entry = CacheEntry::new(Node::raw("<p>one</p>"), Vec::new(), 0);
   let tuned = FibreCache::bounded_sharded(64, Duration::from_secs(60), 4);
   let custom = FibreCache::new(
     fibre_cache::CacheBuilder::default()
@@ -353,11 +346,7 @@ fn the_csrf_token_is_part_of_the_key() {
 
 #[test]
 fn invalidation_says_how_many_entries_went() {
-  let entry = CacheEntry {
-    node: Node::raw("<p>one</p>"),
-    segments: Vec::new(),
-    digest: 0,
-  };
+  let entry = CacheEntry::new(Node::raw("<p>one</p>"), Vec::new(), 0);
   let memory = MemoryCache::new();
   let fibre = FibreCache::bounded(64, Duration::from_secs(60));
   let caches: [&dyn NodeCache; 2] = [&memory, &fibre];
@@ -390,7 +379,7 @@ impl Evaluator for PropsEval {
 
 fn user(subject: &str) -> RequestCtx {
   let cell = SessionCell::default();
-  cell.set_identity(Some(Identity { subject: subject.to_owned(), claims: ValueMap::default() }));
+  cell.set_identity(Some(Identity::new(subject.to_owned(), ValueMap::default())));
   let mut ctx = RequestCtx::default();
   ctx.session = cell;
   ctx.csrf = CsrfHandle::fixed("t0k");
@@ -403,7 +392,7 @@ fn a_fixed_subtree_is_memoized_once_for_everyone_and_carries_no_visitor() {
   let evals = Arc::new(AtomicU32::new(0));
   let plan = cached_leaf(None);
   let mut reads = Reads::new();
-  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new(), path: false, csrf: false });
+  reads.insert(subtree_shape(&plan), SubtreeReads::default().class(Static::Fixed).store_keys(Vec::new()).path(false).csrf(false));
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PropsEval(Arc::clone(&evals))));
   let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
@@ -442,7 +431,7 @@ fn a_subtree_rendering_the_path_is_memoized_per_path() {
   let evals = Arc::new(AtomicU32::new(0));
   let plan = cached_leaf(None);
   let mut reads = Reads::new();
-  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new(), path: true, csrf: false });
+  reads.insert(subtree_shape(&plan), SubtreeReads::default().class(Static::Fixed).store_keys(Vec::new()).path(true).csrf(false));
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PathEval(Arc::clone(&evals))));
   let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
@@ -462,7 +451,7 @@ fn a_subtree_that_renders_no_path_is_memoized_across_paths() {
   let evals = Arc::new(AtomicU32::new(0));
   let plan = cached_leaf(None);
   let mut reads = Reads::new();
-  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Fixed, store_keys: Vec::new(), path: false, csrf: false });
+  reads.insert(subtree_shape(&plan), SubtreeReads::default().class(Static::Fixed).store_keys(Vec::new()).path(false).csrf(false));
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PathEval(Arc::clone(&evals))));
   let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
@@ -480,7 +469,7 @@ fn an_anonymous_subtree_is_memoized_per_subject_without_the_token() {
   let evals = Arc::new(AtomicU32::new(0));
   let plan = cached_leaf(None);
   let mut reads = Reads::new();
-  reads.insert(subtree_shape(&plan), SubtreeReads { class: Static::Anonymous, store_keys: Vec::new(), path: false, csrf: false });
+  reads.insert(subtree_shape(&plan), SubtreeReads::default().class(Static::Anonymous).store_keys(Vec::new()).path(false).csrf(false));
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(PropsEval(Arc::clone(&evals))));
   let rt = Runtime::builder().evaluators(evaluators).cache(Arc::new(MemoryCache::new())).reads(reads).build();
@@ -549,7 +538,7 @@ fn a_fixed_subtree_is_keyed_by_the_store_keys_it_reads_and_sees_only_those() {
   let shape = subtree_shape(&leaf);
   root.children.push((SlotName("content".into()), leaf));
   let mut reads = Reads::new();
-  reads.insert(shape, SubtreeReads { class: Static::Fixed, store_keys: vec!["cart/count".to_owned()], path: false, csrf: false });
+  reads.insert(shape, SubtreeReads::default().class(Static::Fixed).store_keys(vec!["cart/count".to_owned()]).path(false).csrf(false));
   let mut evaluators = Evaluators::new();
   evaluators.register(|m: &ModuleId| m.path == "page.tera", Arc::new(StoreEval(Arc::clone(&evals))));
   evaluators.register(|m: &ModuleId| m.path == "layout.tera", Arc::new(ContentShell));
@@ -571,7 +560,7 @@ fn warm_renders_record_a_build_and_answer_before_the_live_cache() {
   use snapfire_fsr_runtime::WarmRenders;
   let live = Arc::new(MemoryCache::new());
   let warm = WarmRenders::new(std::collections::HashMap::new(), live.clone());
-  let entry = |text: &str| CacheEntry { node: Node::raw(text), segments: Vec::new(), digest: 1 };
+  let entry = |text: &str| CacheEntry::new(Node::raw(text), Vec::new(), 1);
 
   block_on(live.put("k|a".to_owned(), entry("live")));
   assert_eq!(block_on(warm.get("k|a")).map(|e| e.node), Some(Node::raw("live")), "nothing warm, the live cache answers");
@@ -647,7 +636,7 @@ fn a_memoized_subtree_rendered_while_a_key_it_reads_was_pending_is_not_served_on
   sources.insert_fn("page", |_p| async move { Ok(ValueMap::default()) });
   sources.insert_fn("shell", |_p| async move { Ok(ValueMap::default()) });
   let mut reads = Reads::new();
-  reads.insert(subtree_shape(&plan(true).children[1].1), SubtreeReads { class: Static::Fixed, store_keys: vec!["k".to_owned()], path: false, csrf: false });
+  reads.insert(subtree_shape(&plan(true).children[1].1), SubtreeReads::default().class(Static::Fixed).store_keys(vec!["k".to_owned()]).path(false).csrf(false));
   let rt = Runtime::builder().sources(sources).evaluators(evaluators).store("shell", Arc::new(SeedsK)).store("page", Arc::new(SeedsK)).cache(Arc::new(MemoryCache::new())).reads(reads).build();
   let ctx = RequestCtx::anonymous(Params::new());
   let render = |deferred: bool| {

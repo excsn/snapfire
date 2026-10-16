@@ -10,6 +10,7 @@ use crate::{build_in, Options};
 
 /// One place a cause was met.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Sighting {
   pub app: String,
   /// `file:line:column`, or the file alone when it did not parse.
@@ -20,6 +21,7 @@ pub struct Sighting {
 /// Every cause met, keyed by the cause with each backticked name written `…`,
 /// so one construct met under different names counts once.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Census {
   pub apps: usize,
   /// Residue in a loader, an action, a handler, middleware or an extension,

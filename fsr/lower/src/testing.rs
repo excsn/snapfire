@@ -73,6 +73,7 @@ pub enum Mode {
 /// binds. An array row is spread over the parameters; any other row is the
 /// one argument.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Each {
   pub table: Expr,
   pub params: Vec<Binding>,
@@ -233,6 +234,7 @@ pub enum Step {
 /// A `describe` (or the file itself as block 0): its hooks and the table that
 /// repeats it.
 #[derive(Debug, Clone, PartialEq, Default)]
+#[non_exhaustive]
 pub struct Block {
   pub name: String,
   pub parent: Option<usize>,
@@ -244,6 +246,7 @@ pub struct Block {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct TestCase {
   /// The test's own name; under an `each`, the pattern each row fills.
   pub name: String,
@@ -255,6 +258,7 @@ pub struct TestCase {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct TestFile {
   pub file: String,
   pub blocks: Vec<Block>,

@@ -59,19 +59,21 @@ The seam an identity source implements. Requires `Send + Sync`; both methods ret
 
 ### Begin
 
-What `begin` returns.
+What `begin` returns. `#[non_exhaustive]`: build one with `new`.
 
 * `pub redirect: String`
 * `pub state: ValueMap`
+* `pub fn new(redirect: String, state: ValueMap) -> Self`
 
 `redirect` is used verbatim as the location the browser is sent to; it is not validated, escaped or resolved against a base. `state` is held server-side in token custody for the duration of the round trip and never reaches the browser.
 
 ### AuthOutcome
 
-What a successful `callback` returns.
+What a successful `callback` returns. `#[non_exhaustive]`: build one with `new`.
 
 * `pub identity: Identity`
 * `pub tokens: ValueMap`
+* `pub fn new(identity: Identity, tokens: ValueMap) -> Self`
 
 `identity` replaces whatever identity the session cell held. `tokens` is merged into token custody key by key, so a key already present is overwritten while a key absent from the map survives.
 
@@ -98,10 +100,11 @@ These appear in this crate's signatures and are defined elsewhere in the family.
 
 ### Identity
 
-`snapfire_fsr_runtime::Identity`. Who the request is. Derives `Debug`, `Clone` and `PartialEq`.
+`snapfire_fsr_runtime::Identity`. Who the request is. Derives `Debug`, `Clone` and `PartialEq`. `#[non_exhaustive]`: build one with `new`.
 
 * `pub subject: String`
 * `pub claims: ValueMap`
+* `pub fn new(subject: String, claims: ValueMap) -> Self`
 
 Reaches templates as the injected `identity` prop, a map of `subject` plus `claims`. Anything placed in `claims` is readable by application code, so a credential belongs in `AuthOutcome::tokens` instead.
 

@@ -235,7 +235,7 @@ impl TeraEvaluator {
 }
 
 fn eval_err(module: &ModuleId, message: impl Into<String>) -> EvalError {
-  EvalError { module: module.to_string(), message: message.into() }
+  EvalError::new(module.to_string(), message.into())
 }
 
 /// A value as a template reads it. The payload encoder tags a whole-number

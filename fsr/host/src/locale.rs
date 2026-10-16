@@ -9,6 +9,7 @@ use snapfire_fsr_runtime::Locale;
 /// stay that way everywhere the application sees them.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct LocalesSection {
   pub supported: Vec<String>,
   /// The default locale, served unprefixed. The first supported one when absent.
@@ -22,6 +23,13 @@ pub struct LocalesSection {
   pub remember: bool,
   #[serde(default = "default_cookie")]
   pub cookie: String,
+}
+
+impl LocalesSection {
+  /// `supported` with every other key at the value an absent one takes.
+  pub fn new(supported: Vec<String>) -> Self {
+    Self { supported, default: None, order: default_order(), remember: false, cookie: default_cookie() }
+  }
 }
 
 fn default_order() -> Vec<String> {
@@ -42,6 +50,7 @@ pub enum Source {
 /// What the host holds once the section is checked. Without a section there
 /// is one locale, `en` and no source is consulted.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Locales {
   pub supported: Vec<String>,
   pub default: String,
@@ -52,6 +61,7 @@ pub struct Locales {
 
 /// One request's locale and what it did to the path.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Resolution {
   pub locale: Locale,
   /// The path without its locale prefix.

@@ -3,6 +3,7 @@
 
 use crate::ast::{ContextMap, Node};
 
+#[non_exhaustive]
 pub enum Action<T> {
   Continue,
   Skip,
@@ -14,6 +15,7 @@ pub enum Action<T> {
 
 /// An ancestor of the node being visited, as it was when the walk entered it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Ancestor {
   Rule { selector: String },
   AtRule { name: String, params: String },

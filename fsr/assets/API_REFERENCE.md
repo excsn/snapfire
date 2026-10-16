@@ -34,12 +34,13 @@ An output format. Serialises in lowercase.
 
 ### VariantPolicy
 
-`pub struct VariantPolicy { pub widths: Vec<u32>, pub formats: Vec<Format>, pub quality: BTreeMap<Format, u8> }`. Serialises as the `[images]` table.
+`pub struct VariantPolicy { pub widths: Vec<u32>, pub formats: Vec<Format>, pub quality: BTreeMap<Format, u8> }`, `#[non_exhaustive]`: build one with `Default` and the setters. Serialises as the `[images]` table.
 
 * `Default`: widths `[640, 960, 1280, 1920, 2560]`, formats `[Avif, Webp]`, quality `{avif: 60, webp: 80}`.
 * `fn quality(&self, format: Format) -> u8`: the configured quality, else the format's default.
 * `fn widths_for(&self, source_width: u32) -> Vec<u32>`: every policy width strictly below `source_width`, sorted and deduplicated, then `source_width`. Empty for a width of 0.
 * `fn with_widths(self, widths: Vec<u32>) -> Self`, `fn with_quality(self, format: Format, quality: u8) -> Self`: the same policy with one field replaced; a quality above 100 is clamped.
+* `fn widths(self, widths: Vec<u32>) -> Self`, `fn formats(self, formats: Vec<Format>) -> Self`: setters for the field of the same name.
 
 ## 2. Images
 

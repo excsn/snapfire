@@ -26,6 +26,7 @@ pub enum FontError {
 
 /// A face [`Fonts`] holds, as read from the file's own tables.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct FaceInfo {
   pub family: String,
   pub weight: u16,

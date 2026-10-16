@@ -286,16 +286,16 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
           _ => quote! { ::snapfire_fsr_service::Scope::Private },
         };
         let stale = match &cache.stale {
-          Some(stale) => quote! { ::std::option::Option::Some(::std::string::String::from(#stale)) },
-          None => quote! { ::std::option::Option::None },
+          Some(stale) => quote! { .stale(#stale) },
+          None => quote! {},
         };
         quote! {
-          let method = method.cached(::snapfire_fsr_service::Freshness {
-            ttl: ::std::string::String::from(#ttl),
-            tags: ::std::vec![#(::std::string::String::from(#tags)),*],
-            scope: #scope,
-            stale: #stale,
-          });
+          let method = method.cached(
+            ::snapfire_fsr_service::Freshness::ttl(#ttl)
+              .tags(::std::vec::Vec::<::std::string::String>::from([#(::std::string::String::from(#tags)),*]))
+              .scope(#scope)
+              #stale,
+          );
         }
       }
       None => quote! {},

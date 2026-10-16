@@ -16,6 +16,7 @@ pub const CLASSES_FILE: &str = "generated/tailwind.classes";
 pub const UNLISTED: &str = "tailwind/unlisted-class";
 
 #[derive(Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct Classes {
   /// Each class and the modules that render it.
   pub listed: BTreeMap<String, BTreeSet<String>>,
@@ -60,6 +61,7 @@ pub const CARDS_FILE: &str = snapfire_fsr_host::CARD_CLASSES_FILE;
 
 /// One class as card declarations, the shape the host reads from [`CARDS_FILE`].
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub struct CardClass {
   pub class: String,
   #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -79,10 +81,10 @@ pub fn card_table(styles: &Path, classes: &Classes) -> Result<Vec<CardClass>, cr
     }
     let file = Path::new(base).join(id);
     let content = std::fs::read_to_string(&file).map_err(|e| snapfire_tailwind::Error::Message(format!("{}: {e}", file.display())))?;
-    Ok(snapfire_tailwind::Loaded { path: file.to_string_lossy().into_owned(), base: file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content })
+    Ok(snapfire_tailwind::Loaded::new(file.to_string_lossy().into_owned(), file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content))
   };
   let base = sheet.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
-  let options = snapfire_tailwind::CompileOptions { base, load_stylesheet: Some(Box::new(load)), banner: false, from: Some(sheet.to_string_lossy().into_owned()), ..Default::default() };
+  let options = snapfire_tailwind::CompileOptions::default().base(base).load_stylesheet(Some(Box::new(load))).banner(false).from(Some(sheet.to_string_lossy().into_owned()));
   let compiler = snapfire_tailwind::Compiler::new(&css, options).map_err(|e| crate::BuildError::Dev(format!("{}: {e}", sheet.display())))?;
   Ok(compiler.card_rules(classes.listed.keys().map(String::as_str)).into_iter().map(|rule| CardClass { class: rule.candidate, min_width: rule.min_width, declarations: rule.declarations }).collect())
 }

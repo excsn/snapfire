@@ -27,6 +27,7 @@ pub enum Kind {
 
 /// What a utility made of a candidate. `Skip` lets the next utility with the same root try;
 /// `Invalid` also does, unless the utility declared value types.
+#[non_exhaustive]
 pub enum Compiled {
   Skip,
   Invalid,
@@ -35,6 +36,7 @@ pub enum Compiled {
 
 pub type CompileFn = Box<dyn Fn(&Candidate, &DesignSystem) -> Compiled>;
 
+#[non_exhaustive]
 pub struct Utility {
   pub kind: Kind,
   pub compile: CompileFn,

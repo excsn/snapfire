@@ -28,7 +28,7 @@ fn project(tag: &str, page: &str, media: &str) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let root = std::env::temp_dir().join(format!("fsr-cli-embeds-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");
   std::fs::write(app.join("routes/page.tsx"), page).unwrap();
   let embeds = app.join("generated/embeds");
@@ -103,7 +103,7 @@ fn a_check_typechecks_against_the_client_this_binary_carries() {
   let held = app.join("types/@snapfire/fsr-client/react.d.ts");
   std::fs::create_dir_all(held.parent().unwrap()).unwrap();
   std::fs::write(&held, "export {};\n").unwrap();
-  let off = snapfire_fsr_cli::typecheck::Typecheck { enabled: false, ..Default::default() };
+  let off = snapfire_fsr_cli::typecheck::Typecheck::default().enabled(false);
   snapfire_fsr_cli::check(&app, &Options::beside(&app), &off, |_| {}).unwrap_or_else(|e| panic!("checks: {e}"));
   assert!(std::fs::read_to_string(&held).unwrap().contains("export declare function Embed"), "the stale declarations are replaced before the checker reads them");
   std::fs::remove_dir_all(&root).unwrap();

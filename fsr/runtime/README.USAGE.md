@@ -247,7 +247,7 @@ struct StaticMatcher;
 
 impl Matcher for StaticMatcher {
   fn match_path(&self, path: &str) -> Option<RouteMatch> {
-    (path == "/").then(|| RouteMatch { entry: EntryId(0), params: Params::new() })
+    (path == "/").then(|| RouteMatch::new(EntryId(0), Params::new()))
   }
 }
 ```
@@ -312,7 +312,7 @@ Two failure modes, deliberately different:
 
 ```rust
 sources.insert_fn("servers_loader", |_ctx| async {
-  Err(LoadError { source_id: "servers_loader".into(), message: "backend down".into() })
+  Err(LoadError::new("servers_loader", "backend down"))
 });
 ```
 
@@ -410,7 +410,7 @@ struct ProductMeta;
 impl Metadata for ProductMeta {
   fn describe(&self, _ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
     let name = match data.get("name") { Some(Value::Str(s)) => s.clone(), _ => String::new() };
-    Box::pin(async move { Ok(Meta { title: Some(format!("{name} · Shop")), description: None }) })
+    Box::pin(async move { Ok(Meta::default().title(Some(format!("{name} · Shop")))) })
   }
 }
 
@@ -695,7 +695,7 @@ sources.insert_fn("servers_loader", |ctx| async move {
     .services
     .call("fleet", "list", ValueMap::new())
     .await
-    .map_err(|e| LoadError { source_id: "servers_loader".into(), message: e.message })?;
+    .map_err(|e| LoadError::new("servers_loader", e.message))?;
 
   let mut data = ValueMap::new();
   data.insert("servers".to_owned(), servers);

@@ -14,9 +14,16 @@ pub type NodeChunks = BoxStream<'static, Result<Chunk, EvalError>>;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("evaluate {module}: {message}")]
+#[non_exhaustive]
 pub struct EvalError {
   pub module: String,
   pub message: String,
+}
+
+impl EvalError {
+  pub fn new(module: String, message: String) -> Self {
+    Self { module, message }
+  }
 }
 
 pub trait Evaluator: Send + Sync {

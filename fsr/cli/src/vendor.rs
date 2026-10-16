@@ -16,6 +16,7 @@ pub const VENDOR_MANIFEST: &str = ".fsr-vendor.json";
 
 /// `react@18.3.1`, `react-dom@18.3.1/client`, `@scope/name@1.0.0/sub`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Spec {
   pub package: String,
   pub version: String,
@@ -55,6 +56,7 @@ impl Spec {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VendoredPackage {
   pub version: String,
   #[serde(default)]
@@ -65,6 +67,7 @@ pub struct VendoredPackage {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VendorManifest {
   #[serde(default)]
   pub packages: BTreeMap<String, VendoredPackage>,
@@ -90,6 +93,7 @@ impl VendorManifest {
   }
 }
 
+#[non_exhaustive]
 pub struct AddReport {
   /// Specifier, file written relative to the vendor directory, bytes.
   pub added: Vec<(String, String, usize)>,

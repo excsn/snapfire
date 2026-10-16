@@ -3,6 +3,7 @@ use snapfire_fsr_core::{TypedArray, Value, ValueMap};
 use crate::contract::{Contract, ScalarKind, Scope, Type, TypeDef};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ContractError {
   #[error("no service `{0}` in the contract")]
   UnknownService(String),

@@ -30,6 +30,7 @@ use snapfire_fsr_ir::Body;
 
 /// An import of components another framework mounts: the declaration as
 /// written and each binding it makes, as the local name and the module id.
+#[non_exhaustive]
 pub struct ForeignImport {
   pub text: String,
   pub bindings: Vec<(String, String)>,
@@ -37,6 +38,7 @@ pub struct ForeignImport {
 
 /// The cursor over one application: parsed files, finished components and the
 /// resolution stack that turns recursion into a diagnostic.
+#[non_exhaustive]
 pub struct ComponentSet {
   app: PathBuf,
   parsed: HashMap<String, Rc<Parsed>>,
@@ -145,6 +147,7 @@ pub type Transform = dyn Fn(&str, &str, &[Override]) -> Result<Transformed, Stri
 /// One element of a transformed file placed as a component other than the
 /// application's map gives: `export` of `specifier`, relative to the file.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub struct Override {
   pub key: String,
   pub specifier: String,
@@ -152,9 +155,16 @@ pub struct Override {
 }
 
 /// The module a [`Transform`] wrote and where its runs came from.
+#[non_exhaustive]
 pub struct Transformed {
   pub source: String,
   pub origin: Option<crate::Origin>,
+}
+
+impl Transformed {
+  pub fn new(source: String, origin: Option<crate::Origin>) -> Self {
+    Self { source, origin }
+  }
 }
 
 impl ComponentSet {
@@ -2099,6 +2109,7 @@ fn lazy_import_source(call: &js::CallExpr) -> Option<String> {
 }
 
 /// A route module split by [`ComponentSet::extract_route`].
+#[non_exhaustive]
 pub struct Extracted {
   /// The island's module id.
   pub island: String,
@@ -3343,6 +3354,7 @@ struct ComponentLowerer<'a, 'p> {
 
 /// One head element a component asks for: a tag and its attributes in order.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HeadRow {
   pub tag: String,
   pub attrs: Vec<(String, String)>,
@@ -6531,6 +6543,7 @@ fn weight(expr: &Expr) -> usize {
 /// lowered over `Expr::Store` of each. One the browser alone runs has no
 /// compute and carries `at` and `why`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LoweredDerive {
   pub key: String,
   pub sources: Vec<String>,
@@ -6632,13 +6645,21 @@ impl swc_core::ecma::visit::Visit for StoreCalls<'_> {
 
 /// A layout's or a page's `export const theme`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ThemeExport {
   pub name: String,
   pub force: bool,
 }
 
+impl ThemeExport {
+  pub fn new(name: String, force: bool) -> Self {
+    Self { name, force }
+  }
+}
+
 /// What a generated card image's module says about the image it draws.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImageExports {
   pub width: Option<u32>,
   pub height: Option<u32>,

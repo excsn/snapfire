@@ -4,9 +4,16 @@ use snapfire_fsr_core::Params;
 pub struct EntryId(pub u32);
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RouteMatch {
   pub entry: EntryId,
   pub params: Params,
+}
+
+impl RouteMatch {
+  pub fn new(entry: EntryId, params: Params) -> Self {
+    Self { entry, params }
+  }
 }
 
 pub trait Matcher: Send + Sync {
@@ -35,6 +42,7 @@ pub struct HandlerMatcher {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct HandlerMatch {
   pub id: String,
   pub params: Params,

@@ -257,6 +257,7 @@ impl Default for ImagesSection {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ImageSource {
   pub template: String,
 }
@@ -341,6 +342,7 @@ pub struct SitesSection {
 /// whether an artifact carrying engine-owned rows may be mounted.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MountConfig {
   #[serde(default)]
   pub artifact: Option<String>,
@@ -348,6 +350,12 @@ pub struct MountConfig {
   pub hash: Option<String>,
   #[serde(default)]
   pub allow_engine: bool,
+}
+
+impl MountConfig {
+  pub fn new(artifact: Option<String>, hash: Option<String>, allow_engine: bool) -> Self {
+    Self { artifact, hash, allow_engine }
+  }
 }
 
 impl MountConfig {
@@ -364,6 +372,7 @@ impl MountConfig {
 /// the path every route and link is written under.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct SiteSection {
   pub name: String,
   pub at: String,
@@ -396,6 +405,7 @@ impl SiteSection {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct AppSection {
   #[serde(default = "default_app_dir")]
   pub dir: String,
@@ -471,6 +481,7 @@ pub struct ServerConfig {
 /// handshake offers and which signal re-reads them.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct TlsSection {
   /// The directory `cert` and `key` are read under; absent, they resolve
   /// against the project root like every other configured path.
@@ -596,6 +607,7 @@ impl Csp {
 /// point gets and the graph follows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum ClientBuild {
   /// Minified unless `server.dev` is on. The default.
   #[default]
@@ -717,13 +729,9 @@ impl DocumentConfig {
           _ => attrs.push((key.clone(), value.clone())),
         }
       }
-      head.push(HeadEl {
-        tag: tag.clone(),
-        attrs,
-        children,
-      });
+      head.push(HeadEl::new(tag.clone(), attrs, children));
     }
-    Ok(Meta { head, ..Meta::default() })
+    Ok(Meta::default().head(head))
   }
 }
 
@@ -801,6 +809,7 @@ impl<'de> Deserialize<'de> for Text {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct SessionSection {
   /// The cookie signing key, from the environment or a secret in a deployment. Absent, a
   /// development host signs with a key it generates at boot and any other host that builds its own
@@ -887,6 +896,7 @@ fn default_csrf_outstanding() -> u32 {
 /// change is a miss. `ttl` bounds how long an entry nobody invalidates lives.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CacheSection {
   #[serde(default = "default_cache_capacity")]
   pub capacity: u64,
@@ -904,6 +914,7 @@ pub struct CacheSection {
 /// order among the others. Empty, name order decides throughout.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct StoreSection {
   #[serde(default)]
   pub slot_order: Vec<String>,
@@ -911,6 +922,7 @@ pub struct StoreSection {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DataCacheSection {
   /// Entries per policy; `cache.capacity` when absent.
   #[serde(default)]
@@ -945,6 +957,7 @@ fn default_cache_ttl() -> String {
 /// is reached over gRPC, anything else over HTTP.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ClientConfig {
   #[serde(default)]
   pub document: Option<String>,
@@ -982,6 +995,7 @@ impl ClientConfig {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum BearerKey {
   Toggle(bool),
   Named(String),
@@ -1003,6 +1017,7 @@ impl BearerKey {
 /// configuration directory and read on its own, never through the ladder.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct AuthSection {
   pub provider: String,
   #[serde(default = "default_login")]
@@ -1019,6 +1034,7 @@ pub const PROVIDERS: &[&str] = &["file", "service"];
 /// `[build]`: build-time choices that are not the type checker's.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct BuildSection {
   /// Refuses a component that renders in the browser alone; off when absent.
   #[serde(default)]
@@ -1073,6 +1089,7 @@ impl BuildSection {
 /// fetch one.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct TypecheckSection {
   #[serde(default)]
   pub version: Option<String>,
@@ -1090,6 +1107,7 @@ pub struct TypecheckSection {
 /// `/__fsr/trace/{token}`. Empty exposes nothing; `fsr dev` exposes every path.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct TraceSection {
   #[serde(default)]
   pub expose: Vec<String>,
@@ -1100,6 +1118,7 @@ pub struct TraceSection {
 /// `robots.txt`, which only the origin's root may answer.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct CrawlSection {
   #[serde(default)]
   pub robots: Option<String>,
@@ -1113,6 +1132,7 @@ pub struct CrawlSection {
 /// `[mdx]`. The host reads none of it: `fsr` built with its `mdx` feature
 /// does, and refuses a key whose feature it was built without.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MdxSection {
   /// GFM tables, strikethrough, task lists, footnotes and literal autolinks; on unless set.
   pub gfm: bool,
@@ -1138,6 +1158,7 @@ fn default_login() -> String {
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct StaticRoot {
   pub route: String,
   pub dir: String,
@@ -1147,6 +1168,7 @@ pub struct StaticRoot {
 /// file tree. Boot refuses a declared pattern nothing registers.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RouteDecl {
   pub pattern: String,
 }
@@ -1220,6 +1242,7 @@ fn default_capacity() -> u64 {
 
 /// The deployment axes, read from the environment: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (no default).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Deployment {
   pub release_env: String,
   pub app_env: String,
@@ -1227,6 +1250,21 @@ pub struct Deployment {
 }
 
 impl Deployment {
+  pub fn release_env(mut self, release_env: String) -> Self {
+    self.release_env = release_env;
+    self
+  }
+
+  pub fn app_env(mut self, app_env: String) -> Self {
+    self.app_env = app_env;
+    self
+  }
+
+  pub fn region(mut self, region: Option<String>) -> Self {
+    self.region = region;
+    self
+  }
+
   pub fn from_env() -> Self {
     let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
     Self {
@@ -1280,6 +1318,7 @@ pub fn config_paths(dir: &Path, deployment: &Deployment) -> Vec<PathBuf> {
 
 /// Where the configuration was found: the files c5store loads, in order, the directory they came from and the project root every path resolves against.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Located {
   pub sources: Vec<PathBuf>,
   pub dir: PathBuf,
@@ -2393,6 +2432,7 @@ struct BuildFacts {
 
 /// What the bundle's facts say about its module graph, kept for `server.preload`.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Bundle {
   /// The URL prefix the bundle is served under, with no trailing slash.
   pub route: String,

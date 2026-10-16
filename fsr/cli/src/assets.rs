@@ -40,7 +40,7 @@ impl Sections {
 }
 
 fn policy_of(images: &ImagesSection) -> VariantPolicy {
-  let mut policy = VariantPolicy { widths: images.widths.clone(), formats: images.formats.iter().filter_map(|f| Format::parse(f)).collect(), quality: BTreeMap::new() };
+  let mut policy = VariantPolicy::default().widths(images.widths.clone()).formats(images.formats.iter().filter_map(|f| Format::parse(f)).collect());
   for format in Format::ALL {
     policy.quality.insert(format, images.quality.get(format.extension()).copied().unwrap_or_else(|| format.default_quality()));
   }
@@ -157,7 +157,7 @@ impl Resolver {
         })
         .collect()
     };
-    ImageFacts { src: seen.src.clone(), width: seen.width, height: seen.height, sources }
+    ImageFacts::new(seen.src.clone(), seen.width, seen.height, sources)
   }
 
   /// Records every image under `[dirs] images`, so a template that names one
@@ -243,7 +243,7 @@ impl Resolver {
     }
     let seen = self.seen.borrow();
     let entry = seen.get(path).expect("just recorded");
-    Some(ImageFacts { src: entry.src.clone(), width: entry.width, height: entry.height, sources: Vec::new() })
+    Some(ImageFacts::new(entry.src.clone(), entry.width, entry.height, Vec::new()))
   }
 
   /// Reads `path` into `seen` once, false when it is no image this build reads.
@@ -495,7 +495,7 @@ fn remote_still(app: &Path, provider: &str, id: &str) -> Option<ImageFacts> {
     (Some(w), Some(h)) => (640 * h / w) as u32,
     _ => 360,
   };
-  Some(ImageFacts { src: video.get("thumbnail_large")?.as_str()?.to_owned(), width: 640, height, sources: Vec::new() })
+  Some(ImageFacts::new(video.get("thumbnail_large")?.as_str()?.to_owned(), 640, height, Vec::new()))
 }
 
 fn fetch(url: &str) -> Result<Vec<u8>, String> {

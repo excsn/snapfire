@@ -19,6 +19,7 @@ use crate::utils::segment::segment;
 /// A value in the default theme as written: literals, `theme('…')` calls and the functions
 /// that wrap them.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum E {
   Str(&'static str),
   Arr(Vec<E>),

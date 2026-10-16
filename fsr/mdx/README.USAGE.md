@@ -150,7 +150,7 @@ Each `Mapped` names a key and the component to import for it. Only the keys the 
 use snapfire_fsr_mdx::{convert, Format, Mapped, Options, Target};
 
 let mut options = Options::new(Format::Mdx, Target::Lowered);
-options.mapped = vec![Mapped { key: "h2".into(), specifier: "@app/mdx-components".into(), export: "__mdx_h2".into() }];
+options.mapped = vec![Mapped::new("h2".into(), "@app/mdx-components".into(), "__mdx_h2".into())];
 let converted = convert("## Setup\n", &options).unwrap();
 assert!(converted.tsx.contains("import { __mdx_h2 as Mdx_h2 } from \"@app/mdx-components\";"));
 assert!(converted.tsx.contains("<Mdx_h2 id={\"setup\"}>"));
@@ -189,7 +189,7 @@ use snapfire_fsr_mdx::{convert, Format, Options, Target, TocEntry};
 let converted = convert("export const meta = { title: \"T\" }\n\n# Intro\n\nThe *first*\nparagraph.\n\n## Setup\n", &Options::new(Format::Mdx, Target::Lowered)).unwrap();
 assert!(converted.meta);
 assert_eq!(converted.excerpt.as_deref(), Some("The first paragraph."));
-assert_eq!(converted.toc[1], TocEntry { depth: 2, id: "setup".into(), text: "Setup".into() });
+assert_eq!((converted.toc[1].depth, converted.toc[1].id.as_str(), converted.toc[1].text.as_str()), (2, "setup", "Setup"));
 assert_eq!(converted.exports, ["meta", "toc"]);
 ```
 

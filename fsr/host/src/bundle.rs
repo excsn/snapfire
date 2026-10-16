@@ -222,7 +222,7 @@ pub(crate) fn is_hashed_name(path: &str) -> bool {
 /// for it and, for a provider's stylesheet, the preconnect and the link.
 pub(crate) fn asset_head_rows(manifest: &crate::assets::AssetsManifest) -> Vec<snapfire_fsr_runtime::HeadEl> {
   use snapfire_fsr_runtime::HeadEl;
-  let row = |tag: &str, attrs: &[(&str, &str)]| HeadEl { tag: tag.to_owned(), attrs: attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), children: None };
+  let row = |tag: &str, attrs: &[(&str, &str)]| HeadEl::new(tag.to_owned(), attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), None);
   let mut rows = vec![row("meta", &[("name", "sf:images"), ("content", &manifest.policy_json())])];
   for remote in &manifest.fonts.remote {
     for origin in &remote.preconnect {
@@ -233,7 +233,7 @@ pub(crate) fn asset_head_rows(manifest: &crate::assets::AssetsManifest) -> Vec<s
     rows.push(row("link", &[("rel", "preload"), ("as", "font"), ("href", href), ("crossorigin", "")]));
   }
   if !manifest.fonts.css.is_empty() {
-    rows.push(HeadEl { tag: "style".to_owned(), attrs: vec![("data-sf-fonts".to_owned(), String::new())], children: Some(manifest.fonts.css.clone()) });
+    rows.push(HeadEl::new("style".to_owned(), vec![("data-sf-fonts".to_owned(), String::new())], Some(manifest.fonts.css.clone())));
   }
   for remote in &manifest.fonts.remote {
     rows.push(row("link", &[("rel", "stylesheet"), ("href", &remote.href)]));

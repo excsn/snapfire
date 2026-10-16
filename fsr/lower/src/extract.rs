@@ -13,6 +13,7 @@ use crate::component::{find_function, Found};
 use crate::Parsed;
 
 /// A page with its browser half moved out.
+#[non_exhaustive]
 pub struct Extraction {
   /// The page's source as composition, placing the island where the moved markup stood.
   pub page: String,

@@ -12,6 +12,7 @@ const SERIALIZABLE: &str = "shadowrootserializable";
 /// Why an element template's root `<template>` cannot be read as its shadow
 /// root.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ShadowRootError {
   #[error("its root `<template>` has no `shadowrootmode`, so the shadow root would hold an inert template; write `shadowrootmode=\"open\"` or `shadowrootmode=\"closed\"`")]
   NoMode,

@@ -60,12 +60,12 @@ impl Hooks for NoHooks {
       Value::Seq(items) => items.into_items(),
       _ => return Err(format!("{name}: arguments must be an array")),
     };
-    let ambient = snapfire_fsr_ir::Ambient { locale: locale.to_owned(), now: 0, catalogs: self.interpreter.catalogs().cloned() };
+    let ambient = snapfire_fsr_ir::Ambient::default().locale(locale.to_owned()).now(0).catalogs(self.interpreter.catalogs().cloned());
     let value = self.interpreter.extensions().call(name, &ambient, &args).map_err(|f| f.message)?;
     Ok(value_to_json(&value).to_string())
   }
   fn fetch(&self, _method: String, _url: String, _body: Option<String>, _headers: Vec<(String, String)>) -> LocalBoxFuture<'static, FetchResponse> {
-    Box::pin(async { FetchResponse { status: 404, body: "{}".to_owned(), headers: Vec::new() } })
+    Box::pin(async { FetchResponse::new(404, "{}") })
   }
 }
 

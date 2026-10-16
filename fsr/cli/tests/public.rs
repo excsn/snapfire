@@ -10,7 +10,7 @@ const PAGE: &str = "export default function Page() {\n  return <main>page</main>
 fn project(tag: &str, files: &[(&str, &str)], config: &str) -> PathBuf {
   let root = std::env::temp_dir().join(format!("fsr-cli-public-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   for (path, text) in files {
     let file = root.join("app").join(path);
     std::fs::create_dir_all(file.parent().unwrap()).unwrap();

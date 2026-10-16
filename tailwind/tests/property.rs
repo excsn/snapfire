@@ -9,7 +9,7 @@ use snapfire_tailwind::{optimize, CompileOptions, Compiler, OptimizeOptions};
 const CONFIG: &str = "@import \"tailwindcss\";\n@theme {\n  --color-brand: #1f6feb;\n}\n@utility pill {\n  @apply rounded-full px-2;\n}\n@custom-variant pointer-fine (@media (pointer: fine));\n";
 
 fn compiler() -> Compiler {
-  Compiler::new(CONFIG, CompileOptions { banner: false, ..CompileOptions::default() }).unwrap()
+  Compiler::new(CONFIG, CompileOptions::default().banner(false)).unwrap()
 }
 
 fn variant() -> impl Strategy<Value = String> {
@@ -109,7 +109,7 @@ proptest! {
 
   #[test]
   fn any_generated_stylesheet_compiles_or_is_refused_without_panicking(css in stylesheet()) {
-    if let Ok(mut compiler) = Compiler::new(&css, CompileOptions { banner: false, ..CompileOptions::default() }) {
+    if let Ok(mut compiler) = Compiler::new(&css, CompileOptions::default().banner(false)) {
       let _ = compiler.build(["flex", "bg-x", "tab-4"]);
     }
   }
@@ -117,7 +117,7 @@ proptest! {
   #[test]
   fn a_stylesheet_without_tailwind_reads_back_as_it_printed(css in stylesheet()) {
     let plain = css.replace("@import \"tailwindcss\";\n", "");
-    let printed = |text: &str| Compiler::new(text, CompileOptions { banner: false, ..CompileOptions::default() }).ok().map(|mut c| c.build([]));
+    let printed = |text: &str| Compiler::new(text, CompileOptions::default().banner(false)).ok().map(|mut c| c.build([]));
     if let Some(once) = printed(&plain) {
       prop_assert_eq!(printed(&once), Some(once.clone()), "{}", plain);
     }

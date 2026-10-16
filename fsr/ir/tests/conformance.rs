@@ -108,7 +108,7 @@ fn the_browser_half_matches_the_rust_half() {
   for locale in LOCALES {
     for (name, args) in cases() {
       let values: Vec<Value> = args.iter().map(to_value).collect();
-      let out = registry.call(name, &Ambient { locale: (*locale).to_owned(), now: 0, catalogs: None }, &values).unwrap_or_else(|e| panic!("{locale} {name}: {}", e.message));
+      let out = registry.call(name, &Ambient::default().locale((*locale).to_owned()).now(0).catalogs(None), &values).unwrap_or_else(|e| panic!("{locale} {name}: {}", e.message));
       expected.push(rendered(&out));
       inputs.push(serde_json::json!({ "locale": locale, "name": name, "args": args }));
     }

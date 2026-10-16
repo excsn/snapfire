@@ -39,11 +39,11 @@ fn services(transport: Arc<dyn Transport>) -> Arc<Services> {
 }
 
 fn alice() -> Option<Identity> {
-  Some(Identity { subject: "alice".to_owned(), claims: ValueMap::default() })
+  Some(Identity::new("alice".to_owned(), ValueMap::default()))
 }
 
 fn bob() -> Option<Identity> {
-  Some(Identity { subject: "bob".to_owned(), claims: ValueMap::default() })
+  Some(Identity::new("bob".to_owned(), ValueMap::default()))
 }
 
 fn count(transport: &MockTransport, path: &str) -> usize {

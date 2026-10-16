@@ -265,7 +265,7 @@ A lowered component is written the way the framework that mounts it in the brows
 ```rust
 use snapfire_fsr_ir::{Frameworks, Interpreter, ReactMajor};
 
-let interpreter = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
+let interpreter = Interpreter::default().with_frameworks(Frameworks::default().react(Some(ReactMajor::V19)));
 let html = interpreter.render(&component, &props, &library)?.html;
 ```
 
@@ -294,8 +294,8 @@ use snapfire_fsr_runtime::FailureKind;
 
 match Interpreter::default().run(&body, &ctx, None).await {
   Ok(outcome) => render(outcome.value),
-  Err(Fail { kind: FailureKind::Invalid, message }) => reject(message),
-  Err(Fail { kind, message }) => degrade(kind.http_status(), message),
+  Err(Fail { kind: FailureKind::Invalid, message, .. }) => reject(message),
+  Err(Fail { kind, message, .. }) => degrade(kind.http_status(), message),
 }
 ```
 

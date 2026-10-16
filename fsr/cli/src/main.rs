@@ -540,10 +540,7 @@ fn main() -> ExitCode {
         };
         mounts.push((name.to_owned(), PathBuf::from(path)));
       }
-      let options = ServeOptions {
-        listen: args.listen,
-        mounts,
-      };
+      let options = ServeOptions::default().listen(args.listen).mounts(mounts);
       match serve::run(&args.app_dir, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => failed(e),
@@ -650,21 +647,12 @@ fn main() -> ExitCode {
 }
 
 fn run_new(args: New) -> ExitCode {
-  let mut options = NewOptions {
-    fetch: !args.no_fetch,
-    with: args.with,
-    shell: args.shell,
-    ..NewOptions::default()
-  };
+  let mut options = NewOptions::default().fetch(!args.no_fetch).with(args.with).shell(args.shell);
   if args.site {
     let Some(at) = args.at else {
       return refused("fsr new --site needs --at <path>, the prefix a shell mounts it under");
     };
-    options.site = Some(SiteScaffold {
-      at,
-      name: args.name,
-      into: args.into,
-    });
+    options.site = Some(SiteScaffold::new(at).name(args.name).into(args.into));
   } else if args.at.is_some() || args.name.is_some() || args.into.is_some() {
     return refused("--at, --name and --into belong to --site");
   }
@@ -735,7 +723,7 @@ fn run_check(args: Check) -> ExitCode {
 }
 
 fn run_use(args: Use) -> ExitCode {
-  match direction::adopt(&args.app_dir, &args.directions, UseOptions { fetch: !args.no_fetch, example: args.example }) {
+  match direction::adopt(&args.app_dir, &args.directions, UseOptions::default().fetch(!args.no_fetch).example(args.example)) {
     Ok(adopted) => {
       for (specifier, url) in &adopted.mapped {
         println!("mapped    {specifier:<28} {url}");

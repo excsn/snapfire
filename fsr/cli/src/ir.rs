@@ -8,6 +8,7 @@ use snapfire_fsr_plan::Manifest;
 use crate::PLAN_FILE;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum IrError {
   #[error("{0} is missing; run `fsr build` first")]
   NoPlan(PathBuf),

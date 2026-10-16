@@ -184,13 +184,14 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### Options
 
-* `pub struct Options { pub site: Option<SiteOptions>, pub shell: String, pub slot: String, pub strict: bool }`
+* `pub struct Options { pub site: Option<SiteOptions>, pub shell: String, pub slot: String, pub strict: bool }`, `#[non_exhaustive]`: build one with `Default` or `beside` and the setters.
+* `Options::site(self, site: Option<SiteOptions>) -> Self`, `Options::shell(self, shell: String) -> Self`, `Options::slot(self, slot: String) -> Self`, `Options::strict(self, strict: bool) -> Self`: setters for the field of the same name.
 * `Default` is no site, `shell#document`, `content` and not strict. `Options::beside(app)` reads `site` from `[site]` and `strict` from `[build] strict` in the configuration beside `app`.
 * `strict` refuses the build with `BuildError::Strict` when the report holds a `client` cause, a `foreign` cause or a `plugins` row.
 
 ### SiteOptions
 
-* `pub struct SiteOptions { pub name: String, pub at: String, pub shell: Option<PathBuf> }`: the `[site]` section as the build reads it; `prefix()` is `<name>:` and `under(path)` is `at` joined with a path.
+* `pub struct SiteOptions { pub name: String, pub at: String, pub shell: Option<PathBuf> }`, `#[non_exhaustive]`: the `[site]` section as the build reads it. `SiteOptions::new(name: String, at: String) -> Self` has no `shell`; `SiteOptions::shell(self, shell: Option<PathBuf>) -> Self` sets it; `prefix()` is `<name>:` and `under(path)` is `at` joined with a path.
 * `BUNDLE_BASE` is `/static/js/app` and `VENDOR_BASE` is `/static/js/vendor`. `bundle_base(site: Option<&SiteOptions>) -> String` and `vendor_base(site: Option<&SiteOptions>) -> String` put each under the site's prefix, which is where a mount keeps a static root. `fsr dev`, `fsr test` and `Layout::of_site` take their paths from them.
 * `Options::beside(app: &Path) -> Options`: the defaults with `site` from the configuration beside `app` when one names that app directory. `site_beside(app: &Path) -> Option<SiteOptions>` is that lookup alone. `Options::prefix()` is the prefix on every emitted id, empty without a site.
 * `unprefixed(service: &str) -> &str`: a service name without its site prefix, which is what a test mocks it by.
@@ -382,7 +383,8 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 
 ### Typecheck
 
-* `pub struct Typecheck { pub enabled: bool, pub checker: Option<PathBuf>, pub tsc: Option<PathBuf>, pub version: Option<String>, pub expect: Option<String>, pub record: Option<PathBuf> }`
+* `pub struct Typecheck { pub enabled: bool, pub checker: Option<PathBuf>, pub tsc: Option<PathBuf>, pub version: Option<String>, pub expect: Option<String>, pub record: Option<PathBuf> }`, `#[non_exhaustive]`: build one with `Default` or `beside` and the setters.
+* `Typecheck::enabled(self, enabled: bool) -> Self`, `Typecheck::checker(self, checker: Option<PathBuf>) -> Self`, `Typecheck::tsc(self, tsc: Option<PathBuf>) -> Self`, `Typecheck::version(self, version: Option<String>) -> Self`, `Typecheck::expect(self, expect: Option<String>) -> Self`, `Typecheck::record(self, record: Option<PathBuf>) -> Self`: setters for the field of the same name.
 * `Typecheck::beside(app: &Path) -> Typecheck`: the `[typecheck]` section of the configuration beside `app` and `record` set to its first `.toml` source. A project with no configuration is enabled, with the checker's default version and nothing to record into.
 * `Default` is disabled with everything absent, so a caller building one by hand opts in; `DevOptions::default` and `DevOptions::beside` both enable it.
 
@@ -452,7 +454,7 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 ### adopt
 
 * `pub fn direction::adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopted, BuildError>`
-* `pub struct direction::UseOptions { pub fetch: bool, pub example: bool }`, `Default` with `fetch` true.
+* `pub struct direction::UseOptions { pub fetch: bool, pub example: bool }`, `Default` with `fetch` true, `#[non_exhaustive]`: build one with `Default` and the setters `UseOptions::fetch(self, fetch: bool) -> Self` and `UseOptions::example(self, example: bool) -> Self`.
 * Resolves every name first, so an unknown one refuses before anything is written. With `example` it checks that no example file is already there. Then per direction: the map line through `read_import_map` and `write_import_map`, an entry already at the host's URL reported as `present` and one at another URL refused as `AdapterUrl`; the specs against `VendorManifest`, a package recorded at the pinned version reported as `kept` and one at another version refused as `DirectionPinned`; the example files. Then, with `fetch`, `vendor::add` over what is left to vendor, which under a site takes what the shell serves and under xwpm delegates, `types::fetch` and the generation `fsr new` runs, each failure a note rather than a stop; without it, `fsr add`, `fsr types` and `fsr build` as `next`. Last, the direction's edits and the examples' placements.
 * `pub struct direction::Adopted { pub mapped: Vec<(String, String)>, pub present: Vec<String>, pub vendored: Vec<(String, String, usize)>, pub kept: Vec<String>, pub from_shell: Vec<(String, String)>, pub delegated: Vec<String>, pub typed: Vec<(String, String, String)>, pub written: Vec<PathBuf>, pub notes: Vec<String>, pub edits: Vec<(String, String)>, pub next: Vec<String> }`.
 * The examples, one per direction, each building and typechecking on its own: `react` writes `src/ui/Counter.tsx`, an island with one piece of state; `vue` writes `src/ui/Counter.vue`; `elements` writes `elements/hello-tag.tsx` and `src/elements/hello-tag.ts`, the template and the class `shadowOf` joins; `htmx` writes `routes/pulse/page.loader.ts` and `routes/pulse/page.tsx`, a page a fragment request refreshes; `tera` writes `routes/hello/page.loader.ts` and `routes/hello/page.tera`. Nothing is placed into an existing page.
@@ -486,7 +488,7 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 ### Manifests
 
 * `pub struct vendor::VendorManifest { pub packages: BTreeMap<String, VendoredPackage> }`, `vendor::VendoredPackage { pub version: String, pub externals: Vec<String>, pub entries: BTreeMap<String, String> }`, entries from specifier to file relative to the vendor directory; read and written as `<vendor>/.fsr-vendor.json`.
-* `pub struct types::TypesManifest { pub packages: BTreeMap<String, TypedPackage> }`, `types::TypedPackage { pub version: String, pub from: String, pub entry: String, pub ambient: bool }`; read and written as `<types>/.fsr-types.json`. `from` is the package, `@types/<name>`, `fsr` or `vendor` for declarations a vendored package carries beside its entry.
+* `pub struct types::TypesManifest { pub packages: BTreeMap<String, TypedPackage> }`, `types::TypedPackage { pub version: String, pub from: String, pub entry: String, pub ambient: bool }`, `#[non_exhaustive]`, built with `TypedPackage::new(version: String, from: String, entry: String, ambient: bool) -> Self`; read and written as `<types>/.fsr-types.json`. `from` is the package, `@types/<name>`, `fsr` or `vendor` for declarations a vendored package carries beside its entry.
 * Both: `read(app, &layout)`, `write(&self, app, &layout)`; a missing file reads as empty.
 
 ### assets

@@ -351,7 +351,7 @@ fn identity_and_now_are_reads() {
   let mut claims = ValueMap::default();
   claims.insert("tenant".into(), Value::str("acme"));
   let mut c = RequestCtx::anonymous(Params::new());
-  c.session = SessionCell::new(ValueMap::default(), Some(Identity { subject: "u1".into(), claims }));
+  c.session = SessionCell::new(ValueMap::default(), Some(Identity::new("u1".into(), claims)));
   let body = vec![Stmt::Return(Expr::object(vec![
     ("who", Expr::Identity(vec!["subject".into()])),
     ("tenant", Expr::Identity(vec!["claims".into(), "tenant".into()])),
@@ -374,7 +374,7 @@ fn the_identity_whole_is_null_for_nobody_and_not_null_for_a_signed_in_visitor() 
   let nobody = RequestCtx::anonymous(Params::new());
   assert_eq!(run(&body, &nobody, None).unwrap(), Value::Bool(true));
   let mut signed_in = RequestCtx::anonymous(Params::new());
-  signed_in.session = SessionCell::new(ValueMap::default(), Some(Identity { subject: "u1".into(), claims: ValueMap::default() }));
+  signed_in.session = SessionCell::new(ValueMap::default(), Some(Identity::new("u1".into(), ValueMap::default())));
   assert_eq!(run(&body, &signed_in, None).unwrap(), Value::Bool(false));
 }
 

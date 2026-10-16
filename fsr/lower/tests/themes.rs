@@ -11,9 +11,9 @@ fn exported(source: &str) -> Result<Option<ThemeExport>, String> {
 fn a_theme_export_is_a_name_or_a_forced_name() {
   let page = "export default function Layout() { return <main />; }";
   assert_eq!(exported(page).unwrap(), None);
-  assert_eq!(exported(&format!("export const theme = \"editorial\";\n{page}")).unwrap(), Some(ThemeExport { name: "editorial".to_owned(), force: false }));
-  assert_eq!(exported(&format!("export const theme = {{ name: \"ledger\", force: true }} as const;\n{page}")).unwrap(), Some(ThemeExport { name: "ledger".to_owned(), force: true }));
-  assert_eq!(exported(&format!("export const theme = {{ name: `night` }};\n{page}")).unwrap(), Some(ThemeExport { name: "night".to_owned(), force: false }));
+  assert_eq!(exported(&format!("export const theme = \"editorial\";\n{page}")).unwrap(), Some(ThemeExport::new("editorial".to_owned(), false)));
+  assert_eq!(exported(&format!("export const theme = {{ name: \"ledger\", force: true }} as const;\n{page}")).unwrap(), Some(ThemeExport::new("ledger".to_owned(), true)));
+  assert_eq!(exported(&format!("export const theme = {{ name: `night` }};\n{page}")).unwrap(), Some(ThemeExport::new("night".to_owned(), false)));
 }
 
 #[test]

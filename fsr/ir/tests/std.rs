@@ -5,7 +5,7 @@ use snapfire_fsr_ir::{standard_reach, Ambient, Expr, Extensions, Interpreter, Re
 
 fn call(locale: &str, name: &str, args: Vec<Value>) -> Result<Value, String> {
   let (module, member) = name.split_once('.').unwrap();
-  Extensions::standard().call(name, &Ambient { locale: locale.to_owned(), now: 1_757_090_467_250, catalogs: None }, &args).map(|v| {
+  Extensions::standard().call(name, &Ambient::default().locale(locale.to_owned()).now(1_757_090_467_250).catalogs(None), &args).map(|v| {
     let _ = (module, member);
     v
   }).map_err(|e| e.message)
@@ -156,7 +156,7 @@ fn t_reads_the_catalog_under_the_locale_with_plurals_and_placeholders() {
   assert_eq!(catalogs.rows(), vec![("en_US".to_owned(), 4), ("fr_FR".to_owned(), 3)]);
 
   let registry = Extensions::standard();
-  let call = |locale: &str, args: Vec<Value>| registry.call("i18n.t", &Ambient { locale: locale.to_owned(), now: 0, catalogs: Some(catalogs.clone()) }, &args).map_err(|e| e.message);
+  let call = |locale: &str, args: Vec<Value>| registry.call("i18n.t", &Ambient::default().locale(locale.to_owned()).now(0).catalogs(Some(catalogs.clone())), &args).map_err(|e| e.message);
   let named = |pairs: Vec<(&str, Value)>| {
     let mut map = snapfire_fsr_core::ValueMap::default();
     for (k, v) in pairs {

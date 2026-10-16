@@ -4,6 +4,7 @@
 use crate::walk::Action;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ValueNode {
   Word(String),
   Function { value: String, nodes: Vec<ValueNode> },
@@ -166,6 +167,7 @@ pub fn walk(ast: &mut Vec<ValueNode>, f: &mut impl FnMut(&mut ValueNode, &WalkIn
   walk_level(ast, f, 0);
 }
 
+#[non_exhaustive]
 pub struct WalkInfo {
   pub depth: usize,
   pub index: usize,

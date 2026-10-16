@@ -19,6 +19,7 @@ use crate::segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 use crate::store::{apply_derives, derive_order, derived_pending, merge_contributions, pending_keys, Contribution, Derived, Seeds};
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AssembleError {
   #[error("no data source registered for `{0}`")]
   MissingDataSource(String),
@@ -74,6 +75,7 @@ impl Evaluators {
   }
 }
 
+#[non_exhaustive]
 pub struct Runtime {
   pub sources: DataSources,
   pub evaluators: Evaluators,
@@ -249,6 +251,7 @@ impl Runtime {
 
 /// A deferred slot's eventual content. The future never fails: a failed loader
 /// or evaluation resolves to the segment's error node instead.
+#[non_exhaustive]
 pub struct PendingResolution {
   pub slot: SlotId,
   /// The deferred segment's key, so its fill is delimited like any region.
@@ -256,6 +259,13 @@ pub struct PendingResolution {
   pub future: BoxFuture<'static, Resolved>,
 }
 
+impl PendingResolution {
+  pub fn new(slot: SlotId, key: String, future: BoxFuture<'static, Resolved>) -> Self {
+    Self { slot, key, future }
+  }
+}
+
+#[non_exhaustive]
 pub struct Resolved {
   pub slot: SlotId,
   pub key: String,
@@ -274,6 +284,13 @@ pub struct Resolved {
   pub contributions: Vec<Contribution>,
 }
 
+impl Resolved {
+  pub fn new(slot: SlotId, key: String, node: Node, segments: Vec<SegmentInfo>, pending: Vec<PendingResolution>, meta: Meta, contributions: Vec<Contribution>) -> Self {
+    Self { slot, key, node, segments, pending, meta, contributions }
+  }
+}
+
+#[non_exhaustive]
 pub struct Assembly {
   pub tree: Node,
   pub pending: Vec<PendingResolution>,
@@ -297,6 +314,13 @@ pub struct Assembly {
   /// reached from the root along the `content` slots. A layout or a slot
   /// failing degrades its segment and leaves this `None`.
   pub failed: Option<FailureKind>,
+}
+
+impl Assembly {
+  #[allow(clippy::too_many_arguments)]
+  pub fn new(tree: Node, pending: Vec<PendingResolution>, segments: SegmentInfo, meta: Meta, contributions: Vec<Contribution>, store: Data, locale: crate::ctx::Locale, entry: Option<String>, styles: Vec<String>, catalog: Option<String>, theme: Option<crate::meta::DocumentTheme>, failed: Option<FailureKind>) -> Self {
+    Self { tree, pending, segments, meta, contributions, store, locale, entry, styles, catalog, theme, failed }
+  }
 }
 
 impl std::fmt::Debug for Assembly {
@@ -376,9 +400,16 @@ fn params_value(params: &Params) -> Value {
 /// The document's request and the plan nodes that load and are keyed under
 /// it: the layouts an intercept keeps, whose data belongs to the page beneath
 /// the overlay while their markup is still marked by the address.
+#[non_exhaustive]
 pub struct Origin {
   pub ctx: RequestCtx,
   pub nodes: Vec<u32>,
+}
+
+impl Origin {
+  pub fn new(ctx: RequestCtx, nodes: Vec<u32>) -> Self {
+    Self { ctx, nodes }
+  }
 }
 
 pub(crate) struct Session {

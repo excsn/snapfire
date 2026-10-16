@@ -194,6 +194,7 @@ pub fn is_color(value: &str) -> bool {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum DataType {
   Color,
   Length,

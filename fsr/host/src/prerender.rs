@@ -91,7 +91,7 @@ pub(crate) fn renders_from_file(path: &Path) -> HashMap<String, CacheEntry> {
         segments.push(snapfire_fsr_runtime::segments_from_json(item)?);
       }
       let digest = json.get("digest").and_then(|d| d.as_str()).and_then(|d| u64::from_str_radix(d, 16).ok()).ok_or_else(|| fail("a render needs a hex `digest`"))?;
-      Ok(CacheEntry { node, segments, digest })
+      Ok(CacheEntry::new(node, segments, digest))
     };
     match read() {
       Ok(entry) => {

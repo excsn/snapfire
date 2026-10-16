@@ -28,7 +28,7 @@ export default function Page() {
 fn project() -> PathBuf {
   let root = std::env::temp_dir().join(format!("fsr-cli-media-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");
   std::fs::write(app.join("routes/page.tsx"), PAGE).unwrap();
   std::fs::create_dir_all(app.join("src/media")).unwrap();

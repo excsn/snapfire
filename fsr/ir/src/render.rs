@@ -92,6 +92,7 @@ struct Out {
 /// the way a root slot sits as a `SLOT_MARK`; the evaluator turns both into
 /// nodes.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Rendered {
   pub html: String,
   pub islands: Vec<RenderedIsland>,
@@ -110,6 +111,7 @@ pub const HOISTED_PROP: &str = "$h";
 /// A component rendered as an island: its module, the props it was given
 /// and its own markup, which may hold islands of its own.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RenderedIsland {
   pub module: String,
   pub props: ValueMap,
@@ -183,6 +185,7 @@ pub const SERVER_MODE: &str = "server";
 
 /// What `island_step` answers: the state after the handler, the island rendered from it and the actions the handler asked for, in order, for the host to dispatch.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Stepped {
   pub state: ValueMap,
   /// The store keys the handler wrote, with the values, for the browser to set.
@@ -195,6 +198,7 @@ pub struct Stepped {
 /// `path`, which is empty for the island's own component and otherwise the
 /// address a nested component's markers carry, `c1` or `0.c2`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HandlerRef {
   pub path: String,
   pub index: usize,

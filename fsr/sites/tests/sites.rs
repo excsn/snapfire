@@ -159,7 +159,7 @@ fn a_pack_round_trips_through_an_install_and_repeats_as_a_hold() {
   assert_eq!(Manifest::read_archive(&out).unwrap(), manifest);
 
   let cache = Cache::new(dir("pack-cache"));
-  let store = ArchiveStore { archive: out.clone() };
+  let store = ArchiveStore::new(out.clone());
   let installed = cache.install(&store, "billing", "billing", "1.2.0", Some(2)).unwrap();
   assert!(!installed.held);
   assert_eq!(installed.hash, manifest.hash);

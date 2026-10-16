@@ -7,6 +7,7 @@ use crate::writer;
 /// Whether a `<video:restriction>` or `<video:platform>` list is an allowlist
 /// or a denylist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Relationship {
   Allow,
   Deny,
@@ -22,6 +23,7 @@ impl Relationship {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Platform {
   Web,
   Mobile,
@@ -40,6 +42,7 @@ impl Platform {
 
 /// A space-delimited list carrying an allow or deny relationship.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Restriction {
   pub relationship: Relationship,
   /// Uppercase ISO 3166 country codes.
@@ -47,12 +50,14 @@ pub struct Restriction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PlatformRestriction {
   pub relationship: Relationship,
   pub platforms: Vec<Platform>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Uploader {
   pub name: String,
   /// A url on the same domain as the `<loc>`.

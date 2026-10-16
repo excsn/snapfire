@@ -62,6 +62,7 @@ pub trait Store: Send + Sync {
 /// synced folder, a mounted share or the output of a build job, which is the
 /// smallest thing that is a store at all.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct TarStore {
   pub dir: PathBuf,
 }
@@ -96,8 +97,15 @@ impl Store for TarStore {
 
 /// One artifact archive, wherever it sits, as a store of a single version.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ArchiveStore {
   pub archive: PathBuf,
+}
+
+impl ArchiveStore {
+  pub fn new(archive: PathBuf) -> Self {
+    Self { archive }
+  }
 }
 
 impl Store for ArchiveStore {
@@ -115,6 +123,7 @@ impl Store for ArchiveStore {
 /// `headers` ride on every request, which is where a token goes.
 #[cfg(feature = "http")]
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct HttpStore {
   pub base: String,
   pub headers: Vec<(String, String)>,
@@ -166,6 +175,7 @@ impl Store for HttpStore {
 
 /// What an install did.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Installed {
   /// The name the cache holds it under, which is what a `[sites.<name>]` row's
   /// `artifact` names and not always the site's own `[site] name`.
@@ -182,6 +192,7 @@ pub struct Installed {
 /// The artifact cache: `<root>/<name>/<version>` per installed version, which
 /// is where `artifact = "<name>@<version>"` already resolves.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Cache {
   pub root: PathBuf,
 }

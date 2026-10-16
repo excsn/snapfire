@@ -25,6 +25,7 @@ pub use install::HttpStore;
 pub const STORE_HEADER_ENV: &str = "FSR_SITES_STORE_HEADER";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum SitesError {
   #[error(transparent)]
   Host(#[from] HostError),
@@ -36,6 +37,7 @@ pub enum SitesError {
 
 /// One row of the table, resolved: where the artifact is and what it hashes to.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Resolved {
   pub name: String,
   pub artifact: PathBuf,

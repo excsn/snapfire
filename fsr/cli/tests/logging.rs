@@ -16,7 +16,7 @@ const IMAGE: &str = "export const size = { width: 300, height: 160 };\nexport co
 fn project(tag: &str, logging: Option<&str>) -> PathBuf {
   let root = std::env::temp_dir().join(format!("fsr-cli-logging-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   let app = root.join("app");
   for (path, text) in [("routes/notice/[id]/page.tsx", PAGE), ("routes/notice/[id]/page.loader.ts", LOADER), ("routes/notice/[id]/opengraph-image.tsx", IMAGE)] {
     let file = app.join(path);

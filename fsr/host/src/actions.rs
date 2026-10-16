@@ -5,9 +5,16 @@ use super::*;
 /// What the middleware decided for a request. `headers` join the response
 /// whatever the decision.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Preflight {
   pub action: PreflightAction,
   pub headers: Vec<(String, String)>,
+}
+
+impl Preflight {
+  pub fn new(action: PreflightAction, headers: Vec<(String, String)>) -> Self {
+    Self { action, headers }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,6 +129,7 @@ pub(crate) fn kind_of(value: &Value) -> &'static str {
 /// What one step of an island in server mode produced: the state after the
 /// handler, the island's markup rendered from it with handler markers, and
 /// the actions the handler called, in order, for the caller to dispatch.
+#[non_exhaustive]
 pub struct IslandStep {
   pub state: ValueMap,
   /// The store keys the handler wrote, with their values.
@@ -145,6 +153,7 @@ impl IslandStep {
 /// the browser saw. A lowered component wants an index and a map; a template
 /// island wants a name and whatever its handlers agreed on, so the judging is
 /// each path's own.
+#[non_exhaustive]
 pub struct IslandBody {
   pub props: ValueMap,
   pub state: Value,
@@ -593,7 +602,7 @@ impl Host {
         );
       }
       let ctx = self.ctx(t, incoming, Params::new(), Params::new(), &visit.path, visit.locale.clone());
-      let event = IslandEvent { props: Value::Map(posted.props.clone()), state: state.clone(), event: posted.event.clone() };
+      let event = IslandEvent::new(Value::Map(posted.props.clone()), state.clone(), posted.event.clone());
       match t.app.islands.dispatch(module, &name, ctx, event).await {
         Ok(next) => state = next,
         Err(e) => {

@@ -11,6 +11,7 @@ use std::path::Path;
 /// prefix, and the longest matching key wins. Treating the map as a dictionary would report
 /// `lodash/debounce` as missing from a map that resolves it perfectly well through `lodash/`.
 #[derive(Debug, Deserialize, Default)]
+#[non_exhaustive]
 pub struct ImportMap {
   #[serde(default)]
   pub imports: BTreeMap<String, String>,

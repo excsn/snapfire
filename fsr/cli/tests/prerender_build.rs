@@ -19,7 +19,7 @@ fn page(text: &str) -> String {
 fn project() -> PathBuf {
   let root = std::env::temp_dir().join(format!("fsr-cli-prerender-build-{}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   std::fs::create_dir_all(root.join("app/routes/about")).unwrap();
   std::fs::write(root.join("app/routes/about/page.tsx"), page("alpha-copy")).unwrap();
   let config = root.join("config/app.toml");

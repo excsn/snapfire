@@ -52,6 +52,7 @@ pub fn static_decls(u: &mut Utilities, name: &str, decls: &[(&'static str, &str)
 }
 
 #[derive(Clone, Default)]
+#[non_exhaustive]
 pub enum DefaultValue {
   #[default]
   Undefined,
@@ -60,6 +61,7 @@ pub enum DefaultValue {
 }
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Desc {
   pub supports_negative: bool,
   pub supports_fractions: bool,

@@ -21,6 +21,7 @@ impl Style {
 /// The vertical metrics and the average advance a fallback is matched to, in
 /// the face's own units.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Metrics {
   pub units_per_em: u16,
   pub ascender: i16,
@@ -44,6 +45,7 @@ impl Metrics {
 
 /// One face as its tables describe it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Face {
   pub family: String,
   /// `OS/2`'s weight class, which for a variable face is its default instance's.
@@ -163,6 +165,7 @@ fn weighted_advance(face: &ttf_parser::Face<'_>) -> Option<i16> {
 /// against. The numbers were read with `Face::read` from the fonts macOS
 /// ships, which are the same files Windows ships for these families.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[non_exhaustive]
 pub struct Fallback {
   /// The name `local()` finds it under.
   pub local: &'static str,

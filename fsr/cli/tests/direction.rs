@@ -23,7 +23,7 @@ fn bare(files: &[(&str, &str)]) -> PathBuf {
 }
 
 fn offline() -> UseOptions {
-  UseOptions { fetch: false, example: false }
+  UseOptions::default().fetch(false).example(false)
 }
 
 fn imports(dir: &Path) -> serde_json::Value {
@@ -104,7 +104,7 @@ fn the_refusals_name_the_table_the_url_and_the_version() {
 #[test]
 fn an_example_is_written_once_and_placed_by_the_next_lines() {
   let dir = bare(&[]);
-  let adopted = adopt(&dir, &["elements".to_owned(), "htmx".to_owned(), "tera".to_owned()], UseOptions { fetch: false, example: true }).unwrap();
+  let adopted = adopt(&dir, &["elements".to_owned(), "htmx".to_owned(), "tera".to_owned()], UseOptions::default().fetch(false).example(true)).unwrap();
   for file in ["elements/hello-tag.tsx", "src/elements/hello-tag.ts", "routes/pulse/page.tsx", "routes/pulse/page.loader.ts", "routes/hello/page.tera", "routes/hello/page.loader.ts"] {
     assert!(dir.join(file).is_file(), "{file}");
   }
@@ -118,7 +118,7 @@ fn an_example_is_written_once_and_placed_by_the_next_lines() {
   assert!(built.report.components.iter().any(|(module, how, _)| module == "routes/hello/page.tera#default" && how == "template"), "{}", built.report);
   assert!(imports(&dir).get("@snapfire/fsr-client/tera").is_none(), "a template direction maps nothing");
 
-  let again = adopt(&dir, &["htmx".to_owned()], UseOptions { fetch: false, example: true }).unwrap_err().to_string();
+  let again = adopt(&dir, &["htmx".to_owned()], UseOptions::default().fetch(false).example(true)).unwrap_err().to_string();
   assert!(again.contains("routes/pulse/page.loader.ts already exists"), "{again}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -156,7 +156,7 @@ fn tailwind_leaves_an_application_that_already_imports_it_alone() {
 #[test]
 fn tailwinds_example_is_a_styled_page_and_a_theme() {
   let dir = bare(&[]);
-  let adopted = adopt(&dir, &["tailwind".to_owned()], UseOptions { fetch: false, example: true }).unwrap();
+  let adopted = adopt(&dir, &["tailwind".to_owned()], UseOptions::default().fetch(false).example(true)).unwrap();
   assert!(dir.join("routes/styled/page.tsx").is_file() && dir.join("styles/themes/ocean.css").is_file(), "{:?}", adopted.written);
   assert!(adopted.edits.iter().any(|(file, _)| file == "routes/layout.tsx"), "{:?}", adopted.edits);
   let built = build(&dir, &Options::default()).unwrap();

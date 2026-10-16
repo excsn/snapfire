@@ -21,8 +21,8 @@ fn app() -> PathBuf {
   std::fs::write(dir.join("types/csstype/index.d.ts"), "export {};").unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"react":"/static/js/vendor/react/react.bundle.mjs","react/jsx-runtime":"/x","sweetalert2":"/y","@snapfire/fsr-client":"/z","lodash":"/w"}}"#).unwrap();
   let mut manifest = TypesManifest::default();
-  manifest.packages.insert("react".into(), TypedPackage { version: "18.3.31".into(), from: "@types/react".into(), entry: "index.d.ts".into(), ambient: false });
-  manifest.packages.insert("sweetalert2".into(), TypedPackage { version: "11.26.25".into(), from: "sweetalert2".into(), entry: "sweetalert2.d.ts".into(), ambient: true });
+  manifest.packages.insert("react".into(), TypedPackage::new("18.3.31".into(), "@types/react".into(), "index.d.ts".into(), false));
+  manifest.packages.insert("sweetalert2".into(), TypedPackage::new("11.26.25".into(), "sweetalert2".into(), "sweetalert2.d.ts".into(), true));
   manifest.write(&dir, &Layout::default()).unwrap();
   dir
 }
@@ -104,7 +104,7 @@ fn a_build_that_rewrites_fsrs_own_declarations_records_the_version_it_wrote() {
   let dir = app();
   let layout = Layout::default();
   let mut manifest = TypesManifest::read(&dir, &layout).unwrap();
-  manifest.packages.insert("@snapfire/fsr-client".into(), TypedPackage { version: "0.5.0".into(), from: "fsr".into(), entry: "index.d.ts".into(), ambient: false });
+  manifest.packages.insert("@snapfire/fsr-client".into(), TypedPackage::new("0.5.0".into(), "fsr".into(), "index.d.ts".into(), false));
   manifest.write(&dir, &layout).unwrap();
 
   snapfire_fsr_cli::types::refresh_embedded(&dir).unwrap();
@@ -128,7 +128,7 @@ fn a_package_whose_recorded_entry_is_not_on_disk_is_missing() {
   std::fs::create_dir_all(dir.join("types/htmx.org")).unwrap();
   std::fs::write(dir.join("types/htmx.org/package.json"), r#"{"name":"htmx.org","types":"dist/htmx.d.ts"}"#).unwrap();
   let mut manifest = TypesManifest::read(&dir, &Layout::default()).unwrap();
-  manifest.packages.insert("htmx.org".into(), TypedPackage { version: "2.0.4".into(), from: "htmx.org".into(), entry: "dist/htmx.d.ts".into(), ambient: false });
+  manifest.packages.insert("htmx.org".into(), TypedPackage::new("2.0.4".into(), "htmx.org".into(), "dist/htmx.d.ts".into(), false));
   manifest.write(&dir, &Layout::default()).unwrap();
 
   assert_eq!(missing(&dir).unwrap(), vec!["htmx.org"], "the folder without its entry declares nothing");

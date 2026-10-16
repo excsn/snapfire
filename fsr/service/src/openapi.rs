@@ -5,6 +5,7 @@ use crate::contract::{Contract, Field, Method, Service, Type, TypeDef, Variant, 
 use crate::http::Route;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ImportError {
   #[error("{at}: {what}")]
   Malformed { at: String, what: String },
@@ -23,6 +24,7 @@ fn unsupported(at: impl Into<String>, what: impl Into<String>) -> ImportError {
 /// What one document lowers to: the neutral contract, the transport shape the
 /// contract deliberately does not carry and the server the document names.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Imported {
   pub contract: Contract,
   pub routes: Vec<(String, Route)>,

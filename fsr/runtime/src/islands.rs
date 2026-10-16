@@ -41,10 +41,17 @@ pub fn island_data(props: &snapfire_fsr_core::ValueMap, state: &Value) -> snapfi
 /// browser holds and the event that fired. All three arrive from the browser,
 /// so a handler checks them the way an action checks its own input.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct IslandEvent {
   pub props: Value,
   pub state: Value,
   pub event: Value,
+}
+
+impl IslandEvent {
+  pub fn new(props: Value, state: Value, event: Value) -> Self {
+    Self { props, state, event }
+  }
 }
 
 pub trait IslandHandler: Send + Sync {

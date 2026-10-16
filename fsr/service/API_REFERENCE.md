@@ -149,13 +149,13 @@ One method signature.
 
 ### Freshness
 
-The data owner's statement of how long a method's answer holds, on the contract.
+The data owner's statement of how long a method's answer holds, on the contract. `#[non_exhaustive]`: build one with `ttl` and the setters.
 
 * `pub ttl: String`, a duration (`30s`, `5m`, `2h`, `1d` or seconds)
 * `pub tags: Vec<String>`, the tags a write drops it under; absent from JSON when empty
 * `pub scope: Scope`, default `Private`
 * `pub stale: Option<String>`, a window after `ttl` in which the last answer is served while a refresh runs behind it; `Shared` scope only
-* `fn ttl(ttl: impl Into<String>) -> Self`; `fn tags<I, S>(self, tags: I) -> Self`; `fn shared(self) -> Self`; `fn per_subject(self) -> Self`; `fn stale(self, window: impl Into<String>) -> Self`
+* `fn ttl(ttl: impl Into<String>) -> Self`; `fn tags<I, S>(self, tags: I) -> Self`; `fn shared(self) -> Self`; `fn per_subject(self) -> Self`; `fn stale(self, window: impl Into<String>) -> Self`; `fn scope(self, scope: Scope) -> Self`
 
 ### Scope
 

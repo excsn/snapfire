@@ -39,6 +39,7 @@ pub const UNTAKEN_ATTR: &str = "$untaken";
 /// fallback; a chunk among the children a component or an island is given is
 /// rendered by its slot, which the reader is not keyed for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Chunk {
   pub id: u32,
   pub proven: bool,
@@ -46,6 +47,7 @@ pub struct Chunk {
 
 /// The hoist candidates of one component as the lowerer meets them.
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Candidates {
   next: u32,
   /// Island placements are numbered apart from the hoist candidates, so
@@ -157,6 +159,7 @@ impl Candidates {
 /// opening tag's range and whether it sits among JSX children. A proven one
 /// is rewritten to the hit alone; the rest keep the element as the fallback.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ChunkSite {
   pub id: u32,
   pub range: Range<usize>,
@@ -168,6 +171,7 @@ pub struct ChunkSite {
 /// Where the reader hook goes: after the `{` of a block body or around an
 /// arrow's expression body, which becomes a block returning it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Hook {
   Block { after: usize },
   Expression(Range<usize>),
@@ -175,6 +179,7 @@ pub enum Hook {
 
 /// The rewrite of one component's source for the bundle.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Rewrite {
   pub file: String,
   pub module: String,

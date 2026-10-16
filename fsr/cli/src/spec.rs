@@ -50,6 +50,7 @@ const JSX_SPECIFIER: &str = "@snapfire/fsr-client/jsx-runtime";
 const JSX_URL: &str = "/static/js/fsr/jsx-runtime.js";
 
 /// The app compiled for the engine: where the modules landed, how a specifier reaches a file and the DOM bundle.
+#[non_exhaustive]
 pub struct Prepared {
   pub app: PathBuf,
   pub test_dir: PathBuf,
@@ -98,7 +99,7 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lo
   let client_dir = test_dir.join("client");
   snapfire_fsr_host::client::write_to(&client_dir, false).map_err(|e| BuildError::Io(client_dir.clone(), e))?;
   roots.push((snapfire_fsr_host::client::ROUTE.to_owned(), client_dir));
-  let resolution = Resolution { import_map, roots, overrides: overrides.into_iter().filter(|(k, _)| k != "linkedom").collect() };
+  let resolution = Resolution::new(import_map, roots, overrides.into_iter().filter(|(k, _)| k != "linkedom").collect());
 
   let boot = test_dir.join("boot.js");
   let mut boot_source = String::new();
@@ -190,7 +191,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     .collect();
   let Prepared { test_dir, resolution, dom, boot, .. } = prepare(&app, &built.browser_files, &compositions, &lowered, &built.composition_files, &built.added, plugins)?;
 
-  let frameworks = snapfire_fsr_ir::Frameworks { react: built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version)), vue: built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)) };
+  let frameworks = snapfire_fsr_ir::Frameworks::default().react(built.manifest.frameworks.get("react").and_then(|version| snapfire_fsr_ir::ReactMajor::of(version))).vue(built.manifest.frameworks.get("vue").and_then(|version| snapfire_fsr_ir::VueMajor::of(version)));
   let components: Arc<Components> = Arc::new(built.manifest.components.iter().map(|c| (c.module.clone(), Arc::new(snapfire_fsr_ir::render::prepare(&c.body)))).collect());
   let natives = native_names(&built.manifest);
   let actions: Actions = built.manifest.actions.iter().filter_map(|a| a.body.clone().map(|b| (a.id.clone(), (a.input.clone(), Arc::new(b))))).collect();
@@ -314,11 +315,7 @@ fn page_host(
   if let Some(cache) = config.cache.as_mut() {
     cache.data = None;
   }
-  let artifact = snapfire_fsr_host::Artifact {
-    config,
-    plan: built.manifest.to_json(),
-    contract: Some((**contract).clone()),
-  };
+  let artifact = snapfire_fsr_host::Artifact::new(config, built.manifest.to_json(), Some((**contract).clone()));
   let host = Host::from_artifact(artifact)
     .and_then(|builder| {
       let mut builder = builder.services_over(transport);
@@ -794,7 +791,7 @@ impl SpecHooks {
             _ => return Err("identity.claims must be an object".to_owned()),
           },
         };
-        Some(Identity { subject: id.subject, claims })
+        Some(Identity::new(id.subject, claims))
       }
       None => None,
     };
@@ -846,12 +843,12 @@ impl SpecHooks {
 }
 
 fn json_response(status: u16, json: serde_json::Value) -> FetchResponse {
-  FetchResponse { headers: Vec::new(), status, body: json.to_string() }
+  FetchResponse::new(status, json.to_string())
 }
 
 /// The `303` a form post is answered with, as the host answers it.
 fn see_other(location: &str) -> FetchResponse {
-  FetchResponse { headers: vec![("location".to_owned(), location.to_owned())], status: 303, body: String::new() }
+  FetchResponse::new(303, String::new()).header("location", location)
 }
 
 fn header_of<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
@@ -908,7 +905,7 @@ impl Hooks for SpecHooks {
       Value::Seq(items) => items,
       _ => return Err(format!("{name}: arguments must be an array")),
     };
-    let ambient = snapfire_fsr_ir::Ambient { locale: locale.to_owned(), now: 0, catalogs: self.interpreter.catalogs().cloned() };
+    let ambient = snapfire_fsr_ir::Ambient::default().locale(locale.to_owned()).now(0).catalogs(self.interpreter.catalogs().cloned());
     let value = self.interpreter.extensions().call(name, &ambient, &args).map_err(|f| f.message)?;
     Ok(value_to_json(&value).to_string())
   }

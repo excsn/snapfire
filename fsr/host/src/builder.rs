@@ -465,12 +465,7 @@ impl HostBuilder {
       store,
       config.session.key.as_deref().unwrap_or_default().as_bytes(),
       codec,
-      SessionConfig {
-        ttl,
-        secure: config.session.secure,
-        max_bytes: usize::try_from(config.session.max_bytes).unwrap_or(usize::MAX),
-        ..SessionConfig::default()
-      },
+      SessionConfig::default().ttl(ttl).secure(config.session.secure).max_bytes(usize::try_from(config.session.max_bytes).unwrap_or(usize::MAX)),
     )
     .with_csrf(scheme);
     let changed = config.dev().then(|| Reload::new(16));

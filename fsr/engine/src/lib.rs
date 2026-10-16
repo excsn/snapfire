@@ -20,6 +20,7 @@ const DOM: &str = include_str!("dom.js");
 const DOM_SPECIFIER: &str = "__sf_dom__";
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum EngineError {
   #[error("{0}")]
   Engine(#[from] rquickjs::Error),
@@ -34,10 +35,17 @@ pub enum EngineError {
 /// How a bare specifier reaches a file: the import map's URL, then the URL's
 /// prefix to a directory. `overrides` answer first, for test-only builds.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Resolution {
   pub import_map: HashMap<String, String>,
   pub roots: Vec<(String, PathBuf)>,
   pub overrides: HashMap<String, PathBuf>,
+}
+
+impl Resolution {
+  pub fn new(import_map: HashMap<String, String>, roots: Vec<(String, PathBuf)>, overrides: HashMap<String, PathBuf>) -> Self {
+    Self { import_map, roots, overrides }
+  }
 }
 
 impl Resolution {
@@ -106,6 +114,7 @@ impl Loader for FileLoader {
   }
 }
 
+#[non_exhaustive]
 pub struct FetchResponse {
   pub status: u16,
   pub body: String,

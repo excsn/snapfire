@@ -33,12 +33,14 @@ pub const VUE_CLIENT: &str = "@snapfire/fsr-client/vue";
 
 /// The template tree as the plugin's `describeNode` writes it.
 #[derive(Debug, Deserialize)]
+#[non_exhaustive]
 pub struct Template {
   #[serde(default)]
   pub children: Vec<Node>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Node {
   pub node: String,
   #[serde(default)]
@@ -62,6 +64,7 @@ pub struct Node {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Prop {
   pub prop: String,
   pub name: String,

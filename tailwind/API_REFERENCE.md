@@ -45,7 +45,7 @@ A parsed configuration. Neither `Send` nor `Sync`: it holds `Rc` and `RefCell` c
 
 ### CompileOptions
 
-What `Compiler::new` reads besides the stylesheet. `Default` is every field below at its default.
+What `Compiler::new` reads besides the stylesheet. `Default` is every field below at its default. `#[non_exhaustive]`: build one with `Default` and the setters.
 
 * `pub base: String`: the directory the stylesheet's own imports resolve against. Default empty.
 * `pub load_stylesheet: Option<Box<LoadStylesheet<'a>>>`: resolves every `@import`. `None` resolves Tailwind's built-ins only.
@@ -54,11 +54,13 @@ What `Compiler::new` reads besides the stylesheet. `Default` is every field belo
 * `pub from: Option<String>`: the stylesheet's file name; a syntax error then starts with `file:line:column`, columns in UTF-16 code units. Default `None`.
 * `pub themes: Vec<NamedTheme>`: written after the root theme in this order. Default empty.
 * `pub root_selectors: Vec<String>`: more selectors the root theme's rule applies under, after `:root, :host`, such as `[data-theme="default"]`. Default empty.
+* `pub fn base(self, base: String) -> Self`, `pub fn load_stylesheet(self, load_stylesheet: Option<Box<LoadStylesheet<'a>>>) -> Self`, `pub fn polyfills(self, polyfills: PolyfillFlags) -> Self`, `pub fn banner(self, banner: bool) -> Self`, `pub fn from(self, from: Option<String>) -> Self`, `pub fn themes(self, themes: Vec<NamedTheme>) -> Self`, `pub fn root_selectors(self, root_selectors: Vec<String>) -> Self`: setters for the field of the same name.
 
 ### NamedTheme
 
-A stylesheet of `@theme` blocks applied under its own selector.
+A stylesheet of `@theme` blocks applied under its own selector. `#[non_exhaustive]`: build one with `new`.
 
+* `pub fn new(selector: String, css: String, from: Option<String>) -> Self`
 * `pub selector: String`: the rule's selector, such as `[data-theme="ocean"]`. Written as given.
 * `pub css: String`: read for its top-level `@theme` blocks; custom properties only, everything else ignored.
 * `pub from: Option<String>`: names the file in errors and warnings.
@@ -82,6 +84,9 @@ Called with the id an `@import` names, quotes removed, then the importing styles
 
 ### Loaded
 
+`#[non_exhaustive]`: build one with `new`.
+
+* `pub fn new(path: String, base: String, content: String) -> Self`
 * `pub path: String`: where the stylesheet was found, for messages.
 * `pub base: String`: the directory its own imports resolve against.
 * `pub content: String`
@@ -111,6 +116,9 @@ A configuration with `Features::NONE` builds to its input printed back, with no 
 
 ### Source
 
+`#[non_exhaustive]`: build one with `new`.
+
+* `pub fn new(base: String, pattern: String, negated: bool) -> Self`
 * `pub base: String`: the directory of the stylesheet that named it.
 * `pub pattern: String`: as written.
 * `pub negated: bool`: `@source not "..."`.
@@ -148,8 +156,11 @@ Tailwind's Lightning CSS pass, run twice: targets Safari 16.4, iOS Safari 16.4, 
 
 ### OptimizeOptions
 
+`#[non_exhaustive]`: build one with `Default` and the setters.
+
 * `pub minify: bool`
 * `pub file: Option<String>`: the file name messages name.
+* `pub fn minify(self, minify: bool) -> Self`, `pub fn file(self, file: Option<String>) -> Self`: setters for the field of the same name.
 
 ## 6. Error Handling
 

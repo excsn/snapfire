@@ -10,12 +10,19 @@ use crate::walk::{Action, walk};
 
 /// A stylesheet an `@import` resolved to.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Loaded {
   /// Where the stylesheet was found, for messages.
   pub path: String,
   /// The directory its own imports resolve against.
   pub base: String,
   pub content: String,
+}
+
+impl Loaded {
+  pub fn new(path: String, base: String, content: String) -> Self {
+    Self { path, base, content }
+  }
 }
 
 /// Resolves an `@import` id against the importing stylesheet's base.

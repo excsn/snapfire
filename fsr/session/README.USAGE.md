@@ -135,7 +135,7 @@ opened.cell.clear();
 ```rust
 use snapfire_fsr_runtime::Identity;
 
-opened.cell.set_identity(Some(Identity { subject: "norm".into(), claims: Default::default() }));
+opened.cell.set_identity(Some(Identity::new("norm".into(), Default::default())));
 assert_eq!(opened.cell.identity().unwrap().subject, "norm");
 ```
 
@@ -395,7 +395,7 @@ let config = SessionConfig {
 let sessions = Sessions::new(
   Arc::new(MemorySessionStore::new(4096)),
   key,
-  SessionConfig { ttl: Duration::from_secs(8 * 3600), ..SessionConfig::default() },
+  SessionConfig::default().ttl(Duration::from_secs(8 * 3600)),
 );
 ```
 
@@ -427,7 +427,7 @@ Capacity is accounted across all shards rather than divided by them, so raising 
 let store = MemorySessionStore::new(64);
 let ids: Vec<SessionId> = (0..64).map(|_| SessionId::generate()).collect();
 for id in &ids {
-  store.save(id, SessionRecord { expires: unix_now() + 60, ..Default::default() }).await;
+  store.save(id, SessionRecord::default().expires(unix_now() + 60)).await;
 }
 let mut resident = 0;
 for id in &ids {
@@ -539,7 +539,8 @@ Changing the key with no ring invalidates every cookie signed under it, as does 
 One map with a naming convention would be one `get` away from leaking. The split is structural instead: `RequestCtx` has a `session` field and no `tokens` field, so a loader, an action or an evaluator cannot reach a credential no matter what key it guesses. What crosses to application code is the identity, the data the application itself wrote and a `ServiceHandle` that calls without exposing what it calls with.
 
 ```rust
-let ctx = RequestCtx { session: opened.cell.clone(), ..Default::default() };
+let mut ctx = RequestCtx::default();
+ctx.session = opened.cell.clone();
 assert_eq!(ctx.session.get("access_token"), None);
 ```
 

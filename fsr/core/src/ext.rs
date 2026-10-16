@@ -10,6 +10,7 @@ use crate::Value;
 /// The failure shapes a UI has to render, so no application re-invents the
 /// mapping. Kinds correspond to HTTP statuses at the transport edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum FailureKind {
   Unauthorized,
   NotFound,
@@ -48,6 +49,7 @@ impl FailureKind {
 
 /// A failed call. Displays as `kind: message`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Fail {
   pub kind: FailureKind,
   pub message: String,
@@ -93,12 +95,30 @@ impl Reach {
 /// What a call runs under: the request's locale in the application's
 /// spelling, empty when nothing set one and the clock.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Ambient {
   pub locale: String,
   pub now: i128,
   /// The message catalogs the host loaded, which `i18n.t` reads; `None`
   /// when the application has none.
   pub catalogs: Option<Arc<Catalogs>>,
+}
+
+impl Ambient {
+  pub fn locale(mut self, locale: String) -> Self {
+    self.locale = locale;
+    self
+  }
+
+  pub fn now(mut self, now: i128) -> Self {
+    self.now = now;
+    self
+  }
+
+  pub fn catalogs(mut self, catalogs: Option<Arc<Catalogs>>) -> Self {
+    self.catalogs = catalogs;
+    self
+  }
 }
 
 impl Ambient {

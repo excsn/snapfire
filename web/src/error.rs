@@ -5,6 +5,7 @@ pub type Result<T, E = SnapFireError> = std::result::Result<T, E>;
 
 /// The primary error type for all `snapfire` operations.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum SnapFireError {
   /// An error originating from the `tera` templating engine, while loading,
   /// parsing or rendering a template.

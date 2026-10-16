@@ -126,6 +126,7 @@ impl<T: ContractType> ContractType for Result<T, ServiceError> {
 /// filled from the call rather than from the arguments and absent from the
 /// contract. The call's credentials stay in the transport.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Caller {
   pub service: String,
   pub method: String,

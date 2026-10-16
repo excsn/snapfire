@@ -44,9 +44,9 @@ impl AssetResolver for Fake {
       "src/img/hero.png" => {
         let widths = request.widths.clone().unwrap_or_else(|| vec![640, 960, 1280]);
         let srcset = |ext: &str| widths.iter().map(|w| format!("/static/js/app/src/img/hero.0a1b2c3d.{w}.{ext} {w}w")).chain(std::iter::once(format!("/static/js/app/src/img/hero.0a1b2c3d.1600.{ext} 1600w"))).collect::<Vec<_>>().join(", ");
-        Some(ImageFacts { src: HERO.to_owned(), width: 1600, height: 900, sources: vec![("image/avif".to_owned(), srcset("avif")), ("image/webp".to_owned(), srcset("webp"))] })
+        Some(ImageFacts::new(HERO.to_owned(), 1600, 900, vec![("image/avif".to_owned(), srcset("avif")), ("image/webp".to_owned(), srcset("webp"))]))
       }
-      "src/img/logo.svg" => Some(ImageFacts { src: "/static/js/app/src/img/logo.9f9f9f9f.svg".to_owned(), width: 120, height: 40, sources: Vec::new() }),
+      "src/img/logo.svg" => Some(ImageFacts::new("/static/js/app/src/img/logo.9f9f9f9f.svg".to_owned(), 120, 40, Vec::new())),
       _ => None,
     }
   }

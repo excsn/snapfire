@@ -28,6 +28,7 @@ pub trait Seeds: Send + Sync {
 /// it, so the store is a merge by position whatever order the segments
 /// arrive in: the browser holds one per segment and drops it with the segment.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Contribution {
   /// The segment's key, the one its sidecar entry and its region carry.
   pub segment: String,
@@ -122,10 +123,17 @@ pub type Compute = std::sync::Arc<dyn Fn(&RequestCtx, &Data) -> Option<snapfire_
 /// the build could not lower, the server never holds the key and treats it as
 /// pending, so every reader is held rather than painted from a fallback.
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct Derived {
   pub key: String,
   pub sources: Vec<String>,
   pub compute: Option<Compute>,
+}
+
+impl Derived {
+  pub fn new(key: String, sources: Vec<String>, compute: Option<Compute>) -> Self {
+    Self { key, sources, compute }
+  }
 }
 
 impl std::fmt::Debug for Derived {

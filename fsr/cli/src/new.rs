@@ -32,6 +32,7 @@ const CACHE: &str = "\n[cache]\ncapacity = 1000\nttl = \"1m\"\n";
 /// document is its shell's, so a site scaffold writes none.
 const CSP_REPORT_ONLY: &str = "\n# Reported, not enforced. Rename the table to [document.csp] to enforce it.\n[document.csp_report_only]\ndefault-src = [\"'self'\"]\nscript-src = [\"'self'\"]\nbase-uri = [\"'none'\"]\nobject-src = [\"'none'\"]\nframe-ancestors = [\"'self'\"]\n";
 
+#[non_exhaustive]
 pub struct NewOptions {
   /// Vendors what the directions pin and fetches editor types, both of which reach the network.
   pub fetch: bool,
@@ -43,7 +44,30 @@ pub struct NewOptions {
   pub site: Option<SiteScaffold>,
 }
 
+impl NewOptions {
+  pub fn fetch(mut self, fetch: bool) -> Self {
+    self.fetch = fetch;
+    self
+  }
+
+  pub fn with(mut self, with: Vec<String>) -> Self {
+    self.with = with;
+    self
+  }
+
+  pub fn shell(mut self, shell: bool) -> Self {
+    self.shell = shell;
+    self
+  }
+
+  pub fn site(mut self, site: Option<SiteScaffold>) -> Self {
+    self.site = site;
+    self
+  }
+}
+
 /// What `fsr new --site` writes beside the app and the shell it links into.
+#[non_exhaustive]
 pub struct SiteScaffold {
   /// The prefix the shell mounts the site under.
   pub at: String,
@@ -54,6 +78,23 @@ pub struct SiteScaffold {
   pub into: Option<PathBuf>,
 }
 
+impl SiteScaffold {
+  /// `SiteScaffold` with `at` and every other field at its default.
+  pub fn new(at: String) -> Self {
+    Self { at, name: Default::default(), into: Default::default() }
+  }
+
+  pub fn name(mut self, name: Option<String>) -> Self {
+    self.name = name;
+    self
+  }
+
+  pub fn into(mut self, into: Option<PathBuf>) -> Self {
+    self.into = into;
+    self
+  }
+}
+
 impl Default for NewOptions {
   fn default() -> Self {
     Self { fetch: true, with: Vec::new(), shell: false, site: None }
@@ -61,6 +102,7 @@ impl Default for NewOptions {
 }
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Created {
   pub written: Vec<PathBuf>,
   pub vendored: Vec<(String, String, usize)>,

@@ -38,7 +38,7 @@ fn a_report_is_read_back_and_the_version_recorded_where_the_configuration_names_
   let config = dir.join("app.toml");
   std::fs::write(&config, "[server]\nlisten = \"127.0.0.1:8080\"\n").unwrap();
   let checker = fake_checker(&dir, r#"{"tsc":"/c/tsc","version":"7.0.2","source":"cache","sha512":null,"pinned":true,"diagnostics":[{"file":"routes/page.tsx","line":1,"column":15,"code":"TS2305","severity":"error","message":"no such member"}]}"#);
-  let options = Typecheck { enabled: true, checker: Some(checker), record: Some(config.clone()), ..Typecheck::default() };
+  let options = Typecheck::default().enabled(true).checker(Some(checker)).record(Some(config.clone()));
 
   let checked = typecheck::run(&app, &options).unwrap().expect("the checker ran");
   assert_eq!(checked.errors(), 1);
@@ -56,16 +56,16 @@ fn a_report_is_read_back_and_the_version_recorded_where_the_configuration_names_
 fn nothing_runs_when_typechecking_is_off_or_no_checker_is_installed() {
   let dir = root("off");
   let app = app_with_tsconfig(&dir);
-  let off = Typecheck { enabled: false, ..Typecheck::default() };
+  let off = Typecheck::default().enabled(false);
   assert!(typecheck::run(&app, &off).unwrap().is_none());
 
-  let missing = Typecheck { enabled: true, checker: Some(dir.join("nothing-here")), ..Typecheck::default() };
+  let missing = Typecheck::default().enabled(true).checker(Some(dir.join("nothing-here")));
   assert!(typecheck::run(&app, &missing).unwrap().is_none());
 
   let bare = dir.join("bare");
   std::fs::create_dir_all(&bare).unwrap();
   let checker = fake_checker(&dir, "{}");
-  let no_tsconfig = Typecheck { enabled: true, checker: Some(checker), ..Typecheck::default() };
+  let no_tsconfig = Typecheck::default().enabled(true).checker(Some(checker));
   assert!(typecheck::run(&bare, &no_tsconfig).unwrap().is_none());
 }
 
@@ -90,7 +90,7 @@ fn check_typechecks_the_generated_files_of_the_build_it_holds() {
   let checker = dir.join("snapfiretc");
   std::fs::write(&checker, "#!/bin/sh\ncp \"$2/generated/client.ts\" \"$2/seen.ts\"\necho '{\"tsc\":\"/c/tsc\",\"version\":\"7.0.2\",\"source\":\"cache\",\"sha512\":null,\"pinned\":true,\"diagnostics\":[]}'\n").unwrap();
   std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755)).unwrap();
-  let options = Typecheck { enabled: true, checker: Some(checker), ..Typecheck::default() };
+  let options = Typecheck::default().enabled(true).checker(Some(checker));
   let (built, checked) = check(&app, &Options::default(), &options, |_| {}).unwrap();
   assert!(built.files.iter().any(|(name, text)| name == "generated/client.ts" && text.contains("total")));
   assert_eq!(checked.expect("the checker ran").errors(), 0);

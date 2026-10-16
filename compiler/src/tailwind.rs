@@ -9,6 +9,7 @@ use snapfire_tailwind::{CompileOptions, Compiler, Error, Loaded, NamedTheme, Roo
 
 /// What expanding one stylesheet produced. `reads` holds every file it read besides itself,
 /// whether or not it succeeded, so a change to any of them compiles it again.
+#[non_exhaustive]
 pub struct Expanded {
   pub css: Result<String, String>,
   pub reads: Vec<PathBuf>,
@@ -59,7 +60,7 @@ pub fn named_themes(dir: &Path, attribute: &str) -> Vec<(PathBuf, NamedTheme)> {
       let name = file.file_stem()?.to_string_lossy().into_owned();
       let css = std::fs::read_to_string(&file).ok()?;
       let from = Some(file.to_string_lossy().into_owned());
-      Some((file, NamedTheme { selector: format!("[{attribute}=\"{name}\"]"), css, from }))
+      Some((file, NamedTheme::new(format!("[{attribute}=\"{name}\"]"), css, from)))
     })
     .collect()
 }
@@ -100,10 +101,10 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
     let file = crate::graph::normalise(&Path::new(base).join(id));
     reads.borrow_mut().push(file.clone());
     let content = std::fs::read_to_string(&file).map_err(|e| Error::Message(format!("Could not read `{id}` from {base}: {e}")))?;
-    Ok(Loaded { path: file.to_string_lossy().into_owned(), base: file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content })
+    Ok(Loaded::new(file.to_string_lossy().into_owned(), file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content))
   };
 
-  let options = CompileOptions { base: dir, load_stylesheet: Some(Box::new(load)), from: Some(source_name.to_owned()), themes: named, root_selectors, ..CompileOptions::default() };
+  let options = CompileOptions::default().base(dir).load_stylesheet(Some(Box::new(load))).from(Some(source_name.to_owned())).themes(named).root_selectors(root_selectors);
   let compiled = Compiler::new(content, options).and_then(|compiler| unread_sources(&compiler).map_or(Ok(compiler), Err)).map(|mut compiler| {
     let css = compiler.build(listed.iter().chain(quiet).map(|(class, _)| class.as_str()));
     let invalid = compiler.invalid_candidates();
@@ -482,6 +483,7 @@ pub const PACKAGE_CLASSES: &str = "tailwind.classes";
 
 /// A vendor tree: the directory the vendored modules sit in and the URL prefix the import map
 /// names them under.
+#[non_exhaustive]
 pub struct Vendor<'a> {
   pub dir: &'a Path,
   pub base: &'a str,

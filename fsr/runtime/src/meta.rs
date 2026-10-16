@@ -7,10 +7,17 @@ use crate::data::LoadError;
 /// One element a segment puts in the head: its tag, its attributes in the
 /// order written and, for a tag that takes content, its text.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct HeadEl {
   pub tag: String,
   pub attrs: Vec<(String, String)>,
   pub children: Option<String>,
+}
+
+impl HeadEl {
+  pub fn new(tag: String, attrs: Vec<(String, String)>, children: Option<String>) -> Self {
+    Self { tag, attrs, children }
+  }
 }
 
 /// When a head script loads, as a row's `when` names it.
@@ -140,12 +147,35 @@ pub const PATH_MARK: &str = "{fsr:path}";
 /// title, its description and the head elements it contributes. Absent fields
 /// leave the host's defaults in place.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Meta {
   pub title: Option<String>,
   /// `title` is written as given rather than through the head's template.
   pub absolute: bool,
   pub description: Option<String>,
   pub head: Vec<HeadEl>,
+}
+
+impl Meta {
+  pub fn title(mut self, title: Option<String>) -> Self {
+    self.title = title;
+    self
+  }
+
+  pub fn absolute(mut self, absolute: bool) -> Self {
+    self.absolute = absolute;
+    self
+  }
+
+  pub fn description(mut self, description: Option<String>) -> Self {
+    self.description = description;
+    self
+  }
+
+  pub fn head(mut self, head: Vec<HeadEl>) -> Self {
+    self.head = head;
+    self
+  }
 }
 
 impl Meta {
@@ -202,6 +232,7 @@ pub trait Metadata: Send + Sync {
 /// assembler writes the title and description after `rest`, taking a
 /// segment's `Meta` over the defaults.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Head {
   pub title: String,
   /// How a segment's title is written into the document: `{page}` is the
@@ -239,10 +270,28 @@ pub struct Head {
 /// no name is the root theme and no scheme leaves the attribute off. `forced` is
 /// `<html data-sf-theme-forced>`: the route forces its theme and the document kept it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct DocumentTheme {
   pub name: Option<String>,
   pub scheme: Option<String>,
   pub forced: bool,
+}
+
+impl DocumentTheme {
+  pub fn name(mut self, name: Option<String>) -> Self {
+    self.name = name;
+    self
+  }
+
+  pub fn scheme(mut self, scheme: Option<String>) -> Self {
+    self.scheme = scheme;
+    self
+  }
+
+  pub fn forced(mut self, forced: bool) -> Self {
+    self.forced = forced;
+    self
+  }
 }
 
 /// How a response's own stylesheets are written into a document and the mark

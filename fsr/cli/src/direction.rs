@@ -15,6 +15,7 @@ pub const REACT: &str = "19.3.1";
 pub const VUE: &str = "3.5.13";
 pub const HTMX: &str = "4.0.0";
 
+#[non_exhaustive]
 pub struct Direction {
   pub name: &'static str,
   /// Specifier and the file under the client route the import map names;
@@ -110,11 +111,24 @@ pub(crate) fn for_adapter(module: &str) -> Option<&'static Direction> {
   DIRECTIONS.iter().find(|d| d.adapter.is_some_and(|a| a.module == module))
 }
 
+#[non_exhaustive]
 pub struct UseOptions {
   /// Vendors and fetches declarations, both of which reach the network.
   pub fetch: bool,
   /// Writes one example per direction, refusing a file that is already there.
   pub example: bool,
+}
+
+impl UseOptions {
+  pub fn fetch(mut self, fetch: bool) -> Self {
+    self.fetch = fetch;
+    self
+  }
+
+  pub fn example(mut self, example: bool) -> Self {
+    self.example = example;
+    self
+  }
 }
 
 impl Default for UseOptions {
@@ -124,6 +138,7 @@ impl Default for UseOptions {
 }
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Adopted {
   /// Specifier and the URL written into the import map.
   pub mapped: Vec<(String, String)>,

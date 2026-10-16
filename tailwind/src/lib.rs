@@ -43,6 +43,7 @@ use crate::utils::segment::segment;
 use crate::walk::{Action, walk};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
   #[error("{0}")]
   Syntax(String),
@@ -52,10 +53,17 @@ pub enum Error {
 
 /// A `@source` path, relative to the stylesheet that named it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Source {
   pub base: String,
   pub pattern: String,
   pub negated: bool,
+}
+
+impl Source {
+  pub fn new(base: String, pattern: String, negated: bool) -> Self {
+    Self { base, pattern, negated }
+  }
 }
 
 /// Where `@tailwind utilities source(…)` points scanning.
@@ -65,6 +73,7 @@ pub enum Root {
   Path { base: String, pattern: String },
 }
 
+#[non_exhaustive]
 pub struct CompileOptions<'a> {
   /// The directory the stylesheet's own imports resolve against.
   pub base: String,
@@ -85,15 +94,59 @@ pub struct CompileOptions<'a> {
   pub root_selectors: Vec<String>,
 }
 
+impl<'a> CompileOptions<'a> {
+  pub fn base(mut self, base: String) -> Self {
+    self.base = base;
+    self
+  }
+
+  pub fn load_stylesheet(mut self, load_stylesheet: Option<Box<LoadStylesheet<'a>>>) -> Self {
+    self.load_stylesheet = load_stylesheet;
+    self
+  }
+
+  pub fn polyfills(mut self, polyfills: Polyfills) -> Self {
+    self.polyfills = polyfills;
+    self
+  }
+
+  pub fn banner(mut self, banner: bool) -> Self {
+    self.banner = banner;
+    self
+  }
+
+  pub fn from(mut self, from: Option<String>) -> Self {
+    self.from = from;
+    self
+  }
+
+  pub fn themes(mut self, themes: Vec<NamedTheme>) -> Self {
+    self.themes = themes;
+    self
+  }
+
+  pub fn root_selectors(mut self, root_selectors: Vec<String>) -> Self {
+    self.root_selectors = root_selectors;
+    self
+  }
+}
+
 /// A stylesheet of `@theme` blocks whose variables apply under `selector`, such as
 /// `[data-theme="blog"]`. Every variable is written, used or not, since the document's other
 /// stylesheets read them too. A variable the root theme lacks still gets its utilities.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct NamedTheme {
   pub selector: String,
   pub css: String,
   /// The file it came from, for errors and warnings.
   pub from: Option<String>,
+}
+
+impl NamedTheme {
+  pub fn new(selector: String, css: String, from: Option<String>) -> Self {
+    Self { selector, css, from }
+  }
 }
 
 impl Default for CompileOptions<'_> {

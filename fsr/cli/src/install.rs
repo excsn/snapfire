@@ -13,6 +13,7 @@ use std::process::{Command, Stdio};
 
 use crate::BuildError;
 
+#[non_exhaustive]
 pub struct Tool {
   pub binary: &'static str,
   pub package: &'static str,
@@ -41,6 +42,7 @@ pub const COMPILER: Tool =
 pub const CHECKER: Tool =
   Tool { binary: "snapfiretc", package: "snapfire_typecheck", needed_for: "checking the application's types", required: false, registry: None };
 
+#[non_exhaustive]
 pub enum Ready {
   /// The tool is there, either already or because it was just installed.
   Yes,

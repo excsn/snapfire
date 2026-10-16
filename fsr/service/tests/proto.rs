@@ -3,7 +3,7 @@
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_service::grpc::{decode_response, encode_request};
 use snapfire_fsr_service::typescript::declarations;
-use snapfire_fsr_service::{import_proto_source, Freshness, ImportError, Scope, Type, TypeDef};
+use snapfire_fsr_service::{import_proto_source, Freshness, ImportError, Type, TypeDef};
 
 const INVENTORY: &str = r#"
 syntax = "proto3";
@@ -150,7 +150,7 @@ fn a_method_option_from_the_shipped_file_is_the_cache_policy() {
   let imported = import_proto_source("inventory.proto", ANNOTATED, "inventory").unwrap();
   let contract = &imported.contract;
   let get = contract.method("inventory", "getStock").unwrap();
-  assert_eq!(get.cache, Some(Freshness { ttl: "30s".to_owned(), tags: vec!["catalog".to_owned(), "stock".to_owned()], scope: Scope::Shared, stale: Some("2m".to_owned()) }));
+  assert_eq!(get.cache, Some(Freshness::ttl("30s").tags(["catalog", "stock"]).shared().stale("2m")));
   assert!(get.writes.is_empty());
   let peek = contract.method("inventory", "peek").unwrap();
   assert_eq!(peek.cache, Some(Freshness::ttl("5s")), "scope is private and stale absent unless said, as on an operation");

@@ -89,7 +89,7 @@ pub fn decode_record(text: &str, expires_when_missing: u64) -> Option<SessionRec
     Some(Value::UInt(at)) => u64::try_from(at).unwrap_or(u64::MAX),
     _ => expires_when_missing,
   };
-  Some(SessionRecord { data, identity, tokens, csrf, expires })
+  Some(SessionRecord::default().data(data).identity(identity).tokens(tokens).csrf(csrf).expires(expires))
 }
 
 fn identity_map(identity: &Identity) -> ValueMap {
@@ -108,7 +108,7 @@ fn identity_of(map: &ValueMap) -> Option<Identity> {
     Some(Value::Map(claims)) => claims.clone(),
     _ => ValueMap::default(),
   };
-  Some(Identity { subject, claims })
+  Some(Identity::new(subject, claims))
 }
 
 impl SessionStore for ServiceSessionStore {
@@ -184,10 +184,7 @@ impl IdentityProvider for ServiceProvider {
   fn begin(&self, return_to: &str) -> BoxFuture<'_, Begin> {
     let encoded: String = form_urlencoded::byte_serialize(return_to.as_bytes()).collect();
     let redirect = format!("{}?return_to={}", self.login_path, encoded);
-    Box::pin(ready(Begin {
-      redirect,
-      state: ValueMap::default(),
-    }))
+    Box::pin(ready(Begin::new(redirect, ValueMap::default())))
   }
 
   fn callback(&self, params: ValueMap, _state: ValueMap) -> BoxFuture<'_, Result<AuthOutcome, AuthError>> {
@@ -223,7 +220,7 @@ impl IdentityProvider for ServiceProvider {
       if let Some(Value::Str(token)) = answer.get("access_token") {
         tokens.insert("access_token".to_owned(), Value::Str(token.clone()));
       }
-      Ok(AuthOutcome { identity, tokens })
+      Ok(AuthOutcome::new(identity, tokens))
     })
   }
 }

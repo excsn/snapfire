@@ -52,7 +52,7 @@ fn deployed() -> &'static Deployed {
     let archive = scratch.join("billing-1.0.0.tar.gz");
     pack(&root.join("sites/billing"), "1.0.0", &archive).unwrap();
     let _ = std::fs::remove_dir_all(cache.path("billing", "1.0.0"));
-    cache.install(&ArchiveStore { archive }, "billing", "billing", "1.0.0", None).unwrap();
+    cache.install(&ArchiveStore::new(archive), "billing", "billing", "1.0.0", None).unwrap();
 
     pack(&root.join("sites/status"), "1.0.0", &scratch.join("store/status-1.0.0.tar.gz")).unwrap();
     let _ = std::fs::remove_dir_all(cache.path("status", "1.0.0"));

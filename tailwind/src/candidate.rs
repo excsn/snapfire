@@ -10,6 +10,7 @@ use crate::value_parser::{self, ValueNode};
 use crate::variants::VariantKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum UtilityValue {
   /// `bg-[#0088cc]`, `bg-[color:var(--x)]`, `bg-(--x)`
   Arbitrary { data_type: Option<String>, value: String },
@@ -18,6 +19,7 @@ pub enum UtilityValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum Modifier {
   Arbitrary(String),
   Named(String),
@@ -32,6 +34,7 @@ impl Modifier {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum VariantValue {
   Arbitrary(String),
   Named(String),
@@ -83,6 +86,7 @@ impl Variant {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum CandidateKind {
   /// `[color:red]`
   Arbitrary {
@@ -101,6 +105,7 @@ pub enum CandidateKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Candidate {
   pub kind: CandidateKind,
   pub variants: Vec<Rc<Variant>>,

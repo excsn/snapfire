@@ -15,6 +15,7 @@ use crate::BuildError;
 pub const CHECKER: &str = "snapfiretc";
 
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Typecheck {
   pub enabled: bool,
   /// The checker; `$SNAPFIRETC`, beside this binary, then `PATH` when absent.
@@ -27,6 +28,38 @@ pub struct Typecheck {
   pub expect: Option<String>,
   /// The configuration file a resolved version is recorded in, when the project has one.
   pub record: Option<PathBuf>,
+}
+
+impl Typecheck {
+  pub fn enabled(mut self, enabled: bool) -> Self {
+    self.enabled = enabled;
+    self
+  }
+
+  pub fn checker(mut self, checker: Option<PathBuf>) -> Self {
+    self.checker = checker;
+    self
+  }
+
+  pub fn tsc(mut self, tsc: Option<PathBuf>) -> Self {
+    self.tsc = tsc;
+    self
+  }
+
+  pub fn version(mut self, version: Option<String>) -> Self {
+    self.version = version;
+    self
+  }
+
+  pub fn expect(mut self, expect: Option<String>) -> Self {
+    self.expect = expect;
+    self
+  }
+
+  pub fn record(mut self, record: Option<PathBuf>) -> Self {
+    self.record = record;
+    self
+  }
 }
 
 impl Typecheck {
@@ -49,6 +82,7 @@ impl Typecheck {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Diagnostic {
   #[serde(default)]
   pub file: Option<String>,
@@ -79,6 +113,7 @@ impl Diagnostic {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[non_exhaustive]
 pub struct Checked {
   pub version: String,
   pub source: String,

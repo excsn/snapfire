@@ -94,7 +94,7 @@ impl DataSource for IrSource {
       let outcome = interpreter
         .run(&body, &ctx, None)
         .await
-        .map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
+        .map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
       match outcome.value {
         Value::Map(data) => Ok(data),
         other => Err(LoadError::new(id, format!("a loader must return an object, got {}", kind_name(&other)))),
@@ -132,26 +132,26 @@ impl Metadata for IrMeta {
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
       let Value::Map(map) = outcome.value else {
         return Err(LoadError::new(id, format!("meta must return an object, got {}", kind_name(&outcome.value))));
       };
       let text = |key: &str| match map.get(key) {
         Some(Value::Str(s)) => Ok(Some(s.to_string())),
         None | Some(Value::Null) => Ok(None),
-        Some(other) => Err(LoadError { source_id: id.clone(), message: format!("meta.{key} must be a string, got {}", kind_name(other)), kind: FailureKind::Internal }),
+        Some(other) => Err(LoadError::new(id.clone(), format!("meta.{key} must be a string, got {}", kind_name(other))).with_kind(FailureKind::Internal)),
       };
       let head = match map.get("head") {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Seq(items)) => items.iter().map(|item| head_element(&id, item)).collect::<Result<Vec<_>, _>>()?,
-        Some(other) => return Err(LoadError { source_id: id, message: format!("meta.head must be a list, got {}", kind_name(other)), kind: FailureKind::Internal }),
+        Some(other) => return Err(LoadError::new(id, format!("meta.head must be a list, got {}", kind_name(other))).with_kind(FailureKind::Internal)),
       };
       let absolute = match map.get("absolute") {
         Some(Value::Bool(absolute)) => *absolute,
         None | Some(Value::Null) => false,
-        Some(other) => return Err(LoadError { source_id: id, message: format!("meta.absolute must be a boolean, got {}", kind_name(other)), kind: FailureKind::Internal }),
+        Some(other) => return Err(LoadError::new(id, format!("meta.absolute must be a boolean, got {}", kind_name(other))).with_kind(FailureKind::Internal)),
       };
-      Ok(Meta { title: text("title")?, absolute, description: text("description")?, head })
+      Ok(Meta::default().title(text("title")?).absolute(absolute).description(text("description")?).head(head))
     })
   }
 }
@@ -197,7 +197,7 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
   if tag.as_ref() == "script" {
     return HeadEl::script(attrs, children).map_err(fail);
   }
-  Ok(HeadEl { tag: tag.to_string(), attrs, children })
+  Ok(HeadEl::new(tag.to_string(), attrs, children))
 }
 
 /// A lowered `store` seeding the browser's store from its loader's data,
@@ -269,10 +269,10 @@ impl IrStore {
     let ctx = ctx.clone();
     let input = Value::Map(data.clone());
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
+      let outcome = interpreter.run(&body, &ctx, Some(input)).await.map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
       match outcome.value {
         Value::Map(map) => Ok(map),
-        other => Err(LoadError { source_id: id, message: format!("{export} must return an object, got {}", kind_name(&other)), kind: FailureKind::Internal }),
+        other => Err(LoadError::new(id, format!("{export} must return an object, got {}", kind_name(&other))).with_kind(FailureKind::Internal)),
       }
     })
   }
@@ -343,7 +343,7 @@ impl Paths for IrPaths {
     let interpreter = self.interpreter.clone();
     let ctx = ctx.clone();
     Box::pin(async move {
-      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError { source_id: id.clone(), message: fail.message, kind: fail.kind })?;
+      let outcome = interpreter.run(&body, &ctx, None).await.map_err(|fail| LoadError::new(id.clone(), fail.message).with_kind(fail.kind))?;
       let Value::Seq(items) = outcome.value else {
         return Err(LoadError::new(id, format!("paths must return a list, got {}", kind_name(&outcome.value))));
       };
@@ -449,7 +449,7 @@ impl Evaluator for IrEvaluator {
     let props = props.clone();
     Box::pin(stream::once(async move {
       let id = module.to_string();
-      let component = components.get(&id).cloned().ok_or_else(|| EvalError { module: id.clone(), message: "not a lowered component".to_owned() })?;
+      let component = components.get(&id).cloned().ok_or_else(|| EvalError::new(id.clone(), "not a lowered component".to_owned()))?;
       // A root a framework hydrates that reads a key a deferred segment has
       // yet to seed is held: its slot regions only, mounted once the seed lands.
       let awaits: Vec<Value> = match (props.get(PENDING_PROP), component.owner.hydrates()) {
@@ -465,7 +465,7 @@ impl Evaluator for IrEvaluator {
         props.insert(AWAITS_PROP.to_owned(), Value::seq(awaits));
         return Ok(Chunk::Node(Node::Client { module, props, children, ssr: None }));
       }
-      let rendered = interpreter.render_module(&id, &component, &props, &components).map_err(|fail| EvalError { module: id, message: fail.message })?;
+      let rendered = interpreter.render_module(&id, &component, &props, &components).map_err(|fail| EvalError::new(id, fail.message))?;
       // A root a framework hydrates is told what it was rendered from, as a
       // placed island is through `mount_props`.
       let from_store = match (&props.get("$store"), component.owner.hydrates()) {

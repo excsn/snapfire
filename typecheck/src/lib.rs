@@ -20,6 +20,7 @@ pub use diagnose::{check, parse};
 
 /// What to run and where it may come from.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Options {
   /// The version every step below resolves against.
   pub version: String,
@@ -33,6 +34,38 @@ pub struct Options {
   pub expect: Option<String>,
   /// Refuse to fetch, so a machine with no network fails rather than hangs.
   pub offline: bool,
+}
+
+impl Options {
+  pub fn version(mut self, version: String) -> Self {
+    self.version = version;
+    self
+  }
+
+  pub fn tsc(mut self, tsc: Option<PathBuf>) -> Self {
+    self.tsc = tsc;
+    self
+  }
+
+  pub fn cache(mut self, cache: Option<PathBuf>) -> Self {
+    self.cache = cache;
+    self
+  }
+
+  pub fn registry(mut self, registry: String) -> Self {
+    self.registry = registry;
+    self
+  }
+
+  pub fn expect(mut self, expect: Option<String>) -> Self {
+    self.expect = expect;
+    self
+  }
+
+  pub fn offline(mut self, offline: bool) -> Self {
+    self.offline = offline;
+    self
+  }
 }
 
 impl Default for Options {
@@ -65,6 +98,7 @@ impl fmt::Display for Source {
 
 /// The compiler a resolution settled on.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Resolved {
   pub tsc: PathBuf,
   pub version: String,
@@ -76,6 +110,7 @@ pub struct Resolved {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Severity {
   Error,
   Warning,
@@ -92,6 +127,7 @@ impl fmt::Display for Severity {
 
 /// One diagnostic, carrying TypeScript's own code.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Diagnostic {
   /// Relative to the root the check ran in; absent when the diagnostic is about the project rather than a file.
   #[serde(skip_serializing_if = "Option::is_none")]
@@ -123,6 +159,7 @@ impl fmt::Display for Diagnostic {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
   #[error("{0}: {1}")]
   Io(PathBuf, std::io::Error),

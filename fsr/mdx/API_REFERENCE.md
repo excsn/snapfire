@@ -65,8 +65,9 @@ Parses `source` with markdown-rs in the format `options.format` names and writes
 
 ### Mapped
 
-`#[derive(Debug, Clone, PartialEq, Eq)]`
+`#[derive(Debug, Clone, PartialEq, Eq)]`, `#[non_exhaustive]`: build one with `new`.
 
+* `pub fn new(key: String, specifier: String, export: String) -> Self`
 * `pub key: String`: a tag in `ELEMENTS` or `WRAPPER`.
 * `pub specifier: String`: imported as written.
 * `pub export: String`

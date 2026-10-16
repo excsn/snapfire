@@ -42,6 +42,7 @@ use snapfire_fsr_service::typescript::Flavour;
 use snapfire_fsr_service::{typescript, Contract, ContractError, ImportError};
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum BuildError {
   #[error("`{module}` does not lower ({at}: {reason}) and the application has no JSX framework to run it in the browser; make it lower or write it as a Vue or Svelte component or a custom element")]
   NoJsxFramework { module: String, at: String, reason: String },
@@ -195,6 +196,7 @@ pub enum BuildError {
 /// de-lowered with the chain of placements reaching it. One cause per
 /// location, however many pages import their way to it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Cause {
   /// `file:line:column`; the file alone when the module did not parse.
   pub at: String,
@@ -207,6 +209,7 @@ pub struct Cause {
 
 /// What `build` found and emitted, in the order the report prints it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Report {
   pub routes: Vec<(String, String)>,
   pub sources: Vec<(String, String)>,
@@ -430,6 +433,7 @@ pub const RUST_CONTRACT: &str = "rust.json";
 /// Where the build writes the plan file.
 pub const PLAN_FILE: &str = "generated/plan.sexp";
 
+#[non_exhaustive]
 pub struct Options {
   /// The application as a site: every id the build emits prefixed
   /// `<name>:` and every pattern under `at`. Read from `[site]` beside the app.
@@ -442,12 +446,47 @@ pub struct Options {
   pub strict: bool,
 }
 
+impl Options {
+  pub fn site(mut self, site: Option<SiteOptions>) -> Self {
+    self.site = site;
+    self
+  }
+
+  pub fn shell(mut self, shell: String) -> Self {
+    self.shell = shell;
+    self
+  }
+
+  pub fn slot(mut self, slot: String) -> Self {
+    self.slot = slot;
+    self
+  }
+
+  pub fn strict(mut self, strict: bool) -> Self {
+    self.strict = strict;
+    self
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SiteOptions {
   pub name: String,
   pub at: String,
   /// The shell's `generated/shell.json` the site is built against, resolved.
   pub shell: Option<PathBuf>,
+}
+
+impl SiteOptions {
+  /// `SiteOptions` with `name` and `at` and every other field at its default.
+  pub fn new(name: String, at: String) -> Self {
+    Self { name, at, shell: Default::default() }
+  }
+
+  pub fn shell(mut self, shell: Option<PathBuf>) -> Self {
+    self.shell = shell;
+    self
+  }
 }
 
 impl SiteOptions {
@@ -523,6 +562,7 @@ pub fn site_beside(app: &Path) -> Option<SiteOptions> {
 /// types as the browser sees them, the import map it serves, the exact
 /// version of each framework it vendors and the fsr version that wrote it.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 pub struct ShellContract {
   pub version: u32,
   #[serde(default)]
@@ -587,6 +627,7 @@ impl Default for Options {
 
 /// Everything a build produces. `files` are paths relative to the app
 /// directory with their contents; `write` puts them on disk.
+#[non_exhaustive]
 pub struct Built {
   pub manifest: Manifest,
   pub contract: Contract,

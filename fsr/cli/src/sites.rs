@@ -11,6 +11,7 @@ use crate::BuildError;
 
 /// One row of a shell's table as `list` reports it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Row {
   pub name: String,
   pub artifact: String,
@@ -25,6 +26,7 @@ pub struct Row {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Linked {
   pub name: String,
   pub at: String,
@@ -40,6 +42,7 @@ pub struct Linked {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Unlinked {
   pub name: String,
   pub shell_config: PathBuf,
@@ -50,6 +53,7 @@ pub struct Unlinked {
 /// Every `[sites.<name>]` row of the shell at `shell`, resolved.
 /// What pinning one mount did.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Pinned {
   pub name: String,
   pub hash: String,
@@ -349,6 +353,7 @@ fn confirm(root: &Path, name: &str) -> Result<(), BuildError> {
 
 /// What `hash` reports: the artifact hash and the files it covers.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Hashed {
   pub name: String,
   pub at: String,
@@ -381,6 +386,7 @@ pub fn hash(site: &Path) -> Result<Hashed, BuildError> {
 
 /// What `pack` wrote.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Packed {
   pub manifest: snapfire_fsr_sites::Manifest,
   pub out: PathBuf,
@@ -410,6 +416,7 @@ pub fn pack(site: &Path, version: &str, out: Option<&Path>) -> Result<Packed, Bu
 /// otherwise. Verifies before anything is renamed into place, so a shell
 /// running the previous version keeps running it when the archive is wrong.
 /// What an install did and the pin it wrote.
+#[non_exhaustive]
 pub struct Installation {
   pub installed: snapfire_fsr_sites::Installed,
   /// The mount that now names this version, when the table has one. An
@@ -430,7 +437,7 @@ pub fn install(shell: &Path, archive: &Path, name: Option<&str>, keep: Option<us
     .ok_or_else(|| BuildError::Sites(format!("{} has no [sites] root, so it has no cache to install into", shell.display())))?;
   let manifest = snapfire_fsr_sites::Manifest::read_archive(archive).map_err(|e| BuildError::Sites(e.to_string()))?;
   let name = name.unwrap_or(&manifest.name).to_owned();
-  let store = snapfire_fsr_sites::ArchiveStore { archive: archive.to_path_buf() };
+  let store = snapfire_fsr_sites::ArchiveStore::new(archive.to_path_buf());
   let cache = snapfire_fsr_sites::Cache::new(config.root.join(root));
   let installed = cache
     .install(&store, &name, &manifest.name, &manifest.version, keep)
@@ -467,7 +474,7 @@ pub fn pin(shell: &Path, only: Option<&str>, layer: Option<&str>) -> Result<Vec<
   // reads it, so a pin already held by another layer is not taken as this one's.
   let config = match layer {
     Some(layer) => Loader::at(shell)
-      .deployment(Deployment { release_env: layer.to_owned(), app_env: layer.to_owned(), region: None })
+      .deployment(Deployment::default().release_env(layer.to_owned()).app_env(layer.to_owned()).region(None))
       .config()
       .map_err(|e| refuse(e.to_string()))?,
     None => load(shell)?,
@@ -585,6 +592,7 @@ pub fn cached(shell: &Path) -> Result<Vec<(String, Vec<String>)>, BuildError> {
 /// One site as an instance reports it, which is what it is serving rather than
 /// what a table asked for.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[non_exhaustive]
 pub struct Mounted {
   pub name: String,
   pub at: String,
@@ -594,6 +602,7 @@ pub struct Mounted {
 
 /// What one instance answered.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Instance {
   /// The host as it was given, so a report names what the caller named.
   pub host: String,
@@ -602,6 +611,7 @@ pub struct Instance {
 
 /// A site the table names, against every instance asked about it.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Compared {
   pub row: Row,
   /// Host, what it serves and whether that is what the table says.
@@ -620,6 +630,7 @@ impl Compared {
 
 /// What one instance did when asked to reload.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Reloaded {
   pub host: String,
   /// The sites it serves now, when it reloaded.

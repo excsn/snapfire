@@ -10,6 +10,7 @@ use crate::ctx::RequestCtx;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("data source {source_id}: {message}")]
+#[non_exhaustive]
 pub struct LoadError {
   pub source_id: String,
   pub message: String,

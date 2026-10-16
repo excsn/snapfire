@@ -16,7 +16,7 @@ fn project(tag: &str, toml: &str) -> PathBuf {
   let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
   let root = std::env::temp_dir().join(format!("fsr-cli-strict-{}-{n}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
   std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
@@ -40,7 +40,7 @@ fn a_component_that_renders_in_the_browser_alone_builds_unless_the_build_is_stri
   let built = build(&app, &options).unwrap();
   assert!(built.report.components.iter().any(|(module, kind, _)| module == "src/Clock.tsx#Clock" && kind == "client"), "{}", built.report);
 
-  let err = match build(&app, &Options { strict: true, ..options }) {
+  let err = match build(&app, &options.strict(true)) {
     Err(BuildError::Strict(refused)) => refused,
     other => panic!("not refused: {:?}", other.map(|built| built.report.to_string())),
   };

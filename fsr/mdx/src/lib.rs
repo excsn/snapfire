@@ -46,6 +46,7 @@ pub enum Target {
 
 /// The attribute a class is written as, which is the application's JSX source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ClassAttr {
   ClassName,
   Class,
@@ -64,13 +65,21 @@ impl ClassAttr {
 /// markdown construct writes (`h1`, `a`, `pre`) or `wrapper`, and the
 /// component is `export` of `specifier`, relative to the file.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Mapped {
   pub key: String,
   pub specifier: String,
   pub export: String,
 }
 
+impl Mapped {
+  pub fn new(key: String, specifier: String, export: String) -> Self {
+    Self { key, specifier, export }
+  }
+}
+
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Options {
   pub format: Format,
   pub target: Target,
@@ -100,6 +109,7 @@ impl Options {
 /// source text copied as it stands, so each of its bytes maps to the byte at
 /// the same distance from `original`; any other run maps whole to `original`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Segment {
   pub generated: usize,
   pub len: usize,
@@ -109,6 +119,7 @@ pub struct Segment {
 
 /// One heading, for the `toc` export.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TocEntry {
   pub depth: u8,
   pub id: String,
@@ -117,6 +128,7 @@ pub struct TocEntry {
 
 /// Something the conversion left out, with the one-based line and column it sits at.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Warning {
   pub line: usize,
   pub column: usize,
@@ -124,6 +136,7 @@ pub struct Warning {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Converted {
   pub tsx: String,
   pub segments: Vec<Segment>,
@@ -169,6 +182,7 @@ pub fn position(source: &str, offset: usize) -> (usize, usize) {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
   /// The file does not parse as what its extension says.
   #[error("{line}:{column}: {message}")]

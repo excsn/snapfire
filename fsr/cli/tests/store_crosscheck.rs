@@ -87,11 +87,7 @@ fn server(case: &Case) -> (Data, BTreeSet<String>) {
       .iter()
       .map(|(key, sources)| {
         let read = sources.clone();
-        Derived {
-          key: key.clone(),
-          sources: sources.clone(),
-          compute: Some(Arc::new(move |_: &RequestCtx, store: &Data| Some(Value::Int(read.iter().map(|s| match store.get(s) { Some(Value::Int(n)) => *n, _ => 0 }).sum())))),
-        }
+        Derived::new(key.clone(), sources.clone(), Some(Arc::new(move |_: &RequestCtx, store: &Data| Some(Value::Int(read.iter().map(|s| match store.get(s) { Some(Value::Int(n)) => *n, _ => 0 }).sum())))))
       })
       .collect(),
   );

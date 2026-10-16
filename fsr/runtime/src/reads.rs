@@ -16,6 +16,7 @@ pub enum Static {
 /// node in it reads, the store keys any component in it reads and whether
 /// any of them renders the path the request matched.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct SubtreeReads {
   pub class: Static,
   pub store_keys: Vec<String>,
@@ -28,6 +29,28 @@ pub struct SubtreeReads {
   /// carries the token: the memo keys it by the token and a scheme whose
   /// token differs per render keeps it out of the memo.
   pub csrf: bool,
+}
+
+impl SubtreeReads {
+  pub fn class(mut self, class: Static) -> Self {
+    self.class = class;
+    self
+  }
+
+  pub fn store_keys(mut self, store_keys: Vec<String>) -> Self {
+    self.store_keys = store_keys;
+    self
+  }
+
+  pub fn path(mut self, path: bool) -> Self {
+    self.path = path;
+    self
+  }
+
+  pub fn csrf(mut self, csrf: bool) -> Self {
+    self.csrf = csrf;
+    self
+  }
 }
 
 /// The prop the path the request matched rides in on, read by the renderer

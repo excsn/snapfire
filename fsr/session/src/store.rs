@@ -7,6 +7,7 @@ use snapfire_fsr_runtime::{unix_now, Identity};
 use crate::SessionId;
 
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct SessionRecord {
   pub data: ValueMap,
   pub identity: Option<Identity>,
@@ -18,6 +19,33 @@ pub struct SessionRecord {
   /// and a store may drop the record at it. A default record has already
   /// expired.
   pub expires: u64,
+}
+
+impl SessionRecord {
+  pub fn data(mut self, data: ValueMap) -> Self {
+    self.data = data;
+    self
+  }
+
+  pub fn identity(mut self, identity: Option<Identity>) -> Self {
+    self.identity = identity;
+    self
+  }
+
+  pub fn tokens(mut self, tokens: ValueMap) -> Self {
+    self.tokens = tokens;
+    self
+  }
+
+  pub fn csrf(mut self, csrf: ValueMap) -> Self {
+    self.csrf = csrf;
+    self
+  }
+
+  pub fn expires(mut self, expires: u64) -> Self {
+    self.expires = expires;
+    self
+  }
 }
 
 /// Why a store could not write. A read has no error: a record that cannot be

@@ -18,6 +18,7 @@ use crate::{fill_pattern, Host, HostError, Incoming, RenderMode, Tables};
 /// as = "probe" }` signed in as that subject with no claims.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
+#[non_exhaustive]
 pub enum Probe {
   Path(String),
   As {
@@ -43,7 +44,7 @@ impl Probe {
 
   fn session(&self) -> SessionCell {
     match self.subject() {
-      Some(subject) => SessionCell::new(ValueMap::default(), Some(Identity { subject: subject.to_owned(), claims: ValueMap::default() })),
+      Some(subject) => SessionCell::new(ValueMap::default(), Some(Identity::new(subject.to_owned(), ValueMap::default()))),
       None => SessionCell::default(),
     }
   }

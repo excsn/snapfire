@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Format {
   Avif,
   Webp,
@@ -53,11 +54,25 @@ impl std::fmt::Display for Format {
 /// format. One policy serves a whole build; a per-image override is the same
 /// struct with fields replaced.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct VariantPolicy {
   pub widths: Vec<u32>,
   pub formats: Vec<Format>,
   #[serde(default)]
   pub quality: BTreeMap<Format, u8>,
+}
+
+impl VariantPolicy {
+  pub fn widths(mut self, widths: Vec<u32>) -> Self {
+    self.widths = widths;
+    self
+  }
+
+  pub fn formats(mut self, formats: Vec<Format>) -> Self {
+    self.formats = formats;
+    self
+  }
+
 }
 
 impl Default for VariantPolicy {

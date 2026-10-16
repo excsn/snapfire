@@ -19,6 +19,7 @@ use crate::BuildError;
 
 /// One method a body may call.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NativeMethod {
   /// The name a body calls it by: `list_rooms` reads as `listRooms`.
   pub name: String,
@@ -30,6 +31,7 @@ pub struct NativeMethod {
 
 /// One module, under the name the host registers it with.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NativeModule {
   pub name: String,
   pub rust_type: String,
@@ -38,6 +40,7 @@ pub struct NativeModule {
 
 /// A struct a method mentions, so the declaration can name its fields.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct NativeType {
   pub name: String,
   pub fields: Vec<(String, String)>,
@@ -46,6 +49,7 @@ pub struct NativeType {
 /// One `#[service]` block: the contract it declares, under the name a body
 /// calls it by and the file it was read from, relative to the project.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct RustService {
   pub name: String,
   pub rust_type: String,
@@ -54,6 +58,7 @@ pub struct RustService {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Natives {
   pub modules: Vec<NativeModule>,
   pub types: Vec<NativeType>,
@@ -293,7 +298,11 @@ fn read_cache(attr: &syn::Attribute) -> Result<Freshness, String> {
     })
     .map_err(|e| format!("cache: {e}"))?;
   let ttl = ttl.ok_or_else(|| "a cache without a ttl".to_owned())?;
-  Ok(Freshness { ttl, tags, scope, stale })
+  let freshness = Freshness::ttl(ttl).tags(tags).scope(scope);
+  Ok(match stale {
+    Some(window) => freshness.stale(window),
+    None => freshness,
+  })
 }
 
 fn is_attr(attr: &syn::Attribute, name: &str) -> bool {

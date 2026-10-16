@@ -5,6 +5,7 @@ use std::path::Path;
 /// What an image's header says: the size it displays at and the EXIF
 /// orientation that size already accounts for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Header {
   /// The width after the orientation is applied, which is the stored height
   /// when `orientation` is 5 to 8.

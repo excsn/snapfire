@@ -332,7 +332,7 @@ The cost is that an unbalanced marker count is a render-time failure rather than
 ```rust
 match evaluator.evaluate(&module, &props).try_collect::<Vec<Chunk>>().await {
   Ok(chunks) => chunks,
-  Err(EvalError { module, message }) => {
+  Err(EvalError { module, message, .. }) => {
     tracing::error!(module = %module, error = %message, "template evaluation failed");
     return Err(other_error);
   }

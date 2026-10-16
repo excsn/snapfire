@@ -3,7 +3,7 @@
 use snapfire_tailwind::{CardRule, CompileOptions, Compiler};
 
 fn rules(candidates: &[&str]) -> Vec<CardRule> {
-  let options = CompileOptions { banner: false, ..CompileOptions::default() };
+  let options = CompileOptions::default().banner(false);
   let compiler = Compiler::new("@import \"tailwindcss\";\n@theme {\n  --color-brand: #e11d48;\n}", options).unwrap();
   compiler.card_rules(candidates.iter().copied())
 }

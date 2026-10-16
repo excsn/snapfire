@@ -17,7 +17,11 @@ fn any_version() -> impl Strategy<Value = Version> {
     1 => (0u64..3).prop_map(|n| vec![Ident::Num(n)]),
     1 => (prop_oneof![Just("alpha"), Just("rc")], 0u64..3).prop_map(|(s, n)| vec![Ident::Alpha(s.to_owned()), Ident::Num(n)]),
   ];
-  ((0u64..4, 0u64..4, 0u64..4), pre).prop_map(|((a, b, c), pre)| Version { major: a, minor: b, patch: c, pre })
+  ((0u64..4, 0u64..4, 0u64..4), pre).prop_map(|((a, b, c), pre)| {
+    let mut version = Version::new(a, b, c);
+    version.pre = pre;
+    version
+  })
 }
 
 fn holds(range: &str, v: &Version) -> bool {

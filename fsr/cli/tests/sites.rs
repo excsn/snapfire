@@ -18,8 +18,8 @@ fn pair(tag: &str) -> (PathBuf, PathBuf) {
   let base = root(tag);
   let shell = base.join("shell");
   let site = base.join("handbook");
-  create(&shell, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
-  create(&site, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&shell, NewOptions::default().fetch(false)).unwrap();
+  create(&site, NewOptions::default().fetch(false)).unwrap();
   (shell, site)
 }
 
@@ -88,7 +88,7 @@ fn a_shell_that_is_a_site_mounts_nothing() {
   sites::link(&shell, &site, "/handbook", None).unwrap();
 
   let third = root("nested-third");
-  create(&third, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&third, NewOptions::default().fetch(false)).unwrap();
   let refused = sites::link(&site, &third, "/deeper", None).unwrap_err().to_string();
   assert!(refused.contains("a site cannot mount sites"), "{refused}");
 }
@@ -177,7 +177,7 @@ fn pinning_into_a_layer_leaves_the_table_alone_and_the_ladder_reads_it() {
   assert!(!std::fs::read_to_string(shell.join("app.toml")).unwrap().contains("hash"), "the table is untouched");
 
   let config = snapfire_fsr_host::config::Loader::at(&shell)
-    .deployment(snapfire_fsr_host::config::Deployment { release_env: "development".to_owned(), app_env: "local".to_owned(), region: None })
+    .deployment(snapfire_fsr_host::config::Deployment::default().release_env("development".to_owned()).app_env("local".to_owned()).region(None))
     .config()
     .unwrap();
   assert_eq!(config.sites.unwrap().mounts["billing"].hash.as_deref(), Some(pinned[0].hash.as_str()));
@@ -416,8 +416,8 @@ fn a_host_comes_from_the_flag_then_the_shells_listen() {
 fn a_pack_into_a_directory_writes_the_named_archive_there() {
   let base = root("pack-dir");
   let site = base.join("docs");
-  let site_options = snapfire_fsr_cli::new::SiteScaffold { at: "/docs".to_owned(), name: None, into: None };
-  create(&site, NewOptions { fetch: false, site: Some(site_options), ..NewOptions::default() }).unwrap();
+  let site_options = snapfire_fsr_cli::new::SiteScaffold::new("/docs".to_owned()).name(None).into(None);
+  create(&site, NewOptions::default().fetch(false).site(Some(site_options))).unwrap();
   let out = base.join("out");
   std::fs::create_dir_all(&out).unwrap();
   let packed = sites::pack(&site, "1.0.0", Some(&out)).unwrap();

@@ -12,12 +12,19 @@ use crate::segments::SegmentInfo;
 /// What a cache hit restores: the evaluated subtree plus its segment sidecar,
 /// so navigation identity survives caching.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct CacheEntry {
   pub node: Node,
   pub segments: Vec<SegmentInfo>,
   /// The fingerprint of what the memoized subtree rendered, kept so a hit
   /// carries the same digest a miss would have produced.
   pub digest: u64,
+}
+
+impl CacheEntry {
+  pub fn new(node: Node, segments: Vec<SegmentInfo>, digest: u64) -> Self {
+    Self { node, segments, digest }
+  }
 }
 
 /// Memoizes evaluated subtrees. Keys are composed by the assembler from the

@@ -25,6 +25,7 @@ use swc_core::ecma::parser::{lexer::Lexer, Parser, StringInput, Syntax, TsSyntax
 /// A residue collects one of these per level it is re-raised through, so the
 /// page that stops being server rendered can name the path down to the cause.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Placement {
   pub file: String,
   pub line: usize,
@@ -44,6 +45,7 @@ impl std::fmt::Display for Placement {
 /// from the module the build asked for down to the file this residue is in,
 /// empty when they are the same file.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Residue {
   pub file: String,
   pub line: usize,
@@ -83,6 +85,7 @@ impl std::fmt::Display for Residue {
 impl std::error::Error for Residue {}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum LowerError {
   #[error("{file}: {message}")]
   Parse { file: String, message: String },
@@ -188,6 +191,7 @@ fn normalize_path(path: &std::path::Path) -> String {
 /// there is one, read from the parameter's `ActionCtx<T>` annotation or from
 /// the older `action<T>(...)` spelling.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LoweredAction {
   pub export: String,
   pub input: Option<String>,
@@ -197,6 +201,7 @@ pub struct LoweredAction {
 /// A lowered route handler: the HTTP method it answers, the body and the
 /// input type when the export is an `action<T>`.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct LoweredHandler {
   pub method: String,
   pub input: Option<String>,
@@ -566,19 +571,33 @@ pub(crate) fn parse_with(file: &str, source: &str, tsx: bool) -> Result<Parsed, 
 /// from each run of the module back to it, so a residue names the line the
 /// author wrote rather than one of the module.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Origin {
   pub source: String,
   pub segments: Vec<OriginSegment>,
 }
 
+impl Origin {
+  pub fn new(source: String, segments: Vec<OriginSegment>) -> Self {
+    Self { source, segments }
+  }
+}
+
 /// A run of the module: `len` bytes from `generated`. A verbatim run maps byte
 /// for byte from `original`; any other maps whole to `original`.
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub struct OriginSegment {
   pub generated: usize,
   pub len: usize,
   pub original: usize,
   pub verbatim: bool,
+}
+
+impl OriginSegment {
+  pub fn new(generated: usize, len: usize, original: usize, verbatim: bool) -> Self {
+    Self { generated, len, original, verbatim }
+  }
 }
 
 impl Origin {

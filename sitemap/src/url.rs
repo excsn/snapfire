@@ -9,6 +9,7 @@ use crate::video::Video;
 use crate::writer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ChangeFrequency {
   Always,
   Hourly,

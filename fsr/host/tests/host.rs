@@ -705,11 +705,7 @@ fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
   std::fs::write(dir.join("zzz.toml"), "[session]\nttl = \"9h\"\n").unwrap();
   std::fs::write(root.join("override.toml"), "[document]\ntitle = \"Extra\"\n").unwrap();
 
-  let deployment = Deployment {
-    release_env: "staging".to_owned(),
-    app_env: "local".to_owned(),
-    region: Some("eu".to_owned()),
-  };
+  let deployment = Deployment::default().release_env("staging".to_owned()).app_env("local".to_owned()).region(Some("eu".to_owned()));
   let names: Vec<String> = config_paths(&dir, &deployment)
     .iter()
     .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
@@ -1964,10 +1960,7 @@ impl snapfire_fsr_runtime::Metadata for ItemsTitle {
       .map(|i| i.subject)
       .unwrap_or_else(|| "nobody".to_owned());
     Box::pin(async move {
-      Ok(snapfire_fsr_runtime::Meta {
-        title: Some(format!("{count} items for {who}")),
-        ..snapfire_fsr_runtime::Meta::default()
-      })
+      Ok(snapfire_fsr_runtime::Meta::default().title(Some(format!("{count} items for {who}"))))
     })
   }
 }

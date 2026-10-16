@@ -14,6 +14,7 @@ use crate::serve::project_root;
 /// outside it is reachable from the network.
 pub const SERVE: &str = layout::SERVE;
 
+#[non_exhaustive]
 pub struct Bundled {
   pub out: PathBuf,
   /// Route and the directory under `serve/` that answers it, for every static

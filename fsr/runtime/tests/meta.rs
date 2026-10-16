@@ -45,11 +45,7 @@ impl Metadata for ProductMeta {
       _ => String::new(),
     };
     Box::pin(async move {
-      Ok(Meta {
-        title: Some(format!("{name} · Shop")),
-        description: Some(format!("All about {name}")),
-        ..Meta::default()
-      })
+      Ok(Meta::default().title(Some(format!("{name} · Shop"))).description(Some(format!("All about {name}"))))
     })
   }
 }
@@ -97,11 +93,7 @@ fn a_described_segment_titles_the_document_over_the_defaults() {
   .unwrap();
   assert_eq!(
     assembly.meta,
-    Meta {
-      title: Some("Nozzle <XL> · Shop".into()),
-      description: Some("All about Nozzle <XL>".into()),
-      ..Meta::default()
-    }
+    Meta::default().title(Some("Nozzle <XL> · Shop".into())).description(Some("All about Nozzle <XL>".into()))
   );
   let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
   assert!(html.contains("<meta charset=\"utf-8\"><title>Nozzle &lt;XL&gt; · Shop</title><meta name=\"description\" content=\"All about Nozzle &lt;XL&gt;\"></head>"), "{html}");
@@ -124,11 +116,7 @@ fn without_a_described_segment_the_head_keeps_its_defaults() {
   .unwrap();
   assert_eq!(
     assembly.meta,
-    Meta {
-      title: Some("Shop".into()),
-      description: Some("A shop".into()),
-      ..Meta::default()
-    }
+    Meta::default().title(Some("Shop".into())).description(Some("A shop".into()))
   );
   let wire: String = block_on(wire_stream(assembly).collect::<Vec<_>>()).concat();
   assert!(
@@ -187,7 +175,7 @@ impl Metadata for ProductName {
       _ => String::new(),
     };
     let absolute = self.0;
-    Box::pin(async move { Ok(Meta { title: Some(name), absolute, ..Meta::default() }) })
+    Box::pin(async move { Ok(Meta::default().title(Some(name)).absolute(absolute)) })
   }
 }
 
@@ -236,7 +224,7 @@ fn a_template_writes_a_described_title_around_the_default_and_leaves_an_undescri
 #[test]
 fn an_absolute_title_is_written_as_given() {
   let assembly = block_on(assemble(&runtime_titled(true), &plan(false), &RequestCtx::anonymous(Params::new()), templated_head())).unwrap();
-  assert_eq!(assembly.meta, Meta { title: Some("Nozzle {title}".into()), description: Some("A shop".into()), ..Meta::default() });
+  assert_eq!(assembly.meta, Meta::default().title(Some("Nozzle {title}".into())).description(Some("A shop".into())));
   let html: String = block_on(html_stream(assembly).collect::<Vec<_>>()).concat();
   assert!(html.contains("<title>Nozzle {title}</title>"), "{html}");
 }
@@ -253,32 +241,19 @@ fn a_deferred_segment_retitles_through_the_template() {
 }
 
 fn el(tag: &str, attrs: &[(&str, &str)]) -> HeadEl {
-  HeadEl {
-    tag: tag.to_owned(),
-    attrs: attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
-    children: None,
-  }
+  HeadEl::new(tag.to_owned(), attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), None)
 }
 
 #[test]
 fn an_inner_segment_replaces_a_head_element_in_place_and_appends_the_rest() {
-  let mut outer = Meta {
-    title: Some("Shop".into()),
-    description: Some("A shop".into()),
-    head: vec![
+  let mut outer = Meta::default().title(Some("Shop".into())).description(Some("A shop".into())).head(vec![
       el("meta", &[("property", "og:site_name"), ("content", "Shop")]),
       el("meta", &[("property", "og:type"), ("content", "website")]),
-    ],
-    ..Meta::default()
-  };
-  outer.merge(Meta {
-    title: Some("Nozzle".into()),
-    head: vec![
+    ]);
+  outer.merge(Meta::default().title(Some("Nozzle".into())).head(vec![
       el("meta", &[("property", "og:type"), ("content", "product")]),
       el("link", &[("rel", "canonical"), ("href", "/p/1")]),
-    ],
-    ..Meta::default()
-  });
+    ]));
 
   assert_eq!(outer.title.as_deref(), Some("Nozzle"));
   assert_eq!(
@@ -307,17 +282,11 @@ fn an_inner_segment_replaces_a_head_element_in_place_and_appends_the_rest() {
 
 #[test]
 fn icons_of_different_sizes_are_different_elements() {
-  let mut outer = Meta {
-    head: vec![el("link", &[("rel", "icon"), ("sizes", "32x32"), ("href", "/a.png")])],
-    ..Meta::default()
-  };
-  outer.merge(Meta {
-    head: vec![
+  let mut outer = Meta::default().head(vec![el("link", &[("rel", "icon"), ("sizes", "32x32"), ("href", "/a.png")])]);
+  outer.merge(Meta::default().head(vec![
       el("link", &[("rel", "icon"), ("sizes", "16x16"), ("href", "/b.png")]),
       el("link", &[("rel", "icon"), ("sizes", "32x32"), ("href", "/c.png")]),
-    ],
-    ..Meta::default()
-  });
+    ]));
   let hrefs: Vec<&str> = outer
     .head
     .iter()

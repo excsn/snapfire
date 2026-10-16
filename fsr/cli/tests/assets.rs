@@ -39,7 +39,7 @@ export default function Page() {
 /// A React scaffold with the fixtures in place and the asset sections written, built.
 fn built(tag: &str, toml: &str) -> (PathBuf, Built) {
   let root = root(tag);
-  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
   std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
@@ -176,7 +176,7 @@ fn commented(photo: &[u8]) -> Vec<u8> {
 
 fn tagged(strip: &str) -> (PathBuf, Built) {
   let root = root("tagged");
-  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
   std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
@@ -255,7 +255,7 @@ fn reconciling_what_the_bundle_reports_adds_entries_fonts_and_map_rows_and_refus
 #[test]
 fn an_unknown_fallback_and_a_key_naming_no_file_are_refused_by_name() {
   let root = root("refused");
-  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
   std::fs::create_dir_all(app.join("fonts")).unwrap();
   std::fs::write(app.join("fonts/Inter-Regular.woff2"), fixture("Inter-Regular.woff2")).unwrap();
@@ -323,7 +323,7 @@ fn provider(woff2: Vec<u8>, family: &'static str) -> String {
 #[test]
 fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build_reads_them() {
   let root = root("fonts-add");
-  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
   let base = provider(fixture("Inter-Regular.woff2"), "Inter");
   let written = assets::add_from(&app, "google:Inter@400", &base).unwrap();
@@ -342,7 +342,7 @@ fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build
 
   let second = std::env::temp_dir().join(format!("fsr-cli-assets-{}-variable", std::process::id()));
   let _ = std::fs::remove_dir_all(&second);
-  create(&second, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  create(&second, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = second.join("app");
   let base = provider(fixture("Fraunces-vietnamese.woff2"), "Fraunces");
   let written = assets::add_from(&app, "google:Fraunces@400,700", &base).unwrap();
@@ -362,7 +362,7 @@ fn fonts_add_fetches_each_subset_into_the_directory_with_its_range_and_the_build
 #[test]
 fn fonts_add_keeps_the_providers_family_when_the_file_names_another() {
   let root = root("fonts-add-family");
-  create(&root, NewOptions { fetch: false, with: vec!["react".to_owned()], ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false).with(vec!["react".to_owned()])).unwrap();
   let app = root.join("app");
   let base = provider(fixture("Inter-Regular.woff2"), "Display Sans");
   assets::add_from(&app, "google:Display Sans@400", &base).unwrap();

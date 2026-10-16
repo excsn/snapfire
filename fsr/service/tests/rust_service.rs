@@ -146,11 +146,11 @@ fn a_caller_parameter_is_filled_from_the_call_and_kept_out_of_the_arguments() {
   assert_eq!((err.kind, err.method.as_str(), err.message.as_str()), (FailureKind::Unauthorized, "mine", "`mine` needs an identified caller"));
 
   let mut identified = call("mine", args);
-  identified.identity = Some(Identity { subject: "alice".to_owned(), claims: ValueMap::default() });
+  identified.identity = Some(Identity::new("alice".to_owned(), ValueMap::default()));
   assert_eq!(block_on(fleet.call(identified)).unwrap(), Value::str("alice:web"));
 
   let services = Services::builder().contract(ServerFleet::contract()).transport(ServerFleet::NAME, Arc::new(ServerFleet)).build();
-  let handle = services.bind(Some(Identity { subject: "bob".to_owned(), claims: ValueMap::default() }), Arc::new(NoCredentials));
+  let handle = services.bind(Some(Identity::new("bob".to_owned(), ValueMap::default())), Arc::new(NoCredentials));
   assert_eq!(block_on(handle.call("server_fleet", "whoami", ValueMap::default())).unwrap(), Value::str("bob"));
   let mut leaked = ValueMap::default();
   leaked.insert("caller".to_owned(), Value::str("mallory"));

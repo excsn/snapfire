@@ -4,6 +4,7 @@ pub type Declarations = Vec<(String, String)>;
 
 /// One image to render: its size in pixels and the tree drawn into it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Card {
   pub width: u32,
   pub height: u32,

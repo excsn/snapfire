@@ -23,6 +23,7 @@ pub const MANIFEST: &str = ".snapfire-site.json";
 pub const FORMAT: u32 = 2;
 
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ArtifactError {
   #[error("{0}: {1}")]
   Io(PathBuf, #[source] std::io::Error),
@@ -54,6 +55,7 @@ pub enum ArtifactError {
 
 /// One file of an artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Entry {
   pub path: String,
   pub size: u64,
@@ -62,6 +64,7 @@ pub struct Entry {
 
 /// Every file an artifact ships, in path order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Listing {
   pub entries: Vec<Entry>,
 }
@@ -132,6 +135,7 @@ pub fn parts(root: &Path, config: &Config) -> Result<Vec<String>, ArtifactError>
 
 /// What a packed artifact carries at its root and an install reads back.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Manifest {
   pub format: u32,
   /// The site's own name, `[site] name`, which is not the name the shell

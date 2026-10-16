@@ -8,10 +8,23 @@ use lightningcss::targets::{Browsers, Features, Targets};
 use crate::Error;
 
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct OptimizeOptions {
   pub minify: bool,
   /// The file name messages name.
   pub file: Option<String>,
+}
+
+impl OptimizeOptions {
+  pub fn minify(mut self, minify: bool) -> Self {
+    self.minify = minify;
+    self
+  }
+
+  pub fn file(mut self, file: Option<String>) -> Self {
+    self.file = file;
+    self
+  }
 }
 
 fn targets() -> Targets {

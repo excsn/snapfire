@@ -130,6 +130,7 @@ pub const SOURCE_SECTIONS: [&str; 5] = ["body", "meta", "store", "defaults", "pa
 
 /// Why a row or one section of a source row cannot be printed alone.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum ViewError {
   #[error("no row is named `{id}`")]
   Unknown { id: String },

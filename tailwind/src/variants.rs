@@ -23,6 +23,7 @@ use crate::value_parser::{self, ValueNode};
 use crate::walk::{Action, Ancestor, walk};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum VariantKind {
   Static,
   Functional,
@@ -51,6 +52,7 @@ pub type ApplyFn = Rc<dyn Fn(&mut Node, &Variant, &DesignSystem) -> Option<()>>;
 pub type CompareFn = Rc<dyn Fn(&Variant, &Variant, &DesignSystem) -> Ordering>;
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct VariantEntry {
   pub kind: VariantKind,
   pub order: u32,
@@ -60,6 +62,7 @@ pub struct VariantEntry {
 }
 
 #[derive(Default)]
+#[non_exhaustive]
 pub struct Variants {
   pub compare_fns: HashMap<u32, CompareFn>,
   variants: IndexMap<String, VariantEntry>,

@@ -129,7 +129,7 @@ impl Host {
       }
     }
     let kept = forced && name == static_name;
-    DocumentTheme { name, scheme, forced: kept }
+    DocumentTheme::default().name(name).scheme(scheme).forced(kept)
   }
 }
 
@@ -139,7 +139,7 @@ mod tests {
   use snapfire_fsr_core::{NodeId, SlotName};
 
   fn theme(name: Option<&str>, scheme: Option<&str>) -> DocumentTheme {
-    DocumentTheme { name: name.map(str::to_owned), scheme: scheme.map(str::to_owned), forced: false }
+    DocumentTheme::default().name(name.map(str::to_owned)).scheme(scheme.map(str::to_owned)).forced(false)
   }
 
   #[test]
@@ -163,7 +163,7 @@ mod tests {
     let themed = html_with_theme(html, &theme(Some("ocean"), Some("dark")));
     assert_eq!(html_with_theme(&themed, &theme(Some("forest"), None)), "<!doctype html><html lang=\"en\" data-sf-locale=\"en\" data-sf-theme=\"forest\"><head>");
     assert_eq!(html_with_theme(&themed, &theme(None, None)), html);
-    let forced = DocumentTheme { name: Some("ledger".to_owned()), scheme: None, forced: true };
+    let forced = DocumentTheme::default().name(Some("ledger".to_owned())).scheme(None).forced(true);
     assert_eq!(html_with_theme(html, &forced), "<!doctype html><html lang=\"en\" data-sf-locale=\"en\" data-sf-theme=\"ledger\" data-sf-theme-forced=\"\"><head>");
     assert_eq!(html_with_theme(&html_with_theme(html, &forced), &theme(Some("ocean"), None)), "<!doctype html><html lang=\"en\" data-sf-locale=\"en\" data-sf-theme=\"ocean\"><head>");
     assert_eq!(html_with_theme("<p>no document</p>", &theme(Some("x"), None)), "<p>no document</p>");

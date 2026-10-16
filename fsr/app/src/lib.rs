@@ -23,6 +23,7 @@ pub use routes::Routes;
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum BindError {
   #[error(transparent)]
   Plan(#[from] snapfire_fsr_plan::PlanError),
@@ -95,6 +96,7 @@ impl Owner {
 /// What the host bound, in the order a reader wants it. Printed at boot so a
 /// binding system does not become a guessing game.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Report {
   pub routes: Vec<(String, Owner)>,
   pub sources: Vec<(String, Owner)>,
@@ -134,8 +136,8 @@ pub struct Report {
   pub embeds: Vec<(String, String)>,
   /// The literal `src` of every `img` a lowered component writes, by module.
   pub images: Vec<(String, String)>,
-}
 
+}
 
 impl std::fmt::Display for Report {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -191,6 +193,7 @@ impl std::fmt::Display for Report {
 }
 
 /// Everything a request needs, plus what the host bound to produce it.
+#[non_exhaustive]
 pub struct App {
   pub matcher: MatchitMatcher,
   pub resolver: TableResolver,
@@ -339,6 +342,7 @@ impl Images {
 
 /// One image a card module's `images` lists.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct ListedImage {
   pub id: String,
   pub alt: Option<String>,
@@ -401,7 +405,7 @@ impl snapfire_fsr_runtime::HeadRows for ListedImages {
       let listed = listed_images(&interpreter, &entry, &ctx).await.map_err(|message| LoadError::new(entry.module.clone(), message))?;
       let (key, field, stem) = if entry.card == "twitter" { ("name", "twitter:image", "twitter-image") } else { ("property", "og:image", "opengraph-image") };
       let path = ctx.path.trim_end_matches('/');
-      let row = |name: String, content: String| snapfire_fsr_runtime::HeadEl { tag: "meta".to_owned(), attrs: vec![(key.to_owned(), name), ("content".to_owned(), content)], children: None };
+      let row = |name: String, content: String| snapfire_fsr_runtime::HeadEl::new("meta".to_owned(), vec![(key.to_owned(), name), ("content".to_owned(), content)], None);
       let mut rows = Vec::new();
       for image in listed {
         rows.push(row(field.to_owned(), format!("{path}/{stem}/{}?v={}", image.id, entry.hash)));
@@ -921,7 +925,7 @@ impl AppBuilder {
       .with_consts(self.consts.clone())
       .with_frameworks(self.frameworks)
       .with_island_reads(self.island_reads.clone())
-      .with_derives(derives.iter().map(|row| snapfire_fsr_ir::Derive { key: row.key.clone(), sources: row.sources.clone(), body: row.body.clone() }).collect());
+      .with_derives(derives.iter().map(|row| snapfire_fsr_ir::Derive::new(row.key.clone(), row.sources.clone(), row.body.clone())).collect());
 
     for name in &self.overrides {
       if !declared.contains(name) {
@@ -1219,7 +1223,7 @@ impl AppBuilder {
 
     let mut heads: std::collections::HashMap<String, Vec<snapfire_fsr_runtime::HeadEl>> = std::collections::HashMap::new();
     for (module, rows) in &self.lowered_heads {
-      heads.entry(module.clone()).or_default().extend(rows.iter().map(|row| snapfire_fsr_runtime::HeadEl { tag: row.tag.clone(), attrs: row.attrs.clone(), children: None }));
+      heads.entry(module.clone()).or_default().extend(rows.iter().map(|row| snapfire_fsr_runtime::HeadEl::new(row.tag.clone(), row.attrs.clone(), None)));
     }
     let mut listers: Vec<(String, Arc<dyn snapfire_fsr_runtime::HeadRows>)> = Vec::new();
     for entry in &self.images {
@@ -1237,14 +1241,10 @@ impl AppBuilder {
       .derives(
         derives
           .iter()
-          .map(|row| Derived {
-            key: row.key.clone(),
-            sources: row.sources.clone(),
-            compute: row.body.clone().map(|body| {
+          .map(|row| Derived::new(row.key.clone(), row.sources.clone(), row.body.clone().map(|body| {
               let interpreter = interpreter.clone();
               Arc::new(move |ctx: &RequestCtx, store: &Data| interpreter.compute(ctx, &body, store)) as snapfire_fsr_runtime::store::Compute
-            }),
-          })
+            })))
           .collect(),
       )
       .load_keyer(Arc::new(ClassKeyer {
@@ -1519,7 +1519,7 @@ fn subtree_reads(node: &snapfire_fsr_core::PlanNode, source_class: &dyn Fn(&Stri
   }
   keys.sort();
   keys.dedup();
-  let out = SubtreeReads { class, store_keys: keys, path, csrf };
+  let out = SubtreeReads::default().class(class).store_keys(keys).path(path).csrf(csrf);
   reads.insert(subtree_shape(node), out.clone());
   out
 }
@@ -1554,7 +1554,7 @@ fn renderable_subtrees(node: &PlanNode, pattern: &str, on_route: &[String], seed
 
 /// The plan's derive rows, each derived source before the key it feeds.
 fn derive_order(rows: Vec<snapfire_fsr_plan::DeriveEntry>) -> Vec<snapfire_fsr_plan::DeriveEntry> {
-  let order = snapfire_fsr_runtime::store::derive_order(rows.iter().map(|row| Derived { key: row.key.clone(), sources: row.sources.clone(), compute: None }).collect());
+  let order = snapfire_fsr_runtime::store::derive_order(rows.iter().map(|row| Derived::new(row.key.clone(), row.sources.clone(), None)).collect());
   let mut rows = rows;
   order.iter().filter_map(|derived| rows.iter().position(|row| row.key == derived.key).map(|at| rows.remove(at))).collect()
 }

@@ -141,7 +141,7 @@ Feature `http` adds `HttpStore`. Module constant `STAGING` is `".staging"`, the 
 
 ### ArchiveStore
 
-* `pub struct ArchiveStore { pub archive: PathBuf }`: one archive as a store of a single version, whatever version is asked for.
+* `pub struct ArchiveStore { pub archive: PathBuf }`, `#[non_exhaustive]`: one archive as a store of a single version, whatever version is asked for. `new(archive: PathBuf)`.
 
 ### HttpStore
 

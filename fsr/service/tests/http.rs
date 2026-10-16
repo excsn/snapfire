@@ -165,7 +165,7 @@ async fn interceptor_metadata_becomes_request_headers() {
 
   let tokens = TokenCell::default();
   tokens.set("access_token", Value::str("secret-abc"));
-  let identity = Identity { subject: "alice".into(), claims: Default::default() };
+  let identity = Identity::new("alice".into(), Default::default());
 
   services
     .bind(Some(identity), Arc::new(tokens))

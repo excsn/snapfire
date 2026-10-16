@@ -89,6 +89,7 @@ pub struct HostReport {
 
 /// The configured certificate, what the handshake offers and what re-reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TlsReport {
   pub cert: PathBuf,
   pub key: PathBuf,
@@ -99,6 +100,7 @@ pub struct TlsReport {
 
 /// Where `[crawl]` answers and which routes its sitemap cannot list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CrawlReport {
   pub robots: Option<String>,
   pub sitemap: Option<String>,
@@ -108,6 +110,7 @@ pub struct CrawlReport {
 
 /// One mounted site in the report.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct SiteReport {
   pub name: String,
   pub at: String,

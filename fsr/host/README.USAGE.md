@@ -461,7 +461,7 @@ struct SectionTitle;
 impl Metadata for SectionTitle {
   fn describe(&self, ctx: &RequestCtx, data: &Data) -> BoxFuture<'static, Result<Meta, LoadError>> {
     let section = ctx.params.get("section").cloned();
-    Box::pin(async move { Ok(Meta { title: section.map(|s| format!("{s} - Fleet")), description: None }) })
+    Box::pin(async move { Ok(Meta::default().title(section.map(|s| format!("{s} - Fleet")))) })
   }
 }
 

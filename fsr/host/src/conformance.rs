@@ -15,6 +15,7 @@ pub const AUTHORITY: &str = "app.example";
 
 /// What a route promises about who may call it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Class {
   /// Changes state for the visitor whose session it carries: refused from
   /// another origin and refused a body a page on another origin can send
@@ -37,6 +38,7 @@ pub enum Class {
 /// One route as the probes call it: `body` and `content_type` are a request
 /// the route accepts from this site's own pages.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Route {
   pub method: Method,
   pub path: String,
@@ -81,6 +83,7 @@ impl Route {
 
 /// An answer that broke its route's contract.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Breach {
   pub method: Method,
   pub path: String,

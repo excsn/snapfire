@@ -17,6 +17,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 /// One store row on the wire: the key an island reads and the value it takes.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Row {
   pub key: String,
   pub value: Value,
@@ -40,6 +41,7 @@ pub enum On {
 
 /// Who it happened to. The session is the one the socket's cookie named when
 /// it opened, read as it was then.
+#[non_exhaustive]
 pub struct Who {
   pub topic: String,
   pub session: SessionCell,
@@ -52,6 +54,7 @@ pub struct Who {
 /// The rows to send back and to whom. `Everyone` includes the sender, which
 /// is what a transcript wants; `Others` is what a typing indicator wants.
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct Reply {
   pub everyone: Vec<Row>,
   pub others: Vec<Row>,

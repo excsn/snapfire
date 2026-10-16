@@ -111,7 +111,7 @@ impl IdentityProvider for DevProvider {
       let mut tokens = ValueMap::default();
       tokens.insert("access_token".to_owned(), Value::str(format!("dev-token-{}", user.name)));
       Ok(AuthOutcome {
-        identity: Identity { subject: user.name.clone(), claims: user.claims.clone() },
+        identity: Identity::new(user.name.clone(), user.claims.clone()),
         tokens,
       })
     })();

@@ -13,7 +13,7 @@ fn root(tag: &str) -> PathBuf {
 }
 
 fn offline() -> NewOptions {
-  NewOptions { fetch: false, ..NewOptions::default() }
+  NewOptions::default().fetch(false)
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn an_offline_scaffold_names_the_steps_it_skipped() {
 #[test]
 fn with_adopts_each_direction_after_the_template() {
   let root = root("with");
-  let created = create(&root, NewOptions { with: vec!["react".to_owned(), "htmx".to_owned()], ..offline() }).unwrap();
+  let created = create(&root, offline().with(vec!["react".to_owned(), "htmx".to_owned()])).unwrap();
   let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(root.join("app/importmap.json")).unwrap()).unwrap();
   assert_eq!(map["imports"]["@snapfire/fsr-client/react"], "/static/js/fsr/react.js");
   assert_eq!(map["imports"]["@snapfire/fsr-authoring/template"], "/static/js/fsr/template.js");
@@ -68,7 +68,7 @@ fn with_adopts_each_direction_after_the_template() {
 #[test]
 fn a_direction_outside_the_table_leaves_no_project() {
   let root = root("direction");
-  let refused = create(&root, NewOptions { with: vec!["svelte".to_owned()], ..offline() }).unwrap_err().to_string();
+  let refused = create(&root, offline().with(vec!["svelte".to_owned()])).unwrap_err().to_string();
   assert!(refused.contains("`svelte` is not a direction") && refused.contains("react, vue, elements, htmx, tailwind"), "{refused}");
   assert!(!root.join("config").exists(), "the refusal left a project behind");
 }
@@ -102,7 +102,7 @@ fn a_body_calls_the_head_helpers_before_anything_is_generated() {
 #[test]
 fn a_shell_is_scaffolded_with_a_table_to_mount_into() {
   let root = root("shell");
-  create(&root, NewOptions { shell: true, ..offline() }).unwrap();
+  create(&root, offline().shell(true)).unwrap();
   let toml = std::fs::read_to_string(root.join("config/app.toml")).unwrap();
   assert!(toml.contains("[sites]"), "{toml}");
   assert!(!toml.contains("[site]\n"), "a shell is not a site: {toml}");
@@ -111,7 +111,7 @@ fn a_shell_is_scaffolded_with_a_table_to_mount_into() {
 #[test]
 fn a_site_is_scaffolded_at_the_path_it_is_given() {
   let root = root("site");
-  create(&root, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: None }), ..offline() }).unwrap();
+  create(&root, offline().site(Some(SiteScaffold::new("/docs".to_owned()).name(None).into(None)))).unwrap();
   let toml = std::fs::read_to_string(root.join("config/app.toml")).unwrap();
   assert!(toml.contains("[site]"), "{toml}");
   assert!(toml.contains("at = \"/docs\""), "{toml}");
@@ -121,7 +121,7 @@ fn a_site_is_scaffolded_at_the_path_it_is_given() {
 #[test]
 fn a_site_scaffold_keeps_its_styles_and_links_inside_its_prefix() {
   let root = root("scoped");
-  create(&root, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: Some("docs".to_owned()), into: None }), ..offline() }).unwrap();
+  create(&root, offline().site(Some(SiteScaffold::new("/docs".to_owned()).name(Some("docs".to_owned())).into(None)))).unwrap();
   assert!(!root.join("app/styles/app.css").exists(), "a site does not write the shell's stylesheet");
   let css = std::fs::read_to_string(root.join("app/styles/docs.css")).unwrap();
   assert!(!css.contains("body") && !css.contains(":root"), "a mounted site's sheet lands on the shell's page: {css}");
@@ -149,7 +149,7 @@ fn an_application_starts_on_a_report_only_policy_and_a_site_on_its_shell_s() {
   assert!(config.document.csp_report_only.is_some() && config.document.csp.is_none());
 
   let site = root("policy-site");
-  create(&site, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: None }), ..offline() }).unwrap();
+  create(&site, offline().site(Some(SiteScaffold::new("/docs".to_owned()).name(None).into(None)))).unwrap();
   let toml = std::fs::read_to_string(site.join("config/app.toml")).unwrap();
   assert!(!toml.contains("csp"), "a site's document is its shell's: {toml}");
 }
@@ -189,8 +189,8 @@ fn into_writes_both_halves_and_the_site_names_the_shell() {
   let base = root("into");
   let shell = base.join("portal");
   let site = base.join("docs");
-  create(&shell, NewOptions { shell: true, ..offline() }).unwrap();
-  let created = create(&site, NewOptions { site: Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: Some(shell.clone()) }), ..offline() }).unwrap();
+  create(&shell, offline().shell(true)).unwrap();
+  let created = create(&site, offline().site(Some(SiteScaffold::new("/docs".to_owned()).name(None).into(Some(shell.clone()))))).unwrap();
 
   let linked = created.linked.expect("the project was linked into the shell");
   assert_eq!(linked.name, "docs");
@@ -205,7 +205,7 @@ fn into_writes_both_halves_and_the_site_names_the_shell() {
 fn a_scaffold_refused_by_the_host_s_rules_leaves_no_project() {
   for (at, name) in [("docs", None), ("/docs/", None), ("/ok", Some("BadName".to_owned()))] {
     let root = root("refused");
-    let options = NewOptions { site: Some(SiteScaffold { at: at.to_owned(), name, into: None }), ..offline() };
+    let options = offline().site(Some(SiteScaffold::new(at.to_owned()).name(name).into(None)));
     assert!(create(&root, options).is_err(), "{at} was accepted");
     assert!(!root.join("config").exists(), "{at} left a project behind");
   }
@@ -214,7 +214,7 @@ fn a_scaffold_refused_by_the_host_s_rules_leaves_no_project() {
 #[test]
 fn a_shell_that_is_also_a_site_is_refused() {
   let root = root("both");
-  let options = NewOptions { shell: true, site: Some(SiteScaffold { at: "/x".to_owned(), name: None, into: None }), ..offline() };
+  let options = offline().shell(true).site(Some(SiteScaffold::new("/x".to_owned()).name(None).into(None)));
   let refused = create(&root, options).unwrap_err().to_string();
   assert!(refused.contains("a site cannot mount sites"), "{refused}");
 }
@@ -224,11 +224,11 @@ fn a_site_with_a_direction_takes_the_framework_its_shell_serves() {
   let base = root("shell-direction");
   let shell = base.join("portal");
   let site = base.join("blog");
-  create(&shell, NewOptions { shell: true, ..offline() }).unwrap();
+  create(&shell, offline().shell(true)).unwrap();
   std::fs::create_dir_all(shell.join("app/generated")).unwrap();
   let react = snapfire_fsr_cli::direction::REACT;
   std::fs::write(shell.join("app/generated/shell.json"), &format!(r#"{{"version":1,"imports":{{"react":"/static/js/vendor/react/react.bundle.mjs","react/jsx-runtime":"/static/js/vendor/react/jsx-runtime.bundle.mjs","react-dom/client":"/static/js/vendor/react-dom/client.bundle.mjs"}},"frameworks":{{"react":"{react}","react-dom":"{react}"}}}}"#)).unwrap();
-  let created = create(&site, NewOptions { with: vec!["react".to_owned()], site: Some(SiteScaffold { at: "/blog".to_owned(), name: Some("blog".to_owned()), into: Some(shell.clone()) }), ..offline() }).unwrap();
+  let created = create(&site, offline().with(vec!["react".to_owned()]).site(Some(SiteScaffold::new("/blog".to_owned()).name(Some("blog".to_owned())).into(Some(shell.clone()))))).unwrap();
   assert!(created.linked.is_some());
   let map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(site.join("app/importmap.json")).unwrap()).unwrap();
   assert_eq!(map["imports"]["react"], "/static/js/vendor/react/react.bundle.mjs", "the shell's URL, taken from the contract: {map}");
@@ -241,11 +241,11 @@ fn a_site_with_a_direction_takes_the_framework_its_shell_serves() {
 #[test]
 fn a_scaffold_is_a_development_build_where_release_env_is_development_and_a_production_one_elsewhere() {
   use snapfire_fsr_host::config::{Deployment, Loader, SESSION_KEY_PLACEHOLDER};
-  for site in [None, Some(SiteScaffold { at: "/docs".to_owned(), name: None, into: None })] {
+  for site in [None, Some(SiteScaffold::new("/docs".to_owned()).name(None).into(None))] {
     let root = root("environments");
-    create(&root, NewOptions { site, ..offline() }).unwrap();
+    create(&root, offline().site(site)).unwrap();
     let load = |release_env: &str| {
-      let deployment = Deployment { release_env: release_env.to_owned(), app_env: "local".to_owned(), region: None };
+      let deployment = Deployment::default().release_env(release_env.to_owned()).app_env("local".to_owned()).region(None);
       Loader::at(&root).deployment(deployment).config().unwrap()
     };
     let development = load("development");
@@ -276,7 +276,7 @@ fn a_configuration_that_does_not_load_fails_the_build() {
 #[test]
 fn a_project_with_tailwind_imports_it_in_its_own_stylesheet_and_builds_its_classes() {
   let root = root("tailwind");
-  let created = create(&root, NewOptions { with: vec!["tailwind".to_owned()], ..offline() }).unwrap();
+  let created = create(&root, offline().with(vec!["tailwind".to_owned()])).unwrap();
   let css = std::fs::read_to_string(root.join("app/styles/app.css")).unwrap();
   assert!(css.starts_with("@import \"tailwindcss\";\n"), "{css}");
   assert!(!root.join("app/styles/tailwind.css").exists(), "the scaffold's own sheet carries it: {:?}", created.written);
@@ -289,7 +289,7 @@ fn a_project_with_tailwind_imports_it_in_its_own_stylesheet_and_builds_its_class
 #[test]
 fn a_site_with_tailwind_takes_its_theme_and_utilities_and_leaves_the_reset_to_the_shell() {
   let root = root("tailwind-site");
-  create(&root, NewOptions { with: vec!["tailwind".to_owned()], site: Some(SiteScaffold { at: "/docs".to_owned(), name: Some("docs".to_owned()), into: None }), ..offline() }).unwrap();
+  create(&root, offline().with(vec!["tailwind".to_owned()]).site(Some(SiteScaffold::new("/docs".to_owned()).name(Some("docs".to_owned())).into(None)))).unwrap();
   let css = std::fs::read_to_string(root.join("app/styles/docs.css")).unwrap();
   assert!(css.starts_with("@import \"tailwindcss/theme\" layer(theme);\n@import \"tailwindcss/utilities\" layer(utilities);\n"), "{css}");
 }
@@ -301,7 +301,7 @@ fn tailwind_in_an_application_that_lists_its_styles_says_to_list_the_new_sheet()
   let config = root.join("config/app.toml");
   let text = std::fs::read_to_string(&config).unwrap().replacen("[document]\n", "[document]\nstyles = [\"/static/css/app.css\"]\n", 1);
   std::fs::write(&config, text).unwrap();
-  let adopted = snapfire_fsr_cli::direction::adopt(&root.join("app"), &["tailwind".to_owned()], snapfire_fsr_cli::direction::UseOptions { fetch: false, example: false }).unwrap();
+  let adopted = snapfire_fsr_cli::direction::adopt(&root.join("app"), &["tailwind".to_owned()], snapfire_fsr_cli::direction::UseOptions::default().fetch(false).example(false)).unwrap();
   assert!(root.join("app/styles/tailwind.css").is_file());
   assert!(adopted.edits.iter().any(|(file, line)| file == "config/app.toml" && line.contains("styles/tailwind.css")), "{:?}", adopted.edits);
 }
@@ -310,6 +310,6 @@ fn tailwind_in_an_application_that_lists_its_styles_says_to_list_the_new_sheet()
 fn tailwind_in_an_application_whose_styles_are_inferred_needs_no_edit() {
   let root = root("tailwind-inferred");
   create(&root, offline()).unwrap();
-  let adopted = snapfire_fsr_cli::direction::adopt(&root.join("app"), &["tailwind".to_owned()], snapfire_fsr_cli::direction::UseOptions { fetch: false, example: false }).unwrap();
+  let adopted = snapfire_fsr_cli::direction::adopt(&root.join("app"), &["tailwind".to_owned()], snapfire_fsr_cli::direction::UseOptions::default().fetch(false).example(false)).unwrap();
   assert!(!adopted.edits.iter().any(|(file, _)| file == "config/app.toml"), "the document links every styles/*.css: {:?}", adopted.edits);
 }

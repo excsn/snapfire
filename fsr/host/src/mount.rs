@@ -6,10 +6,17 @@ use super::*;
 /// the contracts its build wrote. `Host::from` reads one through a `Loader`
 /// and a `Mount` carries one.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Artifact {
   pub config: Config,
   pub plan: String,
   pub contract: Option<Contract>,
+}
+
+impl Artifact {
+  pub fn new(config: Config, plan: String, contract: Option<Contract>) -> Self {
+    Self { config, plan, contract }
+  }
 }
 
 impl Artifact {
@@ -27,6 +34,7 @@ impl Artifact {
 /// read through the shell's ladder, its plan and its contracts, all already
 /// namespaced by its build. Where it came from is the caller's business;
 /// `artifact`, `version` and `hash` are carried into the report.
+#[non_exhaustive]
 pub struct Mount {
   pub name: String,
   pub version: String,

@@ -16,17 +16,20 @@ use crate::variants::Variants;
 use crate::walk::{Action, walk};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PropertySort {
   pub order: Vec<usize>,
   pub count: usize,
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct CompiledRule {
   pub node: Node,
   pub property_sort: PropertySort,
 }
 
+#[non_exhaustive]
 pub struct CompiledCandidates {
   /// Each rule with the raw candidate that made it, in output order.
   pub nodes: Vec<(Node, String)>,

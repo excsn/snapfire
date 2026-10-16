@@ -13,6 +13,7 @@ use crate::transport::Transport;
 /// `POST {base}/{service}/{method}` with the arguments as a JSON body, which
 /// is what a plain gateway wants; `route` overrides per method.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Route {
   pub method: String,
   pub path: String,

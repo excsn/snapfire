@@ -7,6 +7,7 @@ use crate::actions::FailureKind;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("{service}.{method} failed ({}): {message}", kind.as_str())]
+#[non_exhaustive]
 pub struct ServiceError {
   pub kind: FailureKind,
   pub service: String,

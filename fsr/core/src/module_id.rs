@@ -4,6 +4,7 @@ use std::str::FromStr;
 /// Source path plus export name, `components/ServerChart.tsx#default`.
 /// The content hash lives in the build manifest, never here.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
 pub struct ModuleId {
   pub path: String,
   pub export: String,

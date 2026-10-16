@@ -34,6 +34,7 @@ impl SegmentKeyer for DefaultKeyer {
 /// node, [i] means child i of a Seq). A deferred segment is slot-addressed
 /// instead and carries no path.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct SegmentInfo {
   pub key: String,
   /// The canonical fingerprint of what this segment rendered, its child
@@ -49,6 +50,12 @@ pub struct SegmentInfo {
   /// Slots of this segment the payload leaves unfilled and the browser keeps
   /// as they stand.
   pub keep: Vec<String>,
+}
+
+impl SegmentInfo {
+  pub fn new(key: String, digest: u64, name: String, path: Vec<u32>, slot: Option<u32>, children: Vec<SegmentInfo>, keep: Vec<String>) -> Self {
+    Self { key, digest, name, path, slot, children, keep }
+  }
 }
 
 impl SegmentInfo {

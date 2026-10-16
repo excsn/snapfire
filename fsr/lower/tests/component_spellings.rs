@@ -113,7 +113,7 @@ fn outcome(files: &[(String, String)]) -> Outcome {
     return Outcome::Browser(format!("{module}: {}", residue.message));
   }
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
-  let interpreter = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().react(Some(ReactMajor::V19)).vue(None));
   match interpreter.render(&host(&module), &ValueMap::default(), &library) {
     Ok(rendered) => Outcome::Rendered(rendered.islands.first().map(|island| island.body.html.clone()).unwrap_or_default()),
     Err(e) => Outcome::Refused(format!("render: {e:?}")),

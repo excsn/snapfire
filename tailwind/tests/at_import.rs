@@ -19,12 +19,7 @@ fn run<'a>(
   base: &str,
   load: impl Fn(&str, &str) -> Result<Loaded, Error> + 'a,
 ) -> Result<String, Error> {
-  let options = CompileOptions {
-    base: base.to_owned(),
-    load_stylesheet: Some(Box::new(load)),
-    banner: false,
-    ..CompileOptions::default()
-  };
+  let options = CompileOptions::default().base(base.to_owned()).load_stylesheet(Some(Box::new(load))).banner(false);
   let mut compiler = Compiler::new(css, options)?;
   let built = compiler.build(candidates.iter().copied());
   Ok(pretty(&optimize(&built, &OptimizeOptions::default())?))
@@ -39,11 +34,7 @@ fn compile_css<'a>(
 }
 
 fn loaded(content: &str, base: &str) -> Result<Loaded, Error> {
-  Ok(Loaded {
-    path: String::new(),
-    base: base.to_owned(),
-    content: content.to_owned(),
-  })
+  Ok(Loaded::new(String::new(), base.to_owned(), content.to_owned()))
 }
 
 fn example(id: &str, _: &str) -> Result<Loaded, Error> {
@@ -185,26 +176,13 @@ fn supports_theme_reference_imports() {
 
 #[test]
 fn emits_the_right_base_for_source_directives_inside_nested_files() {
-  let options = CompileOptions {
-    base: "/root".to_owned(),
-    load_stylesheet: Some(Box::new(|_, _| loaded("@source './nested/**/*.css';", "/root/foo"))),
-    banner: false,
-    ..CompileOptions::default()
-  };
+  let options = CompileOptions::default().base("/root".to_owned()).load_stylesheet(Some(Box::new(|_, _| loaded("@source './nested/**/*.css';", "/root/foo")))).banner(false);
   let compiler = Compiler::new("@import './foo/bar.css';\n@source './root/**/*.css';", options).unwrap();
   assert_eq!(
     compiler.sources(),
     &[
-      Source {
-        pattern: "./nested/**/*.css".to_owned(),
-        base: "/root/foo".to_owned(),
-        negated: false
-      },
-      Source {
-        pattern: "./root/**/*.css".to_owned(),
-        base: "/root".to_owned(),
-        negated: false
-      },
+      Source::new("/root/foo".to_owned(), "./nested/**/*.css".to_owned(), false),
+      Source::new("/root".to_owned(), "./root/**/*.css".to_owned(), false),
     ]
   );
 }

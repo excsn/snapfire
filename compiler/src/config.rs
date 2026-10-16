@@ -12,6 +12,7 @@ const MIN_TARGET: u32 = 2017;
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct CompilerOptions {
   pub out_dir: Option<PathBuf>,
   pub root_dir: Option<PathBuf>,
@@ -104,6 +105,7 @@ impl Aliases {
 /// How JSX is lowered. `Preserve` writes the markup through untouched, which is
 /// only useful as input to another tool.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum Jsx {
   Preserve,
   Automatic { import_source: String, development: bool },
@@ -146,6 +148,7 @@ impl Jsx {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum MapMode {
   Off,
   External,
@@ -153,6 +156,7 @@ pub enum MapMode {
 }
 
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct MapOptions {
   pub mode: MapMode,
   pub inline_sources: bool,
@@ -182,6 +186,7 @@ impl MapOptions {
 
 #[derive(Debug, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
+#[non_exhaustive]
 pub struct TsConfig {
   pub compiler_options: Option<CompilerOptions>,
   pub files: Option<Vec<String>>,

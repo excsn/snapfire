@@ -133,7 +133,7 @@ async fn main() {
 
   let tokens = TokenCell::default();
   tokens.set("access_token", Value::str("secret-abc"));
-  let identity = Identity { subject: "alice".into(), claims: Default::default() };
+  let identity = Identity::new("alice".into(), Default::default());
 
   let mut args = ValueMap::new();
   args.insert("name".to_owned(), Value::str("web-1"));

@@ -34,6 +34,7 @@ pub trait AssetResolver {
 
 /// A per-image override of the policy, both halves optional.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImageRequest {
   pub widths: Option<Vec<u32>>,
   pub quality: Option<BTreeMap<String, u8>>,
@@ -41,6 +42,7 @@ pub struct ImageRequest {
 
 /// One image as the markup names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ImageFacts {
   /// The hashed original's URL, what the `<img>` carries.
   pub src: String,
@@ -49,6 +51,12 @@ pub struct ImageFacts {
   /// `(mime, srcset)` per format, in the policy's order. Empty for an image
   /// served as it is, an SVG or an animation, which gets no `<picture>`.
   pub sources: Vec<(String, String)>,
+}
+
+impl ImageFacts {
+  pub fn new(src: String, width: u32, height: u32, sources: Vec<(String, String)>) -> Self {
+    Self { src, width, height, sources }
+  }
 }
 
 /// YouTube's still for `id`, which its CDN serves at a URL the id names.

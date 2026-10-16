@@ -91,7 +91,8 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 
 ### Deployment
 
-* `pub struct config::Deployment { pub release_env: String, pub app_env: String, pub region: Option<String> }`
+* `pub struct config::Deployment { pub release_env: String, pub app_env: String, pub region: Option<String> }`, `#[non_exhaustive]`: build one with `from_env`, `Default` and the setters.
+* `Deployment::release_env(self, release_env: String) -> Self`, `Deployment::app_env(self, app_env: String) -> Self`, `Deployment::region(self, region: Option<String>) -> Self`: setters for the field of the same name.
 * `Deployment::from_env()`: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`), `APP_REGION` (none), an empty value counting as unset. `Default` is the same without reading the environment.
 
 ### config_paths
@@ -248,7 +249,7 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 ### LocalesSection
 
-* `pub struct locale::LocalesSection { pub supported: Vec<String>, pub default: Option<String>, pub order: Vec<String>, pub remember: bool, pub cookie: String }`, the `[locales]` section. `supported` is at least one tag of letters, digits, `_` and `-`, spelled as the application wants to see it; `default` is among them, the first when absent; `order` names the sources consulted, any subset of `prefix`, `cookie` and `header`, all three in that order when absent; `remember` is false by default; `cookie` is `sf_locale` by default. Checked at `build`, which fails with `HostError::Config` naming the offence.
+* `pub struct locale::LocalesSection { pub supported: Vec<String>, pub default: Option<String>, pub order: Vec<String>, pub remember: bool, pub cookie: String }`, `#[non_exhaustive]`, the `[locales]` section. `LocalesSection::new(supported: Vec<String>) -> Self` gives every other field its default. `supported` is at least one tag of letters, digits, `_` and `-`, spelled as the application wants to see it; `default` is among them, the first when absent; `order` names the sources consulted, any subset of `prefix`, `cookie` and `header`, all three in that order when absent; `remember` is false by default; `cookie` is `sf_locale` by default. Checked at `build`, which fails with `HostError::Config` naming the offence.
 
 ### AuthSection
 
@@ -292,7 +293,7 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 ### MountConfig
 
-* `pub struct MountConfig { pub artifact: Option<String>, pub hash: Option<String>, pub allow_engine: bool }`: `[sites.<name>]`. `artifact` is `name@version` under the root or a path against the project root; `hash` pins the content hash; `allow_engine` admits an artifact with engine-owned rows. A row without `artifact` or with any other key is refused at load.
+* `pub struct MountConfig { pub artifact: Option<String>, pub hash: Option<String>, pub allow_engine: bool }`, `#[non_exhaustive]`: `[sites.<name>]`. `MountConfig::new(artifact: Option<String>, hash: Option<String>, allow_engine: bool) -> Self`. `artifact` is `name@version` under the root or a path against the project root; `hash` pins the content hash; `allow_engine` admits an artifact with engine-owned rows. A row without `artifact` or with any other key is refused at load.
 
 ### DirsSection
 
@@ -353,7 +354,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ### Artifact
 
-* `pub struct Artifact { pub config: Config, pub plan: String, pub contract: Option<Contract> }`: a built application as the host reads it. `Clone` and `Debug`.
+* `pub struct Artifact { pub config: Config, pub plan: String, pub contract: Option<Contract> }`: a built application as the host reads it. `Clone` and `Debug`. `#[non_exhaustive]`: build one with `of` or `new`.
+* `Artifact::new(config: Config, plan: String, contract: Option<Contract>) -> Self`: the three fields as given; nothing is read.
 * `Artifact::of(config: Config) -> Result<Artifact, HostError>`: reads the plan file and the contracts directory the configuration names, the latter merged with `Contract::merge` file by file when it exists; `Io` for a plan that does not read.
 
 ### Host::from
@@ -492,7 +494,8 @@ The `ws` feature's module, `snapfire_fsr_host::socket`.
 
 ### Preflight
 
-* `pub struct Preflight { pub action: PreflightAction, pub headers: Vec<(String, String)> }`, `PartialEq`.
+* `pub struct Preflight { pub action: PreflightAction, pub headers: Vec<(String, String)> }`, `PartialEq`, `#[non_exhaustive]`.
+* `Preflight::new(action: PreflightAction, headers: Vec<(String, String)>) -> Self`
 * `pub enum PreflightAction { Continue, Rewrite(String), Redirect { to: String, status: u16 }, Respond { status: u16, body: Value } }`
 * `Preflight::pass() -> Self`: `Continue` with no headers.
 * `Preflight::from_value(value: &Value) -> Result<Self, String>`: null or an empty object continues; `redirect` wins over `status`, which wins over `rewrite`; a redirect's status is `status` or 307; `headers` must be an object of strings. Any other shape is the error's message.

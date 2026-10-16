@@ -176,11 +176,7 @@ fn a_failed_deferred_loader_resolves_to_its_error_node() {
 
   let mut sources = DataSources::new();
   sources.insert_fn("broken", |_p| async {
-    Err(snapfire_fsr_runtime::LoadError {
-      source_id: "broken".into(),
-      message: "backend down".into(),
-      kind: snapfire_fsr_runtime::FailureKind::Internal,
-    })
+    Err(snapfire_fsr_runtime::LoadError::new("broken", "backend down").with_kind(snapfire_fsr_runtime::FailureKind::Internal))
   });
 
   let runtime = runtime_with(

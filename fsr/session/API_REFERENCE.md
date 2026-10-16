@@ -53,12 +53,13 @@ The inner `String` is the store key. Nothing in the crate validates its shape on
 
 ### SessionConfig
 
-Cookie policy for the layer.
+Cookie policy for the layer. `#[non_exhaustive]`: build one with `default` and the setters.
 
 * `pub cookie_name: String` matched against the pairs of the `Cookie` header and written as the name in `Set-Cookie`. Default `"sf_session"`.
 * `pub ttl: Duration` is the length of a new session. `open` gives the cell an end one `ttl` from now; the cookie's `Max-Age` counts down to that end and the record carries it. Default eight hours. Only `SessionCell::extend` moves the end.
 * `pub secure: bool` appends `; Secure`. Default `false`.
 * `SessionConfig::default() -> SessionConfig`.
+* `SessionConfig::cookie_name(self, cookie_name: String) -> Self`, `SessionConfig::ttl(self, ttl: Duration) -> Self`, `SessionConfig::secure(self, secure: bool) -> Self`, `SessionConfig::max_bytes(self, max_bytes: usize) -> Self`: setters for the field of the same name.
 
 `Path=/`, `HttpOnly` and `SameSite=Lax` are always emitted and cannot be configured.
 
@@ -116,7 +117,7 @@ Implements `Clone` and `Default`. There is no method that hands the cell to `Req
 
 ### SessionRecord
 
-Everything held under one session id. Data, identity, tokens and the end are saved, loaded and deleted together.
+Everything held under one session id. Data, identity, tokens and the end are saved, loaded and deleted together. `#[non_exhaustive]`: build one with `Default` and the setters.
 
 * `pub data: ValueMap` is the session cell's contents.
 * `pub identity: Option<Identity>`
@@ -124,6 +125,7 @@ Everything held under one session id. Data, identity, tokens and the end are sav
 * `pub csrf: ValueMap` is the CSRF scheme's state.
 * `pub expires: u64` is the end, seconds since the Unix epoch. `open` treats a record past it as absent and deletes it; the cookie's `Max-Age` counts down to it; `MemorySessionStore` drops the record at it.
 * Derives `Debug`, `Clone`, `Default`. A default record has `expires: 0` and so has already expired.
+* `SessionRecord::data(self, data: ValueMap) -> Self`, `SessionRecord::identity(self, identity: Option<Identity>) -> Self`, `SessionRecord::tokens(self, tokens: ValueMap) -> Self`, `SessionRecord::csrf(self, csrf: ValueMap) -> Self`, `SessionRecord::expires(self, expires: u64) -> Self`: setters for the field of the same name.
 
 ### SessionStore
 

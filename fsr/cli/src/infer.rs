@@ -10,6 +10,7 @@ use snapfire_fsr_service::{Contract, Type, TypeDef};
 use crate::native::NativeModule;
 
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Ts {
   Str,
   Num,
@@ -159,6 +160,7 @@ fn non_null(t: Ts) -> Ts {
   }
 }
 
+#[non_exhaustive]
 pub struct Inferer<'a> {
   pub contract: &'a Contract,
   /// The contract type of `ctx.session`, when a schema declared one.

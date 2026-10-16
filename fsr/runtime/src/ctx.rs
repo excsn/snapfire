@@ -9,9 +9,16 @@ use crate::services::ServiceHandle;
 /// Who the request is, resolved by the session layer before anything loads.
 /// Application code reads it; it never sees a token.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Identity {
   pub subject: String,
   pub claims: ValueMap,
+}
+
+impl Identity {
+  pub fn new(subject: String, claims: ValueMap) -> Self {
+    Self { subject, claims }
+  }
 }
 
 #[derive(Debug, Default)]
@@ -131,6 +138,7 @@ pub fn unix_now() -> u64 {
 /// resolved by the host before anything loads. The default locale leaves
 /// segment keys and prerender paths unmarked, the way an unprefixed URL is.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Locale {
   pub tag: String,
   pub is_default: bool,
@@ -174,10 +182,28 @@ impl Default for Locale {
 /// `params` and `query` are the document's there and this is the navigation's;
 /// on the variant filling the slot the two are the same request.
 #[derive(Clone, Debug, Default, PartialEq)]
+#[non_exhaustive]
 pub struct Address {
   pub path: String,
   pub params: Params,
   pub query: Params,
+}
+
+impl Address {
+  pub fn path(mut self, path: String) -> Self {
+    self.path = path;
+    self
+  }
+
+  pub fn params(mut self, params: Params) -> Self {
+    self.params = params;
+    self
+  }
+
+  pub fn query(mut self, query: Params) -> Self {
+    self.query = query;
+    self
+  }
 }
 
 impl Address {

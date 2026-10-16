@@ -22,13 +22,10 @@ fn locales() -> impl Strategy<Value = Locales> {
   )
     .prop_map(|(mut supported, order, remember)| {
       supported.dedup();
-      let section = LocalesSection {
-        default: Some(supported[0].clone()),
-        supported,
-        order,
-        remember,
-        cookie: "sf_locale".to_owned(),
-      };
+      let mut section = LocalesSection::new(supported);
+      section.default = Some(section.supported[0].clone());
+      section.order = order;
+      section.remember = remember;
       Locales::from_section(&section).expect("a valid section")
     })
 }

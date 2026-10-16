@@ -184,7 +184,7 @@ fn the_handler_and_the_middleware_answer_before_any_page() {
   let rewrite = block_on(app.preflight("GET", "/fleet", SessionCell::default())).unwrap();
   assert_eq!(rewrite.action, PreflightAction::Rewrite("/agents".into()));
   let plain = block_on(app.preflight("GET", "/help", SessionCell::default())).unwrap();
-  assert_eq!(plain, Preflight { action: PreflightAction::Continue, headers: vec![("x-ops-console".into(), "fsr".into())] });
+  assert_eq!(plain, Preflight::new(PreflightAction::Continue, vec![("x-ops-console".into(), "fsr".into())]));
 }
 
 #[test]

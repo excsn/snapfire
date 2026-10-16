@@ -51,6 +51,7 @@ pub fn owns_build() -> bool {
 /// for an edit instead.
 const SELF_TRIGGERED_LIMIT: u32 = 3;
 
+#[non_exhaustive]
 pub struct DevOptions {
   pub build: Options,
   /// URL prefix the bundle is served under; the host infers its static root from it.
@@ -872,6 +873,7 @@ impl Drop for Server {
 
 /// A complete artifact: what `build` and `write` produced, plus the paths
 /// they wrote. The browser bundle is in `dist/` beside them.
+#[non_exhaustive]
 pub struct Emitted {
   pub built: Built,
   pub written: Vec<PathBuf>,
@@ -1233,6 +1235,7 @@ fn absorb(event: notify::Result<notify::Event>, paths: &mut HashSet<PathBuf>) {
 /// The `[build] before` and `after` projects of one application, resolved against its project
 /// root, with the root they run from and the application they are told about.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Programs {
   pub root: PathBuf,
   pub app: PathBuf,

@@ -8,6 +8,7 @@ use crate::limit;
 /// rejects an oversized sitemap does so silently, so construction is the only
 /// place the problem can still be seen.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub enum Error {
   LocationEmpty,
   LocationTooLong { length: usize },

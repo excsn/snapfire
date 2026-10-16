@@ -61,7 +61,7 @@ fn identity_persists_and_destroy_forgets() {
   let layer = sessions();
 
   let opened = block_on(layer.open(None));
-  opened.cell.set_identity(Some(Identity { subject: "norm".into(), claims: Default::default() }));
+  opened.cell.set_identity(Some(Identity::new("norm".into(), Default::default())));
   let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
   let header = cookie.split(';').next().unwrap().to_owned();
 
@@ -187,7 +187,7 @@ fn tokens_round_trip_but_never_reach_the_cell() {
 fn destroy_empties_the_cells_it_was_given() {
   let layer = sessions();
   let opened = block_on(layer.open(None));
-  opened.cell.set_identity(Some(Identity { subject: "norm".into(), claims: Default::default() }));
+  opened.cell.set_identity(Some(Identity::new("norm".into(), Default::default())));
   opened.cell.insert("visits", Value::Int(3));
   opened.tokens.set("access_token", Value::Str("secret-abc".into()));
   block_on(layer.destroy(&opened)).unwrap();
@@ -238,7 +238,7 @@ fn capacity_is_accounted_across_shards_not_divided_by_them() {
   let store = MemorySessionStore::new(64);
   let ids: Vec<SessionId> = (0..64).map(|_| SessionId::generate()).collect();
   for id in &ids {
-    let record = SessionRecord { expires: unix_now() + 60, ..Default::default() };
+    let record = SessionRecord::default().expires(unix_now() + 60);
     block_on(store.save(id, record)).expect("the memory store saves");
   }
   let resident = ids.iter().filter(|id| block_on(store.load(id)).is_some()).count();
@@ -437,7 +437,7 @@ mod lifetime {
   #[test]
   fn a_session_ends_one_ttl_from_open_and_the_cookie_and_the_record_count_down_to_it() {
     let store = Arc::new(MemorySessionStore::new(16));
-    let layer = Sessions::new(store.clone(), KEY, SessionConfig { ttl: Duration::from_secs(100), ..SessionConfig::default() });
+    let layer = Sessions::new(store.clone(), KEY, SessionConfig::default().ttl(Duration::from_secs(100)));
     let before = unix_now();
     let opened = block_on(layer.open(None));
     assert!((before + 100..=before + 101).contains(&opened.cell.expires()));
@@ -455,7 +455,7 @@ mod lifetime {
   #[test]
   fn an_extension_saves_and_sets_the_cookie_again_when_nothing_else_changed() {
     let store = Arc::new(MemorySessionStore::new(16));
-    let layer = Sessions::new(store.clone(), KEY, SessionConfig { ttl: Duration::from_secs(100), ..SessionConfig::default() });
+    let layer = Sessions::new(store.clone(), KEY, SessionConfig::default().ttl(Duration::from_secs(100)));
     let opened = block_on(layer.open(None));
     opened.cell.insert("who", Value::str("alice"));
     let cookie = block_on(layer.persist(&opened)).unwrap().unwrap();
@@ -496,8 +496,8 @@ mod lifetime {
     let store = MemorySessionStore::new(16);
     let live = SessionId::generate();
     let gone = SessionId::generate();
-    block_on(store.save(&live, SessionRecord { expires: unix_now() + 1, ..Default::default() })).unwrap();
-    block_on(store.save(&gone, SessionRecord { expires: unix_now(), ..Default::default() })).unwrap();
+    block_on(store.save(&live, SessionRecord::default().expires(unix_now() + 1))).unwrap();
+    block_on(store.save(&gone, SessionRecord::default().expires(unix_now()))).unwrap();
     assert!(block_on(store.load(&live)).is_some());
     assert!(block_on(store.load(&gone)).is_none(), "a record already past its end is not stored");
     std::thread::sleep(Duration::from_millis(1100));

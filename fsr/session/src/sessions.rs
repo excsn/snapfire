@@ -13,12 +13,35 @@ use crate::SessionId;
 /// The cookie [`Sessions::state_cookie`] writes. Fixed rather than derived from the session cookie's name, since the page reads it blind.
 pub const STATE_COOKIE: &str = "sf_state";
 
+#[non_exhaustive]
 pub struct SessionConfig {
   pub cookie_name: String,
   pub ttl: Duration,
   pub secure: bool,
   /// The most a session's data, tokens and CSRF state may hold, about, in bytes; a save over it is refused.
   pub max_bytes: usize,
+}
+
+impl SessionConfig {
+  pub fn cookie_name(mut self, cookie_name: String) -> Self {
+    self.cookie_name = cookie_name;
+    self
+  }
+
+  pub fn ttl(mut self, ttl: Duration) -> Self {
+    self.ttl = ttl;
+    self
+  }
+
+  pub fn secure(mut self, secure: bool) -> Self {
+    self.secure = secure;
+    self
+  }
+
+  pub fn max_bytes(mut self, max_bytes: usize) -> Self {
+    self.max_bytes = max_bytes;
+    self
+  }
 }
 
 impl Default for SessionConfig {

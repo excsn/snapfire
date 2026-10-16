@@ -23,6 +23,7 @@ use swc_core::ecma::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Dialect {
   TypeScript,
   JavaScript,
@@ -39,6 +40,7 @@ pub enum Markup {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, clap::ValueEnum)]
+#[non_exhaustive]
 pub enum Minify {
   /// Strip whitespace at codegen. Identifiers survive, so stack traces stay readable.
   Compact,
@@ -55,6 +57,7 @@ pub const FULL_MINIFIER: bool = cfg!(feature = "minify");
 ///
 /// The caller decides which of those paths are assets it has to deliver; the rewriter only reports
 /// what the emitted file points at.
+#[non_exhaustive]
 pub struct Output {
   pub code: String,
   pub map: Option<String>,
@@ -182,6 +185,7 @@ fn pattern(pat: &Pat, into: &mut Vec<String>) {
 }
 
 /// How a map should name the file it came from, relative to where the map itself will be written.
+#[non_exhaustive]
 pub struct MapRequest<'a> {
   pub options: MapOptions,
   pub source_name: &'a str,

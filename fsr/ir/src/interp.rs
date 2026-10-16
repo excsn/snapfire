@@ -14,6 +14,7 @@ use crate::render::{Frameworks, Markup};
 
 pub use snapfire_fsr_core::ext::Fail;
 
+#[non_exhaustive]
 pub struct Outcome {
   pub value: Value,
   /// Session keys the body wrote or deleted, in order, committed before this
@@ -59,10 +60,17 @@ pub struct Interpreter {
 /// compute, reading each source as `Expr::Store`; no body for one the build
 /// could not lower.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct Derive {
   pub key: String,
   pub sources: Vec<String>,
   pub body: Option<Expr>,
+}
+
+impl Derive {
+  pub fn new(key: String, sources: Vec<String>, body: Option<Expr>) -> Self {
+    Self { key, sources, body }
+  }
 }
 
 /// The value of each constant that reads nothing from a request and calls
@@ -393,6 +401,7 @@ pub(crate) struct Probe {
 }
 
 #[derive(Debug, Default, Clone)]
+#[non_exhaustive]
 pub struct Hoists {
   pub module: String,
   pub path: Vec<Step>,
@@ -669,7 +678,7 @@ impl Env {
   }
 
   fn ambient(&self) -> Ambient {
-    Ambient { locale: self.ctx.locale.tag.clone(), now: self.clock.now(), catalogs: self.catalogs.clone() }
+    Ambient::default().locale(self.ctx.locale.tag.clone()).now(self.clock.now()).catalogs(self.catalogs.clone())
   }
 
   async fn stmt(&mut self, stmt: &Stmt) -> Result<Flow, Fail> {

@@ -36,7 +36,7 @@ fn templates() -> tera::Tera {
 
 pub fn builder(ticks: state::Ticks, tape: state::Tape) -> Result<HostBuilder, HostError> {
   let config = Config::load(Path::new(env!("CARGO_MANIFEST_DIR")).join("config"))?;
-  let artifact = Artifact { config, plan: PLAN.to_owned(), contract: None };
+  let artifact = Artifact::new(config, PLAN.to_owned(), None);
   let builder = Host::from_artifact(artifact)?
     .evaluator(|m: &ModuleId| m.path.ends_with(".tera"), Arc::new(TeraEvaluator::new(templates())))
     .route("/board", routes::board_plan())

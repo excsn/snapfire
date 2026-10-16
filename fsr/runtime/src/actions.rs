@@ -11,6 +11,7 @@ pub use snapfire_fsr_core::ext::FailureKind;
 
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("action failed ({}): {message}", kind.as_str())]
+#[non_exhaustive]
 pub struct ActionError {
   pub kind: FailureKind,
   pub message: String,

@@ -44,6 +44,7 @@ impl std::ops::BitOrAssign for ThemeOptions {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct ThemeValue {
   pub value: String,
   pub options: ThemeOptions,
@@ -82,6 +83,7 @@ fn is_ignored_theme_key(key: &str, namespace: &str) -> bool {
 }
 
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct Theme {
   pub prefix: Option<String>,
   values: IndexMap<String, ThemeValue>,

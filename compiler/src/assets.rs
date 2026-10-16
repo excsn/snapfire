@@ -39,6 +39,7 @@ pub fn kind(path: &Path) -> Option<Kind> {
 /// goes out under and what its header says. `width` and `height` are the
 /// displayed size, with the EXIF orientation applied.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Emitted {
   pub source: PathBuf,
   pub name: String,

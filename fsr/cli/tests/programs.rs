@@ -27,7 +27,7 @@ fn main() {{
 fn project(tag: &str, build: &str, programs: &[&str]) -> PathBuf {
   let root = std::env::temp_dir().join(format!("fsr-cli-programs-{}-{tag}", std::process::id()));
   let _ = std::fs::remove_dir_all(&root);
-  create(&root, NewOptions { fetch: false, ..NewOptions::default() }).unwrap();
+  create(&root, NewOptions::default().fetch(false)).unwrap();
   for name in programs {
     std::fs::create_dir_all(root.join(name).join("src")).unwrap();
     std::fs::write(root.join(name).join("Cargo.toml"), format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[workspace]\n")).unwrap();

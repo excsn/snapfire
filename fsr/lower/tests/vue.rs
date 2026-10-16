@@ -67,7 +67,7 @@ fn host(module: &str, children: Vec<Tmpl>) -> Component {
 
 fn render_rust(set: &ComponentSet, module: &str, props: &ValueMap, children: Vec<Tmpl>) -> String {
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
-  let interpreter = Interpreter::default().with_frameworks(Frameworks { react: None, vue: Some(VueMajor::V3) });
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().react(None).vue(Some(VueMajor::V3)));
   let rendered = interpreter.render(&host(module, children), props, &library).expect("renders");
   assert_eq!(rendered.islands.len(), 1, "{rendered:?}");
   rendered.islands[0].body.html.clone()
@@ -372,7 +372,7 @@ const cap = () => {
   assert_eq!(bound, 4);
 
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
-  let interpreter = Interpreter::default().with_frameworks(Frameworks { react: None, vue: Some(VueMajor::V3) });
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().react(None).vue(Some(VueMajor::V3)));
   let step = |n: f64, count: f64, index: usize| {
     let mut props = ValueMap::default();
     props.insert("$store".to_owned(), Value::Map([("probe/count".to_owned(), Value::F64(count))].into_iter().collect()));

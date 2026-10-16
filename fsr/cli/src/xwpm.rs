@@ -12,6 +12,7 @@ use crate::BuildError;
 pub const XWPM_FILE: &str = "xwpm.wmf";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct Layout {
   /// Directory the runtime modules land in, relative to the app.
   pub vendor: String,

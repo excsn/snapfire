@@ -38,7 +38,7 @@ impl Metadata for SectionTitle {
         Ok(Value::Int(count)) => count,
         _ => 0,
       };
-      Ok(Meta { title: Some(format!("{section} ({count} servers) - SnapFire FSR")), absolute: true, description: None, head: Vec::new() })
+      Ok(Meta::default().title(Some(format!("{section} ({count} servers) - SnapFire FSR"))).absolute(true).description(None).head(Vec::new()))
     })
   }
 }
