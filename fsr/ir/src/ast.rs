@@ -137,6 +137,11 @@ pub enum Expr {
   Hoist { id: u32, expr: Box<Expr> },
   /// The component's handler at this index as a value, which a prop holding a function carries. It evaluates to a reference to the handler of the component being rendered, which an `on*` attribute binds and an island's props leave out.
   Handler(u32),
+  /// Markup written where a value goes, `body={<p />}` or `const x = <p />`,
+  /// while a component is being lowered. The build moves it into the tree
+  /// before the component is done: it never reaches a plan, the interpreter
+  /// or the renderer.
+  Markup(Box<Tmpl>),
 }
 
 /// The pure functions a component may call by name. Each is one JavaScript
@@ -695,6 +700,7 @@ impl Expr {
   /// Every `Var` name the expression reads that it does not bind itself.
   pub fn free_vars(&self, out: &mut Vec<String>) {
     match self {
+      Expr::Markup(tmpl) => tmpl.visit(&mut |e| e.free_vars(out)),
       Expr::Const(_) => {}
       Expr::Var(name) => {
         if !out.contains(name) {
@@ -751,6 +757,7 @@ impl Expr {
   pub fn visit(&self, f: &mut dyn FnMut(&Expr)) {
     f(self);
     match self {
+      Expr::Markup(tmpl) => tmpl.visit(f),
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
@@ -792,6 +799,11 @@ impl Expr {
   /// the path, which a prerendered route has one of.
   pub fn reads_request(&self) -> bool {
     match self {
+      Expr::Markup(tmpl) => {
+        let mut reads = false;
+        tmpl.visit(&mut |e| reads |= e.reads_request());
+        reads
+      }
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host | Expr::Address => true,
       Expr::Locale | Expr::Path | Expr::Document | Expr::Origin | Expr::Config(_) | Expr::Handler(_) => false,
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
@@ -817,6 +829,11 @@ impl Expr {
 
   pub fn has_call(&self) -> bool {
     match self {
+      Expr::Markup(tmpl) => {
+        let mut calls = false;
+        tmpl.visit(&mut |e| calls |= e.has_call());
+        calls
+      }
       Expr::Call { .. } | Expr::NativeCall { .. } => true,
       Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {

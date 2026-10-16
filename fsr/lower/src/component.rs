@@ -10,7 +10,7 @@
 //! writes `{children}`.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -798,6 +798,19 @@ impl ComponentSet {
   /// not lower answers with the same error. A module still
   /// being lowered is a component that renders itself, directly or through
   /// others: the call is the renderer's, which looks the module up by name.
+  /// Makes each `{prop}` read that no placement in this set fills a plain
+  /// read again, once every component is lowered, so a component nobody
+  /// passes markup to renders as it would have without fills.
+  pub fn settle_fills(&mut self) {
+    let mut filled: HashSet<(String, String)> = HashSet::new();
+    for (_, component) in &self.components {
+      fills::collect(&component.render, &mut filled);
+    }
+    for (module, component) in &mut self.components {
+      fills::settle(&mut component.render, module, &filled);
+    }
+  }
+
   pub fn lower(&mut self, module: &str) -> Result<(), LowerError> {
     let (file, export) = module.split_once('#').ok_or_else(|| LowerError::MissingExport { file: module.to_owned(), export: String::new() })?;
     if self.components.iter().any(|(m, _)| m == module) {
@@ -1029,6 +1042,10 @@ impl ComponentSet {
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
         let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
+        let result = result.and_then(|(mut component, refs)| match fills::place_markup(&mut component) {
+          Ok(()) => Ok((component, refs)),
+          Err(why) => Err(cl.lowerer.residue(match &function { Found::Declared(_, _, block) => *block, Found::Arrow(arrow) => arrow.span }, why)),
+        });
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         variants = std::mem::take(&mut cl.variants);
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
@@ -1111,6 +1128,29 @@ impl ComponentSet {
         islands.insert(placed.clone(), timing);
       }
       modules.insert(placed, module);
+    }
+    // An island takes markup only as its children, in a region of its own,
+    // so a placement passing one markup as a prop leaves this component to
+    // the browser.
+    // A placement names its component `<this file>#<tag>` until the tree is
+    // rewritten to the modules `modules` resolved.
+    let renders_in_browser = |placed: &str| {
+      let module = modules.get(placed).map(String::as_str).unwrap_or(placed);
+      self.components.iter().find(|(m, _)| m == module).is_none_or(|(_, c)| c.owner.hydrates())
+    };
+    let mut into_browser = Vec::new();
+    fills::into_browser(&component.render, &renders_in_browser, &mut into_browser);
+    if let Some((placed, prop)) = into_browser.first() {
+      let tag = placed.rsplit_once('#').map(|(_, tag)| tag.to_owned()).unwrap_or_else(|| placed.clone());
+      let (line, column) = refs_positions.iter().find(|(name, _)| *name == tag).map(|(_, pos)| *pos).unwrap_or((1, 1));
+      return Err(LowerError::Residue(Residue {
+        file: file.to_owned(),
+        line,
+        column,
+        message: format!("markup passed as `{prop}` to `{tag}`, which renders in the browser and takes markup only as its children"),
+        hint: Some(format!("pass it between `<{tag}>` and `</{tag}>` or write it inside `{tag}`")),
+        via: Vec::new(),
+      }));
     }
     let mut heads: Vec<HeadRow> = own_heads;
     for placed in modules.values() {
@@ -2552,10 +2592,12 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
   match stmt {
     js::Stmt::Decl(js::Decl::Var(var)) => {
       for decl in &var.decls {
-        let init = decl.init.as_deref().ok_or_else(|| lowerer.residue(decl.span, "a declaration without a value"))?;
-        let expr = lowerer.expr(init)?;
+        let expr = match decl.init.as_deref() {
+          Some(init) => lowerer.expr(init)?,
+          None => Expr::Lit(Lit::Null),
+        };
         bind_pattern(lowerer, &decl.name, expr)?;
-        if let js::Pat::Ident(id) = &decl.name {
+        if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
           lowerer.note_kind(id.id.sym.as_ref(), init);
         }
       }
@@ -2816,10 +2858,12 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
   match first {
     js::Stmt::Decl(js::Decl::Var(var)) => {
       for decl in &var.decls {
-        let init = decl.init.as_deref().ok_or_else(|| lowerer.residue(decl.span, "a declaration without a value"))?;
-        let expr = lowerer.expr(init)?;
+        let expr = match decl.init.as_deref() {
+          Some(init) => lowerer.expr(init)?,
+          None => Expr::Lit(Lit::Null),
+        };
         bind_pattern(lowerer, &decl.name, expr)?;
-        if let js::Pat::Ident(id) = &decl.name {
+        if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
           lowerer.note_kind(id.id.sym.as_ref(), init);
         }
       }
@@ -3406,6 +3450,85 @@ fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Opt
 }
 
 impl<'a, 'p> ComponentLowerer<'a, 'p> {
+  /// Each JSX-holding expression under `e` outside a function, lowered to
+  /// markup ahead of the statement or attribute that holds it, so
+  /// `Lowerer::expr` takes it made. `fills` later places it in the tree.
+  fn premake_expr(&mut self, e: &'p js::Expr) -> Lowered<()> {
+    if holds_jsx(e) {
+      let tmpl = self.child_expr(e)?;
+      let span = e.span();
+      self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Markup(Box::new(tmpl)));
+      return Ok(());
+    }
+    match e {
+      js::Expr::Paren(p) => self.premake_expr(&p.expr),
+      js::Expr::Object(o) => {
+        for prop in &o.props {
+          if let js::PropOrSpread::Prop(prop) = prop {
+            if let js::Prop::KeyValue(kv) = &**prop {
+              self.premake_expr(&kv.value)?;
+            }
+          }
+        }
+        Ok(())
+      }
+      js::Expr::Array(a) => {
+        for elem in a.elems.iter().flatten() {
+          self.premake_expr(&elem.expr)?;
+        }
+        Ok(())
+      }
+      js::Expr::Cond(c) => {
+        self.premake_expr(&c.cons)?;
+        self.premake_expr(&c.alt)
+      }
+      js::Expr::Bin(b) => {
+        self.premake_expr(&b.left)?;
+        self.premake_expr(&b.right)
+      }
+      js::Expr::Assign(a) => self.premake_expr(&a.right),
+      _ => Ok(()),
+    }
+  }
+
+  /// [`Self::premake_expr`] over a statement whose expressions reach
+  /// `Lowerer::expr`: a declaration, a write or a branch holding them.
+  fn premake_stmt(&mut self, stmt: &'p js::Stmt) -> Lowered<()> {
+    match stmt {
+      js::Stmt::Decl(js::Decl::Var(var)) => {
+        for decl in &var.decls {
+          if let Some(init) = decl.init.as_deref() {
+            self.premake_expr(init)?;
+          }
+        }
+        Ok(())
+      }
+      js::Stmt::Expr(e) => self.premake_expr(&e.expr),
+      js::Stmt::If(branch) => {
+        self.premake_stmt(&branch.cons)?;
+        match branch.alt.as_deref() {
+          Some(alt) => self.premake_stmt(alt),
+          None => Ok(()),
+        }
+      }
+      js::Stmt::Block(b) => {
+        for s in &b.stmts {
+          self.premake_stmt(s)?;
+        }
+        Ok(())
+      }
+      js::Stmt::Switch(sw) => {
+        for case in &sw.cases {
+          for s in &case.cons {
+            self.premake_stmt(s)?;
+          }
+        }
+        Ok(())
+      }
+      _ => Ok(()),
+    }
+  }
+
   fn component(&mut self, found: &Found<'p>) -> Lowered<(Component, Vec<(String, (usize, usize))>)> {
     let depth = self.lowerer.scope.len();
     let (params, body): (Vec<js::Pat>, FunctionBody<'p>) = match found {
@@ -3461,6 +3584,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               early.push((cond, then));
             }
             js::Stmt::Decl(js::Decl::Var(var)) if !early.is_empty() => {
+              self.premake_stmt(stmt)?;
               for decl in &var.decls {
                 if let Some(init) = decl.init.as_deref() {
                   if let Some((hook, _)) = hook_call(&self.meanings(), init) {
@@ -3483,8 +3607,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.inline_hook(hook, call, None)?;
               lets.append(&mut self.pending_lets);
             }
-            js::Stmt::Expr(e) if !hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => self.rebound(stmt, floor, &early, &mut lets, &guarded)?,
-            js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) => self.rebound(stmt, floor, &early, &mut lets, &guarded)?,
+            js::Stmt::Expr(e) if !hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
+              self.premake_stmt(stmt)?;
+              self.rebound(stmt, floor, &early, &mut lets, &guarded)?
+            }
+            js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) => {
+              self.premake_stmt(stmt)?;
+              self.rebound(stmt, floor, &early, &mut lets, &guarded)?
+            }
             js::Stmt::Decl(js::Decl::Fn(f)) => {
               self.handlers.push(f.ident.sym.to_string());
               if let Some(body) = &f.function.body {
@@ -3493,6 +3623,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
             js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
             js::Stmt::Decl(js::Decl::Var(var)) => {
+              self.premake_stmt(stmt)?;
               for decl in &var.decls {
                 let stmt = self.let_stmt(decl)?;
                 lets.append(&mut self.pending_lets);
@@ -3577,19 +3708,24 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(tree)
       }
       js::Stmt::Decl(js::Decl::Var(var)) => {
+        self.premake_stmt(first)?;
         let depth = self.lowerer.scope.len();
         let mut lets = Vec::new();
         for decl in &var.decls {
-          let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
-          if let Some((hook, _)) = hook_call(&self.meanings(), init) {
+          if let Some((hook, _)) = decl.init.as_deref().and_then(|init| hook_call(&self.meanings(), init)) {
             return Err(self.lowerer.residue(decl.span, format!("`{hook}` after a `return`, which React refuses since the hooks would change between renders")));
           }
-          let expr = self.lowerer.expr(init)?;
+          let expr = match decl.init.as_deref() {
+            Some(init) => self.lowerer.expr(init)?,
+            None => Expr::Lit(Lit::Null),
+          };
           let name = match &decl.name {
             js::Pat::Ident(id) => {
               let name = id.id.sym.to_string();
               self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
-              self.lowerer.note_kind(&name, init);
+              if let Some(init) = decl.init.as_deref() {
+                self.lowerer.note_kind(&name, init);
+              }
               name
             }
             pattern => {
@@ -3610,6 +3746,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       js::Stmt::Decl(js::Decl::Fn(f)) => Err(self.lowerer.residue(f.function.span, "a function declared after a branching `return`; declare it before")),
       straight => {
+        self.premake_stmt(straight)?;
         let depth = self.lowerer.scope.len();
         let frozen = self.state.clone();
         let writable = Writable { floor, frozen: &frozen };
@@ -3792,7 +3929,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// with `setX` a handler; `const { a, b } = e` as one `let` plus field reads.
   /// A function value, `useCallback` included, is a handler.
   fn let_stmt(&mut self, decl: &'p js::VarDeclarator) -> Lowered<Option<Stmt>> {
-    let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
+    let Some(init) = decl.init.as_deref() else {
+      let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring without a value")) };
+      let local = name.id.sym.to_string();
+      self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
+      return Ok(Some(Stmt::Let { name: local, expr: Expr::Lit(Lit::Null) }));
+    };
     if let Some(call) = awaited_import(init) {
       self.template_import(decl, call)?;
       return Ok(None);
@@ -4422,8 +4564,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         js::Stmt::Decl(js::Decl::Var(var)) => {
           for decl in &var.decls {
             let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
-            let init = decl.init.as_deref().ok_or_else(|| self.lowerer.residue(decl.span, "a declaration without a value"))?;
-            let expr = self.lowerer.expr(init)?;
+            let expr = match decl.init.as_deref() {
+              Some(init) => self.lowerer.expr(init)?,
+              None => Expr::Lit(Lit::Null),
+            };
             let local = name.id.sym.to_string();
             let (name, expr) = match &walk.reach {
               None => (local.clone(), expr),
@@ -4850,7 +4994,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       None => Ok(Expr::Lit(Lit::Bool(true))),
       Some(js::JSXAttrValue::Str(s)) => Ok(Expr::Lit(Lit::Str(decode_entities(&s.value.to_atom_lossy())))),
       Some(js::JSXAttrValue::JSXExprContainer(c)) => match &c.expr {
-        js::JSXExpr::Expr(e) => self.lowerer.expr(e),
+        js::JSXExpr::Expr(e) if holds_jsx(e) => Ok(Expr::Markup(Box::new(self.child_expr(e)?))),
+        js::JSXExpr::Expr(e) => {
+          self.premake_expr(e)?;
+          self.lowerer.expr(e)
+        }
         js::JSXExpr::JSXEmptyExpr(e) => Err(self.lowerer.residue(e.span, "an empty attribute expression")),
       },
       Some(other) => Err(self.lowerer.residue(other.span(), "an element as an attribute value")),
@@ -6505,5 +6653,185 @@ fn unwrap_literal(expr: &js::Expr) -> &js::Expr {
     js::Expr::TsSatisfies(inner) => unwrap_literal(&inner.expr),
     js::Expr::TsConstAssertion(inner) => unwrap_literal(&inner.expr),
     other => other,
+  }
+}
+
+/// Markup written where a value goes, moved into the tree. A local holding
+/// markup is substituted where it renders, a placement's markup prop becomes
+/// a `$slot:<prop>` fill among its children and every `{$props.name}` becomes
+/// a `$slotRead:<name>` that takes such a fill before the value.
+mod fills {
+  use std::collections::{HashMap, HashSet};
+
+  use snapfire_fsr_ir::ast::{Component, Entry, Expr, Lit, LogicOp, Stmt};
+  use snapfire_fsr_ir::render::{CONTEXT_PREFIX, SLOT_CONTENT_PREFIX, SLOT_READ_PREFIX};
+  use snapfire_fsr_ir::Tmpl;
+
+  /// Places every `Expr::Markup` the component holds; `Err` says why one cannot be.
+  pub(super) fn place_markup(component: &mut Component) -> Result<(), &'static str> {
+    let mut held: HashMap<String, Tmpl> = HashMap::new();
+    let mut kept = Vec::new();
+    for stmt in std::mem::take(&mut component.body) {
+      match &stmt {
+        Stmt::Let { name, expr } => match tree_of(expr, &held) {
+          Some(t) => {
+            held.insert(name.clone(), t);
+          }
+          None => kept.push(stmt),
+        },
+        _ => kept.push(stmt),
+      }
+    }
+    component.body = kept;
+    place(&mut component.render, &held);
+    let mut left = false;
+    let mut check = |e: &Expr| left |= matches!(e, Expr::Markup(_)) || matches!(e, Expr::Var(n) if held.contains_key(n));
+    for stmt in &component.body {
+      if let Stmt::Let { expr, .. } = stmt {
+        expr.visit(&mut check);
+      }
+    }
+    component.render.visit(&mut check);
+    match left {
+      true => Err("markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered"),
+      false => Ok(()),
+    }
+  }
+
+  /// The tree `expr` stands for when it is markup or chooses between markup.
+  fn tree_of(expr: &Expr, held: &HashMap<String, Tmpl>) -> Option<Tmpl> {
+    match expr {
+      Expr::Markup(t) => Some((**t).clone()),
+      Expr::Var(n) => held.get(n).cloned(),
+      Expr::Ternary(c, a, b) => {
+        let (ta, tb) = (tree_of(a, held), tree_of(b, held));
+        if ta.is_none() && tb.is_none() {
+          return None;
+        }
+        Some(Tmpl::If { cond: (**c).clone(), then: Box::new(ta.unwrap_or_else(|| value(a))), r#else: Some(Box::new(tb.unwrap_or_else(|| value(b)))) })
+      }
+      Expr::Logic(LogicOp::And, c, m) => tree_of(m, held).map(|t| Tmpl::If { cond: (**c).clone(), then: Box::new(t), r#else: None }),
+      _ => None,
+    }
+  }
+
+  fn value(e: &Expr) -> Tmpl {
+    match e {
+      Expr::Lit(Lit::Null) => Tmpl::Fragment(Vec::new()),
+      other => Tmpl::Expr(other.clone()),
+    }
+  }
+
+  /// A `let` the renderer reads by its name: a slot's fill, a slot read, a
+  /// Vue outlet and a context provider.
+  fn reserved(name: &str) -> bool {
+    name.starts_with("$slot") || name.starts_with(CONTEXT_PREFIX)
+  }
+
+  fn place(t: &mut Tmpl, held: &HashMap<String, Tmpl>) {
+    match t {
+      Tmpl::Expr(e) => {
+        if let Some(sub) = tree_of(e, held) {
+          *t = sub;
+          place(t, held);
+        } else if let Expr::Field(base, name) = e {
+          if matches!(&**base, Expr::Var(v) if v == "$props") {
+            *t = Tmpl::Let { name: format!("{SLOT_READ_PREFIX}{name}"), expr: e.clone(), then: Box::new(Tmpl::Fragment(Vec::new())) };
+          }
+        }
+      }
+      Tmpl::Component { props, children, .. } => {
+        let mut moved = Vec::new();
+        props.retain(|entry| match entry {
+          Entry::Field(k, e) => match tree_of(e, held) {
+            Some(sub) => {
+              moved.push((k.clone(), sub));
+              false
+            }
+            None => true,
+          },
+          _ => true,
+        });
+        for child in children.iter_mut() {
+          place(child, held);
+        }
+        for (k, mut sub) in moved {
+          place(&mut sub, held);
+          children.push(Tmpl::Let { name: format!("{SLOT_CONTENT_PREFIX}{k}"), expr: Expr::Lit(Lit::Bool(true)), then: Box::new(sub) });
+        }
+      }
+      Tmpl::Let { name, expr, then } if !reserved(name) && tree_of(expr, held).is_some() => {
+        let sub = tree_of(expr, held).expect("checked by the guard");
+        let mut inner = held.clone();
+        inner.insert(name.clone(), sub);
+        let mut body = std::mem::replace(&mut **then, Tmpl::Fragment(Vec::new()));
+        place(&mut body, &inner);
+        *t = body;
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| place(c, held)),
+      Tmpl::If { then, r#else, .. } => {
+        place(then, held);
+        if let Some(e) = r#else {
+          place(e, held);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => place(body, held),
+      Tmpl::Text(_) | Tmpl::Slot(_) => {}
+    }
+  }
+
+  /// Every (module, prop) a placement in `t` passes markup for.
+  pub(super) fn collect(t: &Tmpl, out: &mut HashSet<(String, String)>) {
+    match t {
+      Tmpl::Component { module, children, .. } => {
+        for child in children {
+          if let Tmpl::Let { name, .. } = child {
+            if let Some(prop) = name.strip_prefix(SLOT_CONTENT_PREFIX) {
+              out.insert((module.clone(), prop.to_owned()));
+            }
+          }
+          collect(child, out);
+        }
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|c| collect(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        collect(then, out);
+        if let Some(e) = r#else {
+          collect(e, out);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => collect(body, out),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+
+  /// `t` with each read of a prop of `module` that nothing fills made plain.
+  pub(super) fn settle(t: &mut Tmpl, module: &str, filled: &HashSet<(String, String)>) {
+    if let Tmpl::Let { name, expr, .. } = t {
+      if let Some(prop) = name.strip_prefix(SLOT_READ_PREFIX) {
+        if !filled.contains(&(module.to_owned(), prop.to_owned())) {
+          *t = Tmpl::Expr(expr.clone());
+        }
+        return;
+      }
+    }
+    match t {
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(|c| settle(c, module, filled)),
+      Tmpl::If { then, r#else, .. } => {
+        settle(then, module, filled);
+        if let Some(e) = r#else {
+          settle(e, module, filled);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => settle(body, module, filled),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+
+  /// The props of placements in `t` that pass markup to a module `renders_in_browser` holds.
+  pub(super) fn into_browser(t: &Tmpl, renders_in_browser: &dyn Fn(&str) -> bool, out: &mut Vec<(String, String)>) {
+    let mut filled = HashSet::new();
+    collect(t, &mut filled);
+    out.extend(filled.into_iter().filter(|(module, _)| renders_in_browser(module)));
   }
 }

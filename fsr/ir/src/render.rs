@@ -749,6 +749,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     }
     Tmpl::For { over, params, body } => render_for(env, over, params, body, library, slots, out)?,
     Tmpl::Let { name, expr, then } if name.starts_with(SLOT_OUT_PREFIX) => render_vue_slot(env, &name[SLOT_OUT_PREFIX.len()..], expr, then, library, slots, out)?,
+    Tmpl::Let { name, expr, .. } if name.starts_with(SLOT_READ_PREFIX) => render_slot_read(env, &name[SLOT_READ_PREFIX.len()..], expr, library, slots, out)?,
     Tmpl::Let { name, .. } if name.starts_with(SLOT_CONTENT_PREFIX) => {}
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
@@ -1386,6 +1387,29 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
   render_slot_content(env, slot, library, slots, out)
 }
 
+/// A component's `{name}` where a placement may pass markup for the prop
+/// `name`: the placement's `$slot:name` fill rendered as its children would be,
+/// else the prop's value `read`.
+fn render_slot_read<'a>(env: &mut Env, name: &str, read: &crate::ast::Expr, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let fill = slots.last().filter(|frame| !frame.island).and_then(|frame| {
+    frame.children.iter().find_map(|c| match c {
+      Tmpl::Let { name: wrapper, then, .. } if wrapper.strip_prefix(SLOT_CONTENT_PREFIX) == Some(name) => Some(&**then),
+      _ => None,
+    })
+  });
+  let Some(fill) = fill else {
+    let value = env.eval_sync(read)?;
+    return interpolate(&value, out, env.markup);
+  };
+  let mut frame = slots.pop().expect("a fill was found in it");
+  let children = std::mem::replace(&mut frame.children, std::slice::from_ref(fill));
+  let result = render_slot_content(env, frame, library, slots, out);
+  if let Some(frame) = slots.last_mut() {
+    frame.children = children;
+  }
+  result
+}
+
 /// The caller's content for the slot `name` among a placement's children: the named `$slot:` wrapper's body, for `default` every child that is not a wrapper. `None` when the caller gave none.
 fn slot_content<'a>(children: &'a [Tmpl], name: &str) -> Option<(Option<&'a crate::ast::Expr>, Vec<&'a Tmpl>)> {
   if let Some(found) = children.iter().find_map(|c| match c {
@@ -1695,7 +1719,7 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
   use crate::ast::Expr;
   match expr {
     Expr::Lit(lit) => *expr = Expr::Folded(lit_value(lit)),
-    Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) | Expr::Lambda { .. } => {}
+    Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) | Expr::Lambda { .. } | Expr::Markup(_) => {}
     Expr::Object(entries) => {
       fold_entries(entries);
       if entries.iter().all(|entry| matches!(entry, Entry::Field(_, Expr::Folded(_)))) {
@@ -1903,10 +1927,14 @@ pub fn handler_token(value: &Value) -> Option<&str> {
     _ => None,
   }
 }
-/// A `Tmpl::Let` among a Vue placement's children named with this prefix and a slot is the caller's content for that slot; `default` is the default slot's when it takes props.
+/// A `Tmpl::Let` among a placement's children named with this prefix and a slot is the caller's content for that slot: a Vue named slot or the markup a JSX caller passed as the prop of that name; `default` is the default slot's when it takes props.
 pub const SLOT_CONTENT_PREFIX: &str = "$slot:";
 /// A `Tmpl::Let` in a Vue template named with this prefix and a slot is that `<slot>`: its value the props it hands the caller's content, its body the fallback written when the caller gave none.
 pub const SLOT_OUT_PREFIX: &str = "$slotOut:";
+
+/// The prefix of a `{prop}` read that takes the placement's `$slot:` fill for
+/// the prop before its value: `$slotRead:<prop>`, the read as its expression.
+pub const SLOT_READ_PREFIX: &str = "$slotRead:";
 /// The name the caller's content reads a scoped slot's props under.
 pub const SLOT_PROPS: &str = "$slotProps";
 

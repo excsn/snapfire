@@ -12,6 +12,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
   match expr {
     Expr::Lit(lit) => lit_to_sx(lit),
     Expr::Folded(_) => unreachable!("a folded value is never written to a plan"),
+    Expr::Markup(_) => unreachable!("markup is placed in the tree before a component leaves the lowerer"),
     Expr::Var(name) => {
       if reserved_atom(name) {
         form("var", vec![Sx::Sym(name.clone())])

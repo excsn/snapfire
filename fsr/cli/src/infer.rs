@@ -339,7 +339,7 @@ impl<'a> Inferer<'a> {
           other => Ts::TsExpr(other.to_owned()),
         })
         .unwrap_or(Ts::Unknown),
-      Expr::Lambda { .. } | Expr::Handler(_) => Ts::Unknown,
+      Expr::Lambda { .. } | Expr::Handler(_) | Expr::Markup(_) => Ts::Unknown,
       Expr::Hoist { expr, .. } => self.expr(expr, env),
       Expr::Map(over, f) => {
         let elem = element(self.expr(over, env));

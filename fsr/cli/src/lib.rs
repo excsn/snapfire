@@ -1246,6 +1246,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   report.islands.sort();
   set.settle_proofs();
+  set.settle_fills();
   for rewrite in &mut set.rewrites {
     rewrite.module = format!("{}{}", options.prefix(), rewrite.module);
     report.hoisted.push((rewrite.module.clone(), rewrite.sites.len(), rewrite.chunks.len(), rewrite.chunks.iter().filter(|c| !c.proven).count()));

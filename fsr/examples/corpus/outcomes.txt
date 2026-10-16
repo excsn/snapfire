@@ -39,14 +39,14 @@ learn-conditional-rendering-1	lowered
 learn-conditional-rendering-10	lowered
 learn-conditional-rendering-11	lowered
 learn-conditional-rendering-12	lowered
-learn-conditional-rendering-13	client: src/App.js:2:7 a declaration without a value
+learn-conditional-rendering-13	lowered
 learn-conditional-rendering-14	lowered
 learn-conditional-rendering-2	lowered
 learn-conditional-rendering-3	lowered
 learn-conditional-rendering-4	lowered
 learn-conditional-rendering-5	lowered
 learn-conditional-rendering-6	lowered
-learn-conditional-rendering-7	client: src/App.js:5:7 JSX in a body
+learn-conditional-rendering-7	lowered
 learn-conditional-rendering-8	lowered
 learn-conditional-rendering-9	lowered
 learn-describing-the-ui-1	lowered
@@ -57,7 +57,7 @@ learn-describing-the-ui-4	lowered
 learn-describing-the-ui-5	lowered
 learn-describing-the-ui-6	lowered
 learn-describing-the-ui-7	lowered
-learn-describing-the-ui-8	client: src/App.js:6:5 JSX in a body
+learn-describing-the-ui-8	lowered
 learn-escape-hatches-1	lowered
 learn-escape-hatches-10	lowered
 learn-escape-hatches-2	lowered
@@ -66,14 +66,14 @@ learn-escape-hatches-4	lowered
 learn-escape-hatches-5	lowered
 learn-escape-hatches-8	lowered
 learn-escape-hatches-9	lowered
-learn-extracting-state-logic-into-a-reducer-1	client: src/TaskList.js:17:7 a declaration without a value
+learn-extracting-state-logic-into-a-reducer-1	lowered
 learn-extracting-state-logic-into-a-reducer-10	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 learn-extracting-state-logic-into-a-reducer-11	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 learn-extracting-state-logic-into-a-reducer-12	client: src/messengerReducer.js:4:5 a numeric property name
 learn-extracting-state-logic-into-a-reducer-13	client: src/messengerReducer.js:4:5 a numeric property name
 learn-extracting-state-logic-into-a-reducer-14	client: src/messengerReducer.js:4:5 a numeric property name
-learn-extracting-state-logic-into-a-reducer-3	client: src/TaskList.js:17:7 a declaration without a value
-learn-extracting-state-logic-into-a-reducer-4	client: src/TaskList.js:17:7 a declaration without a value
+learn-extracting-state-logic-into-a-reducer-3	lowered
+learn-extracting-state-logic-into-a-reducer-4	lowered
 learn-extracting-state-logic-into-a-reducer-6	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 learn-extracting-state-logic-into-a-reducer-7	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 learn-extracting-state-logic-into-a-reducer-8	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
@@ -86,7 +86,7 @@ learn-importing-and-exporting-components-5	lowered
 learn-importing-and-exporting-components-6	lowered
 learn-index-1	lowered
 learn-index-2	lowered
-learn-index-3	client: src/App.js:9:5 JSX in a body
+learn-index-3	lowered
 learn-index-4	lowered
 learn-index-5	lowered
 learn-installation-1	lowered
@@ -131,9 +131,9 @@ learn-managing-state-3	lowered
 learn-managing-state-4	lowered
 learn-managing-state-5	lowered
 learn-managing-state-6	lowered
-learn-managing-state-7	client: src/TaskList.js:25:7 a declaration without a value
+learn-managing-state-7	lowered
 learn-managing-state-8	client: src/Heading.js:7:5 a `case` that falls through into the next
-learn-managing-state-9	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-managing-state-9	client: src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 learn-manipulating-the-dom-with-refs-1	lowered
 learn-manipulating-the-dom-with-refs-10	lowered
 learn-manipulating-the-dom-with-refs-11	lowered
@@ -157,8 +157,8 @@ learn-passing-data-deeply-with-context-4	client: src/Heading.js:20:7 a statement
 learn-passing-data-deeply-with-context-5	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
 learn-passing-data-deeply-with-context-6	client: src/Heading.js:7:5 a `case` that falls through into the next
 learn-passing-data-deeply-with-context-7	client: src/Heading.js:7:5 a `case` that falls through into the next
-learn-passing-data-deeply-with-context-8	client: src/App.js:28:5 JSX in a body
-learn-passing-data-deeply-with-context-9	client: src/App.js:31:5 JSX in a body
+learn-passing-data-deeply-with-context-8	lowered
+learn-passing-data-deeply-with-context-9	lowered
 learn-passing-props-to-a-component-1	lowered
 learn-passing-props-to-a-component-10	client: src/App.js:3:15 `window` is not bound here; an import the build cannot follow or a name from outside the body
 learn-passing-props-to-a-component-11	lowered
@@ -172,7 +172,7 @@ learn-passing-props-to-a-component-6	lowered
 learn-passing-props-to-a-component-7	lowered
 learn-passing-props-to-a-component-8	lowered
 learn-passing-props-to-a-component-9	lowered
-learn-preserving-and-resetting-state-1	client: src/App.js:4:19 JSX in a body
+learn-preserving-and-resetting-state-1	lowered
 learn-preserving-and-resetting-state-10	lowered
 learn-preserving-and-resetting-state-11	lowered
 learn-preserving-and-resetting-state-12	lowered
@@ -180,8 +180,8 @@ learn-preserving-and-resetting-state-13	lowered
 learn-preserving-and-resetting-state-14	lowered
 learn-preserving-and-resetting-state-15	lowered
 learn-preserving-and-resetting-state-16	lowered
-learn-preserving-and-resetting-state-17	client: src/App.js:6:5 JSX in a body
-learn-preserving-and-resetting-state-18	client: src/App.js:6:5 JSX in a body
+learn-preserving-and-resetting-state-17	lowered
+learn-preserving-and-resetting-state-18	lowered
 learn-preserving-and-resetting-state-19	lowered
 learn-preserving-and-resetting-state-2	lowered
 learn-preserving-and-resetting-state-20	lowered
@@ -234,15 +234,15 @@ learn-removing-effect-dependencies-7	lowered
 learn-removing-effect-dependencies-8	lowered
 learn-removing-effect-dependencies-9	lowered
 learn-render-and-commit-3	client: src/App.js:18:18 `.toLocaleTimeString()`, which reads the viewer's time zone
-learn-rendering-lists-1	client: src/App.js:11:5 JSX in a body
+learn-rendering-lists-1	lowered
 learn-rendering-lists-10	lowered
 learn-rendering-lists-11	lowered
 learn-rendering-lists-12	lowered
 learn-rendering-lists-13	client: src/App.js:13:3 a call for its effect, which a straight-line body cannot hold
 learn-rendering-lists-14	lowered
-learn-rendering-lists-2	client: src/App.js:9:5 JSX in a body
-learn-rendering-lists-3	client: src/App.js:6:5 JSX in a body
-learn-rendering-lists-4	client: src/App.js:6:5 JSX in a body
+learn-rendering-lists-2	lowered
+learn-rendering-lists-3	lowered
+learn-rendering-lists-4	lowered
 learn-rendering-lists-5	lowered
 learn-rendering-lists-6	lowered
 learn-rendering-lists-7	lowered
@@ -287,19 +287,19 @@ learn-reusing-logic-with-custom-hooks-9	lowered
 learn-rsc-sandbox-test-1	lowered
 learn-rsc-sandbox-test-10	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-2	lowered
-learn-rsc-sandbox-test-3	client: src/App.js:8:27 JSX in a body
-learn-rsc-sandbox-test-4	client: src/App.js:10:27 JSX in a body
+learn-rsc-sandbox-test-3	client: src/Albums.js:6:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/App.js:8:7 `Suspense` comes from `react`, which the build cannot follow
+learn-rsc-sandbox-test-4	client: src/App.js:10:7 `Suspense` comes from `react`, which the build cannot follow | src/SlowData.js:8:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/Timestamp.js:4:19 the current time on a render path, which the server and the browser read at different moments
 learn-rsc-sandbox-test-5	client: src/DataViewer.js:5:28 `Map` is not bound here; an import the build cannot follow or a name from outside the body
 learn-rsc-sandbox-test-6	refused: src/App.js:15:22: `now` calls `time.now` on a render path; it runs on the server only, and a component's render path runs in the browser too
 learn-rsc-sandbox-test-7	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-8	client: src/actions.js:6:3 a call for its effect, which a straight-line body cannot hold
 learn-rsc-sandbox-test-9	lowered
-learn-scaling-up-with-reducer-and-context-1	client: src/TaskList.js:25:7 a declaration without a value
-learn-scaling-up-with-reducer-and-context-2	client: src/TaskList.js:25:7 a declaration without a value
+learn-scaling-up-with-reducer-and-context-1	lowered
+learn-scaling-up-with-reducer-and-context-2	lowered
 learn-scaling-up-with-reducer-and-context-3	client: src/App.js:36:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 learn-scaling-up-with-reducer-and-context-4	client: src/App.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-scaling-up-with-reducer-and-context-5	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-scaling-up-with-reducer-and-context-6	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-scaling-up-with-reducer-and-context-5	client: src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-scaling-up-with-reducer-and-context-6	client: src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 learn-separating-events-from-effects-1	lowered
 learn-separating-events-from-effects-10	client: src/App.js:9:18 `useEffectEvent`, a hook the build cannot follow
 learn-separating-events-from-effects-11	client: src/App.js:9:18 `useEffectEvent`, a hook the build cannot follow
@@ -373,8 +373,8 @@ learn-updating-arrays-in-state-11	lowered
 learn-updating-arrays-in-state-12	lowered
 learn-updating-arrays-in-state-13	lowered
 learn-updating-arrays-in-state-14	lowered
-learn-updating-arrays-in-state-15	client: src/TaskList.js:25:7 a declaration without a value
-learn-updating-arrays-in-state-16	client: src/TaskList.js:25:7 a declaration without a value
+learn-updating-arrays-in-state-15	lowered
+learn-updating-arrays-in-state-16	lowered
 learn-updating-arrays-in-state-2	lowered
 learn-updating-arrays-in-state-3	lowered
 learn-updating-arrays-in-state-4	lowered
@@ -414,8 +414,8 @@ reference-react-activity-1	lowered
 reference-react-activity-2	client: src/App.js:10:7 `Activity` comes from `react`, which the build cannot follow
 reference-react-activity-3	lowered
 reference-react-activity-4	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
-reference-react-activity-5	client: src/App.js:26:27 JSX in a body
-reference-react-activity-6	client: src/App.js:26:27 JSX in a body
+reference-react-activity-5	client: src/App.js:26:7 `Suspense` comes from `react`, which the build cannot follow | src/Posts.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-activity-6	client: src/App.js:27:9 `Activity` comes from `react`, which the build cannot follow
 reference-react-activity-7	lowered
 reference-react-activity-8	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
 reference-react-activity-9	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
@@ -431,8 +431,8 @@ reference-react-children-4	client: src/RowList.js:7:22 `Children` comes from `re
 reference-react-children-5	client: src/ReversedList.js:4:18 `Children` comes from `react`, which the build cannot follow
 reference-react-children-6	lowered
 reference-react-children-7	lowered
-reference-react-children-8	client: src/App.js:6:31 JSX in a body
-reference-react-children-9	client: src/App.js:9:18 JSX in a body
+reference-react-children-8	client: src/App.js:3:31 markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+reference-react-children-9	client: src/App.js:3:31 markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
 reference-react-cloneelement-1	client: src/List.js:7:8 `Children` comes from `react`, which the build cannot follow
 reference-react-cloneelement-2	client: src/List.js:9:16 a call to a computed target
 reference-react-cloneelement-3	client: src/List.js:15:14 a call to a computed target
@@ -531,21 +531,21 @@ reference-react-strictmode-6	lowered
 reference-react-strictmode-7	lowered
 reference-react-strictmode-8	lowered
 reference-react-strictmode-9	client: src/App.js:63:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
-reference-react-suspense-1	client: src/ArtistPage.js:8:27 JSX in a body
-reference-react-suspense-10	client: src/App.js:8:25 JSX in a body
+reference-react-suspense-1	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/ArtistPage.js:8:7 `Suspense` comes from `react`, which the build cannot follow
+reference-react-suspense-10	client: src/App.js:16:9 `useTransition` | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow
 reference-react-suspense-11	client: src/data.js:6:3 an expression statement other than a write to a local
-reference-react-suspense-13	client: src/App.js:27:29 JSX in a body
-reference-react-suspense-2	client: src/ArtistPage.js:8:27 JSX in a body
+reference-react-suspense-13	client: src/App.js:27:9 `Suspense` comes from `react`, which the build cannot follow
+reference-react-suspense-2	client: src/ArtistPage.js:8:7 `Suspense` comes from `react`, which the build cannot follow
 reference-react-suspense-3	refused: src/App.js: no exported `default`
-reference-react-suspense-4	client: src/ArtistPage.js:10:27 JSX in a body
-reference-react-suspense-5	client: src/ArtistPage.js:10:27 JSX in a body
-reference-react-suspense-6	client: src/App.js:12:27 JSX in a body
+reference-react-suspense-4	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/ArtistPage.js:10:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-5	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/ArtistPage.js:12:9 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-6	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
 reference-react-suspense-7	client: src/App.js:6:9 `useDeferredValue`
-reference-react-suspense-8	client: src/App.js:8:25 JSX in a body
-reference-react-suspense-9	client: src/App.js:8:25 JSX in a body
+reference-react-suspense-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow | src/ArtistPage.js:11:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-9	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow | src/ArtistPage.js:11:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-1	client: src/App.js:35:11 `use` after a `return`, which React refuses since the hooks would change between renders
 reference-react-use-3	lowered
-reference-react-use-4	client: src/App.js:12:27 JSX in a body
+reference-react-use-4	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/App.js:20:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-5	client: src/data.js:9:5 a call for its effect, which a straight-line body cannot hold
 reference-react-use-6	client: src/App.js:7:9 `useTransition`
 reference-react-use-7	client: src/App.js:5:22 a function value; lambdas go to `map`, `filter` and their kin
@@ -561,12 +561,12 @@ reference-react-usecontext-2	lowered
 reference-react-usecontext-3	client: src/App.js:11:9 `setCurrentUser` is not bound here; an import the build cannot follow or a name from outside the body
 reference-react-usecontext-4	client: src/App.js:14:11 `setCurrentUser` is not bound here; an import the build cannot follow or a name from outside the body
 reference-react-usecontext-5	client: src/App.js:9:42 `setTheme` is not bound here; an import the build cannot follow or a name from outside the body
-reference-react-usecontext-6	client: src/TaskList.js:20:7 a declaration without a value | src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-usecontext-6	client: src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
 reference-react-usecontext-7	lowered
 reference-react-usecontext-8	lowered
 reference-react-usecontext-9	client: src/Heading.js:7:5 a `case` that falls through into the next
 reference-react-usedebugvalue-1	client: src/useOnlineStatus.js:4:9 `useSyncExternalStore`
-reference-react-usedeferredvalue-1	client: src/App.js:12:27 JSX in a body
+reference-react-usedeferredvalue-1	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
 reference-react-usedeferredvalue-2	client: src/App.js:6:9 `useDeferredValue`
 reference-react-usedeferredvalue-3	client: src/App.js:6:9 `useDeferredValue`
 reference-react-useeffect-1	lowered
@@ -592,9 +592,9 @@ reference-react-useid-2	client: src/App.js:4:9 `useId`, whose value React derive
 reference-react-useid-3	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useimperativehandle-1	lowered
 reference-react-useimperativehandle-2	client: src/CommentList.js:16:3 a statement a component cannot hold before its `return`
-reference-react-uselayouteffect-1	client: src/App.js:8:11 JSX in a body
-reference-react-uselayouteffect-2	client: src/App.js:8:11 JSX in a body
-reference-react-uselayouteffect-3	client: src/App.js:8:11 JSX in a body
+reference-react-uselayouteffect-1	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:26:10 a call to `createPortal`, which the build cannot follow
+reference-react-uselayouteffect-2	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
+reference-react-uselayouteffect-3	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
 reference-react-usememo-1	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
 reference-react-usememo-2	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
 reference-react-usememo-3	client: src/utils.js:3:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
@@ -608,7 +608,7 @@ reference-react-useoptimistic-6	client: src/App.js:9:5 a method or accessor in a
 reference-react-useoptimistic-7	client: src/ItemList.js:5:9 `useOptimistic`
 reference-react-usereducer-1	lowered
 reference-react-usereducer-2	lowered
-reference-react-usereducer-3	client: src/TaskList.js:25:7 a declaration without a value
+reference-react-usereducer-3	lowered
 reference-react-usereducer-5	client: src/TodoList.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
 reference-react-usereducer-6	client: src/TodoList.js:5:3 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if` and `switch`
 reference-react-useref-1	lowered
@@ -629,13 +629,13 @@ reference-react-usestate-5	lowered
 reference-react-usestate-6	lowered
 reference-react-usestate-7	lowered
 reference-react-usestate-8	lowered
-reference-react-usestate-9	client: src/TaskList.js:25:7 a declaration without a value
+reference-react-usestate-9	lowered
 reference-react-usesyncexternalstore-1	client: src/App.js:5:9 `useSyncExternalStore`
 reference-react-usesyncexternalstore-2	client: src/App.js:4:9 `useSyncExternalStore`
 reference-react-usesyncexternalstore-3	client: src/useOnlineStatus.js:4:9 `useSyncExternalStore`
-reference-react-usetransition-6	client: src/App.js:10:25 JSX in a body
-reference-react-usetransition-7	client: src/App.js:10:25 JSX in a body
-reference-react-usetransition-8	client: src/App.js:8:25 JSX in a body
+reference-react-usetransition-6	client: src/App.js:10:5 `Suspense` comes from `react`, which the build cannot follow | src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-usetransition-7	client: src/App.js:10:5 `Suspense` comes from `react`, which the build cannot follow | src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/TabButton.js:4:9 `useTransition`
+reference-react-usetransition-8	client: src/App.js:16:9 `useTransition` | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow
 reference-rsc-use-client-1	client: src/InspirationGenerator.js:9:17 `inspirations` comes from `./inspirations`, which the build cannot follow
 reference-rsc-use-client-2	lowered
 reference-rules-components-and-hooks-must-be-pure-1	lowered

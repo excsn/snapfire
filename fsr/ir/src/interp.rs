@@ -754,6 +754,7 @@ impl Env {
       }
     }
     match expr {
+      Expr::Markup(_) => Err(Fail::internal("markup reached the interpreter; the build places it in the tree")),
       Expr::Const(key) => {
         if let Some(value) = self.held.get(key) {
           return Ok(value.clone());
@@ -1136,6 +1137,7 @@ impl Env {
     }
     Box::pin(async move {
       match expr {
+        Expr::Markup(_) => self.eval_sync(expr),
         Expr::Const(key) => {
           let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };
           let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };

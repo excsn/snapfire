@@ -876,6 +876,9 @@ pub(crate) struct Lowerer<'a> {
   /// loader runs on every navigation, so it may not.
   extends: bool,
   pub(crate) scope: Vec<(String, Expr)>,
+  /// Markup a component lowered ahead of the expression that holds it, by
+  /// that expression's span; `expr` returns it rather than refusing JSX.
+  pub(crate) premade: std::collections::HashMap<(u32, u32), Expr>,
   /// Module-level names a component lowerer has resolved, read after the scope.
   pub(crate) globals: Vec<(String, Expr)>,
   /// The resolved module-level names that hold a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`.
@@ -928,7 +931,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1482,6 +1485,12 @@ impl<'a> Lowerer<'a> {
   }
 
   pub(crate) fn expr(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+    if !self.premade.is_empty() {
+      let span = expr.span();
+      if let Some(made) = self.premade.get(&(span.lo.0, span.hi.0)) {
+        return Ok(made.clone());
+      }
+    }
     match expr {
       js::Expr::Paren(p) => self.expr(&p.expr),
       js::Expr::Await(a) => self.expr(&a.arg),
