@@ -175,6 +175,21 @@ pub(crate) fn stub_paths(stub: &str) -> Vec<String> {
   paths
 }
 
+/// The module an esm.sh stub stands for: the path its `export * from` names, else its first script. A stub may import a dependency first.
+pub(crate) fn stub_entry(stub: &str) -> Option<String> {
+  let paths = stub_paths(stub);
+  paths
+    .iter()
+    .find(|p| stub.lines().any(|l| l.contains("export * from") && l.contains(p.as_str())))
+    .or_else(|| paths.iter().find(|p| p.ends_with(".mjs") || p.ends_with(".js")))
+    .cloned()
+}
+
+/// Whether `module` imports the bare specifier `package` or one of its subpaths.
+pub(crate) fn imports_bare(module: &str, package: &str) -> bool {
+  ['"', '\''].iter().any(|q| module.contains(&format!("{q}{package}{q}")) || module.contains(&format!("{q}{package}/")))
+}
+
 /// Every quoted absolute `/…` path a module imports.
 pub(crate) fn absolute_imports(module: &str) -> Vec<String> {
   let mut found = Vec::new();
@@ -317,6 +332,7 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
     std::fs::create_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
     let mut queue: Vec<String> = paths.clone();
     let mut written: Vec<String> = Vec::new();
+    let mut imported: Vec<String> = externals.to_vec();
     while let Some(path) = queue.pop() {
       let name = file_name(&path);
       if written.contains(&name) {
@@ -325,6 +341,11 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
       let module_url = format!("{host}{path}");
       let bytes = get(&client, &module_url)?.ok_or_else(|| BuildError::Http(module_url.clone(), "HTTP 404".to_owned()))?;
       let mut text = String::from_utf8(bytes).map_err(|e| BuildError::Http(module_url.clone(), e.to_string()))?;
+      for bare in &external {
+        if !imported.iter().any(|i| i == bare) && imports_bare(&text, bare) {
+          imported.push((*bare).to_owned());
+        }
+      }
       for import in absolute_imports(&text) {
         let same_package = import.starts_with(&format!("/{}@", spec.package));
         if !same_package {
@@ -357,9 +378,15 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
         imports.insert(spec.specifier(), serde_json::Value::String(format!("{}/{rel}", layout.base.trim_end_matches('/'))));
         let entry = manifest.packages.entry(spec.package.clone()).or_default();
         entry.version = spec.version.clone();
-        entry.externals = externals.to_vec();
         entry.entries.insert(spec.specifier(), rel.clone());
         added.push((spec.specifier(), rel, size));
+      }
+    }
+    if let Some(entry) = manifest.packages.get_mut(&spec.package) {
+      for bare in imported {
+        if !entry.externals.contains(&bare) {
+          entry.externals.push(bare);
+        }
       }
     }
   }
@@ -375,6 +402,21 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn a_stub_that_imports_a_dependency_first_stands_for_the_module_it_re_exports() {
+    let stub = "/* esm.sh - react-dom@19.3.1/client */\nimport \"/react@19.3.1/es2022/react.development.mjs\";\nexport * from \"/react-dom@19.3.1/es2022/client.development.bundle.mjs\";\nexport { default } from \"/react-dom@19.3.1/es2022/client.development.bundle.mjs\";\n";
+    assert_eq!(stub_entry(stub).as_deref(), Some("/react-dom@19.3.1/es2022/client.development.bundle.mjs"));
+    assert_eq!(stub_entry("import \"/x@1/es2022/x.mjs\";\n").as_deref(), Some("/x@1/es2022/x.mjs"), "a stub with no re-export stands for its first script");
+  }
+
+  #[test]
+  fn a_bundle_imports_a_bare_package_by_its_root_or_a_subpath() {
+    let module = "import*as e from\"react\";import{jsx as t}from'react/jsx-runtime';";
+    assert!(imports_bare(module, "react"));
+    assert!(!imports_bare(module, "react-dom"), "a longer name sharing the prefix is another package");
+    assert!(!imports_bare(module, "clsx"));
+  }
 
   #[test]
   fn specs_parse_scoped_names_versions_and_subpaths() {

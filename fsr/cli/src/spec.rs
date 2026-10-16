@@ -529,7 +529,7 @@ fn fetch_bundle(client: &reqwest::blocking::Client, url: &str, dir: &Path, speci
 fn fetch_bundle_from(client: &reqwest::blocking::Client, host: &str, url: &str, dir: &Path, specifier: &str) -> Result<String, BuildError> {
   let stub = vendor::get(client, url)?.ok_or_else(|| BuildError::Http(url.to_owned(), "HTTP 404".to_owned()))?;
   let stub = String::from_utf8(stub).map_err(|e| BuildError::Http(url.to_owned(), e.to_string()))?;
-  let path = vendor::stub_paths(&stub).into_iter().find(|p| p.ends_with(".mjs") || p.ends_with(".js")).ok_or_else(|| BuildError::Http(url.to_owned(), format!("esm.sh answered with no module path:\n{stub}")))?;
+  let path = vendor::stub_entry(&stub).ok_or_else(|| BuildError::Http(url.to_owned(), format!("esm.sh answered with no module path:\n{stub}")))?;
   let folder = dir.join(specifier.replace('/', "__"));
   std::fs::create_dir_all(&folder).map_err(|e| BuildError::Io(folder.clone(), e))?;
   let mut queue = vec![path];
