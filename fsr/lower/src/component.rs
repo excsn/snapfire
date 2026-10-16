@@ -1050,7 +1050,7 @@ impl ComponentSet {
         lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
         let result = result.and_then(|(mut component, refs)| match fills::place_markup(&mut component) {
           Ok(()) => Ok((component, refs)),
@@ -3622,6 +3622,8 @@ struct ComponentLowerer<'a, 'p> {
   unbound_in: Option<String>,
   /// The functions returning markup being inlined, innermost last, so one that calls itself is refused rather than unrolled for ever.
   inlining: Vec<String>,
+  /// The functions [`Self::markup_call`] is reading the body of, so helpers calling each other end.
+  checking: std::cell::RefCell<Vec<String>>,
   /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
   /// set after to be `createContext` values.
   providers: Vec<(String, (usize, usize), Option<bool>)>,
@@ -3754,7 +3756,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// markup ahead of the statement or attribute that holds it, so
   /// `Lowerer::expr` takes it made. `fills` later places it in the tree.
   fn premake_expr(&mut self, e: &'p js::Expr) -> Lowered<()> {
-    if holds_jsx(e) {
+    if self.holds_markup(e) {
       let tmpl = self.child_expr(e)?;
       let span = e.span();
       self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Markup(Box::new(tmpl)));
@@ -4494,13 +4496,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let then = Box::new(self.child_expr(&bin.right)?);
         Ok(Tmpl::If { cond, then, r#else: None })
       }
-      js::Expr::Call(call) if map_with_jsx(call) => {
-        let js::Callee::Expr(callee) = &call.callee else { unreachable!() };
-        let js::Expr::Member(member) = &**callee else { unreachable!() };
-        let js::Expr::Arrow(arrow) = &*call.args[0].expr else { unreachable!() };
-        self.map_tree(&member.obj, arrow)
+      js::Expr::Call(call) if map_call(call).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => {
+        let (over, arrow) = map_call(call).expect("checked by the guard");
+        self.map_tree(over, arrow)
       }
-      js::Expr::OptChain(_) if optional_map(expr).is_some() => {
+      js::Expr::OptChain(_) if optional_map(expr).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => {
         let (over, arrow) = optional_map(expr).expect("checked by the guard");
         let missing = Expr::Compare(CompareOp::Eq, Box::new(self.lowerer.expr(over)?), Box::new(Expr::Lit(Lit::Null)));
         let each = self.map_tree(over, arrow)?;
@@ -4553,21 +4553,74 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::Cond(c) => self.holds_markup(&c.cons) || self.holds_markup(&c.alt),
       js::Expr::Bin(b) if b.op == js::BinaryOp::LogicalAnd => self.holds_markup(&b.right),
       js::Expr::Array(array) => array.elems.iter().flatten().any(|item| self.holds_markup(&item.expr)),
-      other => holds_jsx(other) || self.markup_call(other).is_some(),
+      js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => true,
+      js::Expr::Call(call) if map_call(call).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => true,
+      js::Expr::OptChain(_) if optional_map(expr).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => true,
+      other => self.markup_call(other).is_some(),
     }
   }
 
-  /// A call by name to a function the component declares, an arrow `const` or a `function`, whose body returns markup on some path.
+  /// Whether an arrow returns markup: its expression holds some or its block returns some.
+  fn arrow_markup(&self, arrow: &'p js::ArrowExpr) -> bool {
+    match &*arrow.body {
+      js::ArrowFunctionBody::Expr(e) => self.holds_markup(e),
+      js::ArrowFunctionBody::FunctionBody(b) => self.returns_markup(&b.stmts),
+    }
+  }
+
+  /// Whether a function body returns markup on some path: a `return` of markup or of a local a declaration in the body made markup, inside a branch, a block or a `switch` arm included.
+  fn returns_markup(&self, stmts: &'p [js::Stmt]) -> bool {
+    let mut locals = Vec::new();
+    self.stmts_return_markup(stmts, &mut locals)
+  }
+
+  fn stmts_return_markup(&self, stmts: &'p [js::Stmt], locals: &mut Vec<String>) -> bool {
+    stmts.iter().any(|stmt| self.stmt_returns_markup(stmt, locals))
+  }
+
+  fn stmt_returns_markup(&self, stmt: &'p js::Stmt, locals: &mut Vec<String>) -> bool {
+    match stmt {
+      js::Stmt::Decl(js::Decl::Var(var)) => {
+        for decl in &var.decls {
+          if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
+            if self.holds_markup(init) {
+              locals.push(id.id.sym.to_string());
+            }
+          }
+        }
+        false
+      }
+      js::Stmt::Return(r) => r.arg.as_deref().is_some_and(|arg| self.holds_markup(arg) || matches!(unwrap_literal(arg), js::Expr::Ident(id) if locals.iter().any(|l| l == id.sym.as_ref()))),
+      js::Stmt::Block(b) => self.stmts_return_markup(&b.stmts, locals),
+      js::Stmt::If(branch) => self.stmt_returns_markup(&branch.cons, locals) || branch.alt.as_deref().is_some_and(|alt| self.stmt_returns_markup(alt, locals)),
+      js::Stmt::Switch(sw) => sw.cases.iter().any(|case| self.stmts_return_markup(&case.cons, locals)),
+      _ => false,
+    }
+  }
+
+  /// A call by name to a function the component or its module declares, an arrow `const` or a `function`, whose body returns markup on some path.
   fn markup_call(&self, expr: &'p js::Expr) -> Option<(&'p js::CallExpr, String, Vec<js::Pat>, FunctionBody<'p>)> {
     let js::Expr::Call(call) = expr else { return None };
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Ident(id) = &**callee else { return None };
     let name = id.sym.to_string();
-    let (params, body) = self.handler_fns.get(&name)?.clone();
-    let markup = match body {
-      FunctionBody::Expr(e) => holds_jsx(e),
-      FunctionBody::Block(stmts) => returns_jsx(stmts),
+    let (params, body) = match self.handler_fns.get(&name) {
+      Some(declared) => declared.clone(),
+      None if !self.lowerer.scope.iter().any(|(n, _)| *n == name) => match find_function(self.lowerer.parsed, &name)? {
+        Found::Declared(params, stmts, _) => (params, FunctionBody::Block(stmts)),
+        Found::Arrow(arrow) => (arrow.params.clone(), arrow_body(arrow)),
+      },
+      None => return None,
     };
+    if self.checking.borrow().contains(&name) {
+      return None;
+    }
+    self.checking.borrow_mut().push(name.clone());
+    let markup = match body {
+      FunctionBody::Expr(e) => self.holds_markup(e),
+      FunctionBody::Block(stmts) => self.returns_markup(stmts),
+    };
+    self.checking.borrow_mut().pop();
     markup.then_some((call, name, params, body))
   }
 
@@ -5365,7 +5418,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       None => Ok(Expr::Lit(Lit::Bool(true))),
       Some(js::JSXAttrValue::Str(s)) => Ok(Expr::Lit(Lit::Str(decode_entities(&s.value.to_atom_lossy())))),
       Some(js::JSXAttrValue::JSXExprContainer(c)) => match &c.expr {
-        js::JSXExpr::Expr(e) if holds_jsx(e) => Ok(Expr::Markup(Box::new(self.child_expr(e)?))),
+        js::JSXExpr::Expr(e) if self.holds_markup(e) => Ok(Expr::Markup(Box::new(self.child_expr(e)?))),
         js::JSXExpr::Expr(e) => {
           self.premake_expr(e)?;
           self.lowerer.expr(e)
@@ -5546,21 +5599,7 @@ fn decode_entities(raw: &str) -> String {
   out
 }
 
-/// Whether a render reaching this expression would meet JSX.
-fn holds_jsx(expr: &js::Expr) -> bool {
-  match expr {
-    js::Expr::JSXElement(_) | js::Expr::JSXFragment(_) => true,
-    js::Expr::Paren(p) => holds_jsx(&p.expr),
-    js::Expr::Cond(c) => holds_jsx(&c.cons) || holds_jsx(&c.alt),
-    js::Expr::Bin(b) if b.op == js::BinaryOp::LogicalAnd => holds_jsx(&b.right),
-    js::Expr::Array(array) => array.elems.iter().flatten().any(|item| holds_jsx(&item.expr)),
-    js::Expr::Call(call) => map_with_jsx(call),
-    js::Expr::OptChain(_) => optional_map(expr).is_some(),
-    _ => false,
-  }
-}
-
-/// `xs?.map((x) => <jsx>)`: the array and the callback.
+/// `xs?.map(f)` with `f` an arrow written in place: the array and the callback.
 fn optional_map(expr: &js::Expr) -> Option<(&js::Expr, &js::ArrowExpr)> {
   let js::Expr::OptChain(chain) = expr else { return None };
   let js::OptChainBase::Call(call) = &*chain.base else { return None };
@@ -5570,41 +5609,18 @@ fn optional_map(expr: &js::Expr) -> Option<(&js::Expr, &js::ArrowExpr)> {
     return None;
   }
   let js::Expr::Arrow(arrow) = &*call.args.first()?.expr else { return None };
-  let jsx = match &*arrow.body {
-    js::ArrowFunctionBody::Expr(e) => holds_jsx(e),
-    js::ArrowFunctionBody::FunctionBody(b) => returns_jsx(&b.stmts),
-  };
-  jsx.then_some((&*member.obj, arrow))
+  Some((&*member.obj, arrow))
 }
 
-/// `xs.map((x) => <jsx>)` or with a block whose return is JSX.
-fn map_with_jsx(call: &js::CallExpr) -> bool {
-  let js::Callee::Expr(callee) = &call.callee else { return false };
-  let js::Expr::Member(member) = &**callee else { return false };
+/// `xs.map(f)` with `f` an arrow written in place: the array and the callback.
+fn map_call(call: &js::CallExpr) -> Option<(&js::Expr, &js::ArrowExpr)> {
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Member(member) = &**callee else { return None };
   if !matches!(&member.prop, js::MemberProp::Ident(id) if id.sym.as_ref() == "map") {
-    return false;
+    return None;
   }
-  let Some(first) = call.args.first() else { return false };
-  let js::Expr::Arrow(arrow) = &*first.expr else { return false };
-  match &*arrow.body {
-    js::ArrowFunctionBody::Expr(e) => holds_jsx(e),
-    js::ArrowFunctionBody::FunctionBody(b) => returns_jsx(&b.stmts),
-  }
-}
-
-/// Whether a function body returns JSX on some path, inside a branch, a block or a `switch` arm included.
-fn returns_jsx(stmts: &[js::Stmt]) -> bool {
-  stmts.iter().any(stmt_returns_jsx)
-}
-
-fn stmt_returns_jsx(stmt: &js::Stmt) -> bool {
-  match stmt {
-    js::Stmt::Return(r) => r.arg.as_deref().is_some_and(holds_jsx),
-    js::Stmt::Block(b) => returns_jsx(&b.stmts),
-    js::Stmt::If(branch) => stmt_returns_jsx(&branch.cons) || branch.alt.as_deref().is_some_and(stmt_returns_jsx),
-    js::Stmt::Switch(sw) => sw.cases.iter().any(|case| returns_jsx(&case.cons)),
-    _ => false,
-  }
+  let js::Expr::Arrow(arrow) = &*call.args.first()?.expr else { return None };
+  Some((&*member.obj, arrow))
 }
 
 #[cfg(test)]

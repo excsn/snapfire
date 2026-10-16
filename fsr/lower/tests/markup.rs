@@ -247,3 +247,17 @@ fn a_counted_for_loop_folds_over_its_range() {
     assert!(out.as_ref().is_err_and(|e| e.contains(says)), "{tag}: {out:?}");
   }
 }
+
+#[test]
+fn a_module_level_helper_that_returns_markup_renders_where_its_call_goes() {
+  let page = |body: &str| format!("const item = (label: string, at: number) => <li key={{at}}>{{label}}</li>;\nfunction list(labels: string[]) {{\n  if (labels.length === 0) {{\n    return null;\n  }}\n  return <ul>{{labels.map((l, i) => {{\n    const one = item(l, i);\n    return one;\n  }})}}</ul>;\n}}\nexport default function Page() {{\n  const on = true;\n{body}\n}}\n");
+  let same = |tag: &str, called: &str, inline: &str| {
+    let a = html(&format!("{tag}_called"), &[("routes/page.tsx", &page(called))]);
+    let b = html(&format!("{tag}_inline"), &[("routes/page.tsx", &page(inline))]);
+    assert!(a.is_ok(), "{tag}: {a:?}");
+    assert_eq!(a, b, "{tag}");
+  };
+  same("helper_direct", "  return <div>{list([\"a\", \"b\"])}</div>;", "  return <div><ul><li>a</li><li>b</li></ul></div>;");
+  same("helper_held", "  const shown = on ? list([\"a\"]) : null;\n  return <div>{shown}</div>;", "  return <div><ul><li>a</li></ul></div>;");
+  same("helper_empty", "  return <div>{list([])}</div>;", "  return <div></div>;");
+}
