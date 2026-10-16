@@ -780,6 +780,8 @@ impl<'a> Tracked<'a> {
   /// Generates and bundles, `sources` naming what changed and none of them meaning everything.
   /// `Ok(true)` when the generated files differ from the last build's.
   fn rebuild(&mut self, sources: Vec<PathBuf>) -> Result<bool, BuildError> {
+    let catalogs = self.app.dir.join("locales");
+    let recatalogued = sources.iter().any(|source| source.starts_with(&catalogs));
     self.pending.extend(sources);
     let adopted: Vec<String> = self.adopted.iter().cloned().collect();
     let mut built = self.app.generate(&adopted, &mut self.plugins)?;
@@ -801,7 +803,7 @@ impl<'a> Tracked<'a> {
     let sheets = bundled_sheets(&self.app.dir.join("dist"));
     let restyled = self.sheets.as_ref().is_some_and(|before| *before != sheets);
     self.sheets = Some(sheets);
-    let changed = self.files.as_ref() != Some(&built.files) || restyled;
+    let changed = self.files.as_ref() != Some(&built.files) || restyled || recatalogued;
     self.last = Some(built.assets.clone());
     if changed {
       self.files = Some(built.files);
