@@ -3788,7 +3788,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             return Err(self.lowerer.residue(decl.span, "`useStore` bound to one name; it is a pair, as `const [x, setX] = useStore(key, initial)`"))
           }
           Some(("useLocale", _)) => Expr::Locale,
-          Some(("useId", _)) => {
+          Some(("useId", _)) if !matches!(self.meanings().bindings.get("useId"), Some(crate::meaning::Meaning::Own { .. })) => {
             return Err(self.lowerer.residue_with(decl.span, "`useId`, whose value React derives from the shape of the tree at hydration", "the server cannot write the id React will expect; take an id from a prop or the loader's data"));
           }
           Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(&decl.name)),
@@ -5850,6 +5850,14 @@ export function Page(props: { className: string; children: React.ReactNode; cart
     let header = &lowered.iter().find(|(m, _)| m == "src/ui/Header.tsx#Header").unwrap().1;
     let Tmpl::Element { children, .. } = &header.render else { panic!() };
     assert_eq!(children[1], Tmpl::Slot("content".to_owned()), "`props.children` is the slot when props are bound whole");
+  }
+
+  #[test]
+  fn an_app_s_own_use_id_is_its_hook_not_react_s() {
+    let hook = "export function useId(prefix: string) {\n  return `${prefix}-field`;\n}\n";
+    let page = "import { useId } from \"../../src/useId\";\nexport default function Page() {\n  const id = useId(\"name\");\n  return <label htmlFor={id}>Name</label>;\n}\n";
+    let lowered = lower(&[("src/useId.ts", hook), ("routes/index/page.tsx", page)], "routes/index/page.tsx#default").unwrap();
+    assert!(lowered.iter().any(|(m, _)| m == "routes/index/page.tsx#default"));
   }
 
   #[test]
