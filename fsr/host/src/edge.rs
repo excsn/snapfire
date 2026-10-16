@@ -213,6 +213,18 @@ impl Host {
     let t = self.tables();
     let path = req.uri().path().to_owned();
 
+    if matches!(*req.method(), Method::GET | Method::HEAD) {
+      let ready = t.ready.as_deref() == Some(path.as_str());
+      if ready || t.health.as_deref() == Some(path.as_str()) {
+        let (status, text) = match ready && self.draining.load(std::sync::atomic::Ordering::Relaxed) {
+          true => (StatusCode::SERVICE_UNAVAILABLE, "shutting down"),
+          false => (StatusCode::OK, "ok"),
+        };
+        let mut response = text_response(status, text.to_owned());
+        response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        return response;
+      }
+    }
     if path == "/__fsr/sites" && req.method() == Method::GET {
       let sites: Vec<serde_json::Value> = t
         .report

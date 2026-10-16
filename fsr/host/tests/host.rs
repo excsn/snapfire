@@ -440,6 +440,56 @@ async fn an_idle_connection_does_not_hold_a_shutdown_and_a_stuck_one_is_cut_at_t
   assert!(at.elapsed() >= std::time::Duration::from_millis(900), "{:?}", at.elapsed());
 }
 
+/// `app_dir` with `lines` added under `[server]`.
+fn server_with(lines: &str) -> PathBuf {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replacen("[server]\n", &format!("[server]\n{lines}\n"), 1)).unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn health_and_ready_answer_ok_before_anything_else_and_an_empty_path_turns_one_off() {
+  let (host, _) = host();
+  for path in ["/health", "/ready"] {
+    let response = host.handle(Request::get(path).body(Bytes::new()).unwrap()).await;
+    assert_eq!(response.status(), StatusCode::OK, "{path}");
+    assert_eq!(response.headers().get(header::CACHE_CONTROL).unwrap(), "no-store");
+    assert!(response.headers().get(header::SET_COOKIE).is_none(), "a probe opens no session");
+    assert_eq!(body_of(response).await, "ok");
+    let head = host.handle(Request::head(path).body(Bytes::new()).unwrap()).await;
+    assert_eq!(head.status(), StatusCode::OK, "{path}");
+  }
+
+  let dir = server_with("health = \"/livez\"\nready = \"\"");
+  let host = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap();
+  assert_eq!(host.handle(Request::get("/livez").body(Bytes::new()).unwrap()).await.status(), StatusCode::OK);
+  assert_eq!(host.handle(Request::get("/ready").body(Bytes::new()).unwrap()).await.status(), StatusCode::NOT_FOUND);
+}
+
+#[test]
+fn a_probe_path_an_app_route_also_takes_is_refused_at_boot() {
+  let dir = server_with("health = \"/where\"");
+  let Err(e) = Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build() else { panic!("the host booted") };
+  assert!(e.to_string().contains("route /where is also `server.health`"), "{e}");
+}
+
+#[tokio::test]
+async fn ready_answers_503_once_a_shutdown_has_begun() {
+  let (host, _) = host();
+  let (addr, fire, server) = served_until(host).await;
+  let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+  stream.write_all(b"GET /ready HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\na").await.unwrap();
+  tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+  fire.send(()).unwrap();
+  tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+  stream.write_all(b"b").await.unwrap();
+  let mut response = String::new();
+  tokio::time::timeout(std::time::Duration::from_secs(5), stream.read_to_string(&mut response)).await.unwrap().unwrap();
+  assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+  tokio::time::timeout(std::time::Duration::from_secs(5), server).await.unwrap().unwrap().unwrap();
+}
+
 #[tokio::test]
 async fn an_http_1_0_keep_alive_request_gets_a_streamed_document_that_ends_with_the_connection() {
   let (host, _) = host();

@@ -474,6 +474,12 @@ pub struct ServerConfig {
   /// How long, in seconds, `serve_listener` waits on SIGTERM or SIGINT for the connections it holds to finish before it returns. It stops accepting at once.
   #[serde(default = "default_shutdown_grace")]
   pub shutdown_grace: u64,
+  /// The path a liveness probe asks, answered 200 while the process serves. Empty turns it off.
+  #[serde(default = "default_health")]
+  pub health: String,
+  /// The path a readiness probe asks, answered 200 while serving and 503 once a shutdown has begun. Empty turns it off.
+  #[serde(default = "default_ready")]
+  pub ready: String,
   /// `[server.tls]`: absent, the listener is plain TCP. Present, the host
   /// needs the `tls` feature, which is off by default.
   #[serde(default)]
@@ -540,6 +546,8 @@ impl Default for ServerConfig {
       static_max_age: None,
       http2: false,
       shutdown_grace: default_shutdown_grace(),
+      health: default_health(),
+      ready: default_ready(),
       tls: None,
     }
   }
@@ -1226,6 +1234,14 @@ fn default_reload() -> String {
 
 fn default_shutdown_grace() -> u64 {
   20
+}
+
+fn default_health() -> String {
+  "/health".to_owned()
+}
+
+fn default_ready() -> String {
+  "/ready".to_owned()
 }
 
 fn default_max_body() -> usize {

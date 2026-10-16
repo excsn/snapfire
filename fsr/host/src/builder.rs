@@ -523,6 +523,7 @@ impl HostBuilder {
       origin: config.origin()?,
       http2,
       shutdown_grace: std::time::Duration::from_secs(config.server.shutdown_grace),
+      draining: std::sync::atomic::AtomicBool::new(false),
       #[cfg(feature = "tls")]
       tls,
       #[cfg(feature = "tls")]
@@ -1136,6 +1137,14 @@ impl HostBuilder {
       true => None,
       false => Some(crate::card::Cards::new(&config.app, assets_manifest.as_ref(), &scripts).map_err(|why| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), why))?.with_sites(&site_apps)),
     };
+    for (key, path) in [("health", &config.server.health), ("ready", &config.server.ready)] {
+      if !path.is_empty() && taken.iter().any(|pattern| pattern == path) {
+        return Err(HostError::Config(
+          config.config_dir(),
+          format!("route {path} is also `server.{key}`; set `server.{key}` to another path or to \"\" to turn the probe off"),
+        ));
+      }
+    }
     Ok((
       Tables {
         app,
@@ -1155,6 +1164,8 @@ impl HostBuilder {
         csp_report_only,
         dev_nonce,
         trace_expose: config.trace.as_ref().map(|t| t.expose.clone()).unwrap_or_default(),
+        health: Some(config.server.health.clone()).filter(|p| !p.is_empty()),
+        ready: Some(config.server.ready.clone()).filter(|p| !p.is_empty()),
         prerendered,
         cards,
         build,

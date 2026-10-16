@@ -142,6 +142,7 @@ impl Host {
         () = shutdown.as_mut() => break,
       }
     }
+    self.draining.store(true, std::sync::atomic::Ordering::Relaxed);
     drop(listener);
     drop(held);
     let _ = stop.send(true);

@@ -98,12 +98,15 @@ impl fmt::Display for Breach {
   }
 }
 
-/// The routes the framework itself serves on this host: the sites listing,
+/// The routes the framework itself serves on this host: the sites listing, the configured probes,
 /// the client modules and live topics always; the development
 /// routes when `dev` is on; the sign-in routes when `[auth]` names a provider.
 pub fn framework_routes(host: &Host) -> Vec<Route> {
   let t = host.tables();
   let mut routes = vec![Route::read("/__fsr/sites"), Route::read("/_sf/live?topics=probe"), Route::read("/__fsr/trace/none")];
+  for probe in [&t.health, &t.ready].into_iter().flatten() {
+    routes.push(Route::read(probe.clone()));
+  }
   if t.client {
     routes.push(Route::read(format!("{}/index.js", crate::client::ROUTE)));
   }
