@@ -128,6 +128,9 @@ impl Host {
     let Some(handler) = self.socket_handler.clone() else {
       return text_response(StatusCode::NOT_FOUND, "no socket handler is registered".to_owned());
     };
+    if !upgrade_from_this_site(req.headers(), self.origin.as_deref()) {
+      return text_response(StatusCode::FORBIDDEN, "a socket opens from this site's own pages".to_owned());
+    }
     let topic = req
       .uri()
       .query()
@@ -268,5 +271,42 @@ impl Host {
     self.trace_ring.verify(trace_token_input(id).as_bytes(), signature)?;
     let traces = self.traces.as_ref()?;
     traces.recent(traces.len()).into_iter().find(|trace| trace.id == id)
+  }
+}
+
+/// Whether a request that acts on the visitor's session came from this site's own pages. A browser sends `Origin` on a WebSocket handshake and on any cross-origin POST and carries the visitor's cookie with it, so another origin, a sibling subdomain included, is refused. A client that sends no `Origin` is not a browser carrying someone else's cookie.
+pub(crate) fn upgrade_from_this_site(headers: &hyper::HeaderMap, configured: Option<&str>) -> bool {
+  let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) else {
+    return true;
+  };
+  let authority = |url: &str| url.split_once("://").map(|(_, rest)| rest.split('/').next().unwrap_or(rest).to_ascii_lowercase());
+  let Some(theirs) = authority(origin) else {
+    return false;
+  };
+  let host = headers.get("host").and_then(|v| v.to_str().ok()).map(str::to_ascii_lowercase);
+  host.as_deref() == Some(theirs.as_str()) || configured.and_then(authority).as_deref() == Some(theirs.as_str())
+}
+
+#[cfg(test)]
+mod upgrade_origin_tests {
+  use super::upgrade_from_this_site;
+
+  fn headers(pairs: &[(&'static str, &'static str)]) -> hyper::HeaderMap {
+    let mut map = hyper::HeaderMap::new();
+    for (k, v) in pairs {
+      map.insert(*k, v.parse().unwrap());
+    }
+    map
+  }
+
+  #[test]
+  fn only_this_sites_pages_open_a_socket() {
+    assert!(upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "https://app.example")]), None));
+    assert!(upgrade_from_this_site(&headers(&[("host", "127.0.0.1:3000"), ("origin", "http://127.0.0.1:3000")]), None));
+    assert!(upgrade_from_this_site(&headers(&[("host", "internal:8080"), ("origin", "https://app.example")]), Some("https://app.example")), "behind a proxy the configured origin is this site");
+    assert!(!upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "https://evil.example")]), None));
+    assert!(!upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "https://sub.app.example")]), Some("https://app.example")), "a sibling subdomain is another origin");
+    assert!(!upgrade_from_this_site(&headers(&[("host", "app.example"), ("origin", "null")]), None), "an opaque origin is refused");
+    assert!(upgrade_from_this_site(&headers(&[("host", "app.example")]), None), "a non-browser client sends no Origin");
   }
 }
