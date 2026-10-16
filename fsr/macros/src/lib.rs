@@ -10,7 +10,8 @@
 //! declares `pub` crosses; everything else stays private.
 
 use proc_macro::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
+use syn::spanned::Spanned;
 use syn::{FnArg, ImplItem, ItemImpl, Pat, ReturnType, parse_macro_input};
 
 /// A method the dispatcher answers: its Rust name, the name a body calls it
@@ -98,6 +99,7 @@ pub fn native(_attr: TokenStream, item: TokenStream) -> TokenStream {
     }
   }
 
+  let clone = quote_spanned! {ty.span()=> <#ty as ::std::clone::Clone>::clone(self) };
   let expanded = quote! {
     #block
 
@@ -107,7 +109,7 @@ pub fn native(_attr: TokenStream, item: TokenStream) -> TokenStream {
         method: &str,
         args: ::snapfire_fsr_core::ValueMap,
       ) -> ::futures_util::future::BoxFuture<'static, ::std::result::Result<::snapfire_fsr_core::Value, ::snapfire_fsr_runtime::ServiceError>> {
-        let held = ::std::sync::Arc::new(self.clone());
+        let held = ::std::sync::Arc::new(#clone);
         match method {
             #(#async_arms)*
             other => {
@@ -322,6 +324,7 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
     });
   }
 
+  let clone = quote_spanned! {ty.span()=> <#ty as ::std::clone::Clone>::clone(self) };
   let expanded = quote! {
     #block
 
@@ -330,7 +333,7 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
         &self,
         call: ::snapfire_fsr_service::Call,
       ) -> ::futures_util::future::BoxFuture<'static, ::std::result::Result<::snapfire_fsr_core::Value, ::snapfire_fsr_runtime::ServiceError>> {
-        let this = ::std::sync::Arc::new(self.clone());
+        let this = ::std::sync::Arc::new(#clone);
         let caller = ::snapfire_fsr_service::Caller::of(&call);
         let args = call.args;
         match call.method.as_str() {
