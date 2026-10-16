@@ -13,8 +13,8 @@ pub(crate) fn default_alpn(http2: bool) -> Vec<String> {
 
 /// One connection, whatever it is carried over: the same edge, with HTTP/2
 /// negotiated beside HTTP/1.1 when `server.http2` is on. The error is the
-/// connection's, already formatted or `None` when it closed cleanly.
-pub(crate) async fn serve_io<I>(host: Arc<Host>, io: I) -> Option<String>
+/// connection's, already formatted or `None` when it closed cleanly. Once `stop` turns true the connection finishes what it is answering and closes.
+pub(crate) async fn serve_io<I>(host: Arc<Host>, io: I, stop: tokio::sync::watch::Receiver<bool>) -> Option<String>
 where
   I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
 {
@@ -38,19 +38,48 @@ where
     }
   });
   if http2 {
-    hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new())
-      .serve_connection_with_upgrades(io, service)
-      .await
-      .err()
-      .map(|e| e.to_string())
+    let builder = hyper_util::server::conn::auto::Builder::new(hyper_util::rt::TokioExecutor::new());
+    let connection = builder.serve_connection_with_upgrades(io, service);
+    until_stopped(connection, stop, |c| c.graceful_shutdown()).await.err().map(|e| e.to_string())
   } else {
-    hyper::server::conn::http1::Builder::new()
-      .serve_connection(io, service)
-      .with_upgrades()
-      .await
-      .err()
-      .map(|e| e.to_string())
+    let connection = hyper::server::conn::http1::Builder::new().serve_connection(io, service).with_upgrades();
+    until_stopped(connection, stop, |c| c.graceful_shutdown()).await.err().map(|e| e.to_string())
   }
+}
+
+/// Runs `connection` to its end, asking it to close once `stop` turns true. `stop` is held until then, which is how the listener counts what it still waits for.
+async fn until_stopped<C, T, E>(connection: C, mut stop: tokio::sync::watch::Receiver<bool>, close: impl FnOnce(Pin<&mut C>)) -> Result<T, E>
+where
+  C: Future<Output = Result<T, E>>,
+{
+  let mut connection = std::pin::pin!(connection);
+  tokio::select! {
+    done = connection.as_mut() => return done,
+    _ = stop.wait_for(|stopped| *stopped) => {}
+  }
+  close(connection.as_mut());
+  let done = connection.await;
+  drop(stop);
+  done
+}
+
+/// Resolves on SIGTERM or SIGINT. Where there are no signals it resolves on Ctrl-C.
+pub async fn shutdown_signal() {
+  #[cfg(unix)]
+  {
+    use tokio::signal::unix::{SignalKind, signal};
+    match signal(SignalKind::terminate()) {
+      Ok(mut term) => {
+        tokio::select! {
+          _ = term.recv() => {}
+          _ = tokio::signal::ctrl_c() => {}
+        }
+        return;
+      }
+      Err(e) => tracing::warn!(target: "fsr::host", error = %e, "cannot listen for SIGTERM; only SIGINT stops the server"),
+    }
+  }
+  let _ = tokio::signal::ctrl_c().await;
 }
 
 /// `tower::Service` over the host, for hyper, axum or any tower stack.
@@ -91,18 +120,40 @@ impl Host {
     self.serve_listener(listener).await
   }
 
-  /// Serves an already bound listener, which is how a test picks port zero.
+  /// Serves an already bound listener, which is how a test picks port zero, until [`shutdown_signal`].
   pub async fn serve_listener(self: Arc<Self>, listener: tokio::net::TcpListener) -> std::io::Result<()> {
-    #[cfg(all(unix, feature = "tls"))]
-    self.clone().watch_for_reload();
-    loop {
-      let (stream, _) = listener.accept().await?;
-      let host = self.clone();
-      tokio::spawn(async move { host.serve_connection(stream).await });
-    }
+    self.serve_until(listener, shutdown_signal()).await
   }
 
-  pub(crate) async fn serve_connection(self: Arc<Self>, stream: tokio::net::TcpStream) {
+  /// Serves `listener` until `shutdown` resolves, then stops accepting and waits up to `server.shutdown_grace` for the connections it holds to finish what they are answering.
+  pub async fn serve_until(self: Arc<Self>, listener: tokio::net::TcpListener, shutdown: impl Future<Output = ()>) -> std::io::Result<()> {
+    #[cfg(all(unix, feature = "tls"))]
+    self.clone().watch_for_reload();
+    let (stop, held) = tokio::sync::watch::channel(false);
+    let mut shutdown = std::pin::pin!(shutdown);
+    loop {
+      tokio::select! {
+        accepted = listener.accept() => {
+          let (stream, _) = accepted?;
+          let host = self.clone();
+          let held = held.clone();
+          tokio::spawn(async move { host.serve_connection(stream, held).await });
+        }
+        () = shutdown.as_mut() => break,
+      }
+    }
+    drop(listener);
+    drop(held);
+    let _ = stop.send(true);
+    let open = stop.receiver_count();
+    tracing::info!(target: "fsr::host", connections = open, grace_s = self.shutdown_grace.as_secs(), "shutting down");
+    if tokio::time::timeout(self.shutdown_grace, stop.closed()).await.is_err() {
+      tracing::warn!(target: "fsr::host", connections = stop.receiver_count(), "server.shutdown_grace ran out with connections still open; they are cut");
+    }
+    Ok(())
+  }
+
+  pub(crate) async fn serve_connection(self: Arc<Self>, stream: tokio::net::TcpStream, stop: tokio::sync::watch::Receiver<bool>) {
     #[cfg(feature = "tls")]
     if let Some(tls) = self.tls.clone() {
       let stream = match tls.acceptor().accept(stream).await {
@@ -112,12 +163,12 @@ impl Host {
           return;
         }
       };
-      if let Some(e) = serve_io(self, hyper_util::rt::TokioIo::new(stream)).await {
+      if let Some(e) = serve_io(self, hyper_util::rt::TokioIo::new(stream), stop).await {
         tracing::debug!(target: "fsr::host", error = %e, "connection ended");
       }
       return;
     }
-    if let Some(e) = serve_io(self, hyper_util::rt::TokioIo::new(stream)).await {
+    if let Some(e) = serve_io(self, hyper_util::rt::TokioIo::new(stream), stop).await {
       tracing::debug!(target: "fsr::host", error = %e, "connection ended");
     }
   }

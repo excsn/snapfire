@@ -522,6 +522,7 @@ impl HostBuilder {
       hosts: config.server.hosts.iter().map(|h| h.to_lowercase()).collect(),
       origin: config.origin()?,
       http2,
+      shutdown_grace: std::time::Duration::from_secs(config.server.shutdown_grace),
       #[cfg(feature = "tls")]
       tls,
       #[cfg(feature = "tls")]

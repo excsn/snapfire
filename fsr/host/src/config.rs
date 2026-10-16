@@ -471,6 +471,9 @@ pub struct ServerConfig {
   /// preface is served and a browser, which wants ALPN over TLS, is not.
   #[serde(default)]
   pub http2: bool,
+  /// How long, in seconds, `serve_listener` waits on SIGTERM or SIGINT for the connections it holds to finish before it returns. It stops accepting at once.
+  #[serde(default = "default_shutdown_grace")]
+  pub shutdown_grace: u64,
   /// `[server.tls]`: absent, the listener is plain TCP. Present, the host
   /// needs the `tls` feature, which is off by default.
   #[serde(default)]
@@ -536,6 +539,7 @@ impl Default for ServerConfig {
       render: None,
       static_max_age: None,
       http2: false,
+      shutdown_grace: default_shutdown_grace(),
       tls: None,
     }
   }
@@ -1218,6 +1222,10 @@ fn default_key() -> String {
 }
 fn default_reload() -> String {
   "hup".to_owned()
+}
+
+fn default_shutdown_grace() -> u64 {
+  20
 }
 
 fn default_max_body() -> usize {

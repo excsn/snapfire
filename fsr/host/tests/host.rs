@@ -381,6 +381,65 @@ async fn hyper_serves_the_same_edge() {
   assert!(response.contains("hi hyper via tcp"), "{response}");
 }
 
+/// A host serving on port zero until `fire` is sent. The handle finishes once it has drained.
+async fn served_until(host: Arc<Host>) -> (std::net::SocketAddr, tokio::sync::oneshot::Sender<()>, tokio::task::JoinHandle<std::io::Result<()>>) {
+  let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+  let addr = listener.local_addr().unwrap();
+  let (fire, fired) = tokio::sync::oneshot::channel::<()>();
+  let server = tokio::spawn(host.serve_until(listener, async {
+    let _ = fired.await;
+  }));
+  (addr, fire, server)
+}
+
+#[tokio::test]
+async fn a_shutdown_stops_accepting_and_finishes_the_request_in_flight() {
+  let (host, _) = host();
+  let (addr, fire, server) = served_until(host).await;
+  let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+  stream.write_all(b"GET /hello/hyper HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\na").await.unwrap();
+  tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+  fire.send(()).unwrap();
+  tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+  assert!(tokio::net::TcpStream::connect(addr).await.is_err(), "the listener is closed");
+  assert!(!server.is_finished(), "a request is still in flight");
+
+  stream.write_all(b"b").await.unwrap();
+  let mut response = String::new();
+  tokio::time::timeout(std::time::Duration::from_secs(5), stream.read_to_string(&mut response))
+    .await
+    .expect("the connection closes once its answer is written")
+    .unwrap();
+  assert!(response.starts_with("HTTP/1.1 200 OK") && response.contains("hi hyper"), "{response}");
+  tokio::time::timeout(std::time::Duration::from_secs(5), server).await.expect("drained").unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn an_idle_connection_does_not_hold_a_shutdown_and_a_stuck_one_is_cut_at_the_grace() {
+  let (host, _) = host();
+  let (addr, fire, server) = served_until(host).await;
+  let mut idle = tokio::net::TcpStream::connect(addr).await.unwrap();
+  idle.write_all(b"GET /hello/hyper HTTP/1.1\r\nHost: localhost\r\n\r\n").await.unwrap();
+  let mut head = [0u8; 15];
+  idle.read_exact(&mut head).await.unwrap();
+  assert_eq!(&head, b"HTTP/1.1 200 OK");
+  fire.send(()).unwrap();
+  tokio::time::timeout(std::time::Duration::from_secs(2), server).await.expect("a keep-alive connection between requests closes at once").unwrap().unwrap();
+
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replacen("[server]\n", "[server]\nshutdown_grace = 1\n", 1)).unwrap();
+  let host = Arc::new(Host::from(dir.join("app.toml")).unwrap().services_over(Arc::new(MockTransport::new())).build().unwrap());
+  let (addr, fire, server) = served_until(host).await;
+  let mut stuck = tokio::net::TcpStream::connect(addr).await.unwrap();
+  stuck.write_all(b"GET /hello/hyper HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\na").await.unwrap();
+  tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+  let at = std::time::Instant::now();
+  fire.send(()).unwrap();
+  tokio::time::timeout(std::time::Duration::from_secs(5), server).await.expect("the grace bounds the wait").unwrap().unwrap();
+  assert!(at.elapsed() >= std::time::Duration::from_millis(900), "{:?}", at.elapsed());
+}
+
 #[tokio::test]
 async fn an_http_1_0_keep_alive_request_gets_a_streamed_document_that_ends_with_the_connection() {
   let (host, _) = host();

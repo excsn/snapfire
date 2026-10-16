@@ -87,7 +87,7 @@ pub use prerender::{BUILD_FILE, LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use probe::{Candidate, Probe, ReloadCheck};
 pub use remote::{ServiceProvider, ServiceSessionStore};
 pub use report::{CrawlReport, HostReport, SiteReport, TlsReport};
-pub use serve::HostService;
+pub use serve::{HostService, shutdown_signal};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 
 use actions::*;
@@ -297,6 +297,8 @@ pub struct Host {
   /// Whether `serve_listener` negotiates HTTP/2 as well as HTTP/1.1 on a
   /// connection, `server.http2`.
   http2: bool,
+  /// `server.shutdown_grace`.
+  shutdown_grace: std::time::Duration,
   /// The certificate the listener presents, `[server.tls]`; absent, the
   /// listener is plain TCP.
   #[cfg(feature = "tls")]
