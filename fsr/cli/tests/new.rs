@@ -253,7 +253,7 @@ fn a_scaffold_is_a_development_build_where_release_env_is_development_and_a_prod
     assert_eq!(development.session.key, None, "a development host makes its own key");
     let production = load("production");
     assert_eq!(production.server.dev, Some(false));
-    assert_eq!(production.server.static_max_age, Some(3600));
+    assert_eq!(production.server.static_max_age, None, "a file with no hash in its name revalidates");
     assert!(production.session.secure);
     assert_eq!(production.session.key.as_deref(), Some(SESSION_KEY_PLACEHOLDER), "the host refuses it until a deploy replaces it");
     std::fs::remove_dir_all(&root).unwrap();

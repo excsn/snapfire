@@ -1,7 +1,6 @@
 # Read when RELEASE_ENV or APP_ENV is production.
 [server]
 dev = false
-static_max_age = 3600
 
 [session]
 secure = true
