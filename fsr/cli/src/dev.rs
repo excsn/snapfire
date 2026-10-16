@@ -768,11 +768,13 @@ struct Tracked<'a> {
   /// Asset paths the compiler reported and the loop defined, carried into every later build so
   /// the map names them before the compiler asks again.
   adopted: std::collections::BTreeSet<String>,
+  /// The stylesheets the last bundle wrote, which the host links from the head it infers at boot.
+  sheets: Option<Vec<String>>,
 }
 
 impl<'a> Tracked<'a> {
   fn new(app: &'a App) -> Self {
-    Self { app, files: None, bundler: Bundler::default(), plugins: Plugins::new(), pending: HashSet::new(), last: None, adopted: std::collections::BTreeSet::new() }
+    Self { app, files: None, bundler: Bundler::default(), plugins: Plugins::new(), pending: HashSet::new(), last: None, adopted: std::collections::BTreeSet::new(), sheets: None }
   }
 
   /// Generates and bundles, `sources` naming what changed and none of them meaning everything.
@@ -796,7 +798,10 @@ impl<'a> Tracked<'a> {
       let path = self.app.dir.join(&rel);
       std::fs::write(&path, content).map_err(|e| BuildError::Io(path, e))?;
     }
-    let changed = self.files.as_ref() != Some(&built.files);
+    let sheets = bundled_sheets(&self.app.dir.join("dist"));
+    let restyled = self.sheets.as_ref().is_some_and(|before| *before != sheets);
+    self.sheets = Some(sheets);
+    let changed = self.files.as_ref() != Some(&built.files) || restyled;
     self.last = Some(built.assets.clone());
     if changed {
       self.files = Some(built.files);
@@ -806,6 +811,15 @@ impl<'a> Tracked<'a> {
     }
     Ok(changed)
   }
+}
+
+/// The `.css` outputs the bundle's facts file lists, sorted; none when it has not run.
+fn bundled_sheets(dist: &Path) -> Vec<String> {
+  let Ok(text) = std::fs::read_to_string(dist.join(".snapfire-build.json")) else { return Vec::new() };
+  let Ok(facts) = serde_json::from_str::<serde_json::Value>(&text) else { return Vec::new() };
+  let mut sheets: Vec<String> = facts["outputs"].as_array().into_iter().flatten().filter_map(|o| o.as_str()).filter(|o| o.ends_with(".css")).map(str::to_owned).collect();
+  sheets.sort();
+  sheets
 }
 
 struct Server {
