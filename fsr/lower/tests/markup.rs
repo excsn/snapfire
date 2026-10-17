@@ -330,3 +330,13 @@ fn children_count_counts_what_the_placement_passed_as_react_does() {
   let empties = "import { Children } from \"react\";\nexport default function Page({ price }) {\n  const on = price > 1;\n  return <Count>{null}{false}{!on && <i>x</i>}<i>b</i></Count>;\n}\nfunction Count({ children }) {\n  return <b>{Children.count(children)} {Children.toArray(children).length}</b>;\n}\n";
   assert_eq!(html("cc_empties", &[("routes/page.tsx", empties)]), html("cc_empties_inline", &[("routes/page.tsx", "export default function Page() {\n  return <b>{4} {1}</b>;\n}\n")]), "count keeps empty nodes, toArray leaves them out");
 }
+
+#[test]
+fn and_renders_its_left_side_when_that_is_falsy_as_react_does() {
+  let page = |left: &str| format!("export default function Page() {{\n  const v = {left};\n  return <p>{{v && <b>yes</b>}}</p>;\n}}\n");
+  assert_eq!(html("and_zero", &[("routes/page.tsx", &page("0"))]).as_deref(), Ok("<p>0</p>"));
+  assert_eq!(html("and_false", &[("routes/page.tsx", &page("false"))]).as_deref(), Ok("<p></p>"));
+  assert_eq!(html("and_empty", &[("routes/page.tsx", &page("\"\""))]).as_deref(), Ok("<p></p>"));
+  assert_eq!(html("and_null", &[("routes/page.tsx", &page("null"))]).as_deref(), Ok("<p></p>"));
+  assert_eq!(html("and_true", &[("routes/page.tsx", &page("3"))]).as_deref(), Ok("<p><b>yes</b></p>"));
+}

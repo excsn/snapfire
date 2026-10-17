@@ -5108,7 +5108,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::Bin(bin) if bin.op == js::BinaryOp::LogicalAnd && self.holds_markup(&bin.right) => {
         let cond = self.lowerer.expr(&bin.left)?;
         let then = Box::new(self.child_expr(&bin.right)?);
-        Ok(Tmpl::If { cond, then, r#else: None })
+        // `c && <b />` is `c` when `c` is falsy, so `0` and `NaN` print as React prints them and `false`, `null` and `""` print nothing.
+        let r#else = Some(Box::new(Tmpl::Expr(cond.clone())));
+        Ok(Tmpl::If { cond, then, r#else })
       }
       js::Expr::Call(call) if map_call(call).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => {
         let (over, arrow) = map_call(call).expect("checked by the guard");
@@ -7129,7 +7131,7 @@ export default function Page({ items, q = "" }: Props) {
     assert_eq!(attrs[0], Entry::Field("class".to_owned(), Expr::lit_str("page")));
     assert!(matches!(&attrs[1], Entry::Field(name, Expr::Template(_)) if name == "aria-label"));
     assert!(matches!(&children[1], Tmpl::If { r#else: Some(e), .. } if matches!(**e, Tmpl::Fragment(ref f) if f.is_empty())));
-    assert!(matches!(&children[2], Tmpl::If { r#else: None, .. }));
+    assert!(matches!(&children[2], Tmpl::If { r#else: Some(e), .. } if matches!(**e, Tmpl::Expr(_))), "`c && <x />` renders `c` when it is falsy");
     let Tmpl::Element { children: ul, .. } = &children[3] else { panic!() };
     let Tmpl::For { params, body, .. } = &ul[0] else { panic!("{:?}", ul[0]) };
     assert_eq!(params, &["it".to_owned()]);
@@ -8132,7 +8134,7 @@ mod fills {
         }
         Some(Tmpl::If { cond: (**c).clone(), then: Box::new(ta.unwrap_or_else(|| value(a))), r#else: Some(Box::new(tb.unwrap_or_else(|| value(b)))) })
       }
-      Expr::Logic(LogicOp::And, c, m) => tree_of(m, held).map(|t| Tmpl::If { cond: (**c).clone(), then: Box::new(t), r#else: None }),
+      Expr::Logic(LogicOp::And, c, m) => tree_of(m, held).map(|t| Tmpl::If { cond: (**c).clone(), then: Box::new(t), r#else: Some(Box::new(Tmpl::Expr((**c).clone()))) }),
       Expr::Array(entries) => {
         let trees: Vec<Option<Tmpl>> = entries.iter().map(|entry| match entry {
           Entry::Item(e) | Entry::Spread(e) => tree_of(e, held),
