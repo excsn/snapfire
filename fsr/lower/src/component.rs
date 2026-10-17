@@ -1019,6 +1019,7 @@ impl ComponentSet {
   fn lower_loaded(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
+    let mut unfollowed: Vec<(String, Option<LowerError>)> = Vec::new();
     let module = format!("{file}#{export}");
     // An element template has no browser half, so nothing would read what
     // hoisting records or rewrites.
@@ -1050,6 +1051,7 @@ impl ComponentSet {
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
+        lowerer.unfollowed = unfollowed.iter().map(|(name, _)| name.clone()).collect();
         lowerer.natives = self.natives.clone();
         lowerer.hoisting = (!element_template).then(Candidates::default);
         lowerer.meanings = Some(meanings);
@@ -1096,7 +1098,18 @@ impl ComponentSet {
           if globals.iter().any(|(n, _)| *n == name) {
             return Err(residue.into());
           }
-          let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          let (found, why) = match self.global(file, &name) {
+            Ok(found) => (found, None),
+            Err(why @ LowerError::Residue(_)) => (None, Some(why)),
+            Err(other) => return Err(other),
+          };
+          let Some((expr, key)) = found else {
+            if let Some(at) = unfollowed.iter().position(|(n, _)| *n == name) {
+              return Err(unfollowed.swap_remove(at).1.unwrap_or_else(|| residue.into()));
+            }
+            unfollowed.push((name, why));
+            continue;
+          };
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
           }
@@ -5863,7 +5876,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// browser's handler.
   fn unbound_is_followable(&self) -> bool {
     let Some(name) = &self.lowerer.unbound else { return false };
-    matches!(self.meanings().bindings.get(name), Some(crate::meaning::Meaning::Own { .. }))
+    !self.lowerer.unfollowed.contains(name) && matches!(self.meanings().bindings.get(name), Some(crate::meaning::Meaning::Own { .. }))
   }
 
   /// `set(key, value)`, `clear(key)`, `transaction(() => { … })` and

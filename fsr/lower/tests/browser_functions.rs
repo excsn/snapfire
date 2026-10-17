@@ -77,3 +77,19 @@ fn a_form_action_that_is_a_string_renders_as_written() {
   let set = lowered("form_url", &[("routes/page.tsx", page)]).unwrap();
   assert_eq!(html(&set).as_deref(), Ok("<form action=\"/search\"><button>Go</button></form>"));
 }
+
+const SLOW: &str = "export async function deliver(message) {\n  await new Promise((res) => setTimeout(res, 1000));\n  return message;\n}\n";
+
+#[test]
+fn a_handler_reaching_an_import_that_does_not_lower_is_the_browsers() {
+  let page = "import { useState } from \"react\";\nimport { deliver } from \"@src/actions\";\nexport default function Page() {\n  const [sent, setSent] = useState(\"none\");\n  async function send() {\n    setSent(await deliver(\"hi\"));\n  }\n  return <button onClick={send}>{sent}</button>;\n}\n";
+  let set = lowered("unfollowed_handler", &[("src/actions.ts", SLOW), ("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html(&set).as_deref(), Ok("<button>none</button>"));
+  assert!(!unlowered(&set).is_empty(), "the browser runs the handler");
+}
+
+#[test]
+fn a_render_reading_an_import_that_does_not_lower_still_renders_in_the_browser() {
+  let page = "import { deliver } from \"@src/actions\";\nexport default function Page() {\n  return <p>{deliver(\"hi\")}</p>;\n}\n";
+  assert!(lowered("unfollowed_render", &[("src/actions.ts", SLOW), ("routes/page.tsx", page)]).is_err());
+}
