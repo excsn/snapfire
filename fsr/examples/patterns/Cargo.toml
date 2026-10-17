@@ -1,0 +1,25 @@
+[package]
+name = "patterns"
+version = "0.1.0"
+publish = false
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+snapfire_fsr_cli = { path = "../../cli" }
+snapfire_fsr_ir = { path = "../../ir" }
+
+[dev-dependencies]
+snapfire_fsr_core = { path = "../../core" }
+snapfire_fsr_engine = { path = "../../engine" }
+snapfire_fsr_payload = { path = "../../payload" }
+criterion = "0.5"
+futures = "0.3"
+serde_json = "1"
+tokio = { version = "1", features = ["rt"] }
+
+[[bench]]
+name = "patterns"
+harness = false

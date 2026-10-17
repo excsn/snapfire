@@ -11,6 +11,7 @@ members = [
   "handbook_react_ts/contents",
   "handbook_react_ts/generate",
   "ops_console_react_ts",
+  "patterns",
   "portal_react_ts",
   "shopping_react_ts",
   "uni",

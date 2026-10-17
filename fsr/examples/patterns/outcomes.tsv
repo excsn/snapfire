@@ -1,0 +1,48 @@
+adjacent_text	lowered
+and_zero	lowered
+array_from_length	client: routes/page.island0.tsx:4:46 JSX in a body
+array_local	lowered
+array_returned	lowered
+array_spread_concat	lowered
+as_prop	client: routes/page.tsx:1:75 a tag chosen at render from values the build cannot list; pick the element with a condition or write each one
+children_count	lowered
+children_function	client: routes/page.island0.tsx:4:5 a function value; lambdas go to `map`, `filter` and their kin | routes/page.tsx:3:16 a call to a computed target
+children_map	client: routes/page.tsx:3:15 `Children` comes from `react`, which the build cannot follow
+children_toarray_slice	client: routes/page.tsx:3:16 `Children` comes from `react`, which the build cannot follow
+clone_element	client: routes/page.tsx:3:16 `Children` comes from `react`, which the build cannot follow
+columns_render_fns	refused: routes/page.tsx:3:26: a function value; lambdas go to `map`, `filter` and their kin
+component_as_prop	refused: routes/page.tsx:1:26: JSX in a body
+component_from_table	refused: routes/page.tsx:1:26: JSX in a body
+conditional_wrapper	lowered
+context_markup	refused: routes/page.tsx:7:32: markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+control_props	lowered
+counted_for	lowered
+element_prop	lowered
+falsy_children	lowered
+filter_boolean	lowered
+flat	refused: routes/page.tsx:3:16: `.flat()`, which is not a builtin
+helper_module_markup	lowered
+helper_returns_array	lowered
+is_valid_element	refused: routes/page.tsx:6:15: markup passed as `value` to `Label`, which renders in the browser and takes markup only as its children
+island_markup_prop	client: routes/page.island0.tsx:9:5 markup passed as `label` to `Toggle`, which renders in the browser and takes markup only as its children
+join_with_separator	client: routes/page.island0.tsx:3:3 a call for its effect, which a straight-line body cannot hold
+keyed_fragment_inline	lowered
+let_branches	lowered
+local_const	lowered
+lookup_object_elements	refused: routes/page.tsx:1:32: markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+map_array	lowered
+map_fragment	lowered
+markup_in_object_prop	refused: routes/page.tsx:4:32: markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+nested_arrays	lowered
+object_entries_map	lowered
+object_field_mapped	client: routes/page.island0.tsx:7:60 JSX in a body
+optional_map	lowered
+push_for_of	lowered
+push_if	lowered
+recursive_tree	lowered
+reduce_markup	client: routes/page.island0.tsx:3:58 JSX in a body
+render_prop	client: routes/page.tsx:2:54 a call to a computed target
+switch_helper	lowered
+tag_from_table	lowered
+ternary_local	lowered
+use_memo_markup	client: routes/page.island0.tsx:4:47 JSX in a body

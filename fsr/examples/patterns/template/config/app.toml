@@ -1,0 +1,20 @@
+[server]
+listen = "127.0.0.1:3000"
+
+[document]
+title = "patterns"
+
+# Reported, not enforced. Rename the table to [document.csp] to enforce it.
+[document.csp_report_only]
+default-src = ["'self'"]
+script-src = ["'self'"]
+base-uri = ["'none'"]
+object-src = ["'none'"]
+frame-ancestors = ["'self'"]
+
+[session]
+ttl = "24h"
+
+[cache]
+capacity = 1000
+ttl = "1m"
