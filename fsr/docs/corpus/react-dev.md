@@ -10,7 +10,7 @@ The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev 
 | Not a working example (excluded) | 5 | react.dev shows it broken on purpose or as an empty exercise |
 | Total | 641 | |
 
-A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs a value only the browser knows is left to the browser. The guide's chapter 111 covers it.
+A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The guide's chapter 111 covers it.
 
 ## How causes hide each other
 
