@@ -12,31 +12,44 @@ function bridged(name, args) {
 }
 export const intl = {
     number (n, options) {
+        const { locale, ...rest } = options ?? {};
         return bridged("intl.number", [
             n,
             options ?? null
-        ]) ?? new Intl.NumberFormat(localeTag(), options).format(n);
+        ]) ?? new Intl.NumberFormat(locale ?? localeTag(), rest).format(n);
     },
-    currency (n, code) {
+    currency (n, code, options) {
+        const { locale, display, ...rest } = options ?? {};
         return bridged("intl.currency", [
             n,
-            code
-        ]) ?? new Intl.NumberFormat(localeTag(), {
+            code,
+            options ?? null
+        ]) ?? new Intl.NumberFormat(locale ?? localeTag(), {
             style: "currency",
             currency: code,
-            currencyDisplay: "code"
+            currencyDisplay: display ?? "code",
+            ...rest
         }).format(n);
     },
     date (when, style = "medium") {
         const ms = typeof when === "string" ? time.parse(when) : when;
         if (ms === null) throw new Error(`intl.date: \`${when}\` is not an ISO 8601 date`);
-        return bridged("intl.date", [
+        const served = bridged("intl.date", [
             ms,
             style
-        ]) ?? new Intl.DateTimeFormat(localeTag(), {
+        ]);
+        if (served !== undefined) return served;
+        if (typeof style === "string") return new Intl.DateTimeFormat(localeTag(), {
             dateStyle: style,
             timeZone: "UTC"
         }).format(new Date(ms));
+        const { locale, style: dateStyle, ...parts } = style;
+        const options = {
+            timeZone: "UTC",
+            ...parts
+        };
+        if (dateStyle !== undefined && parts.weekday === undefined && parts.year === undefined && parts.month === undefined && parts.day === undefined) options.dateStyle = dateStyle;
+        return new Intl.DateTimeFormat(locale ?? localeTag(), options).format(new Date(ms));
     },
     plural (n) {
         return bridged("intl.plural", [

@@ -91,6 +91,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
 * [10. The React Mounter](#10-the-react-mounter)
   * [reactMounter](#reactmounter)
   * [useHoisted](#usehoisted)
+  * [useBrowser](#usebrowser)
   * [withHoisted](#withhoisted)
   * [Island](#island)
   * [island(component, options)](#islandcomponent-options)
@@ -182,6 +183,7 @@ The union a decoded value inhabits.
 * `null | boolean | number | bigint | string`
 * `Uint8Array | Int8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | BigInt64Array | BigUint64Array | Float32Array | Float64Array`
 * `SfValue[]`
+* `Date | Map<SfValue, SfValue> | Set<SfValue>`
 * `RefValue | VariantValue`
 * `{ [key: string]: SfValue }`
 
@@ -246,7 +248,7 @@ Tags are objects with a `$` discriminant. Both halves of the pair agree on these
 | `b` | `v`, base64 | `Uint8Array` |
 | `ta` | `k`, kind; `v`, base64 little-endian | matching typed array |
 | `m` | `v`, array of `[key, value]` pairs | plain object |
-| `var` | `t`, tag; `p`, optional payload | `VariantValue` |
+| `var` | `t`, tag; `p`, optional payload | `VariantValue`; a `Date`, `Map`, `Set` or `bigint` when `t` is `$date`, `$map`, `$set` or `$bigint` |
 | `ref` | `k`, `"action"` or `"module"`; `id` | `RefValue` |
 
 Typed array kinds: `i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `i64`, `u64`, `f32`, `f64`, mapping to `Int8Array`, `Uint8Array`, `Int16Array`, `Uint16Array`, `Int32Array`, `Uint32Array`, `BigInt64Array`, `BigUint64Array`, `Float32Array`, `Float64Array`. Element counts must divide the decoded byte length evenly; the typed array constructor throws otherwise.
@@ -845,6 +847,12 @@ Creates the element with `createElement(component, props, children)`, then calls
 
 The reader the build binds at the top of every component it rewrote, keyed under `module`. `r` returns the table's value for `<module>|<id>` or for `<module>|<id>@<i>.<j>` inside loops. It calls `compute` when the table has no such key or there is no table. `l` wraps a JSX `.map` callback: while it runs, its index argument is on the loop path and the element it returns is placed under a provider carrying that path with the element's own `key`, so a component it renders keys its hoists below the iteration that placed it. The path starts from the enclosing provider's, so it continues through nested components. `e(index)` and `x()` do the same for a `for…of` or counted `for` the build lowered: the rewrite calls `e` with the iteration's index at the top of each pass and `x` when it leaves. It passes each `push` argument through `w`, which puts an element under a provider carrying the path as `l` does and returns anything else as it is. `p` wraps a keyed placement, one whose component keys a hoist or a region somewhere below it: the element goes under a provider whose path is the current one plus `c<id>`, so two placements of one component key what they hold apart. A component that renders itself is such a pair. `c` is a static subtree: when the table holds a string under the key, `hit` renders the element with that markup as its inner HTML, which React neither renders nor hydrates inside; otherwise `miss` renders the original JSX. The build passes no `miss` for a subtree the server always renders, so a read with no markup and no `miss` throws, naming the key and whether the root mounted with no table at all, since a blank there would be a renderer defect rather than a state of the page.
 
+### useBrowser
+
+* `function useBrowser(): <T>(compute: () => T) => T | null`
+
+The reader the build binds as `__sfb` in a component that writes a value only the browser knows, the viewer's clock for one, which the server rendered as nothing. The build wraps each such expression as `__sfb(() => expr)`. The reader answers null until the component has mounted, so the first render matches the server's markup and hydration has nothing to report; an effect then sets a flag and the component renders once more with the value computed. React's hydration does not patch a text difference it is told to ignore, which is why the value is not computed during hydration.
+
 ### withHoisted
 
 * `function withHoisted(table: Hoisted | null, element: ReactElement): ReactElement`
@@ -1056,9 +1064,9 @@ On `htmx:before:history:restore` on `document`, while `enableNavigation` has wir
 
 ### intl
 
-* `intl.number(n: number | bigint, options?: NumberOptions): string`; `interface NumberOptions { minimumFractionDigits?: number; maximumFractionDigits?: number }`. `Intl.NumberFormat(localeTag(), options)`.
-* `intl.currency(n: number | bigint, code: string): string`: `style: "currency"` with `currencyDisplay: "code"`, `USD 1,234.50`.
-* `intl.date(when: number | string, style?: DateStyle): string`; `type DateStyle = "short" | "medium" | "long" | "full"`, `medium` by default; `dateStyle` with `timeZone: "UTC"`. A string goes through `time.parse` and throws when it is not the ISO subset.
+* `intl.number(n: number | bigint, options?: NumberOptions): string`; `interface NumberOptions { minimumFractionDigits?: number; maximumFractionDigits?: number; locale?: string }`. `Intl.NumberFormat(options.locale ?? localeTag(), options)`.
+* `intl.currency(n: number | bigint, code: string, options?: CurrencyOptions): string`; `interface CurrencyOptions extends NumberOptions { display?: "code" | "symbol" | "narrowSymbol" }`: `style: "currency"` with `currencyDisplay` from `display`, `code` by default, `USD 1,234.50`, `$1,234.50` for `symbol`.
+* `intl.date(when: number | string, style?: DateStyle | DateOptions): string`; `type DateStyle = "short" | "medium" | "long" | "full"`, `medium` by default; `interface DateOptions { style?: DateStyle; weekday?: TextWidth; year?: "numeric"; month?: TextWidth; day?: "numeric"; locale?: string }` with `type TextWidth = "long" | "short" | "narrow"`. A `dateStyle` with `timeZone: "UTC"` or the parts given with it. A string goes through `time.parse` and throws when it is not the ISO subset.
 * `intl.plural(n: number | bigint): string`: `Intl.PluralRules(localeTag()).select`.
 
 ### text

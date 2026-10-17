@@ -17,9 +17,9 @@ learn-adding-interactivity-8	lowered
 learn-choosing-the-state-structure-1	lowered
 learn-choosing-the-state-structure-10	lowered
 learn-choosing-the-state-structure-11	lowered
-learn-choosing-the-state-structure-13	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
-learn-choosing-the-state-structure-14	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
-learn-choosing-the-state-structure-15	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-choosing-the-state-structure-13	lowered
+learn-choosing-the-state-structure-14	lowered
+learn-choosing-the-state-structure-15	lowered
 learn-choosing-the-state-structure-16	lowered
 learn-choosing-the-state-structure-17	lowered
 learn-choosing-the-state-structure-18	lowered
@@ -97,7 +97,7 @@ learn-javascript-in-jsx-with-curly-braces-12	lowered
 learn-javascript-in-jsx-with-curly-braces-13	lowered
 learn-javascript-in-jsx-with-curly-braces-2	lowered
 learn-javascript-in-jsx-with-curly-braces-3	lowered
-learn-javascript-in-jsx-with-curly-braces-4	client: src/App.js:5:5 a locale named where it formats
+learn-javascript-in-jsx-with-curly-braces-4	lowered
 learn-javascript-in-jsx-with-curly-braces-5	lowered
 learn-javascript-in-jsx-with-curly-braces-6	lowered
 learn-javascript-in-jsx-with-curly-braces-7	lowered
@@ -106,8 +106,8 @@ learn-javascript-in-jsx-with-curly-braces-9	lowered
 learn-keeping-components-pure-1	lowered
 learn-keeping-components-pure-3	lowered
 learn-keeping-components-pure-4	lowered
-learn-keeping-components-pure-5	client: src/Clock.js:2:17 `.getHours()`, which reads the viewer's time zone
-learn-keeping-components-pure-6	client: src/Clock.js:2:17 `.getHours()`, which reads the viewer's time zone
+learn-keeping-components-pure-5	client: src/Clock.js:3:7 `hours`, a value only the browser knows
+learn-keeping-components-pure-6	client: src/Clock.js:4:7 `hours`, a value only the browser knows
 learn-keeping-components-pure-8	lowered
 learn-lifecycle-of-reactive-effects-1	lowered
 learn-lifecycle-of-reactive-effects-11	lowered
@@ -166,7 +166,7 @@ learn-passing-props-to-a-component-12	lowered
 learn-passing-props-to-a-component-13	lowered
 learn-passing-props-to-a-component-2	lowered
 learn-passing-props-to-a-component-3	lowered
-learn-passing-props-to-a-component-4	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-passing-props-to-a-component-4	lowered
 learn-passing-props-to-a-component-5	lowered
 learn-passing-props-to-a-component-6	lowered
 learn-passing-props-to-a-component-7	lowered
@@ -233,7 +233,7 @@ learn-removing-effect-dependencies-6	lowered
 learn-removing-effect-dependencies-7	lowered
 learn-removing-effect-dependencies-8	lowered
 learn-removing-effect-dependencies-9	lowered
-learn-render-and-commit-3	client: src/App.js:18:18 `.toLocaleTimeString()`, which reads the viewer's time zone
+learn-render-and-commit-3	lowered
 learn-rendering-lists-1	lowered
 learn-rendering-lists-10	lowered
 learn-rendering-lists-11	lowered
@@ -288,9 +288,9 @@ learn-rsc-sandbox-test-1	lowered
 learn-rsc-sandbox-test-10	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-2	lowered
 learn-rsc-sandbox-test-3	client: src/Albums.js:6:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
-learn-rsc-sandbox-test-4	client: src/SlowData.js:8:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/Timestamp.js:4:19 the current time on a render path, which the server and the browser read at different moments
-learn-rsc-sandbox-test-5	client: src/DataViewer.js:6:16 `.entries()`, which is not a builtin
-learn-rsc-sandbox-test-6	client: src/App.js:15:22 `now` reads the current time on a render path, which the server and the browser read at different moments
+learn-rsc-sandbox-test-4	client: src/SlowData.js:8:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
+learn-rsc-sandbox-test-5	lowered
+learn-rsc-sandbox-test-6	client: src/App.js:6:3 an expression statement other than a write to a local
 learn-rsc-sandbox-test-7	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-8	client: src/actions.js:6:3 a call for its effect, which a straight-line body cannot hold
 learn-rsc-sandbox-test-9	lowered
@@ -457,7 +457,7 @@ reference-react-dom-client-createroot-1	lowered
 reference-react-dom-client-createroot-3	lowered
 reference-react-dom-client-createroot-4	client: src/App.js:4:3 a write to `foo`, which this body did not declare
 reference-react-dom-client-hydrateroot-1	lowered
-reference-react-dom-client-hydrateroot-2	client: src/App.js:4:22 the current time on a render path, which the server and the browser read at different moments
+reference-react-dom-client-hydrateroot-2	lowered
 reference-react-dom-client-hydrateroot-4	lowered
 reference-react-dom-client-hydrateroot-5	client: src/App.js:4:3 a write to `foo`, which this body did not declare
 reference-react-dom-components-common-1	lowered
@@ -549,12 +549,12 @@ reference-react-use-4	client: src/App.js:20:18 `use` of something other than a `
 reference-react-use-5	client: src/data.js:9:5 a call for its effect, which a straight-line body cannot hold
 reference-react-use-6	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-7	client: src/message.js:6:26 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-useactionstate-1	client: src/Total.js:1:19 an `Intl` formatter kept as a value
-reference-react-useactionstate-2	client: src/Total.js:1:19 an `Intl` formatter kept as a value
-reference-react-useactionstate-3	client: src/Total.js:1:19 an `Intl` formatter kept as a value
-reference-react-useactionstate-4	client: src/Total.js:1:19 an `Intl` formatter kept as a value
-reference-react-useactionstate-5	client: src/Total.js:1:19 an `Intl` formatter kept as a value
-reference-react-useactionstate-6	client: src/Total.js:1:19 an `Intl` formatter kept as a value
+reference-react-useactionstate-1	lowered
+reference-react-useactionstate-2	lowered
+reference-react-useactionstate-3	lowered
+reference-react-useactionstate-4	lowered
+reference-react-useactionstate-5	lowered
+reference-react-useactionstate-6	lowered
 reference-react-usecallback-3	lowered
 reference-react-usecontext-1	lowered
 reference-react-usecontext-2	lowered

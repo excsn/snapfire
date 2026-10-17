@@ -26,7 +26,8 @@ The build reads every component before anything runs, so it can tell a browser-o
 
 | The component | Where it runs | What you see |
 | --- | --- | --- |
-| Renders a browser-only value: `toLocaleTimeString()`, `getHours()`, `Date.now()`, `Math.random()`, `window` | The component renders in the browser | The report marks it `client` and names the line; the page around it is still server rendered |
+| Writes the viewer's clock as text: `<p>{new Date().toLocaleTimeString()}</p>`, a `const` holding it, a helper returning it, a prop a child writes as text | The server writes nothing for the value; the component hydrates with the value null, which matches, then computes it once mounted and renders again | A `browser` row in the report naming the line; the markup around the value is the server's |
+| Uses a browser-only value anywhere else: in an attribute, in a condition, choosing markup, `Math.random()` shaping a list, `window` | The component renders in the browser | The report marks it `client` and names the line; the page around it is still server rendered |
 | Calls `console.log`, `info`, `debug`, `warn` or `error` | The server logs on every render; the browser logs again when the component hydrates | A line under `fsr::console` in the server's log; the HTML is unchanged |
 | Logs a browser-only value | The browser alone | No server line for that call; the component still renders on the server |
 | Handles an event, `onClick={...}` | The browser | The server writes the markup and the browser attaches the handler |
@@ -34,7 +35,7 @@ The build reads every component before anything runs, so it can tell a browser-o
 | Submits a form to a function, `<form action={save}>` | The browser | The server writes React's own placeholder `action`, so hydration matches |
 | Passes a setter or `dispatch` on | The browser calls it | On the server it is a function that renders nothing, so `{dispatch ? "ready" : ""}` renders the same on both |
 
-The first row does what Next's `ssr: false` does, for the one component that needs it and without you writing it. The rest are things React frameworks either run twice or leave you to arrange.
+The first row is the `useEffect` fix Next's documentation has you write, written for you around the one expression that needs it and only after the build has checked the value lands as text or a prop rather than shaping markup. The second row does what Next's `ssr: false` does, for the one component that needs it. The rest are things React frameworks either run twice or leave you to arrange.
 
 ## Logging
 
@@ -67,14 +68,29 @@ The server writes `<h3>Hello, Ada!</h3>` and no log line. The browser logs `Gree
 
 One argument is still refused: a call to an extension only the server has, `id.new()` for one, since the browser would make the same call when the component hydrates and has no such extension.
 
-## Rendering a browser-only value
+## The viewer's clock as text
 
-A browser-only value in the markup sends that component to the browser:
+A browser-only value written as text under an element is left to the browser and the component still renders on the server:
+
+```tsx
+export default function Clock() {
+  return <p className="at">Rendered at {new Date().toLocaleTimeString()}</p>;
+}
+```
+
+The server writes `<p class="at">Rendered at </p>`. In the browser copy the build wraps the expression so it is null until the component has mounted: the first render matches the server's markup, so hydration has nothing to report and a second render right after mount computes the time and writes it. React's hydration never patches a text difference it is told to ignore, so this is the shape that works. The report says so:
+
+```
+rendered  src/ui/Clock.tsx#Clock             lowered
+browser   src/ui/Clock.tsx#Clock             src/ui/Clock.tsx:2:47: the current time on a render path, which the server and the browser read at different moments
+```
+
+The same holds for a `const` that holds the value, a helper that returns it and a prop a child writes as text: the parent computes it once mounted and the child renders again with it. The build only does this where the value is text or a prop, so the first render's markup is the server's. A browser-only value in an attribute, in a condition or choosing between markup sends the component to the browser instead:
 
 ```
 rendered  routes/page.tsx#default            lowered
           src/ui/Clock.tsx#Clock             client      src/ui/Clock.tsx:2:34
-client    src/ui/Clock.tsx:2:34              `.toLocaleTimeString()`, which reads the viewer's time zone
+client    src/ui/Clock.tsx:2:34              `.getHours()`, which reads the viewer's time zone
 ```
 
 The page still renders on the server. `Clock` arrives as a React island with its props and draws itself in the browser, with no mismatch to report since the server sent no text for it. When the value does not have to be the viewer's, compute it on the server instead: `ctx.now` in the loader passed down as a prop, `toISOString()`, the `getUTC*` methods or `intl.date(when, "long")` from `@snapfire/fsr-client/std` under the request's locale. Then the component renders on the server and the browser computes the same string at hydration.
@@ -85,4 +101,4 @@ Open the lowering conformance app's [`Board.tsx`](../../examples/conformance/low
 
 Change the log line to `console.log("board rendered at", new Date().toLocaleTimeString())` and rebuild. The report still lists `Board` as `lowered`, the server's log has no line for it and the browser console prints the viewer's time.
 
-Now render the time instead: `<p className="status">{new Date().toLocaleTimeString()}</p>`. This app sets `[build] strict = true`, so the build refuses `Board` and names the line: strict mode lets nothing fall back to the browser without saying so. Remove `strict` and rebuild: `Board` is `client`, the page around it is in the HTML and the board appears once the browser draws it. Put the line back.
+Now render the time instead: `<p className="status">{new Date().toLocaleTimeString()}</p>`. The report still lists `Board` as `lowered` and adds a `browser` row for the line: the server writes the paragraph empty and the browser fills it once the board hydrates. `Clock.tsx` on the same page does this on purpose, with a currency and a weekday formatted on the server beside it. Make the value choose something instead, `<p className={new Date().getHours() > 6 ? "day" : "night"}>`: this app sets `[build] strict = true`, so the build refuses `Board` and names the line, since strict mode lets nothing fall back to the browser without saying so. Remove `strict` and rebuild: `Board` is `client`, the page around it is in the HTML and the board appears once the browser draws it. Put the line back.

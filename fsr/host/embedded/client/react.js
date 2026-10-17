@@ -433,6 +433,15 @@ export function Embed(props) {
 const HoistContext = createContext(null);
 const HOISTED_PROP = "$h";
 const PathContext = createContext([]);
+export function useBrowser() {
+    const [mounted, setMounted] = useState(false);
+    useEffect(()=>{
+        setMounted(true);
+    }, []);
+    return useCallback((compute)=>mounted ? compute() : null, [
+        mounted
+    ]);
+}
 export function useHoisted(module) {
     const table = useContext(HoistContext);
     const base = useContext(PathContext);

@@ -148,7 +148,7 @@ fn a_function_a_custom_hook_declares_and_returns_in_an_object_lowers_the_hook() 
 }
 
 #[test]
-fn a_helper_reading_the_date_clock_sends_its_component_to_the_browser_as_an_inline_read_does() {
+fn a_helper_reading_the_date_clock_is_left_to_the_browser_as_an_inline_read_is() {
   let card = "function now() {\n  return Date.now();\n}\nexport default function Stamp() {\n  return <p>{now()}</p>;\n}\n";
   let page = "import Stamp from \"@src/Stamp\";\nexport default function Page() {\n  return <main><Stamp /></main>;\n}\n";
   let dir = app("date_helper", &[("src/Stamp.tsx", card), ("routes/page.tsx", page)]);
@@ -156,8 +156,9 @@ fn a_helper_reading_the_date_clock_sends_its_component_to_the_browser_as_an_inli
   let result = set.lower("routes/page.tsx#default");
   std::fs::remove_dir_all(&dir).unwrap();
   assert!(result.is_ok(), "{result:?}");
-  let residue = set.browser_only.iter().find(|(m, _)| m == "src/Stamp.tsx#default").map(|(_, r)| r.message.clone());
-  assert!(residue.as_deref().is_some_and(|m| m.contains("reads the current time on a render path")), "{residue:?}");
+  assert!(!set.browser_only.iter().any(|(m, _)| m == "src/Stamp.tsx#default"), "{:?}", set.browser_only);
+  let text = set.browser_texts.iter().find(|(m, _)| m == "src/Stamp.tsx#default").map(|(_, site)| site.clone());
+  assert!(text.as_deref().is_some_and(|t| t.starts_with("src/Stamp.tsx:5:14: `now` reads the current time on a render path")), "{text:?}");
 }
 
 #[test]

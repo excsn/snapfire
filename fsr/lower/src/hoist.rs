@@ -170,7 +170,7 @@ impl Candidates {
     }
     let statement_loops: Vec<StatementLoop> = self.statement_loops.into_iter().filter(|l| loops.contains(&l.range)).collect();
     loops.retain(|range| !statement_loops.iter().any(|l| l.range == *range));
-    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, placements, loops, statement_loops })
+    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, placements, loops, statement_loops, browser: Vec::new() })
   }
 }
 
@@ -217,6 +217,8 @@ pub struct Rewrite {
   pub loops: Vec<Range<usize>>,
   /// The statement loops the survivors sit in.
   pub statement_loops: Vec<StatementLoop>,
+  /// The expressions whose value only the browser knows, which the server rendered as null: each is wrapped so it is null through hydration, matching the server's markup, and computed once the component has mounted.
+  pub browser: Vec<Range<usize>>,
 }
 
 /// Unwraps every value candidate in `component` that is not props only and
@@ -578,7 +580,7 @@ const READER: &str = "__sfh";
 /// The prop an island placement carries its region key on, read by `Island`.
 const KEY_PROP: &str = "__sfKey";
 /// The import the rewrite adds at the top of a file.
-pub const IMPORT: &str = "import { useHoisted as __sfUseHoisted } from \"@snapfire/fsr-client/react\";\n";
+pub const IMPORT: &str = "import { useHoisted as __sfUseHoisted, useBrowser as __sfUseBrowser } from \"@snapfire/fsr-client/react\";\n";
 
 /// One splice: the range replaced (empty for an insertion), the text and the
 /// order among edits at one position, lower first.
@@ -601,12 +603,20 @@ pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String {
   let replaced: Vec<Range<usize>> = rewrites.iter().flat_map(|r| r.chunks.iter().filter(|c| c.proven).map(|c| c.range.clone())).collect();
   let inside = |start: usize, end: usize| replaced.iter().any(|r| r.start < start && end <= r.end);
   for rewrite in rewrites {
+    let browser_hook = if rewrite.browser.is_empty() { "" } else { " const __sfb = __sfUseBrowser();" };
     match &rewrite.hook {
-      Hook::Block { after } => insert(&mut edits, *after, 0, format!(" const {READER} = __sfUseHoisted({}); ", quoted(&rewrite.module))),
+      Hook::Block { after } => insert(&mut edits, *after, 0, format!(" const {READER} = __sfUseHoisted({});{browser_hook} ", quoted(&rewrite.module))),
       Hook::Expression(range) => {
-        insert(&mut edits, range.start, 1, format!("{{ const {READER} = __sfUseHoisted({}); return (", quoted(&rewrite.module)));
+        insert(&mut edits, range.start, 1, format!("{{ const {READER} = __sfUseHoisted({});{browser_hook} return (", quoted(&rewrite.module)));
         insert(&mut edits, range.end, 0, "); }".to_owned());
       }
+    }
+    for range in &rewrite.browser {
+      if inside(range.start, range.end) {
+        continue;
+      }
+      insert(&mut edits, range.start, 1, "__sfb(() => ".to_owned());
+      insert(&mut edits, range.end, 0, ")".to_owned());
     }
     for range in &rewrite.loops {
       if inside(range.start, range.end) {

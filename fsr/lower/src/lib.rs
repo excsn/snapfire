@@ -133,7 +133,9 @@ pub const EXT_DIR: &str = "ext";
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Resolved {
   pub globals: Vec<(String, Expr)>,
-  pub global_kinds: Vec<(String, Collection)>,
+  pub global_kinds: Vec<(String, Kind)>,
+  /// The resolved module-level names that hold an `Intl` formatter, with the `new` that made each.
+  pub global_formatters: Vec<(String, js::NewExpr)>,
   pub natives: Vec<(String, Reach)>,
 }
 
@@ -904,7 +906,7 @@ pub(crate) struct Lowerer<'a> {
   /// Module-level names a component lowerer has resolved, read after the scope.
   pub(crate) globals: Vec<(String, Expr)>,
   /// The resolved module-level names that hold a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`.
-  pub(crate) global_kinds: Vec<(String, Collection)>,
+  pub(crate) global_kinds: Vec<(String, Kind)>,
   /// The last name `ident` could not resolve, so a caller that can may bind it and retry.
   pub(crate) unbound: Option<String>,
   /// Set by a component lowerer: every helper call and formatting builtin is
@@ -923,8 +925,18 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) reach_violation: bool,
   /// How many temporaries a destructuring has bound, so each gets a name of its own.
   pub(crate) temps: usize,
-  /// Names bound to a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`, with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
-  pub(crate) kinds: Vec<(String, Expr, Collection)>,
+  /// Names bound to a value of a known [`Kind`], with the binding they were noted against, so `.size`, `.get` and `.has` read the collection only where the name still holds one.
+  pub(crate) kinds: Vec<(String, Expr, Kind)>,
+  /// The kinds of a component's props, from the props parameter's type or from the placements that pass them, by prop name.
+  pub(crate) prop_kinds: Vec<(String, Kind)>,
+  /// The props whose kind the lowering read, so a placement passing another kind for one is a conflict rather than a silent wrong constant.
+  pub(crate) consulted: std::cell::RefCell<Vec<String>>,
+  /// Names bound to an `Intl` formatter kept as a value, with the binding noted against and the `new` that made it, so `f.format(x)` lowers as the inline form would.
+  pub(crate) formatters: Vec<(String, Expr, js::NewExpr)>,
+  /// The resolved module-level names that hold an `Intl` formatter.
+  pub(crate) global_formatters: Vec<(String, js::NewExpr)>,
+  /// Why the last residue was a value only the browser knows, set by the site that refused it. A consumer that can leave the value to the browser, text under an element, a prop into a placement, a binding, takes it and lowers null in its place; anywhere else the residue stands.
+  pub(crate) browser_value: Option<String>,
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
   /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
@@ -935,20 +947,58 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) unfollowed: Vec<String>,
 }
 
-/// What a `new Map`, a `new Set` or a `new URLSearchParams` lowered to: an object keyed by `String(key)`, an array without repeats or the encoded string.
+/// A JavaScript type the value model has no arm for and what it lowered to: a `Map` as an object keyed by `String(key)`, a `Set` as an array without repeats, a `URLSearchParams` as the encoded string, a `Date` as milliseconds since the epoch and a `BigInt` as an integer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Collection {
+pub(crate) enum Kind {
   Map,
   Set,
   Query,
+  Date,
+  BigInt,
+  /// A value only the browser knows, the viewer's clock for one: null on the server, read as an error the sites that can leave it to the browser catch.
+  Browser,
 }
 
-impl Collection {
-  fn name(self) -> &'static str {
+impl Kind {
+  pub(crate) fn name(self) -> &'static str {
     match self {
-      Collection::Map => "Map",
-      Collection::Set => "Set",
-      Collection::Query => "URLSearchParams",
+      Kind::Map => "Map",
+      Kind::Set => "Set",
+      Kind::Query => "URLSearchParams",
+      Kind::Date => "Date",
+      Kind::BigInt => "BigInt",
+      Kind::Browser => "value only the browser knows",
+    }
+  }
+
+  /// The variant tag the value travels under into an island, so the browser makes the real type; a `URLSearchParams` is a string on both sides.
+  pub(crate) fn tag(self) -> Option<&'static str> {
+    use snapfire_fsr_ir::render::typed;
+    match self {
+      Kind::Map => Some(typed::MAP),
+      Kind::Set => Some(typed::SET),
+      Kind::Query | Kind::Browser => None,
+      Kind::Date => Some(typed::DATE),
+      Kind::BigInt => Some(typed::BIGINT),
+    }
+  }
+
+  /// The kind a type annotation names: `Map<K, V>`, `Set<T>`, `Date`, `URLSearchParams` or `bigint`.
+  pub(crate) fn of_type(ty: &js::TsType) -> Option<Kind> {
+    match ty {
+      js::TsType::TsParenthesizedType(p) => Kind::of_type(&p.type_ann),
+      js::TsType::TsKeywordType(k) if k.kind == js::TsKeywordTypeKind::TsBigIntKeyword => Some(Kind::BigInt),
+      js::TsType::TsTypeRef(r) => match &r.type_name {
+        js::TsEntityName::Ident(id) => match id.sym.as_ref() {
+          "Map" | "ReadonlyMap" => Some(Kind::Map),
+          "Set" | "ReadonlySet" => Some(Kind::Set),
+          "Date" => Some(Kind::Date),
+          "URLSearchParams" => Some(Kind::Query),
+          _ => None,
+        },
+        _ => None,
+      },
+      _ => None,
     }
   }
 }
@@ -957,12 +1007,13 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
     self.globals = resolved.globals.clone();
     self.global_kinds = resolved.global_kinds.clone();
+    self.global_formatters = resolved.global_formatters.clone();
     self.natives = resolved.natives.clone();
     self
   }
@@ -1152,26 +1203,99 @@ impl<'a> Lowerer<'a> {
     format!("$d{}", self.temps)
   }
 
-  /// The collection `e` holds: a `new Map(...)` or `new Set(...)` itself, or a name noted as bound to one.
-  pub(crate) fn collection_of(&self, e: &js::Expr) -> Option<Collection> {
+  /// The kind `e` holds: a `new Map(...)`, `new Set(...)`, `new Date(...)` or bigint written in place, a name noted as bound to one or a prop whose kind is known.
+  pub(crate) fn kind_of(&self, e: &js::Expr) -> Option<Kind> {
     match e {
-      js::Expr::Paren(p) => self.collection_of(&p.expr),
-      js::Expr::TsAs(a) => self.collection_of(&a.expr),
-      js::Expr::TsNonNull(a) => self.collection_of(&a.expr),
+      js::Expr::Paren(p) => self.kind_of(&p.expr),
+      js::Expr::TsAs(a) => self.kind_of(&a.expr),
+      js::Expr::TsNonNull(a) => self.kind_of(&a.expr),
       js::Expr::Ident(id) => {
         let name = id.sym.as_ref();
         match self.scope.iter().rev().find(|(n, _)| n == name) {
-          Some((_, bound)) => self.kinds.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, kind)| *kind),
+          Some((_, bound)) => {
+            let kind = self.kinds.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, kind)| *kind);
+            if let (Some(_), Some(key)) = (kind, prop_key(bound)) {
+              self.consulted.borrow_mut().push(key);
+            }
+            kind
+          }
           None => self.global_kinds.iter().find(|(n, _)| n == name).map(|(_, kind)| *kind),
         }
       }
-      other => made_collection(other),
+      js::Expr::Call(call) => match &call.callee {
+        js::Callee::Expr(callee) => match &**callee {
+          js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Browser) => Some(Kind::Browser),
+          _ => made_kind(e),
+        },
+        _ => None,
+      },
+      js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Browser) => Some(Kind::Browser),
+      js::Expr::Member(m) => {
+        let js::Expr::Ident(obj) = &*m.obj else { return None };
+        let js::MemberProp::Ident(prop) = &m.prop else { return None };
+        let (_, bound) = self.scope.iter().rev().find(|(n, _)| n == obj.sym.as_ref())?;
+        if *bound != Expr::Var("$props".to_owned()) {
+          return None;
+        }
+        let kind = self.prop_kinds.iter().find(|(k, _)| k == prop.sym.as_ref()).map(|(_, kind)| *kind)?;
+        self.consulted.borrow_mut().push(prop.sym.to_string());
+        Some(kind)
+      }
+      other => made_kind(other),
     }
+  }
+
+  /// `x instanceof Map`, `Set`, `Date` or `Array`: a constant where the build knows what `x` holds, `Array.isArray` for `Array`.
+  fn instance_of(&mut self, bin: &js::BinExpr) -> Lowered<Expr> {
+    let js::Expr::Ident(class) = &*bin.right else { return Err(self.residue(bin.span, "`instanceof` of a computed class")) };
+    let class = class.sym.as_ref();
+    if self.scope.iter().any(|(n, _)| n == class) || self.globals.iter().any(|(n, _)| n == class) {
+      return Err(self.residue(bin.span, format!("`instanceof {class}`, a class this file declares")));
+    }
+    if class == "Array" {
+      return Ok(Expr::Builtin { name: Builtin::IsArray, args: vec![self.expr(&bin.left)?] });
+    }
+    if !matches!(class, "Map" | "Set" | "Date") {
+      return Err(self.residue(bin.span, format!("`instanceof {class}`")));
+    }
+    match self.kind_of(&bin.left) {
+      Some(Kind::Browser) => Err(self.browser_only(bin.left.span(), "`instanceof` of a value only the browser knows")),
+      Some(kind) => Ok(Expr::Lit(Lit::Bool(kind.name() == class))),
+      None => Err(self.residue_with(bin.left.span(), format!("`instanceof {class}` on a value whose type the build does not know"), "make the value in place with `new` or type the prop `Map<K, V>`, `Set<T>` or `Date` where the component declares its props")),
+    }
+  }
+
+  /// The `Intl` formatter `e` holds: a `new Intl.NumberFormat(...)` written in place, or a name bound to one, local or module-level.
+  pub(crate) fn formatter_of(&self, e: &js::Expr) -> Option<js::NewExpr> {
+    match strip_parens(e) {
+      js::Expr::TsAs(a) => self.formatter_of(&a.expr),
+      js::Expr::TsNonNull(a) => self.formatter_of(&a.expr),
+      js::Expr::New(n) if intl_formatter(n).is_some() => Some(n.clone()),
+      js::Expr::Ident(id) => {
+        let name = id.sym.as_ref();
+        match self.scope.iter().rev().find(|(n, _)| n == name) {
+          Some((_, bound)) => self.formatters.iter().rev().find(|(n, held, _)| n == name && held == bound).map(|(_, _, made)| made.clone()),
+          None => self.global_formatters.iter().find(|(n, _)| n == name).map(|(_, made)| made.clone()),
+        }
+      }
+      _ => None,
+    }
+  }
+
+  /// Binds `name` to an `Intl` formatter `init` makes, so a later `.format(x)` on it lowers as the inline form; the name reads as null anywhere else.
+  pub(crate) fn bind_formatter(&mut self, name: &str, init: &js::Expr) -> bool {
+    let js::Expr::New(made) = strip_parens(init) else { return false };
+    if intl_formatter(made).is_none() {
+      return false;
+    }
+    self.scope.push((name.to_owned(), Expr::Lit(Lit::Null)));
+    self.formatters.push((name.to_owned(), Expr::Lit(Lit::Null), made.clone()));
+    true
   }
 
   /// Notes `name`, just bound to `init`, as a collection when `init` is one.
   pub(crate) fn note_kind(&mut self, name: &str, init: &js::Expr) {
-    let Some(kind) = self.collection_of(init) else { return };
+    let Some(kind) = self.kind_of(init) else { return };
     let Some(bound) = self.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e.clone()) else { return };
     self.kinds.push((name.to_owned(), bound, kind));
   }
@@ -1181,6 +1305,11 @@ impl<'a> Lowerer<'a> {
     let Some(init) = &decl.init else {
       return Err(self.residue(decl.span, "a declaration without a value"));
     };
+    if let js::Pat::Ident(name) = &decl.name {
+      if self.bind_formatter(name.id.sym.as_ref(), init) {
+        return Ok(Stmt::Let { name: name.id.sym.to_string(), expr: Expr::Lit(Lit::Null) });
+      }
+    }
     let expr = self.expr(init)?;
     let name = match &decl.name {
       js::Pat::Ident(name) => {
@@ -1231,7 +1360,7 @@ impl<'a> Lowerer<'a> {
           return Err(self.residue(decl.span, "`for...of` must declare its variable"));
         };
         let mut over = self.expr(&for_of.right)?;
-        if self.collection_of(&for_of.right) == Some(Collection::Map) {
+        if self.kind_of(&for_of.right) == Some(Kind::Map) {
           over = Expr::Entries(Box::new(over));
         }
         let depth = self.scope.len();
@@ -1317,9 +1446,9 @@ impl<'a> Lowerer<'a> {
         };
         let held = Expr::Var(name.clone());
         let expr = match (kind, method.as_str()) {
-          (Collection::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
-          (Collection::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
-          (Collection::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
+          (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
+          (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
+          (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
           (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
         };
         Ok(Stmt::Set { name, expr })
@@ -1424,11 +1553,11 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` a local collection: the local, which kind it is and the method.
-  fn local_collection_write(&self, call: &js::CallExpr) -> Option<(String, Collection, String)> {
+  fn local_collection_write(&self, call: &js::CallExpr) -> Option<(String, Kind, String)> {
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Member(member) = &**callee else { return None };
     let js::Expr::Ident(obj) = &*member.obj else { return None };
-    let kind = self.collection_of(&member.obj)?;
+    let kind = self.kind_of(&member.obj)?;
     let method = self.member_name(member)?;
     (matches!(method.as_str(), "set" | "delete" | "add" | "clear") && self.is_local(obj.sym.as_ref())).then(|| (obj.sym.to_string(), kind, method))
   }
@@ -1586,7 +1715,7 @@ impl<'a> Lowerer<'a> {
         for elem in arr.elems.iter().flatten() {
           let value = self.expr(&elem.expr)?;
           entries.push(match elem.spread {
-            Some(_) if self.collection_of(&elem.expr) == Some(Collection::Map) => Entry::Spread(Expr::Entries(Box::new(value))),
+            Some(_) if self.kind_of(&elem.expr) == Some(Kind::Map) => Entry::Spread(Expr::Entries(Box::new(value))),
             Some(_) => Entry::Spread(value),
             None => Entry::Item(value),
           });
@@ -1601,9 +1730,14 @@ impl<'a> Lowerer<'a> {
           other => Ok(Expr::Arith(ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(self.expr(other)?))),
         },
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
-        js::UnaryOp::TypeOf => Ok(Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.arg)?] }),
+        js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
+          Some(Kind::BigInt) => Expr::lit_str("bigint"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query) => Expr::lit_str("object"),
+          Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.arg)?] },
+        }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
       },
+      js::Expr::Bin(bin) if bin.op == js::BinaryOp::InstanceOf => self.instance_of(bin),
       js::Expr::Bin(bin) => {
         let l = Box::new(self.expr(&bin.left)?);
         let r = Box::new(self.expr(&bin.right)?);
@@ -1651,9 +1785,19 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// A residue for a value only the browser knows, marked so a consumer that can leave it to the browser lowers null in its place.
+  pub(crate) fn browser_only(&mut self, span: Span, reason: impl Into<String>) -> Residue {
+    let reason = reason.into();
+    self.browser_value = Some(reason.clone());
+    self.residue_with(span, reason, "as text under an element the browser fills it in when the component hydrates; anywhere else compute it on the server, from `ctx.now` in the loader or a prop")
+  }
+
   pub(crate) fn ident(&mut self, id: &js::Ident) -> Lowered<Expr> {
     let name = id.sym.as_ref();
     if let Some((_, bound)) = self.scope.iter().rev().find(|(n, _)| n == name) {
+      if self.kinds.iter().rev().any(|(n, held, kind)| n == name && held == bound && *kind == Kind::Browser) {
+        return Err(self.browser_only(id.span, format!("`{name}`, a value only the browser knows")));
+      }
       return Ok(bound.clone());
     }
     if let Some((_, bound)) = self.globals.iter().rev().find(|(n, _)| n == name) {
@@ -1788,11 +1932,18 @@ impl<'a> Lowerer<'a> {
       }
     }
 
-    let collection = self.collection_of(&member.obj);
+    if self.kind_of(&js::Expr::Member(member.clone())) == Some(Kind::Browser) {
+      let shown = match (&*member.obj, &member.prop) {
+        (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) => format!("`{}.{}`", obj.sym, prop.sym),
+        _ => "a member".to_owned(),
+      };
+      return Err(self.browser_only(member.span, format!("{shown}, a value only the browser knows")));
+    }
+    let collection = self.kind_of(&member.obj);
     let target = self.expr(&member.obj)?;
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
-      Ok(name) if name == "size" && collection.is_some_and(|kind| kind != Collection::Query) => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if name == "size" && collection.is_some_and(|kind| kind != Kind::Query) => Ok(Expr::Length(Box::new(target))),
       Ok(name) => Ok(Expr::Field(Box::new(target), name)),
       Err(key) => Ok(Expr::Index(Box::new(target), Box::new(key))),
     }
@@ -1944,7 +2095,7 @@ impl<'a> Lowerer<'a> {
           if self.on_render_path() {
             if let Some(key) = self.body_extension_in(&f) {
               if self.reads_only_the_date_clock(&f) {
-                return Err(self.residue_with(call.span, format!("`{name}` reads the current time on a render path, which the server and the browser read at different moments"), "read `ctx.now` in the loader and pass it as a prop"));
+                return Err(self.browser_only(call.span, format!("`{name}` reads the current time on a render path, which the server and the browser read at different moments")));
               }
               self.reach_violation = true;
               return Err(self.residue(call.span, format!("`{name}` calls `{key}` on a render path")));
@@ -2060,8 +2211,8 @@ impl<'a> Lowerer<'a> {
           "Array" if method == "from" && call.args.first().is_some_and(|a| !matches!(&*a.expr, js::Expr::Object(_))) => {
             let source = &call.args[0].expr;
             let mut items = self.expr(source)?;
-            items = match self.collection_of(source) {
-              Some(Collection::Map) => Expr::Entries(Box::new(items)),
+            items = match self.kind_of(source) {
+              Some(Kind::Map) => Expr::Entries(Box::new(items)),
               _ => Expr::Builtin { name: Builtin::Slice, args: vec![items] },
             };
             return match call.args.get(1) {
@@ -2136,8 +2287,8 @@ impl<'a> Lowerer<'a> {
       }
     }
     if method == "format" {
-      if let js::Expr::New(made) = strip_parens(&member.obj) {
-        if let Some(formatter) = intl_formatter(made) {
+      if let Some(made) = self.formatter_of(&member.obj) {
+        if let Some(formatter) = intl_formatter(&made) {
           let value = call.args.first().ok_or_else(|| self.residue(call.span, "`format` without a value"))?;
           let value = self.expr(&value.expr)?;
           let made_args: Vec<js::ExprOrSpread> = made.args.clone().unwrap_or_default();
@@ -2146,8 +2297,8 @@ impl<'a> Lowerer<'a> {
         }
       }
     }
-    match self.collection_of(&member.obj) {
-      Some(Collection::Map) => {
+    match self.kind_of(&member.obj) {
+      Some(Kind::Map) => {
         let target = self.expr(&member.obj)?;
         let key = |this: &mut Self| -> Lowered<Expr> {
           let arg = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{method}` without a key")))?;
@@ -2162,7 +2313,7 @@ impl<'a> Lowerer<'a> {
           other => Err(self.residue(member.span, format!("`.{other}()` of a `Map`"))),
         };
       }
-      Some(Collection::Set) => {
+      Some(Kind::Set) => {
         let target = self.expr(&member.obj)?;
         return match method.as_str() {
           "has" => {
@@ -2173,7 +2324,7 @@ impl<'a> Lowerer<'a> {
           other => Err(self.residue(member.span, format!("`.{other}()` of a `Set`"))),
         };
       }
-      Some(Collection::Query) if method != "toString" => {
+      Some(Kind::Query) if method != "toString" => {
         let target = self.expr(&member.obj)?;
         return match method.as_str() {
           "get" => {
@@ -2228,7 +2379,9 @@ impl<'a> Lowerer<'a> {
       }
       "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" | "getTimezoneOffset" | "toLocaleTimeString" | "toTimeString" | "toDateString" => {
         let utc = method.replacen("get", "getUTC", 1);
-        Err(self.residue_with(member.span, format!("`.{method}()`, which reads the viewer's time zone"), format!("the server has no viewer; `.{utc}()` and `toLocaleDateString(undefined, {{ dateStyle }})` read UTC, which the server and the browser agree on")))
+        let mut residue = self.browser_only(member.span, format!("`.{method}()`, which reads the viewer's time zone"));
+        residue.hint = Some(format!("as text under an element the browser fills it in when the component hydrates; the server has no viewer, so `.{utc}()` and `toLocaleDateString(undefined, {{ dateStyle }})` read UTC, which both agree on"));
+        Err(residue)
       }
       "toLocaleDateString" => {
         let mut made = call.args.clone();
@@ -2475,18 +2628,19 @@ impl<'a> Lowerer<'a> {
   /// `Date.now()` or `new Date()`: the request's clock in a body; on a render path the server and the browser would each read their own moment.
   fn date_now(&mut self, span: Span) -> Lowered<Expr> {
     if self.on_render_path() {
-      return Err(self.residue_with(span, "the current time on a render path, which the server and the browser read at different moments", "read `ctx.now` in the loader and pass it as a prop"));
+      return Err(self.browser_only(span, "the current time on a render path, which the server and the browser read at different moments"));
     }
     Ok(Expr::Num(Box::new(Expr::Ext { module: "time".to_owned(), name: "now".to_owned(), args: Vec::new() })))
   }
 
-  /// `new Intl.NumberFormat(locale, options).format(value)` and `new Intl.DateTimeFormat(locale, options).format(value)` as the `intl` member that formats the same way under the request's locale.
+  /// `new Intl.NumberFormat(locale, options).format(value)` and `new Intl.DateTimeFormat(locale, options).format(value)` as the `intl` member that formats the same way under the request's locale, or under the locale written there.
   fn intl_format(&mut self, formatter: &str, made: &[js::ExprOrSpread], value: Expr, span: Span) -> Lowered<Expr> {
-    if let Some(locale) = made.first() {
-      if !matches!(&*locale.expr, js::Expr::Ident(id) if id.sym.as_ref() == "undefined") {
-        return Err(self.residue_with(locale.expr.span(), "a locale named where it formats", "pass `undefined`: the request's locale formats it, on the server and in the browser alike"));
-      }
-    }
+    let locale = match made.first().map(|a| strip_parens(&a.expr)) {
+      None => None,
+      Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => None,
+      Some(js::Expr::Lit(js::Lit::Str(s))) => Some(s.value.to_atom_lossy().to_string()),
+      Some(other) => return Err(self.residue_with(other.span(), "a locale that is not written in place", "write the locale, `\"en-US\"`, or pass `undefined` for the request's")),
+    };
     let mut options: Vec<(String, js::Expr)> = Vec::new();
     if let Some(given) = made.get(1) {
       let js::Expr::Object(obj) = &*given.expr else { return Err(self.residue(given.expr.span(), "formatting options that are not an object literal")) };
@@ -2501,36 +2655,77 @@ impl<'a> Lowerer<'a> {
       js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_atom_lossy().to_string()),
       _ => None,
     });
+    let locale_entry = locale.map(|tag| Entry::Field("locale".to_owned(), Expr::lit_str(tag)));
     match formatter {
       "NumberFormat" => {
+        let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
         if literal(&options, "style").as_deref() == Some("currency") {
-          if literal(&options, "currencyDisplay").as_deref() != Some("code") {
-            return Err(self.residue_with(span, "a currency formatted with a symbol", "`currencyDisplay: \"code\"` writes the ISO code, which the server and every browser agree on"));
-          }
           let Some((_, code)) = options.iter().find(|(k, _)| k == "currency") else { return Err(self.residue(span, "a currency style with no `currency`")) };
           let code = self.expr(&code.clone())?;
-          if let Some((other, _)) = options.iter().find(|(k, _)| !matches!(k.as_str(), "style" | "currency" | "currencyDisplay")) {
-            return Err(self.residue(span, format!("the formatting option `{other}` with a currency")));
+          // The browser's default display is the symbol.
+          let display = match literal(&options, "currencyDisplay").as_deref() {
+            None | Some("symbol") => "symbol",
+            Some("code") => "code",
+            Some("narrowSymbol") => "narrowSymbol",
+            Some(other) => return Err(self.residue(span, format!("`currencyDisplay: \"{other}\"`; code, symbol and narrowSymbol are read"))),
+          };
+          entries.push(Entry::Field("display".to_owned(), Expr::lit_str(display)));
+          for (key, v) in &options {
+            match key.as_str() {
+              "style" | "currency" | "currencyDisplay" => {}
+              "minimumFractionDigits" | "maximumFractionDigits" => entries.push(Entry::Field(key.clone(), self.expr(v)?)),
+              other => return Err(self.residue(span, format!("the formatting option `{other}` with a currency"))),
+            }
           }
-          return Ok(Expr::Ext { module: "intl".to_owned(), name: "currency".to_owned(), args: vec![value, code] });
+          return Ok(Expr::Ext { module: "intl".to_owned(), name: "currency".to_owned(), args: vec![value, code, Expr::Object(entries)] });
         }
-        let mut entries = Vec::new();
         for (key, v) in &options {
           if !matches!(key.as_str(), "minimumFractionDigits" | "maximumFractionDigits") {
-            return Err(self.residue(span, format!("the number formatting option `{key}`; `minimumFractionDigits`, `maximumFractionDigits` and a currency in code form are read")));
+            return Err(self.residue(span, format!("the number formatting option `{key}`; `minimumFractionDigits`, `maximumFractionDigits` and a currency are read")));
           }
           entries.push(Entry::Field(key.clone(), self.expr(v)?));
         }
         Ok(Expr::Ext { module: "intl".to_owned(), name: "number".to_owned(), args: vec![value, Expr::Object(entries)] })
       }
       _ => {
-        let Some(style) = literal(&options, "dateStyle") else {
-          return Err(self.residue_with(span, "a date formatted without a `dateStyle`", "`{ dateStyle: \"medium\" }` names a format the server and the browser write the same way"));
-        };
-        if let Some((other, _)) = options.iter().find(|(k, _)| k != "dateStyle" && !(k == "timeZone" && literal(&options, "timeZone").as_deref() == Some("UTC"))) {
-          return Err(self.residue(span, format!("the date formatting option `{other}`; `dateStyle` and `timeZone: \"UTC\"` are read")));
+        let utc = |options: &[(String, js::Expr)]| options.iter().all(|(k, _)| k != "timeZone") || literal(options, "timeZone").as_deref() == Some("UTC");
+        if !utc(&options) {
+          return Err(self.residue(span, "a `timeZone` other than `\"UTC\"`"));
         }
-        Ok(Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::lit_str(style)] })
+        if let Some(style) = literal(&options, "dateStyle") {
+          if let Some((other, _)) = options.iter().find(|(k, _)| !matches!(k.as_str(), "dateStyle" | "timeZone")) {
+            return Err(self.residue(span, format!("the date formatting option `{other}` beside `dateStyle`")));
+          }
+          return Ok(match locale_entry {
+            None => Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::lit_str(style)] },
+            Some(locale) => Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::Object(vec![Entry::Field("style".to_owned(), Expr::lit_str(style)), locale])] },
+          });
+        }
+        // The parts the server formats through a field set: a text month or
+        // weekday, a numeric year and day.
+        let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
+        for (key, v) in &options {
+          let text = match v {
+            js::Expr::Lit(js::Lit::Str(s)) => s.value.to_atom_lossy().to_string(),
+            _ => return Err(self.residue(v.span(), format!("a `{key}` that is not written in place"))),
+          };
+          let read = match (key.as_str(), text.as_str()) {
+            ("timeZone", _) => continue,
+            ("weekday" | "month", "long" | "short" | "narrow") => true,
+            ("year" | "day", "numeric") => true,
+            ("month", "numeric" | "2-digit") => return Err(self.residue_with(v.span(), "a numeric month", "`month: \"short\"` or a `dateStyle`; the server has no digits that agree with the browser's")),
+            ("weekday" | "month" | "year" | "day", _) => false,
+            _ => return Err(self.residue(span, format!("the date formatting option `{key}`; `dateStyle`, `weekday`, `year`, `month`, `day` and `timeZone: \"UTC\"` are read"))),
+          };
+          if !read {
+            return Err(self.residue(v.span(), format!("`{key}: \"{text}\"`")));
+          }
+          entries.push(Entry::Field(key.clone(), Expr::lit_str(text)));
+        }
+        if !entries.iter().any(|e| matches!(e, Entry::Field(k, _) if matches!(k.as_str(), "weekday" | "year" | "month" | "day"))) {
+          return Err(self.residue_with(span, "a date formatted without a `dateStyle` or a part", "`{ dateStyle: \"medium\" }` or `{ weekday: \"long\" }` names a format the server and the browser write the same way"));
+        }
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "date".to_owned(), args: vec![value, Expr::Object(entries)] })
       }
     }
   }
@@ -2617,18 +2812,36 @@ fn strip_optional(e: &js::Expr, guards: &mut Vec<js::Expr>) -> js::Expr {
   }
 }
 
-/// The collection `e` makes, a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)` written in place.
-pub(crate) fn made_collection(e: &js::Expr) -> Option<Collection> {
+/// The kind `e` makes in place: a `new Map(...)`, `new Set(...)`, `new URLSearchParams(...)` or `new Date(...)`, a bigint literal or `BigInt(...)`.
+pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
   match e {
-    js::Expr::Paren(p) => made_collection(&p.expr),
-    js::Expr::TsAs(a) => made_collection(&a.expr),
-    js::Expr::TsNonNull(a) => made_collection(&a.expr),
+    js::Expr::Paren(p) => made_kind(&p.expr),
+    js::Expr::TsAs(a) => made_kind(&a.expr),
+    js::Expr::TsNonNull(a) => made_kind(&a.expr),
     js::Expr::New(n) => match &*n.callee {
-      js::Expr::Ident(id) if id.sym.as_ref() == "Map" => Some(Collection::Map),
-      js::Expr::Ident(id) if id.sym.as_ref() == "Set" => Some(Collection::Set),
-      js::Expr::Ident(id) if id.sym.as_ref() == "URLSearchParams" => Some(Collection::Query),
+      js::Expr::Ident(id) if id.sym.as_ref() == "Map" => Some(Kind::Map),
+      js::Expr::Ident(id) if id.sym.as_ref() == "Set" => Some(Kind::Set),
+      js::Expr::Ident(id) if id.sym.as_ref() == "URLSearchParams" => Some(Kind::Query),
+      js::Expr::Ident(id) if id.sym.as_ref() == "Date" => Some(Kind::Date),
       _ => None,
     },
+    js::Expr::Lit(js::Lit::BigInt(_)) => Some(Kind::BigInt),
+    js::Expr::Call(call) => match &call.callee {
+      js::Callee::Expr(callee) => match &**callee {
+        js::Expr::Ident(id) if id.sym.as_ref() == "BigInt" => Some(Kind::BigInt),
+        _ => None,
+      },
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
+/// The prop a component binding reads, `$props.key` or that with a default, so a kind read through it is a kind relied on.
+fn prop_key(bound: &Expr) -> Option<String> {
+  match bound {
+    Expr::Field(target, key) if **target == Expr::Var("$props".to_owned()) => Some(key.clone()),
+    Expr::Coalesce(read, _) => prop_key(read),
     _ => None,
   }
 }
@@ -2641,7 +2854,7 @@ fn strip_parens(e: &js::Expr) -> &js::Expr {
 }
 
 /// `new Intl.NumberFormat(...)` or `new Intl.DateTimeFormat(...)`: which one.
-fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
+pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
   let js::Expr::Member(m) = &*n.callee else { return None };
   let (js::Expr::Ident(ns), js::MemberProp::Ident(name)) = (&*m.obj, &m.prop) else { return None };
   if ns.sym.as_ref() != "Intl" {

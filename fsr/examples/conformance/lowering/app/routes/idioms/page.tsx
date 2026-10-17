@@ -3,9 +3,18 @@ import { Activity, Suspense } from "react";
 import Adder from "@src/idioms/Adder";
 import Ager from "@src/idioms/Ager";
 import Board from "@src/idioms/Board";
+import Clock from "@src/idioms/Clock";
 import Tasks from "@src/idioms/Tasks";
+import Typed from "@src/idioms/Typed";
 
 const levels = { 1: "One", 2: "Two" };
+const stats = new Map([
+  ["alice", 100],
+  ["bob", 200],
+]);
+const tags = new Set(["react", "next"]);
+const when = new Date("2025-06-15T12:00:00Z");
+const big = 9007199254740993n;
 
 function Heading({ level, children }: { level: number; children: string }) {
   switch (level) {
@@ -34,6 +43,8 @@ export default function Idioms() {
       <Heading level={2}>{levels[2]}</Heading>
       <Adder />
       <Ager name="Ada" />
+      <Typed map={stats} set={tags} date={when} big={big} />
+      <Clock total={1234.5} />
     </section>
   );
 }

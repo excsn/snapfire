@@ -24,24 +24,51 @@ function bridged<T>(name: string, args: unknown[]): T | undefined {
 export interface NumberOptions {
   minimumFractionDigits?: number;
   maximumFractionDigits?: number;
+  /** A locale written in the code, formatted the same everywhere; the document's otherwise. */
+  locale?: string;
+}
+
+export interface CurrencyOptions extends NumberOptions {
+  /** `code` writes the ISO code, the default; `symbol` and `narrowSymbol` the symbol CLDR gives the locale. */
+  display?: "code" | "symbol" | "narrowSymbol";
 }
 
 export type DateStyle = "short" | "medium" | "long" | "full";
 
+export type TextWidth = "long" | "short" | "narrow";
+
+/** A date at a `style`, or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
+export interface DateOptions {
+  style?: DateStyle;
+  weekday?: TextWidth;
+  year?: "numeric";
+  month?: TextWidth;
+  day?: "numeric";
+  locale?: string;
+}
+
 export const intl = {
   /** `n` grouped for the locale, rounded half away from zero to at most three fraction digits unless `options` say otherwise, trailing zeros dropped past the minimum. */
   number(n: number | bigint, options?: NumberOptions): string {
-    return bridged<string>("intl.number", [n, options ?? null]) ?? new Intl.NumberFormat(localeTag(), options).format(n);
+    const { locale, ...rest } = options ?? {};
+    return bridged<string>("intl.number", [n, options ?? null]) ?? new Intl.NumberFormat(locale ?? localeTag(), rest).format(n);
   },
-  /** `n` as an amount of the ISO currency `code`, the code spelled out, the currency's own fraction digits. */
-  currency(n: number | bigint, code: string): string {
-    return bridged<string>("intl.currency", [n, code]) ?? new Intl.NumberFormat(localeTag(), { style: "currency", currency: code, currencyDisplay: "code" }).format(n);
+  /** `n` as an amount of the ISO currency `code`, the code spelled out unless `options.display` says the symbol, the currency's own fraction digits unless the options give them. */
+  currency(n: number | bigint, code: string, options?: CurrencyOptions): string {
+    const { locale, display, ...rest } = options ?? {};
+    return bridged<string>("intl.currency", [n, code, options ?? null]) ?? new Intl.NumberFormat(locale ?? localeTag(), { style: "currency", currency: code, currencyDisplay: display ?? "code", ...rest }).format(n);
   },
-  /** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style`, `medium` by default. */
-  date(when: number | string, style: DateStyle = "medium"): string {
+  /** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style`, `medium` by default, or at the parts the options name. */
+  date(when: number | string, style: DateStyle | DateOptions = "medium"): string {
     const ms = typeof when === "string" ? time.parse(when) : when;
     if (ms === null) throw new Error(`intl.date: \`${when}\` is not an ISO 8601 date`);
-    return bridged<string>("intl.date", [ms, style]) ?? new Intl.DateTimeFormat(localeTag(), { dateStyle: style, timeZone: "UTC" }).format(new Date(ms));
+    const served = bridged<string>("intl.date", [ms, style]);
+    if (served !== undefined) return served;
+    if (typeof style === "string") return new Intl.DateTimeFormat(localeTag(), { dateStyle: style, timeZone: "UTC" }).format(new Date(ms));
+    const { locale, style: dateStyle, ...parts } = style;
+    const options: Intl.DateTimeFormatOptions = { timeZone: "UTC", ...parts };
+    if (dateStyle !== undefined && parts.weekday === undefined && parts.year === undefined && parts.month === undefined && parts.day === undefined) options.dateStyle = dateStyle;
+    return new Intl.DateTimeFormat(locale ?? localeTag(), options).format(new Date(ms));
   },
   /** The cardinal plural category of `n`: `zero`, `one`, `two`, `few`, `many` or `other`. */
   plural(n: number | bigint): string {

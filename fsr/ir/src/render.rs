@@ -154,11 +154,39 @@ pub const RENDERED_STORE_PROP: &str = "$sv";
 /// The props key a held island's pending store keys ride under.
 pub const AWAITS_PROP: &str = "$aw";
 
+/// The props key the placement writes the kinds of its typed props under: an object of prop name to a tag in [`typed`]. The server's render of the island reads the plain values; the browser mounts with each named prop wrapped in its tag, so it makes the real `Map`, `Set`, `Date` or `BigInt`.
+pub const TYPES_PROP: &str = "$t";
+
+pub use snapfire_fsr_core::value::typed;
+
+/// `value` wrapped in the typed variant `tag` names, when its shape is the one that tag carries: a `$map` takes an object and sends its pairs, the others send the value as it is. A null prop stays null.
+fn typed_value(tag: &str, value: &Value) -> Value {
+  let payload = match (tag, value) {
+    (_, Value::Null) => return Value::Null,
+    (typed::MAP, Value::Map(map)) => Value::Seq(map.iter().map(|(k, v)| Value::seq(vec![Value::str(k.clone()), v.clone()])).collect()),
+    (typed::SET, Value::Seq(_)) | (typed::DATE | typed::BIGINT, Value::Int(_) | Value::UInt(_) | Value::F64(_) | Value::F32(_)) => value.clone(),
+    _ => return value.clone(),
+  };
+  Value::Variant { tag: tag.to_owned(), payload: Some(Box::new(payload)) }
+}
+
 impl RenderedIsland {
   /// The props the browser mounts the island with: its own plus `$h` when
   /// anything was hoisted and `$s` in server mode.
   pub fn mount_props(&self) -> ValueMap {
-    let mut props: ValueMap = self.props.iter().filter(|(_, value)| handler_token(value).is_none()).map(|(name, value)| (name.clone(), value.clone())).collect();
+    let types = match self.props.get(TYPES_PROP) {
+      Some(Value::Map(types)) => Some(types),
+      _ => None,
+    };
+    let mut props: ValueMap = self
+      .props
+      .iter()
+      .filter(|(name, value)| handler_token(value).is_none() && *name != TYPES_PROP)
+      .map(|(name, value)| match types.and_then(|t| t.get(name.as_str())) {
+        Some(Value::Str(tag)) => (name.clone(), typed_value(tag.as_str(), value)),
+        _ => (name.clone(), value.clone()),
+      })
+      .collect();
     if !self.body.hoisted.is_empty() {
       props.insert(HOISTED_PROP.to_owned(), Value::Map(self.body.hoisted.clone()));
     }
@@ -3203,6 +3231,36 @@ mod hoist_tests {
     assert_eq!(mount.get("n"), Some(&Value::F64(2.0)));
     let Some(Value::Map(table)) = mount.get(HOISTED_PROP) else { panic!("{mount:?}") };
     assert_eq!(table["src/ui/Help.tsx#Help|0"], Value::str("2.0"));
+  }
+
+  #[test]
+  fn mount_props_wrap_each_prop_the_types_prop_names_and_drop_the_types_prop() {
+    let mut map = ValueMap::default();
+    map.insert("a".to_owned(), Value::int(1i64));
+    let mut types = ValueMap::default();
+    for (name, tag) in [("m", typed::MAP), ("s", typed::SET), ("d", typed::DATE), ("b", typed::BIGINT), ("none", typed::DATE), ("shape", typed::MAP)] {
+      types.insert(name.to_owned(), Value::str(tag));
+    }
+    let mut props = ValueMap::default();
+    props.insert("m".to_owned(), Value::Map(map));
+    props.insert("s".to_owned(), Value::seq(vec![Value::int(1i64)]));
+    props.insert("d".to_owned(), Value::F64(5.0));
+    props.insert("b".to_owned(), Value::Int(7));
+    props.insert("none".to_owned(), Value::Null);
+    props.insert("shape".to_owned(), Value::str("not a map"));
+    props.insert("plain".to_owned(), Value::str("x"));
+    props.insert(TYPES_PROP.to_owned(), Value::Map(types));
+    let island = RenderedIsland { module: "m".to_owned(), props, when: None, mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key: String::new(), body: Rendered { html: String::new(), islands: Vec::new(), hoisted: ValueMap::default(), whole: true } };
+    let mount = island.mount_props();
+    let wrapped = |tag: &str, payload: Value| Value::Variant { tag: tag.to_owned(), payload: Some(Box::new(payload)) };
+    assert_eq!(mount.get("m"), Some(&wrapped(typed::MAP, Value::seq(vec![Value::seq(vec![Value::str("a"), Value::int(1i64)])]))));
+    assert_eq!(mount.get("s"), Some(&wrapped(typed::SET, Value::seq(vec![Value::int(1i64)]))));
+    assert_eq!(mount.get("d"), Some(&wrapped(typed::DATE, Value::F64(5.0))));
+    assert_eq!(mount.get("b"), Some(&wrapped(typed::BIGINT, Value::Int(7))));
+    assert_eq!(mount.get("none"), Some(&Value::Null), "a null prop is not a typed value");
+    assert_eq!(mount.get("shape"), Some(&Value::str("not a map")), "a value of another shape is left as it is");
+    assert_eq!(mount.get("plain"), Some(&Value::str("x")));
+    assert!(!mount.contains_key(TYPES_PROP), "{mount:?}");
   }
 
   #[test]

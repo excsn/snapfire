@@ -529,6 +529,15 @@ export interface HoistReader {
 /** The path a component was rendered under by its callers: loop indices and `c<id>` for each keyed placement, so a component placed from a `.map` keys its own hoists below the iteration that placed it. */
 const PathContext = createContext<readonly (number | string)[]>([]);
 
+/** A value only the browser knows, the viewer's clock for one, which the server rendered as nothing. The reader answers null until the component has mounted, so the first render matches the server's markup, then computes the value and renders once more. The build wraps each such expression in the browser copy. */
+export function useBrowser(): <T>(compute: () => T) => T | null {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  return useCallback(<T,>(compute: () => T): T | null => (mounted ? compute() : null), [mounted]);
+}
+
 /** The reader for the island being rendered, bound to `module`, whose keys are `module|id` or `module|id@i.j` under loops and keyed placements, the callers' first. */
 export function useHoisted(module: string): HoistReader {
   const table = useContext(HoistContext);

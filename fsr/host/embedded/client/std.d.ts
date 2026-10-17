@@ -3,15 +3,31 @@ export declare function localeTag(): string;
 export interface NumberOptions {
 	minimumFractionDigits?: number;
 	maximumFractionDigits?: number;
+	/** A locale written in the code, formatted the same everywhere; the document's otherwise. */
+	locale?: string;
+}
+export interface CurrencyOptions extends NumberOptions {
+	/** `code` writes the ISO code, the default; `symbol` and `narrowSymbol` the symbol CLDR gives the locale. */
+	display?: "code" | "symbol" | "narrowSymbol";
 }
 export type DateStyle = "short" | "medium" | "long" | "full";
+export type TextWidth = "long" | "short" | "narrow";
+/** A date at a `style`, or at the parts given: `weekday`, `year`, `month` and `day` as `Intl.DateTimeFormat` takes them, a text month or weekday setting the width. A numeric month is not read. */
+export interface DateOptions {
+	style?: DateStyle;
+	weekday?: TextWidth;
+	year?: "numeric";
+	month?: TextWidth;
+	day?: "numeric";
+	locale?: string;
+}
 export declare const intl: {
 	/** `n` grouped for the locale, rounded half away from zero to at most three fraction digits unless `options` say otherwise, trailing zeros dropped past the minimum. */
 	number(n: number | bigint, options?: NumberOptions): string;
-	/** `n` as an amount of the ISO currency `code`, the code spelled out, the currency's own fraction digits. */
-	currency(n: number | bigint, code: string): string;
-	/** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style`, `medium` by default. */
-	date(when: number | string, style?: DateStyle): string;
+	/** `n` as an amount of the ISO currency `code`, the code spelled out unless `options.display` says the symbol, the currency's own fraction digits unless the options give them. */
+	currency(n: number | bigint, code: string, options?: CurrencyOptions): string;
+	/** The calendar date of `when`, milliseconds since the epoch or an ISO 8601 string, in UTC at `style`, `medium` by default, or at the parts the options name. */
+	date(when: number | string, style?: DateStyle | DateOptions): string;
 	/** The cardinal plural category of `n`: `zero`, `one`, `two`, `few`, `many` or `other`. */
 	plural(n: number | bigint): string;
 };

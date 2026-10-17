@@ -16,7 +16,7 @@ use std::rc::Rc;
 
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Owner, Stmt, Tmpl};
-use snapfire_fsr_ir::render::{html_attr_name, CONTEXT_PREFIX, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, UNLOWERED_ATTR};
+use snapfire_fsr_ir::render::{html_attr_name, CONTEXT_PREFIX, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, TYPES_PROP, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
@@ -85,6 +85,14 @@ pub struct ComponentSet {
   /// them, as `file#export`: placed as islands, mounted rather than hydrated,
   /// compiled for the browser by whichever plugin claims the extension.
   pub foreign: Vec<String>,
+  /// Per module, the kinds of the props the first file to place it passed, where every placement there agreed; read when the module is lowered.
+  placement_kinds: HashMap<String, Vec<(String, crate::Kind)>>,
+  /// Per lowered module, the kinds of its props: from the props parameter's type and from the placements, by prop name.
+  prop_kinds: HashMap<String, Vec<(String, crate::Kind)>>,
+  /// Per lowered module, the prop kinds its lowering read, so a placement passing another kind for one is reported at that placement.
+  relied: HashMap<String, Vec<(String, crate::Kind)>>,
+  /// Per lowered module, each value only the browser knows that the server left to it, as `file:line:column: reason`: text the browser fills in at hydration and a prop the browser computes for a placement.
+  pub browser_texts: Vec<(String, String)>,
   /// Components of another framework a React component renders inline, as
   /// `file#export`: lowered to the empty region `Mount` writes, which the
   /// browser fills through the module's registry entry.
@@ -169,7 +177,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -309,7 +317,7 @@ impl ComponentSet {
       .collect();
     let mut calls = DeriveCalls { meanings: &meanings, calls: Vec::new() };
     parsed.module.visit_with(&mut calls);
-    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), natives: self.natives.clone() };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone() };
     let mut rows = Vec::new();
     for call in &calls.calls {
       let at = parsed.residue(call.span, "");
@@ -327,6 +335,9 @@ impl ComponentSet {
               if let Some((expr, key)) = self.global(file, &name)? {
                 if let Some(kind) = self.global_kind(file, &name)? {
                   resolved.global_kinds.push((name.clone(), kind));
+                }
+                if let Some(made) = self.global_formatter(file, &name)? {
+                  resolved.global_formatters.push((name.clone(), made));
                 }
                 resolved.globals.push((name, self.name_if_large(key, expr)));
                 resolved.natives = self.natives.clone();
@@ -445,7 +456,7 @@ impl ComponentSet {
   fn resolving_loop<T>(&mut self, file: &str, lower: impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
     self.load(file)?;
     self.meanings(file);
-    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), natives: self.natives.clone() };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone() };
     loop {
       let parsed = self.parsed[file].clone();
       let defaults = self.defaults.clone();
@@ -455,6 +466,9 @@ impl ComponentSet {
           Some((expr, key)) => {
             if let Some(kind) = self.global_kind(file, &name)? {
               resolved.global_kinds.push((name.clone(), kind));
+            }
+            if let Some(made) = self.global_formatter(file, &name)? {
+              resolved.global_formatters.push((name.clone(), made));
             }
             resolved.globals.push((name, self.name_if_large(key, expr)));
             resolved.natives = self.natives.clone();
@@ -1019,6 +1033,7 @@ impl ComponentSet {
   fn lower_loaded(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
+    let mut global_formatters: Vec<(String, js::NewExpr)> = Vec::new();
     let mut unfollowed: Vec<(String, Option<LowerError>)> = Vec::new();
     let module = format!("{file}#{export}");
     // An element template has no browser half, so nothing would read what
@@ -1033,6 +1048,10 @@ impl ComponentSet {
     globals.extend(chosen_globals);
     let mut hook_files: Vec<(String, String, String)> = Vec::new();
     let mut variants: Vec<(String, String, Vec<Override>)>;
+    let mut placed_kinds: Vec<(String, Vec<(String, crate::Kind)>)>;
+    let mut prop_kinds: Vec<(String, crate::Kind)>;
+    let mut relied: Vec<String>;
+    let mut browser_texts: Vec<BrowserText>;
     let ((component, refs, providers, own_heads), hoisting) = loop {
       let meanings = self.meanings(file);
       let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed[at].clone(), export.clone())).collect();
@@ -1057,21 +1076,27 @@ impl ComponentSet {
         let mut lowerer = Lowerer::new(&parsed, &defaults);
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
+        lowerer.global_formatters = global_formatters.clone();
         lowerer.unfollowed = unfollowed.iter().map(|(name, _)| name.clone()).collect();
         lowerer.natives = self.natives.clone();
         // The browser half reads hoisted values through a hook, which a class's `render()` may not call.
         lowerer.hoisting = (!element_template && class.is_none()).then(Candidates::default);
         lowerer.meanings = Some(meanings);
+        lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
+        let leaves_to_browser = !cl.browser_texts.is_empty();
         let result = result.and_then(|(mut component, refs)| match fills::place_markup(&mut component).and_then(|()| fills::place_tags(&mut component, consts)) {
           Ok(()) => {
             for kind in counts_children.iter().rev() {
               component.body.insert(0, Stmt::Let { name: (*kind).to_owned(), expr: Expr::Field(Box::new(Expr::Var("$props".to_owned())), (*kind).to_owned()) });
+            }
+            if leaves_to_browser {
+              component.body.insert(0, Stmt::Let { name: BROWSER_VAR.to_owned(), expr: Expr::Lit(Lit::Null) });
             }
             Ok((component, refs))
           }
@@ -1079,6 +1104,13 @@ impl ComponentSet {
         });
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
         variants = std::mem::take(&mut cl.variants);
+        placed_kinds = std::mem::take(&mut cl.placed_kinds);
+        browser_texts = std::mem::take(&mut cl.browser_texts);
+        prop_kinds = std::mem::take(&mut cl.lowerer.prop_kinds);
+        relied = std::mem::take(&mut *cl.lowerer.consulted.borrow_mut());
+        if leaves_to_browser {
+          cl.state.push(BROWSER_VAR.to_owned());
+        }
         let hoisting = cl.lowerer.hoisting.take().map(|candidates| (candidates, std::mem::take(&mut cl.state), cl.hook.take()));
         let result = match result {
           Err(residue) if cl.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
@@ -1120,6 +1152,9 @@ impl ComponentSet {
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
           }
+          if let Some(made) = self.global_formatter(file, &name)? {
+            global_formatters.push((name.clone(), made));
+          }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
         }
@@ -1128,11 +1163,24 @@ impl ComponentSet {
     for (variant, base, overrides) in variants {
       self.variants.insert(variant, (base, overrides));
     }
+    relied.sort();
+    relied.dedup();
+    self.relied.insert(module.clone(), prop_kinds.iter().filter(|(prop, _)| relied.contains(prop)).cloned().collect());
+    self.prop_kinds.insert(module.clone(), prop_kinds);
+    for text in &browser_texts {
+      self.browser_texts.push((module.clone(), format!("{file}:{}:{}: {}", text.line, text.column, text.reason)));
+    }
+    let marks: Vec<std::ops::Range<usize>> = browser_texts.iter().filter_map(|text| text.wrap.clone()).collect();
+    let leaves_to_browser = !browser_texts.is_empty();
     let mut modules: HashMap<String, String> = HashMap::new();
     let mut islands: HashMap<String, IslandTiming> = HashMap::new();
     let refs_positions: Vec<(String, (usize, usize))> = refs.clone();
     for (name, (line, column)) in refs {
       let (module, island) = self.component_module(file, &name).map_err(|message| Residue { file: file.to_owned(), line, column, message, hint: None, via: Vec::new() })?;
+      let passed = agreed_kinds(&placed_kinds, &name);
+      if !passed.is_empty() {
+        self.placement_kinds.entry(module.clone()).or_insert_with(|| passed.clone());
+      }
       if is_foreign(&module) {
         let target = module.split_once('#').map(|(f, _)| f).unwrap_or(&module).to_owned();
         let residue = match (self.described.contains_key(&target), self.undescribed.get(&target)) {
@@ -1164,6 +1212,19 @@ impl ComponentSet {
           }
           Err(other) => return Err(other),
         }
+        if let Some((prop, kind, given)) = self.relied.get(&module).into_iter().flatten().find_map(|(prop, kind)| {
+          let given = passed.iter().find(|(p, _)| p == prop).map(|(_, k)| *k)?;
+          (given != *kind).then_some((prop.clone(), *kind, given))
+        }) {
+          return Err(LowerError::Residue(Residue {
+            file: file.to_owned(),
+            line,
+            column,
+            message: format!("`{name}` reads its `{prop}` prop as a `{}` and this placement passes a `{}`", kind.name(), given.name()),
+            hint: Some(format!("pass `{name}` a `{}` or make `{prop}` a prop of its own kind", kind.name())),
+            via: Vec::new(),
+          }));
+        }
       }
       let placed = format!("{file}#{name}");
       if let Some(timing) = island {
@@ -1178,6 +1239,16 @@ impl ComponentSet {
       self.components.iter().find(|(m, _)| m == module).is_none_or(|(_, c)| c.owner.hydrates())
     };
     let mut component = component;
+    write_types(&mut component.render, &|placed: &str| {
+      let tag = placed.rsplit_once('#').map(|(_, tag)| tag).unwrap_or(placed);
+      let mut kinds = agreed_kinds(&placed_kinds, tag);
+      for (prop, kind) in modules.get(placed).and_then(|module| self.prop_kinds.get(module)).into_iter().flatten() {
+        if !kinds.iter().any(|(p, _)| p == prop) {
+          kinds.push((prop.clone(), *kind));
+        }
+      }
+      kinds
+    });
     fills::unfill(&mut component.render, &renders_in_browser);
     if let Some((placed, prop)) = fills::function_into_browser(&component.render, &renders_in_browser) {
       let tag = placed.rsplit_once('#').map(|(_, tag)| tag.to_owned()).unwrap_or_else(|| placed.clone());
@@ -1217,7 +1288,7 @@ impl ComponentSet {
     // A React provider is React state the page's islands read, so the
     // component is a root even when nothing else in it needs the browser. The
     // server resolves a template dialect's whole.
-    let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || provides || self.inline_hydrates(&render);
+    let hydrates = !component.state.is_empty() || !component.handlers.is_empty() || provides || leaves_to_browser || self.inline_hydrates(&render);
     let owner = if hydrates { Owner::React } else { Owner::Fsr };
     let render = match owner {
       Owner::React => match mount_foreign(render, &mut self.mounted) {
@@ -1243,12 +1314,12 @@ impl ComponentSet {
     }
     if let Some((candidates, state, Some(hook))) = hoisting {
       let mut kept = hoist::decide(&mut component, &state);
-      let pure = state.is_empty() && hoist::static_tree(&component.render, &self.pure);
+      let pure = state.is_empty() && !leaves_to_browser && hoist::static_tree(&component.render, &self.pure);
       let chunks = hoist::chunks(&mut component, &state, &self.pure);
       let covered = hoist::cover(&mut component, &chunks);
       kept.retain(|id| !covered.contains(id));
       self.pure.insert(module.clone(), pure);
-      self.stateless.insert(module.clone(), state.is_empty());
+      self.stateless.insert(module.clone(), state.is_empty() && !leaves_to_browser);
       let parsed = self.parsed[file].clone();
       for range in candidates.remaining(&kept, &chunks) {
         let (line, column) = parsed.position(range.start);
@@ -1259,10 +1330,16 @@ impl ComponentSet {
       let placed: Vec<u32> = candidates.island_sites.iter().map(|(id, ..)| *id).collect();
       let mut keyed = Vec::new();
       mark_keyed(&mut component.render, &placed, &|callee| self.keys.get(callee).copied().unwrap_or(true), &|callee| !self.pure.get(callee).copied().unwrap_or(false), &mut keyed);
+      let marks_hook = hook.clone();
       let rewrite = candidates.rewrite(&kept, &chunks, &islands, &keyed, file, &module, hook);
       self.keys.insert(module.clone(), rewrite.is_some());
-      if let Some(rewrite) = rewrite {
-        self.rewrites.push(rewrite);
+      match rewrite {
+        Some(mut rewrite) => {
+          rewrite.browser = marks;
+          self.rewrites.push(rewrite);
+        }
+        None if !marks.is_empty() => self.rewrites.push(Rewrite { file: file.to_owned(), module: module.clone(), hook: marks_hook, sites: Vec::new(), chunks: Vec::new(), islands: Vec::new(), placements: Vec::new(), loops: Vec::new(), statement_loops: Vec::new(), browser: marks }),
+        None => {}
       }
     } else {
       self.keys.insert(module.clone(), false);
@@ -1668,6 +1745,10 @@ impl ComponentSet {
       }
     }
     if let Global::Const(init) = &item {
+      // The formatter itself has no value; `global_formatter` hands the lowerer the `new` that made it.
+      if matches!(crate::strip_parens(init), js::Expr::New(n) if crate::intl_formatter(n).is_some()) {
+        return Ok(Some((Expr::Lit(Lit::Null), key)));
+      }
       if let Some((module, member, reach)) = native_declaration(&parsed, init)? {
         let native = format!("{module}.{member}");
         if !self.natives.iter().any(|(n, _)| *n == native) {
@@ -1686,7 +1767,7 @@ impl ComponentSet {
   }
 
   /// The collection a module-level `name` holds when it is declared as a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`.
-  fn global_kind(&mut self, file: &str, name: &str) -> Result<Option<crate::Collection>, LowerError> {
+  fn global_kind(&mut self, file: &str, name: &str) -> Result<Option<crate::Kind>, LowerError> {
     if let Some(crate::meaning::Meaning::Own { file: declared, name: declared_name }) = self.meanings(file).bindings.get(name).cloned() {
       if declared != file {
         self.load(&declared)?;
@@ -1695,7 +1776,25 @@ impl ComponentSet {
     }
     let parsed = self.parsed[file].clone();
     Ok(match find_value(&parsed, name) {
-      Some(Global::Const(init)) => crate::made_collection(init),
+      Some(Global::Const(init)) => crate::made_kind(init),
+      _ => None,
+    })
+  }
+
+  /// The `Intl` formatter a module-level `name` holds when it is declared as `new Intl.NumberFormat(...)` or `new Intl.DateTimeFormat(...)`.
+  fn global_formatter(&mut self, file: &str, name: &str) -> Result<Option<js::NewExpr>, LowerError> {
+    if let Some(crate::meaning::Meaning::Own { file: declared, name: declared_name }) = self.meanings(file).bindings.get(name).cloned() {
+      if declared != file {
+        self.load(&declared)?;
+        return self.global_formatter(&declared, &declared_name);
+      }
+    }
+    let parsed = self.parsed[file].clone();
+    Ok(match find_value(&parsed, name) {
+      Some(Global::Const(init)) => match crate::strip_parens(init) {
+        js::Expr::New(n) if crate::intl_formatter(n).is_some() => Some(n.clone()),
+        _ => None,
+      },
       _ => None,
     })
   }
@@ -2682,6 +2781,100 @@ pub(crate) fn bind_pattern(lowerer: &mut Lowerer<'_>, pat: &js::Pat, target: Exp
 }
 
 /// `{ a, b = x, c: d, e: { f }, ...rest }` over `target`: each name reads a field, a nested pattern reads within it, a default applies when the field is null or absent.
+/// The body `let`, null, a value left to the browser reads through. It is listed with the state hoisting taints, so no chunk or value holding one is proven and the browser renders it.
+pub(crate) const BROWSER_VAR: &str = "$browser";
+
+/// A value only the browser knows that the server left to it: the expression the browser copy wraps, so it is null through hydration and computed once mounted, and the line it was found at.
+pub(crate) struct BrowserText {
+  wrap: Option<std::ops::Range<usize>>,
+  line: usize,
+  column: usize,
+  reason: String,
+}
+
+/// The kinds the props parameter's type names, `{ map: Map<string, number> }` written in place or through a `type` or `interface` this file declares, by prop name.
+fn prop_kinds_of(parsed: &Parsed, pat: &js::Pat) -> Vec<(String, crate::Kind)> {
+  let ann = match pat {
+    js::Pat::Ident(id) => id.type_ann.as_ref(),
+    js::Pat::Object(obj) => obj.type_ann.as_ref(),
+    _ => None,
+  };
+  ann.map(|ann| member_kinds(parsed, &ann.type_ann, 0)).unwrap_or_default()
+}
+
+fn member_kinds(parsed: &Parsed, ty: &js::TsType, depth: usize) -> Vec<(String, crate::Kind)> {
+  if depth > 8 {
+    return Vec::new();
+  }
+  let of_members = |members: &[js::TsTypeElement]| -> Vec<(String, crate::Kind)> {
+    members
+      .iter()
+      .filter_map(|member| {
+        let js::TsTypeElement::TsPropertySignature(prop) = member else { return None };
+        let js::Expr::Ident(key) = &*prop.key else { return None };
+        crate::Kind::of_type(&prop.type_ann.as_ref()?.type_ann).map(|kind| (key.sym.to_string(), kind))
+      })
+      .collect()
+  };
+  match ty {
+    js::TsType::TsParenthesizedType(p) => member_kinds(parsed, &p.type_ann, depth + 1),
+    js::TsType::TsTypeLit(lit) => of_members(&lit.members),
+    js::TsType::TsUnionOrIntersectionType(js::TsUnionOrIntersectionType::TsIntersectionType(i)) => i.types.iter().flat_map(|t| member_kinds(parsed, t, depth + 1)).collect(),
+    js::TsType::TsTypeRef(r) => {
+      let js::TsEntityName::Ident(id) = &r.type_name else { return Vec::new() };
+      let name = id.sym.as_ref();
+      for item in &parsed.module.body {
+        let decl = match item {
+          js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
+          js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+          _ => continue,
+        };
+        match decl {
+          js::Decl::TsTypeAlias(alias) if alias.id.sym.as_ref() == name => return member_kinds(parsed, &alias.type_ann, depth + 1),
+          js::Decl::TsInterface(interface) if interface.id.sym.as_ref() == name => return of_members(&interface.body.body),
+          _ => {}
+        }
+      }
+      Vec::new()
+    }
+    _ => Vec::new(),
+  }
+}
+
+/// The kinds every placement recorded under `name` agrees on: a prop one placement passes as a `Map` and another as something else has no kind.
+fn agreed_kinds(placed: &[(String, Vec<(String, crate::Kind)>)], name: &str) -> Vec<(String, crate::Kind)> {
+  let placements: Vec<&Vec<(String, crate::Kind)>> = placed.iter().filter(|(n, _)| n == name).map(|(_, kinds)| kinds).collect();
+  let Some(first) = placements.first() else { return Vec::new() };
+  first
+    .iter()
+    .filter(|(prop, kind)| placements.iter().all(|kinds| kinds.iter().any(|(p, k)| p == prop && k == kind)))
+    .cloned()
+    .collect()
+}
+
+/// Writes each placement's typed props under `TYPES_PROP`, an object of prop name to variant tag, so the island mounts with the real types.
+fn write_types(tmpl: &mut Tmpl, kinds_of: &dyn Fn(&str) -> Vec<(String, crate::Kind)>) {
+  match tmpl {
+    Tmpl::Component { module, props, children, .. } => {
+      let fields: Vec<Entry> = kinds_of(module).into_iter().filter_map(|(prop, kind)| kind.tag().map(|tag| Entry::Field(prop, Expr::lit_str(tag)))).collect();
+      if !fields.is_empty() && !props.iter().any(|e| matches!(e, Entry::Field(n, _) if n == TYPES_PROP)) {
+        props.push(Entry::Field(TYPES_PROP.to_owned(), Expr::Object(fields)));
+      }
+      children.iter_mut().for_each(|c| write_types(c, kinds_of));
+    }
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| write_types(c, kinds_of)),
+    Tmpl::If { then, r#else, .. } => {
+      write_types(then, kinds_of);
+      if let Some(e) = r#else {
+        write_types(e, kinds_of);
+      }
+    }
+    Tmpl::For { body, .. } => write_types(body, kinds_of),
+    Tmpl::Let { then, .. } => write_types(then, kinds_of),
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+  }
+}
+
 pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target: Expr) -> Lowered<()> {
   let mut taken: Vec<String> = Vec::new();
   for prop in &obj.props {
@@ -4099,6 +4292,10 @@ struct ComponentLowerer<'a, 'p> {
   /// The transformed files placed with a `components` prop: the id each
   /// placement names, the file and the elements it replaces.
   variants: Vec<(String, String, Vec<Override>)>,
+  /// Per placement, by the name `refs` records it under, the props passed whose kind the build knows.
+  placed_kinds: Vec<(String, Vec<(String, crate::Kind)>)>,
+  /// Each value only the browser knows that the server left to it, so the component hydrates and its browser copy computes the value once mounted.
+  browser_texts: Vec<BrowserText>,
 }
 
 /// One head element a component asks for: a tag and its attributes in order.
@@ -4944,6 +5141,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
     let Some(first) = params.first() else { return Ok(()) };
+    for (key, kind) in prop_kinds_of(self.lowerer.parsed, first) {
+      match self.lowerer.prop_kinds.iter_mut().find(|(k, _)| *k == key) {
+        Some(entry) => entry.1 = kind,
+        None => self.lowerer.prop_kinds.push((key, kind)),
+      }
+    }
     match first {
       js::Pat::Ident(id) => {
         self.props_name = Some(id.id.sym.to_string());
@@ -4974,7 +5177,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
           }
         }
-        bind_object(&mut self.lowerer, obj, Expr::Var("$props".to_owned()))
+        bind_object(&mut self.lowerer, obj, Expr::Var("$props".to_owned()))?;
+        for prop in &obj.props {
+          let (local, key) = match prop {
+            js::ObjectPatProp::Assign(a) => (a.key.id.sym.to_string(), a.key.id.sym.to_string()),
+            js::ObjectPatProp::KeyValue(kv) => match (prop_name(&kv.key), &*kv.value) {
+              (Some(key), js::Pat::Ident(local)) => (local.id.sym.to_string(), key),
+              _ => continue,
+            },
+            js::ObjectPatProp::Rest(_) => continue,
+          };
+          let Some(kind) = self.lowerer.prop_kinds.iter().find(|(k, _)| *k == key).map(|(_, kind)| *kind) else { continue };
+          let Some((_, bound)) = self.lowerer.scope.iter().rev().find(|(n, _)| *n == local) else { continue };
+          let bound = bound.clone();
+          self.lowerer.kinds.push((local, bound, kind));
+        }
+        Ok(())
       }
       other => Err(self.lowerer.residue(other.span(), "the props parameter must be a name or a destructuring")),
     }
@@ -4997,6 +5215,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     match &decl.name {
       js::Pat::Ident(name) => {
         let local = name.id.sym.to_string();
+        if self.lowerer.bind_formatter(&local, init) {
+          return Ok(None);
+        }
         let expr = match hook_call(&self.meanings(), init) {
           Some(("useCallback", call)) => {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
@@ -5054,7 +5275,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             self.browser_function(local);
             return Ok(None);
           }
-          _ => self.lowerer.expr(init)?,
+          _ => {
+            self.lowerer.browser_value = None;
+            match self.lowerer.expr(init) {
+              Ok(expr) => expr,
+              Err(residue) => match self.lowerer.browser_value.take() {
+                Some(reason) => {
+                  let (line, column) = self.lowerer.parsed.loc(init.span().lo);
+                  self.browser_texts.push(BrowserText { wrap: Some(self.lowerer.parsed.range(init.span())), line, column, reason });
+                  self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
+                  self.lowerer.kinds.push((local.clone(), Expr::Var(local.clone()), crate::Kind::Browser));
+                  return Ok(Some(Stmt::Let { name: local, expr: Expr::Lit(Lit::Null) }));
+                }
+                None => return Err(residue),
+              },
+            }
+          }
         };
         self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
         self.lowerer.note_kind(&local, init);
@@ -5081,15 +5317,24 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           }
           return self.pattern_stmt(&decl.name, init);
         }
-        let expr = match call.args.first() {
+        self.lowerer.browser_value = None;
+        let initial = match call.args.first() {
           Some(a) => match &*a.expr {
             js::Expr::Arrow(arrow) => match &*arrow.body {
-              js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e)?,
-              js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts)?,
+              js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e),
+              js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts),
             },
-            e => self.lowerer.expr(e)?,
+            e => self.lowerer.expr(e),
           },
-          None => Expr::Lit(Lit::Null),
+          None => Ok(Expr::Lit(Lit::Null)),
+        };
+        // State the browser alone can start, `useState(() => new Date())`: null on the server and a browser value wherever it is read.
+        let (expr, browser) = match initial {
+          Ok(expr) => (expr, false),
+          Err(residue) => match self.lowerer.browser_value.take() {
+            Some(_) => (Expr::Lit(Lit::Null), true),
+            None => return Err(residue),
+          },
         };
         let mut names = arr.elems.iter().map(|e| match e {
           Some(js::Pat::Ident(id)) => Some(id.id.sym.to_string()),
@@ -5105,7 +5350,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.state.push(name.clone());
         self.state_bindings.push(name.clone());
         self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
-        if let Some(initial) = call.args.first() {
+        if browser {
+          self.lowerer.kinds.push((name.clone(), Expr::Var(name.clone()), crate::Kind::Browser));
+        } else if let Some(initial) = call.args.first() {
           self.lowerer.note_kind(&name, &initial.expr);
         }
         Ok(Some(Stmt::Let { name, expr }))
@@ -5602,6 +5849,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let raw = attr_name(&attr.name);
       if raw == "ref" {
         bound = true;
+        continue;
+      }
+      // React's own: hydration reads it, the document never does.
+      if raw == "suppressHydrationWarning" {
         continue;
       }
       if name == "img" && raw == RAW_ESCAPE {
@@ -6303,6 +6554,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let mut overrides: Vec<Override> = Vec::new();
     let mut props = Vec::new();
+    let mut browser_props: Vec<String> = Vec::new();
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
@@ -6351,8 +6603,38 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         props.push(Entry::Field(raw, Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)));
         continue;
       }
-      let value = self.attr_value(attr)?;
+      // A prop only the browser knows goes in as null; the child reads it as a browser value and this component hydrates to compute it.
+      self.lowerer.browser_value = None;
+      let value = match self.attr_value(attr) {
+        Ok(value) => value,
+        Err(residue) => match self.lowerer.browser_value.take() {
+          Some(reason) => {
+            let (line, column) = self.lowerer.parsed.loc(attr.span.lo);
+            let wrap = match &attr.value {
+              Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) => Some(self.lowerer.parsed.range(e.span())),
+              _ => None,
+            };
+            self.browser_texts.push(BrowserText { wrap, line, column, reason });
+            browser_props.push(raw.clone());
+            Expr::Var(BROWSER_VAR.to_owned())
+          }
+          None => return Err(residue),
+        },
+      };
       props.push(Entry::Field(raw, value));
+    }
+    let mut passed = Vec::new();
+    for attr in &el.opening.attrs {
+      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { continue };
+      let Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) = &attr.value else { continue };
+      if let Some(kind) = self.lowerer.kind_of(e) {
+        passed.push((attr_name(&attr.name), kind));
+      }
+    }
+    for prop in browser_props {
+      if !passed.iter().any(|(p, _)| *p == prop) {
+        passed.push((prop, crate::Kind::Browser));
+      }
     }
     let children = self.children(&el.children)?;
     let loc = self.lowerer.parsed.loc(el.span.lo);
@@ -6367,6 +6649,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       for (text, target) in choices.iter().rev() {
         let placed = format!("{}#default", self.variant_of(target, &overrides));
         self.refs.push((placed.clone(), loc));
+        self.placed_kinds.push((placed.clone(), passed.clone()));
         let cond = Expr::Compare(CompareOp::Eq, Box::new(Expr::Str(Box::new(key.clone()))), Box::new(Expr::lit_str(text.clone())));
         let then = Tmpl::Component { module: format!("{}#{placed}", self.file), props: props.clone(), children: children.clone(), id, keyed: false };
         tree = Tmpl::If { cond, then: Box::new(then), r#else: Some(Box::new(tree)) };
@@ -6377,9 +6660,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let Some(crate::meaning::Meaning::Own { file: target, .. }) = self.meanings().bindings.get(name).cloned() else { unreachable!("a transformed target") };
       let placed = format!("{}#default", self.variant_of(&target, &overrides));
       self.refs.push((placed.clone(), loc));
+      self.placed_kinds.push((placed.clone(), passed));
       return Ok(Tmpl::Component { module: format!("{}#{placed}", self.file), props, children, id, keyed: false });
     }
     self.refs.push((name.to_owned(), loc));
+    self.placed_kinds.push((name.to_owned(), passed));
     Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children, id, keyed: false })
   }
 
@@ -6446,7 +6731,21 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         js::JSXElementChild::JSXExprContainer(c) => match &c.expr {
           js::JSXExpr::JSXEmptyExpr(_) => {}
-          js::JSXExpr::Expr(e) => out.push(self.child_expr(e)?),
+          js::JSXExpr::Expr(e) => {
+            self.lowerer.browser_value = None;
+            match self.child_expr(e) {
+              Ok(child) => out.push(child),
+              // Text only the browser knows: the server writes nothing and the browser copy computes it once mounted, so its first render matches. Markup the value would choose is structure, which stays a residue.
+              Err(residue) => match self.lowerer.browser_value.take() {
+                Some(reason) if !self.holds_markup(e) => {
+                  let (line, column) = self.lowerer.parsed.loc(e.span().lo);
+                  self.browser_texts.push(BrowserText { wrap: Some(self.lowerer.parsed.range(e.span())), line, column, reason });
+                  out.push(Tmpl::Expr(Expr::Var(BROWSER_VAR.to_owned())));
+                }
+                _ => return Err(residue),
+              },
+            }
+          }
         },
         js::JSXElementChild::JSXElement(el) => out.push(self.element(el, true)?),
         js::JSXElementChild::JSXFragment(frag) => out.push(Tmpl::Fragment(self.children(&frag.children)?)),

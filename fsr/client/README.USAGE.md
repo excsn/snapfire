@@ -973,7 +973,7 @@ export function Receipt({ cents, placed, title }: { cents: number; placed: strin
 }
 ```
 
-`intl.number` takes `{ minimumFractionDigits, maximumFractionDigits }`; `intl.date` takes `short`, `medium`, `long` or `full` and formats in UTC; `intl.currency` spells the ISO code, `USD 1,234.50`, since the server has no symbol table. `time` holds instants as milliseconds since the epoch, `time.parse` reads one ISO 8601 subset and `time.now()` is `Date.now()`. `crypto.hash` is a synchronous SHA-256, `crypto.verify` compares against one and `crypto.random(n)` draws bytes as hex; `id.new()` is `crypto.randomUUID()`. Under `fsr test` the engine has no `Intl`, so `intl` asks the runner, which answers with the Rust half.
+`intl.number` takes `{ minimumFractionDigits, maximumFractionDigits, locale }`; `intl.date` takes `short`, `medium`, `long` or `full` and formats in UTC or takes `{ weekday, year, month, day, locale }` as `Intl.DateTimeFormat` takes them with a text month or weekday; `intl.currency` spells the ISO code, `USD 1,234.50`, unless its options say `display: "symbol"` or `"narrowSymbol"`, which write the symbol CLDR gives the locale on both halves. A `locale` written in the code formats the same for every viewer; without one the document's locale formats. `time` holds instants as milliseconds since the epoch, `time.parse` reads one ISO 8601 subset and `time.now()` is `Date.now()`. `crypto.hash` is a synchronous SHA-256, `crypto.verify` compares against one and `crypto.random(n)` draws bytes as hex; `id.new()` is `crypto.randomUUID()`. Under `fsr test` the engine has no `Intl`, so `intl` asks the runner, which answers with the Rust half.
 
 `t(key, args?)` reads the message under `key` from the table the document embedded for its locale, `catalog(currentLocale())`, which the server built from `locales/<tag>.toml` merged over the default locale's; `args.count` picks `key.one` or `key.other` through `intl.plural` and `{name}` placeholders are filled from `args`. A navigation into another locale receives that locale's table in the payload, so `t` follows `currentLocale()` without a reload.
 
@@ -1033,6 +1033,19 @@ decodeValue({ $: "u", v: "340282366920938463463374607431768211455" });  // bigin
 
 The narrowing rule is the safe-integer range: a tagged integer inside it becomes a `number`, one outside it stays a `bigint`.
 
+### Maps, Sets, Dates and Bigints
+
+A `var` tag of `$map`, `$set`, `$date` or `$bigint` is a JavaScript value the server's model has no arm for. It decodes to the real type, so an island's `Map<string, number>` prop is a `Map` and `instanceof` holds:
+
+```ts
+decodeValue({ $: "var", t: "$map", p: [["alice", 100]] });  // Map { "alice" => 100 }
+decodeValue({ $: "var", t: "$set", p: ["react", "next"] }); // Set { "react", "next" }
+decodeValue({ $: "var", t: "$date", p: 1749988800000 });     // Date, 2025-06-15T12:00:00.000Z
+decodeValue({ $: "var", t: "$bigint", p: 5 });               // 5n
+```
+
+The server writes these around an island's props whose type the build knows: a prop made with `new Map`, `new Set`, `new Date` or a bigint where the component is placed or typed `Map<K, V>`, `Set<T>`, `Date` or `bigint` where the component declares its props.
+
 ### Typed Arrays and Bytes
 
 A `ta` tag becomes the matching typed array; a `b` tag becomes a `Uint8Array`:
@@ -1084,7 +1097,7 @@ await fetch("/api/import", {
 });
 ```
 
-JavaScript has one number type, so the mapping in this direction is not symmetric with the one coming back. A `number` goes out as bare JSON and reaches the server as an integer when it is integral, otherwise as an `f64`; use a `bigint` when the server must see a wide integer. `NaN` and the two infinities go out as the `f` tag's symbols. A `Uint8Array` the page made goes out as bytes; one that arrived as a `u8` typed array is marked on decode and goes back as the typed array it was, so a round trip keeps the server's kind. A plain object that has its own `$` key is escaped into the `m` tag's pair list, so a map with a `$` key survives instead of being read back as a tag.
+JavaScript has one number type, so the mapping in this direction is not symmetric with the one coming back. A `number` goes out as bare JSON and reaches the server as an integer when it is integral, otherwise as an `f64`; use a `bigint` when the server must see a wide integer. `NaN` and the two infinities go out as the `f` tag's symbols. A `Uint8Array` the page made goes out as bytes; one that arrived as a `u8` typed array is marked on decode and goes back as the typed array it was, so a round trip keeps the server's kind. A plain object that has its own `$` key is escaped into the `m` tag's pair list, so a map with a `$` key survives instead of being read back as a tag. A `Map` goes out as a `$map` variant of its `[key, value]` pairs, a `Set` as a `$set` variant of its items and a `Date` as a `$date` variant of its milliseconds; the server reads each as the plain value it works with, an object keyed by each key's text, an array and a number. A `bigint` goes out as the `i` tag, since the server's integer is what it stands for.
 
 ## Reading a Payload Response by Hand
 

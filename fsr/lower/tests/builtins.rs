@@ -251,8 +251,7 @@ fn new_lowers_dates_collections_and_query_strings_and_refuses_the_rest() {
   assert!(err.contains("`new Date(year, month, ...)`"), "{err}");
   let err = lowered("other_new", "new WeakMap()").unwrap_err();
   assert!(err.contains("`new WeakMap`"), "{err}");
-  let err = lowered("kept", "new Intl.NumberFormat()").unwrap_err();
-  assert!(err.contains("an `Intl` formatter kept as a value"), "{err}");
+  assert!(matches!(&lowered("kept", "new Intl.NumberFormat()").unwrap()[0], Stmt::Let { expr: Expr::Lit(snapfire_fsr_ir::ast::Lit::Null), .. }), "a formatter kept as a value is null as a value; `.format` on its name lowers");
 }
 
 #[test]
@@ -266,8 +265,6 @@ fn an_intl_formatter_lowers_to_the_intl_member_that_formats_alike() {
   assert_eq!(ext("date", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\" }).format(new Date(params.at))"), "intl.date");
   assert_eq!(ext("locale_date", "new Date(params.at).toLocaleDateString(undefined, { dateStyle: \"short\", timeZone: \"UTC\" })"), "intl.date");
   for (tag, expr, says) in [
-    ("named_locale", "new Intl.NumberFormat(\"de-DE\").format(params.n)", "a locale named where it formats"),
-    ("symbol", "new Intl.NumberFormat(undefined, { style: \"currency\", currency: \"EUR\" }).format(params.n)", "a currency formatted with a symbol"),
     ("no_style", "new Date(params.at).toLocaleDateString()", "without a `dateStyle`"),
     ("zone", "new Intl.DateTimeFormat(undefined, { dateStyle: \"long\", timeZone: \"Europe/Paris\" }).format(params.at)", "`timeZone`"),
     ("percent", "new Intl.NumberFormat(undefined, { style: \"percent\" }).format(params.n)", "`style`"),
