@@ -125,6 +125,16 @@ impl Host {
     self.serve_until(listener, shutdown_signal()).await
   }
 
+  /// Turns `server.ready` to 503 `shutting down` for good. `serve_until` calls it when its shutdown resolves; a server that owns the listener, an actix `HttpServer` or an axum router the host is nested in, calls it before it stops, so a balancer probing readiness stops routing here while the open requests finish.
+  pub fn begin_drain(&self) {
+    self.draining.store(true, std::sync::atomic::Ordering::Relaxed);
+  }
+
+  /// Whether `begin_drain` has been called.
+  pub fn draining(&self) -> bool {
+    self.draining.load(std::sync::atomic::Ordering::Relaxed)
+  }
+
   /// Serves `listener` until `shutdown` resolves, then stops accepting and waits up to `server.shutdown_grace` for the connections it holds to finish what they are answering.
   pub async fn serve_until(self: Arc<Self>, listener: tokio::net::TcpListener, shutdown: impl Future<Output = ()>) -> std::io::Result<()> {
     #[cfg(all(unix, feature = "tls"))]
@@ -142,7 +152,7 @@ impl Host {
         () = shutdown.as_mut() => break,
       }
     }
-    self.draining.store(true, std::sync::atomic::Ordering::Relaxed);
+    self.begin_drain();
     drop(listener);
     drop(held);
     let _ = stop.send(true);

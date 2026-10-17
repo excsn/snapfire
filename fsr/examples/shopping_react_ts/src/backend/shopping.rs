@@ -77,6 +77,7 @@ pub async fn serve(catalog: Catalog, addr: (&str, u16)) -> std::io::Result<()> {
       .route("/orders/{id}", web::get().to(get_order))
       .route("/ledger", web::get().to(get_ledger))
   })
+  .disable_signals()
   .bind(addr)?
   .run()
   .await

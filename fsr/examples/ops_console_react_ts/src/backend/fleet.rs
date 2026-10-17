@@ -149,6 +149,7 @@ pub async fn serve(fleet: Arc<Fleet>, addr: (&'static str, u16)) -> std::io::Res
       .route("/alerts", web::get().to(list_alerts))
       .route("/alerts/{id}/ack", web::post().to(acknowledge))
   })
+  .disable_signals()
   .bind(addr)?
   .run()
   .await

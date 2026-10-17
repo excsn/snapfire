@@ -349,6 +349,18 @@ use axum::Router;
 let app = Router::new().nest_service("/shop", host.service());
 ```
 
+The router's server owns the listener, so the host cannot see the shutdown coming. Call `begin_drain` when it does, so `server.ready` answers 503 while the open requests finish:
+
+```rust
+let draining = host.clone();
+axum::serve(listener, app)
+  .with_graceful_shutdown(async move {
+    snapfire_fsr_host::shutdown_signal().await;
+    draining.begin_drain();
+  })
+  .await?;
+```
+
 ## Terminating TLS
 
 Most deployments put a proxy in front and the host never sees a certificate. For the one that has no proxy, the `tls` feature makes the hyper listener terminate: build with it, name the files in `[server.tls]` and ALPN chooses HTTP/2 or HTTP/1.1 for each connection.
@@ -438,6 +450,8 @@ snapfire_fsr_host::actix::serve(host, ("127.0.0.1", 8080)).await?;
 ```rust
 App::new().app_data(Data::new(host.clone())).default_service(web::to(snapfire_fsr_host::actix::handle))
 ```
+
+`actix::serve` turns `server.ready` to 503 on SIGTERM or SIGINT and gives open requests `server.shutdown_grace`. An `HttpServer` of your own handles its own signals, so call `host.begin_drain()` from whatever stops it, before `ServerHandle::stop`.
 
 ## Adding a Route in Rust
 

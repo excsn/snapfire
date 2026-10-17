@@ -147,7 +147,7 @@ The stock host: `config/` plus the build's artifacts as a `tower::Service` over 
 * `static_max_age: Option<u64>` (default unset): how long a browser may reuse, without asking again, a file from a `[[static]]` root whose name carries no content hash or a module of the embedded client. Unset sends `Cache-Control: no-cache`, so a deploy never pairs fresh HTML with a module the browser kept from the one before; the answer is a 304 while the file is unchanged. A number sends `public, max-age=<n>` and `0` sends no `Cache-Control` at all. Ignored under `dev`, where every static answer is `no-cache`.
 * `http2: bool` (default false): whether a served connection negotiates HTTP/2 as well as HTTP/1.1. The listener carries no TLS and so no ALPN, which makes this h2c: a client opening with the HTTP/2 preface is served and a browser, which speaks HTTP/2 only over TLS, is not. `HostBuilder::http2` overrides it for a host built in Rust. Nothing else changes: the same `Host::handle` answers both versions.
 * `shutdown_grace: u64` (default 20): seconds `serve_listener` waits after SIGTERM or SIGINT for the connections it holds to finish what they are answering. It stops accepting at once and an idle keep-alive connection closes at once. Whatever is still open when the time runs out is cut and logged.
-* `health: String` (default `/health`) and `ready: String` (default `/ready`): the paths a liveness and a readiness probe ask. `handle` answers a GET or HEAD on either with 200 `ok` and `Cache-Control: no-store` before statics, middleware and sessions. `ready` answers 503 `shutting down` once `serve_until` has begun to drain. An empty string turns a probe off. A route the plan or a mounted site serves at the same path is a `HostError::Config` at boot.
+* `health: String` (default `/health`) and `ready: String` (default `/ready`): the paths a liveness and a readiness probe ask. `handle` answers a GET or HEAD on either with 200 `ok` and `Cache-Control: no-store` before statics, middleware and sessions. `ready` answers 503 `shutting down` once `Host::begin_drain` has been called, which `serve_until` and `actix::serve` do when their shutdown begins. An empty string turns a probe off. A route the plan or a mounted site serves at the same path is a `HostError::Config` at boot.
 * `tls: Option<TlsSection>`, the `[server.tls]` table: absent, the listener is plain TCP. Present, the host must be built with the `tls` feature or `build` is a `HostError::Config` saying so, since a configured certificate must never be answered with plaintext.
 
 ### TlsSection
@@ -588,6 +588,7 @@ What the build derived from the application's images and fonts reaches a documen
 
 * `Host::serve(self: Arc<Self>, listen: &str) -> std::io::Result<()>` binds and serves until the listener fails: HTTP/1.1 or HTTP/1.1 and h2c when `server.http2` is on.
 * `Host::serve_listener(self: Arc<Self>, listener: tokio::net::TcpListener) -> std::io::Result<()>`: `serve_until` on [`shutdown_signal`], so it returns `Ok(())` once a SIGTERM or SIGINT has drained. `Host::serve_until(self: Arc<Self>, listener, shutdown: impl Future<Output = ()>)` takes any other trigger. `shutdown_signal()` resolves on SIGTERM or SIGINT and on Ctrl-C where there are no signals. Each connection is served by `hyper::server::conn::http1` or by `hyper_util::server::conn::auto` when `http2` is on, which reads the connection preface and answers either version. With `[server.tls]` the connection is a TLS one first, the version chosen by ALPN and a handshake that fails is logged and dropped without touching the listener.
+* `Host::begin_drain(&self)` turns `server.ready` to 503 `shutting down` for the rest of the process; `Host::draining(&self) -> bool` says whether it has been called. `serve_until` calls it once its shutdown resolves. A server that owns the listener, an axum router the host is nested in or an actix `HttpServer`, calls it before it stops, so a balancer stops routing to the instance while open requests finish. `server.health` keeps answering 200.
 * `Host::reload_tls(&self) -> Result<(), HostError>`, the `tls` feature: re-reads the certificate and its key and swaps what the next handshake presents. Connections already up keep the certificate they started on and a file that will not read leaves the running one in place, so a failed reload never takes the listener down. `serve_listener` calls it on the configured signal; nothing happens without `[server.tls]`.
 
 ### actix
@@ -595,7 +596,8 @@ What the build derived from the application's images and fonts reaches a documen
 Behind the `actix` feature.
 
 * `actix::handle(req: HttpRequest, host: Data<Arc<Host>>, body: Bytes) -> HttpResponse`: maps the request onto `http::Request<Bytes>`, the response's status, headers and body stream back.
-* `actix::serve(host: Arc<Host>, addr: (&str, u16)) -> std::io::Result<()>`.
+* `actix::serve(host: Arc<Host>, addr: (&str, u16)) -> std::io::Result<()>`: serves until SIGTERM or SIGINT, then calls `begin_drain` and stops the server with `server.shutdown_grace` (at least a second) for open requests. actix's own signal handling is off.
+* An `App` that mounts `handle` in an `HttpServer` of its own calls `host.begin_drain()` before it stops the server.
 
 ## 5. Observing a Request
 

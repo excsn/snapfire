@@ -38,10 +38,16 @@ async fn main() -> std::io::Result<()> {
   println!("identity service on http://{}:{}/sessions", identity_addr.0, identity_addr.1);
   println!("ops console on http://{}:{}/", console_addr.0, console_addr.1);
 
-  futures_util::try_join!(
+  // Only the console stops on a signal, so it can turn `/ready` to 503 and
+  // drain; the process ends when it does.
+  let backends = futures_util::future::try_join(
     backend::fleet::serve(backend::fleet::Fleet::seed(), fleet_addr),
     backend::identity::serve(backend::identity::Identity::seed(), identity_addr),
-    snapfire_fsr_host::actix::serve(host, console_addr)
-  )?;
-  Ok(())
+  );
+  let console = snapfire_fsr_host::actix::serve(host, console_addr);
+  futures_util::pin_mut!(backends, console);
+  match futures_util::future::select(console, backends).await {
+    futures_util::future::Either::Left((served, _)) => served,
+    futures_util::future::Either::Right((backends, _)) => backends.map(|_| ()),
+  }
 }

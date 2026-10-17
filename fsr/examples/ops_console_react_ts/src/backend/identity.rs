@@ -118,6 +118,7 @@ pub fn bind(identity: Arc<Identity>, addr: (&str, u16)) -> std::io::Result<(u16,
       .route("/sessions/{id}", web::put().to(put_session))
       .route("/sessions/{id}", web::delete().to(delete_session))
   })
+  .disable_signals()
   .bind(addr)?;
   let port = server.addrs().first().map(|a| a.port()).unwrap_or(addr.1);
   Ok((port, server.run()))

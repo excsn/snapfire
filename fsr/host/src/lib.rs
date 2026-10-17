@@ -299,7 +299,7 @@ pub struct Host {
   http2: bool,
   /// `server.shutdown_grace`.
   shutdown_grace: std::time::Duration,
-  /// Set once `serve_until` has begun to shut down, which turns `server.ready` to 503.
+  /// Set by `begin_drain`, which turns `server.ready` to 503.
   draining: std::sync::atomic::AtomicBool,
   /// The certificate the listener presents, `[server.tls]`; absent, the
   /// listener is plain TCP.

@@ -39,8 +39,8 @@ async fn main() -> std::io::Result<()> {
   println!("inventory grpc on http://{inventory_addr}");
   println!("fsr server on http://{}:{}/", fsr_addr.0, fsr_addr.1);
 
-  // The gRPC backend never sees the signal the two actix servers stop on, so
-  // the process ends with the fsr server rather than waiting on all three.
+  // Only the fsr server stops on a signal, so it can turn `/ready` to 503 and
+  // drain; the process ends when it does.
   let backends = futures_util::future::try_join(
     backend::shopping::serve(catalog, backend_addr),
     backend::inventory::serve(inventory_addr),

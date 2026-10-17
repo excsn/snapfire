@@ -45,14 +45,25 @@ pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, body: Bytes) -> Htt
   out.streaming(stream)
 }
 
-/// Serves the host with actix on `addr`.
+/// Serves the host with actix on `addr` until SIGTERM or SIGINT, which turns
+/// `server.ready` to 503 and gives open requests `server.shutdown_grace`.
 pub async fn serve(host: Arc<Host>, addr: (&str, u16)) -> std::io::Result<()> {
-  HttpServer::new(move || {
+  let grace = host.shutdown_grace.as_secs().max(1);
+  let app_host = host.clone();
+  let server = HttpServer::new(move || {
     App::new()
-      .app_data(Data::new(host.clone()))
+      .app_data(Data::new(app_host.clone()))
       .default_service(web::to(handle))
   })
+  .disable_signals()
+  .shutdown_timeout(grace)
   .bind(addr)?
-  .run()
-  .await
+  .run();
+  let handle = server.handle();
+  actix_web::rt::spawn(async move {
+    crate::serve::shutdown_signal().await;
+    host.begin_drain();
+    handle.stop(true).await;
+  });
+  server.await
 }

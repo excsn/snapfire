@@ -216,7 +216,7 @@ impl Host {
     if matches!(*req.method(), Method::GET | Method::HEAD) {
       let ready = t.ready.as_deref() == Some(path.as_str());
       if ready || t.health.as_deref() == Some(path.as_str()) {
-        let (status, text) = match ready && self.draining.load(std::sync::atomic::Ordering::Relaxed) {
+        let (status, text) = match ready && self.draining() {
           true => (StatusCode::SERVICE_UNAVAILABLE, "shutting down"),
           false => (StatusCode::OK, "ok"),
         };

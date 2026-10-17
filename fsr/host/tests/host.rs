@@ -491,6 +491,21 @@ async fn ready_answers_503_once_a_shutdown_has_begun() {
 }
 
 #[tokio::test]
+async fn a_host_whose_listener_is_someone_elses_answers_503_on_ready_once_it_begins_to_drain() {
+  let (host, _) = host();
+  let ready = || Request::get("/ready").body(Bytes::new()).unwrap();
+  assert_eq!(host.handle(ready()).await.status(), StatusCode::OK);
+  assert!(!host.draining());
+  host.begin_drain();
+  assert!(host.draining());
+  let response = host.handle(ready()).await;
+  assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+  assert_eq!(response.headers().get(header::CACHE_CONTROL).unwrap(), "no-store");
+  assert_eq!(body_of(response).await, "shutting down");
+  assert_eq!(host.handle(Request::get("/health").body(Bytes::new()).unwrap()).await.status(), StatusCode::OK, "liveness holds through a drain");
+}
+
+#[tokio::test]
 async fn an_http_1_0_keep_alive_request_gets_a_streamed_document_that_ends_with_the_connection() {
   let (host, _) = host();
   let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
