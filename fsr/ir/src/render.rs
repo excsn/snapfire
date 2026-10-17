@@ -1086,9 +1086,15 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
     return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
   }
   let mut map = self::props(env, props)?;
-  if matches!(component.body.first(), Some(Stmt::Let { name, .. }) if name == CHILD_COUNT) {
-    let count = count_children(env, children, slots, slots.len())?;
-    map.insert(CHILD_COUNT.to_owned(), Value::F64(count as f64));
+  for stmt in component.body.iter().take(2) {
+    let Stmt::Let { name, .. } = stmt else { break };
+    let empties = match name.as_str() {
+      CHILD_COUNT => true,
+      CHILD_ITEMS => false,
+      _ => break,
+    };
+    let count = count_children(env, children, slots, slots.len(), empties)?;
+    map.insert(name.clone(), Value::F64(count as f64));
   }
   let stamp = match (&env.slot_owner, map.get(PARENT_SCOPE_PROP)) {
     _ if component.owner != crate::ast::Owner::Vue => Vec::new(),
@@ -1116,46 +1122,49 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
   result
 }
 
-/// A component whose body opens with a `let` of this name reads how many children its placement passed, `Children.count(children)`; the placement passes the count as the prop of the same name.
+/// A component whose body opens with a `let` of this name reads how many children its placement passed, `Children.count(children)`, empty nodes included; the placement passes the count as the prop of the same name.
 pub const CHILD_COUNT: &str = "$childCount";
+
+/// The same for `Children.toArray(children).length`, which leaves empty nodes out.
+pub const CHILD_ITEMS: &str = "$childItems";
 
 /// A `Tmpl::Let` of this name around a `Tmpl::Fragment` marks the fragment as an array's items, which renders as its items and counts as each of them; any other fragment is `<>…</>`, one child.
 pub const ARRAY_ITEMS: &str = "$items";
 
-/// How many children `Children.count` sees in `children`, evaluated in the scope they render in: `null`, `undefined` and booleans count none, an array counts its items, `<>…</>` counts one and a `{children}` passed through counts what its own placement passed, `frame` being how many slot frames are open around it.
-fn count_children(env: &mut Env, children: &[Tmpl], slots: &[Slot<'_>], frame: usize) -> Result<usize, Fail> {
+/// How many children `Children.count` (`empties`) or `Children.toArray` sees in `children`, evaluated in the scope they render in: `null`, `undefined` and booleans count one each under `empties` and none otherwise, an array counts its items, `<>…</>` counts one and a `{children}` passed through counts what its own placement passed, `frame` being how many slot frames are open around it.
+fn count_children(env: &mut Env, children: &[Tmpl], slots: &[Slot<'_>], frame: usize, empties: bool) -> Result<usize, Fail> {
   let mut n = 0;
   for child in children {
     n += match child {
-      Tmpl::Let { name, then, .. } if name.strip_prefix(SLOT_CONTENT_PREFIX) == Some("default") => count_child(env, then, slots, frame)?,
+      Tmpl::Let { name, then, .. } if name.strip_prefix(SLOT_CONTENT_PREFIX) == Some("default") => count_child(env, then, slots, frame, empties)?,
       Tmpl::Let { name, .. } if name.starts_with(SLOT_CONTENT_PREFIX) => 0,
-      other => count_child(env, other, slots, frame)?,
+      other => count_child(env, other, slots, frame, empties)?,
     };
   }
   Ok(n)
 }
 
-fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize) -> Result<usize, Fail> {
+fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, empties: bool) -> Result<usize, Fail> {
   Ok(match t {
     Tmpl::Text(text) => usize::from(!text.is_empty()),
     Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } => 1,
-    Tmpl::Fragment(items) => usize::from(!items.is_empty()),
+    Tmpl::Fragment(items) => usize::from(empties || !items.is_empty()),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
-      Tmpl::Fragment(items) => count_children(env, items, slots, frame)?,
-      other => count_child(env, other, slots, frame)?,
+      Tmpl::Fragment(items) => count_children(env, items, slots, frame, empties)?,
+      other => count_child(env, other, slots, frame, empties)?,
     },
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
       env.scope.push((name.clone(), value));
-      let n = count_child(env, then, slots, frame);
+      let n = count_child(env, then, slots, frame, empties);
       env.scope.pop();
       n?
     }
     Tmpl::If { cond, then, r#else } => match crate::interp::truthy(&env.eval_sync(cond)?) {
-      true => count_child(env, then, slots, frame)?,
+      true => count_child(env, then, slots, frame, empties)?,
       false => match r#else {
-        Some(other) => count_child(env, other, slots, frame)?,
-        None => 0,
+        Some(other) => count_child(env, other, slots, frame, empties)?,
+        None => usize::from(empties),
       },
     },
     Tmpl::For { over, params, body } => {
@@ -1170,16 +1179,16 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize) -> Res
         for (param, value) in params.iter().zip([item.clone(), Value::F64(i as f64)]) {
           env.scope.push((param.clone(), value));
         }
-        n += count_child(env, body, slots, frame)?;
+        n += count_child(env, body, slots, frame, empties)?;
       }
       env.scope.truncate(depth);
       n
     }
-    Tmpl::Expr(e) => count_value(&env.eval_sync(e)?),
+    Tmpl::Expr(e) => count_value(&env.eval_sync(e)?, empties),
     Tmpl::Slot(_) => match frame.checked_sub(1).and_then(|at| slots.get(at).map(|slot| (at, slot))) {
       Some((at, slot)) => {
         let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
-        let n = count_children(env, slot.children, slots, at);
+        let n = count_children(env, slot.children, slots, at, empties);
         env.scope = inner;
         n?
       }
@@ -1188,10 +1197,10 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize) -> Res
   })
 }
 
-fn count_value(value: &Value) -> usize {
+fn count_value(value: &Value, empties: bool) -> usize {
   match value {
-    Value::Null | Value::Bool(_) => 0,
-    Value::Seq(items) => items.iter().map(count_value).sum(),
+    Value::Null | Value::Bool(_) => usize::from(empties),
+    Value::Seq(items) => items.iter().map(|item| count_value(item, empties)).sum(),
     _ => 1,
   }
 }

@@ -314,4 +314,6 @@ fn children_count_counts_what_the_placement_passed_as_react_does() {
   assert_eq!(counted("cc_through", "<Wrap><p>a</p>{rows.map((r) => <p key={r}>{r}</p>)}</Wrap>"), "3");
   let react = "import React from \"react\";\nexport default function Page() {\n  return <Count><i>a</i><i>b</i></Count>;\n}\nfunction Count({ children }) {\n  return <b>{React.Children.count(children)}</b>;\n}\n";
   assert_eq!(html("cc_react", &[("routes/page.tsx", react)]).as_deref(), Ok("<b>2</b>"));
+  let empties = "import { Children } from \"react\";\nexport default function Page({ price }) {\n  const on = price > 1;\n  return <Count>{null}{false}{!on && <i>x</i>}<i>b</i></Count>;\n}\nfunction Count({ children }) {\n  return <b>{Children.count(children)} {Children.toArray(children).length}</b>;\n}\n";
+  assert_eq!(html("cc_empties", &[("routes/page.tsx", empties)]), html("cc_empties_inline", &[("routes/page.tsx", "export default function Page() {\n  return <b>{4} {1}</b>;\n}\n")]), "count keeps empty nodes, toArray leaves them out");
 }

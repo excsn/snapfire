@@ -1050,15 +1050,14 @@ impl ComponentSet {
         lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: false, imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
-        let counts_children = cl.counts_children;
+        let counts_children = std::mem::take(&mut cl.counts_children);
         let result = result.and_then(|(mut component, refs)| match fills::place_markup(&mut component).and_then(|()| fills::place_tags(&mut component, consts)) {
           Ok(()) => {
-            if counts_children {
-              let count = snapfire_fsr_ir::render::CHILD_COUNT.to_owned();
-              component.body.insert(0, Stmt::Let { name: count.clone(), expr: Expr::Field(Box::new(Expr::Var("$props".to_owned())), count) });
+            for kind in counts_children.iter().rev() {
+              component.body.insert(0, Stmt::Let { name: (*kind).to_owned(), expr: Expr::Field(Box::new(Expr::Var("$props".to_owned())), (*kind).to_owned()) });
             }
             Ok((component, refs))
           }
@@ -3635,8 +3634,8 @@ struct ComponentLowerer<'a, 'p> {
   inlining: Vec<String>,
   /// The functions [`Self::markup_call`] is reading the body of, so helpers calling each other end.
   checking: std::cell::RefCell<Vec<String>>,
-  /// Whether the component reads `Children.count(children)`, which its body then opens with.
-  counts_children: bool,
+  /// The child counts the component reads, `render::CHILD_COUNT` and `render::CHILD_ITEMS`, which its body then opens with.
+  counts_children: Vec<&'static str>,
   /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
   /// set after to be `createContext` values.
   providers: Vec<(String, (usize, usize), Option<bool>)>,
@@ -3769,10 +3768,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// markup ahead of the statement or attribute that holds it, so
   /// `Lowerer::expr` takes it made. `fills` later places it in the tree.
   fn premake_expr(&mut self, e: &'p js::Expr) -> Lowered<()> {
-    if self.counts_own_children(e) {
+    if let Some(kind) = self.counts_own_children(e) {
       let span = e.span();
-      self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Var(snapfire_fsr_ir::render::CHILD_COUNT.to_owned()));
-      self.counts_children = true;
+      self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Var(kind.to_owned()));
+      if !self.counts_children.contains(&kind) {
+        self.counts_children.push(kind);
+      }
       return Ok(());
     }
     if self.holds_markup(e) {
@@ -4627,8 +4628,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// `Children.count(children)` or `Children.toArray(children).length` over the component's own children.
-  fn counts_own_children(&self, e: &js::Expr) -> bool {
+  /// `Children.count(children)` (`render::CHILD_COUNT`) or `Children.toArray(children).length` (`render::CHILD_ITEMS`) over the component's own children.
+  fn counts_own_children(&self, e: &js::Expr) -> Option<&'static str> {
     let children_call = |call: &js::CallExpr, method: &str| -> bool {
       let js::Callee::Expr(callee) = &call.callee else { return false };
       let js::Expr::Member(member) = &**callee else { return false };
@@ -4637,9 +4638,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         && matches!(call.args.as_slice(), [arg] if arg.spread.is_none() && self.slot_of_expr(&arg.expr).as_deref() == Some("content"))
     };
     match unwrap_literal(e) {
-      js::Expr::Call(call) => children_call(call, "count"),
-      js::Expr::Member(member) if prop_name_of(member).as_deref() == Some("length") => matches!(unwrap_literal(&member.obj), js::Expr::Call(call) if children_call(call, "toArray")),
-      _ => false,
+      js::Expr::Call(call) if children_call(call, "count") => Some(snapfire_fsr_ir::render::CHILD_COUNT),
+      js::Expr::Member(member) if prop_name_of(member).as_deref() == Some("length") && matches!(unwrap_literal(&member.obj), js::Expr::Call(call) if children_call(call, "toArray")) => Some(snapfire_fsr_ir::render::CHILD_ITEMS),
+      _ => None,
     }
   }
 
