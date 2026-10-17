@@ -426,7 +426,7 @@ reference-react-children-1	lowered
 reference-react-children-10	client: src/App.js:5:5 a function passed as `getHeader` to `TabSwitcher`, which renders in the browser; the server holds no function the browser can call
 reference-react-children-11	lowered
 reference-react-children-2	lowered
-reference-react-children-3	client: src/SeparatorList.js:5:3 a call for its effect, which a straight-line body cannot hold
+reference-react-children-3	lowered
 reference-react-children-4	lowered
 reference-react-children-5	lowered
 reference-react-children-6	lowered
@@ -506,7 +506,7 @@ reference-react-dom-createportal-2	client: src/PortalExample.js:12:21 a call to 
 reference-react-dom-createportal-3	client: src/App.js:9:8 a call to `createPortal`, which the build cannot follow
 reference-react-dom-flushsync-1	lowered
 reference-react-dom-hooks-useformstatus-1	client: src/actions.js:2:5 an expression statement other than a write to a local
-reference-react-dom-hooks-useformstatus-2	client: src/UsernameForm.js:15:32 `.get()`, which is not a builtin
+reference-react-dom-hooks-useformstatus-2	lowered
 reference-react-dom-server-resume-1	refused: src/App.js: no exported `default`
 reference-react-forwardref-1	lowered
 reference-react-forwardref-2	lowered

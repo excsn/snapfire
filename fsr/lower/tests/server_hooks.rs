@@ -95,3 +95,9 @@ fn use_sync_external_store_without_a_server_snapshot_renders_in_the_browser() {
   let out = render("store_none", "function subscribe(cb) {\n  return () => {};\n}\nexport default function Page() {\n  const online = useSyncExternalStore(subscribe, () => navigator.onLine);\n  return <p>{online ? \"online\" : \"offline\"}</p>;\n}\n");
   assert!(out.as_ref().is_err_and(|e| e.contains("without `getServerSnapshot`")), "{out:?}");
 }
+
+#[test]
+fn a_call_on_use_form_status_data_is_null_since_no_form_is_pending() {
+  let out = render("form_status_data", "export default function Page() {\n  const { pending, data } = useFormStatus();\n  return <p>{data ? `Requesting ${data?.get(\"username\")}...` : \"idle\"}{pending ? \"!\" : \"\"}</p>;\n}\n");
+  assert_eq!(out.as_deref(), Ok("<p>idle</p>"));
+}

@@ -2539,6 +2539,14 @@ impl<'a> Lowerer<'a> {
   fn optional_call(&mut self, call: &js::OptCall) -> Lowered<Expr> {
     let mut guards = Vec::new();
     let callee = strip_optional(&call.callee, &mut guards);
+    // A call on a value known to be null short-circuits, as JavaScript does, whatever the method.
+    for guard in &guards {
+      if let js::Expr::Ident(id) = strip_parens(guard) {
+        if matches!(self.scope.iter().rev().find(|(n, _)| n == id.sym.as_ref()), Some((_, Expr::Lit(Lit::Null)))) {
+          return Ok(Expr::Lit(Lit::Null));
+        }
+      }
+    }
     let plain = js::CallExpr { span: call.span, ctxt: call.ctxt, callee: js::Callee::Expr(Box::new(callee)), args: call.args.clone(), type_args: None };
     let mut out = self.call(&plain)?;
     for guard in guards.iter().rev() {

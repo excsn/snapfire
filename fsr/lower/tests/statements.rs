@@ -169,3 +169,10 @@ fn a_helper_calling_time_now_itself_is_still_refused() {
   std::fs::remove_dir_all(&dir).unwrap();
   assert!(result.as_ref().is_err_and(|e| e.contains("calls `time.now` on a render path")), "{result:?}");
 }
+
+#[test]
+fn children_for_each_runs_over_what_the_placement_passed() {
+  let list = "import { Children } from \"react\";\nexport default function SeparatorList({ children }) {\n  const result = [];\n  Children.forEach(children, (child, index) => {\n    result.push(child);\n    result.push(<hr key={index} />);\n  });\n  result.pop();\n  return result;\n}\n";
+  let page = "import SeparatorList from \"@src/SeparatorList\";\nexport default function Page() {\n  return <SeparatorList><p>a</p><p>b</p></SeparatorList>;\n}\n";
+  assert_eq!(html_with("children_each", &[("src/SeparatorList.tsx", list), ("routes/page.tsx", page)]).as_deref(), Ok("<p>a</p><hr><p>b</p>"));
+}

@@ -2879,7 +2879,7 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
           note(assigned, &name);
           return Ok(());
         }
-        if let Some(looped) = for_each_loop(call) {
+        if let Some(looped) = for_each_loop(call, lowerer.meanings.as_deref()) {
           return rebind_stmt(lowerer, &looped, writable, assigned);
         }
         if let js::Callee::Expr(callee) = &call.callee {
@@ -3496,10 +3496,10 @@ fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Optio
 }
 
 /// `xs.forEach((x, i) => body)` as `for (let i = 0; i < xs.length; i++) { const x = xs[i]; body }`, a bare `return` in the callback a `continue`; `xs` a name or a chain of fields read off one, so reading it each pass reads the same array.
-fn for_each_loop(call: &js::CallExpr) -> Option<js::Stmt> {
+fn for_each_loop(call: &js::CallExpr, meanings: Option<&crate::meaning::Meanings>) -> Option<js::Stmt> {
   let js::Callee::Expr(callee) = &call.callee else { return None };
   let js::Expr::Member(m) = crate::meaning::bare(callee) else { return None };
-  if prop_name_of(m).as_deref() != Some("forEach") || call.args.len() != 1 {
+  if prop_name_of(m).as_deref() != Some("forEach") {
     return None;
   }
   fn steady(expr: &js::Expr) -> bool {
@@ -3509,10 +3509,16 @@ fn for_each_loop(call: &js::CallExpr) -> Option<js::Stmt> {
       _ => false,
     }
   }
-  if !steady(&m.obj) {
+  // `Children.forEach(children, f)` walks the values the placement passed, which `ComponentLowerer::premake_for_each` binds.
+  let children_of = meanings.and_then(|meanings| meanings.of_expr(&m.obj)) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Children)) && call.args.len() == 2;
+  let (over, callback): (Box<js::Expr>, &js::ExprOrSpread) = if children_of {
+    (Box::new(js::Expr::Ident(js::Ident::new_no_ctxt(snapfire_fsr_ir::render::CHILD_VALUES.into(), call.span))), &call.args[1])
+  } else if call.args.len() == 1 && steady(&m.obj) {
+    (m.obj.clone(), &call.args[0])
+  } else {
     return None;
-  }
-  let (params, stmts): (Vec<js::Pat>, Vec<js::Stmt>) = match crate::meaning::bare(&call.args[0].expr) {
+  };
+  let (params, stmts): (Vec<js::Pat>, Vec<js::Stmt>) = match crate::meaning::bare(&callback.expr) {
     js::Expr::Arrow(arrow) => (
       arrow.params.clone(),
       match &*arrow.body {
@@ -3551,11 +3557,11 @@ fn for_each_loop(call: &js::CallExpr) -> Option<js::Stmt> {
   }
   let mut body = Vec::new();
   if let Some(item) = params.first() {
-    let read = js::Expr::Member(js::MemberExpr { span, obj: m.obj.clone(), prop: js::MemberProp::Computed(js::ComputedPropName { span, expr: Box::new(js::Expr::Ident(ident(&counter))) }) });
+    let read = js::Expr::Member(js::MemberExpr { span, obj: over.clone(), prop: js::MemberProp::Computed(js::ComputedPropName { span, expr: Box::new(js::Expr::Ident(ident(&counter))) }) });
     body.push(js::Stmt::Decl(js::Decl::Var(Box::new(js::VarDecl { span, ctxt: Default::default(), kind: js::VarDeclKind::Const, declare: false, decls: vec![js::VarDeclarator { span, name: item.clone(), init: Some(Box::new(read)), definite: false }] }))));
   }
   body.extend(continued(stmts));
-  let length = js::Expr::Member(js::MemberExpr { span, obj: m.obj.clone(), prop: js::MemberProp::Ident(js::IdentName::new("length".into(), span)) });
+  let length = js::Expr::Member(js::MemberExpr { span, obj: over.clone(), prop: js::MemberProp::Ident(js::IdentName::new("length".into(), span)) });
   Some(js::Stmt::For(js::ForStmt {
     span,
     init: Some(js::VarDeclOrExpr::VarDecl(Box::new(js::VarDecl { span, ctxt: Default::default(), kind: js::VarDeclKind::Let, declare: false, decls: vec![js::VarDeclarator { span, name: js::Pat::Ident(ident(&counter).into()), init: Some(Box::new(js::Expr::Lit(js::Lit::Num(js::Number { span, value: 0.0, raw: None })))), definite: false }] }))),
@@ -4335,10 +4341,24 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// [`Self::premake_stmt`] over a block's statements with each of its declarations bound as it goes, so markup after one reads it; the bindings end with the block.
   /// [`Self::premake_stmt`] for `xs.forEach(f)` under the names the counted loop [`for_each_loop`] reads it as, so the markup its callback pushes and the fold agree.
   fn premake_for_each(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
-    let Some(js::Stmt::For(f)) = for_each_loop(call) else { return Ok(()) };
+    let Some(js::Stmt::For(f)) = for_each_loop(call, self.lowerer.meanings.as_deref()) else { return Ok(()) };
+    let over_children = matches!(&call.callee, js::Callee::Expr(c) if matches!(&**c, js::Expr::Member(m) if self.meanings().of_expr(&m.obj) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Children))));
+    if over_children {
+      if self.slot_of_expr(&call.args[0].expr).as_deref() != Some("content") {
+        return Ok(());
+      }
+      let values = snapfire_fsr_ir::render::CHILD_VALUES;
+      if !self.counts_children.contains(&values) {
+        self.counts_children.push(values);
+      }
+      if !self.lowerer.scope.iter().any(|(n, _)| n == values) {
+        self.lowerer.scope.push((values.to_owned(), Expr::Var(values.to_owned())));
+      }
+    }
     let Ok(counted) = Counted::of(&self.lowerer, &f) else { return Ok(()) };
     let names = LoopNames::over(f.span, &f.init, &f.body);
-    let (params, body): (Vec<js::Pat>, FunctionBody<'p>) = match crate::meaning::bare(&call.args[0].expr) {
+    let callback = if over_children { &call.args[1] } else { &call.args[0] };
+    let (params, body): (Vec<js::Pat>, FunctionBody<'p>) = match crate::meaning::bare(&callback.expr) {
       js::Expr::Arrow(arrow) => (arrow.params.clone(), arrow_body(arrow)),
       js::Expr::Fn(func) => match &func.function.body {
         Some(b) => (patterns(&func.function), FunctionBody::Block(&b.stmts)),
@@ -4430,7 +4450,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(())
       }
       js::Stmt::Expr(e) => match &*e.expr {
-        js::Expr::Call(call) if for_each_loop(call).is_some() => self.premake_for_each(call),
+        js::Expr::Call(call) if for_each_loop(call, self.lowerer.meanings.as_deref()).is_some() => self.premake_for_each(call),
         other => self.premake_expr(other),
       },
       js::Stmt::If(branch) => {
@@ -5159,6 +5179,27 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn pattern_stmt(&mut self, pattern: &'p js::Pat, init: &'p js::Expr) -> Lowered<Option<Stmt>> {
     let expr = match hook_call(&self.meanings(), init) {
       Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(pattern)),
+      Some(("useFormStatus", call)) => {
+        // Each field is a constant on the server, bound as one so a read of `data` is known to be null.
+        let Expr::Object(fields) = self.lowerer.server_hook_value("useFormStatus", call)? else { unreachable!("useFormStatus is an object") };
+        let js::Pat::Object(obj) = pattern else { return Err(self.lowerer.residue(pattern.span(), "`useFormStatus` destructured as other than an object")) };
+        for prop in &obj.props {
+          let (key, local) = match prop {
+            js::ObjectPatProp::Assign(a) => (a.key.id.sym.to_string(), a.key.id.sym.to_string()),
+            js::ObjectPatProp::KeyValue(kv) => match (prop_name(&kv.key), &*kv.value) {
+              (Some(key), js::Pat::Ident(id)) => (key, id.id.sym.to_string()),
+              _ => return Err(self.lowerer.residue(prop.span(), "a `useFormStatus` field bound to other than a name")),
+            },
+            js::ObjectPatProp::Rest(r) => return Err(self.lowerer.residue(r.span, "a rest of `useFormStatus`")),
+          };
+          let value = fields.iter().find_map(|f| match f {
+            Entry::Field(n, v) if *n == key => Some(v.clone()),
+            _ => None,
+          }).unwrap_or(Expr::Lit(Lit::Null));
+          self.lowerer.scope.push((local, value));
+        }
+        return Ok(None);
+      }
       Some(("useContext" | "use", _)) => self.lowerer.expr(init)?,
       Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
       Some((hook, _)) => return Err(self.lowerer.residue(pattern.span(), format!("`{hook}`"))),
