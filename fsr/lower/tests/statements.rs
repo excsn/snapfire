@@ -65,3 +65,27 @@ fn what_follows_a_return_in_an_iteration_runs_only_while_nothing_returned() {
   let page = "function firstBig(xs) {\n  let seen = 0;\n  for (const x of xs) {\n    if (x > 10) {\n      return x + \"@\" + seen;\n    }\n    seen = seen + 1;\n  }\n  return \"none@\" + seen;\n}\nexport default function Page() {\n  return <p>{firstBig([1, 2, 30, 40])}|{firstBig([1, 2])}</p>;\n}\n";
   assert_eq!(html("after_return", page).as_deref(), Ok("<p>30@2|none@2</p>"));
 }
+
+#[test]
+fn for_each_runs_its_callback_over_every_item_and_return_skips_the_rest_of_one() {
+  let page = "const products = [{ name: \"a\", stocked: true }, { name: \"b\", stocked: false }, { name: \"c\", stocked: true }];\nexport default function Page() {\n  const rows = [];\n  products.forEach((product, i) => {\n    if (!product.stocked) {\n      return;\n    }\n    rows.push(<li key={product.name}>{i}{product.name}</li>);\n  });\n  return <ul>{rows}</ul>;\n}\n";
+  assert_eq!(html("for_each", page).as_deref(), Ok("<ul><li>0a</li><li>2c</li></ul>"));
+}
+
+#[test]
+fn reverse_sort_pop_and_shift_rewrite_the_local_they_are_called_on() {
+  let page = "export default function Page() {\n  const a = [1, 2, 3];\n  a.reverse();\n  const b = [3, 1, 2];\n  b.sort((x, y) => x - y);\n  const c = [1, 2, 3];\n  c.pop();\n  c.shift();\n  return <p>{a.join(\",\")}|{b.join(\",\")}|{c.join(\",\")}</p>;\n}\n";
+  assert_eq!(html("in_place", page).as_deref(), Ok("<p>3,2,1|1,2,3|2</p>"));
+}
+
+#[test]
+fn a_callback_a_custom_hook_only_hands_to_the_browser_lowers_the_hook() {
+  let interval = "import { useEffect } from \"react\";\nexport function useInterval(onTick, delay) {\n  useEffect(() => {\n    const id = setInterval(onTick, delay);\n    return () => clearInterval(id);\n  }, [onTick, delay]);\n}\n";
+  let page = "import { useState } from \"react\";\nimport { useInterval } from \"@src/useInterval\";\nexport default function Page() {\n  const [count, setCount] = useState(0);\n  useInterval(() => {\n    setCount((c) => c + 1);\n  }, 1000);\n  return <h1>{count}</h1>;\n}\n";
+  let dir = app("hook_callback", &[("src/useInterval.ts", interval), ("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default");
+  std::fs::remove_dir_all(&dir).unwrap();
+  assert!(result.is_ok(), "{result:?}");
+  assert!(set.browser_only.is_empty(), "{:?}", set.browser_only);
+}

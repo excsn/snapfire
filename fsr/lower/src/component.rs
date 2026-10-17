@@ -2806,6 +2806,35 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         Ok(())
       }
       js::Expr::Call(call) => {
+        if let Some(looped) = for_each_loop(call) {
+          return rebind_stmt(lowerer, &looped, writable, assigned);
+        }
+        if let js::Callee::Expr(callee) = &call.callee {
+          if let js::Expr::Member(m) = &**callee {
+            if let (js::Expr::Ident(id), Some(method @ ("reverse" | "sort" | "pop" | "shift"))) = (&*m.obj, prop_name_of(m).as_deref()) {
+              let name = id.sym.to_string();
+              if writable.local(lowerer, &name) {
+                let held = current(lowerer, &name);
+                let value = match method {
+                  "reverse" => Expr::Builtin { name: Builtin::Reverse, args: vec![held] },
+                  "sort" => {
+                    let by = match call.args.first().map(|a| &*a.expr) {
+                      None => Expr::Lit(Lit::Null),
+                      Some(js::Expr::Arrow(arrow)) => lowerer.lambda(arrow)?,
+                      Some(other) => lowerer.expr(other)?,
+                    };
+                    Expr::Sort(Box::new(held), Box::new(by))
+                  }
+                  "pop" => Expr::Builtin { name: Builtin::Slice, args: vec![held, Expr::Lit(Lit::Int(0)), Expr::Lit(Lit::Int(-1))] },
+                  _ => Expr::Builtin { name: Builtin::Slice, args: vec![held, Expr::Lit(Lit::Int(1))] },
+                };
+                lowerer.scope.push((name.clone(), value));
+                note(assigned, &name);
+                return Ok(());
+              }
+            }
+          }
+        }
         let target = match &call.callee {
           js::Callee::Expr(callee) => match &**callee {
             js::Expr::Member(m) => match (&*m.obj, prop_name_of(m).as_deref()) {
@@ -3362,6 +3391,76 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
   }
 }
 
+/// `xs.forEach((x, i) => body)` as `for (let i = 0; i < xs.length; i++) { const x = xs[i]; body }`, a bare `return` in the callback a `continue`; `xs` a name or a chain of fields read off one, so reading it each pass reads the same array.
+fn for_each_loop(call: &js::CallExpr) -> Option<js::Stmt> {
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Member(m) = crate::meaning::bare(callee) else { return None };
+  if prop_name_of(m).as_deref() != Some("forEach") || call.args.len() != 1 {
+    return None;
+  }
+  fn steady(expr: &js::Expr) -> bool {
+    match crate::meaning::bare(expr) {
+      js::Expr::Ident(_) => true,
+      js::Expr::Member(m) => matches!(m.prop, js::MemberProp::Ident(_)) && steady(&m.obj),
+      _ => false,
+    }
+  }
+  if !steady(&m.obj) {
+    return None;
+  }
+  let (params, stmts): (Vec<js::Pat>, Vec<js::Stmt>) = match crate::meaning::bare(&call.args[0].expr) {
+    js::Expr::Arrow(arrow) => (
+      arrow.params.clone(),
+      match &*arrow.body {
+        js::ArrowFunctionBody::FunctionBody(b) => b.stmts.clone(),
+        js::ArrowFunctionBody::Expr(e) => vec![js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })],
+      },
+    ),
+    js::Expr::Fn(f) => (patterns(&f.function), f.function.body.as_ref()?.stmts.clone()),
+    _ => return None,
+  };
+  let span = call.span;
+  let ident = |name: &str| js::Ident::new_no_ctxt(name.into(), span);
+  let counter = match params.get(1) {
+    Some(js::Pat::Ident(id)) => id.id.sym.to_string(),
+    None => format!("$each{}", span.lo.0),
+    Some(_) => return None,
+  };
+  fn continued(stmts: Vec<js::Stmt>) -> Vec<js::Stmt> {
+    stmts
+      .into_iter()
+      .map(|stmt| match stmt {
+        js::Stmt::Return(ret) if ret.arg.is_none() => js::Stmt::Continue(js::ContinueStmt { span: ret.span, label: None }),
+        js::Stmt::If(branch) => {
+          let arm = |s: Box<js::Stmt>| -> Box<js::Stmt> {
+            match *s {
+              js::Stmt::Block(b) => Box::new(js::Stmt::Block(js::BlockStmt { stmts: continued(b.stmts), ..b })),
+              other => Box::new(continued(vec![other]).remove(0)),
+            }
+          };
+          js::Stmt::If(js::IfStmt { cons: arm(branch.cons), alt: branch.alt.map(arm), ..branch })
+        }
+        js::Stmt::Block(b) => js::Stmt::Block(js::BlockStmt { stmts: continued(b.stmts), ..b }),
+        other => other,
+      })
+      .collect()
+  }
+  let mut body = Vec::new();
+  if let Some(item) = params.first() {
+    let read = js::Expr::Member(js::MemberExpr { span, obj: m.obj.clone(), prop: js::MemberProp::Computed(js::ComputedPropName { span, expr: Box::new(js::Expr::Ident(ident(&counter))) }) });
+    body.push(js::Stmt::Decl(js::Decl::Var(Box::new(js::VarDecl { span, ctxt: Default::default(), kind: js::VarDeclKind::Const, declare: false, decls: vec![js::VarDeclarator { span, name: item.clone(), init: Some(Box::new(read)), definite: false }] }))));
+  }
+  body.extend(continued(stmts));
+  let length = js::Expr::Member(js::MemberExpr { span, obj: m.obj.clone(), prop: js::MemberProp::Ident(js::IdentName::new("length".into(), span)) });
+  Some(js::Stmt::For(js::ForStmt {
+    span,
+    init: Some(js::VarDeclOrExpr::VarDecl(Box::new(js::VarDecl { span, ctxt: Default::default(), kind: js::VarDeclKind::Let, declare: false, decls: vec![js::VarDeclarator { span, name: js::Pat::Ident(ident(&counter).into()), init: Some(Box::new(js::Expr::Lit(js::Lit::Num(js::Number { span, value: 0.0, raw: None })))), definite: false }] }))),
+    test: Some(Box::new(js::Expr::Bin(js::BinExpr { span, op: js::BinaryOp::Lt, left: Box::new(js::Expr::Ident(ident(&counter))), right: Box::new(length) }))),
+    update: Some(Box::new(js::Expr::Update(js::UpdateExpr { span, op: js::UpdateOp::PlusPlus, prefix: false, arg: Box::new(js::Expr::Ident(ident(&counter))) }))),
+    body: Box::new(js::Stmt::Block(js::BlockStmt { span, ctxt: Default::default(), stmts: body })),
+  }))
+}
+
 /// Whether a loop's body returns from the function, outside a nested loop or function.
 fn returns_from_loop(stmt: &js::Stmt) -> bool {
   let body = match stmt {
@@ -3509,7 +3608,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let mut args = Vec::with_capacity(call.args.len());
     for arg in &call.args {
-      args.push(self.lowerer.expr(&arg.expr)?);
+      match self.lowerer.expr(&arg.expr) {
+        Ok(value) => args.push(value),
+        // A callback that writes state or calls out is one only the browser runs, as an effect or a listener does.
+        Err(_) if matches!(crate::meaning::bare(&arg.expr), js::Expr::Arrow(_) | js::Expr::Fn(_)) && !self.unbound_is_followable() => {
+          self.lowerer.unbound = None;
+          args.push(Expr::Lit(Lit::Null));
+        }
+        Err(residue) => return Err(residue),
+      }
     }
     self.hook_calls += 1;
     let prefix = format!("{hook}${}$", self.hook_calls);
@@ -4119,6 +4226,46 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// [`Self::premake_stmt`] over a block's statements with each of its declarations bound as it goes, so markup after one reads it; the bindings end with the block.
+  /// [`Self::premake_stmt`] for `xs.forEach(f)` under the names the counted loop [`for_each_loop`] reads it as, so the markup its callback pushes and the fold agree.
+  fn premake_for_each(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
+    let Some(js::Stmt::For(f)) = for_each_loop(call) else { return Ok(()) };
+    let Ok(counted) = Counted::of(&self.lowerer, &f) else { return Ok(()) };
+    let names = LoopNames::over(f.span, &f.init, &f.body);
+    let (params, body): (Vec<js::Pat>, FunctionBody<'p>) = match crate::meaning::bare(&call.args[0].expr) {
+      js::Expr::Arrow(arrow) => (arrow.params.clone(), arrow_body(arrow)),
+      js::Expr::Fn(func) => match &func.function.body {
+        Some(b) => (patterns(&func.function), FunctionBody::Block(&b.stmts)),
+        None => return Ok(()),
+      },
+      _ => return Ok(()),
+    };
+    let js::Stmt::Block(looped) = &*f.body else { return Ok(()) };
+    let item = looped.stmts.first().and_then(|s| match s {
+      js::Stmt::Decl(js::Decl::Var(var)) if params.first().is_some() => var.decls.first().and_then(|d| d.init.clone()),
+      _ => None,
+    });
+    let depth = self.lowerer.scope.len();
+    let result = counted.lowered(&mut self.lowerer, &names.item).and_then(|(_, counter)| {
+      for name in &names.written {
+        self.lowerer.scope.push((name.clone(), names.read(name)));
+      }
+      self.lowerer.scope.push((counted.name.clone(), counter));
+      if let (Some(head), Some(item)) = (params.first(), item) {
+        let value = self.lowerer.expr(&item)?;
+        bind_pattern(&mut self.lowerer, head, value)?;
+      }
+      let open = self.open_statement_loop(f.span, &f.body, &names.written);
+      let result = match body {
+        FunctionBody::Block(stmts) => self.premake_block(stmts),
+        FunctionBody::Expr(e) => self.premake_expr(e),
+      };
+      self.close_statement_loop(open);
+      result
+    });
+    self.lowerer.scope.truncate(depth);
+    result
+  }
+
   fn premake_block(&mut self, stmts: &'p [js::Stmt]) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
     let result = stmts.iter().try_for_each(|stmt| {
@@ -4175,7 +4322,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         Ok(())
       }
-      js::Stmt::Expr(e) => self.premake_expr(&e.expr),
+      js::Stmt::Expr(e) => match &*e.expr {
+        js::Expr::Call(call) if for_each_loop(call).is_some() => self.premake_for_each(call),
+        other => self.premake_expr(other),
+      },
       js::Stmt::If(branch) => {
         self.premake_stmt(&branch.cons)?;
         match branch.alt.as_deref() {

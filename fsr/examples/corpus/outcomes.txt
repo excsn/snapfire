@@ -187,8 +187,8 @@ learn-preserving-and-resetting-state-2	lowered
 learn-preserving-and-resetting-state-20	lowered
 learn-preserving-and-resetting-state-21	lowered
 learn-preserving-and-resetting-state-22	lowered
-learn-preserving-and-resetting-state-23	client: src/App.js:9:5 a call for its effect, which a straight-line body cannot hold
-learn-preserving-and-resetting-state-24	client: src/App.js:9:5 a call for its effect, which a straight-line body cannot hold
+learn-preserving-and-resetting-state-23	lowered
+learn-preserving-and-resetting-state-24	lowered
 learn-preserving-and-resetting-state-3	lowered
 learn-preserving-and-resetting-state-4	lowered
 learn-preserving-and-resetting-state-5	lowered
@@ -238,7 +238,7 @@ learn-rendering-lists-1	lowered
 learn-rendering-lists-10	lowered
 learn-rendering-lists-11	lowered
 learn-rendering-lists-12	lowered
-learn-rendering-lists-13	client: src/App.js:13:3 a call for its effect, which a straight-line body cannot hold
+learn-rendering-lists-13	lowered
 learn-rendering-lists-14	lowered
 learn-rendering-lists-2	lowered
 learn-rendering-lists-3	lowered
@@ -266,7 +266,7 @@ learn-reusing-logic-with-custom-hooks-1	lowered
 learn-reusing-logic-with-custom-hooks-10	lowered
 learn-reusing-logic-with-custom-hooks-11	lowered
 learn-reusing-logic-with-custom-hooks-12	lowered
-learn-reusing-logic-with-custom-hooks-13	client: src/useFadeIn.js:9:5 a write to something other than a local
+learn-reusing-logic-with-custom-hooks-13	lowered
 learn-reusing-logic-with-custom-hooks-14	lowered
 learn-reusing-logic-with-custom-hooks-15	lowered
 learn-reusing-logic-with-custom-hooks-16	lowered
@@ -275,9 +275,9 @@ learn-reusing-logic-with-custom-hooks-18	lowered
 learn-reusing-logic-with-custom-hooks-19	lowered
 learn-reusing-logic-with-custom-hooks-2	lowered
 learn-reusing-logic-with-custom-hooks-20	lowered
-learn-reusing-logic-with-custom-hooks-21	client: src/useCounter.js:7:5 a call for its effect, which a straight-line body cannot hold
-learn-reusing-logic-with-custom-hooks-22	client: src/useCounter.js:7:5 a call for its effect, which a straight-line body cannot hold
-learn-reusing-logic-with-custom-hooks-23	client: src/useCounter.js:7:5 a call for its effect, which a straight-line body cannot hold
+learn-reusing-logic-with-custom-hooks-21	lowered
+learn-reusing-logic-with-custom-hooks-22	lowered
+learn-reusing-logic-with-custom-hooks-23	lowered
 learn-reusing-logic-with-custom-hooks-24	lowered
 learn-reusing-logic-with-custom-hooks-25	lowered
 learn-reusing-logic-with-custom-hooks-3	lowered
@@ -344,9 +344,9 @@ learn-synchronizing-with-effects-6	lowered
 learn-synchronizing-with-effects-7	lowered
 learn-synchronizing-with-effects-8	lowered
 learn-synchronizing-with-effects-9	lowered
-learn-thinking-in-react-1	client: src/App.js:29:3 a call for its effect, which a straight-line body cannot hold
-learn-thinking-in-react-2	client: src/App.js:48:3 a call for its effect, which a straight-line body cannot hold
-learn-thinking-in-react-3	client: src/App.js:50:3 a call for its effect, which a straight-line body cannot hold
+learn-thinking-in-react-1	lowered
+learn-thinking-in-react-2	lowered
+learn-thinking-in-react-3	lowered
 learn-tutorial-tic-tac-toe-1	lowered
 learn-tutorial-tic-tac-toe-10	lowered
 learn-tutorial-tic-tac-toe-11	lowered
@@ -428,7 +428,7 @@ reference-react-children-11	lowered
 reference-react-children-2	lowered
 reference-react-children-3	client: src/SeparatorList.js:5:3 a call for its effect, which a straight-line body cannot hold
 reference-react-children-4	lowered
-reference-react-children-5	client: src/ReversedList.js:5:3 a call for its effect, which a straight-line body cannot hold
+reference-react-children-5	lowered
 reference-react-children-6	lowered
 reference-react-children-7	lowered
 reference-react-children-8	lowered
@@ -582,11 +582,11 @@ reference-react-useeffect-3	lowered
 reference-react-useeffect-4	lowered
 reference-react-useeffect-5	lowered
 reference-react-useeffect-6	lowered
-reference-react-useeffect-7	client: src/App.js:8:5 a call for its effect, which a straight-line body cannot hold
+reference-react-useeffect-7	lowered
 reference-react-useeffect-8	lowered
 reference-react-useeffectevent-1	lowered
 reference-react-useeffectevent-2	lowered
-reference-react-useeffectevent-4	client: src/App.js:21:5 a call for its effect, which a straight-line body cannot hold
+reference-react-useeffectevent-4	lowered
 reference-react-useid-1	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useid-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useid-3	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
