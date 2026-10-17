@@ -352,9 +352,14 @@ fn vendor(config: &Config) -> Vec<Finding> {
     )];
   };
   let Some(imports) = json.get("imports").and_then(|i| i.as_object()) else { return Vec::new() };
+  let client = format!("{}/", snapfire_fsr_host::client::ROUTE);
+  let embedded_client = !config.statics.iter().any(|s| s.route == snapfire_fsr_host::client::ROUTE);
   let mut missing = Vec::new();
   for (name, target) in imports {
     let Some(target) = target.as_str() else { continue };
+    if embedded_client && target.starts_with(&client) {
+      continue;
+    }
     let served = config.statics.iter().filter_map(|root| {
       let route = root.route.trim_end_matches('/');
       target.strip_prefix(route).and_then(|rest| rest.strip_prefix('/')).map(|rest| (route.len(), config.resolve(&root.dir).join(rest)))

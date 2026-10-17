@@ -164,6 +164,24 @@ fn an_import_map_naming_an_unvendored_package_is_reported() {
   assert!(doctor::run(&vendored).unwrap().is_clean(), "{}", report(&vendored));
 }
 
+#[test]
+fn the_client_the_binary_serves_needs_no_file_under_a_static_root() {
+  let embedded = app(
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n",
+    &[
+      ("app/importmap.json", r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#),
+      ("app/public/robots.txt", "User-agent: *\n"),
+    ],
+  );
+  assert!(doctor::run(&embedded).unwrap().is_clean(), "{}", report(&embedded));
+
+  let own = app(
+    "[document]\ntitle = \"t\"\nimport_map = \"importmap.json\"\n[[static]]\ndir = \"client\"\nroute = \"/static/js/fsr\"\n",
+    &[("app/importmap.json", r#"{"imports":{"@snapfire/fsr-client":"/static/js/fsr/index.js"}}"#), ("app/client/.keep", "")],
+  );
+  assert_eq!(findings(&own), vec!["vendor"], "{}", report(&own));
+}
+
 /// A tree laid out the way `fsr bundle` writes one: the configuration under `config/` with `bundle.toml` serving the vendored files from `serve/`.
 fn deploy_tree(files: &[(&str, &str)]) -> PathBuf {
   let dir = app("", &[]);
