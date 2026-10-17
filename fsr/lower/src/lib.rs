@@ -1643,6 +1643,7 @@ impl<'a> Lowerer<'a> {
       js::Expr::New(n) => self.new_expr(n),
       js::Expr::Fn(f) => Err(self.residue(f.function.span, "a `function` expression")),
       js::Expr::Assign(a) => Err(self.residue(a.span, "an assignment inside an expression")),
+      js::Expr::This(_) if self.scope.iter().any(|(n, _)| n == "this") => Ok(self.scope.iter().rev().find(|(n, _)| n == "this").map(|(_, e)| e.clone()).expect("checked")),
       other => {
         let (what, hint) = describe_expr(other);
         Err(self.residue_with(other.span(), what, hint))

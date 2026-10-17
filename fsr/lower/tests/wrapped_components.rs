@@ -1,5 +1,5 @@
 //! A component wrapped in React's `memo` or `forwardRef` renders as the
-//! function it wraps; a class component renders in the browser.
+//! function it wraps; a class component renders its `render()`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -69,14 +69,34 @@ fn forward_ref_binds_its_second_parameter_to_the_ref() {
 }
 
 #[test]
-fn a_class_component_renders_in_the_browser_and_says_so() {
+fn a_class_component_renders_its_render_method_with_this_props() {
   let greeting = "import { Component } from \"react\";\nexport default class Greeting extends Component {\n  render() {\n    return <h1>Hello, {this.props.name}</h1>;\n  }\n}\n";
-  let set = lowered("class", &[("src/Greeting.tsx", greeting), ("routes/page.tsx", PAGE)]).unwrap();
-  let residue = set.browser_only.iter().find(|(m, _)| m == "src/Greeting.tsx#default").map(|(_, r)| r.message.clone());
-  assert_eq!(residue.as_deref(), Some("a class component, which the build does not lower"));
-  let pure = "import React from \"react\";\nclass Greeting extends React.PureComponent {\n  render() {\n    return <h1>{this.props.name}</h1>;\n  }\n}\nexport default Greeting;\n";
-  let set = lowered("pure", &[("src/Greeting.tsx", pure), ("routes/page.tsx", PAGE)]).unwrap();
-  assert!(set.browser_only.iter().any(|(m, _)| m == "src/Greeting.tsx#default"));
+  assert_eq!(html("class", &[("src/Greeting.tsx", greeting), ("routes/page.tsx", PAGE)]).as_deref(), Ok("<main><h1>Hello, Ada</h1></main>"));
+  let pure = "import React from \"react\";\nclass Greeting extends React.PureComponent {\n  render() {\n    const { name } = this.props;\n    return <h1>Hello, {name}</h1>;\n  }\n}\nexport default Greeting;\n";
+  assert_eq!(html("pure", &[("src/Greeting.tsx", pure), ("routes/page.tsx", PAGE)]).as_deref(), Ok("<main><h1>Hello, Ada</h1></main>"));
+}
+
+#[test]
+fn a_class_with_state_renders_its_initial_state_and_hydrates() {
+  let field = "import { Component } from \"react\";\nexport default class Greeting extends Component {\n  state = { age: 42 };\n  bump = () => {\n    this.setState({ age: this.state.age + 1 });\n  };\n  render() {\n    return <button onClick={this.bump}>{this.props.name} is {this.state.age}</button>;\n  }\n}\n";
+  let constructed = "import { Component } from \"react\";\nexport default class Greeting extends Component {\n  constructor(props) {\n    super(props);\n    this.state = { age: props.name.length };\n    this.bump = this.bump.bind(this);\n  }\n  bump() {\n    this.setState({ age: this.state.age + 1 });\n  }\n  render() {\n    return <button onClick={this.bump}>{this.props.name} is {this.state.age}</button>;\n  }\n}\n";
+  for (tag, source, age) in [("field", field, 42), ("ctor", constructed, 3)] {
+    let set = lowered(tag, &[("src/Greeting.tsx", source), ("routes/page.tsx", PAGE)]).unwrap();
+    let greeting = &set.components.iter().find(|(m, _)| m == "src/Greeting.tsx#default").unwrap().1;
+    assert!(greeting.owner.hydrates(), "the browser runs the class: {tag}");
+    assert!(!format!("{:?}", set.rewrites).contains("Greeting.tsx"), "a class's render() gets no hoisting hook: {tag}");
+    let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+    let module = "routes/page.tsx#default";
+    let out = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap();
+    assert_eq!(out.islands.len(), 1, "{tag}");
+    assert!(out.islands[0].body.html.contains(&format!("<button>Ada is {age}</button>")), "{tag}: {}", out.islands[0].body.html);
+  }
+}
+
+#[test]
+fn a_class_ref_field_reads_as_an_empty_ref() {
+  let form = "import { Component, createRef } from \"react\";\nexport default class Greeting extends Component {\n  inputRef = createRef();\n  render() {\n    return <input ref={this.inputRef} placeholder={this.inputRef.current === null ? \"empty\" : \"set\"} />;\n  }\n}\n";
+  assert_eq!(html("ref", &[("src/Greeting.tsx", form), ("routes/page.tsx", PAGE)]).as_deref(), Ok("<main><input placeholder=\"empty\"></main>"));
 }
 
 #[test]

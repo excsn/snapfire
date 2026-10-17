@@ -437,29 +437,29 @@ reference-react-cloneelement-1	lowered
 reference-react-cloneelement-2	client: src/App.js:7:5 a function passed as `renderItem` to `List`, which renders in the browser; the server holds no function the browser can call
 reference-react-cloneelement-3	client: src/App.js:7:5 a function passed as `renderItem` to `List`, which renders in the browser; the server holds no function the browser can call
 reference-react-cloneelement-4	lowered
-reference-react-component-1	client: src/App.js:3:1 a class component, which the build does not lower
-reference-react-component-10	client: src/App.js:20:1 a class component, which the build does not lower | src/App.js:5:1 a class component, which the build does not lower
+reference-react-component-1	lowered
+reference-react-component-10	lowered
 reference-react-component-11	lowered
-reference-react-component-2	client: src/App.js:3:16 a class component, which the build does not lower
-reference-react-component-3	client: src/ChatRoom.js:4:16 a class component, which the build does not lower
-reference-react-component-4	client: src/App.js:3:1 a class component, which the build does not lower
+reference-react-component-2	lowered
+reference-react-component-3	lowered
+reference-react-component-4	lowered
 reference-react-component-5	lowered
-reference-react-component-6	client: src/App.js:3:16 a class component, which the build does not lower
+reference-react-component-6	lowered
 reference-react-component-7	lowered
-reference-react-component-8	client: src/ChatRoom.js:4:16 a class component, which the build does not lower
+reference-react-component-8	lowered
 reference-react-component-9	lowered
 reference-react-createelement-1	client: src/App.js:14:10 a call to `createElement`, which the build cannot follow
 reference-react-createelement-2	lowered
-reference-react-createref-1	client: src/App.js:3:16 a class component, which the build does not lower
-reference-react-createref-2	client: src/App.js:3:16 a class component, which the build does not lower
+reference-react-createref-1	lowered
+reference-react-createref-2	lowered
 reference-react-createref-3	lowered
 reference-react-dom-client-createroot-1	lowered
 reference-react-dom-client-createroot-3	lowered
-reference-react-dom-client-createroot-4	client: src/App.js:4:3 a write to `foo`, which this body did not declare | src/App.js:7:1 a class component, which the build does not lower
+reference-react-dom-client-createroot-4	client: src/App.js:4:3 a write to `foo`, which this body did not declare
 reference-react-dom-client-hydrateroot-1	lowered
 reference-react-dom-client-hydrateroot-2	client: src/App.js:4:22 the current time on a render path, which the server and the browser read at different moments
 reference-react-dom-client-hydrateroot-4	lowered
-reference-react-dom-client-hydrateroot-5	client: src/App.js:4:3 a write to `foo`, which this body did not declare | src/App.js:7:1 a class component, which the build does not lower
+reference-react-dom-client-hydrateroot-5	client: src/App.js:4:3 a write to `foo`, which this body did not declare
 reference-react-dom-components-common-1	lowered
 reference-react-dom-components-common-2	lowered
 reference-react-dom-components-common-4	lowered
@@ -517,8 +517,8 @@ reference-react-fragment-2	lowered
 reference-react-memo-1	lowered
 reference-react-memo-2	lowered
 reference-react-memo-3	lowered
-reference-react-purecomponent-1	client: src/App.js:3:1 a class component, which the build does not lower
-reference-react-purecomponent-2	client: src/App.js:3:1 a class component, which the build does not lower
+reference-react-purecomponent-1	lowered
+reference-react-purecomponent-2	lowered
 reference-react-purecomponent-3	lowered
 reference-react-strictmode-1	lowered
 reference-react-strictmode-10	lowered

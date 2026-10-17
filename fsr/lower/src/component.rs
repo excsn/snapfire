@@ -1039,11 +1039,17 @@ impl ComponentSet {
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
         let defaults = self.defaults.clone();
-        let Some(function) = find_function(&parsed, export) else {
-          if let Some(span) = class_component_span(&parsed, export) {
-            return Err(Lowerer::new(&parsed, &defaults).residue(span, CLASS_COMPONENT).into());
-          }
-          return Err(LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() });
+        let (function, class) = match find_function(&parsed, export) {
+          Some(function) => (function, None),
+          None => match find_class(&parsed, export) {
+            Some((class, render)) => (render, Some(class)),
+            None => {
+              if let Some(span) = class_component_span(&parsed, export) {
+                return Err(Lowerer::new(&parsed, &defaults).residue(span, CLASS_COMPONENT).into());
+              }
+              return Err(LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() });
+            }
+          },
         };
         if let Some(span) = async_function_span(&parsed, export).filter(|_| !awaits_only_imports(&function)) {
           return Err(Lowerer::new(&parsed, &defaults).residue(span, ASYNC_COMPONENT).into());
@@ -1053,11 +1059,12 @@ impl ComponentSet {
         lowerer.global_kinds = global_kinds.clone();
         lowerer.unfollowed = unfollowed.iter().map(|(name, _)| name.clone()).collect();
         lowerer.natives = self.natives.clone();
-        lowerer.hoisting = (!element_template).then(Candidates::default);
+        // The browser half reads hoisted values through a hook, which a class's `render()` may not call.
+        lowerer.hoisting = (!element_template && class.is_none()).then(Candidates::default);
         lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -2145,6 +2152,42 @@ fn forwards_ref(parsed: &Parsed, export: &str) -> bool {
 
 /// What a class component is told: the build lowers functions, so the class renders in the browser.
 pub(crate) const CLASS_COMPONENT: &str = "a class component, which the build does not lower";
+
+/// `export` when it is a class extending React's `Component` or `PureComponent` with a `render()` method, and that method's body.
+fn find_class<'a>(parsed: &'a Parsed, export: &str) -> Option<(&'a js::Class, Found<'a>)> {
+  let react_base = |class: &js::Class| class.super_class.as_deref().is_some_and(|base| matches!(react_export(parsed, base).as_deref(), Some("Component" | "PureComponent")));
+  let render = |class: &'a js::Class| {
+    class.body.iter().find_map(|member| match member {
+      js::ClassMember::Method(m) if !m.is_static && prop_name(&m.key).as_deref() == Some("render") => {
+        let body = m.function.body.as_ref()?;
+        Some((class, Found::Declared(Vec::new(), &body.stmts, body.span)))
+      }
+      _ => None,
+    })
+  };
+  for item in &parsed.module.body {
+    let decl = match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) if export == "default" => match &d.decl {
+        js::DefaultDecl::Class(c) if react_base(&c.class) => return render(&c.class),
+        _ => continue,
+      },
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => match crate::meaning::bare(&e.expr) {
+        js::Expr::Ident(id) => return find_class(parsed, id.sym.as_ref()),
+        js::Expr::Class(c) if react_base(&c.class) => return render(&c.class),
+        _ => continue,
+      },
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => &export_decl.decl,
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+      _ => continue,
+    };
+    if let js::Decl::Class(c) = decl {
+      if c.ident.sym.as_ref() == export && react_base(&c.class) {
+        return render(&c.class);
+      }
+    }
+  }
+  None
+}
 
 /// The span of `export` when it is a class extending React's `Component` or `PureComponent`.
 fn class_component_span(parsed: &Parsed, export: &str) -> Option<Span> {
@@ -3991,6 +4034,8 @@ struct ComponentLowerer<'a, 'p> {
   children_name: Option<String>,
   /// Whether the component is wrapped in `forwardRef`, so its second parameter is the `ref` prop.
   forwards_ref: bool,
+  /// The class whose `render()` this is, which binds `this`.
+  class: Option<&'p js::Class>,
   /// A layout: its slot is wrapped in `<sf-s>`.
   layout_root: bool,
   /// The slots a layout's `slots/` directory declares.
@@ -4459,6 +4504,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     }
     let mut lets = Vec::new();
+    if let Some(class) = self.class {
+      lets.extend(self.bind_this(class)?);
+    }
     let render = match body {
       FunctionBody::Expr(e) => self.child_expr(e)?,
       FunctionBody::Block(stmts) => {
@@ -4800,6 +4848,78 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       self.lowerer.scope.push((local, Expr::Var(fresh)));
     }
     Ok(())
+  }
+
+  /// `this` in a class's `render()`: `this.props` the props, `this.state` the initial state as component state, each method and arrow field a function the browser runs, `createRef()` a ref holding null and each other field its value.
+  fn bind_this(&mut self, class: &'p js::Class) -> Lowered<Option<Stmt>> {
+    let mut entries = vec![Entry::Field("props".to_owned(), Expr::Var("$props".to_owned()))];
+    let mut state: Option<Expr> = None;
+    let browser = || Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER);
+    for member in &class.body {
+      match member {
+        js::ClassMember::ClassProp(p) if !p.is_static => {
+          let Some(key) = prop_name(&p.key) else { return Err(self.lowerer.residue(p.span, "a computed class field")) };
+          let value = match p.value.as_deref().map(crate::meaning::bare) {
+            None => Expr::Lit(Lit::Null),
+            Some(js::Expr::Arrow(_) | js::Expr::Fn(_)) => browser(),
+            Some(js::Expr::Call(call)) if matches!(&call.callee, js::Callee::Expr(c) if react_export(self.lowerer.parsed, c).as_deref() == Some("createRef")) => Expr::Object(vec![Entry::Field("current".to_owned(), Expr::Lit(Lit::Null))]),
+            Some(value) => self.lowerer.expr(value)?,
+          };
+          if key == "state" {
+            state = Some(value);
+          } else {
+            entries.push(Entry::Field(key, value));
+          }
+        }
+        js::ClassMember::Method(m) if !m.is_static => {
+          if let Some(key) = prop_name(&m.key).filter(|k| k != "render") {
+            entries.push(Entry::Field(key, browser()));
+          }
+        }
+        js::ClassMember::Constructor(c) => {
+          let depth = self.lowerer.scope.len();
+          if let Some(js::ParamOrTsParamProp::Param(param)) = c.params.first() {
+            if let js::Pat::Ident(id) = &param.pat {
+              self.lowerer.scope.push((id.id.sym.to_string(), Expr::Var("$props".to_owned())));
+            }
+          }
+          for stmt in c.body.iter().flat_map(|b| &b.stmts) {
+            let js::Stmt::Expr(e) = stmt else { return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `super(props)` or a write to `this`")) };
+            match &*e.expr {
+              js::Expr::Call(call) if matches!(call.callee, js::Callee::Super(_)) => {}
+              js::Expr::Assign(a) if a.op == js::AssignOp::Assign => {
+                let field = match &a.left {
+                  js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) if matches!(&*m.obj, js::Expr::This(_)) => prop_name_of(m),
+                  _ => None,
+                };
+                let Some(field) = field else { return Err(self.lowerer.residue(a.span, "a constructor write to something other than `this`")) };
+                if field == "state" {
+                  state = Some(self.lowerer.expr(&a.right)?);
+                } else if !entries.iter().any(|e| matches!(e, Entry::Field(n, _) if *n == field)) {
+                  let value = match crate::meaning::bare(&a.right) {
+                    js::Expr::Arrow(_) | js::Expr::Fn(_) | js::Expr::Call(_) => browser(),
+                    other => self.lowerer.expr(other)?,
+                  };
+                  entries.push(Entry::Field(field, value));
+                }
+              }
+              other => return Err(self.lowerer.residue(other.span(), "a constructor statement other than `super(props)` or a write to `this`")),
+            }
+          }
+          self.lowerer.scope.truncate(depth);
+        }
+        _ => {}
+      }
+    }
+    let stmt = state.map(|expr| {
+      let name = "this$state".to_owned();
+      self.state.push(name.clone());
+      self.state_bindings.push(name.clone());
+      entries.push(Entry::Field("state".to_owned(), Expr::Var(name.clone())));
+      Stmt::Let { name, expr }
+    });
+    self.lowerer.scope.push(("this".to_owned(), Expr::Object(entries)));
+    Ok(stmt)
   }
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
