@@ -1,5 +1,5 @@
 import { loadMarkedScript } from "./script.js";
-import { applyStyles, discard, loadEntry, patchIsland, release, resume, scan } from "./boot.js";
+import { addStyles, discard, loadEntry, patchIsland, pruneStyles, release, resume, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
@@ -914,9 +914,10 @@ async function refreshOnce(): Promise<void> {
   if (gen !== generation) return;
   // Before the swap, so the response's own stylesheets are in the document by
   // the time its markup is and the browser never paints it unstyled.
-  if (eager) await applyStyles(eager.styles);
+  if (eager) await addStyles(eager.styles);
   if (gen !== generation) return;
   if (!eager || !patch(eager, true, false)) return bail();
+  pruneStyles(eager.styles);
   announce();
   await drain(rows, eager.segments, gen);
 }
@@ -979,7 +980,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   const rows = feed.read();
   const eager = await eagerOf(rows).catch(() => null);
   if (gen !== generation) return;
-  if (eager) await applyStyles(eager.styles);
+  if (eager) await addStyles(eager.styles);
   if (gen !== generation) return;
   if (!eager) {
     window.location.assign(href);
@@ -997,6 +998,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
       holding = false;
     }
     if (!applied) return;
+    pruneStyles(eager.styles);
     if (push) record(false);
     currentPath = `${url.pathname}${url.search}`;
     let back: { x: number; y: number } | undefined;

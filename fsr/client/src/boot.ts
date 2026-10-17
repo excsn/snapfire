@@ -351,20 +351,18 @@ export function boot(): void {
   }
 }
 
-/** The mark a stylesheet the client owns carries, written by the server on a document and by `applyStyles` on a navigation. A link without it belongs to the document and is never taken away. */
+/** The mark a stylesheet the client owns carries, written by the server on a document and by `addStyles` on a navigation. A link without it belongs to the document and is never taken away. */
 const CSS_MARK = "data-sf-css";
 
-/** Brings the owned stylesheets to exactly `hrefs`: links already there stay, ones no longer named go and new ones are added after everything else so their rules still win. Resolves when the new ones have loaded or after `timeout` so a href that never answers cannot hold a navigation open. */
+/** Brings the owned stylesheets to exactly `hrefs`: `addStyles`, then `pruneStyles` once the new ones are in. */
 export function applyStyles(hrefs: string[], timeout = 2000): Promise<void> {
+  return addStyles(hrefs, timeout).then(() => pruneStyles(hrefs));
+}
+
+/** Adds each of `hrefs` the document does not hold yet, after everything else so their rules still win. Resolves when the new ones have loaded or after `timeout` so a href that never answers cannot hold a navigation open. */
+export function addStyles(hrefs: string[], timeout = 2000): Promise<void> {
   const head = document.head;
-  const wanted = new Set(hrefs.map((href) => new URL(href, location.href).href));
-  const held = new Map<string, HTMLLinkElement>();
-  for (const link of Array.from(head.querySelectorAll<HTMLLinkElement>(`link[${CSS_MARK}]`))) {
-    held.set(link.href, link);
-  }
-  for (const [href, link] of held) {
-    if (!wanted.has(href)) link.remove();
-  }
+  const held = new Set(Array.from(head.querySelectorAll<HTMLLinkElement>(`link[${CSS_MARK}]`)).map((link) => link.href));
   const pending: Promise<void>[] = [];
   for (const href of hrefs) {
     if (held.has(new URL(href, location.href).href)) continue;
@@ -383,4 +381,12 @@ export function applyStyles(hrefs: string[], timeout = 2000): Promise<void> {
     head.appendChild(link);
   }
   return pending.length === 0 ? Promise.resolve() : Promise.all(pending).then(() => undefined);
+}
+
+/** Takes away each owned stylesheet `hrefs` does not name. A navigation runs it after the swap, so the page leaving keeps its styles for as long as it shows, a view transition's snapshot of it included. */
+export function pruneStyles(hrefs: string[]): void {
+  const wanted = new Set(hrefs.map((href) => new URL(href, location.href).href));
+  for (const link of Array.from(document.head.querySelectorAll<HTMLLinkElement>(`link[${CSS_MARK}]`))) {
+    if (!wanted.has(link.href)) link.remove();
+  }
 }

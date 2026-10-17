@@ -283,15 +283,11 @@ export function boot() {
 }
 const CSS_MARK = "data-sf-css";
 export function applyStyles(hrefs, timeout = 2000) {
+    return addStyles(hrefs, timeout).then(()=>pruneStyles(hrefs));
+}
+export function addStyles(hrefs, timeout = 2000) {
     const head = document.head;
-    const wanted = new Set(hrefs.map((href)=>new URL(href, location.href).href));
-    const held = new Map();
-    for (const link of Array.from(head.querySelectorAll(`link[${CSS_MARK}]`))){
-        held.set(link.href, link);
-    }
-    for (const [href, link] of held){
-        if (!wanted.has(href)) link.remove();
-    }
+    const held = new Set(Array.from(head.querySelectorAll(`link[${CSS_MARK}]`)).map((link)=>link.href));
     const pending = [];
     for (const href of hrefs){
         if (held.has(new URL(href, location.href).href)) continue;
@@ -312,5 +308,11 @@ export function applyStyles(hrefs, timeout = 2000) {
         head.appendChild(link);
     }
     return pending.length === 0 ? Promise.resolve() : Promise.all(pending).then(()=>undefined);
+}
+export function pruneStyles(hrefs) {
+    const wanted = new Set(hrefs.map((href)=>new URL(href, location.href).href));
+    for (const link of Array.from(document.head.querySelectorAll(`link[${CSS_MARK}]`))){
+        if (!wanted.has(link.href)) link.remove();
+    }
 }
 //# sourceMappingURL=boot.js.map

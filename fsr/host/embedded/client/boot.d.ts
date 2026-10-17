@@ -54,5 +54,9 @@ export declare function scan(root: ParentNode): void;
 export declare function loadEntry(src: string): void;
 /** Scans the document and keeps scanning as streamed slots fill in. Calling it again scans again without listening twice. */
 export declare function boot(): void;
-/** Brings the owned stylesheets to exactly `hrefs`: links already there stay, ones no longer named go and new ones are added after everything else so their rules still win. Resolves when the new ones have loaded or after `timeout` so a href that never answers cannot hold a navigation open. */
+/** Brings the owned stylesheets to exactly `hrefs`: `addStyles`, then `pruneStyles` once the new ones are in. */
 export declare function applyStyles(hrefs: string[], timeout?: number): Promise<void>;
+/** Adds each of `hrefs` the document does not hold yet, after everything else so their rules still win. Resolves when the new ones have loaded or after `timeout` so a href that never answers cannot hold a navigation open. */
+export declare function addStyles(hrefs: string[], timeout?: number): Promise<void>;
+/** Takes away each owned stylesheet `hrefs` does not name. A navigation runs it after the swap, so the page leaving keeps its styles for as long as it shows, a view transition's snapshot of it included. */
+export declare function pruneStyles(hrefs: string[]): void;
