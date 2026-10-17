@@ -361,11 +361,11 @@ learn-tutorial-tic-tac-toe-6	client: src/App.js:8:42 a call to `Array`, which th
 learn-tutorial-tic-tac-toe-7	client: src/App.js:12:42 a call to `Array`, which the build cannot follow
 learn-tutorial-tic-tac-toe-8	client: src/App.js:13:42 a call to `Array`, which the build cannot follow
 learn-tutorial-tic-tac-toe-9	client: src/App.js:13:42 a call to `Array`, which the build cannot follow
-learn-typescript-1	refused: src/App.js: no exported `default`
-learn-typescript-2	refused: src/App.js: no exported `default`
-learn-typescript-3	refused: src/App.js: no exported `default`
-learn-typescript-4	refused: src/App.js: no exported `default`
-learn-typescript-5	refused: src/App.js: no exported `default`
+learn-typescript-1	lowered
+learn-typescript-2	lowered
+learn-typescript-3	lowered
+learn-typescript-4	lowered
+learn-typescript-5	lowered
 learn-understanding-your-ui-as-a-tree-1	client: src/InspirationGenerator.js:7:17 `quotes` comes from `./quotes`, which the build cannot follow
 learn-understanding-your-ui-as-a-tree-2	client: src/InspirationGenerator.js:8:23 `inspirations` comes from `./inspirations`, which the build cannot follow
 learn-updating-arrays-in-state-1	lowered
@@ -473,8 +473,8 @@ reference-react-dom-components-form-4	client: src/actions.js:2:3 an expression s
 reference-react-dom-components-form-6	client: src/App.js:15:9 `useActionState`
 reference-react-dom-components-form-7	client: src/App.js:14:19 `publish` is not bound here; an import the build cannot follow or a name from outside the body
 reference-react-dom-components-img-1	lowered
-reference-react-dom-components-index-1	refused: src/App.js: no exported `default`
-reference-react-dom-components-index-2	refused: src/App.js: no exported `default`
+reference-react-dom-components-index-1	lowered
+reference-react-dom-components-index-2	client: src/App.js:4:21 `console` is not bound here; an import the build cannot follow or a name from outside the body
 reference-react-dom-components-input-1	lowered
 reference-react-dom-components-input-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-dom-components-input-3	lowered
