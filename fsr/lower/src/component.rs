@@ -5838,7 +5838,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         return Ok(None);
       }
       Some(("useContext" | "use", _)) => self.lowerer.expr(init)?,
-      Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
+      Some((hook @ ("useDeferredValue" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
       Some((hook, _)) => return Err(self.lowerer.residue(pattern.span(), format!("`{hook}`"))),
       None => self.lowerer.expr(init)?,
     };
