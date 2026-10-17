@@ -117,10 +117,12 @@ fn markup_in_a_data_object_is_refused_by_name() {
 }
 
 #[test]
-fn markup_passed_as_a_prop_to_a_browser_component_is_refused_at_the_placement() {
+fn markup_passed_as_a_prop_to_a_browser_component_crosses_as_a_region_the_island_adopts() {
   let tip = "import { useState } from \"react\";\nexport function Tip({ content }) {\n  const [open, setOpen] = useState(false);\n  return <span onClick={() => setOpen(!open)}>{open ? content : null}</span>;\n}\n";
-  let out = html("island_prop", &[("src/Tip.tsx", tip), ("routes/page.tsx", "import { Tip } from \"@src/Tip\";\nexport default function Page() {\n  return <Tip content={<b>hi</b>} />;\n}\n")]);
-  assert!(out.as_ref().is_err_and(|e| e.contains("markup passed as `content` to `Tip`, which renders in the browser")), "{out:?}");
+  let out = rendered("island_prop", &[("src/Tip.tsx", tip), ("routes/page.tsx", "import { Tip } from \"@src/Tip\";\nexport default function Page() {\n  return <Tip content={<b>hi</b>} />;\n}\n")]).unwrap();
+  let island = &out.islands[0];
+  assert_eq!(island.props.get("content").map(|v| format!("{v:?}")), Some(format!("{:?}", Value::Map([("$sfm".to_owned(), Value::Int(0))].into_iter().collect()))), "the prop crosses as the number of its region");
+  assert!(island.body.html.ends_with("<template data-sf-m=\"0\"><b>hi</b></template>"), "the closed tip's content is held for the browser: {}", island.body.html);
 }
 
 #[test]

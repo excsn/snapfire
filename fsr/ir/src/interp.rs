@@ -253,6 +253,7 @@ impl Interpreter {
       slot_owner: None,
       scoped: None,
       made: Some(Vec::new()),
+      marks: Vec::new(),
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -380,6 +381,8 @@ pub(crate) struct Env {
   pub(crate) scoped: Option<ScopedStyle>,
   /// The markup values this render made, which a value made here names by index. `None` in a copy for parallel evaluation, whose table would be lost.
   pub(crate) made: Option<Vec<crate::render::Made>>,
+  /// The markup values among the props of the island being rendered, by made index in the order the browser numbers them: each renders in a region the browser adopts.
+  pub(crate) marks: Vec<usize>,
 }
 
 /// One step of the path a key is taken under.
@@ -529,6 +532,7 @@ impl Env {
       slot_owner: None,
       scoped: None,
       made: Some(Vec::new()),
+      marks: Vec::new(),
     }
   }
 
@@ -679,6 +683,7 @@ impl Env {
       slot_owner: None,
       scoped: None,
       made: None,
+      marks: Vec::new(),
     }
   }
 

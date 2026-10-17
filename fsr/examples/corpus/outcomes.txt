@@ -592,9 +592,9 @@ reference-react-useid-2	client: src/App.js:4:9 `useId`, whose value React derive
 reference-react-useid-3	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useimperativehandle-1	lowered
 reference-react-useimperativehandle-2	lowered
-reference-react-uselayouteffect-1	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:26:10 a call to `createPortal`, which the build cannot follow
-reference-react-uselayouteffect-2	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
-reference-react-uselayouteffect-3	client: src/App.js:6:7 markup passed as `tooltipContent` to `ButtonWithTooltip`, which renders in the browser and takes markup only as its children | src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
+reference-react-uselayouteffect-1	client: src/Tooltip.js:26:10 a call to `createPortal`, which the build cannot follow
+reference-react-uselayouteffect-2	client: src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
+reference-react-uselayouteffect-3	client: src/Tooltip.js:25:10 a call to `createPortal`, which the build cannot follow
 reference-react-usememo-1	client: src/utils.js:7:18 `Math.random`
 reference-react-usememo-2	client: src/utils.js:7:18 `Math.random`
 reference-react-usememo-3	client: src/utils.js:7:18 `Math.random`

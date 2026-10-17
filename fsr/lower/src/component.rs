@@ -1146,29 +1146,14 @@ impl ComponentSet {
       }
       modules.insert(placed, module);
     }
-    // An island takes markup only as its children, in a region of its own,
-    // so a placement passing one markup as a prop leaves this component to
-    // the browser.
     // A placement names its component `<this file>#<tag>` until the tree is
     // rewritten to the modules `modules` resolved.
     let renders_in_browser = |placed: &str| {
       let module = modules.get(placed).map(String::as_str).unwrap_or(placed);
       self.components.iter().find(|(m, _)| m == module).is_none_or(|(_, c)| c.owner.hydrates())
     };
-    let mut into_browser = Vec::new();
-    fills::into_browser(&component.render, &renders_in_browser, &mut into_browser);
-    if let Some((placed, prop)) = into_browser.first() {
-      let tag = placed.rsplit_once('#').map(|(_, tag)| tag.to_owned()).unwrap_or_else(|| placed.clone());
-      let (line, column) = refs_positions.iter().find(|(name, _)| *name == tag).map(|(_, pos)| *pos).unwrap_or((1, 1));
-      return Err(LowerError::Residue(Residue {
-        file: file.to_owned(),
-        line,
-        column,
-        message: format!("markup passed as `{prop}` to `{tag}`, which renders in the browser and takes markup only as its children"),
-        hint: Some(format!("pass it between `<{tag}>` and `</{tag}>` or write it inside `{tag}`")),
-        via: Vec::new(),
-      }));
-    }
+    let mut component = component;
+    fills::unfill(&mut component.render, &renders_in_browser);
     let mut heads: Vec<HeadRow> = own_heads;
     for placed in modules.values() {
       for row in self.heads.get(placed).cloned().unwrap_or_default() {
@@ -7673,10 +7658,34 @@ mod fills {
     }
   }
 
-  /// The props of placements in `t` that pass markup to a module `renders_in_browser` holds.
-  pub(super) fn into_browser(t: &Tmpl, renders_in_browser: &dyn Fn(&str) -> bool, out: &mut Vec<(String, String)>) {
-    let mut filled = HashSet::new();
-    collect(t, &mut filled);
-    out.extend(filled.into_iter().filter(|(module, _)| renders_in_browser(module)));
+  /// Each placement in `t` of a module `renders_in_browser` holds with the markup it fills a prop with given back as the prop, a markup value the island receives as a region of its own.
+  pub(super) fn unfill(t: &mut Tmpl, renders_in_browser: &dyn Fn(&str) -> bool) {
+    match t {
+      Tmpl::Component { module, props, children, .. } => {
+        if renders_in_browser(module) {
+          let mut kept = Vec::with_capacity(children.len());
+          for child in std::mem::take(children) {
+            match child {
+              Tmpl::Let { name, then, .. } if name.starts_with(SLOT_CONTENT_PREFIX) && name != format!("{SLOT_CONTENT_PREFIX}default") => {
+                props.push(Entry::Field(name[SLOT_CONTENT_PREFIX.len()..].to_owned(), Expr::Markup(std::sync::Arc::new(*then))));
+              }
+              other => kept.push(other),
+            }
+          }
+          *children = kept;
+        }
+        children.iter_mut().for_each(|c| unfill(c, renders_in_browser));
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| unfill(c, renders_in_browser)),
+      Tmpl::If { then, r#else, .. } => {
+        unfill(then, renders_in_browser);
+        if let Some(e) = r#else {
+          unfill(e, renders_in_browser);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => unfill(body, renders_in_browser),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
   }
+
 }

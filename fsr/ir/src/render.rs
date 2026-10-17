@@ -332,6 +332,50 @@ impl Env {
   }
 }
 
+/// The key a marker in an island's props carries in place of a markup value: the number of the region the browser adopts for it.
+pub const MARKUP_PROP: &str = "$sfm";
+
+/// The attribute of the regions an island's markup props render in, `<template>` after the island's markup and `<sf-s>` where its own render places one.
+pub const MARKUP_ATTR: &str = "data-sf-m";
+
+/// `value` with each markup value in it a marker numbering the region it renders in, the made index of each pushed to `marks`.
+fn marked(value: &Value, marks: &mut Vec<usize>) -> Value {
+  if let Some(index) = made_index(value) {
+    let k = marks.iter().position(|&m| m == index).unwrap_or_else(|| {
+      marks.push(index);
+      marks.len() - 1
+    });
+    let mut marker = ValueMap::default();
+    marker.insert(MARKUP_PROP.to_owned(), Value::Int(k as i128));
+    return Value::Map(marker);
+  }
+  match value {
+    Value::Seq(items) if items.iter().any(holds_made) => Value::seq(items.iter().map(|item| marked(item, marks)).collect::<Vec<Value>>()),
+    Value::Map(map) if map.values().any(holds_made) => Value::Map(map.iter().map(|(k, v)| (k.clone(), marked(v, marks))).collect()),
+    other => other.clone(),
+  }
+}
+
+/// Each markup value `marks` names in a `<template>` of its own, which the browser adopts as the prop it stands for.
+fn write_marked(env: &mut Env, marks: &[usize], library: &Components, out: &mut Out) -> Result<(), Fail> {
+  let outer = std::mem::take(&mut env.marks);
+  let mut result = Ok(());
+  for (k, &index) in marks.iter().enumerate() {
+    out.markup(&format!("<template {MARKUP_ATTR}=\"{k}\">"));
+    result = render_value(env, &made_value(index), library, out);
+    out.close_tag("template");
+    if result.is_err() {
+      break;
+    }
+  }
+  env.marks = outer;
+  result
+}
+
+fn made_value(index: usize) -> Value {
+  Value::Variant { tag: MARKUP_VALUE.to_owned(), payload: Some(Box::new(Value::Int(index as i128))) }
+}
+
 fn made_index(value: &Value) -> Option<usize> {
   match value {
     Value::Variant { tag, payload: Some(payload) } if tag == MARKUP_VALUE => match &**payload {
@@ -358,7 +402,15 @@ fn render_value(env: &mut Env, value: &Value, library: &Components, out: &mut Ou
       return Err(Fail::internal("a markup value from another render"));
     };
     let slot = Slot { children: std::slice::from_ref(&*made.tmpl), scope: Rc::new(made.scope), keys: made.keys, island: false, placed: false, framework: made.framework, owner_path: made.owner_path, scoped: made.scoped };
-    return render_slot_content(env, slot, library, &mut Vec::new(), out);
+    let Some(k) = env.marks.iter().position(|&m| m == index) else {
+      return render_slot_content(env, slot, library, &mut Vec::new(), out);
+    };
+    let outer = std::mem::take(&mut env.marks);
+    out.markup(&format!("<sf-s {MARKUP_ATTR}=\"{k}\">"));
+    let result = render_slot_content(env, slot, library, &mut Vec::new(), out);
+    out.close_tag("sf-s");
+    env.marks = outer;
+    return result;
   }
   match value {
     Value::Seq(items) if items.iter().any(holds_made) => {
@@ -1355,9 +1407,14 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
 fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], when: &Option<String>, mode: &Option<String>, id: u32, define: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let key = env.hoists.as_ref().map(|h| h.island_key(id)).unwrap_or_default();
   let map = self::props(env, props)?;
-  if let Some((name, _)) = map.iter().find(|(_, value)| holds_made(value)) {
-    return Err(Fail::internal(format!("markup passed as `{name}` to `{module}`, which renders in the browser and takes markup only as its children")));
-  }
+  let mut marks = Vec::new();
+  let wire = match map.values().any(holds_made) {
+    true => match marked(&Value::Map(map.clone()), &mut marks) {
+      Value::Map(wire) => wire,
+      _ => unreachable!("a map marks to a map"),
+    },
+    false => map.clone(),
+  };
   if define {
     let mut inner = Out::default();
     for child in children {
@@ -1379,9 +1436,10 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_OPEN, "sf-s")?;
     }
+    write_marked(env, &marks, library, &mut inner)?;
     let index = out.islands.len();
     let awaits: Vec<String> = env.island_reads.get(module).into_iter().flatten().filter(|key| env.pending.contains(*key)).cloned().collect();
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
@@ -1394,11 +1452,12 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
+    write_marked(env, &marks, library, &mut held)?;
     let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources((*cached_store_keys(env, component, library)).clone(), &env.derives) } else { Vec::new() };
     let index = out.islands.len();
     let hoisted = held_chunks(env, module, component, &map, library, slots);
     let body = Rendered { html: held.html, islands: held.islands, hoisted, whole: true };
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   }
@@ -1411,7 +1470,9 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   let outer_state = env.state.take();
   let outer_framework = std::mem::replace(&mut env.in_framework, true);
   let outer_unrendered = std::mem::replace(&mut env.unrendered, false);
+  let outer_marks = std::mem::replace(&mut env.marks, marks.clone());
   let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
+  env.marks = outer_marks;
   env.in_framework = outer_framework;
   let unrendered = std::mem::replace(&mut env.unrendered, outer_unrendered);
   let held = result.is_ok() && !children.is_empty() && component.owner.hydrates() && slots.last().is_some_and(|slot| slot.island && !slot.placed);
@@ -1440,10 +1501,12 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
+    write_marked(env, &marks, library, &mut held)?;
     let body = Rendered { html: held.html, islands: held.islands, hoisted, whole: true };
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, awaits: Vec::new(), key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, awaits: Vec::new(), key, body });
   } else {
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: map, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
+    write_marked(env, &marks, library, &mut inner)?;
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
   }
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
   Ok(())
@@ -2402,7 +2465,7 @@ mod tests {
   }
 
   #[test]
-  fn a_markup_value_passed_to_a_component_the_browser_renders_is_refused() {
+  fn a_markup_value_passed_to_a_component_the_browser_renders_is_a_region_the_browser_adopts() {
     let component = Component {
       body: vec![Stmt::Let { name: "m".to_owned(), expr: Expr::Markup(Arc::new(Tmpl::Text("hi".to_owned()))) }],
       render: Tmpl::Island { module: "src/ui/Toggle.tsx#Toggle".to_owned(), props: vec![Entry::Field("label".to_owned(), Expr::Var("m".to_owned()))], children: Vec::new(), when: None, mode: None, id: 0, define: false },
@@ -2413,8 +2476,12 @@ mod tests {
       shadow: None,
       scope: None,
     };
-    let failed = Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap_err();
-    assert!(failed.message.contains("markup passed as `label`"), "{failed:?}");
+    let rendered = Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap();
+    let island = &rendered.islands[0];
+    let mut marker = ValueMap::default();
+    marker.insert(MARKUP_PROP.to_owned(), Value::Int(0));
+    assert_eq!(island.props.get("label"), Some(&Value::Map(marker)), "the prop crosses as the number of its region");
+    assert_eq!(island.body.html, "<template data-sf-m=\"0\">hi</template>");
   }
 
   #[test]

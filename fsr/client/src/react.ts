@@ -99,6 +99,52 @@ function patchChildren(el: Element, fresh: string | null): void {
   scan(region);
 }
 
+/** The key of a marker the server puts in an island's props for a markup value, and the attribute of the region its markup is in. */
+const MARKUP_PROP = "$sfm";
+const MARKUP_ATTR = "data-sf-m";
+
+/** The markup each markup prop of a root stands for, by region number, taken from its `<template data-sf-m>` the first time the root mounts. */
+const markupProps = new WeakMap<Element, Map<number, ReactElement>>();
+
+/** A markup prop: an `<sf-s data-sf-m>` holding the markup the server rendered for it, set once and never reconciled, scanned for the islands inside it. */
+function IslandMarkup({ html, n }: { html: string; n: number }): ReactElement {
+  const region = useRef<Element | null>(null);
+  useEffect(() => {
+    if (region.current) scan(region.current);
+  }, []);
+  return createElement("sf-s", { ref: region, [MARKUP_ATTR]: String(n), dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
+}
+
+function markupFor(el: Element, n: number): ReactElement {
+  let held = markupProps.get(el);
+  if (!held) markupProps.set(el, (held = new Map()));
+  const template = Array.from(el.querySelectorAll(`template[${MARKUP_ATTR}="${n}"]`)).find((t) => t.parentElement?.closest("sf-i") === el);
+  if (template) {
+    held.set(n, createElement(IslandMarkup, { key: `m${n}`, html: template.innerHTML, n }));
+    template.remove();
+  }
+  return held.get(n) ?? createElement(IslandMarkup, { key: `m${n}`, html: "", n });
+}
+
+function isMarker(value: unknown): value is { [MARKUP_PROP]: number } {
+  return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 1 && typeof (value as { [MARKUP_PROP]?: unknown })[MARKUP_PROP] === "number";
+}
+
+function holdsMarker(value: unknown): boolean {
+  if (isMarker(value)) return true;
+  if (Array.isArray(value)) return value.some(holdsMarker);
+  if (typeof value === "object" && value !== null && !isElement(value)) return Object.values(value).some(holdsMarker);
+  return false;
+}
+
+/** `value` with each marker the server put in place of a markup value made the element that adopts its region. */
+function withMarkup(value: unknown, el: Element): unknown {
+  if (isMarker(value)) return markupFor(el, value[MARKUP_PROP]);
+  if (!holdsMarker(value)) return value;
+  if (Array.isArray(value)) return value.map((item) => withMarkup(item, el));
+  return Object.fromEntries(Object.entries(value as object).map(([k, v]) => [k, withMarkup(v, el)]));
+}
+
 /** A layout's named slots as props, one adopted region per `<sf-s data-sf-name>`, created once per root. */
 const slotProps = new WeakMap<Element, { [name: string]: ReactElement }>();
 
@@ -531,7 +577,7 @@ function withRegions(el: Element, element: ReactElement, patched: boolean, sourc
 
 function islandElement(component: unknown, props: object, el: Element, patched: boolean, sources?: Map<string, RegionSource> | null): ReactElement {
   const [own, hoisted, rendered] = splitHoisted(props);
-  const element = createElement(component as never, { ...own, ...slotPropsFor(el) } as never, childrenFor(el));
+  const element = createElement(component as never, { ...(withMarkup(own, el) as object), ...slotPropsFor(el) } as never, childrenFor(el));
   const under = createElement(RenderedStoreContext.Provider, { value: rendered }, withHoisted(hoisted, element));
   return createElement(Mounting, { el }, withRegions(el, under, patched, sources));
 }

@@ -20,11 +20,11 @@ counted_for	lowered
 element_prop	lowered
 falsy_children	lowered
 filter_boolean	lowered
-flat	refused: routes/page.tsx:3:16: `.flat()`, which is not a builtin
+flat	client: routes/page.island0.tsx:4:5 `.flat()`, which is not a builtin
 helper_module_markup	lowered
 helper_returns_array	lowered
-is_valid_element	refused: routes/page.tsx:6:15: markup passed as `value` to `Label`, which renders in the browser and takes markup only as its children
-island_markup_prop	client: routes/page.island0.tsx:9:5 markup passed as `label` to `Toggle`, which renders in the browser and takes markup only as its children
+is_valid_element	client: routes/page.tsx:3:14 a call to `isValidElement`, which the build cannot follow
+island_markup_prop	lowered
 join_with_separator	client: routes/page.island0.tsx:3:3 a call for its effect, which a straight-line body cannot hold
 keyed_fragment_inline	lowered
 let_branches	lowered

@@ -90,6 +90,59 @@ function patchChildren(el, fresh) {
     morph(region, fresh);
     scan(region);
 }
+const MARKUP_PROP = "$sfm";
+const MARKUP_ATTR = "data-sf-m";
+const markupProps = new WeakMap();
+function IslandMarkup({ html, n }) {
+    const region = useRef(null);
+    useEffect(()=>{
+        if (region.current) scan(region.current);
+    }, []);
+    return createElement("sf-s", {
+        ref: region,
+        [MARKUP_ATTR]: String(n),
+        dangerouslySetInnerHTML: {
+            __html: html
+        },
+        suppressHydrationWarning: true
+    });
+}
+function markupFor(el, n) {
+    let held = markupProps.get(el);
+    if (!held) markupProps.set(el, held = new Map());
+    const template = Array.from(el.querySelectorAll(`template[${MARKUP_ATTR}="${n}"]`)).find((t)=>t.parentElement?.closest("sf-i") === el);
+    if (template) {
+        held.set(n, createElement(IslandMarkup, {
+            key: `m${n}`,
+            html: template.innerHTML,
+            n
+        }));
+        template.remove();
+    }
+    return held.get(n) ?? createElement(IslandMarkup, {
+        key: `m${n}`,
+        html: "",
+        n
+    });
+}
+function isMarker(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 1 && typeof value[MARKUP_PROP] === "number";
+}
+function holdsMarker(value) {
+    if (isMarker(value)) return true;
+    if (Array.isArray(value)) return value.some(holdsMarker);
+    if (typeof value === "object" && value !== null && !isElement(value)) return Object.values(value).some(holdsMarker);
+    return false;
+}
+function withMarkup(value, el) {
+    if (isMarker(value)) return markupFor(el, value[MARKUP_PROP]);
+    if (!holdsMarker(value)) return value;
+    if (Array.isArray(value)) return value.map((item)=>withMarkup(item, el));
+    return Object.fromEntries(Object.entries(value).map(([k, v])=>[
+            k,
+            withMarkup(v, el)
+        ]));
+}
 const slotProps = new WeakMap();
 function slotPropsFor(el) {
     const held = slotProps.get(el);
@@ -462,7 +515,7 @@ function withRegions(el, element, patched, sources) {
 function islandElement(component, props, el, patched, sources) {
     const [own, hoisted, rendered] = splitHoisted(props);
     const element = createElement(component, {
-        ...own,
+        ...withMarkup(own, el),
         ...slotPropsFor(el)
     }, childrenFor(el));
     const under = createElement(RenderedStoreContext.Provider, {
