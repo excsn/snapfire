@@ -2664,6 +2664,7 @@ fn prop_name(name: &js::PropName) -> Option<String> {
   match name {
     js::PropName::Ident(id) => Some(id.sym.to_string()),
     js::PropName::Str(s) => Some(s.value.to_atom_lossy().to_string()),
+    js::PropName::Num(n) => Some(snapfire_fsr_ir::interp::number_key(n.value)),
     _ => None,
   }
 }

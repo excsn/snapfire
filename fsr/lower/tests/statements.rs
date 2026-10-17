@@ -89,3 +89,9 @@ fn a_callback_a_custom_hook_only_hands_to_the_browser_lowers_the_hook() {
   assert!(result.is_ok(), "{result:?}");
   assert!(set.browser_only.is_empty(), "{:?}", set.browser_only);
 }
+
+#[test]
+fn a_numeric_property_name_is_read_back_by_number_or_by_string() {
+  let page = "const plan = {\n  0: { title: \"Root\", childIds: [1, 2] },\n  1: { title: \"Earth\", childIds: [] },\n  2: { title: \"Moon\", childIds: [] },\n  1.5: { title: \"half\" },\n};\nexport default function Page() {\n  const root = plan[0];\n  return <ul>{root.childIds.map((id) => <li key={id}>{plan[id].title}</li>)}<li>{plan[\"2\"].title}</li><li>{plan[1.5].title}</li></ul>;\n}\n";
+  assert_eq!(html("numeric", page).as_deref(), Ok("<ul><li>Earth</li><li>Moon</li><li>Moon</li><li>half</li></ul>"));
+}

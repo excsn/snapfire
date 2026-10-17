@@ -1654,6 +1654,7 @@ fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
     (Value::Seq(items), Value::UInt(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Null)),
     (Value::Seq(items), Value::F64(f)) if f.fract() == 0.0 && *f >= 0.0 => Ok(items.get(*f as usize).cloned().unwrap_or(Value::Null)),
     (Value::Null, _) => Ok(Value::Null),
+    (Value::Map(map), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => Ok(map.get(stringify(key)?.as_str()).cloned().unwrap_or(Value::Null)),
     (Value::Map(_), other) => Err(type_error("indexing an object", "a string key", other)),
     (Value::Seq(_), other) => Err(type_error("indexing an array", "an integer", other)),
     (other, _) => Err(type_error("indexing", "an object or an array", other)),
@@ -2610,6 +2611,11 @@ pub(crate) fn scalar_str(value: &Value) -> Result<std::borrow::Cow<'_, str>, Fai
     Value::F32(f) if *f == 0.0 => Cow::Borrowed("0"),
     other => Cow::Owned(stringify(other)?),
   })
+}
+
+/// The key JavaScript makes of a number written as a property name, `0` for `0` and `1.5` for `1.5`.
+pub fn number_key(n: f64) -> String {
+  stringify(&Value::F64(n)).expect("a number is a scalar")
 }
 
 pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {

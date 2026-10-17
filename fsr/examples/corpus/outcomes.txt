@@ -15,8 +15,8 @@ learn-adding-interactivity-5	lowered
 learn-adding-interactivity-6	lowered
 learn-adding-interactivity-8	lowered
 learn-choosing-the-state-structure-1	lowered
-learn-choosing-the-state-structure-10	client: src/places.js:2:3 a numeric property name
-learn-choosing-the-state-structure-11	client: src/places.js:2:3 a numeric property name
+learn-choosing-the-state-structure-10	lowered
+learn-choosing-the-state-structure-11	lowered
 learn-choosing-the-state-structure-13	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
 learn-choosing-the-state-structure-14	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
 learn-choosing-the-state-structure-15	client: src/App.js:28:34 `.toLocaleTimeString()`, which reads the viewer's time zone
@@ -69,9 +69,9 @@ learn-escape-hatches-9	lowered
 learn-extracting-state-logic-into-a-reducer-1	lowered
 learn-extracting-state-logic-into-a-reducer-10	lowered
 learn-extracting-state-logic-into-a-reducer-11	lowered
-learn-extracting-state-logic-into-a-reducer-12	client: src/messengerReducer.js:4:5 a numeric property name
-learn-extracting-state-logic-into-a-reducer-13	client: src/messengerReducer.js:4:5 a numeric property name
-learn-extracting-state-logic-into-a-reducer-14	client: src/messengerReducer.js:4:5 a numeric property name
+learn-extracting-state-logic-into-a-reducer-12	lowered
+learn-extracting-state-logic-into-a-reducer-13	lowered
+learn-extracting-state-logic-into-a-reducer-14	lowered
 learn-extracting-state-logic-into-a-reducer-3	lowered
 learn-extracting-state-logic-into-a-reducer-4	lowered
 learn-extracting-state-logic-into-a-reducer-6	lowered

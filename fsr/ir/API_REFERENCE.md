@@ -389,7 +389,7 @@ The frameworks an application vendors, each at the major whose server markup the
 * `Arith` on two `Int` stays `Int`; integer overflow and division by zero are `Internal`. `Add` with a `Str` on either side concatenates the other operand as `String(x)` writes it. Any other pair of numbers, strings, booleans and `Null` is read through JavaScript's `ToNumber` and yields `F64`: `Null` is 0, a boolean 0 or 1 and a string its numeric literal, empty as 0 and anything else as NaN. An array or an object operand is `Internal`.
 * `Compare` orders two numbers of any representation by value, two `Str` by code unit and two `Bool` as 0 and 1. `Eq` and `Ne` between values of different kinds are false and true, as `===` and `!==` are. An ordering between other scalars reads both through `ToNumber`, so `"2" < 10` is true and anything against NaN is false. A comparison involving an array or an object is `Internal`.
 * `Template` concatenates the string form of each part, per `Str`.
-* `Field` on a non-map is `Value::Null`. `Index` accepts a `Map` with a `Str` key or a `Seq` with an `Int`, `UInt` or integral `F64` index, out of range reads `Value::Null`; `Index` on `Null` is `Null`; other targets are `Internal`.
+* `Field` on a non-map is `Value::Null`. `Index` accepts a `Map` with a `Str` key or a number, read under the string JavaScript makes of it (`interp::number_key(f64) -> String`), or a `Seq` with an `Int`, `UInt` or integral `F64` index, out of range reads `Value::Null`; `Index` on `Null` is `Null`; other targets are `Internal`.
 
 ### Conversions
 
