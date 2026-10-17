@@ -5,8 +5,8 @@ The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
 | Lowered whole | 532 | the server renders every component on the page |
-| Client side rendered by design | 63 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock, zone or device, a promise the render awaits, a portal |
 | Client side rendered, lowerable | 39 | a component renders in the browser because the build cannot read it yet or waits on a decision |
+| Client side rendered by design | 63 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock, zone or device, a promise the render awaits, a portal |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
 | Total | 641 | |
@@ -19,7 +19,21 @@ The build stops a module at its first cause and a component that fails never low
 
 ## What sends a component to the browser
 
-An example can name more than one cause, so the rows add up to more than the counts above. An example with any cause from the first table is counted there.
+An example can name more than one cause, so the rows add up to more than the counts above. An example with any cause in the by design table is counted there.
+
+### Lowerable
+
+| Cause | Examples | What it takes |
+| --- | --- | --- |
+| A class component | 13 | Lowering a stateless `render()` |
+| `useId` | 7 | A decision on matching the id React derives from the tree at hydration |
+| A locale named where it formats, `new Intl.NumberFormat('en-US')` kept as a value among them | 7 | A decision: formatting under a named locale is refused on purpose |
+| A function value into a component that renders in the browser: a render prop, a method in an object literal or an imported function passed as a prop | 7 | A design for a function crossing into a hydrating component's props |
+| `++` on a module-level counter | 3 | A decision on module state evaluated at load |
+| Setting state during render, `reference-react-usestate-14` | 1 | A decision on re-render semantics |
+| `Children.forEach`, `reference-react-children-3` | 1 | The IR walking a placement's children one by one |
+| `createElement`, `reference-react-createelement-1` | 1 | A rewrite to JSX the browser source rewrite can follow, since the rewritten nodes' spans would sit inside the call |
+| `.get()` on `useFormStatus`'s `data`, `.entries()` on typed props | 2 | `FormData` and typed values across props |
 
 ### By design
 
@@ -36,20 +50,6 @@ An example can name more than one cause, so the rows add up to more than the cou
 | The current time on a render path, read inline or through a helper | 3 | Nondeterministic |
 | A write to `foo` in an error boundary demo | 2 | The component throws on purpose |
 | `window` | 1 | The viewer's device |
-
-### Lowerable
-
-| Cause | Examples | What it takes |
-| --- | --- | --- |
-| A class component | 13 | Lowering a stateless `render()` |
-| `useId` | 7 | A decision on matching the id React derives from the tree at hydration |
-| A locale named where it formats, `new Intl.NumberFormat('en-US')` kept as a value among them | 7 | A decision: formatting under a named locale is refused on purpose |
-| A function value into a component that renders in the browser: a render prop, a method in an object literal or an imported function passed as a prop | 7 | A design for a function crossing into a hydrating component's props |
-| `++` on a module-level counter | 3 | A decision on module state evaluated at load |
-| Setting state during render, `reference-react-usestate-14` | 1 | A decision on re-render semantics |
-| `Children.forEach`, `reference-react-children-3` | 1 | The IR walking a placement's children one by one |
-| `createElement`, `reference-react-createelement-1` | 1 | A rewrite to JSX the browser source rewrite can follow, since the rewritten nodes' spans would sit inside the call |
-| `.get()` on `useFormStatus`'s `data`, `.entries()` on typed props | 2 | `FormData` and typed values across props |
 
 ## What is not a working example
 
