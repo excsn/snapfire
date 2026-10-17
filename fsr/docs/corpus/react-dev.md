@@ -1,11 +1,11 @@
 # react.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `5a7fb145`.
+The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `cb0aa6b8`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 568 | the server renders every component on the page |
-| Client side rendered, lowerable | 7 | a component renders in the browser because it uses something the build does not render on the server yet |
+| Lowered whole | 574 | the server renders every component on the page |
+| Client side rendered, lowerable | 1 | a component renders in the browser because it uses something the build does not render on the server yet |
 | Client side rendered by design | 59 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock choosing markup, a promise the render awaits, a portal |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
@@ -25,7 +25,6 @@ An example can name more than one cause, so the rows add up to more than the cou
 
 | Cause | Examples | What the server does not render yet |
 | --- | --- | --- |
-| `useId` | 6 | An id that matches the one React derives from the tree at hydration |
 | Setting state during render, `reference-react-usestate-14` | 1 | Rendering again after state is set during render |
 
 ### By design
