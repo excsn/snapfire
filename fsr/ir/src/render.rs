@@ -356,11 +356,11 @@ fn marked(value: &Value, marks: &mut Vec<usize>) -> Value {
   }
 }
 
-/// Each markup value `marks` names in a `<template>` of its own, which the browser adopts as the prop it stands for.
-fn write_marked(env: &mut Env, marks: &[usize], library: &Components, out: &mut Out) -> Result<(), Fail> {
+/// Each markup value `marks` names that the island's render did not place, in a `<template>` of its own the browser adopts as the prop it stands for.
+fn write_marked(env: &mut Env, marks: &[usize], placed: &[usize], library: &Components, out: &mut Out) -> Result<(), Fail> {
   let outer = std::mem::take(&mut env.marks);
   let mut result = Ok(());
-  for (k, &index) in marks.iter().enumerate() {
+  for (k, &index) in marks.iter().enumerate().filter(|(_, index)| !placed.contains(index)) {
     out.markup(&format!("<template {MARKUP_ATTR}=\"{k}\">"));
     result = render_value(env, &made_value(index), library, out);
     out.close_tag("template");
@@ -406,6 +406,9 @@ fn render_value(env: &mut Env, value: &Value, library: &Components, out: &mut Ou
       return render_slot_content(env, slot, library, &mut Vec::new(), out);
     };
     let outer = std::mem::take(&mut env.marks);
+    if !env.placed.contains(&index) {
+      env.placed.push(index);
+    }
     out.markup(&format!("<sf-s {MARKUP_ATTR}=\"{k}\">"));
     let result = render_slot_content(env, slot, library, &mut Vec::new(), out);
     out.close_tag("sf-s");
@@ -1114,7 +1117,9 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
         let mut scratch = Out::default();
         let depth = env.scope.len();
         let stamp = std::mem::take(&mut env.stamp);
+        let placed = env.placed.len();
         let result = render(env, tmpl, library, slots, &mut scratch);
+        env.placed.truncate(placed);
         env.stamp = stamp;
         env.scope.truncate(depth);
         result
@@ -1438,7 +1443,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut inner, CHILDREN_OPEN, "sf-s")?;
     }
-    write_marked(env, &marks, library, &mut inner)?;
+    write_marked(env, &marks, &[], library, &mut inner)?;
     let index = out.islands.len();
     let awaits: Vec<String> = env.island_reads.get(module).into_iter().flatten().filter(|key| env.pending.contains(*key)).cloned().collect();
     out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
@@ -1454,7 +1459,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
-    write_marked(env, &marks, library, &mut held)?;
+    write_marked(env, &marks, &[], library, &mut held)?;
     let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources((*cached_store_keys(env, component, library)).clone(), &env.derives) } else { Vec::new() };
     let index = out.islands.len();
     let hoisted = held_chunks(env, module, component, &map, library, slots);
@@ -1473,8 +1478,10 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
   let outer_framework = std::mem::replace(&mut env.in_framework, true);
   let outer_unrendered = std::mem::replace(&mut env.unrendered, false);
   let outer_marks = std::mem::replace(&mut env.marks, marks.clone());
+  let outer_placed = std::mem::take(&mut env.placed);
   let result = call(env, module, |env| render_component(env, component, library, slots, &mut inner));
   env.marks = outer_marks;
+  let placed = std::mem::replace(&mut env.placed, outer_placed);
   env.in_framework = outer_framework;
   let unrendered = std::mem::replace(&mut env.unrendered, outer_unrendered);
   let held = result.is_ok() && !children.is_empty() && component.owner.hydrates() && slots.last().is_some_and(|slot| slot.island && !slot.placed);
@@ -1503,11 +1510,11 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     if !children.is_empty() {
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
-    write_marked(env, &marks, library, &mut held)?;
+    write_marked(env, &marks, &[], library, &mut held)?;
     let body = Rendered { html: held.html, islands: held.islands, hoisted, whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, awaits: Vec::new(), key, body });
   } else {
-    write_marked(env, &marks, library, &mut inner)?;
+    write_marked(env, &marks, &placed, library, &mut inner)?;
     out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
   }
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));

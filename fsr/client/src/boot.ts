@@ -42,6 +42,8 @@ interface Mounted {
   regions: unknown;
   /** The markup the payload behind the last patch gave the island's children region, null when it gave none. */
   children: string | null;
+  /** The markup the payload behind the last patch gave the island's markup prop regions, by region number. */
+  markup: { [n: string]: string } | null;
 }
 
 const mounted = new WeakMap<Element, Mounted>();
@@ -97,7 +99,7 @@ function awaitingAnAncestor(el: Element): boolean {
 
 function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {
   const hydrate = serverRendered(el);
-  const island: Mounted = { entry, moduleId, handle: Promise.resolve(undefined), root: undefined, gone: false, props, regions: null, children: null };
+  const island: Mounted = { entry, moduleId, handle: Promise.resolve(undefined), root: undefined, gone: false, props, regions: null, children: null, markup: null };
   island.handle = entry
     .loader()
     .then((mod) => (island.gone ? undefined : entry.mount(mod, props, el, hydrate)))
@@ -163,13 +165,13 @@ export function resume(root: ParentNode): Promise<void> {
 }
 
 /** The props an island last took, the regions the last payload described inside it and the markup it gave the island's children, for an adapter placing its nested islands and its children. Null when nothing is mounted at `el`. */
-export function islandState(el: Element): { props: Props; regions: unknown; children: string | null } | null {
+export function islandState(el: Element): { props: Props; regions: unknown; children: string | null; markup: { [n: string]: string } | null } | null {
   const island = mounted.get(el);
-  return island ? { props: island.props, regions: island.regions, children: island.children } : null;
+  return island ? { props: island.props, regions: island.regions, children: island.children, markup: island.markup } : null;
 }
 
 /** Re-renders the island mounted at `el` with `props`, in place, keeping its DOM and its state. `regions` is what the payload behind this patch says about the islands inside it and `children` the markup it gives the island's children region, both read back by the adapter through `islandState`. `encoded` is `props` as the server encoded them, which a server island hands back in place of encoding `props` again. False when nothing is mounted there or the island's entry has no patcher. */
-export async function patchIsland(el: Element, props: Props, regions: unknown = null, children: string | null = null, encoded?: unknown): Promise<boolean> {
+export async function patchIsland(el: Element, props: Props, regions: unknown = null, children: string | null = null, encoded?: unknown, markup: { [n: string]: string } | null = null): Promise<boolean> {
   if (isServerIsland(el)) return patchServer(el, props, encoded);
   const island = mounted.get(el);
   if (!island?.entry.patch) return false;
@@ -179,6 +181,7 @@ export async function patchIsland(el: Element, props: Props, regions: unknown = 
   island.props = props;
   island.regions = regions;
   island.children = children;
+  island.markup = markup;
   island.entry.patch(handle, mod, props, el);
   return true;
 }

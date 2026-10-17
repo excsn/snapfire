@@ -3,7 +3,7 @@ import { cloneElement, createContext, createElement, Fragment, isValidElement, S
 import { createRoot, hydrateRoot } from "react-dom/client";
 import { islandState, patchIsland, scan } from "./boot.js";
 import { encodeValue } from "./values.js";
-import { CHILDREN_ATTR } from "./render.js";
+import { CHILDREN_ATTR, MARKUP_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { linkAttributes } from "./link.js";
 import { embedParts, styleObject } from "./embed.js";
@@ -91,9 +91,10 @@ function patchChildren(el, fresh) {
     scan(region);
 }
 const MARKUP_PROP = "$sfm";
-const MARKUP_ATTR = "data-sf-m";
-const markupProps = new WeakMap();
-function IslandMarkup({ html, n }) {
+const markupHtml = new WeakMap();
+const markupElements = new WeakMap();
+function IslandMarkup({ root, n }) {
+    const [html] = useState(()=>markupHtml.get(root)?.get(n) ?? "");
     const region = useRef(null);
     useEffect(()=>{
         if (region.current) scan(region.current);
@@ -107,23 +108,44 @@ function IslandMarkup({ html, n }) {
         suppressHydrationWarning: true
     });
 }
+function ownOf(el, selector) {
+    return Array.from(el.querySelectorAll(selector)).find((found)=>found.parentElement?.closest("sf-i") === el) ?? null;
+}
 function markupFor(el, n) {
-    let held = markupProps.get(el);
-    if (!held) markupProps.set(el, held = new Map());
-    const template = Array.from(el.querySelectorAll(`template[${MARKUP_ATTR}="${n}"]`)).find((t)=>t.parentElement?.closest("sf-i") === el);
-    if (template) {
-        held.set(n, createElement(IslandMarkup, {
-            key: `m${n}`,
-            html: template.innerHTML,
-            n
-        }));
-        template.remove();
+    let elements = markupElements.get(el);
+    if (!elements) markupElements.set(el, elements = new Map());
+    const made = elements.get(n);
+    if (made) return made;
+    let html = markupHtml.get(el);
+    if (!html) markupHtml.set(el, html = new Map());
+    if (!html.has(n)) {
+        const placed = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
+        const held = ownOf(el, `template[${MARKUP_ATTR}="${n}"]`);
+        html.set(n, placed?.innerHTML ?? held?.innerHTML ?? "");
+        held?.remove();
     }
-    return held.get(n) ?? createElement(IslandMarkup, {
+    const element = createElement(IslandMarkup, {
         key: `m${n}`,
-        html: "",
+        root: el,
         n
     });
+    elements.set(n, element);
+    return element;
+}
+function patchMarkup(el, fresh) {
+    if (fresh === null) return;
+    let html = markupHtml.get(el);
+    if (!html) markupHtml.set(el, html = new Map());
+    for (const [key, markup] of Object.entries(fresh)){
+        const n = Number(key);
+        if (html.get(n) === markup) continue;
+        html.set(n, markup);
+        const region = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
+        if (region) {
+            morph(region, markup);
+            scan(region);
+        }
+    }
 }
 function isMarker(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === 1 && typeof value[MARKUP_PROP] === "number";
@@ -611,6 +633,7 @@ export const reactMounter = (component, props, el, hydrate)=>{
 };
 export const reactPatcher = (handle, component, props, el)=>{
     patchChildren(el, islandState(el)?.children ?? null);
+    patchMarkup(el, islandState(el)?.markup ?? null);
     const element = rootElement(islandElement(component, props, el, true), el);
     const box = held.get(el);
     if (box === undefined) {

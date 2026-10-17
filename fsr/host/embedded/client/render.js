@@ -80,6 +80,21 @@ export function childrenOf(node, ids) {
     const region = Array.from(template.content.querySelectorAll(`sf-s[${CHILDREN_ATTR}]`)).find((found)=>!found.parentElement?.closest("sf-i"));
     return region ? region.innerHTML : null;
 }
+export const MARKUP_ATTR = "data-sf-m";
+export function markupOf(node, ids) {
+    if (node.kind !== "client") return null;
+    const html = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
+    if (!html.includes(MARKUP_ATTR)) return null;
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    const out = {};
+    for (const region of Array.from(template.content.querySelectorAll(`sf-s[${MARKUP_ATTR}], template[${MARKUP_ATTR}]`))){
+        if (region.parentElement?.closest("sf-i")) continue;
+        const n = region.getAttribute(MARKUP_ATTR) ?? "";
+        if (!(n in out)) out[n] = region.innerHTML;
+    }
+    return out;
+}
 export function regionSources(node, ids) {
     const out = new Map();
     const walk = (n)=>{
@@ -95,7 +110,8 @@ export function regionSources(node, ids) {
                         encoded: n.encoded,
                         html: nodeToHtml(n, ids),
                         nested: regionSources(n, ids),
-                        children: childrenOf(n, ids)
+                        children: childrenOf(n, ids),
+                        markup: markupOf(n, ids)
                     });
                     return;
                 }

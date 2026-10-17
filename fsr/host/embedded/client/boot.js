@@ -50,7 +50,8 @@ function mountNow(entry, moduleId, el, props) {
         gone: false,
         props,
         regions: null,
-        children: null
+        children: null,
+        markup: null
     };
     island.handle = entry.loader().then((mod)=>island.gone ? undefined : entry.mount(mod, props, el, hydrate)).then((value)=>{
         if (island.gone) return undefined;
@@ -110,10 +111,11 @@ export function islandState(el) {
     return island ? {
         props: island.props,
         regions: island.regions,
-        children: island.children
+        children: island.children,
+        markup: island.markup
     } : null;
 }
-export async function patchIsland(el, props, regions = null, children = null, encoded) {
+export async function patchIsland(el, props, regions = null, children = null, encoded, markup = null) {
     if (isServerIsland(el)) return patchServer(el, props, encoded);
     const island = mounted.get(el);
     if (!island?.entry.patch) return false;
@@ -123,6 +125,7 @@ export async function patchIsland(el, props, regions = null, children = null, en
     island.props = props;
     island.regions = regions;
     island.children = children;
+    island.markup = markup;
     island.entry.patch(handle, mod, props, el);
     return true;
 }

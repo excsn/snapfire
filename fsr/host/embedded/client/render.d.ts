@@ -29,11 +29,20 @@ export interface RegionSource {
 	html: string;
 	nested: Map<string, RegionSource>;
 	children: string | null;
+	markup: {
+		[n: string]: string;
+	} | null;
 }
 /** The attribute of the region an island's children render in, which the mounter hands the component as its `children`. */
 export declare const CHILDREN_ATTR = "data-sf-children";
 /** The markup of an island's children region: the `<sf-s data-sf-children>` in its own markup that is not inside an island nested in it. Null for a node that is not an island or holds no such region. */
 export declare function childrenOf(node: SfNode, ids: IdAlloc): string | null;
+/** The attribute of the regions an island's markup props render in. */
+export declare const MARKUP_ATTR = "data-sf-m";
+/** The markup of each markup prop region in an island's own markup, by region number: the `<sf-s data-sf-m>` its render placed, else the `<template data-sf-m>` the server held it in, neither inside an island nested in it. Null for a node that is not an island or holds none. */
+export declare function markupOf(node: SfNode, ids: IdAlloc): {
+	[n: string]: string;
+} | null;
 /** The island regions `node` describes, by region key: the islands directly inside it, each carrying the ones inside itself. An island's own body is where its nested regions live, so a client node is descended into rather than collected at the top. */
 export declare function regionSources(node: SfNode, ids: IdAlloc): Map<string, RegionSource>;
 export { propsScript, scriptSafeJson };

@@ -2,7 +2,7 @@ import { loadMarkedScript } from "./script.js";
 import { addStyles, discard, loadEntry, patchIsland, pruneStyles, release, resume, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
-import { CHILDREN_ATTR, childrenOf, escapeKey, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
+import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { morphElement, morphNodes, type MorphHooks } from "./server.js";
 import { contribute, retain, transaction, type Contribution } from "./store.js";
 
@@ -294,9 +294,10 @@ function patchProps(region: Region, node: SfNode): void {
   if (!island) return;
   const json = propsScript(node);
   const children = childrenOf(node, ids);
-  if (island.script?.textContent === json && children === null) return;
+  const markup = markupOf(node, ids);
+  if (island.script?.textContent === json && children === null && markup === null) return;
   if (island.script) island.script.textContent = json;
-  void patchIsland(island.el, node.props, regionSources(node, ids), children, node.encoded);
+  void patchIsland(island.el, node.props, regionSources(node, ids), children, node.encoded, markup);
 }
 
 /** Walks old and new segment spines together. A segment whose digest the two payloads agree on rendered the same, so its DOM is kept whatever its key became; otherwise the first key mismatch swaps that region from the new payload. With `keep`, a mismatch of the same module is morphed in place instead, so every island its new markup places again keeps its DOM and its state, unless the new segment carries a slot over untouched, which its markup does not hold. A kept region whose node is an island takes the new props in place. Children pair by slot name: a slot the new payload fills and the old did not is written into the layout's `<sf-s data-sf-name>`, a slot it no longer fills is emptied and a slot it says to keep carries over untouched. Slot-addressed children resolve through S rows instead. */
@@ -447,7 +448,7 @@ function takeIsland(current: Element, next: Element, sources: ReturnType<typeof 
   const source = regionKey === null ? undefined : sources.get(regionKey);
   if (source && current.hasAttribute("data-sf-scheduled")) {
     if (script) script.textContent = propsScript(source);
-    void patchIsland(current, source.props, source.nested, source.children, source.encoded);
+    void patchIsland(current, source.props, source.nested, source.children, source.encoded, source.markup);
     return;
   }
   const wanted = next.nextElementSibling;

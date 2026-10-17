@@ -4,7 +4,7 @@ import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
 import { discard, islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Pauser, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
-import { CHILDREN_ATTR, type RegionSource } from "./render.js";
+import { CHILDREN_ATTR, MARKUP_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
 import { type PrefetchTiming } from "./navigator.js";
 import { linkAttributes, type LinkOptions } from "./link.js";
@@ -99,15 +99,18 @@ function patchChildren(el: Element, fresh: string | null): void {
   scan(region);
 }
 
-/** The key of a marker the server puts in an island's props for a markup value, and the attribute of the region its markup is in. */
+/** The key of a marker the server puts in an island's props for a markup value. */
 const MARKUP_PROP = "$sfm";
-const MARKUP_ATTR = "data-sf-m";
 
-/** The markup each markup prop of a root stands for, by region number, taken from its `<template data-sf-m>` the first time the root mounts. */
-const markupProps = new WeakMap<Element, Map<number, ReactElement>>();
+/** The markup each markup prop region of a root holds now, by region number: what the server wrote, then what each patch gave it. */
+const markupHtml = new WeakMap<Element, Map<number, string>>();
 
-/** A markup prop: an `<sf-s data-sf-m>` holding the markup the server rendered for it, set once and never reconciled, scanned for the islands inside it. */
-function IslandMarkup({ html, n }: { html: string; n: number }): ReactElement {
+/** The element each markup prop of a root is, created once per region so a re-render never replaces what React set. */
+const markupElements = new WeakMap<Element, Map<number, ReactElement>>();
+
+/** A markup prop: an `<sf-s data-sf-m>` whose markup React sets once per instance and never reconciles, scanned for the islands inside it. A patch morphs it in place. */
+function IslandMarkup({ root, n }: { root: Element; n: number }): ReactElement {
+  const [html] = useState(() => markupHtml.get(root)?.get(n) ?? "");
   const region = useRef<Element | null>(null);
   useEffect(() => {
     if (region.current) scan(region.current);
@@ -115,15 +118,44 @@ function IslandMarkup({ html, n }: { html: string; n: number }): ReactElement {
   return createElement("sf-s", { ref: region, [MARKUP_ATTR]: String(n), dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
 }
 
+/** The `selector` under `el` that is not inside an island nested in it. */
+function ownOf(el: Element, selector: string): Element | null {
+  return Array.from(el.querySelectorAll(selector)).find((found) => found.parentElement?.closest("sf-i") === el) ?? null;
+}
+
 function markupFor(el: Element, n: number): ReactElement {
-  let held = markupProps.get(el);
-  if (!held) markupProps.set(el, (held = new Map()));
-  const template = Array.from(el.querySelectorAll(`template[${MARKUP_ATTR}="${n}"]`)).find((t) => t.parentElement?.closest("sf-i") === el);
-  if (template) {
-    held.set(n, createElement(IslandMarkup, { key: `m${n}`, html: template.innerHTML, n }));
-    template.remove();
+  let elements = markupElements.get(el);
+  if (!elements) markupElements.set(el, (elements = new Map()));
+  const made = elements.get(n);
+  if (made) return made;
+  let html = markupHtml.get(el);
+  if (!html) markupHtml.set(el, (html = new Map()));
+  if (!html.has(n)) {
+    const placed = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
+    const held = ownOf(el, `template[${MARKUP_ATTR}="${n}"]`);
+    html.set(n, placed?.innerHTML ?? held?.innerHTML ?? "");
+    held?.remove();
   }
-  return held.get(n) ?? createElement(IslandMarkup, { key: `m${n}`, html: "", n });
+  const element = createElement(IslandMarkup, { key: `m${n}`, root: el, n });
+  elements.set(n, element);
+  return element;
+}
+
+/** Brings each markup prop region of a root to the markup a patch gave it: morphed in place where the island renders it, remembered for when it next does. */
+function patchMarkup(el: Element, fresh: { [n: string]: string } | null): void {
+  if (fresh === null) return;
+  let html = markupHtml.get(el);
+  if (!html) markupHtml.set(el, (html = new Map()));
+  for (const [key, markup] of Object.entries(fresh)) {
+    const n = Number(key);
+    if (html.get(n) === markup) continue;
+    html.set(n, markup);
+    const region = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
+    if (region) {
+      morph(region, markup);
+      scan(region);
+    }
+  }
 }
 
 function isMarker(value: unknown): value is { [MARKUP_PROP]: number } {
@@ -678,6 +710,7 @@ export const reactMounter: Mounter = (component, props, el, hydrate) => {
 
 export const reactPatcher: Patcher = (handle, component, props, el) => {
   patchChildren(el, islandState(el)?.children ?? null);
+  patchMarkup(el, islandState(el)?.markup ?? null);
   const element = rootElement(islandElement(component, props, el, true), el);
   const box = held.get(el);
   if (box === undefined) {
