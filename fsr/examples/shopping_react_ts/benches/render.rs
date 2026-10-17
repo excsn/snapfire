@@ -20,7 +20,7 @@ use snapfire_fsr_cli::{Options, build};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
 use snapfire_fsr_ir::Interpreter;
-use snapfire_fsr_ir::render::{Components, ISLAND_MARK, Rendered};
+use snapfire_fsr_ir::render::{Components, HOISTED_PROP, ISLAND_MARK, Rendered};
 use snapfire_fsr_payload::value_to_json;
 
 #[cfg(feature = "mimalloc")]
@@ -128,18 +128,97 @@ fn machine_state() -> String {
   format!("{power}; {load}")
 }
 
-/// A module that renders one page with `renderToString` from props set on the global once.
-fn bench_module(prepared: &Prepared, page: &Page) -> std::path::PathBuf {
+/// The compiled file an island module lives in and its export: `src/ui/ProductCard.tsx#ProductCard` is `src/ui/ProductCard.js` and `ProductCard`.
+fn module_parts(module: &str) -> (std::path::PathBuf, &str) {
+  let (file, export) = module.split_once('#').expect("a module id names its export");
+  (Path::new(file).with_extension("js"), export)
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+  std::fs::create_dir_all(to).expect("roots dir");
+  for entry in std::fs::read_dir(from).expect("compiled tree") {
+    let entry = entry.expect("entry");
+    let target = to.join(entry.file_name());
+    if entry.file_type().expect("file type").is_dir() {
+      copy_dir(&entry.path(), &target);
+    } else {
+      std::fs::copy(entry.path(), target).expect("copy");
+    }
+  }
+}
+
+/// A second copy of the compiled tree, `dist-roots`, in which every island module is a stub that renders an `<sf-i>` marker, with the island's real code kept beside it as `<name>.root.js`. A root rendered from this tree stops at each island the way the server and the browser do, so its chunk keys are its own.
+fn roots_dist(prepared: &Prepared, islands: &std::collections::BTreeSet<String>) -> std::path::PathBuf {
+  let roots = prepared.test_dir.join("dist-roots");
+  let _ = std::fs::remove_dir_all(&roots);
+  copy_dir(&prepared.test_dir.join("dist"), &roots);
+  let mut by_file: std::collections::BTreeMap<std::path::PathBuf, Vec<&str>> = std::collections::BTreeMap::new();
+  for module in islands {
+    let (file, _) = module_parts(module);
+    by_file.entry(file).or_default().push(module);
+  }
+  for (file, modules) in by_file {
+    let compiled = roots.join(&file);
+    let stem = compiled.file_stem().expect("a file name").to_string_lossy().into_owned();
+    std::fs::copy(&compiled, compiled.with_file_name(format!("{stem}.root.js"))).expect("the island's real code beside its stub");
+    // Whatever else the file exports, a helper the page imports for one, still comes from the real code; a name stubbed below shadows the star.
+    let mut stub = format!("import {{ createElement }} from \"react\";\nexport * from \"./{stem}.root.js\";\n");
+    for module in modules {
+      let (_, export) = module_parts(module);
+      let marker = format!("createElement(\"sf-i\", {{ \"data-sf-module\": \"{module}\" }})");
+      if export == "default" {
+        stub.push_str(&format!("export default function () {{ return {marker}; }}\n"));
+      } else {
+        stub.push_str(&format!("export function {export}() {{ return {marker}; }}\n"));
+      }
+    }
+    std::fs::write(&compiled, stub).expect("stub");
+  }
+  roots
+}
+
+/// A module that renders one page the way the server does: the page as one root and each island as a root of its own with its own hoisted table, each island's markup spliced into the marker its placement left. `__render` takes the tree `render_tree` builds.
+fn bench_module(prepared: &Prepared, page: &Page, islands: &std::collections::BTreeSet<String>) -> std::path::PathBuf {
   let path = prepared.test_dir.join(format!("bench-{}.js", page.name));
-  let source = format!(
-    "import {{ createElement }} from \"react\";\nimport {{ renderToString }} from \"react-dom/server\";\nimport {{ decodeValue }} from \"@snapfire/fsr-client\";\nimport Page from \"./dist/{}\";\nglobalThis.__decode = (json) => decodeValue(JSON.parse(json));\nglobalThis.__render = (props) => renderToString(createElement(Page, props));\n",
-    page.file
-  );
+  let mut source = String::from("import { createElement } from \"react\";\nimport { renderToString } from \"react-dom/server\";\nimport { decodeValue } from \"@snapfire/fsr-client\";\nimport { withHoisted } from \"@snapfire/fsr-client/react\";\n");
+  source.push_str(&format!("import Page from \"./dist-roots/{}\";\n", page.file));
+  let mut roots = vec![format!("\"{}\": Page", page.module)];
+  for (i, module) in islands.iter().enumerate() {
+    let (file, export) = module_parts(module);
+    let stem = Path::new(&file).file_stem().expect("a file name").to_string_lossy().into_owned();
+    let real = file.with_file_name(format!("{stem}.root.js"));
+    if export == "default" {
+      source.push_str(&format!("import Root{i} from \"./dist-roots/{}\";\n", real.display()));
+    } else {
+      source.push_str(&format!("import {{ {export} as Root{i} }} from \"./dist-roots/{}\";\n", real.display()));
+    }
+    roots.push(format!("\"{module}\": Root{i}"));
+  }
+  source.push_str(&format!("const roots = {{ {} }};\n", roots.join(", ")));
+  source.push_str("const MARKER = /<sf-i data-sf-module=\"[^\"]*\"><\\/sf-i>/g;\n");
+  source.push_str("function renderTree(t) {\n  const { $h, $k, $s, $sk, $sv, $aw, ...props } = t.props;\n  const html = renderToString(withHoisted($h ?? null, createElement(roots[t.module], props)));\n  let i = 0;\n  return html.replace(MARKER, () => renderTree(t.islands[i++]));\n}\n");
+  source.push_str("globalThis.__decode = (json) => decodeValue(JSON.parse(json));\nglobalThis.__render = renderTree;\n");
   std::fs::write(&path, source).expect("bench module");
   path
 }
 
-/// The page's markup with every island's body spliced into its marker, which is what React writes, since it renders the islands inline and knows no boundary.
+fn island_modules(rendered: &Rendered, out: &mut std::collections::BTreeSet<String>) {
+  for island in &rendered.islands {
+    out.insert(island.module.clone());
+    island_modules(&island.body, out);
+  }
+}
+
+/// What React renders for a page: the page root with its props and its own hoisted table, then each island as the browser would mount it, `mount_props` and all, with the islands inside it the same way.
+fn render_tree(module: &str, props: ValueMap, body: &Rendered) -> Value {
+  let mut tree = ValueMap::default();
+  tree.insert("module".to_owned(), Value::str(module));
+  tree.insert("props".to_owned(), Value::Map(props));
+  tree.insert("islands".to_owned(), Value::seq(body.islands.iter().map(|island| render_tree(&island.module, island.mount_props(), &island.body)).collect::<Vec<_>>()));
+  Value::Map(tree)
+}
+
+/// The page's markup with every island's body spliced into its marker, the whole document the server writes.
 fn flatten(rendered: &Rendered) -> String {
   let mut out = String::with_capacity(rendered.html.len());
   let mut rest = rendered.html.as_str();
@@ -257,12 +336,24 @@ fn bench(c: &mut Criterion) {
 
   c.bench_function("ir/load_components", |b| b.iter(|| serde_json::from_str::<Vec<snapfire_fsr_plan::ComponentEntry>>(black_box(&components_json)).expect("parses")));
 
+  let mut islands = std::collections::BTreeSet::new();
   for page in pages() {
     let component = components.get(page.module).cloned().expect("the page lowered");
-    let ir_html = flatten(&interpreter.render(&component, &page.props, &components).expect("ir renders"));
-    let module = bench_module(&prepared, &page);
+    island_modules(&interpreter.render_module(page.module, &component, &page.props, &components).expect("ir renders"), &mut islands);
+  }
+  roots_dist(&prepared, &islands);
+
+  for page in pages() {
+    let component = components.get(page.module).cloned().expect("the page lowered");
+    let rendered = interpreter.render_module(page.module, &component, &page.props, &components).expect("ir renders");
+    let ir_html = flatten(&rendered);
+    let module = bench_module(&prepared, &page, &islands);
     let engine = engine_for(&resolution, &prepared.dom, &module, &rt);
-    let json = value_to_json(&Value::Map(page.props.clone())).to_string();
+    let mut page_props = page.props.clone();
+    if !rendered.hoisted.is_empty() {
+      page_props.insert(HOISTED_PROP.to_owned(), Value::Map(rendered.hoisted.clone()));
+    }
+    let json = value_to_json(&render_tree(page.module, page_props, &rendered)).to_string();
     engine.eval_string(&format!("globalThis.__json = {}; globalThis.__props = __decode(__json); ''", serde_json::to_string(&json).expect("a JSON string"))).expect("props set");
     let js_html = engine.eval_string("__render(__props)").expect("react renders");
     eprintln!("{}: ir {} bytes, react {} bytes, {}", page.name, ir_html.len(), js_html.len(), if normalised(&ir_html) == normalised(&js_html) { "identical" } else { "DIFFERENT" });
@@ -270,7 +361,8 @@ fn bench(c: &mut Criterion) {
     std::fs::write(prepared.test_dir.join(format!("render-{}.react.html", page.name)), &js_html).expect("dump");
     // What `benches/render.node.mjs` needs to render the same page with the
     // same props under V8; see docs/benches/render.md.
-    std::fs::write(prepared.test_dir.join(format!("props-{}.json", page.name)), &json).expect("dump");
+    std::fs::write(prepared.test_dir.join(format!("props-{}.json", page.name)), value_to_json(&Value::Map(page.props.clone())).to_string()).expect("dump");
+    std::fs::write(prepared.test_dir.join(format!("tree-{}.json", page.name)), &json).expect("dump");
 
     c.bench_with_input(BenchmarkId::new("ir/render", page.name), &page, |b, page| b.iter(|| interpreter.render(black_box(&component), black_box(&page.props), &components).expect("ir renders")));
     c.bench_with_input(BenchmarkId::new("quickjs/render", page.name), &page, |b, _| b.iter(|| engine.eval_string("__render(__props)").expect("react renders")));
