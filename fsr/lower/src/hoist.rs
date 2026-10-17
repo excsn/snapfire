@@ -354,6 +354,35 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
       args.iter_mut().for_each(|e| strip(e, tainted, kept, in_lambda, in_hoist));
     }
     Expr::Lambda { body, .. } => strip(body, tainted, kept, true, in_hoist),
+    Expr::Block(body) => strip_body(body, tainted, kept, in_hoist),
+  }
+}
+
+fn strip_body(body: &mut [Stmt], tainted: &[String], kept: &mut Vec<u32>, in_hoist: bool) {
+  for stmt in body {
+    match stmt {
+      Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => strip(expr, tainted, kept, true, in_hoist),
+      Stmt::If { cond, then, r#else } => {
+        strip(cond, tainted, kept, true, in_hoist);
+        strip_body(then, tainted, kept, in_hoist);
+        strip_body(r#else, tainted, kept, in_hoist);
+      }
+      Stmt::ForOf { over, body, .. } => {
+        strip(over, tainted, kept, true, in_hoist);
+        strip_body(body, tainted, kept, in_hoist);
+      }
+      Stmt::Guard { cond, message, .. } => {
+        strip(cond, tainted, kept, true, in_hoist);
+        strip(message, tainted, kept, true, in_hoist);
+      }
+      Stmt::Act { input, .. } => strip(input, tainted, kept, true, in_hoist),
+      Stmt::SessionSet { path, value, .. } => {
+        path.iter_mut().for_each(|e| strip(e, tainted, kept, true, in_hoist));
+        strip(value, tainted, kept, true, in_hoist);
+      }
+      Stmt::SessionDelete { path, .. } => path.iter_mut().for_each(|e| strip(e, tainted, kept, true, in_hoist)),
+      Stmt::SessionExtend { seconds } => strip(seconds, tainted, kept, true, in_hoist),
+    }
   }
 }
 

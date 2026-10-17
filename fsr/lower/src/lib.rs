@@ -1153,6 +1153,7 @@ impl<'a> Lowerer<'a> {
     let depth = self.scope.len();
     let mut out = Vec::with_capacity(stmts.len());
     for stmt in stmts {
+      self.lift_updates(stmt, &mut out)?;
       match stmt {
         js::Stmt::Decl(js::Decl::Var(var)) => {
           for decl in &var.decls {
@@ -1426,6 +1427,12 @@ impl<'a> Lowerer<'a> {
   /// A statement that is an expression: a session write, a delete, a bare
   /// `fail` or an awaited call for its effect.
   fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
+    // A `console` call in a helper's block logs on the server as one in a component's body does.
+    if let js::Expr::Call(call) = expr {
+      if let Some(logged) = crate::component::console_call(self, call)? {
+        return Ok(Stmt::Expr(logged));
+      }
+    }
     match expr {
       js::Expr::Assign(assign) if self.local_target(&assign.left).is_some() => self.local_assign(assign),
       js::Expr::Update(update) if matches!(&*update.arg, js::Expr::Ident(id) if self.is_local(id.sym.as_ref())) => {
@@ -1515,7 +1522,42 @@ impl<'a> Lowerer<'a> {
 
   /// Whether `name` is a binding the body declared, which a write may rebind.
   fn is_local(&self, name: &str) -> bool {
-    matches!(self.scope.iter().rev().find(|(n, _)| n == name), Some((_, Expr::Var(var))) if var == name)
+    match self.scope.iter().rev().find(|(n, _)| n == name) {
+      Some((_, bound)) => matches!(bound, Expr::Var(var) if var == name),
+      // A module-level `let` a helper writes resolves to its own name, bound by the component that reads it.
+      None => matches!(self.globals.iter().rev().find(|(n, _)| n == name), Some((_, Expr::Var(var))) if var == name),
+    }
+  }
+
+  /// `x++` or `--x` inside an expression, with `x` a local: the old value is held under a temporary, the write becomes a statement before the one holding it and the expression reads the temporary, the new value for a prefix. Only an update the statement reaches unconditionally is lifted; one under a condition or inside a function stays where it is.
+  fn lift_updates(&mut self, stmt: &js::Stmt, out: &mut Vec<Stmt>) -> Lowered<()> {
+    if let js::Stmt::Expr(e) = stmt {
+      if matches!(strip_parens(&e.expr), js::Expr::Update(_)) {
+        return Ok(());
+      }
+    }
+    for (span, name, prefix, plus) in crate::component::updates_in(stmt) {
+      if !self.is_local(&name) {
+        // A name bound nowhere here may be a module-level `let`, which the set binds and retries with.
+        if !self.scope.iter().any(|(n, _)| *n == name) && !self.globals.iter().any(|(n, _)| *n == name) {
+          self.unbound = Some(name.clone());
+          return Err(self.residue(span, format!("`{name}` is not bound here; an import the build cannot follow or a name from outside the body")));
+        }
+        continue;
+      }
+      let op = if plus { ArithOp::Add } else { ArithOp::Sub };
+      let next = Expr::Arith(op, Box::new(Expr::Var(name.clone())), Box::new(Expr::Lit(Lit::Float(1.0))));
+      if prefix {
+        out.push(Stmt::Set { name: name.clone(), expr: next });
+        self.premade.insert((span.lo.0, span.hi.0), Expr::Var(name));
+      } else {
+        let held = self.temp();
+        out.push(Stmt::Let { name: held.clone(), expr: Expr::Var(name.clone()) });
+        out.push(Stmt::Set { name, expr: next });
+        self.premade.insert((span.lo.0, span.hi.0), Expr::Var(held));
+      }
+    }
+    Ok(())
   }
 
   /// The local a write lands on: `x` or `x.field` with `x` declared in the body.
@@ -2100,6 +2142,9 @@ impl<'a> Lowerer<'a> {
               self.reach_violation = true;
               return Err(self.residue(call.span, format!("`{name}` calls `{key}` on a render path")));
             }
+            if writes_outer(&f) {
+              return Err(self.residue_with(call.span, format!("`{name}` writes module state on a render path"), "call it from a handler so the write reaches the store and read the value here"));
+            }
           }
           let mut args = Vec::with_capacity(call.args.len());
           for a in &call.args {
@@ -2139,6 +2184,13 @@ impl<'a> Lowerer<'a> {
         ));
       }
       let f = Box::new(self.expr(callee)?);
+      if self.on_render_path() && writes_outer(&f) {
+        let name = match strip_parens(callee) {
+          js::Expr::Ident(id) => format!("`{}`", id.sym),
+          _ => "a helper".to_owned(),
+        };
+        return Err(self.residue_with(call.span, format!("{name} writes module state on a render path"), "call it from a handler so the write reaches the store and read the value here"));
+      }
       let mut args = Vec::with_capacity(call.args.len());
       for a in &call.args {
         args.push(self.expr(&a.expr)?);
@@ -2835,6 +2887,31 @@ pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
     },
     _ => None,
   }
+}
+
+/// Whether `f` is a lambda whose block body writes a name it neither takes nor declares: a helper writing a module-level `let`.
+pub(crate) fn writes_outer(f: &Expr) -> bool {
+  let Expr::Lambda { params, body } = f else { return false };
+  let Expr::Block(body) = &**body else { return false };
+  let mut declared: Vec<String> = Vec::new();
+  fn lets(body: &[Stmt], out: &mut Vec<String>) {
+    for stmt in body {
+      match stmt {
+        Stmt::Let { name, .. } => out.push(name.clone()),
+        Stmt::If { then, r#else, .. } => {
+          lets(then, out);
+          lets(r#else, out);
+        }
+        Stmt::ForOf { name, body, .. } => {
+          out.push(name.clone());
+          lets(body, out);
+        }
+        _ => {}
+      }
+    }
+  }
+  lets(body, &mut declared);
+  snapfire_fsr_ir::ast::set_targets(body).iter().any(|name| !params.contains(name) && !declared.contains(name))
 }
 
 /// The prop a component binding reads, `$props.key` or that with a default, so a kind read through it is a kind relied on.

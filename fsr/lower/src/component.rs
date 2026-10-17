@@ -93,6 +93,10 @@ pub struct ComponentSet {
   relied: HashMap<String, Vec<(String, crate::Kind)>>,
   /// Per lowered module, each value only the browser knows that the server left to it, as `file:line:column: reason`: text the browser fills in at hydration and a prop the browser computes for a placement.
   pub browser_texts: Vec<(String, String)>,
+  /// Whether a component is being lowered, which is where a module-level `let` a function writes has a binding; a loader or an action reading one is residue.
+  lowering_component: bool,
+  /// Each module-level `let` a function writes that a component read: its store key, `file#name`, with the file and name declaring it.
+  module_lets: Vec<(String, String, String)>,
   /// Components of another framework a React component renders inline, as
   /// `file#export`: lowered to the empty region `Mount` writes, which the
   /// browser fills through the module's registry entry.
@@ -177,7 +181,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -1031,9 +1035,17 @@ impl ComponentSet {
   }
 
   fn lower_loaded(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
+    let outer = std::mem::replace(&mut self.lowering_component, true);
+    let result = self.lower_loaded_in(file, export);
+    self.lowering_component = outer;
+    result
+  }
+
+  fn lower_loaded_in(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
     let mut global_formatters: Vec<(String, js::NewExpr)> = Vec::new();
+    let mut module_bindings: Vec<(String, String, Expr)> = Vec::new();
     let mut unfollowed: Vec<(String, Option<LowerError>)> = Vec::new();
     let module = format!("{file}#{export}");
     // An element template has no browser half, so nothing would read what
@@ -1085,7 +1097,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -1154,6 +1166,26 @@ impl ComponentSet {
           }
           if let Some(made) = self.global_formatter(file, &name)? {
             global_formatters.push((name.clone(), made));
+          }
+          if let Some((_, declared_file, declared_name)) = self.module_lets.iter().find(|(k, _, _)| *k == key).cloned() {
+            let seed = self.module_init(&declared_file, &declared_name)?;
+            module_bindings.push((name.clone(), key.clone(), seed));
+          }
+          // A helper that writes a module `let` needs the let bound here too, since its block sets it by name when a handler calls it.
+          if crate::writes_outer(&expr) {
+            let declared_file = key.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_default();
+            if let Expr::Lambda { body, .. } = &expr {
+              if let Expr::Block(block) = &**body {
+                for written in snapfire_fsr_ir::ast::set_targets(block) {
+                  let written_key = format!("{declared_file}#{written}");
+                  if module_bindings.iter().any(|(n, _, _)| *n == written) || !self.module_lets.iter().any(|(k, _, _)| *k == written_key) {
+                    continue;
+                  }
+                  let seed = self.module_init(&declared_file, &written)?;
+                  module_bindings.push((written.clone(), written_key, seed));
+                }
+              }
+            }
           }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
@@ -1734,6 +1766,15 @@ impl ComponentSet {
       Some(crate::meaning::Meaning::Library(_) | crate::meaning::Meaning::Foreign | crate::meaning::Meaning::Namespace(_)) => return Ok(None),
       _ => {}
     }
+    if let Some(span) = written_module_let(&parsed, name) {
+      if !self.lowering_component {
+        return Err(LowerError::Residue(parsed.residue(span, format!("`{name}`, a module-level `let` a function writes; a body reads module state through the store"))));
+      }
+      if !self.module_lets.iter().any(|(k, _, _)| *k == key) {
+        self.module_lets.push((key.clone(), file.to_owned(), name.to_owned()));
+      }
+      return Ok(Some((Expr::Var(name.to_owned()), key)));
+    }
     let Some(item) = find_value(&parsed, name) else { return Ok(None) };
     if matches!(item, Global::Function(..)) && name.starts_with(|c: char| c.is_ascii_uppercase()) {
       if let Ok((module, _)) = self.component_module(file, name) {
@@ -1757,13 +1798,32 @@ impl ComponentSet {
         return Ok(Some((Expr::Ext { module, name: member, args: Vec::new() }, key)));
       }
     }
+    let replays = matches!(item, Global::Const(_)) && module_lets_of(&parsed).into_iter().any(|(_, _, written)| written);
     self.resolving.push(key.clone());
     let result = self.lower_global(file, item);
     self.resolving.pop();
     match result {
       Err(LowerError::Residue(residue)) if file.starts_with(&format!("{EXT_DIR}/")) => Err(LowerError::Extension(residue)),
+      // A constant of a module whose `let`s its functions write is what the module's initialisation leaves it at, so it is read by replaying that initialisation.
+      Ok(_) if replays => self.module_init(file, name).map(|expr| Some((expr, key))),
       other => other.map(|expr| Some((expr, key))),
     }
+  }
+
+  /// The module's initialisation up to `upto` as a block: each top-level `let` and `const` bound in order, with every call a `const` makes applied, then `upto`'s value returned. A `let` a function writes is advanced by those calls, so what comes out is the value the browser's copy of the module starts with.
+  fn module_init(&mut self, file: &str, upto: &str) -> Result<Expr, LowerError> {
+    let parsed = self.parsed[file].clone();
+    let mut body = Vec::new();
+    for (name, init, written) in module_lets_of(&parsed) {
+      let expr = self.lower_global(file, Global::Const(init))?;
+      body.push(Stmt::Let { name: name.clone(), expr });
+      // A written `let` is what the whole initialisation leaves it at; a constant is fixed once bound.
+      if name == upto && !written {
+        break;
+      }
+    }
+    body.push(Stmt::Return(Expr::Var(upto.to_owned())));
+    Ok(Expr::Apply { f: Box::new(Expr::Lambda { params: Vec::new(), body: Box::new(Expr::Block(body)) }), args: Vec::new() })
   }
 
   /// The collection a module-level `name` holds when it is declared as a `new Map(...)`, `new Set(...)` or `new URLSearchParams(...)`.
@@ -2475,6 +2535,53 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
   None
 }
 
+/// The module's top-level `let` and `const` declarations with a value that is not a function, in order: each name, its initialiser and whether a function in the module writes it.
+fn module_lets_of(parsed: &Parsed) -> Vec<(String, &js::Expr, bool)> {
+  let writes = module_writes(&parsed.module);
+  let mut out = Vec::new();
+  for item in &parsed.module.body {
+    let var = match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) => var,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => match &export.decl {
+        js::Decl::Var(var) => var,
+        _ => continue,
+      },
+      _ => continue,
+    };
+    for decl in &var.decls {
+      let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) else { continue };
+      if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+        continue;
+      }
+      let name = id.id.sym.to_string();
+      let written = var.kind != js::VarDeclKind::Const && writes.contains(&name);
+      out.push((name, init, written));
+    }
+  }
+  out
+}
+
+/// The declaration span of `name` when it is a module-level `let` or `var` that a function in the module writes.
+fn written_module_let(parsed: &Parsed, name: &str) -> Option<Span> {
+  if !module_lets_of(parsed).iter().any(|(n, _, written)| n == name && *written) {
+    return None;
+  }
+  for item in &parsed.module.body {
+    let var = match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) => var,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => match &export.decl {
+        js::Decl::Var(var) => var,
+        _ => continue,
+      },
+      _ => continue,
+    };
+    if let Some(decl) = var.decls.iter().find(|d| matches!(&d.name, js::Pat::Ident(id) if id.id.sym.as_ref() == name)) {
+      return Some(decl.span);
+    }
+  }
+  None
+}
+
 /// The specifier string of every value import, `export * from` and
 /// `export { .. } from` in `module`.
 fn value_sources(module: &js::Module) -> impl Iterator<Item = &js::Str> {
@@ -2715,13 +2822,138 @@ fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: Funct
   let result = match body {
     FunctionBody::Expr(e) => lowerer.expr(e),
     FunctionBody::Block(stmts) => {
-      // A parameter is the function's own local, so the body may write it.
-      let refs: Vec<&js::Stmt> = stmts.iter().collect();
-      block_to_expr_inner(lowerer, &refs, depth)
+      // A body that writes a name it neither takes nor declares, a module-level `let`, keeps its statements: a block lambda can write what is around it where an expression lambda cannot.
+      let declared = declared_names(stmts);
+      let writes_outer = written_names(stmts, false).into_iter().any(|name| !names.contains(&name) && !declared.contains(&name));
+      if writes_outer {
+        lowerer.block(stmts).map(Expr::Block)
+      } else {
+        // A parameter is the function's own local, so the body may write it.
+        let refs: Vec<&js::Stmt> = stmts.iter().collect();
+        block_to_expr_inner(lowerer, &refs, depth)
+      }
     }
   };
   lowerer.scope.truncate(depth);
   Ok(Expr::Lambda { params: names, body: Box::new(result?) })
+}
+
+/// The bare names `stmts` write through `=`, a compound assignment or `++`, in source order; nested functions and arrows are walked when `through_functions` says so.
+pub(crate) fn written_names(stmts: &[js::Stmt], through_functions: bool) -> Vec<String> {
+  let mut writes = BareWrites { names: Vec::new(), through_functions };
+  for stmt in stmts {
+    stmt.visit_with(&mut writes);
+  }
+  writes.names
+}
+
+/// The bare names a module writes anywhere, its functions included.
+pub(crate) fn module_writes(module: &js::Module) -> Vec<String> {
+  let mut writes = BareWrites { names: Vec::new(), through_functions: true };
+  module.visit_with(&mut writes);
+  writes.names
+}
+
+struct BareWrites {
+  names: Vec<String>,
+  through_functions: bool,
+}
+
+impl Visit for BareWrites {
+  fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
+    if let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = &assign.left {
+      let name = id.id.sym.to_string();
+      if !self.names.contains(&name) {
+        self.names.push(name);
+      }
+    }
+    assign.visit_children_with(self);
+  }
+  fn visit_update_expr(&mut self, update: &js::UpdateExpr) {
+    if let js::Expr::Ident(id) = &*update.arg {
+      let name = id.sym.to_string();
+      if !self.names.contains(&name) {
+        self.names.push(name);
+      }
+    }
+    update.visit_children_with(self);
+  }
+  fn visit_arrow_expr(&mut self, arrow: &js::ArrowExpr) {
+    if self.through_functions {
+      arrow.visit_children_with(self);
+    }
+  }
+  fn visit_function(&mut self, function: &js::Function) {
+    if self.through_functions {
+      function.visit_children_with(self);
+    }
+  }
+}
+
+/// The names `stmts` declare at any depth outside nested functions.
+pub(crate) fn declared_names(stmts: &[js::Stmt]) -> Vec<String> {
+  struct Declared(Vec<String>);
+  impl Visit for Declared {
+    fn visit_var_declarator(&mut self, decl: &js::VarDeclarator) {
+      if let js::Pat::Ident(id) = &decl.name {
+        self.0.push(id.id.sym.to_string());
+      }
+      decl.visit_children_with(self);
+    }
+    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+    fn visit_function(&mut self, _: &js::Function) {}
+  }
+  let mut declared = Declared(Vec::new());
+  for stmt in stmts {
+    stmt.visit_with(&mut declared);
+  }
+  declared.0
+}
+
+/// Each `x++`, `x--`, `++x` or `--x` on a bare name that `stmt` reaches unconditionally, in source order: its span, the name, whether it is a prefix and whether it adds. One under a condition, a short-circuit or inside a function is left out, since lifting it would run it too soon.
+pub(crate) fn updates_in(stmt: &js::Stmt) -> Vec<(Span, String, bool, bool)> {
+  struct Updates {
+    found: Vec<(Span, String, bool, bool)>,
+    guarded: usize,
+  }
+  impl Visit for Updates {
+    fn visit_update_expr(&mut self, update: &js::UpdateExpr) {
+      if self.guarded == 0 {
+        if let js::Expr::Ident(id) = &*update.arg {
+          self.found.push((update.span, id.sym.to_string(), update.prefix, update.op == js::UpdateOp::PlusPlus));
+        }
+      }
+      update.visit_children_with(self);
+    }
+    fn visit_cond_expr(&mut self, cond: &js::CondExpr) {
+      cond.test.visit_with(self);
+      self.guarded += 1;
+      cond.cons.visit_with(self);
+      cond.alt.visit_with(self);
+      self.guarded -= 1;
+    }
+    fn visit_bin_expr(&mut self, bin: &js::BinExpr) {
+      bin.left.visit_with(self);
+      let short = matches!(bin.op, js::BinaryOp::LogicalAnd | js::BinaryOp::LogicalOr | js::BinaryOp::NullishCoalescing);
+      if short {
+        self.guarded += 1;
+      }
+      bin.right.visit_with(self);
+      if short {
+        self.guarded -= 1;
+      }
+    }
+    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+    fn visit_function(&mut self, _: &js::Function) {}
+    fn visit_if_stmt(&mut self, _: &js::IfStmt) {}
+    fn visit_for_of_stmt(&mut self, _: &js::ForOfStmt) {}
+    fn visit_for_stmt(&mut self, _: &js::ForStmt) {}
+    fn visit_while_stmt(&mut self, _: &js::WhileStmt) {}
+    fn visit_switch_stmt(&mut self, _: &js::SwitchStmt) {}
+  }
+  let mut updates = Updates { found: Vec::new(), guarded: 0 };
+  stmt.visit_with(&mut updates);
+  updates.found
 }
 
 pub(crate) fn bind_params(lowerer: &mut Lowerer<'_>, params: &[js::Pat]) -> Lowered<Vec<String>> {
@@ -3658,7 +3890,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
 }
 
 /// `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console` as the log it writes on the server, as a server renderer running the component writes it, or as nothing when an argument is one only the browser can compute.
-fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+pub(crate) fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Option<Expr>> {
   let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
   let js::Expr::Member(m) = crate::meaning::bare(callee) else { return Ok(None) };
   let js::Expr::Ident(console) = crate::meaning::bare(&m.obj) else { return Ok(None) };
@@ -4296,6 +4528,8 @@ struct ComponentLowerer<'a, 'p> {
   placed_kinds: Vec<(String, Vec<(String, crate::Kind)>)>,
   /// Each value only the browser knows that the server left to it, so the component hydrates and its browser copy computes the value once mounted.
   browser_texts: Vec<BrowserText>,
+  /// Each module-level `let` a function writes that this component reads: its name, its store key and the value the module's initialisation leaves it at, the seed the store falls back to.
+  module_lets: Vec<(String, String, Expr)>,
 }
 
 /// One head element a component asks for: a tag and its attributes in order.
@@ -4819,7 +5053,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     };
     self.lowerer.scope.truncate(depth);
-    let mut lets = lets;
+    // A module-level `let` a function writes is state the store holds per request, seeded by the module's own initialisation; a handler's write to it reaches the store as any store write does.
+    let mut bound = Vec::new();
+    for (name, key, seed) in std::mem::take(&mut self.module_lets) {
+      self.state.push(name.clone());
+      self.state_bindings.push(name.clone());
+      self.store_bindings.push((name.clone(), key.clone()));
+      bound.push(Stmt::Let { name, expr: Expr::Coalesce(Box::new(Expr::Store(key)), Box::new(seed)) });
+    }
+    bound.extend(lets);
+    let mut lets = bound;
     lets.extend(std::mem::take(&mut self.store_lets));
     Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None, scope: None }, std::mem::take(&mut self.refs)))
   }

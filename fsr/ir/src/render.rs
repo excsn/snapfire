@@ -2213,6 +2213,11 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
         *tmpl = Arc::new(prepare_tmpl(tmpl));
       }
     }),
+    Expr::Block(body) => crate::ast::body_visit_mut(body, &mut |e| {
+      if let Expr::Markup(tmpl) = e {
+        *tmpl = Arc::new(prepare_tmpl(tmpl));
+      }
+    }),
     Expr::Object(entries) => {
       fold_entries(entries);
       if entries.iter().all(|entry| matches!(entry, Entry::Field(_, Expr::Folded(_)))) {

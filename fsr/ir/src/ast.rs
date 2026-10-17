@@ -103,6 +103,8 @@ pub enum Expr {
   Lambda { params: Vec<String>, body: Box<Expr> },
   /// A lambda applied to arguments: a module-level helper a component calls.
   Apply { f: Box<Expr>, args: Vec<Expr> },
+  /// Statements run in the enclosing scope: the value the first `return` yields, null when none. A lambda whose body is one may write the names around it, which a lambda with an expression body cannot; hoisting reads those writes as taint and the interpreter runs it on the async path.
+  Block(Body),
   /// A fixed pure function; the list is `Builtin`.
   Builtin { name: Builtin, args: Vec<Expr> },
   /// An extension call, `intl.number(n)`: a member of a module the
@@ -520,6 +522,35 @@ impl Component {
   }
 }
 
+/// Calls `f` on every expression a body holds, in statement order, to change it.
+pub fn body_visit_mut(body: &mut Body, f: &mut dyn FnMut(&mut Expr)) {
+  for stmt in body {
+    match stmt {
+      Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) => expr.visit_mut(f),
+      Stmt::If { cond, then, r#else } => {
+        cond.visit_mut(f);
+        body_visit_mut(then, f);
+        body_visit_mut(r#else, f);
+      }
+      Stmt::ForOf { over, body, .. } => {
+        over.visit_mut(f);
+        body_visit_mut(body, f);
+      }
+      Stmt::Guard { cond, message, .. } => {
+        cond.visit_mut(f);
+        message.visit_mut(f);
+      }
+      Stmt::SessionSet { path, value, .. } => {
+        path.iter_mut().for_each(|p| p.visit_mut(f));
+        value.visit_mut(f);
+      }
+      Stmt::SessionDelete { path, .. } => path.iter_mut().for_each(|p| p.visit_mut(f)),
+      Stmt::SessionExtend { seconds } => seconds.visit_mut(f),
+      Stmt::Act { input, .. } => input.visit_mut(f),
+    }
+  }
+}
+
 /// Calls `f` on every expression a body holds, in statement order.
 pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
   for stmt in body {
@@ -759,6 +790,14 @@ impl Expr {
   pub fn free_vars(&self, out: &mut Vec<String>) {
     match self {
       Expr::Markup(tmpl) => tmpl.visit(&mut |e| e.free_vars(out)),
+      // A name the block writes is read by whoever holds it afterwards, so it counts with the reads.
+      Expr::Block(body) => {
+        for name in body_free_vars(body).into_iter().chain(set_targets(body)) {
+          if !out.contains(&name) {
+            out.push(name);
+          }
+        }
+      }
       Expr::Const(_) => {}
       Expr::Var(name) => {
         if !out.contains(name) {
@@ -846,6 +885,7 @@ impl Expr {
         args.iter().for_each(|e| e.visit(f));
       }
       Expr::Lambda { body, .. } => body.visit(f),
+      Expr::Block(body) => body_visit(body, f),
       Expr::Hoist { expr, .. } => expr.visit(f),
     }
   }
@@ -878,6 +918,7 @@ impl Expr {
         args.iter_mut().for_each(|e| e.visit_mut(f));
       }
       Expr::Lambda { body, .. } => body.visit_mut(f),
+      Expr::Block(body) => body_visit_mut(body, f),
       Expr::Hoist { expr, .. } => expr.visit_mut(f),
     }
   }
@@ -913,6 +954,7 @@ impl Expr {
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::reads_request),
       Expr::Apply { f, args } => f.reads_request() || args.iter().any(Expr::reads_request),
       Expr::Lambda { body, .. } => body.reads_request(),
+      Expr::Block(body) => body_reads_request(body),
       Expr::Hoist { expr, .. } => expr.reads_request(),
     }
   }
@@ -941,6 +983,11 @@ impl Expr {
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::has_call),
       Expr::Apply { f, args } => f.has_call() || args.iter().any(Expr::has_call),
       Expr::Lambda { body, .. } => body.has_call(),
+      Expr::Block(body) => {
+        let mut any = false;
+        body_visit(body, &mut |e| any |= matches!(e, Expr::Call { .. } | Expr::NativeCall { .. }));
+        any
+      }
       Expr::Hoist { expr, .. } => expr.has_call(),
     }
   }
@@ -949,6 +996,30 @@ impl Expr {
 /// The names a body reads that it does not bind itself, in first-read order.
 /// A `let` binds for the statements after it and a `for-of` for its own body,
 /// the way the interpreter scopes them.
+/// The names a body's `set` statements write, at any depth.
+pub fn set_targets(body: &Body) -> Vec<String> {
+  let mut out = Vec::new();
+  fn walk(body: &Body, out: &mut Vec<String>) {
+    for stmt in body {
+      match stmt {
+        Stmt::Set { name, .. } => {
+          if !out.contains(name) {
+            out.push(name.clone());
+          }
+        }
+        Stmt::If { then, r#else, .. } => {
+          walk(then, out);
+          walk(r#else, out);
+        }
+        Stmt::ForOf { body, .. } => walk(body, out),
+        _ => {}
+      }
+    }
+  }
+  walk(body, &mut out);
+  out
+}
+
 pub fn body_free_vars(body: &Body) -> Vec<String> {
   fn walk(body: &Body, bound: &mut Vec<String>, out: &mut Vec<String>) {
     let depth = bound.len();

@@ -640,6 +640,59 @@ impl Env {
     Ok(())
   }
 
+  /// `block` for a body with no service call in it: the statements a `Block` expression or a helper's body holds. A statement that reaches a service or the session is the async path's, so it fails here.
+  pub(crate) fn block_sync(&mut self, body: &Body) -> Result<Flow, Fail> {
+    let depth = self.scope.len();
+    for stmt in body {
+      match stmt {
+        Stmt::Let { name, expr } => {
+          let value = self.eval_sync(expr)?;
+          self.scope.push((name.clone(), value));
+        }
+        Stmt::Set { name, expr } => {
+          let value = self.eval_sync(expr)?;
+          let Some(slot) = self.scope.iter_mut().rev().find(|(n, _)| n == name) else {
+            return Err(Fail::internal(format!("`{name}` is set before it is bound")));
+          };
+          slot.1 = value;
+        }
+        Stmt::If { cond, then, r#else } => {
+          let branch = if truthy(&self.eval_sync(cond)?) { then } else { r#else };
+          if let Flow::Return(v) = self.block_sync(branch)? {
+            self.scope.truncate(depth);
+            return Ok(Flow::Return(v));
+          }
+        }
+        Stmt::ForOf { name, over, body } => {
+          let items = match self.eval_sync(over)? {
+            Value::Seq(items) => items,
+            other => return Err(type_error("for...of", "an array", &other)),
+          };
+          for item in items {
+            self.scope.push((name.clone(), item));
+            let flow = self.block_sync(body);
+            self.scope.pop();
+            if let Flow::Return(v) = flow? {
+              self.scope.truncate(depth);
+              return Ok(Flow::Return(v));
+            }
+          }
+        }
+        Stmt::Return(expr) => {
+          let value = self.eval_sync(expr)?;
+          self.scope.truncate(depth);
+          return Ok(Flow::Return(value));
+        }
+        Stmt::Expr(expr) => {
+          self.eval_sync(expr)?;
+        }
+        Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => return Err(Fail::internal("a guard, a session write or a dispatch inside a block, which runs where no request is")),
+      }
+    }
+    self.scope.truncate(depth);
+    Ok(Flow::Next)
+  }
+
   pub(crate) fn block<'a>(&'a mut self, body: &'a Body) -> BoxFuture<'a, Result<Flow, Fail>> {
     Box::pin(async move {
       let depth = self.scope.len();
@@ -977,6 +1030,15 @@ impl Env {
         }
       }
       Expr::Lambda { params, body } => self.close(params, body),
+      Expr::Block(body) => {
+        let depth = self.scope.len();
+        let flow = self.block_sync(body);
+        self.scope.truncate(depth);
+        match flow? {
+          Flow::Return(value) => Ok(value),
+          Flow::Next => Ok(Value::Null),
+        }
+      }
       Expr::Handler(index) => Ok(crate::render::handler_value(&self.component_path, *index)),
       Expr::Hoist { id, expr } => {
         let value = self.eval_sync(expr)?;
@@ -1387,6 +1449,15 @@ impl Env {
           self.ctx.natives.call(module, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
         Expr::Lambda { .. } => self.eval_sync(expr),
+        Expr::Block(body) => {
+          let depth = self.scope.len();
+          let flow = self.block(body).await;
+          self.scope.truncate(depth);
+          match flow? {
+            Flow::Return(value) => Ok(value),
+            Flow::Next => Ok(Value::Null),
+          }
+        }
         Expr::Hoist { expr, .. } => self.eval(expr).await,
         Expr::Handler(_) => Err(Fail::internal("a handler is a value in a render only")),
         Expr::Apply { f, args } => {

@@ -67,6 +67,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
       rest.extend(args.iter().map(expr_to_sx));
       form("apply", rest)
     }
+    Expr::Block(body) => form("block", body.iter().map(crate::sexpr::body::stmt_to_sx).collect()),
     Expr::Builtin { name, args } => form(builtin_sym(*name), args.iter().map(expr_to_sx).collect()),
     Expr::Ext { module, name, args } => {
       let mut rest = vec![Sx::Sym(module.clone()), Sx::Sym(name.clone())];
@@ -229,6 +230,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
       let a = at_least(items, head, 1)?;
       Expr::Apply { f: boxed(&a[0])?, args: a[1..].iter().map(expr_from_sx).collect::<Res<_>>()? }
     }
+    "block" => Expr::Block(items[1..].iter().map(crate::sexpr::body::stmt_from_sx).collect::<Res<_>>()?),
     "ext" => {
       let a = at_least(items, head, 2)?;
       Expr::Ext {
