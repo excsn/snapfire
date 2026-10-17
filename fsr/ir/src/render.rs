@@ -828,20 +828,7 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
 fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   match tmpl {
     Tmpl::Text(text) => out.text(text, env.markup),
-    Tmpl::Expr(expr) => {
-      let markup = env.markup;
-      match env.place(expr) {
-        Some(value) if !holds_made(value) => interpolate(value, out, markup)?,
-        Some(value) => {
-          let value = value.clone();
-          render_value(env, &value, library, out)?;
-        }
-        None => {
-          let value = env.eval_sync(expr)?;
-          render_value(env, &value, library, out)?;
-        }
-      }
-    }
+    Tmpl::Expr(expr) => render_expr(env, expr, library, out)?,
     Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
       write_baked_open(env, open, out);
@@ -897,6 +884,21 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Slot(name) => render_slot(env, name, library, slots, out)?,
   }
   Ok(())
+}
+
+fn render_expr(env: &mut Env, expr: &crate::ast::Expr, library: &Components, out: &mut Out) -> Result<(), Fail> {
+  let markup = env.markup;
+  match env.place(expr) {
+    Some(value) if !holds_made(value) => interpolate(value, out, markup),
+    Some(value) => {
+      let value = value.clone();
+      render_value(env, &value, library, out)
+    }
+    None => {
+      let value = env.eval_sync(expr)?;
+      render_value(env, &value, library, out)
+    }
+  }
 }
 
 fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {

@@ -111,9 +111,9 @@ fn a_bare_let_starts_as_null() {
 }
 
 #[test]
-fn markup_in_a_data_object_is_refused_by_name() {
+fn markup_in_a_data_object_renders_where_it_is_read() {
   let out = html("data", &[("routes/page.tsx", "export default function Page() {\n  const rows = [{ id: 1, content: <p>one</p> }];\n  return <ul>{rows.map((r) => <li key={r.id}>{r.content}</li>)}</ul>;\n}\n")]);
-  assert!(out.as_ref().is_err_and(|e| e.contains("markup where the build cannot place it: inside data")), "{out:?}");
+  assert_eq!(out.as_deref(), Ok("<ul><li><p>one</p></li></ul>"));
 }
 
 #[test]
@@ -179,9 +179,9 @@ fn an_array_of_markup_renders_as_its_items_would_inline() {
 }
 
 #[test]
-fn markup_inside_an_array_of_data_is_still_refused() {
+fn markup_inside_an_array_of_data_renders_where_each_item_reads_it() {
   let out = html("data_array", &[("routes/page.tsx", "export default function Page() {\n  const tabs = [{ label: \"a\", content: <p>a</p> }];\n  return <div>{tabs.map((t) => <section key={t.label}>{t.content}</section>)}</div>;\n}\n")]);
-  assert!(out.as_ref().is_err_and(|e| e.contains("markup where the build cannot place it")), "{out:?}");
+  assert_eq!(out.as_deref(), Ok("<div><section><p>a</p></section></div>"));
 }
 
 #[test]
