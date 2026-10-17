@@ -5,7 +5,8 @@ The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
 | Lowered whole | 532 | the server renders every component on the page |
-| Partly client side rendered | 102 | at least one component renders in the browser; the outcome names each cause |
+| Client side rendered by design | 63 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock, zone or device, a promise the render awaits, a portal |
+| Client side rendered, lowerable | 39 | a component renders in the browser because the build cannot read it yet or waits on a decision |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
 | Total | 641 | |
@@ -18,29 +19,37 @@ The build stops a module at its first cause and a component that fails never low
 
 ## What sends a component to the browser
 
-Every cause left is blocked. The last column is what it waits on. An example can name more than one cause, so the rows add up to more than 102.
+An example can name more than one cause, so the rows add up to more than the counts above. An example with any cause from the first table is counted there.
 
-| Cause | Examples | Waits on |
+### By design
+
+| Cause | Examples | Why it stays in the browser |
 | --- | --- | --- |
-| `use` of a promise, including after an early `return` | 19 | Nothing on the server: the data belongs in the route's loader |
-| A class component | 13 | Lowering a stateless `render()`; until then the class renders in the browser |
+| `use` of a promise, including after an early `return` | 19 | The data belongs in the route's loader |
 | `ShowRenderedHTML.js` | 9 | Not in the corpus, since react.dev's sandbox supplies it; it also renders children to a string through `react-dom/server` |
-| The viewer's time zone, `toLocaleTimeString` and `getHours` | 7 | Nothing: the server does not know the viewer's zone |
+| The viewer's time zone, `toLocaleTimeString` and `getHours` | 7 | The server does not know the viewer's zone |
+| `Math.random`, three of them behind `new Array` | 7 | Nondeterministic |
+| `createPortal` | 6 | React's server renderer has no portals |
+| An `async` component | 4 | What it awaits belongs in the loader |
+| `useSyncExternalStore` without `getServerSnapshot` | 3 | React's server renderer refuses it too |
+| A `'use server'` action, a promise cache or a promise in state | 3 | The promise row |
+| The current time on a render path, read inline or through a helper | 3 | Nondeterministic |
+| A write to `foo` in an error boundary demo | 2 | The component throws on purpose |
+| `window` | 1 | The viewer's device |
+
+### Lowerable
+
+| Cause | Examples | What it takes |
+| --- | --- | --- |
+| A class component | 13 | Lowering a stateless `render()` |
 | `useId` | 7 | A decision on matching the id React derives from the tree at hydration |
 | A locale named where it formats, `new Intl.NumberFormat('en-US')` kept as a value among them | 7 | A decision: formatting under a named locale is refused on purpose |
-| `Math.random`, three of them behind `new Array` | 7 | Nothing: nondeterministic |
 | A function value into a component that renders in the browser: a render prop, a method in an object literal or an imported function passed as a prop | 7 | A design for a function crossing into a hydrating component's props |
-| `createPortal` | 6 | Nothing: React's server renderer has no portals |
-| An `async` component | 4 | Nothing on the server: what it awaits belongs in the loader |
-| `useSyncExternalStore` without `getServerSnapshot` | 3 | Nothing: React's server renderer refuses it too |
 | `++` on a module-level counter | 3 | A decision on module state evaluated at load |
-| A `'use server'` action, a promise cache or a promise in state | 3 | The promise row |
-| The current time on a render path, read inline or through a helper | 3 | Nothing: nondeterministic |
-| A write to `foo` in an error boundary demo | 2 | Nothing: the component throws on purpose |
 | Setting state during render, `reference-react-usestate-14` | 1 | A decision on re-render semantics |
 | `Children.forEach`, `reference-react-children-3` | 1 | The IR walking a placement's children one by one |
 | `createElement`, `reference-react-createelement-1` | 1 | A rewrite to JSX the browser source rewrite can follow, since the rewritten nodes' spans would sit inside the call |
-| `.get()` on `useFormStatus`'s `data`, `.entries()` on typed props, `window` | 3 | `FormData`, typed values across props and the viewer's device |
+| `.get()` on `useFormStatus`'s `data`, `.entries()` on typed props | 2 | `FormData` and typed values across props |
 
 ## What is not a working example
 
