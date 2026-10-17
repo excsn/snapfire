@@ -270,3 +270,9 @@ fn clsx_and_classnames_join_class_names_as_the_package_does() {
   assert_eq!(html("clsx_default", &[("routes/page.tsx", &page("import cx from \"clsx\";", "cx"))]), want);
   assert_eq!(html("classnames", &[("routes/page.tsx", &page("import classNames from \"classnames\";", "classNames"))]), want);
 }
+
+#[test]
+fn typeof_guards_render_as_they_do_in_the_browser() {
+  let page = "const label = (v: unknown) => typeof v === \"string\" ? v : typeof v === \"number\" ? `#${v}` : typeof v === \"object\" && v !== null ? \"obj\" : \"none\";\nexport default function Page() {\n  const vs = [\"a\", 2, { k: 1 }, null, true];\n  return <ul>{vs.map((v, i) => <li key={i}>{label(v)}</li>)}</ul>;\n}\n";
+  assert_eq!(html("typeof_guards", &[("routes/page.tsx", page)]).as_deref(), Ok("<ul><li>a</li><li>#2</li><li>obj</li><li>none</li><li>none</li></ul>"));
+}

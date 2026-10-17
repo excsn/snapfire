@@ -220,6 +220,8 @@ pub enum Builtin {
   HasKey,
   /// `clsx(...)` and `classnames(...)` over its arguments as one array: each non-empty string and non-zero number, an array's items in turn and an object's keys whose values are truthy, joined by a space.
   ClassNames,
+  /// `typeof x`: `"string"`, `"number"`, `"boolean"`, `"function"` for a handler or an action and `"object"` for an object or an array. Null is `"undefined"`, since the server holds one null for both.
+  TypeOf,
   /// `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded.
   FormEncode,
   /// `new URLSearchParams(x).get(key)` over the string `FormEncode` wrote: the first value under `key`, null for none.

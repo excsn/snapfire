@@ -1578,6 +1578,7 @@ impl<'a> Lowerer<'a> {
           other => Ok(Expr::Arith(ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(self.expr(other)?))),
         },
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
+        js::UnaryOp::TypeOf => Ok(Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.arg)?] }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
       },
       js::Expr::Bin(bin) => {

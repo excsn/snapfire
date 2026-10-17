@@ -2407,6 +2407,15 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Null => Value::seq(Vec::<Value>::new()),
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
+    Builtin::TypeOf => Value::str(match arg(0)? {
+      Value::Null => "undefined",
+      Value::Bool(_) => "boolean",
+      Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) => "number",
+      Value::Str(_) => "string",
+      Value::Variant { tag, .. } if tag == crate::render::HANDLER_VALUE => "function",
+      Value::Ref { .. } => "function",
+      _ => "object",
+    }),
     Builtin::ClassNames => {
       fn add(value: &Value, out: &mut Vec<String>) -> Result<(), Fail> {
         match value {

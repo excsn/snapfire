@@ -202,7 +202,7 @@ learn-queueing-a-series-of-state-updates-4	lowered
 learn-queueing-a-series-of-state-updates-5	lowered
 learn-queueing-a-series-of-state-updates-6	lowered
 learn-queueing-a-series-of-state-updates-7	lowered
-learn-queueing-a-series-of-state-updates-8	client: src/processQueue.js:5:9 the `typeof` operator
+learn-queueing-a-series-of-state-updates-8	client: src/processQueue.js:7:20 a call to a computed target
 learn-reacting-to-input-with-state-10	lowered
 learn-reacting-to-input-with-state-11	lowered
 learn-reacting-to-input-with-state-2	lowered

@@ -141,6 +141,17 @@ async fn query_strings_encode_the_way_url_search_params_does() {
     Entry::Item(Expr::Object(vec![Entry::Field("d".to_owned(), Expr::Lit(Lit::Bool(true))), Entry::Field("e".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("f".to_owned(), str("x"))])),
   ]);
   assert_eq!(run(Expr::Builtin { name: Builtin::ClassNames, args: vec![parts] }).await, Value::str("a 2 b c d f"), "clsx's rules: falsy and booleans skipped, arrays flattened, an object's truthy keys");
+  let type_of = |e: Expr| Expr::Builtin { name: Builtin::TypeOf, args: vec![e] };
+  for (value, want) in [
+    (str("a"), "string"),
+    (Expr::Lit(Lit::Float(1.5)), "number"),
+    (Expr::Lit(Lit::Bool(false)), "boolean"),
+    (Expr::Array(Vec::new()), "object"),
+    (Expr::Object(Vec::new()), "object"),
+    (Expr::Lit(Lit::Null), "undefined"),
+  ] {
+    assert_eq!(run(type_of(value)).await, Value::str(want), "{want}");
+  }
 }
 
 #[tokio::test]
