@@ -116,6 +116,7 @@ fn bench(c: &mut Criterion) {
     }
   }
   let table = rows.join("\n") + "\n";
+  std::fs::create_dir_all(root().join("results")).expect("results/");
   std::fs::write(root().join("results").join(format!("{label}.tsv")), &table).expect("results/");
   eprintln!("{table}");
   for case in &ready {
