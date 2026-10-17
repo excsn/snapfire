@@ -3783,6 +3783,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       return Ok(());
     }
     self.premake_children(e)?;
+    if let js::Expr::Array(a) = e {
+      for elem in a.elems.iter().flatten() {
+        self.premake_expr(&elem.expr)?;
+      }
+      return Ok(());
+    }
     if self.holds_markup(e) {
       let tmpl = self.child_expr(e)?;
       let span = e.span();
@@ -4675,6 +4681,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// Each `Children.toArray(children)`, `Children.map(children, f)` and `Children.only(children)` under `e` over the component's own children, made ahead as a read of `render::CHILD_VALUES`, which the placement passes.
   fn premake_children(&mut self, e: &'p js::Expr) -> Lowered<()> {
     match e {
+      js::Expr::Call(call) if matches!(&call.callee, js::Callee::Expr(callee) if self.slot_of_expr(callee).as_deref() == Some("content")) => {
+        let mut args = Vec::with_capacity(call.args.len());
+        for arg in &call.args {
+          self.premake_children(&arg.expr)?;
+          args.push(self.lowerer.expr(&arg.expr)?);
+        }
+        let first = Expr::Builtin { name: Builtin::At, args: vec![Expr::Var(snapfire_fsr_ir::render::CHILD_VALUES.to_owned()), Expr::Lit(Lit::Int(0))] };
+        let span = call.span;
+        self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Apply { f: Box::new(first), args });
+        if !self.counts_children.contains(&snapfire_fsr_ir::render::CHILD_VALUES) {
+          self.counts_children.push(snapfire_fsr_ir::render::CHILD_VALUES);
+        }
+        Ok(())
+      }
       js::Expr::Call(call) => {
         if let Some((method, rest)) = self.own_children_call(call) {
           let values = Expr::Var(snapfire_fsr_ir::render::CHILD_VALUES.to_owned());
@@ -5082,6 +5102,27 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// A prop whose value is a function (an arrow, a `function` or the name of one the component declares) lowered as a handler of this component: its index or why it does not lower. `None` for a prop holding anything else.
+  /// An arrow passed as a prop that is not an event, `render={(row) => <b>{row}</b>}`, as the function value it is; `None` when it is something else or lowers only as a handler.
+  fn function_prop(&mut self, attr: &'p js::JSXAttr) -> Lowered<Option<Expr>> {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return Ok(None) };
+    let js::JSXExpr::Expr(e) = &c.expr else { return Ok(None) };
+    let mut inner: &'p js::Expr = e;
+    while let js::Expr::Paren(p) = inner {
+      inner = &p.expr;
+    }
+    if !matches!(inner, js::Expr::Arrow(_)) {
+      return Ok(None);
+    }
+    self.premake_expr(inner)?;
+    match self.lowerer.expr(inner) {
+      Ok(value) => Ok(Some(value)),
+      Err(_) => {
+        self.lowerer.unbound = None;
+        Ok(None)
+      }
+    }
+  }
+
   fn handler_prop(&mut self, attr: &'p js::JSXAttr, name: &str) -> Option<Lowered<usize>> {
     let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return None };
     let js::JSXExpr::Expr(e) = &c.expr else { return None };
@@ -5576,6 +5617,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         match lowered {
           Ok(index) => props.push(Entry::Field(raw, Expr::Handler(index as u32))),
           Err(residue) if self.unbound_is_followable() => return Err(residue),
+          Err(_) if !is_handler_name(&raw) && self.function_prop(attr)?.is_some() => {
+            self.lowerer.unbound = None;
+            let value = self.function_prop(attr)?.expect("lowered just above");
+            props.push(Entry::Field(raw, value));
+          }
           Err(residue) => {
             self.lowerer.unbound = None;
             if !props.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
@@ -7413,7 +7459,9 @@ mod fills {
     place(&mut component.render, &held);
     let mut place_inside = |e: &mut Expr| {
       if let Expr::Markup(t) = e {
-        place(std::sync::Arc::make_mut(t), &held);
+        let t = std::sync::Arc::make_mut(t);
+        place(t, &held);
+        plain_reads(t);
       }
     };
     for stmt in &mut component.body {
@@ -7468,7 +7516,7 @@ mod fills {
     component.body.iter().for_each(|stmt| stmt_exprs(stmt, &mut check));
     component.render.visit(&mut check);
     match unready {
-      true => Err("markup held as a value that places the component's children or a prop's markup, which the build renders only in place"),
+      true => Err("markup held as a value that places the component's children, which the build renders only in place"),
       false => Ok(()),
     }
   }
@@ -7485,11 +7533,31 @@ mod fills {
     }
   }
 
-  /// Whether `t` places a slot or reads a prop that a placement may fill with markup, both of which need the frame of the placement around them.
+  /// `t` with each read of a prop a placement may fill made a plain read: a markup value reads the prop, which holds the markup a placement filled it with.
+  fn plain_reads(t: &mut Tmpl) {
+    if let Tmpl::Let { name, expr, .. } = t {
+      if name.starts_with(SLOT_READ_PREFIX) {
+        *t = Tmpl::Expr(expr.clone());
+        return;
+      }
+    }
+    match t {
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(plain_reads),
+      Tmpl::If { then, r#else, .. } => {
+        plain_reads(then);
+        if let Some(e) = r#else {
+          plain_reads(e);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => plain_reads(body),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+
+  /// Whether `t` places a slot, which needs the frame of the placement around it.
   fn reads_slots(t: &Tmpl) -> bool {
     match t {
       Tmpl::Slot(_) => true,
-      Tmpl::Let { name, .. } if name.starts_with(SLOT_READ_PREFIX) => true,
       Tmpl::Text(_) | Tmpl::Expr(_) => false,
       Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(reads_slots),
       Tmpl::If { then, r#else, .. } => reads_slots(then) || r#else.as_deref().is_some_and(reads_slots),
@@ -7661,16 +7729,14 @@ mod fills {
       }
       Tmpl::Component { props, children, .. } => {
         let mut moved = Vec::new();
-        props.retain(|entry| match entry {
-          Entry::Field(k, e) => match tree_of(e, held) {
-            Some(sub) => {
-              moved.push((k.clone(), sub));
-              false
+        for entry in props.iter_mut() {
+          if let Entry::Field(k, e) = entry {
+            if let Some(sub) = tree_of(e, held) {
+              moved.push((k.clone(), sub.clone()));
+              *e = Expr::Markup(std::sync::Arc::new(sub));
             }
-            None => true,
-          },
-          _ => true,
-        });
+          }
+        }
         for child in children.iter_mut() {
           place(child, held);
         }
@@ -7798,7 +7864,10 @@ mod fills {
           for child in std::mem::take(children) {
             match child {
               Tmpl::Let { name, then, .. } if name.starts_with(SLOT_CONTENT_PREFIX) && name != format!("{SLOT_CONTENT_PREFIX}default") => {
-                props.push(Entry::Field(name[SLOT_CONTENT_PREFIX.len()..].to_owned(), Expr::Markup(std::sync::Arc::new(*then))));
+                let prop = &name[SLOT_CONTENT_PREFIX.len()..];
+                if !props.iter().any(|entry| matches!(entry, Entry::Field(k, _) if k == prop)) {
+                  props.push(Entry::Field(prop.to_owned(), Expr::Markup(std::sync::Arc::new(*then))));
+                }
               }
               other => kept.push(other),
             }

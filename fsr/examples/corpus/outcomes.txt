@@ -423,7 +423,7 @@ reference-react-captureownerstack-1	client: src/App.js:24:5 `Suspense` comes fro
 reference-react-captureownerstack-2	lowered
 reference-react-captureownerstack-3	lowered
 reference-react-children-1	lowered
-reference-react-children-10	lowered
+reference-react-children-10	client: src/App.js:5:5 a function passed as `getHeader` to `TabSwitcher`, which renders in the browser; the server holds no function the browser can call
 reference-react-children-11	lowered
 reference-react-children-2	lowered
 reference-react-children-3	client: src/SeparatorList.js:5:3 a call for its effect, which a straight-line body cannot hold
@@ -434,8 +434,8 @@ reference-react-children-7	lowered
 reference-react-children-8	lowered
 reference-react-children-9	lowered
 reference-react-cloneelement-1	lowered
-reference-react-cloneelement-2	lowered
-reference-react-cloneelement-3	lowered
+reference-react-cloneelement-2	client: src/App.js:7:5 a function passed as `renderItem` to `List`, which renders in the browser; the server holds no function the browser can call
+reference-react-cloneelement-3	client: src/App.js:7:5 a function passed as `renderItem` to `List`, which renders in the browser; the server holds no function the browser can call
 reference-react-cloneelement-4	lowered
 reference-react-component-1	refused: src/App.js: no exported `Greeting`
 reference-react-component-10	refused: src/App.js: no exported `Button`

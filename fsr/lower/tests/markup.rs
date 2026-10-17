@@ -126,12 +126,13 @@ fn markup_passed_as_a_prop_to_a_browser_component_crosses_as_a_region_the_island
 }
 
 #[test]
-fn an_island_calling_a_function_the_server_does_not_hold_mounts_in_the_browser() {
-  let tip = "import { useState } from \"react\";\nexport function Tip({ format }) {\n  const [n, setN] = useState(1);\n  return <span onClick={() => setN(n + 1)}>{format(n)}</span>;\n}\n";
-  let out = rendered("island_fn", &[("src/Tip.tsx", tip), ("routes/page.tsx", "import { Tip } from \"@src/Tip\";\nexport default function Page() {\n  return <Tip format={(n) => n * 2} />;\n}\n")]).unwrap();
-  let island = &out.islands[0];
-  assert_eq!(island.module, "src/Tip.tsx#Tip");
-  assert_eq!(island.body.html, "", "the server cannot call the browser's `format`, so the island mounts fresh rather than failing the page");
+fn a_function_into_a_browser_component_is_refused_and_a_handler_it_calls_mounts_it_in_the_browser() {
+  let tip = |prop: &str| format!("import {{ useState }} from \"react\";\nexport function Tip({{ {prop} }}) {{\n  const [n, setN] = useState(1);\n  return <span onClick={{() => setN(n + 1)}}>{{{prop}(n)}}</span>;\n}}\n");
+  let page = |prop: &str| format!("import {{ Tip }} from \"@src/Tip\";\nexport default function Page() {{\n  return <Tip {prop}={{(n) => n * 2}} />;\n}}\n");
+  let refused = html("island_fn", &[("src/Tip.tsx", &tip("format")), ("routes/page.tsx", &page("format"))]);
+  assert!(refused.as_ref().is_err_and(|e| e.contains("a function passed as `format` to `Tip`, which renders in the browser")), "{refused:?}");
+  let handed = rendered("island_handler", &[("src/Tip.tsx", &tip("onFormat")), ("routes/page.tsx", &page("onFormat"))]).unwrap();
+  assert_eq!(handed.islands[0].body.html, "", "the server cannot call the browser's handler, so the island mounts fresh rather than failing the page");
 }
 
 #[test]
