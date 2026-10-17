@@ -2496,6 +2496,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
+    Builtin::Throw => return Err(Fail::internal(stringify(arg(0)?)?)),
     Builtin::IsElement => Value::Bool(crate::render::is_made(arg(0)?)),
     Builtin::CloneElement => return Err(Fail::internal("cloneElement is evaluated in a render")),
     Builtin::ComponentRef => Value::Variant { tag: crate::render::COMPONENT_VALUE.to_owned(), payload: Some(Box::new(arg(0)?.clone())) },

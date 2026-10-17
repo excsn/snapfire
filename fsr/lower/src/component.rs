@@ -2665,7 +2665,7 @@ pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStmt) -> 
     }
     let body: &[js::Stmt] = match case.cons.last() {
       Some(js::Stmt::Break(b)) if b.label.is_none() => &case.cons[..case.cons.len() - 1],
-      Some(js::Stmt::Return(_)) => &case.cons,
+      Some(js::Stmt::Return(_) | js::Stmt::Throw(_)) => &case.cons,
       _ if i == last => &case.cons,
       _ => return Err(lowerer.residue_with(case.span, "a `case` that falls through into the next", "end it with `break` or `return`")),
     };
@@ -2682,6 +2682,28 @@ pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStmt) -> 
   Ok((arms, default))
 }
 
+/// `throw Error(message)`, `throw new Error(message)` or `throw value` as a render that fails with the message.
+fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStmt) -> Lowered<Expr> {
+  let error_message = |callee: &js::Expr, args: &[js::ExprOrSpread]| match crate::meaning::bare(callee) {
+    js::Expr::Ident(id) if id.sym.as_ref() == "Error" && id.ctxt == lowerer.meanings.as_ref().map(|m| m.unresolved).unwrap_or(id.ctxt) => Some(args.first().map(|a| (*a.expr).clone())),
+    _ => None,
+  };
+  let message = match crate::meaning::bare(&thrown.arg) {
+    js::Expr::Call(call) => match &call.callee {
+      js::Callee::Expr(callee) => error_message(callee, &call.args),
+      _ => None,
+    },
+    js::Expr::New(new) => error_message(&new.callee, new.args.as_deref().unwrap_or_default()),
+    _ => None,
+  };
+  let message = match message {
+    Some(Some(arg)) => lowerer.expr(&arg)?,
+    Some(None) => Expr::lit_str(""),
+    None => lowerer.expr(&thrown.arg)?,
+  };
+  Ok(Expr::Builtin { name: Builtin::Throw, args: vec![message] })
+}
+
 fn holds_break(stmt: &js::Stmt) -> bool {
   match stmt {
     js::Stmt::Break(_) => true,
@@ -2691,10 +2713,10 @@ fn holds_break(stmt: &js::Stmt) -> bool {
   }
 }
 
-/// Whether a statement returns somewhere inside it.
+/// Whether a statement returns or throws somewhere inside it, either of which ends the path it is on.
 pub(crate) fn holds_return(stmt: &js::Stmt) -> bool {
   match stmt {
-    js::Stmt::Return(_) => true,
+    js::Stmt::Return(_) | js::Stmt::Throw(_) => true,
     js::Stmt::Block(b) => b.stmts.iter().any(holds_return),
     js::Stmt::If(i) => holds_return(&i.cons) || i.alt.as_deref().is_some_and(holds_return),
     js::Stmt::Switch(sw) => sw.cases.iter().any(|c| c.cons.iter().any(holds_return)),
@@ -3297,6 +3319,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       Some(arg) => lowerer.expr(arg),
       None => Ok(Expr::Lit(Lit::Null)),
     },
+    js::Stmt::Throw(thrown) => throw_expr(lowerer, thrown),
     js::Stmt::Empty(_) => block_to_expr_inner(lowerer, rest, floor),
     js::Stmt::Block(_) if holds_return(first) => path(lowerer, joined(first, rest)),
     js::Stmt::If(if_stmt) if holds_return(first) => {
@@ -4251,6 +4274,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Some(arg) => self.child_expr(arg),
         None => Ok(Tmpl::Fragment(Vec::new())),
       },
+      js::Stmt::Throw(thrown) => Ok(Tmpl::Expr(throw_expr(&mut self.lowerer, thrown)?)),
       js::Stmt::Empty(_) => self.tree_of(rest, floor),
       js::Stmt::Block(_) if holds_return(first) => {
         let depth = self.lowerer.scope.len();

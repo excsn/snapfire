@@ -221,6 +221,8 @@ pub enum Builtin {
   TypeOf,
   /// `Array.isArray(x)`.
   IsArray,
+  /// `throw Error(message)` on a render path: the render fails with `String(message)`, as a component that throws fails React's server render.
+  Throw,
   /// A component named as a value, `icon={Star}`: its module, which a tag read from the value renders.
   ComponentRef,
   /// `isValidElement(x)`: whether `x` is a markup value.

@@ -132,7 +132,7 @@ learn-managing-state-4	lowered
 learn-managing-state-5	lowered
 learn-managing-state-6	lowered
 learn-managing-state-7	lowered
-learn-managing-state-8	client: src/Heading.js:7:5 a `case` that falls through into the next
+learn-managing-state-8	lowered
 learn-managing-state-9	lowered
 learn-manipulating-the-dom-with-refs-1	lowered
 learn-manipulating-the-dom-with-refs-10	lowered
@@ -150,13 +150,13 @@ learn-manipulating-the-dom-with-refs-6	lowered
 learn-manipulating-the-dom-with-refs-7	lowered
 learn-manipulating-the-dom-with-refs-8	lowered
 learn-manipulating-the-dom-with-refs-9	lowered
-learn-passing-data-deeply-with-context-1	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
-learn-passing-data-deeply-with-context-2	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
-learn-passing-data-deeply-with-context-3	client: src/Heading.js:16:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
-learn-passing-data-deeply-with-context-4	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
-learn-passing-data-deeply-with-context-5	client: src/Heading.js:20:7 a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
-learn-passing-data-deeply-with-context-6	client: src/Heading.js:7:5 a `case` that falls through into the next
-learn-passing-data-deeply-with-context-7	client: src/Heading.js:7:5 a `case` that falls through into the next
+learn-passing-data-deeply-with-context-1	lowered
+learn-passing-data-deeply-with-context-2	lowered
+learn-passing-data-deeply-with-context-3	lowered
+learn-passing-data-deeply-with-context-4	lowered
+learn-passing-data-deeply-with-context-5	lowered
+learn-passing-data-deeply-with-context-6	lowered
+learn-passing-data-deeply-with-context-7	lowered
 learn-passing-data-deeply-with-context-8	lowered
 learn-passing-data-deeply-with-context-9	lowered
 learn-passing-props-to-a-component-1	lowered
@@ -564,7 +564,7 @@ reference-react-usecontext-5	client: src/App.js:42:9 `useContext`
 reference-react-usecontext-6	lowered
 reference-react-usecontext-7	lowered
 reference-react-usecontext-8	lowered
-reference-react-usecontext-9	client: src/Heading.js:7:5 a `case` that falls through into the next
+reference-react-usecontext-9	lowered
 reference-react-usedebugvalue-1	lowered
 reference-react-usedeferredvalue-1	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
 reference-react-usedeferredvalue-2	client: src/App.js:13:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
