@@ -261,3 +261,12 @@ fn a_module_level_helper_that_returns_markup_renders_where_its_call_goes() {
   same("helper_held", "  const shown = on ? list([\"a\"]) : null;\n  return <div>{shown}</div>;", "  return <div><ul><li>a</li></ul></div>;");
   same("helper_empty", "  return <div>{list([])}</div>;", "  return <div></div>;");
 }
+
+#[test]
+fn clsx_and_classnames_join_class_names_as_the_package_does() {
+  let page = |import: &str, call: &str| format!("{import}\nexport default function Page({{ price }}) {{\n  const on = price > 1;\n  return <p className={{{call}(\"a\", on && \"b\", !on && \"c\", {{ d: on, e: !on }}, [\"f\", undefined])}}>x</p>;\n}}\n");
+  let want = Ok("<p class=\"a b d f\">x</p>".to_owned());
+  assert_eq!(html("clsx_named", &[("routes/page.tsx", &page("import { clsx } from \"clsx\";", "clsx"))]), want);
+  assert_eq!(html("clsx_default", &[("routes/page.tsx", &page("import cx from \"clsx\";", "cx"))]), want);
+  assert_eq!(html("classnames", &[("routes/page.tsx", &page("import classNames from \"classnames\";", "classNames"))]), want);
+}

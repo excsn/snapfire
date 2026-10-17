@@ -1427,7 +1427,10 @@ impl ComponentSet {
             (&named.local, self.imported_meaning(file, &source, &imported))
           }
           js::ImportSpecifier::Named(_) => continue,
-          js::ImportSpecifier::Default(d) if meaning::is_library(&source) => (&d.local, Meaning::Namespace(meaning::library_namespace(&source))),
+          js::ImportSpecifier::Default(d) if meaning::is_library(&source) => match meaning::library(&source, "default") {
+            Some(construct) => (&d.local, Meaning::Library(construct)),
+            None => (&d.local, Meaning::Namespace(meaning::library_namespace(&source))),
+          },
           js::ImportSpecifier::Default(d) if assets::kind(&source).is_some() => (&d.local, Meaning::Asset { source: source.clone() }),
           js::ImportSpecifier::Default(d) => (&d.local, self.imported_meaning(file, &source, "default")),
           js::ImportSpecifier::Namespace(ns) => (&ns.local, self.namespace_meaning(file, &source)),

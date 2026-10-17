@@ -1818,6 +1818,13 @@ impl<'a> Lowerer<'a> {
       }
       return Ok(self.candidate(call.span, Expr::Ext { module: "i18n".to_owned(), name: "t".to_owned(), args }));
     }
+    if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClassNames)) {
+      let mut items = Vec::with_capacity(call.args.len());
+      for a in &call.args {
+        items.push(Entry::Item(self.expr(&a.expr)?));
+      }
+      return Ok(Expr::Builtin { name: Builtin::ClassNames, args: vec![Expr::Array(items)] });
+    }
     if let js::Expr::Member(member) = &**callee {
       if let Some(module) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&member.obj)).and_then(|meant| meant.std()) {
         let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;

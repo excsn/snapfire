@@ -40,6 +40,8 @@ pub(crate) enum Construct {
   GeneratedActions,
   /// React's `lazy` or Vue's `defineAsyncComponent`: a component the browser loads on demand, which the server renders like any other since the build knows the module.
   AsyncComponent,
+  /// `clsx` or `classnames`, which join class names.
+  ClassNames,
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -123,6 +125,9 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("vue", "provide", Construct::Vue("provide")),
   ("vue", "inject", Construct::Vue("inject")),
   ("vue", "defineAsyncComponent", Construct::AsyncComponent),
+  ("clsx", "clsx", Construct::ClassNames),
+  ("clsx", "default", Construct::ClassNames),
+  ("classnames", "default", Construct::ClassNames),
 ];
 
 /// Whether `module` is one the table speaks for, so an export it does not list is a library value the build does not read rather than the application's.

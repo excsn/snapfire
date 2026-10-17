@@ -2407,6 +2407,30 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Null => Value::seq(Vec::<Value>::new()),
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
+    Builtin::ClassNames => {
+      fn add(value: &Value, out: &mut Vec<String>) -> Result<(), Fail> {
+        match value {
+          Value::Seq(items) => {
+            for item in items.iter() {
+              add(item, out)?;
+            }
+          }
+          Value::Map(map) => {
+            for (key, held) in map.iter() {
+              if truthy(held) {
+                out.push(key.to_string());
+              }
+            }
+          }
+          Value::Str(_) | Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) if truthy(value) => out.push(stringify(value)?),
+          _ => {}
+        }
+        Ok(())
+      }
+      let mut out = Vec::new();
+      add(arg(0)?, &mut out)?;
+      Value::str(out.join(" "))
+    }
     Builtin::HasKey => match arg(0)? {
       Value::Map(map) => Value::Bool(map.contains_key(stringify(arg(1)?)?.as_str())),
       Value::Seq(items) => Value::Bool(stringify(arg(1)?)?.parse::<usize>().is_ok_and(|i| i < items.len())),

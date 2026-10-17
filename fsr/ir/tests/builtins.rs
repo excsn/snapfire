@@ -130,6 +130,17 @@ async fn query_strings_encode_the_way_url_search_params_does() {
   let has = |at: f64| Expr::Builtin { name: Builtin::HasKey, args: vec![over(&["a", "b"]), Expr::Lit(Lit::Float(at))] };
   assert_eq!(run(has(1.0)).await, Value::Bool(true), "an array holds its indices");
   assert_eq!(run(has(2.0)).await, Value::Bool(false));
+  let parts = Expr::Array(vec![
+    Entry::Item(str("a")),
+    Entry::Item(str("")),
+    Entry::Item(Expr::Lit(Lit::Float(0.0))),
+    Entry::Item(Expr::Lit(Lit::Float(2.0))),
+    Entry::Item(Expr::Lit(Lit::Bool(true))),
+    Entry::Item(Expr::Lit(Lit::Null)),
+    Entry::Item(Expr::Array(vec![Entry::Item(str("b")), Entry::Item(Expr::Array(vec![Entry::Item(str("c"))]))])),
+    Entry::Item(Expr::Object(vec![Entry::Field("d".to_owned(), Expr::Lit(Lit::Bool(true))), Entry::Field("e".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("f".to_owned(), str("x"))])),
+  ]);
+  assert_eq!(run(Expr::Builtin { name: Builtin::ClassNames, args: vec![parts] }).await, Value::str("a 2 b c d f"), "clsx's rules: falsy and booleans skipped, arrays flattened, an object's truthy keys");
 }
 
 #[tokio::test]

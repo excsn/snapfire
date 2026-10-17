@@ -218,6 +218,8 @@ pub enum Builtin {
   Unique,
   /// `map.has(key)` over an object a `Map` lowered to and `key in x`: an object's own key, an array's index.
   HasKey,
+  /// `clsx(...)` and `classnames(...)` over its arguments as one array: each non-empty string and non-zero number, an array's items in turn and an object's keys whose values are truthy, joined by a space.
+  ClassNames,
   /// `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded.
   FormEncode,
   /// `new URLSearchParams(x).get(key)` over the string `FormEncode` wrote: the first value under `key`, null for none.
