@@ -1,17 +1,17 @@
 # react.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `850e9568`.
+The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `5a7fb145`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 563 | the server renders every component on the page |
-| Client side rendered, lowerable | 12 | a component renders in the browser because it uses something the build does not render on the server yet |
+| Lowered whole | 568 | the server renders every component on the page |
+| Client side rendered, lowerable | 7 | a component renders in the browser because it uses something the build does not render on the server yet |
 | Client side rendered by design | 59 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock choosing markup, a promise the render awaits, a portal |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
 | Total | 641 | |
 
-A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The viewer's clock written as text, `<p>{new Date().toLocaleTimeString()}</p>`, is left to the browser the same way: the server writes nothing for it, the component hydrates with the value null and computes it once mounted, which is the `useEffect` fix Next.js has you write, written by the build. Such an example counts as lowered whole. The guide's chapter 111 covers both.
+A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The viewer's clock written as text, `<p>{new Date().toLocaleTimeString()}</p>`, is left to the browser the same way: the server writes nothing for it, the component hydrates with the value null and computes it once mounted, which is the `useEffect` fix Next.js has you write, written by the build. Such an example counts as lowered whole. A function passed to a component that hydrates, a render prop among them, crosses as a module reference: the build exports an arrow from its file and the island imports it before it mounts, so such an example counts as lowered whole too. The guide's chapter 111 covers both.
 
 ## How causes hide each other
 
@@ -26,7 +26,6 @@ An example can name more than one cause, so the rows add up to more than the cou
 | Cause | Examples | What the server does not render yet |
 | --- | --- | --- |
 | `useId` | 6 | An id that matches the one React derives from the tree at hydration |
-| A function value into a component that renders in the browser: a render prop or a method in an object literal | 5 | A function passed into a component that hydrates |
 | Setting state during render, `reference-react-usestate-14` | 1 | Rendering again after state is set during render |
 
 ### By design
