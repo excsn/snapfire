@@ -2283,12 +2283,19 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
       js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) => {
         if let js::DefaultDecl::Fn(f) = &d.decl {
-          if f.ident.as_ref().is_some_and(|id| id.sym.as_ref() == name) {
+          if name == "default" || f.ident.as_ref().is_some_and(|id| id.sym.as_ref() == name) {
             let body = f.function.body.as_ref()?;
             return Some(Global::Function(patterns(&f.function), FunctionBody::Block(&body.stmts)));
           }
         }
         continue;
+      }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if name == "default" => {
+        return match crate::meaning::bare(&e.expr) {
+          js::Expr::Ident(id) => find_value(parsed, id.sym.as_ref()),
+          js::Expr::Arrow(arrow) => Some(Global::Function(arrow.params.clone(), arrow_body(arrow))),
+          value => Some(Global::Const(value)),
+        };
       }
       _ => continue,
     };
@@ -2552,7 +2559,11 @@ fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: Funct
   let names = bind_params(lowerer, params)?;
   let result = match body {
     FunctionBody::Expr(e) => lowerer.expr(e),
-    FunctionBody::Block(stmts) => block_to_expr(lowerer, stmts),
+    FunctionBody::Block(stmts) => {
+      // A parameter is the function's own local, so the body may write it.
+      let refs: Vec<&js::Stmt> = stmts.iter().collect();
+      block_to_expr_inner(lowerer, &refs, depth)
+    }
   };
   lowerer.scope.truncate(depth);
   Ok(Expr::Lambda { params: names, body: Box::new(result?) })
@@ -3668,6 +3679,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           if let Some(body) = &f.function.body {
             self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
           }
+          self.lowerer.browser_functions.push(f.ident.sym.to_string());
           self.browser_function(bound.clone());
           renames.push((f.ident.sym.to_string(), bound));
         }
@@ -4410,8 +4422,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         for (at, stmt) in stmts.iter().enumerate() {
           match stmt {
             js::Stmt::Return(ret) => {
-              let arg = ret.arg.as_deref().ok_or_else(|| self.lowerer.residue(ret.span, "a component must return its tree"))?;
-              render = Some(self.child_expr(arg)?);
+              render = Some(match ret.arg.as_deref() {
+                Some(arg) => self.child_expr(arg)?,
+                None => Tmpl::Fragment(Vec::new()),
+              });
               break;
             }
             js::Stmt::If(branch) if holds_return(stmt) && early_return(branch).is_none() => {
@@ -4563,7 +4577,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let depth = self.lowerer.scope.len();
         let mut lets = Vec::new();
         for decl in &var.decls {
-          if let Some((hook, _)) = decl.init.as_deref().and_then(|init| hook_call(&self.meanings(), init)) {
+          if let Some((hook, _)) = decl.init.as_deref().and_then(|init| hook_call(&self.meanings(), init)).filter(|(hook, _)| !matches!(*hook, "use" | "useContext")) {
             return Err(self.lowerer.residue(decl.span, format!("`{hook}` after a `return`, which React refuses since the hooks would change between renders")));
           }
           let expr = match decl.init.as_deref() {
@@ -4901,6 +4915,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.state.push(name.clone());
         self.state_bindings.push(name.clone());
         self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+        if let Some(initial) = call.args.first() {
+          self.lowerer.note_kind(&name, &initial.expr);
+        }
         Ok(Some(Stmt::Let { name, expr }))
       }
       pattern => self.pattern_stmt(pattern, init),
@@ -4972,6 +4989,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn pattern_stmt(&mut self, pattern: &'p js::Pat, init: &'p js::Expr) -> Lowered<Option<Stmt>> {
     let expr = match hook_call(&self.meanings(), init) {
       Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(pattern)),
+      Some(("useContext" | "use", _)) => self.lowerer.expr(init)?,
       Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
       Some((hook, _)) => return Err(self.lowerer.residue(pattern.span(), format!("`{hook}`"))),
       None => self.lowerer.expr(init)?,

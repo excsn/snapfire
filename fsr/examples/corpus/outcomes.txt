@@ -27,7 +27,7 @@ learn-choosing-the-state-structure-19	lowered
 learn-choosing-the-state-structure-2	lowered
 learn-choosing-the-state-structure-20	lowered
 learn-choosing-the-state-structure-21	lowered
-learn-choosing-the-state-structure-22	client: src/App.js:32:15 `.has()`, which is not a builtin
+learn-choosing-the-state-structure-22	lowered
 learn-choosing-the-state-structure-3	lowered
 learn-choosing-the-state-structure-4	lowered
 learn-choosing-the-state-structure-5	lowered
@@ -282,7 +282,7 @@ learn-reusing-logic-with-custom-hooks-24	lowered
 learn-reusing-logic-with-custom-hooks-25	lowered
 learn-reusing-logic-with-custom-hooks-3	lowered
 learn-reusing-logic-with-custom-hooks-4	lowered
-learn-reusing-logic-with-custom-hooks-5	client: src/useFormInput.js:12:15 `handleChange` is not bound here; an import the build cannot follow or a name from outside the body
+learn-reusing-logic-with-custom-hooks-5	lowered
 learn-reusing-logic-with-custom-hooks-9	lowered
 learn-rsc-sandbox-test-1	lowered
 learn-rsc-sandbox-test-10	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
@@ -313,7 +313,7 @@ learn-sharing-state-between-components-3	lowered
 learn-sharing-state-between-components-4	lowered
 learn-sharing-state-between-components-5	lowered
 learn-sharing-state-between-components-6	lowered
-learn-sharing-state-between-components-7	client: src/data.js:2:3 a write to `query`, which this body did not declare
+learn-sharing-state-between-components-7	lowered
 learn-state-a-components-memory-11	lowered
 learn-state-a-components-memory-12	lowered
 learn-state-a-components-memory-13	lowered
@@ -366,8 +366,8 @@ learn-typescript-2	lowered
 learn-typescript-3	lowered
 learn-typescript-4	lowered
 learn-typescript-5	lowered
-learn-understanding-your-ui-as-a-tree-1	client: src/InspirationGenerator.js:7:17 `quotes` comes from `./quotes`, which the build cannot follow
-learn-understanding-your-ui-as-a-tree-2	client: src/InspirationGenerator.js:8:23 `inspirations` comes from `./inspirations`, which the build cannot follow
+learn-understanding-your-ui-as-a-tree-1	lowered
+learn-understanding-your-ui-as-a-tree-2	lowered
 learn-updating-arrays-in-state-1	lowered
 learn-updating-arrays-in-state-11	lowered
 learn-updating-arrays-in-state-12	lowered
@@ -405,7 +405,7 @@ learn-your-first-component-11	lowered
 learn-your-first-component-2	lowered
 learn-your-first-component-3	refused: src/App.js: no exported `default`
 learn-your-first-component-4	lowered
-learn-your-first-component-5	client: src/App.js:2:3 a component must return its tree
+learn-your-first-component-5	lowered
 learn-your-first-component-6	lowered
 learn-your-first-component-7	lowered
 learn-your-first-component-8	lowered
@@ -543,7 +543,7 @@ reference-react-suspense-6	client: src/SearchResults.js:8:9 `use` after an early
 reference-react-suspense-7	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
 reference-react-suspense-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-suspense-9	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-use-1	client: src/App.js:35:11 `use` after a `return`, which React refuses since the hooks would change between renders
+reference-react-use-1	lowered
 reference-react-use-3	lowered
 reference-react-use-4	client: src/App.js:20:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-5	client: src/data.js:9:5 a call for its effect, which a straight-line body cannot hold
@@ -558,9 +558,9 @@ reference-react-useactionstate-6	client: src/Total.js:1:19 an `Intl` formatter k
 reference-react-usecallback-3	client: src/ShippingForm.js:6:3 a call for its effect, which a straight-line body cannot hold
 reference-react-usecontext-1	lowered
 reference-react-usecontext-2	lowered
-reference-react-usecontext-3	client: src/App.js:28:9 `useContext`
-reference-react-usecontext-4	client: src/App.js:34:9 `useContext`
-reference-react-usecontext-5	client: src/App.js:42:9 `useContext`
+reference-react-usecontext-3	lowered
+reference-react-usecontext-4	lowered
+reference-react-usecontext-5	lowered
 reference-react-usecontext-6	lowered
 reference-react-usecontext-7	lowered
 reference-react-usecontext-8	lowered
@@ -636,6 +636,6 @@ reference-react-usesyncexternalstore-3	client: src/useOnlineStatus.js:4:20 `useS
 reference-react-usetransition-6	client: src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-usetransition-7	client: src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-usetransition-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-rsc-use-client-1	client: src/InspirationGenerator.js:9:17 `inspirations` comes from `./inspirations`, which the build cannot follow
+reference-rsc-use-client-1	lowered
 reference-rsc-use-client-2	lowered
 reference-rules-components-and-hooks-must-be-pure-1	lowered

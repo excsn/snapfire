@@ -95,3 +95,54 @@ fn a_numeric_property_name_is_read_back_by_number_or_by_string() {
   let page = "const plan = {\n  0: { title: \"Root\", childIds: [1, 2] },\n  1: { title: \"Earth\", childIds: [] },\n  2: { title: \"Moon\", childIds: [] },\n  1.5: { title: \"half\" },\n};\nexport default function Page() {\n  const root = plan[0];\n  return <ul>{root.childIds.map((id) => <li key={id}>{plan[id].title}</li>)}<li>{plan[\"2\"].title}</li><li>{plan[1.5].title}</li></ul>;\n}\n";
   assert_eq!(html("numeric", page).as_deref(), Ok("<ul><li>Earth</li><li>Moon</li><li>Moon</li><li>half</li></ul>"));
 }
+
+fn html_with(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
+  let dir = app(tag, files);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());
+  std::fs::remove_dir_all(&dir).unwrap();
+  result?;
+  set.settle_fills();
+  if let Some((module, residue)) = set.browser_only.first() {
+    return Err(format!("{module}: {}", residue.message));
+  }
+  let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  Interpreter::default().with_consts(Some(Arc::new(set.consts.clone()))).render_module(module, &library[module], &ValueMap::default(), &library).map(|r| r.html).map_err(|e| format!("{e:?}"))
+}
+
+#[test]
+fn a_bare_return_renders_nothing() {
+  assert_eq!(html("bare_return", "export default function Page() {\n  return\n    <img src=\"/a.png\" />;\n}\n").as_deref(), Ok(""));
+}
+
+#[test]
+fn a_default_exported_value_is_read_where_it_is_imported() {
+  let out = html_with("data_default", &[("src/quotes.ts", "export default [\"one\", \"two\"];\n"), ("routes/page.tsx", "import quotes from \"@src/quotes\";\nexport default function Page() {\n  return <p>{quotes[1]} of {quotes.length}</p>;\n}\n")]);
+  assert_eq!(out.as_deref(), Ok("<p>two of 2</p>"));
+}
+
+#[test]
+fn a_context_read_after_an_early_return_or_destructured_reads_the_provider() {
+  let page = "import { createContext, use, useContext } from \"react\";\nconst Theme = createContext(\"light\");\nconst User = createContext(null);\nfunction Button({ show }) {\n  if (show) {\n    const theme = use(Theme);\n    return <b>{theme}</b>;\n  }\n  return null;\n}\nfunction Name() {\n  const { name } = useContext(User);\n  return <i>{name}</i>;\n}\nexport default function Page() {\n  return <Theme value=\"dark\"><User value={{ name: \"Ada\" }}><Button show={true} /><Button show={false} /><Name /></User></Theme>;\n}\n";
+  assert_eq!(html("context_reads", page).as_deref(), Ok("<b>dark</b><i>Ada</i>"));
+}
+
+#[test]
+fn has_on_a_set_held_in_state_reads_the_set() {
+  let page = "import { useState } from \"react\";\nexport default function Page() {\n  const [picked, setPicked] = useState(new Set([1]));\n  return <p onClick={() => setPicked(new Set())}>{picked.has(1) ? \"one\" : \"none\"} {picked.has(2) ? \"two\" : \"none\"}</p>;\n}\n";
+  assert_eq!(html("set_state", page).as_deref(), Ok("<p>one none</p>"));
+}
+
+#[test]
+fn a_helper_may_write_its_own_parameter() {
+  let page = "function filterItems(items, query) {\n  query = query.toLowerCase();\n  return items.filter((item) => item.startsWith(query));\n}\nexport default function Page() {\n  return <p>{filterItems([\"apple\", \"banana\"], \"AP\").join(\",\")}</p>;\n}\n";
+  assert_eq!(html("param_write", page).as_deref(), Ok("<p>apple</p>"));
+}
+
+#[test]
+fn a_function_a_custom_hook_declares_and_returns_in_an_object_lowers_the_hook() {
+  let hook = "import { useState } from \"react\";\nexport function useFormInput(initial) {\n  const [value, setValue] = useState(initial);\n  function handleChange(e) {\n    setValue(e.target.value);\n  }\n  const inputProps = { value: value, onChange: handleChange };\n  return inputProps;\n}\n";
+  let page = "import { useFormInput } from \"@src/useFormInput\";\nexport default function Page() {\n  const props = useFormInput(\"Ada\");\n  return <input {...props} />;\n}\n";
+  assert_eq!(html_with("hook_fn", &[("src/useFormInput.ts", hook), ("routes/page.tsx", page)]).as_deref(), Ok("<input value=\"Ada\">"));
+}
