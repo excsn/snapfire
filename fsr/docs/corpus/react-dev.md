@@ -1,11 +1,11 @@
 # react.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `6985725d`.
+The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `a5a2b46b`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 559 | the server renders every component on the page |
-| Client side rendered, lowerable | 16 | a component renders in the browser because it uses something the build does not render on the server yet |
+| Lowered whole | 560 | the server renders every component on the page |
+| Client side rendered, lowerable | 15 | a component renders in the browser because it uses something the build does not render on the server yet |
 | Client side rendered by design | 59 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock choosing markup, a promise the render awaits, a portal |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
@@ -27,7 +27,7 @@ An example can name more than one cause, so the rows add up to more than the cou
 | --- | --- | --- |
 | `useId` | 6 | An id that matches the one React derives from the tree at hydration |
 | A function value into a component that renders in the browser: a render prop or a method in an object literal | 5 | A function passed into a component that hydrates |
-| `++` on a module-level counter | 3 | A module-level `let` a helper writes, as a store key seeded by running the module's initialisation once; a handler's write to it is a store write and a render's stays refused |
+| A render calling a helper that writes a module `let`, `++calls` in a log line, `learn-you-might-not-need-an-effect-4`, `-5` | 2 | A write to module state on a render path; a handler's write through the same helper reaches the store |
 | Setting state during render, `reference-react-usestate-14` | 1 | Rendering again after state is set during render |
 | `createElement`, `reference-react-createelement-1` | 1 | `createElement` calls read as the JSX they stand for |
 
