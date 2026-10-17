@@ -448,7 +448,7 @@ reference-react-component-6	lowered
 reference-react-component-7	lowered
 reference-react-component-8	lowered
 reference-react-component-9	lowered
-reference-react-createelement-1	client: src/App.js:14:10 a call to `createElement`, which the build cannot follow
+reference-react-createelement-1	lowered
 reference-react-createelement-2	lowered
 reference-react-createref-1	lowered
 reference-react-createref-2	lowered

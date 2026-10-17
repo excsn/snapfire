@@ -4,6 +4,7 @@
 
 pub mod assets;
 pub mod component;
+mod create_element;
 pub mod extract;
 pub mod hoist;
 mod meaning;
@@ -645,8 +646,10 @@ pub(crate) fn parse_from(file: &str, source: &str, tsx: bool, origin: Option<std
     let unresolved = Mark::new();
     let top_level = Mark::new();
     let program = js::Program::Module(module).apply(resolver(unresolved, top_level, true));
-    let js::Program::Module(module) = program else { unreachable!("a module resolves to a module") };
-    (module, SyntaxContext::empty().apply_mark(top_level), SyntaxContext::empty().apply_mark(unresolved))
+    let js::Program::Module(mut module) = program else { unreachable!("a module resolves to a module") };
+    let top = SyntaxContext::empty().apply_mark(top_level);
+    create_element::desugar(&mut module, top);
+    (module, top, SyntaxContext::empty().apply_mark(unresolved))
   });
   Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new(), origin })
 }
