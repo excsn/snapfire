@@ -1,17 +1,17 @@
 # react.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `1d8b297a`.
+The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `6985725d`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 545 | the server renders every component on the page |
-| Client side rendered, lowerable | 26 | a component renders in the browser because it uses something the build does not render on the server yet |
-| Client side rendered by design | 63 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock, zone or device, a promise the render awaits, a portal |
+| Lowered whole | 559 | the server renders every component on the page |
+| Client side rendered, lowerable | 16 | a component renders in the browser because it uses something the build does not render on the server yet |
+| Client side rendered by design | 59 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock choosing markup, a promise the render awaits, a portal |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
 | Total | 641 | |
 
-A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The guide's chapter 111 covers it.
+A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The viewer's clock written as text, `<p>{new Date().toLocaleTimeString()}</p>`, is left to the browser the same way: the server writes nothing for it, the component hydrates with the value null and computes it once mounted, which is the `useEffect` fix Next.js has you write, written by the build. Such an example counts as lowered whole. The guide's chapter 111 covers both.
 
 ## How causes hide each other
 
@@ -25,13 +25,11 @@ An example can name more than one cause, so the rows add up to more than the cou
 
 | Cause | Examples | What the server does not render yet |
 | --- | --- | --- |
-| `useId` | 7 | An id that matches the one React derives from the tree at hydration |
-| A locale named where it formats, `new Intl.NumberFormat('en-US')` kept as a value among them | 7 | Formatting under a locale written into the code rather than the request's |
-| A function value into a component that renders in the browser: a render prop, a method in an object literal or an imported function passed as a prop | 7 | A function passed into a component that hydrates |
-| `++` on a module-level counter | 3 | Module state written when the module loads |
+| `useId` | 6 | An id that matches the one React derives from the tree at hydration |
+| A function value into a component that renders in the browser: a render prop or a method in an object literal | 5 | A function passed into a component that hydrates |
+| `++` on a module-level counter | 3 | A module-level `let` a helper writes, as a store key seeded by running the module's initialisation once; a handler's write to it is a store write and a render's stays refused |
 | Setting state during render, `reference-react-usestate-14` | 1 | Rendering again after state is set during render |
 | `createElement`, `reference-react-createelement-1` | 1 | `createElement` calls read as the JSX they stand for |
-| `.entries()` on typed props, `learn-rsc-sandbox-test-5` | 1 | `Map`, `Set`, `Date` and `BigInt` values passed as props and read with `instanceof` |
 
 ### By design
 
@@ -39,13 +37,12 @@ An example can name more than one cause, so the rows add up to more than the cou
 | --- | --- | --- |
 | `use` of a promise, including after an early `return` | 19 | The data belongs in the route's loader |
 | `ShowRenderedHTML.js` | 9 | Not in the corpus, since react.dev's sandbox supplies it; it also renders children to a string through `react-dom/server` |
-| The viewer's time zone, `toLocaleTimeString` and `getHours` | 7 | The server does not know the viewer's zone |
 | `Math.random`, three of them behind `new Array` | 7 | Nondeterministic |
 | `createPortal` | 6 | React's server renderer has no portals |
+| A `'use server'` action, a promise cache or a promise in state | 6 | The promise row |
 | An `async` component | 4 | What it awaits belongs in the loader |
 | `useSyncExternalStore` without `getServerSnapshot` | 3 | React's server renderer refuses it too |
-| A `'use server'` action, a promise cache or a promise in state | 3 | The promise row |
-| The current time on a render path, read inline or through a helper | 3 | Nondeterministic |
+| The viewer's hour choosing a class name, with `document` written during render | 2 | A value only the browser knows that shapes markup rather than text, which the first render in the browser would have to match |
 | A write to `foo` in an error boundary demo | 2 | The component throws on purpose |
 | `window` | 1 | The viewer's device |
 
