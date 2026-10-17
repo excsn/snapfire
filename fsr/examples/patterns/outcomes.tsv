@@ -25,7 +25,7 @@ helper_module_markup	lowered
 helper_returns_array	lowered
 is_valid_element	lowered
 island_markup_prop	lowered
-join_with_separator	client: routes/page.island0.tsx:3:3 a call for its effect, which a straight-line body cannot hold
+join_with_separator	lowered
 keyed_fragment_inline	lowered
 let_branches	lowered
 local_const	lowered
