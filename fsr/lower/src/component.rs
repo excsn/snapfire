@@ -1037,8 +1037,13 @@ impl ComponentSet {
       let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed[at].clone(), export.clone())).collect();
       let (result, unbound, hoisting) = {
         let parsed = self.parsed[file].clone();
-        let function = find_function(&parsed, export).ok_or_else(|| LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() })?;
         let defaults = self.defaults.clone();
+        let Some(function) = find_function(&parsed, export) else {
+          if let Some(span) = class_component_span(&parsed, export) {
+            return Err(Lowerer::new(&parsed, &defaults).residue(span, CLASS_COMPONENT).into());
+          }
+          return Err(LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() });
+        };
         if let Some(span) = async_function_span(&parsed, export).filter(|_| !awaits_only_imports(&function)) {
           return Err(Lowerer::new(&parsed, &defaults).residue(span, ASYNC_COMPONENT).into());
         }
@@ -1050,7 +1055,7 @@ impl ComponentSet {
         lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -2034,19 +2039,122 @@ pub(crate) fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Foun
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => match &*e.expr {
         js::Expr::Arrow(arrow) => return Some(Found::Arrow(arrow)),
         js::Expr::Ident(id) => return find_function(parsed, id.sym.as_ref()),
+        js::Expr::Call(call) => return unwrapped(parsed, call),
         _ => {}
       },
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => {
-        if let Some(found) = decl_function(&export_decl.decl, export) {
+        if let Some(found) = decl_function(parsed, &export_decl.decl, export) {
           return Some(found);
         }
       }
       js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => {
-        if let Some(found) = decl_function(decl, export) {
+        if let Some(found) = decl_function(parsed, decl, export) {
           return Some(found);
         }
       }
       _ => {}
+    }
+  }
+  None
+}
+
+/// The React export `expr` names: `memo` imported from `react` under any name, or `React.memo` through its default or namespace import.
+fn react_export(parsed: &Parsed, expr: &js::Expr) -> Option<String> {
+  let imports = parsed.module.body.iter().filter_map(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if import.src.value.to_atom_lossy().as_ref() == "react" => Some(import),
+    _ => None,
+  });
+  match crate::meaning::bare(expr) {
+    js::Expr::Ident(id) => imports.flat_map(|import| import.specifiers.iter()).find_map(|spec| match spec {
+      js::ImportSpecifier::Named(named) if named.local.sym == id.sym => Some(match &named.imported {
+        Some(js::ModuleExportName::Ident(imported)) => imported.sym.to_string(),
+        Some(js::ModuleExportName::Str(s)) => s.value.to_atom_lossy().to_string(),
+        None => named.local.sym.to_string(),
+      }),
+      _ => None,
+    }),
+    js::Expr::Member(member) => {
+      let (js::Expr::Ident(object), js::MemberProp::Ident(prop)) = (crate::meaning::bare(&member.obj), &member.prop) else { return None };
+      let mut imports = imports;
+      imports
+        .any(|import| import.specifiers.iter().any(|spec| matches!(spec, js::ImportSpecifier::Default(d) if d.local.sym == object.sym) || matches!(spec, js::ImportSpecifier::Namespace(n) if n.local.sym == object.sym)))
+        .then(|| prop.sym.to_string())
+    }
+    _ => None,
+  }
+}
+
+/// The function `memo(f)` or `forwardRef(f)` wraps, through any nesting of the two.
+fn unwrapped<'a>(parsed: &'a Parsed, call: &'a js::CallExpr) -> Option<Found<'a>> {
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  if !matches!(react_export(parsed, callee).as_deref(), Some("memo" | "forwardRef")) {
+    return None;
+  }
+  match crate::meaning::bare(&call.args.first()?.expr) {
+    js::Expr::Arrow(arrow) => Some(Found::Arrow(arrow)),
+    js::Expr::Fn(f) => {
+      let body = f.function.body.as_ref()?;
+      Some(Found::Declared(patterns(&f.function), &body.stmts, body.span))
+    }
+    js::Expr::Call(inner) => unwrapped(parsed, inner),
+    js::Expr::Ident(id) => find_function(parsed, id.sym.as_ref()),
+    _ => None,
+  }
+}
+
+/// Whether `export` is wrapped in `forwardRef`, whose function takes the ref as its second parameter.
+fn forwards_ref(parsed: &Parsed, export: &str) -> bool {
+  fn wraps(parsed: &Parsed, expr: &js::Expr) -> bool {
+    let js::Expr::Call(call) = crate::meaning::bare(expr) else { return false };
+    let js::Callee::Expr(callee) = &call.callee else { return false };
+    match react_export(parsed, callee).as_deref() {
+      Some("forwardRef") => true,
+      Some("memo") => call.args.first().is_some_and(|arg| wraps(parsed, &arg.expr)),
+      _ => false,
+    }
+  }
+  parsed.module.body.iter().any(|item| {
+    let decl = match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => {
+        return match crate::meaning::bare(&e.expr) {
+          js::Expr::Ident(id) => forwards_ref(parsed, id.sym.as_ref()),
+          other => wraps(parsed, other),
+        };
+      }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => &export_decl.decl,
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+      _ => return false,
+    };
+    let js::Decl::Var(var) = decl else { return false };
+    var.decls.iter().any(|d| matches!(&d.name, js::Pat::Ident(id) if id.id.sym.as_ref() == export) && d.init.as_deref().is_some_and(|init| wraps(parsed, init)))
+  })
+}
+
+/// What a class component is told: the build lowers functions, so the class renders in the browser.
+pub(crate) const CLASS_COMPONENT: &str = "a class component, which the build does not lower";
+
+/// The span of `export` when it is a class extending React's `Component` or `PureComponent`.
+fn class_component_span(parsed: &Parsed, export: &str) -> Option<Span> {
+  let react_base = |class: &js::Class| class.super_class.as_deref().is_some_and(|base| matches!(react_export(parsed, base).as_deref(), Some("Component" | "PureComponent")));
+  for item in &parsed.module.body {
+    let decl = match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(d)) if export == "default" => match &d.decl {
+        js::DefaultDecl::Class(c) if react_base(&c.class) => return Some(c.class.span),
+        _ => continue,
+      },
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => match crate::meaning::bare(&e.expr) {
+        js::Expr::Ident(id) => return class_component_span(parsed, id.sym.as_ref()),
+        js::Expr::Class(c) if react_base(&c.class) => return Some(c.class.span),
+        _ => continue,
+      },
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export_decl)) => &export_decl.decl,
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+      _ => continue,
+    };
+    if let js::Decl::Class(c) = decl {
+      if c.ident.sym.as_ref() == export && react_base(&c.class) {
+        return Some(c.class.span);
+      }
     }
   }
   None
@@ -2149,7 +2257,7 @@ fn tree_call(parsed: &Parsed, meanings: &crate::meaning::Meanings) -> Option<Spa
   })
 }
 
-fn decl_function<'a>(decl: &'a js::Decl, name: &str) -> Option<Found<'a>> {
+fn decl_function<'a>(parsed: &'a Parsed, decl: &'a js::Decl, name: &str) -> Option<Found<'a>> {
   match decl {
     js::Decl::Fn(f) if f.ident.sym.as_ref() == name => {
       let body = f.function.body.as_ref()?;
@@ -2159,6 +2267,7 @@ fn decl_function<'a>(decl: &'a js::Decl, name: &str) -> Option<Found<'a>> {
       let decl = var.decls.iter().find(|d| matches!(&d.name, js::Pat::Ident(id) if id.id.sym.as_ref() == name))?;
       match decl.init.as_deref()? {
         js::Expr::Arrow(arrow) => Some(Found::Arrow(arrow)),
+        js::Expr::Call(call) => unwrapped(parsed, call),
         _ => None,
       }
     }
@@ -3601,6 +3710,8 @@ struct ComponentLowerer<'a, 'p> {
   props_name: Option<String>,
   /// The local name `children` was destructured to.
   children_name: Option<String>,
+  /// Whether the component is wrapped in `forwardRef`, so its second parameter is the `ref` prop.
+  forwards_ref: bool,
   /// A layout: its slot is wrapped in `<sf-s>`.
   layout_root: bool,
   /// The slots a layout's `slots/` directory declares.
@@ -4014,6 +4125,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let floor = self.lowerer.scope.len();
     self.bind_props(&params)?;
+    if self.forwards_ref {
+      if let Some(js::Pat::Ident(id)) = params.get(1) {
+        self.lowerer.scope.push((id.id.sym.to_string(), Expr::Field(Box::new(Expr::Var("$props".to_owned())), "ref".to_owned())));
+      }
+    }
     let mut lets = Vec::new();
     let render = match body {
       FunctionBody::Expr(e) => self.child_expr(e)?,
