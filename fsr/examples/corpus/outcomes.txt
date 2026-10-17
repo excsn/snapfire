@@ -287,8 +287,8 @@ learn-reusing-logic-with-custom-hooks-9	lowered
 learn-rsc-sandbox-test-1	lowered
 learn-rsc-sandbox-test-10	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-2	lowered
-learn-rsc-sandbox-test-3	client: src/Albums.js:6:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/App.js:8:7 `Suspense` comes from `react`, which the build cannot follow
-learn-rsc-sandbox-test-4	client: src/App.js:10:7 `Suspense` comes from `react`, which the build cannot follow | src/SlowData.js:8:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/Timestamp.js:4:19 the current time on a render path, which the server and the browser read at different moments
+learn-rsc-sandbox-test-3	client: src/Albums.js:6:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
+learn-rsc-sandbox-test-4	client: src/SlowData.js:8:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/Timestamp.js:4:19 the current time on a render path, which the server and the browser read at different moments
 learn-rsc-sandbox-test-5	client: src/DataViewer.js:6:16 `.entries()`, which is not a builtin
 learn-rsc-sandbox-test-6	refused: src/App.js:15:22: `now` calls `time.now` on a render path; it runs on the server only, and a component's render path runs in the browser too
 learn-rsc-sandbox-test-7	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
@@ -411,15 +411,15 @@ learn-your-first-component-7	lowered
 learn-your-first-component-8	lowered
 learn-your-first-component-9	lowered
 reference-react-activity-1	lowered
-reference-react-activity-2	client: src/App.js:10:7 `Activity` comes from `react`, which the build cannot follow
+reference-react-activity-2	lowered
 reference-react-activity-3	lowered
-reference-react-activity-4	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
-reference-react-activity-5	client: src/App.js:26:7 `Suspense` comes from `react`, which the build cannot follow | src/Posts.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-activity-6	client: src/App.js:27:9 `Activity` comes from `react`, which the build cannot follow
+reference-react-activity-4	lowered
+reference-react-activity-5	client: src/Posts.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-activity-6	client: src/Posts.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-activity-7	lowered
-reference-react-activity-8	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
-reference-react-activity-9	client: src/App.js:26:7 `Activity` comes from `react`, which the build cannot follow
-reference-react-captureownerstack-1	client: src/App.js:24:5 `Suspense` comes from `react`, which the build cannot follow
+reference-react-activity-8	lowered
+reference-react-activity-9	lowered
+reference-react-captureownerstack-1	lowered
 reference-react-captureownerstack-2	lowered
 reference-react-captureownerstack-3	lowered
 reference-react-children-1	lowered
@@ -531,23 +531,23 @@ reference-react-strictmode-6	lowered
 reference-react-strictmode-7	lowered
 reference-react-strictmode-8	lowered
 reference-react-strictmode-9	lowered
-reference-react-suspense-1	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/ArtistPage.js:8:7 `Suspense` comes from `react`, which the build cannot follow
-reference-react-suspense-10	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow | src/ArtistPage.js:11:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-1	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-10	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-suspense-11	client: src/data.js:6:3 an expression statement other than a write to a local
-reference-react-suspense-13	client: src/App.js:27:9 `Suspense` comes from `react`, which the build cannot follow
-reference-react-suspense-2	client: src/ArtistPage.js:8:7 `Suspense` comes from `react`, which the build cannot follow
+reference-react-suspense-13	lowered
+reference-react-suspense-2	lowered
 reference-react-suspense-3	refused: src/App.js: no exported `default`
-reference-react-suspense-4	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/ArtistPage.js:10:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-suspense-5	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/ArtistPage.js:12:9 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-suspense-6	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
-reference-react-suspense-7	client: src/App.js:14:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
-reference-react-suspense-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow | src/ArtistPage.js:11:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-suspense-9	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow | src/ArtistPage.js:11:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-4	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-5	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-6	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
+reference-react-suspense-7	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
+reference-react-suspense-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-9	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-1	client: src/App.js:35:11 `use` after a `return`, which React refuses since the hooks would change between renders
 reference-react-use-3	lowered
-reference-react-use-4	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/App.js:20:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-use-4	client: src/App.js:20:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-5	client: src/data.js:9:5 a call for its effect, which a straight-line body cannot hold
-reference-react-use-6	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/App.js:30:7 `Suspense` comes from `react`, which the build cannot follow
+reference-react-use-6	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-7	client: src/App.js:5:35 a call to `setTimeout`, which the build cannot follow
 reference-react-useactionstate-1	client: src/Total.js:1:19 an `Intl` formatter kept as a value
 reference-react-useactionstate-2	client: src/Total.js:1:19 an `Intl` formatter kept as a value
@@ -566,9 +566,9 @@ reference-react-usecontext-7	lowered
 reference-react-usecontext-8	lowered
 reference-react-usecontext-9	lowered
 reference-react-usedebugvalue-1	lowered
-reference-react-usedeferredvalue-1	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
-reference-react-usedeferredvalue-2	client: src/App.js:13:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
-reference-react-usedeferredvalue-3	client: src/App.js:14:7 `Suspense` comes from `react`, which the build cannot follow | src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
+reference-react-usedeferredvalue-1	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
+reference-react-usedeferredvalue-2	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
+reference-react-usedeferredvalue-3	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
 reference-react-useeffect-1	lowered
 reference-react-useeffect-11	lowered
 reference-react-useeffect-12	lowered
@@ -633,9 +633,9 @@ reference-react-usestate-9	lowered
 reference-react-usesyncexternalstore-1	client: src/App.js:5:17 `useSyncExternalStore` without `getServerSnapshot`, which React's server renderer refuses too
 reference-react-usesyncexternalstore-2	client: src/App.js:4:20 `useSyncExternalStore` without `getServerSnapshot`, which React's server renderer refuses too
 reference-react-usesyncexternalstore-3	client: src/useOnlineStatus.js:4:20 `useSyncExternalStore` without `getServerSnapshot`, which React's server renderer refuses too
-reference-react-usetransition-6	client: src/App.js:10:5 `Suspense` comes from `react`, which the build cannot follow | src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-usetransition-7	client: src/App.js:10:5 `Suspense` comes from `react`, which the build cannot follow | src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-usetransition-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/App.js:8:5 `Suspense` comes from `react`, which the build cannot follow | src/ArtistPage.js:11:7 `Suspense` comes from `react`, which the build cannot follow | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-usetransition-6	client: src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-usetransition-7	client: src/PostsTab.js:5:17 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-usetransition-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-rsc-use-client-1	client: src/InspirationGenerator.js:9:17 `inspirations` comes from `./inspirations`, which the build cannot follow
 reference-rsc-use-client-2	lowered
 reference-rules-components-and-hooks-must-be-pure-1	lowered

@@ -48,6 +48,8 @@ pub(crate) enum Construct {
   CloneElement,
   /// React's `isValidElement`.
   IsValidElement,
+  /// React's `Suspense` or `Activity`, which the server writes as a boundary around its children.
+  Boundary(&'static str),
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -135,6 +137,8 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("react", "Children", Construct::Children),
   ("react", "cloneElement", Construct::CloneElement),
   ("react", "isValidElement", Construct::IsValidElement),
+  ("react", "Suspense", Construct::Boundary("Suspense")),
+  ("react", "Activity", Construct::Boundary("Activity")),
   ("clsx", "clsx", Construct::ClassNames),
   ("clsx", "default", Construct::ClassNames),
   ("classnames", "default", Construct::ClassNames),

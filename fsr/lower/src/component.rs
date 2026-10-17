@@ -6016,11 +6016,31 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
+  /// `<Suspense>` as its children inside React's completed boundary, the fallback left out since nothing on the server waits; `<Activity>` as its children inside an Activity boundary unless `mode` is `"hidden"`, which React's server renders as nothing.
+  fn boundary(&mut self, which: &str, el: &'p js::JSXElement) -> Lowered<Tmpl> {
+    let children = Tmpl::Fragment(self.children(&el.children)?);
+    let kind = if which == "Suspense" { "$" } else { "&" };
+    let boundary = Tmpl::Element { tag: snapfire_fsr_ir::render::BOUNDARY_TAG.to_owned(), attrs: vec![Entry::Field("kind".to_owned(), Expr::lit_str(kind))], children: vec![children] };
+    if which == "Suspense" {
+      return Ok(boundary);
+    }
+    let mode = el.opening.attrs.iter().find_map(|attr| match attr {
+      js::JSXAttrOrSpread::JSXAttr(attr) if attr_name(&attr.name) == "mode" => Some(attr),
+      _ => None,
+    });
+    let Some(mode) = mode else { return Ok(boundary) };
+    let mode = self.attr_value(mode)?;
+    Ok(Tmpl::If { cond: Expr::Compare(CompareOp::Ne, Box::new(mode), Box::new(Expr::lit_str("hidden"))), then: Box::new(boundary), r#else: None })
+  }
+
   /// `as_child` says the element sits among JSX children, where a keyed
   /// placement's wrap must be braced.
   fn component_ref(&mut self, name: &str, el: &'p js::JSXElement, as_child: bool) -> Lowered<Tmpl> {
     if name == "Fragment" || name == "React.Fragment" {
       return Ok(Tmpl::Fragment(self.children(&el.children)?));
+    }
+    if let Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Boundary(which))) = self.meanings().of_tag(&el.opening.name) {
+      return self.boundary(which, el);
     }
     match self.placement(el) {
       Some("Island") => return self.island_element(el),

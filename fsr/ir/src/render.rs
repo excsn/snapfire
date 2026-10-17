@@ -1505,6 +1505,9 @@ pub const PARENT_SCOPE_PROP: &str = "$scope";
 /// The tag of an element whose tag a value chose at render: its first attribute is the choice, an element name or a component reference.
 pub const CHOSEN_TAG: &str = "$tag";
 
+/// The tag of a React boundary: its `kind` attribute is `$` for a `<Suspense>` whose children rendered and `&` for a visible `<Activity>`, written as React's server writes them, `<!--$-->` and `<!--/$-->` around the children.
+pub const BOUNDARY_TAG: &str = "$boundary";
+
 /// The tag of a component reference: its payload is the component's module.
 pub const COMPONENT_VALUE: &str = "$component";
 
@@ -1527,6 +1530,22 @@ fn render_chosen<'a>(env: &mut Env, attrs: &[Entry], children: &'a [Tmpl], libra
 fn render_stamped_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   if tag == CHOSEN_TAG {
     return render_chosen(env, attrs, children, library, slots, out);
+  }
+  if tag == BOUNDARY_TAG {
+    let kind = attrs.iter().find_map(|entry| match entry {
+      Entry::Field(name, kind) if name == "kind" => Some(kind),
+      _ => None,
+    });
+    let kind = match kind.map(|kind| env.eval_sync(kind)).transpose()? {
+      Some(Value::Str(kind)) => kind,
+      _ => return Err(Fail::internal("a boundary without its kind")),
+    };
+    out.markup(&format!("<!--{kind}-->"));
+    for child in children {
+      render(env, child, library, slots, out)?;
+    }
+    out.markup(&format!("<!--/{kind}-->"));
+    return Ok(());
   }
   let root = std::mem::take(&mut env.stamp);
   if root.is_empty() && env.slotted.is_empty() {
@@ -2085,7 +2104,7 @@ pub fn prepare(component: &Component) -> Component {
 /// `tmpl` with its literal open tags baked and every constant expression folded.
 fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
   match tmpl {
-    Tmpl::Element { tag, attrs, children } if tag == CHOSEN_TAG => {
+    Tmpl::Element { tag, attrs, children } if tag == CHOSEN_TAG || tag == BOUNDARY_TAG => {
       let mut attrs = attrs.clone();
       fold_entries(&mut attrs);
       Tmpl::Element { tag: tag.clone(), attrs, children: children.iter().map(prepare_tmpl).collect() }
