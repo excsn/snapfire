@@ -1052,7 +1052,8 @@ impl ComponentSet {
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
         let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
-        let result = result.and_then(|(mut component, refs)| match fills::place_markup(&mut component) {
+        let consts = &self.consts;
+        let result = result.and_then(|(mut component, refs)| match fills::place_markup(&mut component).and_then(|()| fills::place_tags(&mut component, consts)) {
           Ok(()) => Ok((component, refs)),
           Err(why) => Err(cl.lowerer.residue(match &function { Found::Declared(_, _, block) => *block, Found::Arrow(arrow) => arrow.span }, why)),
         });
@@ -4699,10 +4700,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       },
       js::JSXElementName::JSXNamespacedName(n) => return Err(self.lowerer.residue(n.span, "a namespaced tag")),
     };
-    let is_component = member || name.chars().next().is_some_and(|c| c.is_ascii_uppercase());
+    let chosen_tag = match &el.opening.name {
+      js::JSXElementName::Ident(id) if !member && self.chosen.get(&name).is_none() => {
+        let meanings = self.meanings();
+        let local = id.ctxt != meanings.top && id.ctxt != meanings.unresolved;
+        local.then(|| self.lowerer.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, e)| e.clone())).flatten()
+      }
+      _ => None,
+    };
+    let is_component = (member || name.chars().next().is_some_and(|c| c.is_ascii_uppercase())) && chosen_tag.is_none();
     if is_component {
       return self.component_ref(&name, el, as_child);
     }
+    let name = if chosen_tag.is_some() { fills::CHOSEN_TAG.to_owned() } else { name };
     if name == "img" && self.rewrite_images && self.img_names_an_asset(el) {
       return self.picture_element(el, true);
     }
@@ -4790,6 +4800,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     if let Some(module) = self.elements.get(&name) {
       attrs.push(Entry::Field(snapfire_fsr_ir::render::SHADOW_ATTR.to_owned(), Expr::lit_str(module.clone())));
+    }
+    if let Some(tag) = chosen_tag {
+      attrs.insert(0, Entry::Field(fills::CHOSEN_TAG.to_owned(), tag));
     }
     Ok(Tmpl::Element { tag: name, attrs, children })
   }
@@ -7084,6 +7097,111 @@ mod fills {
   use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Lit, LogicOp, Stmt};
   use snapfire_fsr_ir::render::{CONTEXT_PREFIX, SLOT_CONTENT_PREFIX, SLOT_READ_PREFIX};
   use snapfire_fsr_ir::Tmpl;
+
+  /// The tag of an element whose tag a local chose, `<Heading>` over `const { Heading } = table[key]`; its `$tag` attribute holds the choice until [`place_tags`] writes one element per tag it can take.
+  pub(super) const CHOSEN_TAG: &str = "$tag";
+
+  /// Each element whose tag a local chose as a branch over the tags it can take, listed from the literals the choice reads through the body's `let`s and the set's named constants; `Err` when the list is not complete or holds something other than a lowercase tag name.
+  pub(super) fn place_tags(component: &mut Component, consts: &snapfire_fsr_ir::ast::Consts) -> Result<(), &'static str> {
+    let lets: HashMap<String, Expr> = component.body.iter().filter_map(|stmt| match stmt {
+      Stmt::Let { name, expr } => Some((name.clone(), expr.clone())),
+      _ => None,
+    }).collect();
+    let mut failed = None;
+    choose_tags(&mut component.render, &lets, consts, &mut failed);
+    match failed {
+      Some(why) => Err(why),
+      None => Ok(()),
+    }
+  }
+
+  fn choose_tags(t: &mut Tmpl, lets: &HashMap<String, Expr>, consts: &snapfire_fsr_ir::ast::Consts, failed: &mut Option<&'static str>) {
+    match t {
+      Tmpl::Element { tag, attrs, children } if tag == CHOSEN_TAG => {
+        children.iter_mut().for_each(|c| choose_tags(c, lets, consts, failed));
+        let Some(Entry::Field(_, choice)) = attrs.first().cloned() else { return };
+        let rest: Vec<Entry> = attrs[1..].to_vec();
+        let mut tags = Vec::new();
+        if !strings_of(&choice, lets, consts, &mut tags, 0) || tags.is_empty() {
+          failed.get_or_insert("a tag chosen at render from values the build cannot list; pick the element with a condition or write each one");
+          return;
+        }
+        if !tags.iter().all(|tag| tag.starts_with(|c: char| c.is_ascii_lowercase()) && tag.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')) {
+          failed.get_or_insert("a tag chosen at render that is not a lowercase element name; a component chosen this way is not followed");
+          return;
+        }
+        let children = std::mem::take(children);
+        let element = |tag: &str| Tmpl::Element { tag: tag.to_owned(), attrs: rest.clone(), children: children.clone() };
+        let (last, first) = tags.split_last().expect("not empty");
+        let mut out = element(last);
+        for tag in first.iter().rev() {
+          out = Tmpl::If { cond: Expr::Compare(snapfire_fsr_ir::ast::CompareOp::Eq, Box::new(choice.clone()), Box::new(Expr::Lit(Lit::Str(tag.clone())))), then: Box::new(element(tag)), r#else: Some(Box::new(out)) };
+        }
+        *t = out;
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(|c| choose_tags(c, lets, consts, failed)),
+      Tmpl::If { then, r#else, .. } => {
+        choose_tags(then, lets, consts, failed);
+        if let Some(e) = r#else {
+          choose_tags(e, lets, consts, failed);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => choose_tags(body, lets, consts, failed),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+
+  /// Every string `e` can be, into `out`; false when one of its values is not a literal the build can see.
+  fn strings_of(e: &Expr, lets: &HashMap<String, Expr>, consts: &snapfire_fsr_ir::ast::Consts, out: &mut Vec<String>, depth: usize) -> bool {
+    if depth > 16 {
+      return false;
+    }
+    match e {
+      Expr::Lit(Lit::Str(s)) => {
+        if !out.contains(s) {
+          out.push(s.clone());
+        }
+        true
+      }
+      Expr::Var(n) => lets.get(n).is_some_and(|v| strings_of(v, lets, consts, out, depth + 1)),
+      Expr::Const(key) => consts.get(key).is_some_and(|v| strings_of(v, lets, consts, out, depth + 1)),
+      Expr::Ternary(_, a, b) => strings_of(a, lets, consts, out, depth + 1) && strings_of(b, lets, consts, out, depth + 1),
+      Expr::Field(base, field) => {
+        let mut objects = Vec::new();
+        objects_of(base, lets, consts, &mut objects, depth + 1) && !objects.is_empty() && objects.iter().all(|entries| {
+          entries.iter().find_map(|entry| match entry {
+            Entry::Field(k, v) if k == field => Some(v),
+            _ => None,
+          }).is_some_and(|v| strings_of(v, lets, consts, out, depth + 1))
+        })
+      }
+      _ => false,
+    }
+  }
+
+  /// The object literals `e` can be: itself, what a name holds, an entry of one an index reads, either side of a branch.
+  fn objects_of(e: &Expr, lets: &HashMap<String, Expr>, consts: &snapfire_fsr_ir::ast::Consts, out: &mut Vec<Vec<Entry>>, depth: usize) -> bool {
+    if depth > 16 {
+      return false;
+    }
+    match e {
+      Expr::Object(entries) if entries.iter().all(|entry| matches!(entry, Entry::Field(..))) => {
+        out.push(entries.clone());
+        true
+      }
+      Expr::Var(n) => lets.get(n).is_some_and(|v| objects_of(v, lets, consts, out, depth + 1)),
+      Expr::Const(key) => consts.get(key).is_some_and(|v| objects_of(v, lets, consts, out, depth + 1)),
+      Expr::Ternary(_, a, b) => objects_of(a, lets, consts, out, depth + 1) && objects_of(b, lets, consts, out, depth + 1),
+      Expr::Index(base, _) => {
+        let mut tables = Vec::new();
+        objects_of(base, lets, consts, &mut tables, depth + 1) && tables.iter().flatten().all(|entry| match entry {
+          Entry::Field(_, v) => objects_of(v, lets, consts, out, depth + 1),
+          _ => false,
+        })
+      }
+      _ => false,
+    }
+  }
 
   /// Places every `Expr::Markup` the component holds; `Err` says why one cannot be.
   pub(super) fn place_markup(component: &mut Component) -> Result<(), &'static str> {

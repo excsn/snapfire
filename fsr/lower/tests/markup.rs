@@ -36,7 +36,7 @@ fn rendered(tag: &str, files: &[(&str, &str)]) -> Result<Rendered, String> {
   let module = "routes/page.tsx#default";
   let mut props = ValueMap::default();
   props.insert("price".to_owned(), Value::F64(5.0));
-  Interpreter::default().render_module(module, &library[module], &props, &library).map_err(|e| format!("{e:?}"))
+  Interpreter::default().with_consts(Some(Arc::new(set.consts.clone()))).render_module(module, &library[module], &props, &library).map_err(|e| format!("{e:?}"))
 }
 
 fn html(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
@@ -275,4 +275,24 @@ fn clsx_and_classnames_join_class_names_as_the_package_does() {
 fn typeof_guards_render_as_they_do_in_the_browser() {
   let page = "const label = (v: unknown) => typeof v === \"string\" ? v : typeof v === \"number\" ? `#${v}` : typeof v === \"object\" && v !== null ? \"obj\" : \"none\";\nexport default function Page() {\n  const vs = [\"a\", 2, { k: 1 }, null, true];\n  return <ul>{vs.map((v, i) => <li key={i}>{label(v)}</li>)}</ul>;\n}\n";
   assert_eq!(html("typeof_guards", &[("routes/page.tsx", page)]).as_deref(), Ok("<ul><li>a</li><li>#2</li><li>obj</li><li>none</li><li>none</li></ul>"));
+}
+
+#[test]
+fn a_tag_a_local_chooses_from_listed_literals_renders_that_element() {
+  let table = "const toneClass = {\n  hero: { Heading: \"h1\", text: \"big\" },\n  section: { Heading: \"h2\", text: \"mid\" },\n} as const;\n";
+  let page = |tone: &str| format!("{table}export default function Page() {{\n  const {{ Heading, text }} = toneClass[\"{tone}\" as \"hero\" | \"section\"];\n  return <Heading className={{text}}>hi</Heading>;\n}}\n");
+  assert_eq!(html("tag_hero", &[("routes/page.tsx", &page("hero"))]).as_deref(), Ok("<h1 class=\"big\">hi</h1>"));
+  assert_eq!(html("tag_section", &[("routes/page.tsx", &page("section"))]).as_deref(), Ok("<h2 class=\"mid\">hi</h2>"));
+  let rows: String = (0..20).map(|i| format!("  k{i}: {{ Tag: \"h{}\", text: \"t{i} with enough text to be named once\" }},\n", 1 + i % 6)).collect();
+  let big = format!("const levels = {{\n{rows}}} as const;\nexport default function Page() {{\n  const {{ Tag }} = levels[\"k3\" as keyof typeof levels];\n  return <Tag>x</Tag>;\n}}\n");
+  assert_eq!(html("tag_const", &[("routes/page.tsx", &big)]).as_deref(), Ok("<h4>x</h4>"));
+  let ternary = "export default function Page({ price }) {\n  const Tag = price > 1 ? \"strong\" : \"em\";\n  return <Tag>x</Tag>;\n}\n";
+  assert_eq!(html("tag_ternary", &[("routes/page.tsx", ternary)]).as_deref(), Ok("<strong>x</strong>"));
+  for (tag, page, says) in [
+    ("tag_prop", "export default function Page({ as }) {\n  const Tag = as;\n  return <Tag>x</Tag>;\n}\n", "a tag chosen at render from values the build cannot list"),
+    ("tag_upper", "export default function Page({ price }) {\n  const Tag = price > 1 ? \"Strong\" : \"em\";\n  return <Tag>x</Tag>;\n}\n", "not a lowercase element name"),
+  ] {
+    let out = html(tag, &[("routes/page.tsx", page)]);
+    assert!(out.as_ref().is_err_and(|e| e.contains(says)), "{tag}: {out:?}");
+  }
 }
