@@ -440,6 +440,12 @@ export interface HoistReader {
   k(id: number): string;
   /** `element`, a keyed placement `id` of a component, under a provider whose path is the current one plus `c<id>`, so what that component keys sits below this placement and two placements of it key apart. */
   p(id: number, element: ReactElement): ReactElement;
+  /** Enters iteration `index` of a `for…of` or counted `for` the server lowered, pushing it onto the loop path until `x`. */
+  e(index: number): void;
+  /** Leaves the iteration `e` entered. */
+  x(): void;
+  /** `value` as the loop body pushes it: an element under a provider holding the current path, as `l` gives a `.map` callback's element; anything else as it is. */
+  w<T>(value: T): T;
 }
 
 /** The path a component was rendered under by its callers: loop indices and `c<id>` for each keyed placement, so a component placed from a `.map` keys its own hoists below the iteration that placed it. */
@@ -470,6 +476,15 @@ export function useHoisted(module: string): HoistReader {
       },
       p(id: number, element: ReactElement): ReactElement {
         return createElement(PathContext.Provider, { key: element.key, value: [...path, `c${id}`] }, element);
+      },
+      e(index: number): void {
+        path.push(index);
+      },
+      x(): void {
+        path.pop();
+      },
+      w<T>(value: T): T {
+        return isElement(value) ? (createElement(PathContext.Provider, { key: value.key, value: [...path] }, value) as T) : value;
       },
       l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R {
         return (...args: A): R => {

@@ -393,6 +393,20 @@ export function useHoisted(module) {
                     ]
                 }, element);
             },
+            e (index) {
+                path.push(index);
+            },
+            x () {
+                path.pop();
+            },
+            w (value) {
+                return isElement(value) ? createElement(PathContext.Provider, {
+                    key: value.key,
+                    value: [
+                        ...path
+                    ]
+                }, value) : value;
+            },
             l (f) {
                 return (...args)=>{
                     path.push(typeof args[1] === "number" ? args[1] : -1);

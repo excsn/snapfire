@@ -3825,6 +3825,49 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// [`Self::premake_expr`] over a statement whose expressions reach
   /// `Lowerer::expr`: a declaration, a write or a branch holding them.
+  /// Marks the loop at `span` open for the hoist candidates its body holds, with the `push` calls its body makes onto `written`, so the browser's copy keys them by iteration; whether there was a candidate set to mark.
+  fn open_statement_loop(&mut self, span: Span, body: &js::Stmt, written: &[String]) -> bool {
+    let range = self.lowerer.parsed.range(span);
+    let body_range = self.lowerer.parsed.range(body.span());
+    struct Pushes<'w> {
+      written: &'w [String],
+      args: Vec<Span>,
+    }
+    impl Visit for Pushes<'_> {
+      fn visit_call_expr(&mut self, call: &js::CallExpr) {
+        if let js::Callee::Expr(callee) = &call.callee {
+          if let js::Expr::Member(m) = &**callee {
+            if let (js::Expr::Ident(id), Some("push")) = (&*m.obj, prop_name_of(m).as_deref()) {
+              if self.written.iter().any(|w| w == id.sym.as_ref()) {
+                self.args.extend(call.args.iter().filter(|a| a.spread.is_none()).map(|a| a.expr.span()));
+              }
+            }
+          }
+        }
+        call.visit_children_with(self);
+      }
+      fn visit_function(&mut self, _: &js::Function) {}
+      fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+      fn visit_for_of_stmt(&mut self, _: &js::ForOfStmt) {}
+      fn visit_for_stmt(&mut self, _: &js::ForStmt) {}
+    }
+    let mut pushes = Pushes { written, args: Vec::new() };
+    body.visit_with(&mut pushes);
+    let args: Vec<std::ops::Range<usize>> = pushes.args.into_iter().map(|span| self.lowerer.parsed.range(span)).collect();
+    let Some(candidates) = &mut self.lowerer.hoisting else { return false };
+    if !candidates.statement_loops.iter().any(|l| l.range == range) {
+      candidates.statement_loops.push(hoist::StatementLoop::new(range.clone(), body_range, args));
+    }
+    candidates.open_loops.push(range);
+    true
+  }
+
+  fn close_statement_loop(&mut self, open: bool) {
+    if let (true, Some(candidates)) = (open, &mut self.lowerer.hoisting) {
+      candidates.open_loops.pop();
+    }
+  }
+
   /// [`Self::premake_stmt`] over a block's statements with each of its declarations bound as it goes, so markup after one reads it; the bindings end with the block.
   fn premake_block(&mut self, stmts: &'p [js::Stmt]) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
@@ -3877,7 +3920,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         for name in &names.written {
           self.lowerer.scope.push((name.clone(), names.read(name)));
         }
+        let open = self.open_statement_loop(for_of.span, &for_of.body, &names.written);
         let result = bind_pattern(&mut self.lowerer, head, Expr::Var(names.item.clone())).and_then(|_| self.premake_stmt(&for_of.body));
+        self.close_statement_loop(open);
         self.lowerer.scope.truncate(depth);
         result
       }
@@ -3890,7 +3935,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             self.lowerer.scope.push((name.clone(), names.read(name)));
           }
           self.lowerer.scope.push((counted.name.clone(), counter));
-          self.premake_stmt(&f.body)
+          let open = self.open_statement_loop(f.span, &f.body, &names.written);
+          let result = self.premake_stmt(&f.body);
+          self.close_statement_loop(open);
+          result
         });
         self.lowerer.scope.truncate(depth);
         result

@@ -64,8 +64,25 @@ pub struct Candidates {
   /// the callbacks it sits in. `rewrite` keeps the placements that became
   /// islands and the keyed ones.
   pub island_sites: Vec<(u32, usize, Range<usize>, bool, Vec<Range<usize>>)>,
-  /// The `.map` callbacks being lowered, outermost first.
+  /// The `.map` callbacks being lowered, outermost first, and the statement loops among them by their statement's range.
   pub open_loops: Vec<Range<usize>>,
+  /// The `for…of` and counted `for` loops whose bodies the build lowered, which the browser keys by iteration as it keys a `.map` callback.
+  pub statement_loops: Vec<StatementLoop>,
+}
+
+/// A `for…of` or counted `for` a component's render lowered: the statement's range, its body's and the arguments of the `push` calls its body makes, which the rewrite marks with the iteration's path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct StatementLoop {
+  pub range: Range<usize>,
+  pub body: Range<usize>,
+  pub pushes: Vec<Range<usize>>,
+}
+
+impl StatementLoop {
+  pub fn new(range: Range<usize>, body: Range<usize>, pushes: Vec<Range<usize>>) -> Self {
+    Self { range, body, pushes }
+  }
 }
 
 impl Candidates {
@@ -151,7 +168,9 @@ impl Candidates {
     if sites.is_empty() && chunk_sites.is_empty() && island_sites.is_empty() && placements.is_empty() {
       return None;
     }
-    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, placements, loops })
+    let statement_loops: Vec<StatementLoop> = self.statement_loops.into_iter().filter(|l| loops.contains(&l.range)).collect();
+    loops.retain(|range| !statement_loops.iter().any(|l| l.range == *range));
+    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, placements, loops, statement_loops })
   }
 }
 
@@ -196,6 +215,8 @@ pub struct Rewrite {
   pub placements: Vec<(u32, Range<usize>, bool)>,
   /// The `.map` callbacks whose bodies the survivors sit in, as arrow ranges.
   pub loops: Vec<Range<usize>>,
+  /// The statement loops the survivors sit in.
+  pub statement_loops: Vec<StatementLoop>,
 }
 
 /// Unwraps every value candidate in `component` that is not props only and
@@ -593,6 +614,20 @@ pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String {
       }
       insert(&mut edits, range.start, 0, format!("{READER}.l("));
       insert(&mut edits, range.end, 0, ")".to_owned());
+    }
+    for StatementLoop { range, body, pushes } in &rewrite.statement_loops {
+      if inside(range.start, range.end) {
+        continue;
+      }
+      let counter = format!("__sfI{}", range.start);
+      insert(&mut edits, range.start, 9, format!("{{ let {counter} = 0; "));
+      insert(&mut edits, body.start, 9, format!("{{ {READER}.e({counter}++); try {{ "));
+      insert(&mut edits, body.end, 1, format!(" }} finally {{ {READER}.x(); }} }}"));
+      insert(&mut edits, range.end, 0, " }".to_owned());
+      for arg in pushes {
+        insert(&mut edits, arg.start, 9, format!("{READER}.w("));
+        insert(&mut edits, arg.end, 0, ")".to_owned());
+      }
     }
     for ChunkSite { id, range, open, as_child, proven } in &rewrite.chunks {
       let inner = spliced(source, open.clone(), &rewrite.sites);
