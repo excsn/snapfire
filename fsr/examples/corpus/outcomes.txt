@@ -474,7 +474,7 @@ reference-react-dom-components-form-6	lowered
 reference-react-dom-components-form-7	lowered
 reference-react-dom-components-img-1	lowered
 reference-react-dom-components-index-1	lowered
-reference-react-dom-components-index-2	client: src/App.js:4:21 `console` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-dom-components-index-2	lowered
 reference-react-dom-components-input-1	lowered
 reference-react-dom-components-input-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-dom-components-input-3	lowered

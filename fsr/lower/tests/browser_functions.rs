@@ -93,3 +93,12 @@ fn a_render_reading_an_import_that_does_not_lower_still_renders_in_the_browser()
   let page = "import { deliver } from \"@src/actions\";\nexport default function Page() {\n  return <p>{deliver(\"hi\")}</p>;\n}\n";
   assert!(lowered("unfollowed_render", &[("src/actions.ts", SLOW), ("routes/page.tsx", page)]).is_err());
 }
+
+#[test]
+fn a_function_on_a_custom_elements_on_prop_is_a_listener_the_server_writes_nothing_for() {
+  let page = "export default function Page() {\n  return <my-element onspeak={(e) => console.log(e.detail)} label=\"hi\"></my-element>;\n}\n";
+  let set = lowered("custom_event", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html(&set).as_deref(), Ok("<my-element label=\"hi\"></my-element>"));
+  let page_component = &set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap().1;
+  assert!(page_component.owner.hydrates(), "the browser attaches the listener");
+}

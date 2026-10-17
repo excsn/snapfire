@@ -5408,7 +5408,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         escaped_asset = self.img_asset_path(el);
         continue;
       }
-      if is_handler_name(&raw) {
+      // React 19 attaches a function an `on…` prop of a custom element holds as a listener for that event, whatever its case.
+      if is_handler_name(&raw) || (name.contains('-') && raw.len() > 2 && raw.starts_with("on") && self.passes_function(attr)) {
         bound = true;
         let event = raw[2..].to_ascii_lowercase();
         if let Some(reference) = self.handler_reference(attr) {
