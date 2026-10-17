@@ -42,6 +42,8 @@ pub(crate) enum Construct {
   AsyncComponent,
   /// `clsx` or `classnames`, which join class names.
   ClassNames,
+  /// React's `Children`, of which the build reads the count of a component's own children.
+  Children,
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -125,6 +127,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("vue", "provide", Construct::Vue("provide")),
   ("vue", "inject", Construct::Vue("inject")),
   ("vue", "defineAsyncComponent", Construct::AsyncComponent),
+  ("react", "Children", Construct::Children),
   ("clsx", "clsx", Construct::ClassNames),
   ("clsx", "default", Construct::ClassNames),
   ("classnames", "default", Construct::ClassNames),

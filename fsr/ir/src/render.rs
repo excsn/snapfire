@@ -755,6 +755,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Let { name, expr, then } if name.starts_with(SLOT_OUT_PREFIX) => render_vue_slot(env, &name[SLOT_OUT_PREFIX.len()..], expr, then, library, slots, out)?,
     Tmpl::Let { name, expr, .. } if name.starts_with(SLOT_READ_PREFIX) => render_slot_read(env, &name[SLOT_READ_PREFIX.len()..], expr, library, slots, out)?,
     Tmpl::Let { name, .. } if name.starts_with(SLOT_CONTENT_PREFIX) => {}
+    Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => render(env, then, library, slots, out)?,
     Tmpl::Let { name, expr, then } => {
       let value = env.eval_sync(expr)?;
       let depth = env.scope.len();
@@ -1084,7 +1085,11 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
   if !env.in_framework && component.owner.hydrates() {
     return render_placed(env, module, props, children, &None, &None, id, false, library, slots, out);
   }
-  let map = self::props(env, props)?;
+  let mut map = self::props(env, props)?;
+  if matches!(component.body.first(), Some(Stmt::Let { name, .. }) if name == CHILD_COUNT) {
+    let count = count_children(env, children, slots, slots.len())?;
+    map.insert(CHILD_COUNT.to_owned(), Value::F64(count as f64));
+  }
   let stamp = match (&env.slot_owner, map.get(PARENT_SCOPE_PROP)) {
     _ if component.owner != crate::ast::Owner::Vue => Vec::new(),
     (Some(owner), _) => owner.clone(),
@@ -1109,6 +1114,86 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
   env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
   env.scope.truncate(depth);
   result
+}
+
+/// A component whose body opens with a `let` of this name reads how many children its placement passed, `Children.count(children)`; the placement passes the count as the prop of the same name.
+pub const CHILD_COUNT: &str = "$childCount";
+
+/// A `Tmpl::Let` of this name around a `Tmpl::Fragment` marks the fragment as an array's items, which renders as its items and counts as each of them; any other fragment is `<>…</>`, one child.
+pub const ARRAY_ITEMS: &str = "$items";
+
+/// How many children `Children.count` sees in `children`, evaluated in the scope they render in: `null`, `undefined` and booleans count none, an array counts its items, `<>…</>` counts one and a `{children}` passed through counts what its own placement passed, `frame` being how many slot frames are open around it.
+fn count_children(env: &mut Env, children: &[Tmpl], slots: &[Slot<'_>], frame: usize) -> Result<usize, Fail> {
+  let mut n = 0;
+  for child in children {
+    n += match child {
+      Tmpl::Let { name, then, .. } if name.strip_prefix(SLOT_CONTENT_PREFIX) == Some("default") => count_child(env, then, slots, frame)?,
+      Tmpl::Let { name, .. } if name.starts_with(SLOT_CONTENT_PREFIX) => 0,
+      other => count_child(env, other, slots, frame)?,
+    };
+  }
+  Ok(n)
+}
+
+fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize) -> Result<usize, Fail> {
+  Ok(match t {
+    Tmpl::Text(text) => usize::from(!text.is_empty()),
+    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } => 1,
+    Tmpl::Fragment(items) => usize::from(!items.is_empty()),
+    Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
+      Tmpl::Fragment(items) => count_children(env, items, slots, frame)?,
+      other => count_child(env, other, slots, frame)?,
+    },
+    Tmpl::Let { name, expr, then } => {
+      let value = env.eval_sync(expr)?;
+      env.scope.push((name.clone(), value));
+      let n = count_child(env, then, slots, frame);
+      env.scope.pop();
+      n?
+    }
+    Tmpl::If { cond, then, r#else } => match crate::interp::truthy(&env.eval_sync(cond)?) {
+      true => count_child(env, then, slots, frame)?,
+      false => match r#else {
+        Some(other) => count_child(env, other, slots, frame)?,
+        None => 0,
+      },
+    },
+    Tmpl::For { over, params, body } => {
+      let items = match env.eval_sync(over)? {
+        Value::Seq(items) => items,
+        other => return Err(crate::interp::type_error("map", "an array", &other)),
+      };
+      let depth = env.scope.len();
+      let mut n = 0;
+      for (i, item) in items.iter().enumerate() {
+        env.scope.truncate(depth);
+        for (param, value) in params.iter().zip([item.clone(), Value::F64(i as f64)]) {
+          env.scope.push((param.clone(), value));
+        }
+        n += count_child(env, body, slots, frame)?;
+      }
+      env.scope.truncate(depth);
+      n
+    }
+    Tmpl::Expr(e) => count_value(&env.eval_sync(e)?),
+    Tmpl::Slot(_) => match frame.checked_sub(1).and_then(|at| slots.get(at).map(|slot| (at, slot))) {
+      Some((at, slot)) => {
+        let inner = std::mem::replace(&mut env.scope, (*slot.scope).clone());
+        let n = count_children(env, slot.children, slots, at);
+        env.scope = inner;
+        n?
+      }
+      None => 0,
+    },
+  })
+}
+
+fn count_value(value: &Value) -> usize {
+  match value {
+    Value::Null | Value::Bool(_) => 0,
+    Value::Seq(items) => items.iter().map(count_value).sum(),
+    _ => 1,
+  }
 }
 
 /// The scoped-style attribute of the Vue parent that placed a child, which Vue writes on the child's root element after the child's own attributes and before the child's own scope.

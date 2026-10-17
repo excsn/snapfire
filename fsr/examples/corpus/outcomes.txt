@@ -427,7 +427,7 @@ reference-react-children-10	client: src/TabSwitcher.js:12:12 a call to a compute
 reference-react-children-11	client: src/RowList.js:11:12 a call to a computed target
 reference-react-children-2	client: src/RowList.js:6:8 `Children` comes from `react`, which the build cannot follow
 reference-react-children-3	client: src/SeparatorList.js:5:3 a call for its effect, which a straight-line body cannot hold
-reference-react-children-4	client: src/RowList.js:7:22 `Children` comes from `react`, which the build cannot follow
+reference-react-children-4	client: src/RowList.js:9:8 `Children` comes from `react`, which the build cannot follow
 reference-react-children-5	client: src/ReversedList.js:4:18 `Children` comes from `react`, which the build cannot follow
 reference-react-children-6	lowered
 reference-react-children-7	lowered

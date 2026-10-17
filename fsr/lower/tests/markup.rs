@@ -296,3 +296,22 @@ fn a_tag_a_local_chooses_from_listed_literals_renders_that_element() {
     assert!(out.as_ref().is_err_and(|e| e.contains(says)), "{tag}: {out:?}");
   }
 }
+
+#[test]
+fn children_count_counts_what_the_placement_passed_as_react_does() {
+  let grid = "import { Children } from \"react\";\nexport function Grid({ children }) {\n  const n = Children.toArray(children).length;\n  return <div data-n={n}>{children}</div>;\n}\nexport function Wrap({ children }) {\n  return <Grid>{children}</Grid>;\n}\n";
+  let counted = |tag: &str, inner: &str| -> String {
+    let page = format!("import {{ Grid, Wrap }} from \"@src/Grid\";\nexport default function Page({{ price }}) {{\n  const rows = [\"a\", \"b\"];\n  const on = price > 1;\n  return {inner};\n}}\n");
+    let out = html(tag, &[("src/Grid.tsx", grid), ("routes/page.tsx", &page)]).unwrap_or_else(|e| panic!("{tag}: {e}"));
+    let at = out.find("data-n=\"").unwrap_or_else(|| panic!("{tag}: {out}")) + 8;
+    out[at..].split('"').next().unwrap().to_owned()
+  };
+  assert_eq!(counted("cc_elements", "<Grid><p>a</p><p>b</p><p>c</p></Grid>"), "3");
+  assert_eq!(counted("cc_map", "<Grid>{rows.map((r) => <p key={r}>{r}</p>)}<p>z</p></Grid>"), "3");
+  assert_eq!(counted("cc_falsy", "<Grid>{null}{false}{on && <p>on</p>}{!on && <p>off</p>}</Grid>"), "1");
+  assert_eq!(counted("cc_fragment", "<Grid><><p>a</p><p>b</p></></Grid>"), "1");
+  assert_eq!(counted("cc_array", "<Grid>{[<p key=\"a\">a</p>, <p key=\"b\">b</p>]}</Grid>"), "2");
+  assert_eq!(counted("cc_through", "<Wrap><p>a</p>{rows.map((r) => <p key={r}>{r}</p>)}</Wrap>"), "3");
+  let react = "import React from \"react\";\nexport default function Page() {\n  return <Count><i>a</i><i>b</i></Count>;\n}\nfunction Count({ children }) {\n  return <b>{React.Children.count(children)}</b>;\n}\n";
+  assert_eq!(html("cc_react", &[("routes/page.tsx", react)]).as_deref(), Ok("<b>2</b>"));
+}

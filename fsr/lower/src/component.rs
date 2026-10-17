@@ -1050,11 +1050,18 @@ impl ComponentSet {
         lowerer.meanings = Some(meanings);
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: false, imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
+        let counts_children = cl.counts_children;
         let result = result.and_then(|(mut component, refs)| match fills::place_markup(&mut component).and_then(|()| fills::place_tags(&mut component, consts)) {
-          Ok(()) => Ok((component, refs)),
+          Ok(()) => {
+            if counts_children {
+              let count = snapfire_fsr_ir::render::CHILD_COUNT.to_owned();
+              component.body.insert(0, Stmt::Let { name: count.clone(), expr: Expr::Field(Box::new(Expr::Var("$props".to_owned())), count) });
+            }
+            Ok((component, refs))
+          }
           Err(why) => Err(cl.lowerer.residue(match &function { Found::Declared(_, _, block) => *block, Found::Arrow(arrow) => arrow.span }, why)),
         });
         let result = result.map(|(component, refs)| (component, refs, std::mem::take(&mut cl.providers), std::mem::take(&mut cl.heads)));
@@ -3628,6 +3635,8 @@ struct ComponentLowerer<'a, 'p> {
   inlining: Vec<String>,
   /// The functions [`Self::markup_call`] is reading the body of, so helpers calling each other end.
   checking: std::cell::RefCell<Vec<String>>,
+  /// Whether the component reads `Children.count(children)`, which its body then opens with.
+  counts_children: bool,
   /// `<X.Provider>` tags met, by the name of `X` and where, checked by the
   /// set after to be `createContext` values.
   providers: Vec<(String, (usize, usize), Option<bool>)>,
@@ -3760,6 +3769,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// markup ahead of the statement or attribute that holds it, so
   /// `Lowerer::expr` takes it made. `fills` later places it in the tree.
   fn premake_expr(&mut self, e: &'p js::Expr) -> Lowered<()> {
+    if self.counts_own_children(e) {
+      let span = e.span();
+      self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Var(snapfire_fsr_ir::render::CHILD_COUNT.to_owned()));
+      self.counts_children = true;
+      return Ok(());
+    }
     if self.holds_markup(e) {
       let tmpl = self.child_expr(e)?;
       let span = e.span();
@@ -4519,7 +4534,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         for item in array.elems.iter().flatten() {
           items.push(self.child_expr(&item.expr)?);
         }
-        Ok(Tmpl::Fragment(items))
+        Ok(fills::items(items))
       }
       js::Expr::Ident(id) if id.sym.as_ref() == "null" || id.sym.as_ref() == "undefined" => Ok(Tmpl::Fragment(Vec::new())),
       js::Expr::Lit(js::Lit::Null(_)) => Ok(Tmpl::Fragment(Vec::new())),
@@ -4561,6 +4576,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::Call(call) if map_call(call).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => true,
       js::Expr::OptChain(_) if optional_map(expr).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => true,
       other => self.markup_call(other).is_some(),
+    }
+  }
+
+  /// `Children.count(children)` or `Children.toArray(children).length` over the component's own children.
+  fn counts_own_children(&self, e: &js::Expr) -> bool {
+    let children_call = |call: &js::CallExpr, method: &str| -> bool {
+      let js::Callee::Expr(callee) = &call.callee else { return false };
+      let js::Expr::Member(member) = &**callee else { return false };
+      prop_name_of(member).as_deref() == Some(method)
+        && self.meanings().of_expr(&member.obj) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Children))
+        && matches!(call.args.as_slice(), [arg] if arg.spread.is_none() && self.slot_of_expr(&arg.expr).as_deref() == Some("content"))
+    };
+    match unwrap_literal(e) {
+      js::Expr::Call(call) => children_call(call, "count"),
+      js::Expr::Member(member) if prop_name_of(member).as_deref() == Some("length") => matches!(unwrap_literal(&member.obj), js::Expr::Call(call) if children_call(call, "toArray")),
+      _ => false,
     }
   }
 
@@ -7095,7 +7126,7 @@ mod fills {
   use std::collections::{HashMap, HashSet};
 
   use snapfire_fsr_ir::ast::{Builtin, Component, Entry, Expr, Lit, LogicOp, Stmt};
-  use snapfire_fsr_ir::render::{CONTEXT_PREFIX, SLOT_CONTENT_PREFIX, SLOT_READ_PREFIX};
+  use snapfire_fsr_ir::render::{ARRAY_ITEMS, CONTEXT_PREFIX, SLOT_CONTENT_PREFIX, SLOT_READ_PREFIX};
   use snapfire_fsr_ir::Tmpl;
 
   /// The tag of an element whose tag a local chose, `<Heading>` over `const { Heading } = table[key]`; its `$tag` attribute holds the choice until [`place_tags`] writes one element per tag it can take.
@@ -7263,13 +7294,16 @@ mod fills {
             _ => return None,
           }
         }
-        Some(Tmpl::Fragment(items))
+        Some(self::items(items))
       }
       Expr::Filter(over, keep) if truthiness(keep) => match tree_of(over, held)? {
-        Tmpl::Fragment(items) => Some(Tmpl::Fragment(items.into_iter().map(|item| match item {
-          Tmpl::Expr(e) => Tmpl::If { cond: e.clone(), then: Box::new(Tmpl::Expr(e)), r#else: None },
-          other => other,
-        }).collect())),
+        Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS && matches!(*then, Tmpl::Fragment(_)) => {
+          let Tmpl::Fragment(kept) = *then else { unreachable!() };
+          Some(self::items(kept.into_iter().map(|item| match item {
+            Tmpl::Expr(e) => Tmpl::If { cond: e.clone(), then: Box::new(Tmpl::Expr(e)), r#else: None },
+            other => other,
+          }).collect()))
+        }
         other => Some(other),
       },
       Expr::Reduce(over, init, step) => fold_tree(over, init, step, None, held),
@@ -7282,7 +7316,7 @@ mod fills {
         if trees.iter().all(Option::is_none) {
           return None;
         }
-        Some(Tmpl::Fragment(args.iter().zip(trees).map(|(e, tree)| tree.unwrap_or_else(|| value(e))).collect()))
+        Some(self::items(args.iter().zip(trees).map(|(e, tree)| tree.unwrap_or_else(|| value(e))).collect()))
       }
       _ => None,
     }
@@ -7321,7 +7355,7 @@ mod fills {
       return None;
     }
     let start = tree_of(&init, held).unwrap_or_else(|| value(&init));
-    Some(Tmpl::Fragment(vec![start, Tmpl::For { over: over.clone(), params: vec![item.clone()], body: Box::new(each) }]))
+    Some(self::items(vec![start, Tmpl::For { over: over.clone(), params: vec![item.clone()], body: Box::new(each) }]))
   }
 
   /// What one step of a fold appends to `me`: nothing when it is `me`, the items after a leading `...me`, a branch over either.
@@ -7344,11 +7378,16 @@ mod fills {
             _ => return None,
           }
         }
-        Some(Tmpl::Fragment(items))
+        Some(self::items(items))
       }
       Expr::Ternary(c, a, b) => Some(Tmpl::If { cond: (**c).clone(), then: Box::new(appended(a, me, held, found)?), r#else: Some(Box::new(appended(b, me, held, found)?)) }),
       _ => None,
     }
+  }
+
+  /// An array's items as markup: they render in order and `Children.count` counts each of them, where `<>…</>` counts as one.
+  pub(super) fn items(children: Vec<Tmpl>) -> Tmpl {
+    Tmpl::Let { name: ARRAY_ITEMS.to_owned(), expr: Expr::Lit(Lit::Null), then: Box::new(Tmpl::Fragment(children)) }
   }
 
   /// `(x) => x` or `(x) => !!x`, which keeps an item when it is truthy.
