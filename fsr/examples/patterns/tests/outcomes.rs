@@ -22,3 +22,11 @@ fn every_case_builds_to_the_outcome_it_is_held_to() {
   let changed: Vec<String> = held.lines().zip(actual.lines()).filter(|(was, now)| was != now).map(|(was, now)| format!("was {was}\n now {now}")).collect();
   assert!(changed.is_empty() && held.lines().count() == actual.lines().count(), "{} outcomes changed; PATTERNS_BLESS=1 takes this run:\n{}", changed.len(), changed.join("\n"));
 }
+
+#[test]
+fn fsr_markers_come_out_and_what_they_hold_stays() {
+  use patterns::without_fsr_markers;
+  assert_eq!(without_fsr_markers("<button><sf-s data-sf-m=\"0\"><b>Light</b></sf-s>off</button>"), "<button><b>Light</b>off</button>");
+  assert_eq!(without_fsr_markers("<p>a<template data-sf-children><i>held</i></template><script type=\"application/json\" data-sf-props=\"x\">{}</script></p>"), "<p>a</p>");
+  assert_eq!(without_fsr_markers("<template><b>plain</b></template>"), "<template><b>plain</b></template>");
+}

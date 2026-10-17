@@ -82,6 +82,38 @@ pub fn flatten(rendered: &Rendered) -> String {
   out
 }
 
+/// The IR's markup without what FSR adds for the browser and React never writes: an `sf-s` or `sf-i` region kept with what it holds, a `<template data-sf-…>` held for later and a `<script data-sf-…>` of props, both dropped with their contents. What is left is what a viewer sees before the scripts run.
+pub fn without_fsr_markers(html: &str) -> String {
+  let mut out = String::with_capacity(html.len());
+  let mut rest = html;
+  while let Some(lt) = rest.find('<') {
+    out.push_str(&rest[..lt]);
+    let after = &rest[lt..];
+    let Some(gt) = after.find('>') else {
+      out.push_str(after);
+      return out;
+    };
+    let tag = &after[1..gt];
+    let name = tag.trim_start_matches('/').split([' ', '>']).next().unwrap_or_default();
+    match name {
+      "sf-s" | "sf-i" => rest = &after[gt + 1..],
+      "template" | "script" if !tag.starts_with('/') && tag.contains(" data-sf-") => {
+        let close = format!("</{name}>");
+        rest = match after.find(&close) {
+          Some(end) => &after[end + close.len()..],
+          None => "",
+        };
+      }
+      _ => {
+        out.push_str(&after[..=gt]);
+        rest = &after[gt + 1..];
+      }
+    }
+  }
+  out.push_str(rest);
+  out
+}
+
 /// Both renderings with what legitimately differs taken out: React's `<!-- -->` between adjacent text, a void element's `/`, attribute order and case.
 pub fn normalised(html: &str) -> String {
   let text = html.replace("<!-- -->", "");

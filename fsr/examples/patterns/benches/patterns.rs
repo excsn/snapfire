@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use criterion::{black_box, BenchmarkId, Criterion};
 use futures::future::LocalBoxFuture;
-use patterns::{app_of, cases, flatten, normalised, outcome, root, PAGE};
+use patterns::{app_of, cases, flatten, normalised, outcome, root, without_fsr_markers, PAGE};
 use snapfire_fsr_cli::spec::{prepare, test_bundle, TEST_DIR};
 use snapfire_fsr_cli::vendor::{VendorManifest, ESM_HOST};
 use snapfire_fsr_cli::xwpm::Layout;
@@ -105,7 +105,12 @@ fn bench(c: &mut Criterion) {
       (Ok(ir), Ok((engine, html))) => {
         std::fs::write(scratch.join(format!("{}.ir.html", case.name)), ir).ok();
         std::fs::write(scratch.join(format!("{}.react.html", case.name)), &html).ok();
-        (if normalised(ir) == normalised(&html) { "same" } else { "differs" }.to_owned(), ir.len().to_string(), html.len().to_string(), Some(engine))
+        let verdict = match (normalised(ir) == normalised(&html), normalised(&without_fsr_markers(ir)) == normalised(&html)) {
+          (true, _) => "same",
+          (false, true) => "equivalent",
+          (false, false) => "differs",
+        };
+        (verdict.to_owned(), ir.len().to_string(), html.len().to_string(), Some(engine))
       }
       (Err(e), _) => (format!("ir fails: {}", e.message.lines().next().unwrap_or_default()), "-".to_owned(), "-".to_owned(), None),
       (Ok(_), Err(e)) => (format!("react fails: {}", e.lines().next().unwrap_or_default()), "-".to_owned(), "-".to_owned(), None),
