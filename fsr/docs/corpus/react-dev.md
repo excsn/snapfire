@@ -6,8 +6,8 @@ The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev 
 | --- | --- | --- |
 | Lowered whole | 532 | the server renders every component on the page |
 | Partly client side rendered | 101 | at least one component renders in the browser; the outcome names each cause |
-| Refused | 3 | the build stops |
-| Not a working example (excluded) | 5 | react.dev shows it broken on purpose or as an empty exercise |
+| Refused | 1 | the build stops |
+| Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
 | Total | 641 | |
 
 A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The guide's chapter 111 covers it.
@@ -46,9 +46,8 @@ Every cause left is blocked. The last column is what it waits on. An example can
 
 | Refusal | Examples | Waits on |
 | --- | --- | --- |
-| An `App.js` the extraction left empty, `reference-react-suspense-3` and `reference-react-dom-server-resume-1` | 2 | A re-fetch of the two blocks from react.dev at the commit `NOTICE.md` names; the repo has no extraction script |
 | `Date.now()` on the render path of a server component, `learn-rsc-sandbox-test-6` | 1 | FSR knowing a component is server only |
 
-The five that are not working examples are the JSX react.dev shows broken on purpose (`learn-describing-the-ui-3`; `learn-writing-markup-with-jsx-1`, `-3`) and the exercise stubs with no export (`learn-your-first-component-3`, `-10`).
+The seven that are not working examples are the JSX react.dev shows broken on purpose (`learn-describing-the-ui-3`; `learn-writing-markup-with-jsx-1`, `-3`), the exercise stubs with no export (`learn-your-first-component-3`, `-10`) and two streaming demos whose `App.js` is empty in react.dev itself (`reference-react-suspense-3`, `reference-react-dom-server-resume-1`): their code is the `src/index.js` the corpus leaves out, which renders with `react-dom/server` inside the browser.
 
 After a change to the lowerer moves outcomes, bless the run with `CORPUS_BLESS=1 cargo test -p corpus` and bring the counts here up to that commit.
