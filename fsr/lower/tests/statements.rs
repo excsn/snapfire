@@ -146,3 +146,26 @@ fn a_function_a_custom_hook_declares_and_returns_in_an_object_lowers_the_hook() 
   let page = "import { useFormInput } from \"@src/useFormInput\";\nexport default function Page() {\n  const props = useFormInput(\"Ada\");\n  return <input {...props} />;\n}\n";
   assert_eq!(html_with("hook_fn", &[("src/useFormInput.ts", hook), ("routes/page.tsx", page)]).as_deref(), Ok("<input value=\"Ada\">"));
 }
+
+#[test]
+fn a_helper_reading_the_date_clock_sends_its_component_to_the_browser_as_an_inline_read_does() {
+  let card = "function now() {\n  return Date.now();\n}\nexport default function Stamp() {\n  return <p>{now()}</p>;\n}\n";
+  let page = "import Stamp from \"@src/Stamp\";\nexport default function Page() {\n  return <main><Stamp /></main>;\n}\n";
+  let dir = app("date_helper", &[("src/Stamp.tsx", card), ("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default");
+  std::fs::remove_dir_all(&dir).unwrap();
+  assert!(result.is_ok(), "{result:?}");
+  let residue = set.browser_only.iter().find(|(m, _)| m == "src/Stamp.tsx#default").map(|(_, r)| r.message.clone());
+  assert!(residue.as_deref().is_some_and(|m| m.contains("reads the current time on a render path")), "{residue:?}");
+}
+
+#[test]
+fn a_helper_calling_time_now_itself_is_still_refused() {
+  let page = "import { time } from \"@snapfire/fsr-client/std\";\nfunction now() {\n  return time.now();\n}\nexport default function Page() {\n  return <p>{now()}</p>;\n}\n";
+  let dir = app("time_helper", &[("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());
+  std::fs::remove_dir_all(&dir).unwrap();
+  assert!(result.as_ref().is_err_and(|e| e.contains("calls `time.now` on a render path")), "{result:?}");
+}
