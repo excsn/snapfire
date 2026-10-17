@@ -1154,6 +1154,18 @@ impl ComponentSet {
     };
     let mut component = component;
     fills::unfill(&mut component.render, &renders_in_browser);
+    if let Some((placed, prop)) = fills::function_into_browser(&component.render, &renders_in_browser) {
+      let tag = placed.rsplit_once('#').map(|(_, tag)| tag.to_owned()).unwrap_or_else(|| placed.clone());
+      let (line, column) = refs_positions.iter().find(|(name, _)| *name == tag).map(|(_, pos)| *pos).unwrap_or((1, 1));
+      return Err(LowerError::Residue(Residue {
+        file: file.to_owned(),
+        line,
+        column,
+        message: format!("a function passed as `{prop}` to `{tag}`, which renders in the browser; the server holds no function the browser can call"),
+        hint: Some(format!("move what `{prop}` does into `{tag}`, or make `{tag}` render on the server")),
+        via: Vec::new(),
+      }));
+    }
     let mut heads: Vec<HeadRow> = own_heads;
     for placed in modules.values() {
       for row in self.heads.get(placed).cloned().unwrap_or_default() {
@@ -1621,6 +1633,15 @@ impl ComponentSet {
       _ => {}
     }
     let Some(item) = find_value(&parsed, name) else { return Ok(None) };
+    if matches!(item, Global::Function(..)) && name.starts_with(|c: char| c.is_ascii_uppercase()) {
+      if let Ok((module, _)) = self.component_module(file, name) {
+        match self.lower(&module) {
+          Ok(()) | Err(LowerError::Residue(_)) => {}
+          Err(other) => return Err(other),
+        }
+        return Ok(Some((Expr::Builtin { name: Builtin::ComponentRef, args: vec![Expr::lit_str(module)] }, key)));
+      }
+    }
     if let Global::Const(init) = &item {
       if let Some((module, member, reach)) = native_declaration(&parsed, init)? {
         let native = format!("{module}.{member}");
@@ -3761,6 +3782,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       return Ok(());
     }
+    self.premake_children(e)?;
     if self.holds_markup(e) {
       let tmpl = self.child_expr(e)?;
       let span = e.span();
@@ -4561,6 +4583,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// A JSX child or a component's return: a tree when the expression holds
   /// JSX anywhere a render would reach, text otherwise.
   fn child_expr(&mut self, expr: &'p js::Expr) -> Lowered<Tmpl> {
+    self.premake_children(expr)?;
     if let Some(name) = self.slot_of_expr(expr) {
       return Ok(self.slot(&name));
     }
@@ -4647,6 +4670,73 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::OptChain(_) if optional_map(expr).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => true,
       other => self.markup_call(other).is_some(),
     }
+  }
+
+  /// Each `Children.toArray(children)`, `Children.map(children, f)` and `Children.only(children)` under `e` over the component's own children, made ahead as a read of `render::CHILD_VALUES`, which the placement passes.
+  fn premake_children(&mut self, e: &'p js::Expr) -> Lowered<()> {
+    match e {
+      js::Expr::Call(call) => {
+        if let Some((method, rest)) = self.own_children_call(call) {
+          let values = Expr::Var(snapfire_fsr_ir::render::CHILD_VALUES.to_owned());
+          let made = match (method, rest) {
+            ("toArray", []) => Some(values),
+            ("only", []) => Some(Expr::Builtin { name: Builtin::At, args: vec![values, Expr::Lit(Lit::Int(0))] }),
+            ("map", [f]) => {
+              self.premake_expr(&f.expr)?;
+              Some(Expr::Map(Box::new(values), Box::new(self.lowerer.expr(&f.expr)?)))
+            }
+            _ => None,
+          };
+          if let Some(made) = made {
+            let span = call.span;
+            self.lowerer.premade.insert((span.lo.0, span.hi.0), made);
+            if !self.counts_children.contains(&snapfire_fsr_ir::render::CHILD_VALUES) {
+              self.counts_children.push(snapfire_fsr_ir::render::CHILD_VALUES);
+            }
+            return Ok(());
+          }
+        }
+        if let js::Callee::Expr(callee) = &call.callee {
+          if let js::Expr::Member(member) = &**callee {
+            self.premake_children(&member.obj)?;
+          }
+        }
+        call.args.iter().try_for_each(|arg| self.premake_children(&arg.expr))
+      }
+      js::Expr::Member(member) => self.premake_children(&member.obj),
+      js::Expr::Paren(p) => self.premake_children(&p.expr),
+      js::Expr::TsAs(a) => self.premake_children(&a.expr),
+      js::Expr::Cond(c) => {
+        self.premake_children(&c.test)?;
+        self.premake_children(&c.cons)?;
+        self.premake_children(&c.alt)
+      }
+      js::Expr::Bin(b) => {
+        self.premake_children(&b.left)?;
+        self.premake_children(&b.right)
+      }
+      _ => Ok(()),
+    }
+  }
+
+  /// `Children.<method>(children, ...rest)` over the component's own children.
+  fn own_children_call<'c>(&self, call: &'c js::CallExpr) -> Option<(&'static str, &'c [js::ExprOrSpread])> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(member) = &**callee else { return None };
+    if self.meanings().of_expr(&member.obj) != Some(crate::meaning::Meaning::Library(crate::meaning::Construct::Children)) {
+      return None;
+    }
+    let (first, rest) = call.args.split_first()?;
+    if first.spread.is_some() || self.slot_of_expr(&first.expr).as_deref() != Some("content") {
+      return None;
+    }
+    let method = match prop_name_of(member).as_deref()? {
+      "toArray" => "toArray",
+      "only" => "only",
+      "map" => "map",
+      _ => return None,
+    };
+    Some((method, rest))
   }
 
   /// `Children.count(children)` (`render::CHILD_COUNT`) or `Children.toArray(children).length` (`render::CHILD_ITEMS`) over the component's own children.
@@ -7199,8 +7289,8 @@ mod fills {
   use snapfire_fsr_ir::render::{ARRAY_ITEMS, CONTEXT_PREFIX, SLOT_CONTENT_PREFIX, SLOT_READ_PREFIX};
   use snapfire_fsr_ir::Tmpl;
 
-  /// The tag of an element whose tag a local chose, `<Heading>` over `const { Heading } = table[key]`; its `$tag` attribute holds the choice until [`place_tags`] writes one element per tag it can take.
-  pub(super) const CHOSEN_TAG: &str = "$tag";
+  /// The tag of an element whose tag a local chose, `<Heading>` over `const { Heading } = table[key]`; its `$tag` attribute holds the choice until [`place_tags`] writes one element per tag it can take. One whose tags it cannot list stays, and the renderer reads the choice.
+  pub(super) use snapfire_fsr_ir::render::CHOSEN_TAG;
 
   /// Each element whose tag a local chose as a branch over the tags it can take, listed from the literals the choice reads through the body's `let`s and the set's named constants; `Err` when the list is not complete or holds something other than a lowercase tag name.
   pub(super) fn place_tags(component: &mut Component, consts: &snapfire_fsr_ir::ast::Consts) -> Result<(), &'static str> {
@@ -7224,11 +7314,10 @@ mod fills {
         let rest: Vec<Entry> = attrs[1..].to_vec();
         let mut tags = Vec::new();
         if !strings_of(&choice, lets, consts, &mut tags, 0) || tags.is_empty() {
-          failed.get_or_insert("a tag chosen at render from values the build cannot list; pick the element with a condition or write each one");
           return;
         }
         if !tags.iter().all(|tag| tag.starts_with(|c: char| c.is_ascii_lowercase()) && tag.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')) {
-          failed.get_or_insert("a tag chosen at render that is not a lowercase element name; a component chosen this way is not followed");
+          failed.get_or_insert("a tag chosen at render that is not a lowercase element name");
           return;
         }
         let children = std::mem::take(children);
@@ -7655,6 +7744,48 @@ mod fills {
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => settle(body, module, filled),
       Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    }
+  }
+
+  /// Whether `e` can evaluate to a function value: a lambda anywhere in it other than the callback a builtin or a call applies.
+  fn holds_function(e: &Expr) -> bool {
+    let mut callbacks: Vec<*const Expr> = Vec::new();
+    e.visit(&mut |x| match x {
+      Expr::Map(_, f) | Expr::Filter(_, f) | Expr::Find(_, f) | Expr::FindIndex(_, f) | Expr::Some(_, f) | Expr::Every(_, f) | Expr::Sort(_, f) | Expr::FlatMap(_, f) | Expr::Reduce(_, _, f) | Expr::ReplaceWith(_, _, f) | Expr::Apply { f, .. } => callbacks.push(&**f as *const Expr),
+      _ => {}
+    });
+    let mut found = false;
+    e.visit(&mut |x| found |= matches!(x, Expr::Lambda { .. }) && !callbacks.contains(&(x as *const Expr)));
+    found
+  }
+
+  /// The first placement in `t` of a module `renders_in_browser` holds that passes a function value as a prop, with the prop's name.
+  pub(super) fn function_into_browser(t: &Tmpl, renders_in_browser: &dyn Fn(&str) -> bool) -> Option<(String, String)> {
+    match t {
+      Tmpl::Component { module, props, children, .. } => {
+        if renders_in_browser(module) {
+          for entry in props {
+            let Entry::Field(name, e) = entry else { continue };
+            if holds_function(e) {
+              return Some((module.clone(), name.clone()));
+            }
+          }
+        }
+        children.iter().find_map(|c| function_into_browser(c, renders_in_browser))
+      }
+      Tmpl::Island { module, props, children, .. } => {
+        for entry in props {
+          let Entry::Field(name, e) = entry else { continue };
+          if holds_function(e) {
+            return Some((module.clone(), name.clone()));
+          }
+        }
+        children.iter().find_map(|c| function_into_browser(c, renders_in_browser))
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().find_map(|c| function_into_browser(c, renders_in_browser)),
+      Tmpl::If { then, r#else, .. } => function_into_browser(then, renders_in_browser).or_else(|| r#else.as_deref().and_then(|e| function_into_browser(e, renders_in_browser))),
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => function_into_browser(body, renders_in_browser),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
     }
   }
 

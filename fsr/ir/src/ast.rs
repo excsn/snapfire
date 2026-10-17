@@ -221,6 +221,12 @@ pub enum Builtin {
   TypeOf,
   /// `Array.isArray(x)`.
   IsArray,
+  /// A component named as a value, `icon={Star}`: its module, which a tag read from the value renders.
+  ComponentRef,
+  /// `isValidElement(x)`: whether `x` is a markup value.
+  IsElement,
+  /// `cloneElement(element, props)`.
+  CloneElement,
   /// `new URLSearchParams(x).toString()`: an object's entries or a query string, form-encoded.
   FormEncode,
   /// `new URLSearchParams(x).get(key)` over the string `FormEncode` wrote: the first value under `key`, null for none.

@@ -126,6 +126,15 @@ fn markup_passed_as_a_prop_to_a_browser_component_crosses_as_a_region_the_island
 }
 
 #[test]
+fn an_island_calling_a_function_the_server_does_not_hold_mounts_in_the_browser() {
+  let tip = "import { useState } from \"react\";\nexport function Tip({ format }) {\n  const [n, setN] = useState(1);\n  return <span onClick={() => setN(n + 1)}>{format(n)}</span>;\n}\n";
+  let out = rendered("island_fn", &[("src/Tip.tsx", tip), ("routes/page.tsx", "import { Tip } from \"@src/Tip\";\nexport default function Page() {\n  return <Tip format={(n) => n * 2} />;\n}\n")]).unwrap();
+  let island = &out.islands[0];
+  assert_eq!(island.module, "src/Tip.tsx#Tip");
+  assert_eq!(island.body.html, "", "the server cannot call the browser's `format`, so the island mounts fresh rather than failing the page");
+}
+
+#[test]
 fn an_island_inside_an_element_prop_keys_as_it_does_inside_children() {
   let prop = rendered("isl_prop", &[("src/Card.tsx", CARD), ("src/Counter.tsx", COUNTER), ("routes/page.tsx", "import { Card } from \"@src/Card\";\nimport { Counter } from \"@src/Counter\";\nexport default function Page() {\n  return <Card title=\"t\" body={<Counter />} />;\n}\n")]);
   let inline = rendered("isl_inline", &[("src/Card.tsx", CARD), ("src/Counter.tsx", COUNTER), ("routes/page.tsx", "import { Boxed } from \"@src/Card\";\nimport { Counter } from \"@src/Counter\";\nexport default function Page() {\n  return <Boxed title=\"t\"><Counter /></Boxed>;\n}\n")]);
@@ -290,8 +299,9 @@ fn a_tag_a_local_chooses_from_listed_literals_renders_that_element() {
   assert_eq!(html("tag_const", &[("routes/page.tsx", &big)]).as_deref(), Ok("<h4>x</h4>"));
   let ternary = "export default function Page({ price }) {\n  const Tag = price > 1 ? \"strong\" : \"em\";\n  return <Tag>x</Tag>;\n}\n";
   assert_eq!(html("tag_ternary", &[("routes/page.tsx", ternary)]).as_deref(), Ok("<strong>x</strong>"));
+  let from_prop = "export default function Page({ as }) {\n  const Tag = as ?? \"aside\";\n  return <Tag>x</Tag>;\n}\n";
+  assert_eq!(html("tag_prop", &[("routes/page.tsx", from_prop)]).as_deref(), Ok("<aside>x</aside>"), "a tag the build cannot list is read at render");
   for (tag, page, says) in [
-    ("tag_prop", "export default function Page({ as }) {\n  const Tag = as;\n  return <Tag>x</Tag>;\n}\n", "a tag chosen at render from values the build cannot list"),
     ("tag_upper", "export default function Page({ price }) {\n  const Tag = price > 1 ? \"Strong\" : \"em\";\n  return <Tag>x</Tag>;\n}\n", "not a lowercase element name"),
   ] {
     let out = html(tag, &[("routes/page.tsx", page)]);

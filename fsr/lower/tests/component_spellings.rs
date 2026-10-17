@@ -273,8 +273,8 @@ fn a_local_named_like_a_server_construct_is_the_local() {
   let differ: Vec<String> = cases
     .iter()
     .filter_map(|(name, what, file, source, renamed, twin)| {
-      let got = lowered(&[((*file).to_owned(), (*source).to_owned())], what, file).replace(&format!("\"{name}\""), "\"LOCAL\"").replace(&format!("`{name}`"), "`LOCAL`");
-      let reference = lowered(&[((*file).to_owned(), (*renamed).to_owned())], what, file).replace(&format!("\"{twin}\""), "\"LOCAL\"").replace(&format!("`{twin}`"), "`LOCAL`");
+      let got = lowered(&[((*file).to_owned(), (*source).to_owned())], what, file).replace(&format!("\\\"{name}\\\""), "\\\"LOCAL\\\"").replace(&format!("\"{name}\""), "\"LOCAL\"").replace(&format!("`{name}`"), "`LOCAL`");
+      let reference = lowered(&[((*file).to_owned(), (*renamed).to_owned())], what, file).replace(&format!("\\\"{twin}\\\""), "\\\"LOCAL\\\"").replace(&format!("\"{twin}\""), "\"LOCAL\"").replace(&format!("`{twin}`"), "`LOCAL`");
       (got != reference).then(|| format!("a local `{name}`: {} (renamed {})", got.chars().take(200).collect::<String>(), reference.chars().take(160).collect::<String>()))
     })
     .collect();

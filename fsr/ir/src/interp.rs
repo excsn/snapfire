@@ -253,6 +253,7 @@ impl Interpreter {
       slot_owner: None,
       scoped: None,
       made: Some(Vec::new()),
+      closures: Some(Vec::new()),
       marks: Vec::new(),
       placed: Vec::new(),
       input: input.unwrap_or(Value::Null),
@@ -386,6 +387,38 @@ pub(crate) struct Env {
   pub(crate) marks: Vec<usize>,
   /// The made indices among `marks` this island's render placed, whose markup the browser reads from where they were placed.
   pub(crate) placed: Vec<usize>,
+  /// The function values this render made, which a value made here names by index. `None` in a copy for parallel evaluation.
+  pub(crate) closures: Option<Vec<Closure>>,
+}
+
+/// A function value: its parameters, its body and the names it reads with their values where it was written.
+#[derive(Debug, Clone)]
+pub(crate) struct Closure {
+  params: Vec<String>,
+  body: std::sync::Arc<Expr>,
+  scope: Vec<(String, Value)>,
+}
+
+/// The tag of a function value: its payload indexes the render's closure table.
+pub const FUNCTION_VALUE: &str = "$fn";
+
+fn closure_index(value: &Value) -> Option<usize> {
+  match value {
+    Value::Variant { tag, payload: Some(payload) } if tag == FUNCTION_VALUE => match &**payload {
+      Value::Int(n) => usize::try_from(*n).ok(),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
+/// Whether `value` is or holds a function value, which only a render can call.
+pub(crate) fn holds_closure(value: &Value) -> bool {
+  match value {
+    Value::Seq(items) => items.iter().any(holds_closure),
+    Value::Map(map) => map.values().any(holds_closure),
+    other => closure_index(other).is_some(),
+  }
 }
 
 /// One step of the path a key is taken under.
@@ -535,6 +568,7 @@ impl Env {
       slot_owner: None,
       scoped: None,
       made: Some(Vec::new()),
+      closures: Some(Vec::new()),
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -687,6 +721,7 @@ impl Env {
       slot_owner: None,
       scoped: None,
       made: None,
+      closures: None,
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -941,7 +976,7 @@ impl Env {
           None => Err(Fail::internal(format!("`{module}.{method}` is not a synchronous native"))),
         }
       }
-      Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
+      Expr::Lambda { params, body } => self.close(params, body),
       Expr::Handler(index) => Ok(crate::render::handler_value(&self.component_path, *index)),
       Expr::Hoist { id, expr } => {
         let value = self.eval_sync(expr)?;
@@ -962,7 +997,10 @@ impl Env {
         for arg in args {
           values.push(self.eval_sync(arg)?);
         }
-        builtin(*name, values)
+        match name {
+          Builtin::CloneElement => self.clone_element(values),
+          _ => builtin(*name, values),
+        }
       }
       Expr::Ext { module, name, args } => {
         let mut values = Vec::with_capacity(args.len());
@@ -1138,9 +1176,44 @@ impl Env {
     }
   }
 
+  /// A lambda written where a value goes, as a function value: what its body reads is taken now.
+  fn close(&mut self, params: &[String], body: &Expr) -> Result<Value, Fail> {
+    let mut names = Vec::new();
+    body.free_vars(&mut names);
+    let scope = names.into_iter().filter(|name| !params.contains(name)).filter_map(|name| self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| (name, v.clone()))).collect();
+    let closure = Closure { params: params.to_vec(), body: std::sync::Arc::new(body.clone()), scope };
+    let Some(table) = &mut self.closures else {
+      return Err(Fail::internal("a function value made while the body's independent lets evaluate in parallel"));
+    };
+    table.push(closure);
+    Ok(Value::Variant { tag: FUNCTION_VALUE.to_owned(), payload: Some(Box::new(Value::Int((table.len() - 1) as i128))) })
+  }
+
+  /// The function value `f` evaluates to, for a call whose target is not a lambda written in place.
+  fn closure_of(&mut self, f: &Expr) -> Result<Closure, Fail> {
+    let value = self.eval_sync(f)?;
+    closure_index(&value).and_then(|index| self.closures.as_ref().and_then(|table| table.get(index)).cloned()).ok_or_else(|| type_error("call", "a function", &value))
+  }
+
   pub(crate) fn apply_sync(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
     let Expr::Lambda { params, body } = f else {
-      return Err(Fail::internal("a builtin takes a lambda"));
+      let closure = match self.closure_of(f) {
+        Ok(closure) => closure,
+        Err(_) if self.in_framework => {
+          self.unrendered = true;
+          return Ok(Value::Null);
+        }
+        Err(e) => return Err(e),
+      };
+      let mut scope = closure.scope;
+      let mut args = args.into_iter();
+      for param in &closure.params {
+        scope.push((param.clone(), args.next().unwrap_or(Value::Null)));
+      }
+      let outer = std::mem::replace(&mut self.scope, scope);
+      let result = self.eval_sync(&closure.body);
+      self.scope = outer;
+      return result;
     };
     let depth = self.scope.len();
     let mut args = args.into_iter();
@@ -1313,7 +1386,7 @@ impl Env {
           }
           self.ctx.natives.call(module, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
-        Expr::Lambda { .. } => Err(Fail::internal("a lambda is applied, never a value")),
+        Expr::Lambda { .. } => self.eval_sync(expr),
         Expr::Hoist { expr, .. } => self.eval(expr).await,
         Expr::Handler(_) => Err(Fail::internal("a handler is a value in a render only")),
         Expr::Apply { f, args } => {
@@ -1507,7 +1580,7 @@ impl Env {
 
   pub(crate) async fn apply(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
     let Expr::Lambda { params, body } = f else {
-      return Err(Fail::internal("a builtin takes a lambda"));
+      return self.apply_sync(f, args);
     };
     let depth = self.scope.len();
     let mut args = args.into_iter();
@@ -2423,12 +2496,15 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
+    Builtin::IsElement => Value::Bool(crate::render::is_made(arg(0)?)),
+    Builtin::CloneElement => return Err(Fail::internal("cloneElement is evaluated in a render")),
+    Builtin::ComponentRef => Value::Variant { tag: crate::render::COMPONENT_VALUE.to_owned(), payload: Some(Box::new(arg(0)?.clone())) },
     Builtin::TypeOf => Value::str(match arg(0)? {
       Value::Null => "undefined",
       Value::Bool(_) => "boolean",
       Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) => "number",
       Value::Str(_) => "string",
-      Value::Variant { tag, .. } if tag == crate::render::HANDLER_VALUE => "function",
+      Value::Variant { tag, .. } if tag == crate::render::HANDLER_VALUE || tag == FUNCTION_VALUE || tag == crate::render::COMPONENT_VALUE => "function",
       Value::Ref { .. } => "function",
       _ => "object",
     }),

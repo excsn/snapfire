@@ -44,6 +44,10 @@ pub(crate) enum Construct {
   ClassNames,
   /// React's `Children`, of which the build reads the count of a component's own children.
   Children,
+  /// React's `cloneElement`.
+  CloneElement,
+  /// React's `isValidElement`.
+  IsValidElement,
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -128,6 +132,8 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("vue", "inject", Construct::Vue("inject")),
   ("vue", "defineAsyncComponent", Construct::AsyncComponent),
   ("react", "Children", Construct::Children),
+  ("react", "cloneElement", Construct::CloneElement),
+  ("react", "isValidElement", Construct::IsValidElement),
   ("clsx", "clsx", Construct::ClassNames),
   ("clsx", "default", Construct::ClassNames),
   ("classnames", "default", Construct::ClassNames),

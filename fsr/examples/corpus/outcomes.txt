@@ -202,7 +202,7 @@ learn-queueing-a-series-of-state-updates-4	lowered
 learn-queueing-a-series-of-state-updates-5	lowered
 learn-queueing-a-series-of-state-updates-6	lowered
 learn-queueing-a-series-of-state-updates-7	lowered
-learn-queueing-a-series-of-state-updates-8	client: src/processQueue.js:7:20 a call to a computed target
+learn-queueing-a-series-of-state-updates-8	lowered
 learn-reacting-to-input-with-state-10	lowered
 learn-reacting-to-input-with-state-11	lowered
 learn-reacting-to-input-with-state-2	lowered
@@ -266,7 +266,7 @@ learn-reusing-logic-with-custom-hooks-1	lowered
 learn-reusing-logic-with-custom-hooks-10	client: src/useOnlineStatus.js:13:10 a call to `useSyncExternalStore`, which the build cannot follow
 learn-reusing-logic-with-custom-hooks-11	lowered
 learn-reusing-logic-with-custom-hooks-12	lowered
-learn-reusing-logic-with-custom-hooks-13	client: src/useFadeIn.js:7:31 a function value; lambdas go to `map`, `filter` and their kin
+learn-reusing-logic-with-custom-hooks-13	client: src/useFadeIn.js:9:5 a write to something other than a local
 learn-reusing-logic-with-custom-hooks-14	lowered
 learn-reusing-logic-with-custom-hooks-15	lowered
 learn-reusing-logic-with-custom-hooks-16	lowered
@@ -275,9 +275,9 @@ learn-reusing-logic-with-custom-hooks-18	lowered
 learn-reusing-logic-with-custom-hooks-19	lowered
 learn-reusing-logic-with-custom-hooks-2	lowered
 learn-reusing-logic-with-custom-hooks-20	lowered
-learn-reusing-logic-with-custom-hooks-21	client: src/useCounter.js:6:15 a function value; lambdas go to `map`, `filter` and their kin
-learn-reusing-logic-with-custom-hooks-22	client: src/useCounter.js:6:15 a function value; lambdas go to `map`, `filter` and their kin
-learn-reusing-logic-with-custom-hooks-23	client: src/useCounter.js:6:15 a function value; lambdas go to `map`, `filter` and their kin
+learn-reusing-logic-with-custom-hooks-21	client: src/useCounter.js:7:5 a call for its effect, which a straight-line body cannot hold
+learn-reusing-logic-with-custom-hooks-22	client: src/useCounter.js:7:5 a call for its effect, which a straight-line body cannot hold
+learn-reusing-logic-with-custom-hooks-23	client: src/useCounter.js:7:5 a call for its effect, which a straight-line body cannot hold
 learn-reusing-logic-with-custom-hooks-24	lowered
 learn-reusing-logic-with-custom-hooks-25	lowered
 learn-reusing-logic-with-custom-hooks-3	lowered
@@ -422,20 +422,20 @@ reference-react-activity-9	client: src/App.js:26:7 `Activity` comes from `react`
 reference-react-captureownerstack-1	client: src/App.js:24:5 `Suspense` comes from `react`, which the build cannot follow
 reference-react-captureownerstack-2	lowered
 reference-react-captureownerstack-3	lowered
-reference-react-children-1	client: src/RowList.js:6:8 `Children` comes from `react`, which the build cannot follow
-reference-react-children-10	client: src/TabSwitcher.js:12:12 a call to a computed target
-reference-react-children-11	client: src/RowList.js:11:12 a call to a computed target
-reference-react-children-2	client: src/RowList.js:6:8 `Children` comes from `react`, which the build cannot follow
+reference-react-children-1	lowered
+reference-react-children-10	lowered
+reference-react-children-11	lowered
+reference-react-children-2	lowered
 reference-react-children-3	client: src/SeparatorList.js:5:3 a call for its effect, which a straight-line body cannot hold
-reference-react-children-4	client: src/RowList.js:9:8 `Children` comes from `react`, which the build cannot follow
-reference-react-children-5	client: src/ReversedList.js:4:18 `Children` comes from `react`, which the build cannot follow
+reference-react-children-4	lowered
+reference-react-children-5	client: src/ReversedList.js:5:3 a call for its effect, which a straight-line body cannot hold
 reference-react-children-6	lowered
 reference-react-children-7	lowered
 reference-react-children-8	lowered
 reference-react-children-9	lowered
-reference-react-cloneelement-1	client: src/List.js:7:8 `Children` comes from `react`, which the build cannot follow
-reference-react-cloneelement-2	client: src/List.js:9:16 a call to a computed target
-reference-react-cloneelement-3	client: src/List.js:15:14 a call to a computed target
+reference-react-cloneelement-1	lowered
+reference-react-cloneelement-2	lowered
+reference-react-cloneelement-3	lowered
 reference-react-cloneelement-4	lowered
 reference-react-component-1	refused: src/App.js: no exported `Greeting`
 reference-react-component-10	refused: src/App.js: no exported `Button`
@@ -506,7 +506,7 @@ reference-react-dom-createportal-2	client: src/PortalExample.js:12:21 a call to 
 reference-react-dom-createportal-3	client: src/App.js:9:8 a call to `createPortal`, which the build cannot follow
 reference-react-dom-flushsync-1	lowered
 reference-react-dom-hooks-useformstatus-1	client: src/actions.js:2:5 an expression statement other than a write to a local
-reference-react-dom-hooks-useformstatus-2	client: src/App.js:8:29 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-dom-hooks-useformstatus-2	client: src/App.js:9:7 an expression statement other than a write to a local
 reference-react-dom-server-resume-1	refused: src/App.js: no exported `default`
 reference-react-forwardref-1	refused: src/MyInput.js: no exported `default`
 reference-react-forwardref-2	refused: src/MyVideoPlayer.js: no exported `default`
@@ -548,7 +548,7 @@ reference-react-use-3	lowered
 reference-react-use-4	client: src/App.js:12:7 `Suspense` comes from `react`, which the build cannot follow | src/App.js:20:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-5	client: src/data.js:9:5 a call for its effect, which a straight-line body cannot hold
 reference-react-use-6	client: src/App.js:7:9 `useTransition`
-reference-react-use-7	client: src/App.js:5:22 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-use-7	client: src/App.js:5:35 a call to `setTimeout`, which the build cannot follow
 reference-react-useactionstate-1	client: src/App.js:6:9 `useActionState`
 reference-react-useactionstate-2	client: src/App.js:6:9 `useActionState`
 reference-react-useactionstate-3	client: src/App.js:6:9 `useActionState`
@@ -582,11 +582,11 @@ reference-react-useeffect-3	lowered
 reference-react-useeffect-4	lowered
 reference-react-useeffect-5	lowered
 reference-react-useeffect-6	lowered
-reference-react-useeffect-7	client: src/App.js:7:36 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-useeffect-7	client: src/App.js:8:5 a call for its effect, which a straight-line body cannot hold
 reference-react-useeffect-8	lowered
 reference-react-useeffectevent-1	client: src/App.js:7:18 `useEffectEvent`, a hook the build cannot follow
 reference-react-useeffectevent-2	client: src/App.js:7:18 `useEffectEvent`, a hook the build cannot follow
-reference-react-useeffectevent-4	client: src/App.js:20:15 a function value; lambdas go to `map`, `filter` and their kin
+reference-react-useeffectevent-4	client: src/App.js:21:5 a call for its effect, which a straight-line body cannot hold
 reference-react-useid-1	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useid-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
 reference-react-useid-3	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration

@@ -4,15 +4,15 @@ array_from_length	lowered
 array_local	lowered
 array_returned	lowered
 array_spread_concat	lowered
-as_prop	client: routes/page.tsx:1:75 a tag chosen at render from values the build cannot list; pick the element with a condition or write each one
+as_prop	lowered
 children_count	lowered
-children_function	client: routes/page.island0.tsx:4:5 a function value; lambdas go to `map`, `filter` and their kin | routes/page.tsx:3:16 a call to a computed target
-children_map	client: routes/page.tsx:3:15 `Children` comes from `react`, which the build cannot follow
-children_toarray_slice	client: routes/page.tsx:3:16 `Children` comes from `react`, which the build cannot follow
-clone_element	client: routes/page.tsx:3:16 `Children` comes from `react`, which the build cannot follow
-columns_render_fns	refused: routes/page.tsx:3:26: a function value; lambdas go to `map`, `filter` and their kin
-component_as_prop	refused: routes/page.tsx:1:26: JSX in a body
-component_from_table	refused: routes/page.tsx:1:26: JSX in a body
+children_function	lowered
+children_map	lowered
+children_toarray_slice	lowered
+clone_element	lowered
+columns_render_fns	refused: routes/page.tsx:3:40: JSX in a body
+component_as_prop	lowered
+component_from_table	lowered
 conditional_wrapper	lowered
 context_markup	lowered
 control_props	lowered
@@ -20,10 +20,10 @@ counted_for	lowered
 element_prop	lowered
 falsy_children	lowered
 filter_boolean	lowered
-flat	client: routes/page.island0.tsx:4:5 `.flat()`, which is not a builtin
+flat	lowered
 helper_module_markup	lowered
 helper_returns_array	lowered
-is_valid_element	client: routes/page.tsx:3:14 a call to `isValidElement`, which the build cannot follow
+is_valid_element	lowered
 island_markup_prop	lowered
 join_with_separator	client: routes/page.island0.tsx:3:3 a call for its effect, which a straight-line body cannot hold
 keyed_fragment_inline	lowered
@@ -41,7 +41,7 @@ push_for_of	lowered
 push_if	lowered
 recursive_tree	lowered
 reduce_markup	lowered
-render_prop	client: routes/page.tsx:2:54 a call to a computed target
+render_prop	lowered
 switch_helper	lowered
 tag_from_table	lowered
 ternary_local	lowered

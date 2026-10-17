@@ -211,6 +211,9 @@ pub struct LoweredHandler {
 /// The exports of a `route.ts` that are handlers.
 pub const HANDLER_METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 
+/// Methods JavaScript gives strings, arrays, numbers, objects and promises that the build does not lower: a call of one is refused by name rather than read as a call of a function value held in a field.
+const STANDARD_METHODS: &[&str] = &["flat", "entries", "keys", "values", "forEach", "push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin", "lastIndexOf", "findLast", "findLastIndex", "reduceRight", "toSpliced", "with", "charAt", "charCodeAt", "codePointAt", "normalize", "localeCompare", "match", "matchAll", "search", "trimStart", "trimEnd", "toString", "valueOf", "toLocaleUpperCase", "toLocaleLowerCase", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toPrecision", "toExponential", "then", "catch", "finally", "get", "set", "has", "delete", "add", "clear", "replaceAll", "anchor", "at", "bind", "call", "apply"];
+
 /// Session keys with the value a body reads when the key is absent, from
 /// `export const defaults` in the session schema. A read of such a key lowers
 /// to `session.key ?? default`.
@@ -1611,11 +1614,7 @@ impl<'a> Lowerer<'a> {
       )),
       js::Expr::Member(member) => self.member(member),
       js::Expr::Call(call) => self.call(call),
-      js::Expr::Arrow(arrow) => Err(self.residue_with(
-        arrow.span,
-        "a function value; lambdas go to `map`, `filter` and their kin",
-        "export helpers as bare functions rather than fields of an object, so each call site names one the build can follow",
-      )),
+      js::Expr::Arrow(arrow) => self.lambda(arrow),
       js::Expr::OptChain(o) => match &*o.base {
         js::OptChainBase::Member(member) => self.member(member),
         js::OptChainBase::Call(call) if o.optional => Err(self.residue_with(call.span, "an optional call of a function value", "the server holds no function values; call a builtin or a helper the build can follow")),
@@ -1819,6 +1818,18 @@ impl<'a> Lowerer<'a> {
       }
       return Ok(self.candidate(call.span, Expr::Ext { module: "i18n".to_owned(), name: "t".to_owned(), args }));
     }
+    let element_builtin = match self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
+      Some(meaning::Meaning::Library(meaning::Construct::CloneElement)) => Some(Builtin::CloneElement),
+      Some(meaning::Meaning::Library(meaning::Construct::IsValidElement)) => Some(Builtin::IsElement),
+      _ => None,
+    };
+    if let Some(name) = element_builtin {
+      let mut args = Vec::with_capacity(call.args.len());
+      for a in &call.args {
+        args.push(self.expr(&a.expr)?);
+      }
+      return Ok(Expr::Builtin { name, args });
+    }
     if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClassNames)) {
       let mut items = Vec::with_capacity(call.args.len());
       for a in &call.args {
@@ -1915,7 +1926,12 @@ impl<'a> Lowerer<'a> {
           "the build does not run a function to produce a value; write the value as an expression or move the steps into a named function the body calls",
         ));
       }
-      return Err(self.residue(callee.span(), "a call to a computed target"));
+      let f = Box::new(self.expr(callee)?);
+      let mut args = Vec::with_capacity(call.args.len());
+      for a in &call.args {
+        args.push(self.expr(&a.expr)?);
+      }
+      return Ok(Expr::Apply { f, args });
     };
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
 
@@ -2120,6 +2136,7 @@ impl<'a> Lowerer<'a> {
       "some" => Ok(Expr::Some(target, lambda(self, 0)?)),
       "every" => Ok(Expr::Every(target, lambda(self, 0)?)),
       "flatMap" => Ok(Expr::FlatMap(target, lambda(self, 0)?)),
+      "flat" if call.args.is_empty() || matches!(&*call.args[0].expr, js::Expr::Lit(js::Lit::Num(n)) if n.value == 1.0) => Ok(Expr::FlatMap(target, Box::new(Expr::Lambda { params: vec!["$item".to_owned()], body: Box::new(Expr::Var("$item".to_owned())) }))),
       "toString" if call.args.is_empty() => Ok(Expr::Str(target)),
       "getTime" | "valueOf" => Ok(*target),
       "toISOString" | "toJSON" => Ok(Expr::Builtin { name: Builtin::IsoString, args: vec![*target] }),
@@ -2274,10 +2291,17 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Expr::Builtin { name, args })
       }
+      other if !STANDARD_METHODS.contains(&other) => {
+        let mut args = Vec::with_capacity(call.args.len());
+        for a in &call.args {
+          args.push(self.expr(&a.expr)?);
+        }
+        Ok(Expr::Apply { f: Box::new(Expr::Field(target, other.to_owned())), args })
+      }
       other => Err(self.residue_with(
         member.span,
         format!("`.{other}()`, which is not a builtin"),
-        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace` and `toLocaleString`; anything else goes in a module-level helper the build can read",
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace` and `toLocaleString`; anything else goes in a module-level helper the build can read",
       )),
     }
   }

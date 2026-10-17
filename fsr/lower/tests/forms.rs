@@ -311,9 +311,8 @@ fn a_hook_reached_through_a_namespace_import_is_still_that_hook() {
 
 #[test]
 fn a_method_call_on_a_local_object_is_not_mistaken_for_a_hook() {
-  let mut set = ComponentSet::new(&app(&[("routes/a/page.tsx", "const box = { useThing: () => 1 };\nexport default function P() {\n  const n = box.useThing();\n  return <p>{n}</p>;\n}\n")]));
-  let err = set.lower("routes/a/page.tsx#default").unwrap_err().to_string();
-  assert!(!err.contains("`useThing`"), "the hook rule only follows a namespace import, so this is an ordinary unfollowable call: {err}");
+  let set = lower(&[("routes/a/page.tsx", "const box = { useThing: () => 1 };\nexport default function P() {\n  const n = box.useThing();\n  return <p>{n}</p>;\n}\n")], "routes/a/page.tsx#default");
+  assert_eq!(render(&library(&set), "routes/a/page.tsx#default", &[]).as_deref(), Ok("<p>1</p>"), "the hook rule only follows a namespace import, so this is a call of the function the object holds");
 }
 
 #[test]
