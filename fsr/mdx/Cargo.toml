@@ -22,7 +22,7 @@ frontmatter = ["dep:yaml-rust2", "dep:toml"]
 
 [dependencies]
 markdown = "1"
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 thiserror = "2"
 syntect = { version = "5.3", default-features = false, features = ["html", "regex-fancy"], optional = true }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"], optional = true }

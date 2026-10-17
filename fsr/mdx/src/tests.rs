@@ -218,7 +218,7 @@ fn frontmatter_becomes_the_meta_export() {
   let mut o = options(Format::Md);
   o.frontmatter = true;
   let c = convert("---\ntitle: Hello\ntags: [a]\n---\n\n# Hi\n", &o).expect("converts");
-  assert!(c.tsx.starts_with("export const meta = {\"tags\":[\"a\"],\"title\":\"Hello\"};\n"), "{}", c.tsx);
+  assert!(c.tsx.starts_with("export const meta = {\"title\":\"Hello\",\"tags\":[\"a\"]};\n"), "{}", c.tsx);
   assert!(c.meta);
   let c = convert("+++\ntitle = \"Toml\"\n+++\n\nx\n", &o).expect("converts");
   assert!(c.tsx.starts_with("export const meta = {\"title\":\"Toml\"};\n"), "{}", c.tsx);
