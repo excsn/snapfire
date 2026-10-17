@@ -1,6 +1,7 @@
 import { Activity, Suspense } from "react";
 
 import Adder from "@src/idioms/Adder";
+import Ager from "@src/idioms/Ager";
 import Board from "@src/idioms/Board";
 import Tasks from "@src/idioms/Tasks";
 
@@ -32,6 +33,7 @@ export default function Idioms() {
       </Activity>
       <Heading level={2}>{levels[2]}</Heading>
       <Adder />
+      <Ager name="Ada" />
     </section>
   );
 }
