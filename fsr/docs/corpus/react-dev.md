@@ -1,12 +1,12 @@
 # react.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `552d3434`.
+The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `6195a11b`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
 | Lowered whole | 532 | the server renders every component on the page |
-| Partly client side rendered | 101 | at least one component renders in the browser; the outcome names each cause |
-| Refused | 1 | the build stops |
+| Partly client side rendered | 102 | at least one component renders in the browser; the outcome names each cause |
+| Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
 | Total | 641 | |
 
@@ -18,7 +18,7 @@ The build stops a module at its first cause and a component that fails never low
 
 ## What sends a component to the browser
 
-Every cause left is blocked. The last column is what it waits on. An example can name more than one cause, so the rows add up to more than 101.
+Every cause left is blocked. The last column is what it waits on. An example can name more than one cause, so the rows add up to more than 102.
 
 | Cause | Examples | Waits on |
 | --- | --- | --- |
@@ -35,19 +35,21 @@ Every cause left is blocked. The last column is what it waits on. An example can
 | `useSyncExternalStore` without `getServerSnapshot` | 3 | Nothing: React's server renderer refuses it too |
 | `++` on a module-level counter | 3 | A decision on module state evaluated at load |
 | A `'use server'` action, a promise cache or a promise in state | 3 | The promise row |
-| The current time on a render path | 2 | Nothing: nondeterministic |
+| The current time on a render path, read inline or through a helper | 3 | Nothing: nondeterministic |
 | A write to `foo` in an error boundary demo | 2 | Nothing: the component throws on purpose |
 | Setting state during render, `reference-react-usestate-14` | 1 | A decision on re-render semantics |
 | `Children.forEach`, `reference-react-children-3` | 1 | The IR walking a placement's children one by one |
 | `createElement`, `reference-react-createelement-1` | 1 | A rewrite to JSX the browser source rewrite can follow, since the rewritten nodes' spans would sit inside the call |
 | `.get()` on `useFormStatus`'s `data`, `.entries()` on typed props, `window` | 3 | `FormData`, typed values across props and the viewer's device |
 
-## What the build refuses
+## What is not a working example
 
-| Refusal | Examples | Waits on |
-| --- | --- | --- |
-| `Date.now()` on the render path of a server component, `learn-rsc-sandbox-test-6` | 1 | FSR knowing a component is server only |
+These are excluded from the counts above.
 
-The seven that are not working examples are the JSX react.dev shows broken on purpose (`learn-describing-the-ui-3`; `learn-writing-markup-with-jsx-1`, `-3`), the exercise stubs with no export (`learn-your-first-component-3`, `-10`) and two streaming demos whose `App.js` is empty in react.dev itself (`reference-react-suspense-3`, `reference-react-dom-server-resume-1`): their code is the `src/index.js` the corpus leaves out, which renders with `react-dom/server` inside the browser.
+| Examples | What they are |
+| --- | --- |
+| `learn-describing-the-ui-3`, `learn-writing-markup-with-jsx-1`, `-3` | JSX react.dev shows broken on purpose: several roots, unclosed tags, `class=` |
+| `learn-your-first-component-3`, `-10` | Exercise stubs with no export |
+| `reference-react-suspense-3`, `reference-react-dom-server-resume-1` | Streaming demos whose `App.js` is empty in react.dev itself; their code is the `src/index.js` the corpus leaves out, which renders with `react-dom/server` inside the browser |
 
 After a change to the lowerer moves outcomes, bless the run with `CORPUS_BLESS=1 cargo test -p corpus` and bring the counts here up to that commit.
