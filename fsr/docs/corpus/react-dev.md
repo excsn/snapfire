@@ -1,11 +1,11 @@
 # react.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `6195a11b`.
+The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `1d8b297a`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 532 | the server renders every component on the page |
-| Client side rendered, lowerable | 39 | a component renders in the browser because it uses something the build does not render on the server yet |
+| Lowered whole | 545 | the server renders every component on the page |
+| Client side rendered, lowerable | 26 | a component renders in the browser because it uses something the build does not render on the server yet |
 | Client side rendered by design | 63 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock, zone or device, a promise the render awaits, a portal |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
@@ -25,15 +25,13 @@ An example can name more than one cause, so the rows add up to more than the cou
 
 | Cause | Examples | What the server does not render yet |
 | --- | --- | --- |
-| A class component | 13 | A class's `render()` |
 | `useId` | 7 | An id that matches the one React derives from the tree at hydration |
 | A locale named where it formats, `new Intl.NumberFormat('en-US')` kept as a value among them | 7 | Formatting under a locale written into the code rather than the request's |
 | A function value into a component that renders in the browser: a render prop, a method in an object literal or an imported function passed as a prop | 7 | A function passed into a component that hydrates |
 | `++` on a module-level counter | 3 | Module state written when the module loads |
 | Setting state during render, `reference-react-usestate-14` | 1 | Rendering again after state is set during render |
-| `Children.forEach`, `reference-react-children-3` | 1 | Running a callback over each child the caller passed |
 | `createElement`, `reference-react-createelement-1` | 1 | `createElement` calls read as the JSX they stand for |
-| `.get()` on `useFormStatus`'s `data`, `.entries()` on typed props | 2 | `FormData` methods and `Map`, `Set` or `Date` values passed as props |
+| `.entries()` on typed props, `learn-rsc-sandbox-test-5` | 1 | `Map`, `Set`, `Date` and `BigInt` values passed as props and read with `instanceof` |
 
 ### By design
 
