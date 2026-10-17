@@ -90,6 +90,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("react", "useSyncExternalStore", Construct::Hook("useSyncExternalStore")),
   ("react", "useOptimistic", Construct::Hook("useOptimistic")),
   ("react", "useActionState", Construct::Hook("useActionState")),
+  ("react", "useEffectEvent", Construct::Hook("useEffectEvent")),
   ("react", "lazy", Construct::AsyncComponent),
   ("react-dom", "useFormStatus", Construct::Hook("useFormStatus")),
   ("@snapfire/fsr-client/react", "useStore", Construct::Hook("useStore")),

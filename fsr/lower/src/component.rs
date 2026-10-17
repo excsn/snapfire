@@ -4561,6 +4561,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             return Err(self.lowerer.residue(decl.span, "`useStore` bound to one name; it is a pair, as `const [x, setX] = useStore(key, initial)`"))
           }
           Some(("useLocale", _)) => Expr::Locale,
+          Some(("useEffectEvent", call)) => {
+            if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
+              self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+            }
+            self.browser_function(local);
+            return Ok(None);
+          }
+          Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
           Some(("useId", _)) if !matches!(self.meanings().bindings.get("useId"), Some(crate::meaning::Meaning::Own { .. })) => {
             return Err(self.lowerer.residue_with(decl.span, "`useId`, whose value React derives from the shape of the tree at hydration", "the server cannot write the id React will expect; take an id from a prop or the loader's data"));
           }
@@ -4599,6 +4607,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         if !called.is_empty() && called != "useState" && self.custom_hook(called) {
           return self.inline_hook(called, call, Some(&decl.name));
         }
+        if matches!(called, "useTransition" | "useActionState" | "useOptimistic") {
+          return self.pending_hook_stmt(called, arr, call);
+        }
         if called != "useState" {
           if !called.is_empty() {
             return Err(self.lowerer.residue(decl.span, format!("`{called}`")));
@@ -4635,6 +4646,41 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
+  /// `useTransition()` as `[false, startTransition]`, `useActionState(action, initial)` as `[initial, formAction, false]` and `useOptimistic(value, update)` as `[value, addOptimistic]`, which is what React's server renderer returns; each function is the browser's.
+  fn pending_hook_stmt(&mut self, hook: &str, arr: &js::ArrayPat, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
+    let arg = |this: &mut Self, i: usize| -> Lowered<Expr> {
+      match call.args.get(i) {
+        Some(a) => this.lowerer.expr(&a.expr),
+        None => Ok(Expr::Lit(Lit::Null)),
+      }
+    };
+    let pending = Some(Expr::Lit(Lit::Bool(false)));
+    let parts: Vec<Option<Expr>> = match hook {
+      "useTransition" => vec![pending, None],
+      "useActionState" => vec![Some(arg(self, 1)?), None, pending],
+      _ => vec![Some(arg(self, 0)?), None],
+    };
+    let mut stmt = None;
+    for (at, (elem, part)) in arr.elems.iter().zip(parts).enumerate() {
+      let Some(js::Pat::Ident(id)) = elem else { continue };
+      let name = id.id.sym.to_string();
+      let state = hook == "useActionState" && at == 0;
+      match part {
+        None => self.browser_function(name),
+        Some(lit @ Expr::Lit(_)) if !state => self.lowerer.scope.push((name, lit)),
+        Some(expr) => {
+          if state {
+            self.state.push(name.clone());
+            self.state_bindings.push(name.clone());
+          }
+          self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+          stmt = Some(Stmt::Let { name, expr });
+        }
+      }
+    }
+    Ok(stmt)
+  }
+
   /// `const [state, dispatch] = useReducer(reducer, initial, init?)`: state the way `useState` holds it, starting at `initial` or `init(initial)`, with `dispatch` a handler the browser runs.
   fn reducer_stmt(&mut self, arr: &js::ArrayPat, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
     let initial = match call.args.get(1) {
@@ -4663,13 +4709,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A destructuring in a component body: the value under a temporary each name reads a part of.
   fn pattern_stmt(&mut self, pattern: &'p js::Pat, init: &'p js::Expr) -> Lowered<Option<Stmt>> {
-    if let Some((hook, call)) = hook_call(&self.meanings(), init) {
-      if self.custom_hook(hook) {
-        return self.inline_hook(hook, call, Some(pattern));
-      }
-      return Err(self.lowerer.residue(pattern.span(), format!("`{hook}`")));
-    }
-    let expr = self.lowerer.expr(init)?;
+    let expr = match hook_call(&self.meanings(), init) {
+      Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(pattern)),
+      Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
+      Some((hook, _)) => return Err(self.lowerer.residue(pattern.span(), format!("`{hook}`"))),
+      None => self.lowerer.expr(init)?,
+    };
     let name = self.lowerer.temp();
     bind_pattern(&mut self.lowerer, pattern, Expr::Var(name.clone()))?;
     Ok(Some(Stmt::Let { name, expr }))

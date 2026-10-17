@@ -1795,6 +1795,21 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// What React's server renderer returns for a hook whose value does not wait on the browser: `useDeferredValue`'s initial value when given and its value otherwise, `useFormStatus`'s status of no form pending and `useSyncExternalStore`'s server snapshot.
+  pub(crate) fn server_hook_value(&mut self, hook: &str, call: &js::CallExpr) -> Lowered<Expr> {
+    match hook {
+      "useDeferredValue" => match call.args.get(1).or(call.args.first()) {
+        Some(a) => self.expr(&a.expr),
+        None => Ok(Expr::Lit(Lit::Null)),
+      },
+      "useFormStatus" => Ok(Expr::Object(["pending", "data", "method", "action"].map(|key| Entry::Field(key.to_owned(), Expr::Lit(if key == "pending" { Lit::Bool(false) } else { Lit::Null }))).to_vec())),
+      _ => match call.args.get(2) {
+        Some(server) => Ok(Expr::Apply { f: Box::new(self.expr(&server.expr)?), args: Vec::new() }),
+        None => Err(self.residue(call.span, "`useSyncExternalStore` without `getServerSnapshot`, which React's server renderer refuses too")),
+      },
+    }
+  }
+
   pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
     if let (Some(reader), js::Callee::Expr(callee)) = (&self.reader, &call.callee) {
       if matches!(&**callee, js::Expr::Ident(id) if id.sym == reader.0 && id.ctxt == reader.1) {
@@ -1810,6 +1825,9 @@ impl<'a> Lowerer<'a> {
     };
     if let Some(read) = self.context_read(call, callee)? {
       return Ok(read);
+    }
+    if let Some(hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore")) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)).and_then(|meant| meant.hook()) {
+      return self.server_hook_value(hook, call);
     }
     if let Some(module) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)).and_then(|meant| meant.std()).filter(|module| *module != "native") {
       if module != "t" {
