@@ -119,3 +119,19 @@ fn node_rows_round_trip_the_walked_page() {
   let decoded = row_json_to_node(&reparsed).unwrap();
   assert_eq!(page.fingerprint(), decoded.fingerprint());
 }
+
+#[test]
+fn a_typed_variant_decodes_to_the_plain_value_its_payload_stands_for() {
+  let decode = |text: &str| json_to_value(&serde_json::from_str::<serde_json::Value>(text).unwrap());
+  let mut map = ValueMap::default();
+  map.insert("alice".to_owned(), Value::int(100i64));
+  map.insert("1".to_owned(), Value::str("one"));
+  assert_eq!(decode(r#"{"$":"var","t":"$map","p":[["alice",100],[1,"one"]]}"#).unwrap(), Value::Map(map));
+  assert_eq!(decode(r#"{"$":"var","t":"$set","p":["react","next"]}"#).unwrap(), Value::seq(vec![Value::str("react"), Value::str("next")]));
+  assert_eq!(decode(r#"{"$":"var","t":"$date","p":1750000000000}"#).unwrap(), Value::int(1_750_000_000_000i64));
+  assert_eq!(decode(r#"{"$":"var","t":"$bigint","p":{"$":"i","v":"9007199254740993"}}"#).unwrap(), Value::int(9_007_199_254_740_993i64));
+  assert_eq!(decode(r#"{"$":"var","t":"$bigint","p":"12"}"#).unwrap(), Value::int(12i64));
+  assert!(decode(r#"{"$":"var","t":"$map","p":"pairs"}"#).is_err());
+  assert!(decode(r#"{"$":"var","t":"$date"}"#).is_err());
+  assert_eq!(decode(r#"{"$":"var","t":"Down"}"#).unwrap(), Value::Variant { tag: "Down".to_owned(), payload: None });
+}

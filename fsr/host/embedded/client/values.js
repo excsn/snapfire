@@ -37,6 +37,10 @@ export function isVariant(v) {
 export function isDouble(v) {
     return typeof v === "object" && v !== null && v[DOUBLE_MARK] === true;
 }
+const DATE_TAG = "$date";
+const MAP_TAG = "$map";
+const SET_TAG = "$set";
+const BIGINT_TAG = "$bigint";
 const TYPED_ARRAYS = {
     i8: Int8Array,
     u8: Uint8Array,
@@ -98,8 +102,22 @@ function decodeTagged(obj) {
             }
         case "var":
             {
+                const t = obj["t"];
                 const payload = obj["p"];
-                return payload === undefined ? variant(obj["t"]) : variant(obj["t"], decodeValue(payload));
+                switch(t){
+                    case DATE_TAG:
+                        return new Date(decodeValue(payload));
+                    case MAP_TAG:
+                        return new Map(payload.map(([k, v])=>[
+                                decodeValue(k),
+                                decodeValue(v)
+                            ]));
+                    case SET_TAG:
+                        return new Set(payload.map(decodeValue));
+                    case BIGINT_TAG:
+                        return BigInt(decodeValue(payload));
+                }
+                return payload === undefined ? variant(t) : variant(t, decodeValue(payload));
             }
         case "ref":
             return ref(obj["k"], obj["id"]);
@@ -221,6 +239,24 @@ export function encodeValue(v) {
         }
     }
     if (Array.isArray(v)) return v.map(encodeValue);
+    if (v instanceof Date) return {
+        $: "var",
+        t: DATE_TAG,
+        p: encodeValue(v.getTime())
+    };
+    if (v instanceof Map) return {
+        $: "var",
+        t: MAP_TAG,
+        p: Array.from(v, ([k, val])=>[
+                encodeValue(k),
+                encodeValue(val)
+            ])
+    };
+    if (v instanceof Set) return {
+        $: "var",
+        t: SET_TAG,
+        p: Array.from(v, encodeValue)
+    };
     if (isDouble(v)) {
         const n = v.value;
         if (Number.isNaN(n)) return {

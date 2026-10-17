@@ -287,6 +287,16 @@ impl Extend<(String, Value)> for ValueMap {
   }
 }
 
+/// The tags of a `Value::Variant` standing for a JavaScript value the model has no arm for. The browser makes the real type from the tag; the server reads the payload as the plain value the type lowers to: a `Map` as an array of `[key, value]` pairs, a `Set` as an array, a `Date` as milliseconds since the epoch and a `BigInt` as an integer.
+pub mod typed {
+  pub const DATE: &str = "$date";
+  pub const MAP: &str = "$map";
+  pub const SET: &str = "$set";
+  pub const BIGINT: &str = "$bigint";
+
+  pub const ALL: [&str; 4] = [DATE, MAP, SET, BIGINT];
+}
+
 /// Equal values fingerprint equal and unequal values fingerprint apart. A
 /// float compares by its canonical bits, so every NaN is one value and `0.0`
 /// is not `-0.0`. An unsigned value that fits `i128` equals its signed form

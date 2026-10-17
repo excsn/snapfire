@@ -1,6 +1,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
 use serde_json::{json, Map as JsonMap, Value as Json};
+use snapfire_fsr_core::value::typed;
 use snapfire_fsr_core::{RefKind, TypedArray, Value, ValueMap};
 use std::fmt;
 
@@ -167,6 +168,45 @@ pub fn value_to_json(value: &Value) -> Json {
   }
 }
 
+/// The plain value a typed variant's payload stands for: a `$map` as the object its pairs key by `String(key)`, a `$set` as its array, a `$date` as its milliseconds and a `$bigint` as its integer.
+fn typed_payload(tag: &str, payload: &Json) -> Result<Value, DecodeError> {
+  let value = json_to_value(payload)?;
+  match tag {
+    typed::MAP => {
+      let Value::Seq(pairs) = value else { return Err(err("tag `$map` field `p` must be an array of pairs")) };
+      let mut out = ValueMap::default();
+      for pair in pairs.iter() {
+        let Value::Seq(kv) = pair else { return Err(err("tag `$map` entries must be pairs")) };
+        let (Some(key), Some(value)) = (kv.first(), kv.get(1)) else { return Err(err("tag `$map` entries must be pairs")) };
+        let key = match key {
+          Value::Str(s) => s.to_string(),
+          Value::Int(n) => n.to_string(),
+          Value::UInt(n) => n.to_string(),
+          Value::Bool(b) => b.to_string(),
+          Value::Null => "null".to_owned(),
+          _ => return Err(err("tag `$map` keys must be strings, integers, booleans or null")),
+        };
+        out.insert(key, value.clone());
+      }
+      Ok(Value::Map(out))
+    }
+    typed::SET => match value {
+      v @ Value::Seq(_) => Ok(v),
+      _ => Err(err("tag `$set` field `p` must be an array")),
+    },
+    typed::DATE => match value {
+      v @ (Value::Int(_) | Value::UInt(_) | Value::F64(_) | Value::F32(_)) => Ok(v),
+      _ => Err(err("tag `$date` field `p` must be a number")),
+    },
+    typed::BIGINT => match value {
+      v @ (Value::Int(_) | Value::UInt(_)) => Ok(v),
+      Value::Str(s) => s.parse::<i128>().map(Value::Int).map_err(|_| err("tag `$bigint` field `p` must be an integer")),
+      _ => Err(err("tag `$bigint` field `p` must be an integer")),
+    },
+    _ => unreachable!("typed_payload takes a typed tag"),
+  }
+}
+
 fn field<'a>(map: &'a JsonMap<String, Json>, name: &str, tag: &str) -> Result<&'a Json, DecodeError> {
   map.get(name).ok_or_else(|| err(format!("tag `{tag}` missing field `{name}`")))
 }
@@ -224,6 +264,9 @@ fn decode_tagged(name: &str, map: &JsonMap<String, Json>) -> Result<Value, Decod
     }
     "var" => {
       let t = str_field(map, "t", name)?.to_owned();
+      if typed::ALL.contains(&t.as_str()) {
+        return typed_payload(&t, field(map, "p", name)?);
+      }
       let payload = match map.get("p") {
         None => None,
         Some(p) => Some(Box::new(json_to_value(p)?)),

@@ -57,10 +57,19 @@ export type SfValue =
   | Float32Array
   | Float64Array
   | SfValue[]
+  | Date
+  | Map<SfValue, SfValue>
+  | Set<SfValue>
   | RefValue
   | VariantValue
   | DoubleValue
   | { [key: string]: SfValue };
+
+/** The variant tags a `Date`, a `Map`, a `Set` and a `bigint` travel under. The server reads the payload as the plain value it lowers the type to; the browser makes the real type. */
+const DATE_TAG = "$date";
+const MAP_TAG = "$map";
+const SET_TAG = "$set";
+const BIGINT_TAG = "$bigint";
 
 const TYPED_ARRAYS: Record<string, new (buf: ArrayBuffer) => SfValue> = {
   i8: Int8Array,
@@ -122,10 +131,19 @@ function decodeTagged(obj: { [key: string]: unknown }): SfValue {
       return out;
     }
     case "var": {
+      const t = obj["t"] as string;
       const payload = obj["p"];
-      return payload === undefined
-        ? variant(obj["t"] as string)
-        : variant(obj["t"] as string, decodeValue(payload));
+      switch (t) {
+        case DATE_TAG:
+          return new Date(decodeValue(payload) as number);
+        case MAP_TAG:
+          return new Map((payload as [unknown, unknown][]).map(([k, v]) => [decodeValue(k), decodeValue(v)]));
+        case SET_TAG:
+          return new Set((payload as unknown[]).map(decodeValue));
+        case BIGINT_TAG:
+          return BigInt(decodeValue(payload) as number | bigint | string);
+      }
+      return payload === undefined ? variant(t) : variant(t, decodeValue(payload));
     }
     case "ref":
       return ref(obj["k"] as "action" | "module", obj["id"] as string);
@@ -203,6 +221,9 @@ export function encodeValue(v: SfValue): unknown {
     }
   }
   if (Array.isArray(v)) return v.map(encodeValue);
+  if (v instanceof Date) return { $: "var", t: DATE_TAG, p: encodeValue(v.getTime()) };
+  if (v instanceof Map) return { $: "var", t: MAP_TAG, p: Array.from(v, ([k, val]) => [encodeValue(k), encodeValue(val)]) };
+  if (v instanceof Set) return { $: "var", t: SET_TAG, p: Array.from(v, encodeValue) };
   if (isDouble(v)) {
     const n = v.value;
     if (Number.isNaN(n)) return { $: "f", v: "nan" };

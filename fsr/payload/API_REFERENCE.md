@@ -77,6 +77,7 @@ Constraints:
 * A `u` tag is decoded through `Value::uint`, so a magnitude within `i128` normalises back to `Value::Int`.
 * An `f32` tag holding a number is narrowed with an `as f32` cast.
 * A `var` tag with no `p` key decodes to a payload of `None`.
+* A `var` tag whose `t` is `$map`, `$set`, `$date` or `$bigint`, the constants in `snapfire_fsr_core::value::typed`, decodes to the plain value its payload stands for rather than a `Value::Variant`: a `$map` payload of `[key, value]` pairs becomes a `Value::Map` keyed by each key's text, a `$set` payload is its array, a `$date` payload is its number of milliseconds and a `$bigint` payload is its integer, given as a number or a decimal string. A payload of another shape is an error. The encoder writes such a variant like any other `var`; the browser half makes the real `Map`, `Set`, `Date` or `BigInt` from it.
 
 ### Tag Table
 

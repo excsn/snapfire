@@ -18,7 +18,7 @@ export declare function f64(value: number): DoubleValue;
 export declare function isRef(v: unknown): v is RefValue;
 export declare function isVariant(v: unknown): v is VariantValue;
 export declare function isDouble(v: unknown): v is DoubleValue;
-export type SfValue = null | boolean | number | bigint | string | Uint8Array | Int8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | BigInt64Array | BigUint64Array | Float32Array | Float64Array | SfValue[] | RefValue | VariantValue | DoubleValue | {
+export type SfValue = null | boolean | number | bigint | string | Uint8Array | Int8Array | Int16Array | Uint16Array | Int32Array | Uint32Array | BigInt64Array | BigUint64Array | Float32Array | Float64Array | SfValue[] | Date | Map<SfValue, SfValue> | Set<SfValue> | RefValue | VariantValue | DoubleValue | {
 	[key: string]: SfValue;
 };
 /** Decodes the JSON pair's output back into JS values. Untagged JSON passes through untouched. */

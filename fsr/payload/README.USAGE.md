@@ -131,6 +131,19 @@ Every tag the encoder can emit, with the shape it carries:
 
 The `$` key is always written first and the remaining keys follow in the order listed above, so the output is byte-stable.
 
+### Typed Variants
+
+A `var` whose tag is `$map`, `$set`, `$date` or `$bigint` carries a JavaScript `Map`, `Set`, `Date` or `BigInt`, which the value model has no arm for. The browser half makes the real type from it. `json_to_value` reads the payload as the plain value the server works with instead of a `Value::Variant`: a `$map`'s `[key, value]` pairs become a `Value::Map` keyed by each key's text, a `$set`'s array is the array, a `$date`'s milliseconds are the number and a `$bigint` is the integer.
+
+```rust
+use snapfire_fsr_payload::json_to_value;
+
+let json = serde_json::json!({ "$": "var", "t": "$set", "p": ["react", "next"] });
+assert_eq!(json_to_value(&json).unwrap(), Value::seq(vec![Value::str("react"), Value::str("next")]));
+```
+
+The tags are the constants in `snapfire_fsr_core::value::typed`. The renderer writes them around an island's props whose type the build knows.
+
 ## Decoding JSON to Values
 
 `json_to_value` reads the tags back and reads JSON that carries no tags at all.
