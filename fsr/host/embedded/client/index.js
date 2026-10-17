@@ -8,6 +8,6 @@ export { loadDeclaredScripts, loadMarkedScript, loadScript } from "./script.js";
 export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, prefetch, refresh } from "./navigator.js";
 export { live } from "./live.js";
 export { socket } from "./socket.js";
-export { applyStyles, boot, defineMounter, discard, loadEntry, markerProps, patchIsland, registerIsland, registeredIslands, scan, serverRendered } from "./boot.js";
+export { applyStyles, boot, defineMounter, discard, loadEntry, markerProps, patchIsland, registerIsland, registerModule, registeredIslands, scan, serverRendered } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
 //# sourceMappingURL=index.js.map

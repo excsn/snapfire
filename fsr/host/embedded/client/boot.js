@@ -3,13 +3,52 @@ import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
-import { decodeValue } from "./values.js";
+import { decodeValue, isRef } from "./values.js";
 const mounted = new WeakMap();
 const paused = new WeakSet();
 const pending = new WeakMap();
 const islands = new Map();
 export function registerIsland(moduleId, entry) {
     islands.set(moduleId, entry);
+}
+const modules = new Map();
+export function registerModule(file, loader) {
+    modules.set(file, loader);
+}
+async function resolveModuleRefs(props) {
+    const refs = [];
+    const walk = (value, set)=>{
+        if (isRef(value)) {
+            if (value.kind === "module") refs.push({
+                id: value.id,
+                set
+            });
+            return;
+        }
+        if (Array.isArray(value)) {
+            value.forEach((item, i)=>walk(item, (v)=>value[i] = v));
+            return;
+        }
+        if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+            const record = value;
+            for (const key of Object.keys(record))walk(record[key], (v)=>record[key] = v);
+        }
+    };
+    for (const key of Object.keys(props))walk(props[key], (v)=>props[key] = v);
+    if (refs.length === 0) return props;
+    await Promise.all(refs.map(async ({ id, set })=>{
+        const at = id.lastIndexOf("#");
+        const file = at < 0 ? id : id.slice(0, at);
+        const name = at < 0 ? "default" : id.slice(at + 1);
+        const loader = modules.get(file);
+        if (!loader) {
+            console.warn(`sf: no module registered for ${file}`);
+            return;
+        }
+        const mod = await loader();
+        set(mod[name]);
+    }));
+    return props;
 }
 export function registeredIslands() {
     return islands;
@@ -53,7 +92,13 @@ function mountNow(entry, moduleId, el, props) {
         children: null,
         markup: null
     };
-    island.handle = entry.loader().then((mod)=>island.gone ? undefined : entry.mount(mod, props, el, hydrate)).then((value)=>{
+    island.handle = Promise.all([
+        entry.loader(),
+        resolveModuleRefs(props)
+    ]).then(([mod, resolved])=>{
+        island.props = resolved;
+        return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate);
+    }).then((value)=>{
         if (island.gone) return undefined;
         island.root = value;
         el.setAttribute(MOUNTED, "");
@@ -122,6 +167,7 @@ export async function patchIsland(el, props, regions = null, children = null, en
     const handle = await island.handle;
     if (handle === undefined) return false;
     const mod = await island.entry.loader();
+    props = await resolveModuleRefs(props);
     island.props = props;
     island.regions = regions;
     island.children = children;

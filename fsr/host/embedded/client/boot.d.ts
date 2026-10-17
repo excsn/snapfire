@@ -22,6 +22,8 @@ export interface IslandEntry {
 	pause?: Pauser;
 }
 export declare function registerIsland(moduleId: string, entry: IslandEntry): void;
+/** Registers a module the browser imports a function prop from, by the file's path as the build names it, so a module reference `file#export` among an island's props resolves to that export before the island mounts. */
+export declare function registerModule(file: string, loader: () => Promise<unknown>): void;
 /** Every island registered so far, by module id. */
 export declare function registeredIslands(): ReadonlyMap<string, IslandEntry>;
 /** An island marker's props script beside it and the props it holds, decoded and as written. */

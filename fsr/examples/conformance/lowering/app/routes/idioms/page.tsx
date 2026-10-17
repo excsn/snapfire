@@ -4,6 +4,7 @@ import Adder from "@src/idioms/Adder";
 import Ager from "@src/idioms/Ager";
 import Board from "@src/idioms/Board";
 import Clock from "@src/idioms/Clock";
+import Tabs from "@src/idioms/Tabs";
 import Tasks from "@src/idioms/Tasks";
 import Typed from "@src/idioms/Typed";
 
@@ -45,6 +46,7 @@ export default function Idioms() {
       <Ager name="Ada" />
       <Typed map={stats} set={tags} date={when} big={big} />
       <Clock total={1234.5} />
+      <Tabs ids={["first", "second"]} getHeader={(id) => id.toUpperCase()} renderContent={(id) => <p className="tab-text">This is the {id} tab.</p>} />
     </section>
   );
 }

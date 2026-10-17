@@ -97,6 +97,12 @@ pub struct ComponentSet {
   lowering_component: bool,
   /// Each module-level `let` a function writes that a component read: its store key, `file#name`, with the file and name declaring it.
   module_lets: Vec<(String, String, String)>,
+  /// Each arrow passed as a prop to a component that renders in the browser: its file, its byte range and the name the rewrite exports it under.
+  fn_exports: Vec<(String, std::ops::Range<usize>, String)>,
+  /// Each function a file declares without exporting that was passed as a prop to a component that renders in the browser: file and name, which the rewrite exports.
+  fn_names: Vec<(String, String)>,
+  /// Every file the browser imports a function prop from.
+  fn_files: Vec<String>,
   /// Components of another framework a React component renders inline, as
   /// `file#export`: lowered to the empty region `Mount` writes, which the
   /// browser fills through the module's registry entry.
@@ -181,7 +187,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -745,9 +751,9 @@ impl ComponentSet {
 
   pub fn rewritten(&self) -> Vec<(String, String)> {
     let mut files: Vec<&str> = Vec::new();
-    for rewrite in &self.rewrites {
-      if !files.contains(&rewrite.file.as_str()) {
-        files.push(&rewrite.file);
+    for file in self.rewrites.iter().map(|r| r.file.as_str()).chain(self.fn_exports.iter().map(|(f, _, _)| f.as_str())).chain(self.fn_names.iter().map(|(f, _)| f.as_str())) {
+      if !files.contains(&file) {
+        files.push(file);
       }
     }
     files
@@ -756,9 +762,33 @@ impl ComponentSet {
         let parsed = self.parsed.get(file)?;
         let source = parsed.cm.files().first().map(|f| f.src.to_string())?;
         let rewrites: Vec<&Rewrite> = self.rewrites.iter().filter(|r| r.file == file).collect();
-        Some((file.to_owned(), hoist::apply(&source, &rewrites)))
+        let mut text = match rewrites.is_empty() {
+          true => source.clone(),
+          false => hoist::apply(&source, &rewrites),
+        };
+        for (_, range, name) in self.fn_exports.iter().filter(|(f, _, _)| f == file) {
+          text.push_str(&format!("\nexport const {name} = {};\n", &source[range.clone()]));
+        }
+        for (_, name) in self.fn_names.iter().filter(|(f, _)| f == file) {
+          if crate::declares_unexported(file, &text, name) {
+            text.push_str(&format!("\nexport {{ {name} }};\n"));
+          }
+        }
+        Some((file.to_owned(), text))
       })
       .collect()
+  }
+
+  /// Every file the browser imports a function prop from: the files of the exports the rewrite added and those of the module-level functions passed by name.
+  pub fn function_modules(&self) -> Vec<String> {
+    let mut files: Vec<String> = Vec::new();
+    for file in self.fn_exports.iter().map(|(f, _, _)| f).chain(self.fn_names.iter().map(|(f, _)| f)).chain(self.fn_files.iter()) {
+      if !files.contains(file) {
+        files.push(file.clone());
+      }
+    }
+    files.sort();
+    files
   }
 
   /// The `size`, `alt` and `contentType` exports of a generated card image's
@@ -1064,6 +1094,7 @@ impl ComponentSet {
     let mut prop_kinds: Vec<(String, crate::Kind)>;
     let mut relied: Vec<String>;
     let mut browser_texts: Vec<BrowserText>;
+    let mut fn_refs: Vec<FnRef>;
     let ((component, refs, providers, own_heads), hoisting) = loop {
       let meanings = self.meanings(file);
       let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed[at].clone(), export.clone())).collect();
@@ -1097,7 +1128,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -1118,6 +1149,7 @@ impl ComponentSet {
         variants = std::mem::take(&mut cl.variants);
         placed_kinds = std::mem::take(&mut cl.placed_kinds);
         browser_texts = std::mem::take(&mut cl.browser_texts);
+        fn_refs = std::mem::take(&mut cl.fn_refs);
         prop_kinds = std::mem::take(&mut cl.lowerer.prop_kinds);
         relied = std::mem::take(&mut *cl.lowerer.consulted.borrow_mut());
         if leaves_to_browser {
@@ -1281,17 +1313,36 @@ impl ComponentSet {
       kinds
     });
     fills::unfill(&mut component.render, &renders_in_browser);
-    if let Some((placed, prop)) = fills::function_into_browser(&component.render, &renders_in_browser) {
+    let mut used: Vec<usize> = Vec::new();
+    if let Err((placed, prop, reason)) = fills::reference_functions(&mut component.render, &renders_in_browser, &fn_refs, &mut used) {
       let tag = placed.rsplit_once('#').map(|(_, tag)| tag.to_owned()).unwrap_or_else(|| placed.clone());
       let (line, column) = refs_positions.iter().find(|(name, _)| *name == tag).map(|(_, pos)| *pos).unwrap_or((1, 1));
-      return Err(LowerError::Residue(Residue {
-        file: file.to_owned(),
-        line,
-        column,
-        message: format!("a function passed as `{prop}` to `{tag}`, which renders in the browser; the server holds no function the browser can call"),
-        hint: Some(format!("move what `{prop}` does into `{tag}`, or make `{tag}` render on the server")),
-        via: Vec::new(),
-      }));
+      let message = match reason {
+        Some(reason) => format!("a function passed as `{prop}` to `{tag}`, which renders in the browser, {reason}"),
+        None => format!("a function passed as `{prop}` to `{tag}`, which renders in the browser; the server holds no function the browser can call"),
+      };
+      return Err(LowerError::Residue(Residue { file: file.to_owned(), line, column, message, hint: Some(format!("move what `{prop}` does into `{tag}` or make `{tag}` render on the server")), via: Vec::new() }));
+    }
+    for index in used {
+      for need in &fn_refs[index].needs {
+        match need {
+          Need::Export(range, name) => {
+            if !self.fn_exports.iter().any(|(f, r, _)| f == file && *r == *range) {
+              self.fn_exports.push((file.to_owned(), range.clone(), name.clone()));
+            }
+          }
+          Need::Name(name) => {
+            if !self.fn_names.iter().any(|(f, n)| f == file && n == name) {
+              self.fn_names.push((file.to_owned(), name.clone()));
+            }
+          }
+          Need::File(from) => {
+            if !self.fn_files.contains(from) {
+              self.fn_files.push(from.clone());
+            }
+          }
+        }
+      }
     }
     let mut heads: Vec<HeadRow> = own_heads;
     for placed in modules.values() {
@@ -2887,6 +2938,50 @@ impl Visit for BareWrites {
       function.visit_children_with(self);
     }
   }
+}
+
+/// Reads and declarations of a function, by name and syntax context.
+#[derive(Default)]
+pub(crate) struct Free {
+  reads: Vec<(String, swc_core::common::SyntaxContext)>,
+  declared: Vec<(String, swc_core::common::SyntaxContext)>,
+}
+
+impl Visit for Free {
+  fn visit_ident(&mut self, id: &js::Ident) {
+    self.reads.push((id.sym.to_string(), id.ctxt));
+  }
+  fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
+    self.declared.push((id.id.sym.to_string(), id.id.ctxt));
+    id.visit_children_with(self);
+  }
+  fn visit_fn_decl(&mut self, f: &js::FnDecl) {
+    self.declared.push((f.ident.sym.to_string(), f.ident.ctxt));
+    f.visit_children_with(self);
+  }
+  fn visit_fn_expr(&mut self, f: &js::FnExpr) {
+    if let Some(id) = &f.ident {
+      self.declared.push((id.sym.to_string(), id.ctxt));
+    }
+    f.visit_children_with(self);
+  }
+}
+
+/// The first name `node` reads that is neither its own, a module-level binding nor a global: a name of the component it sits in. A function reading one cannot be imported from its module.
+pub(crate) fn closes_over<N: VisitWith<Free>>(parsed: &Parsed, node: &N) -> Option<String> {
+  let mut free = Free::default();
+  node.visit_with(&mut free);
+  free.reads.into_iter().find(|(name, ctxt)| *ctxt != parsed.top && *ctxt != parsed.unresolved && !free.declared.contains(&(name.clone(), *ctxt))).map(|(name, _)| name)
+}
+
+/// Whether `e` is an object literal with at least one field, every field a name holding an arrow or a `function`.
+fn functions_only(e: &js::Expr) -> bool {
+  let js::Expr::Object(obj) = e else { return false };
+  !obj.props.is_empty()
+    && obj.props.iter().all(|prop| match prop {
+      js::PropOrSpread::Prop(p) => matches!(&**p, js::Prop::KeyValue(kv) if matches!(crate::meaning::bare(&kv.value), js::Expr::Arrow(_) | js::Expr::Fn(_))),
+      js::PropOrSpread::Spread(_) => false,
+    })
 }
 
 /// The names `stmts` declare at any depth outside nested functions.
@@ -4529,6 +4624,28 @@ struct ComponentLowerer<'a, 'p> {
   browser_texts: Vec<BrowserText>,
   /// Each module-level `let` a function writes that this component reads: its name, its store key and the value the module's initialisation leaves it at, the seed the store falls back to.
   module_lets: Vec<(String, String, Expr)>,
+  /// Each function value passed as a prop, with where the browser gets it from.
+  fn_refs: Vec<FnRef>,
+}
+
+/// Where the browser gets a function passed as a prop: the placement and prop it went to, the value the server holds and the module id `file#export` the browser imports it from or else why the browser cannot reach it. `needs` is what the rewrite and the bundle add for the id to resolve.
+struct FnRef {
+  module: String,
+  prop: String,
+  value: Expr,
+  id: Result<Expr, String>,
+  needs: Vec<Need>,
+  /// The `UNLOWERED_ATTR` text the placement carries for this prop when the server does not lower the function, which the browser's reference makes moot once the placement is known to render in the browser.
+  unlowered: Option<String>,
+}
+
+enum Need {
+  /// An arrow hoisted into an export of this file: its byte range and the export's name.
+  Export(std::ops::Range<usize>, String),
+  /// A function this file declares that the rewrite exports.
+  Name(String),
+  /// A file the browser imports.
+  File(String),
 }
 
 /// One head element a component asks for: a tag and its attributes in order.
@@ -5517,6 +5634,33 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             self.browser_function(local);
             return Ok(None);
           }
+          _ if functions_only(init) => match self.lowerer.expr(init) {
+            Ok(expr) => expr,
+            Err(residue) if self.unbound_is_followable() => return Err(residue),
+            Err(_) => {
+              self.lowerer.unbound = None;
+              let js::Expr::Object(obj) = init else { unreachable!("checked") };
+              let mut entries = Vec::new();
+              for prop in &obj.props {
+                let js::PropOrSpread::Prop(p) = prop else { unreachable!("checked") };
+                let js::Prop::KeyValue(kv) = &**p else { unreachable!("checked") };
+                let key = prop_name(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a numeric property name"))?;
+                let value = match self.handler_body(&kv.value) {
+                  Ok(body) => {
+                    self.lowered_handlers.push(Handler { event: format!("{local}.{key}"), body });
+                    Expr::Handler((self.lowered_handlers.len() - 1) as u32)
+                  }
+                  Err(_) => {
+                    self.lowerer.unbound = None;
+                    Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)
+                  }
+                };
+                entries.push(Entry::Field(key, value));
+              }
+              self.lowerer.scope.push((local.clone(), Expr::Object(entries.clone())));
+              return Ok(Some(Stmt::Let { name: local, expr: Expr::Object(entries) }));
+            }
+          },
           _ => {
             self.lowerer.browser_value = None;
             match self.lowerer.expr(init) {
@@ -6285,6 +6429,90 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
+  /// Records where the browser gets the function `value` passed as `prop` to the placement `module`, when the build can place it.
+  fn note_function(&mut self, module: &str, prop: &str, value: &Expr, attr: &'p js::JSXAttr) {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return };
+    let js::JSXExpr::Expr(e) = &c.expr else { return };
+    let mut needs = Vec::new();
+    if let Some(id) = self.function_reference(e, &mut needs) {
+      self.fn_refs.push(FnRef { module: module.to_owned(), prop: prop.to_owned(), value: value.clone(), id, needs, unlowered: None });
+    }
+  }
+
+  /// A function this file holds that the server does not lower but the browser imports by name, as a handler value with the `UNLOWERED_ATTR` text the placement carries for it: a component that calls it only in an effect or a handler never calls it on the server. `None` when the browser cannot reach it either.
+  fn unlowered_function(&mut self, module: &str, prop: &str, attr: &'p js::JSXAttr, residue: &Residue) -> Option<(Expr, String)> {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return None };
+    let js::JSXExpr::Expr(e) = &c.expr else { return None };
+    if !self.names_function(e) {
+      return None;
+    }
+    let mut needs = Vec::new();
+    let Some(Ok(id)) = self.function_reference(e, &mut needs) else { return None };
+    let value = Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER);
+    let why = format!("{}:{}: {}", residue.line, residue.column, residue.message);
+    self.fn_refs.push(FnRef { module: module.to_owned(), prop: prop.to_owned(), value: value.clone(), id: Ok(id), needs, unlowered: Some(why.clone()) });
+    Some((value, why))
+  }
+
+  /// Whether `e` is a function written in place, a function this file declares or a conditional over those. An import is left to the build's own following of it.
+  fn names_function(&self, e: &js::Expr) -> bool {
+    match crate::meaning::bare(e) {
+      js::Expr::Arrow(_) | js::Expr::Fn(_) => true,
+      js::Expr::Ident(id) => find_function(self.lowerer.parsed, id.sym.as_ref()).is_some(),
+      js::Expr::Cond(c) => self.names_function(&c.cons) && self.names_function(&c.alt),
+      _ => false,
+    }
+  }
+
+  /// The module id `file#export` the browser imports the function `e` from, as an expression, else why the browser cannot reach it. An arrow or a `function` that closes over nothing of this component is hoisted into an export of this file; a function a module declares is named by its file and export; a conditional chooses between two. `None` for anything else, a function held in a local among them.
+  fn function_reference(&mut self, e: &'p js::Expr, needs: &mut Vec<Need>) -> Option<Result<Expr, String>> {
+    match crate::meaning::bare(e) {
+      js::Expr::Arrow(arrow) => Some(self.hoisted_function(arrow.span, closes_over(self.lowerer.parsed, arrow), needs)),
+      js::Expr::Fn(f) => Some(self.hoisted_function(f.function.span, closes_over(self.lowerer.parsed, &f.function), needs)),
+      js::Expr::Ident(id) => {
+        let name = id.sym.as_ref();
+        if self.lowerer.scope.iter().any(|(n, _)| n == name) || self.handler_fns.contains_key(name) || self.handlers.iter().any(|h| h == name) {
+          return Some(Err(format!("and `{name}` is a function only this component knows")));
+        }
+        match self.meanings().bindings.get(name).cloned() {
+          Some(crate::meaning::Meaning::Own { file, name: export }) => {
+            if file == self.file {
+              needs.push(Need::Name(export.clone()));
+            }
+            needs.push(Need::File(file.clone()));
+            Some(Ok(Expr::lit_str(format!("{file}#{export}"))))
+          }
+          _ => None,
+        }
+      }
+      js::Expr::Cond(c) => {
+        let test = match self.lowerer.expr(&c.test) {
+          Ok(test) => test,
+          Err(residue) => return Some(Err(format!("and the choice between them reads {}", residue.message))),
+        };
+        let cons = self.function_reference(&c.cons, needs)?;
+        let alt = self.function_reference(&c.alt, needs)?;
+        match (cons, alt) {
+          (Ok(cons), Ok(alt)) => Some(Ok(Expr::Ternary(Box::new(test), Box::new(cons), Box::new(alt)))),
+          (Err(reason), _) | (_, Err(reason)) => Some(Err(reason)),
+        }
+      }
+      _ => None,
+    }
+  }
+
+  /// The id of a function written in place, once the rewrite exports it from this file under a name made of where it starts; `local` is a name of this component it reads, which keeps the browser from importing it.
+  fn hoisted_function(&mut self, span: Span, local: Option<String>, needs: &mut Vec<Need>) -> Result<Expr, String> {
+    if let Some(local) = local {
+      return Err(format!("and it closes over `{local}`, which only this component knows"));
+    }
+    let range = self.lowerer.parsed.range(span);
+    let name = format!("__sfF{}", range.start);
+    needs.push(Need::Export(range, name.clone()));
+    needs.push(Need::File(self.file.to_owned()));
+    Ok(Expr::lit_str(format!("{}#{name}", self.file)))
+  }
+
   /// Whether an attribute's value is a function: an arrow, a `function` or a name the component declares as one.
   fn passes_function(&self, attr: &js::JSXAttr) -> bool {
     let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return false };
@@ -6797,6 +7025,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut overrides: Vec<Override> = Vec::new();
     let mut props = Vec::new();
     let mut browser_props: Vec<String> = Vec::new();
+    let placed_module = format!("{}#{name}", self.file);
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
@@ -6823,6 +7052,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           Err(_) if !is_handler_name(&raw) && self.function_prop(attr)?.is_some() => {
             self.lowerer.unbound = None;
             let value = self.function_prop(attr)?.expect("lowered just above");
+            self.note_function(&placed_module, &raw, &value, attr);
             props.push(Entry::Field(raw, value));
           }
           Err(residue) => {
@@ -6860,9 +7090,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             browser_props.push(raw.clone());
             Expr::Var(BROWSER_VAR.to_owned())
           }
-          None => return Err(residue),
+          None if self.unbound_is_followable() => return Err(residue),
+          None => match self.unlowered_function(&placed_module, &raw, attr, &residue) {
+            Some((value, why)) => {
+              self.lowerer.unbound = None;
+              if !props.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
+                props.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(why)));
+              }
+              value
+            }
+            None => return Err(residue),
+          },
         },
       };
+      if fills::holds_function(&value) {
+        self.note_function(&placed_module, &raw, &value, attr);
+      }
       props.push(Entry::Field(raw, value));
     }
     let mut passed = Vec::new();
@@ -9072,7 +9315,7 @@ mod fills {
   }
 
   /// Whether `e` can evaluate to a function value: a lambda anywhere in it other than the callback a builtin or a call applies.
-  fn holds_function(e: &Expr) -> bool {
+  pub(super) fn holds_function(e: &Expr) -> bool {
     let mut callbacks: Vec<*const Expr> = Vec::new();
     e.visit(&mut |x| match x {
       Expr::Map(_, f) | Expr::Filter(_, f) | Expr::Find(_, f) | Expr::FindIndex(_, f) | Expr::Some(_, f) | Expr::Every(_, f) | Expr::Sort(_, f) | Expr::FlatMap(_, f) | Expr::Reduce(_, _, f) | Expr::ReplaceWith(_, _, f) | Expr::Apply { f, .. } => callbacks.push(&**f as *const Expr),
@@ -9083,33 +9326,46 @@ mod fills {
     found
   }
 
-  /// The first placement in `t` of a module `renders_in_browser` holds that passes a function value as a prop, with the prop's name.
-  pub(super) fn function_into_browser(t: &Tmpl, renders_in_browser: &dyn Fn(&str) -> bool) -> Option<(String, String)> {
+  /// Gives every placement in `t` of a module `renders_in_browser` holds that passes a function value as a prop its `FUNCTIONS_PROP`, the module id the browser imports each such prop from, taken from `refs`; the indexes of the refs taken go to `used`. A function prop with no ref is the error, as is one whose ref says why the browser cannot reach it: the placement, the prop and the reason.
+  pub(super) fn reference_functions(t: &mut Tmpl, renders_in_browser: &dyn Fn(&str) -> bool, refs: &[super::FnRef], used: &mut Vec<usize>) -> Result<(), (String, String, Option<String>)> {
+    let island = matches!(t, Tmpl::Island { .. });
     match t {
-      Tmpl::Component { module, props, children, .. } => {
-        if renders_in_browser(module) {
-          for entry in props {
+      Tmpl::Component { module, props, children, .. } | Tmpl::Island { module, props, children, .. } => {
+        if island || renders_in_browser(module) {
+          let mut ids: Vec<Entry> = Vec::new();
+          for entry in props.iter() {
             let Entry::Field(name, e) = entry else { continue };
-            if holds_function(e) {
-              return Some((module.clone(), name.clone()));
+            match refs.iter().position(|r| r.module == *module && r.prop == *name && r.value == *e) {
+              Some(index) => match &refs[index].id {
+                Ok(id) => {
+                  ids.push(Entry::Field(name.clone(), id.clone()));
+                  used.push(index);
+                }
+                Err(reason) => return Err((module.clone(), name.clone(), Some(reason.clone()))),
+              },
+              None if holds_function(e) => return Err((module.clone(), name.clone(), None)),
+              None => {}
             }
           }
-        }
-        children.iter().find_map(|c| function_into_browser(c, renders_in_browser))
-      }
-      Tmpl::Island { module, props, children, .. } => {
-        for entry in props {
-          let Entry::Field(name, e) = entry else { continue };
-          if holds_function(e) {
-            return Some((module.clone(), name.clone()));
+          if !ids.is_empty() {
+            for why in used.iter().filter_map(|i| refs[*i].unlowered.as_deref()) {
+              props.retain(|e| !matches!(e, Entry::Field(n, Expr::Lit(snapfire_fsr_ir::ast::Lit::Str(s))) if n == snapfire_fsr_ir::render::UNLOWERED_ATTR && s == why));
+            }
+            props.push(Entry::Field(snapfire_fsr_ir::render::FUNCTIONS_PROP.to_owned(), Expr::Object(ids)));
           }
         }
-        children.iter().find_map(|c| function_into_browser(c, renders_in_browser))
+        children.iter_mut().try_for_each(|c| reference_functions(c, renders_in_browser, refs, used))
       }
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().find_map(|c| function_into_browser(c, renders_in_browser)),
-      Tmpl::If { then, r#else, .. } => function_into_browser(then, renders_in_browser).or_else(|| r#else.as_deref().and_then(|e| function_into_browser(e, renders_in_browser))),
-      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => function_into_browser(body, renders_in_browser),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter_mut().try_for_each(|c| reference_functions(c, renders_in_browser, refs, used)),
+      Tmpl::If { then, r#else, .. } => {
+        reference_functions(then, renders_in_browser, refs, used)?;
+        match r#else.as_deref_mut() {
+          Some(e) => reference_functions(e, renders_in_browser, refs, used),
+          None => Ok(()),
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => reference_functions(body, renders_in_browser, refs, used),
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => Ok(()),
     }
   }
 

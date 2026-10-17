@@ -6,6 +6,7 @@ pub mod assets;
 pub mod component;
 mod create_element;
 pub mod extract;
+mod methods;
 pub mod hoist;
 mod meaning;
 mod placements;
@@ -649,6 +650,7 @@ pub(crate) fn parse_from(file: &str, source: &str, tsx: bool, origin: Option<std
     let js::Program::Module(mut module) = program else { unreachable!("a module resolves to a module") };
     let top = SyntaxContext::empty().apply_mark(top_level);
     create_element::desugar(&mut module, top);
+    methods::desugar(&mut module);
     (module, top, SyntaxContext::empty().apply_mark(unresolved))
   });
   Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new(), origin })
@@ -1749,7 +1751,7 @@ impl<'a> Lowerer<'a> {
                   Entry::Field(key, self.expr(&kv.value)?)
                 }
               },
-              other => return Err(self.residue(other.span(), "a method or accessor in an object literal")),
+              other => return Err(self.residue(other.span(), "an accessor in an object literal")),
             },
           });
         }
@@ -1820,7 +1822,7 @@ impl<'a> Lowerer<'a> {
         js::OptChainBase::Call(call) => self.optional_call(call),
       },
       js::Expr::New(n) => self.new_expr(n),
-      js::Expr::Fn(f) => Err(self.residue(f.function.span, "a `function` expression")),
+      js::Expr::Fn(f) => self.function_expr(&f.function),
       js::Expr::Assign(a) => Err(self.residue(a.span, "an assignment inside an expression")),
       js::Expr::This(_) if self.scope.iter().any(|(n, _)| n == "this") => Ok(self.scope.iter().rev().find(|(n, _)| n == "this").map(|(_, e)| e.clone()).expect("checked")),
       other => {
@@ -2795,6 +2797,28 @@ impl<'a> Lowerer<'a> {
       out = Expr::Ternary(Box::new(missing), Box::new(Expr::Lit(Lit::Null)), Box::new(out));
     }
     Ok(out)
+  }
+
+  /// A `function` expression or a method as the lambda it is; a generator is residue.
+  pub(crate) fn function_expr(&mut self, f: &js::Function) -> Lowered<Expr> {
+    if f.is_generator {
+      return Err(self.residue(f.span, "a generator function"));
+    }
+    let depth = self.scope.len();
+    let pats: Vec<js::Pat> = f.params.iter().map(|p| p.pat.clone()).collect();
+    let params = match crate::component::bind_params(self, &pats) {
+      Ok(params) => params,
+      Err(residue) => {
+        self.scope.truncate(depth);
+        return Err(residue);
+      }
+    };
+    let body = match &f.body {
+      Some(body) => crate::component::block_to_expr(self, &body.stmts),
+      None => Ok(Expr::Lit(Lit::Null)),
+    };
+    self.scope.truncate(depth);
+    Ok(Expr::Lambda { params, body: Box::new(body?) })
   }
 
   pub(crate) fn lambda(&mut self, arrow: &js::ArrowExpr) -> Lowered<Expr> {

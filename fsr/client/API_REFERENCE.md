@@ -37,6 +37,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Pauser](#pauser)
   * [IslandEntry](#islandentry)
   * [registerIsland](#registerisland)
+  * [registerModule](#registermodule)
   * [scan](#scan)
   * [loadEntry](#loadentry)
   * [boot](#boot)
@@ -429,6 +430,12 @@ What a module id is registered with.
 * `registerIsland(moduleId: string, entry: IslandEntry): void`
 
 Registers or replaces the entry for a module id in the process-wide registry. `moduleId` must equal the marker's `data-sf-module` exactly. Registration only affects markers scanned afterwards.
+
+### registerModule
+
+* `registerModule(file: string, loader: () => Promise<unknown>): void`
+
+Registers the loader of a module the browser imports a function prop from, by the file's path as the build names it, `src/App.js`. A module reference among an island's props, `moduleRef("src/App.js#header")`, resolves to that export through the loader before the island mounts or is patched, so the component receives the function. A reference to a file no registry knew stays a reference and is warned about. `fsr build` writes one call per file the lowerer referenced.
 
 ### scan
 

@@ -126,11 +126,12 @@ fn markup_passed_as_a_prop_to_a_browser_component_crosses_as_a_region_the_island
 }
 
 #[test]
-fn a_function_into_a_browser_component_is_refused_and_a_handler_it_calls_mounts_it_in_the_browser() {
+fn a_function_into_a_browser_component_mounts_by_reference_and_a_handler_it_calls_mounts_it_in_the_browser() {
   let tip = |prop: &str| format!("import {{ useState }} from \"react\";\nexport function Tip({{ {prop} }}) {{\n  const [n, setN] = useState(1);\n  return <span onClick={{() => setN(n + 1)}}>{{{prop}(n)}}</span>;\n}}\n");
   let page = |prop: &str| format!("import {{ Tip }} from \"@src/Tip\";\nexport default function Page() {{\n  return <Tip {prop}={{(n) => n * 2}} />;\n}}\n");
-  let refused = html("island_fn", &[("src/Tip.tsx", &tip("format")), ("routes/page.tsx", &page("format"))]);
-  assert!(refused.as_ref().is_err_and(|e| e.contains("a function passed as `format` to `Tip`, which renders in the browser")), "{refused:?}");
+  let referenced = rendered("island_fn", &[("src/Tip.tsx", &tip("format")), ("routes/page.tsx", &page("format"))]).unwrap();
+  assert_eq!(referenced.islands[0].body.html, "<span>2</span>", "the server calls the arrow for the first render");
+  assert!(matches!(referenced.islands[0].props.get("format"), Some(Value::Ref { .. })), "the island mounts with a module reference in the arrow's place: {:?}", referenced.islands[0].props);
   let handed = rendered("island_handler", &[("src/Tip.tsx", &tip("onFormat")), ("routes/page.tsx", &page("onFormat"))]).unwrap();
   assert_eq!(handed.islands[0].body.html, "", "the server cannot call the browser's handler, so the island mounts fresh rather than failing the page");
 }

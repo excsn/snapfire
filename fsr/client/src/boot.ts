@@ -3,7 +3,7 @@ import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
-import { decodeValue, SfValue } from "./values.js";
+import { decodeValue, isRef, SfValue } from "./values.js";
 
 export type Props = { [key: string]: SfValue };
 export type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean) => unknown;
@@ -60,6 +60,49 @@ export function registerIsland(moduleId: string, entry: IslandEntry): void {
   islands.set(moduleId, entry);
 }
 
+const modules = new Map<string, () => Promise<unknown>>();
+
+/** Registers a module the browser imports a function prop from, by the file's path as the build names it, so a module reference `file#export` among an island's props resolves to that export before the island mounts. */
+export function registerModule(file: string, loader: () => Promise<unknown>): void {
+  modules.set(file, loader);
+}
+
+/** `props` with every module reference, `file#export`, replaced by the export it names, imported through the module's registered loader; a reference to a module no registry knew stays as it is and is warned about once. */
+async function resolveModuleRefs(props: Props): Promise<Props> {
+  const refs: { id: string; set: (value: SfValue) => void }[] = [];
+  const walk = (value: SfValue, set: (value: SfValue) => void): void => {
+    if (isRef(value)) {
+      if (value.kind === "module") refs.push({ id: value.id, set });
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item, i) => walk(item, (v) => ((value as SfValue[])[i] = v)));
+      return;
+    }
+    if (value && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
+      const record = value as { [key: string]: SfValue };
+      for (const key of Object.keys(record)) walk(record[key], (v) => (record[key] = v));
+    }
+  };
+  for (const key of Object.keys(props)) walk(props[key], (v) => (props[key] = v));
+  if (refs.length === 0) return props;
+  await Promise.all(
+    refs.map(async ({ id, set }) => {
+      const at = id.lastIndexOf("#");
+      const file = at < 0 ? id : id.slice(0, at);
+      const name = at < 0 ? "default" : id.slice(at + 1);
+      const loader = modules.get(file);
+      if (!loader) {
+        console.warn(`sf: no module registered for ${file}`);
+        return;
+      }
+      const mod = (await loader()) as { [key: string]: SfValue };
+      set(mod[name]);
+    }),
+  );
+  return props;
+}
+
 /** Every island registered so far, by module id. */
 export function registeredIslands(): ReadonlyMap<string, IslandEntry> {
   return islands;
@@ -100,9 +143,11 @@ function awaitingAnAncestor(el: Element): boolean {
 function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {
   const hydrate = serverRendered(el);
   const island: Mounted = { entry, moduleId, handle: Promise.resolve(undefined), root: undefined, gone: false, props, regions: null, children: null, markup: null };
-  island.handle = entry
-    .loader()
-    .then((mod) => (island.gone ? undefined : entry.mount(mod, props, el, hydrate)))
+  island.handle = Promise.all([entry.loader(), resolveModuleRefs(props)])
+    .then(([mod, resolved]) => {
+      island.props = resolved;
+      return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate);
+    })
     .then((value) => {
       if (island.gone) return undefined;
       island.root = value;
@@ -178,6 +223,7 @@ export async function patchIsland(el: Element, props: Props, regions: unknown = 
   const handle = await island.handle;
   if (handle === undefined) return false;
   const mod = await island.entry.loader();
+  props = await resolveModuleRefs(props);
   island.props = props;
   island.regions = regions;
   island.children = children;

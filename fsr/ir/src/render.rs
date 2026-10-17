@@ -157,6 +157,9 @@ pub const AWAITS_PROP: &str = "$aw";
 /// The props key the placement writes the kinds of its typed props under: an object of prop name to a tag in [`typed`]. The server's render of the island reads the plain values; the browser mounts with each named prop wrapped in its tag, so it makes the real `Map`, `Set`, `Date` or `BigInt`.
 pub const TYPES_PROP: &str = "$t";
 
+/// The props key the placement writes the browser's source of each function prop under: an object of prop name to the module id `file#export` the browser imports that function from, each a string or an expression that yields one. The server's render of the island reads the function values; the browser mounts with each named prop as a module reference, which it resolves by importing the module.
+pub const FUNCTIONS_PROP: &str = "$f";
+
 pub use snapfire_fsr_core::value::typed;
 
 /// `value` wrapped in the typed variant `tag` names, when its shape is the one that tag carries: a `$map` takes an object and sends its pairs, the others send the value as it is. A null prop stays null.
@@ -1647,18 +1650,27 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
 #[allow(clippy::too_many_arguments)]
 fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], when: &Option<String>, mode: &Option<String>, id: u32, define: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let key = env.hoists.as_ref().map(|h| h.island_key(id)).unwrap_or_default();
-  let map = self::props(env, props)?;
-  if let Some((name, _)) = map.iter().find(|(_, value)| crate::interp::holds_closure(value)) {
+  let mut map = self::props(env, props)?;
+  let functions = match map.shift_remove(FUNCTIONS_PROP) {
+    Some(Value::Map(functions)) => functions,
+    _ => ValueMap::default(),
+  };
+  let mut wire = map.clone();
+  for (name, id) in functions.iter() {
+    if let (true, Value::Str(id)) = (wire.contains_key(name.as_str()), id) {
+      wire.insert(name.clone(), Value::Ref { kind: snapfire_fsr_core::RefKind::Module, id: id.as_str().to_owned() });
+    }
+  }
+  if let Some((name, _)) = wire.iter().find(|(_, value)| crate::interp::holds_closure(value)) {
     return Err(Fail::internal(format!("a function passed as `{name}` to `{module}`, which renders in the browser; the server holds no function the browser can call")));
   }
   let mut marks = Vec::new();
-  let wire = match map.values().any(holds_made) {
-    true => match marked(&Value::Map(map.clone()), &mut marks) {
+  if wire.values().any(holds_made) {
+    wire = match marked(&Value::Map(wire), &mut marks) {
       Value::Map(wire) => wire,
       _ => unreachable!("a map marks to a map"),
-    },
-    false => map.clone(),
-  };
+    };
+  }
   if define {
     let mut inner = Out::default();
     for child in children {
