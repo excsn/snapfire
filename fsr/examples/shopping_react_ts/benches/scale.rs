@@ -159,7 +159,7 @@ fn bench(c: &mut Criterion) {
   let interpreter = Interpreter::default();
   let compositions: Vec<String> = built.manifest.components.iter().filter(|c| c.body.owner == Owner::Fsr && c.module.starts_with("routes/")).map(|c| c.module.clone()).collect();
   let mut plugins = snapfire_fsr_cli::plugins::Plugins::new();
-  let prepared = prepare(&app, &built.browser_files, &compositions, &built.composition_files, &built.added, &mut plugins).expect("fsr test's preparation");
+  let prepared = prepare(&app, &built.browser_files, &compositions, &[], &built.composition_files, &built.added, &mut plugins).expect("fsr test's preparation");
 
   for &n in LIST_LENGTHS {
     let props = catalogue_props(n);
