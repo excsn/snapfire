@@ -1926,6 +1926,24 @@ fn default_order(a: &Value, b: &Value) -> Result<f64, Fail> {
   })
 }
 
+/// The `tracing` target a component's `console` calls write to.
+pub const CONSOLE_TARGET: &str = "fsr::console";
+
+/// A value as `console.log` writes it: a string as it is, a scalar as `String` makes it and an object or an array as JSON.
+fn console_text(value: &Value) -> String {
+  match value {
+    Value::Str(s) => s.to_string(),
+    Value::Seq(_) | Value::Map(_) => {
+      let mut out = String::new();
+      match json_into(&mut out, value, "", 0) {
+        Ok(()) => out,
+        Err(_) => format!("[{}]", snapfire_fsr_core::ext::kind_name(value)),
+      }
+    }
+    other => stringify(other).unwrap_or_else(|_| format!("[{}]", snapfire_fsr_core::ext::kind_name(other))),
+  }
+}
+
 /// `JSON.stringify` of a value at `depth`, with `indent` per level.
 fn json_into(out: &mut String, value: &Value, indent: &str, depth: usize) -> Result<(), Fail> {
   let newline = |out: &mut String, depth: usize| {
@@ -2498,6 +2516,16 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
     Builtin::Throw => return Err(Fail::internal(stringify(arg(0)?)?)),
+    Builtin::Log => {
+      let line = || args.iter().skip(1).map(console_text).collect::<Vec<_>>().join(" ");
+      match args.first() {
+        Some(Value::Str(method)) if method.as_str() == "debug" => tracing::debug!(target: CONSOLE_TARGET, "{}", line()),
+        Some(Value::Str(method)) if method.as_str() == "warn" => tracing::warn!(target: CONSOLE_TARGET, "{}", line()),
+        Some(Value::Str(method)) if method.as_str() == "error" => tracing::error!(target: CONSOLE_TARGET, "{}", line()),
+        _ => tracing::info!(target: CONSOLE_TARGET, "{}", line()),
+      }
+      Value::Null
+    }
     Builtin::IsElement => Value::Bool(crate::render::is_made(arg(0)?)),
     Builtin::CloneElement => return Err(Fail::internal("cloneElement is evaluated in a render")),
     Builtin::ComponentRef => Value::Variant { tag: crate::render::COMPONENT_VALUE.to_owned(), payload: Some(Box::new(arg(0)?.clone())) },

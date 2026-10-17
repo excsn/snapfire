@@ -221,6 +221,8 @@ pub enum Builtin {
   TypeOf,
   /// `Array.isArray(x)`.
   IsArray,
+  /// `console.log(...)` and its kin on a render path: the first argument names the method, `log`, `info`, `debug`, `warn` or `error`, and the rest are written as `console.log` writes them, as a `tracing` event under the target `fsr::console` at that level; the value is null.
+  Log,
   /// `throw Error(message)` on a render path: the render fails with `String(message)`, as a component that throws fails React's server render.
   Throw,
   /// A component named as a value, `icon={Star}`: its module, which a tag read from the value renders.

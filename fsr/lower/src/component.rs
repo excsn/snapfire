@@ -2830,6 +2830,12 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         Ok(())
       }
       js::Expr::Call(call) => {
+        if let Some(logged) = console_call(lowerer, call)? {
+          let name = format!("$log{}", call.span.lo.0);
+          lowerer.scope.push((name.clone(), logged));
+          note(assigned, &name);
+          return Ok(());
+        }
         if let Some(looped) = for_each_loop(call) {
           return rebind_stmt(lowerer, &looped, writable, assigned);
         }
@@ -3413,6 +3419,26 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       block_to_expr_inner(lowerer, rest, floor)
     }
   }
+}
+
+/// `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console` as the log it writes on the server, as a server renderer running the component writes it.
+fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+  let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+  let js::Expr::Member(m) = crate::meaning::bare(callee) else { return Ok(None) };
+  let js::Expr::Ident(console) = crate::meaning::bare(&m.obj) else { return Ok(None) };
+  let global = lowerer.meanings.as_ref().is_none_or(|meanings| console.ctxt == meanings.unresolved);
+  let method = prop_name_of(m).unwrap_or_default();
+  if !global || console.sym.as_ref() != "console" || !matches!(method.as_str(), "log" | "info" | "debug" | "warn" | "error") {
+    return Ok(None);
+  }
+  let mut args = vec![Expr::lit_str(method)];
+  for arg in &call.args {
+    if arg.spread.is_some() {
+      return Err(lowerer.residue(arg.expr.span(), "a spread into `console`"));
+    }
+    args.push(lowerer.expr(&arg.expr)?);
+  }
+  Ok(Some(Expr::Builtin { name: Builtin::Log, args }))
 }
 
 /// `xs.forEach((x, i) => body)` as `for (let i = 0; i < xs.length; i++) { const x = xs[i]; body }`, a bare `return` in the callback a `continue`; `xs` a name or a chain of fields read off one, so reading it each pass reads the same array.

@@ -15,6 +15,7 @@ export default function Board() {
   const [squares, setSquares] = useState<(string | null)[]>(Array(9).fill(null));
   const [xIsNext, setXIsNext] = useState(true);
   const winner = calculateWinner(squares);
+  console.log("board rendered, winner", winner);
   function play(i: number) {
     if (squares[i] || calculateWinner(squares)) {
       return;

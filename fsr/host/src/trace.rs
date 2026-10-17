@@ -63,7 +63,7 @@ pub type BoxedLayer = Box<dyn tracing_subscriber::Layer<tracing_subscriber::Regi
 
 /// The layer that takes a project's events out: `fibre_logging` from
 /// [`LOGGING_FILE`] under `root` when there is one, else warnings and errors
-/// written to `fallback`. A file that does not load falls back too, and the
+/// written to `fallback`, with a component's `console` calls from debug up. A file that does not load falls back too, and the
 /// reason is returned. The guard flushes `fibre_logging`'s appenders on drop.
 pub fn project_logging<W>(root: &std::path::Path, fallback: W) -> (BoxedLayer, Option<fibre_logging::InitResult>, Option<String>)
 where
@@ -78,7 +78,8 @@ where
       Err(e) => why = Some(format!("{}: {e}", config.display())),
     }
   }
-  let plain = tracing_subscriber::fmt::layer().with_writer(fallback).with_ansi(false).with_filter(tracing_subscriber::filter::LevelFilter::WARN);
+  let filter = tracing_subscriber::filter::Targets::new().with_default(tracing::Level::WARN).with_target(snapfire_fsr_ir::interp::CONSOLE_TARGET, tracing::Level::DEBUG);
+  let plain = tracing_subscriber::fmt::layer().with_writer(fallback).with_ansi(false).with_filter(filter);
   (Box::new(plain), None, why)
 }
 
