@@ -1976,6 +1976,10 @@ impl<'a> Lowerer<'a> {
             }
             return Ok(Expr::Builtin { name: Builtin::Json, args });
           }
+          "Array" if method == "isArray" => {
+            let [arg] = call.args.as_slice() else { return Err(self.residue(call.span, "`Array.isArray` takes one argument")) };
+            return Ok(Expr::Builtin { name: Builtin::IsArray, args: vec![self.expr(&arg.expr)?] });
+          }
           "Array" if method == "from" && call.args.first().is_some_and(|a| !matches!(&*a.expr, js::Expr::Object(_))) => {
             let source = &call.args[0].expr;
             let mut items = self.expr(source)?;

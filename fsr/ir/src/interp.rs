@@ -2407,6 +2407,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Null => Value::seq(Vec::<Value>::new()),
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
+    Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
     Builtin::TypeOf => Value::str(match arg(0)? {
       Value::Null => "undefined",
       Value::Bool(_) => "boolean",

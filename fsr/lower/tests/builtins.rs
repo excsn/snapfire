@@ -347,6 +347,12 @@ fn in_tests_a_key() {
 }
 
 #[test]
+fn array_is_array_is_a_builtin() {
+  let body = lowered("is_array", "Array.isArray(params.tags) ? params.tags : []").unwrap_or_else(|e| panic!("{e}"));
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Ternary(c, ..), .. } if matches!(&**c, Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::IsArray, .. })), "{body:?}");
+}
+
+#[test]
 fn filter_takes_boolean_as_its_callback() {
   let body = lowered("filter_boolean", "params.tags.filter(Boolean)").unwrap_or_else(|e| panic!("{e}"));
   assert!(matches!(&body[0], Stmt::Let { expr: Expr::Filter(_, f), .. } if matches!(&**f, Expr::Lambda { .. })), "{body:?}");

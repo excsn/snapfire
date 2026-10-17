@@ -152,6 +152,10 @@ async fn query_strings_encode_the_way_url_search_params_does() {
   ] {
     assert_eq!(run(type_of(value)).await, Value::str(want), "{want}");
   }
+  let is_array = |e: Expr| Expr::Builtin { name: Builtin::IsArray, args: vec![e] };
+  assert_eq!(run(is_array(Expr::Array(Vec::new()))).await, Value::Bool(true));
+  assert_eq!(run(is_array(Expr::Object(Vec::new()))).await, Value::Bool(false));
+  assert_eq!(run(is_array(Expr::Lit(Lit::Null))).await, Value::Bool(false));
 }
 
 #[tokio::test]
