@@ -1795,6 +1795,24 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// The length of `Array(n)` or `new Array(n)` with `Array` the global.
+  fn array_of_length<'e>(&self, expr: &'e js::Expr) -> Option<&'e js::Expr> {
+    let (callee, args): (&js::Expr, &[js::ExprOrSpread]) = match strip_parens(expr) {
+      js::Expr::Call(call) => match &call.callee {
+        js::Callee::Expr(callee) => (callee, &call.args),
+        _ => return None,
+      },
+      js::Expr::New(made) => (&made.callee, made.args.as_deref().unwrap_or_default()),
+      _ => return None,
+    };
+    let js::Expr::Ident(id) = strip_parens(callee) else { return None };
+    let global = self.meanings.as_ref().is_none_or(|meanings| id.ctxt == meanings.unresolved);
+    match args {
+      [length] if id.sym.as_ref() == "Array" && global && length.spread.is_none() => Some(&length.expr),
+      _ => None,
+    }
+  }
+
   /// What React's server renderer returns for a hook whose value does not wait on the browser: `useDeferredValue`'s initial value when given and its value otherwise, `useFormStatus`'s status of no form pending and `useSyncExternalStore`'s server snapshot.
   pub(crate) fn server_hook_value(&mut self, hook: &str, call: &js::CallExpr) -> Lowered<Expr> {
     match hook {
@@ -2083,6 +2101,18 @@ impl<'a> Lowerer<'a> {
       return Ok(Expr::NativeCall { module, method, args, sync: false });
     }
 
+    if method == "fill" {
+      if let Some(length) = self.array_of_length(&member.obj) {
+        let length = self.expr(length)?;
+        let value = match call.args.first() {
+          Some(arg) if call.args.len() == 1 => self.expr(&arg.expr)?,
+          Some(_) => return Err(self.residue(call.span, "`fill` with a start or an end")),
+          None => Expr::Lit(Lit::Null),
+        };
+        let range = Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length] });
+        return Ok(Expr::Map(range, Box::new(Expr::Lambda { params: vec!["$filled".to_owned()], body: Box::new(value) })));
+      }
+    }
     if method == "format" {
       if let js::Expr::New(made) = strip_parens(&member.obj) {
         if let Some(formatter) = intl_formatter(made) {
