@@ -45,4 +45,5 @@ render_prop	lowered
 switch_helper	lowered
 tag_from_table	lowered
 ternary_local	lowered
+use_id	lowered
 use_memo_markup	lowered

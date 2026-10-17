@@ -90,6 +90,7 @@ fn expr() -> BoxedStrategy<Expr> {
     text().prop_map(Expr::Config),
     Just(Expr::Input),
     Just(Expr::Now),
+    any::<u32>().prop_map(Expr::HoistId),
   ];
   leaf.prop_recursive(4, 64, 3, |inner| {
     let entry = entry_of(inner.clone());
@@ -408,6 +409,7 @@ fn malformed_shapes_are_refused() {
     ("(fn 1 2)", "expected a list"),
     ("(call one)", "`call` takes at least 2"),
     ("(hoist x 1)", "expected a number"),
+    ("(hoist-id x)", "expected a number"),
     ("({a} 1)", "an expression form starts with a symbol"),
   ];
   for (src, want) in cases {

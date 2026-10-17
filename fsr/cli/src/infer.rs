@@ -342,6 +342,7 @@ impl<'a> Inferer<'a> {
         })
         .unwrap_or(Ts::Unknown),
       Expr::Lambda { .. } | Expr::Block(_) | Expr::Handler(_) | Expr::Markup(_) => Ts::Unknown,
+      Expr::HoistId(_) => Ts::Str,
       Expr::Hoist { expr, .. } => self.expr(expr, env),
       Expr::Map(over, f) => {
         let elem = element(self.expr(over, env));

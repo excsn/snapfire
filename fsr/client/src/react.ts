@@ -524,6 +524,8 @@ export interface HoistReader {
   x(): void;
   /** `value` as the loop body pushes it: an element under a provider holding the current path, as `l` gives a `.map` callback's element; anything else as it is. */
   w<T>(value: T): T;
+  /** The id for the `useId` call `id`, `_S_` plus the key plus `_`, which is what the server wrote: the build replaces the call with this. Unique within a root, as React's own is. */
+  id(id: number): string;
 }
 
 /** The path a component was rendered under by its callers: loop indices and `c<id>` for each keyed placement, so a component placed from a `.map` keys its own hoists below the iteration that placed it. */
@@ -572,6 +574,9 @@ export function useHoisted(module: string): HoistReader {
       },
       w<T>(value: T): T {
         return isElement(value) ? (createElement(PathContext.Provider, { key: value.key, value: [...path] }, value) as T) : value;
+      },
+      id(id: number): string {
+        return `_S_${key(id)}_`;
       },
       l<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => R {
         return (...args: A): R => {

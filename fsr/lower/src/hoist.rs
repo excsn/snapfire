@@ -64,6 +64,8 @@ pub struct Candidates {
   /// the callbacks it sits in. `rewrite` keeps the placements that became
   /// islands and the keyed ones.
   pub island_sites: Vec<(u32, usize, Range<usize>, bool, Vec<Range<usize>>)>,
+  /// Each `useId` call's id, numbered with the value candidates, the byte range of the call and the callbacks it sits in. Never decided away: both halves spell the id from the key.
+  pub id_sites: Vec<(u32, Range<usize>, Vec<Range<usize>>)>,
   /// The `.map` callbacks being lowered, outermost first, and the statement loops among them by their statement's range.
   pub open_loops: Vec<Range<usize>>,
   /// The `for…of` and counted `for` loops whose bodies the build lowered, which the browser keys by iteration as it keys a `.map` callback.
@@ -111,6 +113,14 @@ impl Candidates {
     self.next_island += 1;
     self.island_sites.push((id, at, range, as_child, self.open_loops.clone()));
     id
+  }
+
+  /// The expression for a `useId` call at `range`.
+  pub(crate) fn id(&mut self, range: Range<usize>) -> Expr {
+    let id = self.next;
+    self.next += 1;
+    self.id_sites.push((id, range, self.open_loops.clone()));
+    Expr::HoistId(id)
   }
 
   /// The call ranges of the value candidates that stay in the browser: not
@@ -165,12 +175,17 @@ impl Candidates {
         remember(enclosing);
       }
     }
-    if sites.is_empty() && chunk_sites.is_empty() && island_sites.is_empty() && placements.is_empty() {
+    let mut ids = Vec::new();
+    for (id, range, enclosing) in self.id_sites {
+      ids.push((id, range));
+      remember(enclosing);
+    }
+    if sites.is_empty() && chunk_sites.is_empty() && island_sites.is_empty() && placements.is_empty() && ids.is_empty() {
       return None;
     }
     let statement_loops: Vec<StatementLoop> = self.statement_loops.into_iter().filter(|l| loops.contains(&l.range)).collect();
     loops.retain(|range| !statement_loops.iter().any(|l| l.range == *range));
-    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, placements, loops, statement_loops, browser: Vec::new() })
+    Some(Rewrite { file: file.to_owned(), module: module.to_owned(), hook, sites, chunks: chunk_sites, islands: island_sites, placements, ids, loops, statement_loops, browser: Vec::new() })
   }
 }
 
@@ -213,6 +228,8 @@ pub struct Rewrite {
   /// among JSX children. Each is wrapped so what the component it places
   /// keys sits below the placement.
   pub placements: Vec<(u32, Range<usize>, bool)>,
+  /// The `useId` calls: id and call range. Each is replaced by the reader's spelling of the id.
+  pub ids: Vec<(u32, Range<usize>)>,
   /// The `.map` callbacks whose bodies the survivors sit in, as arrow ranges.
   pub loops: Vec<Range<usize>>,
   /// The statement loops the survivors sit in.
@@ -327,7 +344,7 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
   match expr {
     Expr::Hoist { .. } => unreachable!("handled above"),
     Expr::Markup(inner) => tmpl(std::sync::Arc::make_mut(inner), &mut tainted.to_vec(), kept),
-    Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => {}
+    Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
     Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| strip(e, tainted, kept, in_lambda, in_hoist)),
     Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| match entry {
       Entry::Baked(_) => {}
@@ -692,6 +709,9 @@ pub fn apply(source: &str, rewrites: &[&Rewrite]) -> String {
     }
     for (id, at) in &rewrite.islands {
       insert(&mut edits, *at, 0, format!(" {KEY_PROP}={{{READER}.k({id})}}"));
+    }
+    for (id, range) in &rewrite.ids {
+      edits.push(Edit { start: range.start, end: range.end, rank: 0, text: format!("{READER}.id({id})") });
     }
     for (id, range, as_child) in &rewrite.placements {
       let (before, after) = if *as_child { ("{", ")}") } else { ("", ")") };

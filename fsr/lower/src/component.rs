@@ -1420,7 +1420,7 @@ impl ComponentSet {
           rewrite.browser = marks;
           self.rewrites.push(rewrite);
         }
-        None if !marks.is_empty() => self.rewrites.push(Rewrite { file: file.to_owned(), module: module.clone(), hook: marks_hook, sites: Vec::new(), chunks: Vec::new(), islands: Vec::new(), placements: Vec::new(), loops: Vec::new(), statement_loops: Vec::new(), browser: marks }),
+        None if !marks.is_empty() => self.rewrites.push(Rewrite { file: file.to_owned(), module: module.clone(), hook: marks_hook, sites: Vec::new(), chunks: Vec::new(), islands: Vec::new(), placements: Vec::new(), ids: Vec::new(), loops: Vec::new(), statement_loops: Vec::new(), browser: marks }),
         None => {}
       }
     } else {
@@ -5614,8 +5614,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             return Ok(None);
           }
           Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
-          Some(("useId", _)) if !matches!(self.meanings().bindings.get("useId"), Some(crate::meaning::Meaning::Own { .. })) => {
-            return Err(self.lowerer.residue_with(decl.span, "`useId`, whose value React derives from the shape of the tree at hydration", "the server cannot write the id React will expect; take an id from a prop or the loader's data"));
+          Some(("useId", call)) if !matches!(self.meanings().bindings.get("useId"), Some(crate::meaning::Meaning::Own { .. })) => {
+            let range = self.lowerer.parsed.range(call.span);
+            match &mut self.lowerer.hoisting {
+              Some(candidates) => candidates.id(range),
+              None => return Err(self.lowerer.residue_with(decl.span, "`useId` inside a custom hook", "the id is keyed by the component that calls the hook; call `useId` there and pass the id in")),
+            }
           }
           Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(&decl.name)),
           Some((hook, _)) if !matches!(hook, "useState" | "use" | "useContext") => return Err(self.lowerer.residue(decl.span, format!("`{hook}`"))),
@@ -8628,10 +8632,15 @@ export default function Order({ id }: { id: number }) {
   }
 
   #[test]
-  fn use_id_and_a_hook_the_build_cannot_follow_stay_residue() {
+  fn use_id_is_a_let_of_its_numbered_id() {
     let id = [("routes/a/page.tsx", "import { useId } from \"react\";\nexport default function A() {\n  const id = useId();\n  return <label htmlFor={id}>x</label>;\n}\n")];
-    let err = lower(&id, "routes/a/page.tsx#default").unwrap_err().to_string();
-    assert!(err.contains("`useId`"), "{err}");
+    let lowered = lower(&id, "routes/a/page.tsx#default").unwrap();
+    let (_, component) = lowered.iter().find(|(m, _)| m == "routes/a/page.tsx#default").unwrap();
+    assert_eq!(component.body, vec![Stmt::Let { name: "id".to_owned(), expr: Expr::HoistId(0) }]);
+  }
+
+  #[test]
+  fn a_hook_the_build_cannot_follow_stays_residue() {
     let unknown = [("routes/a/page.tsx", "import { useThing } from \"thing-lib\";\nexport default function A() {\n  const t = useThing();\n  return <p>{t}</p>;\n}\n")];
     let err = lower(&unknown, "routes/a/page.tsx#default").unwrap_err().to_string();
     assert!(err.contains("`useThing`, a hook the build cannot follow"), "{err}");

@@ -2218,7 +2218,7 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
   use crate::ast::Expr;
   match expr {
     Expr::Lit(lit) => *expr = Expr::Folded(lit_value(lit)),
-    Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) => {}
+    Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
     Expr::Markup(tmpl) => *tmpl = Arc::new(prepare_tmpl(tmpl)),
     Expr::Lambda { body, .. } => body.visit_mut(&mut |e| {
       if let Expr::Markup(tmpl) = e {

@@ -476,7 +476,7 @@ reference-react-dom-components-img-1	lowered
 reference-react-dom-components-index-1	lowered
 reference-react-dom-components-index-2	lowered
 reference-react-dom-components-input-1	lowered
-reference-react-dom-components-input-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-input-2	lowered
 reference-react-dom-components-input-3	lowered
 reference-react-dom-components-input-4	lowered
 reference-react-dom-components-input-5	lowered
@@ -490,14 +490,14 @@ reference-react-dom-components-progress-1	lowered
 reference-react-dom-components-script-1	client: src/App.js:14:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
 reference-react-dom-components-script-2	client: src/App.js:13:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
 reference-react-dom-components-select-1	lowered
-reference-react-dom-components-select-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-select-2	lowered
 reference-react-dom-components-select-3	lowered
 reference-react-dom-components-select-4	lowered
 reference-react-dom-components-select-5	lowered
 reference-react-dom-components-select-6	lowered
-reference-react-dom-components-style-1	client: src/App.js:23:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow | src/App.js:5:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-style-1	client: src/App.js:23:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
 reference-react-dom-components-textarea-1	lowered
-reference-react-dom-components-textarea-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-dom-components-textarea-2	lowered
 reference-react-dom-components-textarea-3	lowered
 reference-react-dom-components-textarea-4	lowered
 reference-react-dom-components-title-1	client: src/App.js:5:5 `ShowRenderedHTML` comes from `./ShowRenderedHTML.js`, which the build cannot follow
@@ -587,9 +587,9 @@ reference-react-useeffect-8	lowered
 reference-react-useeffectevent-1	lowered
 reference-react-useeffectevent-2	lowered
 reference-react-useeffectevent-4	lowered
-reference-react-useid-1	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
-reference-react-useid-2	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
-reference-react-useid-3	client: src/App.js:4:9 `useId`, whose value React derives from the shape of the tree at hydration
+reference-react-useid-1	lowered
+reference-react-useid-2	lowered
+reference-react-useid-3	lowered
 reference-react-useimperativehandle-1	lowered
 reference-react-useimperativehandle-2	lowered
 reference-react-uselayouteffect-1	client: src/Tooltip.js:26:10 a call to `createPortal`, which the build cannot follow

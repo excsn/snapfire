@@ -92,6 +92,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::Num(e) => one("number", e),
     Expr::BigInt(e) => one("bigint", e),
     Expr::Hoist { id, expr } => form("hoist", vec![Sx::Sym(id.to_string()), expr_to_sx(expr)]),
+    Expr::HoistId(id) => form("hoist-id", vec![Sx::Sym(id.to_string())]),
     Expr::Handler(index) => form("handler", vec![Sx::Sym(index.to_string())]),
   }
 }
@@ -290,6 +291,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
       let a = args(items, head, 2)?;
       Expr::Hoist { id: u32_of(&a[0])?, expr: boxed(&a[1])? }
     }
+    "hoist-id" => Expr::HoistId(u32_of(&args(items, head, 1)?[0])?),
     "handler" => Expr::Handler(u32_of(&args(items, head, 1)?[0])?),
     "markup" => Expr::Markup(std::sync::Arc::new(super::tmpl::tmpl_from_sx(&args(items, head, 1)?[0])?)),
     other => match builtin_of(other) {

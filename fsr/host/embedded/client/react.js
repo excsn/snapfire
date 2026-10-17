@@ -491,6 +491,9 @@ export function useHoisted(module) {
                     ]
                 }, value) : value;
             },
+            id (id) {
+                return `_S_${key(id)}_`;
+            },
             l (f) {
                 return (...args)=>{
                     path.push(typeof args[1] === "number" ? args[1] : -1);

@@ -118,7 +118,7 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
   let mut pure = free.is_empty();
   let mut refs = Vec::new();
   expr.visit(&mut |e| match e {
-    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } => pure = false,
+    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) => pure = false,
     Expr::Const(other) => refs.push(other.clone()),
     _ => {}
   });
@@ -442,6 +442,11 @@ pub(crate) struct Probe {
   pub(crate) found: Option<(String, ValueMap)>,
 }
 
+/// What `Hoists::id` puts before and after the hoist key, so an id FSR
+/// minted reads apart from React's `_R_` and `_r_` ones.
+pub const ID_OPEN: &str = "_S_";
+pub const ID_CLOSE: &str = "_";
+
 #[derive(Debug, Default, Clone)]
 #[non_exhaustive]
 pub struct Hoists {
@@ -469,6 +474,19 @@ impl Hoists {
   pub fn key(&self, id: u32) -> String {
     let mut digits = itoa::Buffer::new();
     self.keyed(digits.format(id))
+  }
+
+  /// The id a `useId` call numbered `id` yields: `ID_OPEN`, the hoist key
+  /// and `ID_CLOSE`, which the browser's reader spells the same way from the
+  /// module and path it tracks. Valid as a DOM id and unique within a root,
+  /// as React's own is.
+  pub fn id(&self, id: u32) -> String {
+    let key = self.key(id);
+    let mut out = String::with_capacity(ID_OPEN.len() + key.len() + ID_CLOSE.len());
+    out.push_str(ID_OPEN);
+    out.push_str(&key);
+    out.push_str(ID_CLOSE);
+    out
   }
 
   fn keyed(&self, id: &str) -> String {
@@ -857,6 +875,13 @@ impl Env {
     Ok(Flow::Next)
   }
 
+  fn hoist_id(&self, id: u32) -> Result<Value, Fail> {
+    match &self.hoists {
+      Some(hoists) => Ok(Value::str(hoists.id(id))),
+      None => Err(Fail::internal("`useId` reached outside a keyed render")),
+    }
+  }
+
   /// `eval` for an expression with no service call in it: a component body,
   /// a render, a test's assertion. One plain recursion and no future per node.
   pub(crate) fn eval_sync(&mut self, expr: &Expr) -> Result<Value, Fail> {
@@ -1047,6 +1072,7 @@ impl Env {
         }
         Ok(value)
       }
+      Expr::HoistId(id) => self.hoist_id(*id),
       Expr::Apply { f, args } => {
         let mut values = Vec::with_capacity(args.len());
         for arg in args {
@@ -1459,6 +1485,7 @@ impl Env {
           }
         }
         Expr::Hoist { expr, .. } => self.eval(expr).await,
+        Expr::HoistId(id) => self.hoist_id(*id),
         Expr::Handler(_) => Err(Fail::internal("a handler is a value in a render only")),
         Expr::Apply { f, args } => {
           let mut values = Vec::with_capacity(args.len());

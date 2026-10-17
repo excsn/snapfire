@@ -137,6 +137,8 @@ pub enum Expr {
   /// browser reads that record instead of computing it. `id` is unique
   /// within the component's module.
   Hoist { id: u32, expr: Box<Expr> },
+  /// A `useId` call: the string `Hoists::id` spells for `id` under the current module and path, so a server render and the browser's render of the same component agree on it without a wire entry. `id` is numbered with the hoists of the component's module.
+  HoistId(u32),
   /// The component's handler at this index as a value, which a prop holding a function carries. It evaluates to a reference to the handler of the component being rendered, which an `on*` attribute binds and an island's props leave out.
   Handler(u32),
   /// Markup written where a value goes, `body={<p />}` or `const x = <p />`. The build moves it into the tree where it can; one left here evaluates to a markup value that renders where it is interpolated, in the scope it was written in.
@@ -804,7 +806,7 @@ impl Expr {
           out.push(name.clone());
         }
       }
-      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Lit(_) | Expr::Handler(_) => {}
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Object(entries) | Expr::Array(entries) => {
         for entry in entries {
           match entry {
@@ -855,7 +857,7 @@ impl Expr {
     f(self);
     match self {
       Expr::Markup(tmpl) => tmpl.visit(f),
-      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => {}
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
@@ -895,7 +897,7 @@ impl Expr {
     f(self);
     match self {
       Expr::Markup(tmpl) => std::sync::Arc::make_mut(tmpl).visit_mut(f),
-      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => {}
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| e.visit_mut(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| entry.visit_mut(f)),
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
@@ -936,7 +938,7 @@ impl Expr {
         reads
       }
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host | Expr::Address => true,
-      Expr::Locale | Expr::Path | Expr::Document | Expr::Origin | Expr::Config(_) | Expr::Handler(_) => false,
+      Expr::Locale | Expr::Path | Expr::Document | Expr::Origin | Expr::Config(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
@@ -967,7 +969,7 @@ impl Expr {
         calls
       }
       Expr::Call { .. } | Expr::NativeCall { .. } => true,
-      Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => false,
+      Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
         Entry::Baked(_) => false,

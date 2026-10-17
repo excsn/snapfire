@@ -121,6 +121,8 @@ export interface HoistReader {
 	x(): void;
 	/** `value` as the loop body pushes it: an element under a provider holding the current path, as `l` gives a `.map` callback's element; anything else as it is. */
 	w<T>(value: T): T;
+	/** The id for the `useId` call `id`, `_S_` plus the key plus `_`, which is what the server wrote: the build replaces the call with this. Unique within a root, as React's own is. */
+	id(id: number): string;
 }
 /** A value only the browser knows, the viewer's clock for one, which the server rendered as nothing. The reader answers null until the component has mounted, so the first render matches the server's markup, then computes the value and renders once more. The build wraps each such expression in the browser copy. */
 export declare function useBrowser(): <T>(compute: () => T) => T | null;

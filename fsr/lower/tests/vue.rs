@@ -1085,7 +1085,7 @@ const STORE_KEYS: &str = "import { key } from \"@snapfire/fsr-client/store\";\ne
 fn an_island_that_does_not_lower_still_names_the_store_keys_it_reads() {
   let compiler = Compiler::new().expect("the compiler boots");
   let vue = "<script setup lang=\"ts\">\nimport { inject } from \"vue\";\nimport { useStore } from \"@snapfire/fsr-client/vue\";\nimport { owner } from \"../store\";\nconst tone = inject(\"tone\", () => \"plain\", true);\nconst value = useStore(owner, \"none\");\nconst count = useStore(\"cart/count\", 0);\n</script>\n<template><p>{{ value }} {{ count }} {{ tone }}</p></template>\n";
-  let tsx = "import { useId } from \"react\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { owner } from \"../store\";\nexport default function Browser() {\n  const id = useId();\n  const [value] = useStore(owner, \"none\");\n  const [count] = useStore(\"cart/count\", 0);\n  return <p id={id}>{value}{count}</p>;\n}\n";
+  let tsx = "import { useThing } from \"thing-lib\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { owner } from \"../store\";\nexport default function Browser() {\n  const id = useThing();\n  const [value] = useStore(owner, \"none\");\n  const [count] = useStore(\"cart/count\", 0);\n  return <p id={id}>{value}{count}</p>;\n}\n";
   let dir = app("reads", &[("src/store.ts", STORE_KEYS), ("src/ui/Browser.tsx", tsx)]);
   let mut set = ComponentSet::new(&dir);
   set.describe("src/ui/Foreign.vue", describe(&compiler, "src/ui/Foreign.vue", vue));
