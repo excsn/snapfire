@@ -2145,9 +2145,6 @@ impl<'a> Lowerer<'a> {
               self.reach_violation = true;
               return Err(self.residue(call.span, format!("`{name}` calls `{key}` on a render path")));
             }
-            if writes_outer(&f) {
-              return Err(self.residue_with(call.span, format!("`{name}` writes module state on a render path"), "call it from a handler so the write reaches the store and read the value here"));
-            }
           }
           let mut args = Vec::with_capacity(call.args.len());
           for a in &call.args {
@@ -2187,13 +2184,6 @@ impl<'a> Lowerer<'a> {
         ));
       }
       let f = Box::new(self.expr(callee)?);
-      if self.on_render_path() && writes_outer(&f) {
-        let name = match strip_parens(callee) {
-          js::Expr::Ident(id) => format!("`{}`", id.sym),
-          _ => "a helper".to_owned(),
-        };
-        return Err(self.residue_with(call.span, format!("{name} writes module state on a render path"), "call it from a handler so the write reaches the store and read the value here"));
-      }
       let mut args = Vec::with_capacity(call.args.len());
       for a in &call.args {
         args.push(self.expr(&a.expr)?);

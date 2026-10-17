@@ -1,7 +1,7 @@
 //! A module-level `let` a function writes is state: a helper writing it keeps
 //! its statements as a block lambda, a component binds it as a store key
-//! seeded by replaying the module's initialisation and a render that would
-//! write it is refused.
+//! seeded by replaying the module's initialisation. A render calling the
+//! helper advances the request's copy; a handler's call reaches the store.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -65,10 +65,12 @@ fn a_component_reads_a_module_let_as_a_store_key_seeded_by_the_module() {
 }
 
 #[test]
-fn a_render_that_calls_a_helper_writing_module_state_is_refused() {
-  let page = "import { createTodo } from \"@src/todos\";\nexport default function Page() {\n  return <p>{createTodo(\"now\").id}</p>;\n}\n";
-  let out = lower("render_write", &[("src/todos.js", TODOS), ("routes/page.tsx", page)]);
-  assert!(out.as_ref().is_err_and(|e| e.contains("`createTodo` writes module state on a render path")), "{:?}", out.as_ref().map(|o| o.html.clone()));
+fn a_render_that_calls_a_helper_writing_module_state_advances_the_request_copy() {
+  let page = "import { createTodo } from \"@src/todos\";\nexport default function Page() {\n  return <p>{createTodo(\"a\").id}{createTodo(\"b\").id}</p>;\n}\n";
+  let out = lower("render_write", &[("src/todos.js", TODOS), ("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p>34</p>");
+  let (_, page) = out.set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap();
+  assert_eq!(page.stores, vec![("nextId".to_owned(), "src/todos.js#nextId".to_owned())]);
 }
 
 #[test]

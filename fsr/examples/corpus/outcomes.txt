@@ -394,8 +394,8 @@ learn-writing-markup-with-jsx-2	lowered
 learn-writing-markup-with-jsx-3	refused: src/App.js: 6:8: Expected ',', got 'class'
 learn-writing-markup-with-jsx-4	lowered
 learn-you-might-not-need-an-effect-2	lowered
-learn-you-might-not-need-an-effect-4	client: src/App.js:9:11 `getVisibleTodos` writes module state on a render path
-learn-you-might-not-need-an-effect-5	client: src/App.js:7:24 `getVisibleTodos` writes module state on a render path
+learn-you-might-not-need-an-effect-4	lowered
+learn-you-might-not-need-an-effect-5	lowered
 learn-you-might-not-need-an-effect-7	lowered
 learn-you-might-not-need-an-effect-8	lowered
 learn-you-might-not-need-an-effect-9	lowered

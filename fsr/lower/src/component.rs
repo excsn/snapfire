@@ -1171,7 +1171,6 @@ impl ComponentSet {
             let seed = self.module_init(&declared_file, &declared_name)?;
             module_bindings.push((name.clone(), key.clone(), seed));
           }
-          // A helper that writes a module `let` needs the let bound here too, since its block sets it by name when a handler calls it.
           if crate::writes_outer(&expr) {
             let declared_file = key.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_default();
             if let Expr::Lambda { body, .. } = &expr {
