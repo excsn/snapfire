@@ -3779,7 +3779,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if self.holds_markup(e) {
       let tmpl = self.child_expr(e)?;
       let span = e.span();
-      self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Markup(Box::new(tmpl)));
+      self.lowerer.premade.insert((span.lo.0, span.hi.0), Expr::Markup(std::sync::Arc::new(tmpl)));
       return Ok(());
     }
     match e {
@@ -3809,6 +3809,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.premake_expr(&b.right)
       }
       js::Expr::Assign(a) => self.premake_expr(&a.right),
+      js::Expr::Arrow(arrow) => {
+        let depth = self.lowerer.scope.len();
+        let result = bind_params(&mut self.lowerer, &arrow.params).and_then(|_| match &*arrow.body {
+          js::ArrowFunctionBody::Expr(e) => self.premake_expr(e),
+          js::ArrowFunctionBody::FunctionBody(b) => self.premake_returning(&b.stmts),
+        });
+        self.lowerer.scope.truncate(depth);
+        result
+      }
       js::Expr::Call(call) => {
         if let js::Callee::Expr(callee) = &call.callee {
           if let js::Expr::Member(member) = &**callee {
@@ -3874,6 +3883,33 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let depth = self.lowerer.scope.len();
     let result = stmts.iter().try_for_each(|stmt| {
       self.premake_stmt(stmt)?;
+      if let js::Stmt::Decl(js::Decl::Var(var)) = stmt {
+        for decl in &var.decls {
+          let value = match decl.init.as_deref() {
+            Some(init) => self.lowerer.expr(init)?,
+            None => Expr::Lit(Lit::Null),
+          };
+          bind_pattern(&mut self.lowerer, &decl.name, value)?;
+        }
+      }
+      Ok(())
+    });
+    self.lowerer.scope.truncate(depth);
+    result
+  }
+
+  /// [`Self::premake_block`] over a function's body, whose `return`s hold values the way its declarations do.
+  fn premake_returning(&mut self, stmts: &'p [js::Stmt]) -> Lowered<()> {
+    let depth = self.lowerer.scope.len();
+    let result = stmts.iter().try_for_each(|stmt| {
+      match stmt {
+        js::Stmt::Return(r) => {
+          if let Some(arg) = r.arg.as_deref() {
+            self.premake_expr(arg)?;
+          }
+        }
+        other => self.premake_stmt(other)?,
+      }
       if let js::Stmt::Decl(js::Decl::Var(var)) = stmt {
         for decl in &var.decls {
           let value = match decl.init.as_deref() {
@@ -5514,7 +5550,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       None => Ok(Expr::Lit(Lit::Bool(true))),
       Some(js::JSXAttrValue::Str(s)) => Ok(Expr::Lit(Lit::Str(decode_entities(&s.value.to_atom_lossy())))),
       Some(js::JSXAttrValue::JSXExprContainer(c)) => match &c.expr {
-        js::JSXExpr::Expr(e) if self.holds_markup(e) => Ok(Expr::Markup(Box::new(self.child_expr(e)?))),
+        js::JSXExpr::Expr(e) if self.holds_markup(e) => Ok(Expr::Markup(std::sync::Arc::new(self.child_expr(e)?))),
         js::JSXExpr::Expr(e) => {
           self.premake_expr(e)?;
           self.lowerer.expr(e)
@@ -7283,8 +7319,9 @@ mod fills {
     }
   }
 
-  /// Places every `Expr::Markup` the component holds; `Err` says why one cannot be.
+  /// Places every `Expr::Markup` the component holds where the tree can take it; the rest stay values, rendered where they are interpolated. `Err` says why one cannot be either.
   pub(super) fn place_markup(component: &mut Component) -> Result<(), &'static str> {
+    let original = component.body.clone();
     let mut held: HashMap<String, Tmpl> = HashMap::new();
     let mut kept = Vec::new();
     for stmt in std::mem::take(&mut component.body) {
@@ -7300,17 +7337,90 @@ mod fills {
     }
     component.body = kept;
     place(&mut component.render, &held);
-    let mut left = false;
-    let mut check = |e: &Expr| left |= matches!(e, Expr::Markup(_)) || matches!(e, Expr::Var(n) if held.contains_key(n));
-    for stmt in &component.body {
-      if let Stmt::Let { expr, .. } = stmt {
-        expr.visit(&mut check);
+    let mut place_inside = |e: &mut Expr| {
+      if let Expr::Markup(t) = e {
+        place(std::sync::Arc::make_mut(t), &held);
+      }
+    };
+    for stmt in &mut component.body {
+      stmt_exprs_mut(stmt, &mut place_inside);
+    }
+    component.render.visit_mut(&mut place_inside);
+    let mut restored: HashMap<String, Stmt> = HashMap::new();
+    loop {
+      let mut read = HashSet::new();
+      let mut reads = |e: &Expr| {
+        if let Expr::Var(n) = e {
+          if held.contains_key(n) && !restored.contains_key(n) {
+            read.insert(n.clone());
+          }
+        }
+      };
+      component.body.iter().chain(restored.values()).for_each(|stmt| stmt_exprs(stmt, &mut reads));
+      component.render.visit(&mut reads);
+      if read.is_empty() {
+        break;
+      }
+      for stmt in &original {
+        if let Stmt::Let { name, .. } = stmt {
+          if read.contains(name) {
+            let mut stmt = stmt.clone();
+            stmt_exprs_mut(&mut stmt, &mut place_inside);
+            restored.insert(name.clone(), stmt);
+          }
+        }
       }
     }
+    if !restored.is_empty() {
+      let mut kept = std::mem::take(&mut component.body).into_iter();
+      for stmt in &original {
+        match stmt {
+          Stmt::Let { name, .. } if held.contains_key(name) => {
+            if let Some(back) = restored.remove(name) {
+              component.body.push(back);
+            }
+          }
+          _ => component.body.extend(kept.next()),
+        }
+      }
+      component.body.extend(kept);
+    }
+    let mut unready = false;
+    let mut check = |e: &Expr| {
+      if let Expr::Markup(t) = e {
+        unready |= reads_slots(t);
+      }
+    };
+    component.body.iter().for_each(|stmt| stmt_exprs(stmt, &mut check));
     component.render.visit(&mut check);
-    match left {
-      true => Err("markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered"),
+    match unready {
+      true => Err("markup held as a value that places the component's children or a prop's markup, which the build renders only in place"),
       false => Ok(()),
+    }
+  }
+
+  fn stmt_exprs(stmt: &Stmt, f: &mut dyn FnMut(&Expr)) {
+    if let Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) = stmt {
+      expr.visit(f);
+    }
+  }
+
+  fn stmt_exprs_mut(stmt: &mut Stmt, f: &mut dyn FnMut(&mut Expr)) {
+    if let Stmt::Let { expr, .. } | Stmt::Set { expr, .. } | Stmt::Return(expr) | Stmt::Expr(expr) = stmt {
+      expr.visit_mut(f);
+    }
+  }
+
+  /// Whether `t` places a slot or reads a prop that a placement may fill with markup, both of which need the frame of the placement around them.
+  fn reads_slots(t: &Tmpl) -> bool {
+    match t {
+      Tmpl::Slot(_) => true,
+      Tmpl::Let { name, .. } if name.starts_with(SLOT_READ_PREFIX) => true,
+      Tmpl::Text(_) | Tmpl::Expr(_) => false,
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(reads_slots),
+      Tmpl::If { then, r#else, .. } => reads_slots(then) || r#else.as_deref().is_some_and(reads_slots),
+      Tmpl::For { body, .. } => reads_slots(body),
+      Tmpl::Let { then, .. } => reads_slots(then),
     }
   }
 

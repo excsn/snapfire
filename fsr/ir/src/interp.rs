@@ -252,6 +252,7 @@ impl Interpreter {
       slotted: Vec::new(),
       slot_owner: None,
       scoped: None,
+      made: Some(Vec::new()),
       input: input.unwrap_or(Value::Null),
       identity: identity.map(|id| {
         let mut map = ValueMap::default();
@@ -377,6 +378,8 @@ pub(crate) struct Env {
   pub(crate) slot_owner: Option<Vec<String>>,
   /// The scoped style of the component whose template is being rendered, which its slots stamp their content by.
   pub(crate) scoped: Option<ScopedStyle>,
+  /// The markup values this render made, which a value made here names by index. `None` in a copy for parallel evaluation, whose table would be lost.
+  pub(crate) made: Option<Vec<crate::render::Made>>,
 }
 
 /// One step of the path a key is taken under.
@@ -525,6 +528,7 @@ impl Env {
       slotted: Vec::new(),
       slot_owner: None,
       scoped: None,
+      made: Some(Vec::new()),
     }
   }
 
@@ -674,6 +678,7 @@ impl Env {
       slotted: Vec::new(),
       slot_owner: None,
       scoped: None,
+      made: None,
     }
   }
 
@@ -763,7 +768,7 @@ impl Env {
       }
     }
     match expr {
-      Expr::Markup(_) => Err(Fail::internal("markup reached the interpreter; the build places it in the tree")),
+      Expr::Markup(tmpl) => self.make(tmpl),
       Expr::Const(key) => {
         if let Some(value) = self.held.get(key) {
           return Ok(value.clone());
@@ -930,7 +935,7 @@ impl Env {
       Expr::Handler(index) => Ok(crate::render::handler_value(&self.component_path, *index)),
       Expr::Hoist { id, expr } => {
         let value = self.eval_sync(expr)?;
-        if let Some(hoists) = &mut self.hoists {
+        if let Some(hoists) = self.hoists.as_mut().filter(|_| !crate::render::holds_made(&value)) {
           hoists.record(*id, value.clone());
         }
         Ok(value)

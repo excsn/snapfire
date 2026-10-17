@@ -31,7 +31,7 @@ icu_experimental = "0.6"
 icu_locale_core = "2"
 icu_plurals = "2"
 indexmap = "2"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 sha2 = "0.10"
 thiserror = "2"

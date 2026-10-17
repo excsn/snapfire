@@ -1,6 +1,6 @@
 adjacent_text	lowered
 and_zero	lowered
-array_from_length	client: routes/page.island0.tsx:4:46 JSX in a body
+array_from_length	lowered
 array_local	lowered
 array_returned	lowered
 array_spread_concat	lowered
@@ -14,7 +14,7 @@ columns_render_fns	refused: routes/page.tsx:3:26: a function value; lambdas go t
 component_as_prop	refused: routes/page.tsx:1:26: JSX in a body
 component_from_table	refused: routes/page.tsx:1:26: JSX in a body
 conditional_wrapper	lowered
-context_markup	refused: routes/page.tsx:7:32: markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+context_markup	lowered
 control_props	lowered
 counted_for	lowered
 element_prop	lowered
@@ -29,20 +29,20 @@ join_with_separator	client: routes/page.island0.tsx:3:3 a call for its effect, w
 keyed_fragment_inline	lowered
 let_branches	lowered
 local_const	lowered
-lookup_object_elements	refused: routes/page.tsx:1:32: markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+lookup_object_elements	lowered
 map_array	lowered
 map_fragment	lowered
-markup_in_object_prop	refused: routes/page.tsx:4:32: markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+markup_in_object_prop	lowered
 nested_arrays	lowered
 object_entries_map	lowered
-object_field_mapped	client: routes/page.island0.tsx:7:60 JSX in a body
+object_field_mapped	lowered
 optional_map	lowered
 push_for_of	lowered
 push_if	lowered
 recursive_tree	lowered
-reduce_markup	client: routes/page.island0.tsx:3:58 JSX in a body
+reduce_markup	lowered
 render_prop	client: routes/page.tsx:2:54 a call to a computed target
 switch_helper	lowered
 tag_from_table	lowered
 ternary_local	lowered
-use_memo_markup	client: routes/page.island0.tsx:4:47 JSX in a body
+use_memo_markup	lowered

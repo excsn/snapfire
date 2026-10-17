@@ -137,11 +137,8 @@ pub enum Expr {
   Hoist { id: u32, expr: Box<Expr> },
   /// The component's handler at this index as a value, which a prop holding a function carries. It evaluates to a reference to the handler of the component being rendered, which an `on*` attribute binds and an island's props leave out.
   Handler(u32),
-  /// Markup written where a value goes, `body={<p />}` or `const x = <p />`,
-  /// while a component is being lowered. The build moves it into the tree
-  /// before the component is done: it never reaches a plan, the interpreter
-  /// or the renderer.
-  Markup(Box<Tmpl>),
+  /// Markup written where a value goes, `body={<p />}` or `const x = <p />`. The build moves it into the tree where it can; one left here evaluates to a markup value that renders where it is interpolated, in the scope it was written in.
+  Markup(std::sync::Arc<Tmpl>),
 }
 
 /// The pure functions a component may call by name. Each is one JavaScript
@@ -587,6 +584,51 @@ impl Tmpl {
       Tmpl::Baked { children, .. } => children.iter().for_each(|c| c.visit(f)),
     }
   }
+
+  /// `visit` with each expression open to change: `f` sees an expression before what is beneath it.
+  pub fn visit_mut(&mut self, f: &mut dyn FnMut(&mut Expr)) {
+    match self {
+      Tmpl::Text(_) | Tmpl::Slot(_) => {}
+      Tmpl::Expr(e) => e.visit_mut(f),
+      Tmpl::Element { attrs, children, .. } => {
+        attrs.iter_mut().for_each(|entry| entry.visit_mut(f));
+        children.iter_mut().for_each(|c| c.visit_mut(f));
+      }
+      Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| c.visit_mut(f)),
+      Tmpl::If { cond, then, r#else } => {
+        cond.visit_mut(f);
+        then.visit_mut(f);
+        if let Some(other) = r#else {
+          other.visit_mut(f);
+        }
+      }
+      Tmpl::For { over, body, .. } => {
+        over.visit_mut(f);
+        body.visit_mut(f);
+      }
+      Tmpl::Let { expr, then, .. } => {
+        expr.visit_mut(f);
+        then.visit_mut(f);
+      }
+      Tmpl::Component { props, children, .. } | Tmpl::Island { props, children, .. } => {
+        props.iter_mut().for_each(|entry| entry.visit_mut(f));
+        children.iter_mut().for_each(|c| c.visit_mut(f));
+      }
+    }
+  }
+}
+
+impl Entry {
+  fn visit_mut(&mut self, f: &mut dyn FnMut(&mut Expr)) {
+    match self {
+      Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit_mut(f),
+      Entry::Baked(_) => {}
+      Entry::Computed(k, v) => {
+        k.visit_mut(f);
+        v.visit_mut(f);
+      }
+    }
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -795,6 +837,38 @@ impl Expr {
       }
       Expr::Lambda { body, .. } => body.visit(f),
       Expr::Hoist { expr, .. } => expr.visit(f),
+    }
+  }
+
+  /// `visit` with each expression open to change: `f` sees an expression before what is beneath it, a markup value's template included.
+  pub fn visit_mut(&mut self, f: &mut dyn FnMut(&mut Expr)) {
+    f(self);
+    match self {
+      Expr::Markup(tmpl) => std::sync::Arc::make_mut(tmpl).visit_mut(f),
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) => {}
+      Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| e.visit_mut(f)),
+      Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| entry.visit_mut(f)),
+      Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
+      | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.visit_mut(f),
+      Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b)
+      | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b)
+      | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => {
+        a.visit_mut(f);
+        b.visit_mut(f);
+      }
+      Expr::Ternary(a, b, c) | Expr::Reduce(a, b, c) | Expr::ReplaceWith(a, b, c) => {
+        a.visit_mut(f);
+        b.visit_mut(f);
+        c.visit_mut(f);
+      }
+      Expr::Template(parts) => parts.iter_mut().for_each(|e| e.visit_mut(f)),
+      Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter_mut().for_each(|e| e.visit_mut(f)),
+      Expr::Apply { f: callee, args } => {
+        callee.visit_mut(f);
+        args.iter_mut().for_each(|e| e.visit_mut(f));
+      }
+      Expr::Lambda { body, .. } => body.visit_mut(f),
+      Expr::Hoist { expr, .. } => expr.visit_mut(f),
     }
   }
 

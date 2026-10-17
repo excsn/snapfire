@@ -289,7 +289,7 @@ learn-rsc-sandbox-test-10	client: src/App.js:4:16 an `async` component; what it 
 learn-rsc-sandbox-test-2	lowered
 learn-rsc-sandbox-test-3	client: src/Albums.js:6:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/App.js:8:7 `Suspense` comes from `react`, which the build cannot follow
 learn-rsc-sandbox-test-4	client: src/App.js:10:7 `Suspense` comes from `react`, which the build cannot follow | src/SlowData.js:8:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/Timestamp.js:4:19 the current time on a render path, which the server and the browser read at different moments
-learn-rsc-sandbox-test-5	client: src/DataViewer.js:5:28 `Map` is not bound here; an import the build cannot follow or a name from outside the body
+learn-rsc-sandbox-test-5	client: src/DataViewer.js:6:16 `.entries()`, which is not a builtin
 learn-rsc-sandbox-test-6	refused: src/App.js:15:22: `now` calls `time.now` on a render path; it runs on the server only, and a component's render path runs in the browser too
 learn-rsc-sandbox-test-7	client: src/App.js:4:16 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders
 learn-rsc-sandbox-test-8	client: src/actions.js:6:3 a call for its effect, which a straight-line body cannot hold
@@ -431,8 +431,8 @@ reference-react-children-4	client: src/RowList.js:9:8 `Children` comes from `rea
 reference-react-children-5	client: src/ReversedList.js:4:18 `Children` comes from `react`, which the build cannot follow
 reference-react-children-6	lowered
 reference-react-children-7	lowered
-reference-react-children-8	client: src/App.js:3:31 markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
-reference-react-children-9	client: src/App.js:3:31 markup where the build cannot place it: inside data, in an attribute or read as a value rather than rendered
+reference-react-children-8	lowered
+reference-react-children-9	lowered
 reference-react-cloneelement-1	client: src/List.js:7:8 `Children` comes from `react`, which the build cannot follow
 reference-react-cloneelement-2	client: src/List.js:9:16 a call to a computed target
 reference-react-cloneelement-3	client: src/List.js:15:14 a call to a computed target

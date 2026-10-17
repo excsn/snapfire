@@ -303,6 +303,74 @@ struct Slot<'a> {
   scoped: Option<ScopedStyle>,
 }
 
+/// The tag of a markup value: its payload indexes the render's table of what each one captured.
+pub const MARKUP_VALUE: &str = "$markup";
+
+/// What a markup value captured where it was written: the template, the names it reads with their values there, the hoist keys and owner it renders under.
+#[derive(Debug, Clone)]
+pub(crate) struct Made {
+  tmpl: Arc<Tmpl>,
+  scope: Vec<(String, Value)>,
+  keys: Option<(String, Vec<Step>)>,
+  owner_path: String,
+  framework: bool,
+  scoped: Option<ScopedStyle>,
+}
+
+impl Env {
+  /// `tmpl` as a value: what it reads is taken now, so it renders as written wherever it is interpolated.
+  pub(crate) fn make(&mut self, tmpl: &Arc<Tmpl>) -> Result<Value, Fail> {
+    let mut names = Vec::new();
+    tmpl.visit(&mut |e| e.free_vars(&mut names));
+    let scope = names.into_iter().filter_map(|name| self.scope.iter().rev().find(|(n, _)| *n == name).map(|(_, v)| (name, v.clone()))).collect();
+    let made = Made { tmpl: Arc::clone(tmpl), scope, keys: self.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone())), owner_path: self.component_path.clone(), framework: self.in_framework, scoped: self.scoped.clone() };
+    let Some(table) = &mut self.made else {
+      return Err(Fail::internal("markup made while the body's independent lets evaluate in parallel"));
+    };
+    table.push(made);
+    Ok(Value::Variant { tag: MARKUP_VALUE.to_owned(), payload: Some(Box::new(Value::Int((table.len() - 1) as i128))) })
+  }
+}
+
+fn made_index(value: &Value) -> Option<usize> {
+  match value {
+    Value::Variant { tag, payload: Some(payload) } if tag == MARKUP_VALUE => match &**payload {
+      Value::Int(n) => usize::try_from(*n).ok(),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
+/// Whether `value` is or holds a markup value, which only a render can write.
+pub(crate) fn holds_made(value: &Value) -> bool {
+  match value {
+    Value::Seq(items) => items.iter().any(holds_made),
+    Value::Map(map) => map.values().any(holds_made),
+    other => made_index(other).is_some(),
+  }
+}
+
+/// `value` interpolated: a markup value renders its template in the scope it captured, an array each item, anything else as text.
+fn render_value(env: &mut Env, value: &Value, library: &Components, out: &mut Out) -> Result<(), Fail> {
+  if let Some(index) = made_index(value) {
+    let Some(made) = env.made.as_ref().and_then(|table| table.get(index)).cloned() else {
+      return Err(Fail::internal("a markup value from another render"));
+    };
+    let slot = Slot { children: std::slice::from_ref(&*made.tmpl), scope: Rc::new(made.scope), keys: made.keys, island: false, placed: false, framework: made.framework, owner_path: made.owner_path, scoped: made.scoped };
+    return render_slot_content(env, slot, library, &mut Vec::new(), out);
+  }
+  match value {
+    Value::Seq(items) if items.iter().any(holds_made) => {
+      for item in items {
+        render_value(env, item, library, out)?;
+      }
+      Ok(())
+    }
+    other => interpolate(other, out, env.markup),
+  }
+}
+
 /// The region an island's children render in, which the mounter hands the
 /// component as its `children` and never renders itself.
 pub const CHILDREN_OPEN: &str = "<sf-s data-sf-children>";
@@ -711,10 +779,14 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Expr(expr) => {
       let markup = env.markup;
       match env.place(expr) {
-        Some(value) => interpolate(value, out, markup)?,
+        Some(value) if !holds_made(value) => interpolate(value, out, markup)?,
+        Some(value) => {
+          let value = value.clone();
+          render_value(env, &value, library, out)?;
+        }
         None => {
           let value = env.eval_sync(expr)?;
-          interpolate(&value, out, markup)?;
+          render_value(env, &value, library, out)?;
         }
       }
     }
@@ -1283,6 +1355,9 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
 fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], when: &Option<String>, mode: &Option<String>, id: u32, define: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let key = env.hoists.as_ref().map(|h| h.island_key(id)).unwrap_or_default();
   let map = self::props(env, props)?;
+  if let Some((name, _)) = map.iter().find(|(_, value)| holds_made(value)) {
+    return Err(Fail::internal(format!("markup passed as `{name}` to `{module}`, which renders in the browser and takes markup only as its children")));
+  }
   if define {
     let mut inner = Out::default();
     for child in children {
@@ -1497,7 +1572,7 @@ fn render_slot_read<'a>(env: &mut Env, name: &str, read: &crate::ast::Expr, libr
   });
   let Some(fill) = fill else {
     let value = env.eval_sync(read)?;
-    return interpolate(&value, out, env.markup);
+    return render_value(env, &value, library, out);
   };
   let mut frame = slots.pop().expect("a fill was found in it");
   let children = std::mem::replace(&mut frame.children, std::slice::from_ref(fill));
@@ -1817,7 +1892,13 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
   use crate::ast::Expr;
   match expr {
     Expr::Lit(lit) => *expr = Expr::Folded(lit_value(lit)),
-    Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) | Expr::Lambda { .. } | Expr::Markup(_) => {}
+    Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Context(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Handler(_) => {}
+    Expr::Markup(tmpl) => *tmpl = Arc::new(prepare_tmpl(tmpl)),
+    Expr::Lambda { body, .. } => body.visit_mut(&mut |e| {
+      if let Expr::Markup(tmpl) = e {
+        *tmpl = Arc::new(prepare_tmpl(tmpl));
+      }
+    }),
     Expr::Object(entries) => {
       fold_entries(entries);
       if entries.iter().all(|entry| matches!(entry, Entry::Field(_, Expr::Folded(_)))) {
@@ -2288,6 +2369,53 @@ fn unset_property(tag: &str, name: &str, value: &Value) -> Fail {
 mod tests {
   use super::*;
   use crate::ast::{Builtin, Expr, Lit, Stmt};
+
+  #[test]
+  fn markup_held_as_a_value_renders_where_it_is_interpolated_in_the_scope_it_was_written_in() {
+    let el = |tag: &str, children: Vec<Tmpl>| Tmpl::Element { tag: tag.to_owned(), attrs: Vec::new(), children };
+    let markup = |t: Tmpl| Expr::Markup(Arc::new(t));
+    let var = |n: &str| Expr::Var(n.to_owned());
+    let component = Component {
+      body: vec![
+        Stmt::Let { name: "n".to_owned(), expr: p("name") },
+        Stmt::Let { name: "m".to_owned(), expr: markup(el("b", vec![Tmpl::Expr(var("n"))])) },
+        Stmt::Let { name: "xs".to_owned(), expr: Expr::Array(vec![Entry::Item(markup(el("i", vec![Tmpl::Text("a".to_owned())]))), Entry::Item(var("m"))]) },
+        Stmt::Let { name: "o".to_owned(), expr: Expr::object(vec![("body", markup(el("p", vec![Tmpl::Expr(var("n"))])))]) },
+        Stmt::Let { name: "rows".to_owned(), expr: Expr::Map(Box::new(p("items")), Box::new(Expr::lambda(&["x"], markup(el("li", vec![Tmpl::Expr(var("x")), Tmpl::Expr(var("n"))]))))) },
+        Stmt::Let { name: "n".to_owned(), expr: Expr::lit_str("later") },
+      ],
+      render: Tmpl::Fragment(vec![Tmpl::Expr(var("m")), el("ul", vec![Tmpl::Expr(var("xs"))]), Tmpl::Expr(var("o").field("body")), el("ol", vec![Tmpl::Expr(var("rows"))]), Tmpl::Expr(var("n"))]),
+      state: Vec::new(),
+      stores: Vec::new(),
+      handlers: Vec::new(),
+      owner: crate::ast::Owner::Fsr,
+      shadow: None,
+      scope: None,
+    };
+    let mut props = ValueMap::default();
+    props.insert("name".to_owned(), Value::str("Ann"));
+    props.insert("items".to_owned(), Value::seq(vec![Value::str("x"), Value::str("y")]));
+    for component in [component.clone(), prepare(&component)] {
+      let html = Interpreter::default().render(&component, &props, &Components::new()).unwrap().html;
+      assert_eq!(html, "<b>Ann</b><ul><i>a</i><b>Ann</b></ul><p>Ann</p><ol><li>xAnn</li><li>yAnn</li></ol>later");
+    }
+  }
+
+  #[test]
+  fn a_markup_value_passed_to_a_component_the_browser_renders_is_refused() {
+    let component = Component {
+      body: vec![Stmt::Let { name: "m".to_owned(), expr: Expr::Markup(Arc::new(Tmpl::Text("hi".to_owned()))) }],
+      render: Tmpl::Island { module: "src/ui/Toggle.tsx#Toggle".to_owned(), props: vec![Entry::Field("label".to_owned(), Expr::Var("m".to_owned()))], children: Vec::new(), when: None, mode: None, id: 0, define: false },
+      state: Vec::new(),
+      stores: Vec::new(),
+      handlers: Vec::new(),
+      owner: crate::ast::Owner::Fsr,
+      shadow: None,
+      scope: None,
+    };
+    let failed = Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap_err();
+    assert!(failed.message.contains("markup passed as `label`"), "{failed:?}");
+  }
 
   #[test]
   fn prepare_folds_what_is_constant_and_leaves_what_reads_the_scope() {

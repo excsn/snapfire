@@ -12,7 +12,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
   match expr {
     Expr::Lit(lit) => lit_to_sx(lit),
     Expr::Folded(_) => unreachable!("a folded value is never written to a plan"),
-    Expr::Markup(_) => unreachable!("markup is placed in the tree before a component leaves the lowerer"),
+    Expr::Markup(tmpl) => form("markup", vec![super::tmpl::tmpl_to_sx(tmpl)]),
     Expr::Var(name) => {
       if reserved_atom(name) {
         form("var", vec![Sx::Sym(name.clone())])
@@ -289,6 +289,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
       Expr::Hoist { id: u32_of(&a[0])?, expr: boxed(&a[1])? }
     }
     "handler" => Expr::Handler(u32_of(&args(items, head, 1)?[0])?),
+    "markup" => Expr::Markup(std::sync::Arc::new(super::tmpl::tmpl_from_sx(&args(items, head, 1)?[0])?)),
     other => match builtin_of(other) {
       Some(name) => Expr::Builtin {
         name,
