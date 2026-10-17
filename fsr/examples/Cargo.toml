@@ -10,6 +10,7 @@ members = [
   "gallery_react_ts",
   "handbook_react_ts/contents",
   "handbook_react_ts/generate",
+  "load",
   "ops_console_react_ts",
   "patterns",
   "portal_react_ts",
