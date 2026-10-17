@@ -3421,7 +3421,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
   }
 }
 
-/// `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console` as the log it writes on the server, as a server renderer running the component writes it.
+/// `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console` as the log it writes on the server, as a server renderer running the component writes it, or as nothing when an argument is one only the browser can compute.
 fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Option<Expr>> {
   let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
   let js::Expr::Member(m) = crate::meaning::bare(callee) else { return Ok(None) };
@@ -3436,7 +3436,18 @@ fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Optio
     if arg.spread.is_some() {
       return Err(lowerer.residue(arg.expr.span(), "a spread into `console`"));
     }
-    args.push(lowerer.expr(&arg.expr)?);
+    match lowerer.expr(&arg.expr) {
+      Ok(value) => args.push(value),
+      // An argument the server cannot compute, the viewer's clock or zone among them, leaves the call to the browser, which logs it when the component hydrates; the markup is the same either way.
+      Err(residue) => {
+        let followable = lowerer.unbound.as_ref().is_some_and(|name| !lowerer.unfollowed.contains(name) && matches!(lowerer.meanings.as_ref().and_then(|m| m.bindings.get(name)), Some(crate::meaning::Meaning::Own { .. })));
+        if followable || lowerer.reach_violation {
+          return Err(residue);
+        }
+        lowerer.unbound = None;
+        return Ok(Some(Expr::Lit(Lit::Null)));
+      }
+    }
   }
   Ok(Some(Expr::Builtin { name: Builtin::Log, args }))
 }

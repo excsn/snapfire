@@ -67,3 +67,25 @@ fn a_console_call_logs_on_every_render_and_renders_nothing() {
   let warned = (tracing::Level::WARN, "liked".to_owned());
   assert_eq!(lines, vec![line.clone(), warned.clone(), line, warned], "one line per call per render, the branch not taken writing none");
 }
+
+#[test]
+fn a_console_call_reading_the_viewers_clock_is_left_to_the_browser_and_the_component_lowers() {
+  let page = "export default function Page() {\n  console.log(\"rendered at\", new Date().toLocaleTimeString());\n  return <h1>Hello</h1>;\n}\n";
+  let dir = app("viewer_clock", &[("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default");
+  std::fs::remove_dir_all(&dir).unwrap();
+  result.unwrap();
+  let component = &set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap().1;
+  assert!(!format!("{:?}", component.body).contains("Log"), "the server writes no line for it: {:?}", component.body);
+}
+
+#[test]
+fn a_console_call_reaching_a_server_only_extension_is_still_refused() {
+  let page = "import { id } from \"@snapfire/fsr-client/std\";\nexport default function Page() {\n  console.log(id.new());\n  return <h1>Hello</h1>;\n}\n";
+  let dir = app("body_ext", &[("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default");
+  std::fs::remove_dir_all(&dir).unwrap();
+  assert!(result.as_ref().is_err_and(|e| e.to_string().contains("render path")), "{result:?}");
+}

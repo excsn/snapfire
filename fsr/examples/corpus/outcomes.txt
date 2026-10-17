@@ -514,12 +514,12 @@ reference-react-forwardref-3	lowered
 reference-react-forwardref-4	lowered
 reference-react-fragment-1	lowered
 reference-react-fragment-2	lowered
-reference-react-memo-1	client: src/App.js:22:43 the current time on a render path, which the server and the browser read at different moments
-reference-react-memo-2	client: src/App.js:22:43 the current time on a render path, which the server and the browser read at different moments
-reference-react-memo-3	client: src/App.js:23:43 the current time on a render path, which the server and the browser read at different moments
+reference-react-memo-1	lowered
+reference-react-memo-2	lowered
+reference-react-memo-3	lowered
 reference-react-purecomponent-1	client: src/App.js:3:1 a class component, which the build does not lower
 reference-react-purecomponent-2	client: src/App.js:3:1 a class component, which the build does not lower
-reference-react-purecomponent-3	client: src/App.js:4:43 the current time on a render path, which the server and the browser read at different moments
+reference-react-purecomponent-3	lowered
 reference-react-strictmode-1	lowered
 reference-react-strictmode-10	lowered
 reference-react-strictmode-11	lowered
