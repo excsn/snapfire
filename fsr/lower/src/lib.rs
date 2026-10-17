@@ -929,6 +929,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
   /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
   pub(crate) reader: Option<js::Id>,
+  /// A component's setters, dispatchers and inner functions, which only the browser calls. Read as a value on the server one is null, as React renders nothing for a function.
+  pub(crate) browser_functions: Vec<String>,
 }
 
 /// What a `new Map`, a `new Set` or a `new URLSearchParams` lowered to: an object keyed by `String(key)`, an array without repeats or the encoded string.
@@ -953,7 +955,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1653,6 +1655,7 @@ impl<'a> Lowerer<'a> {
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
       None => match name {
         "undefined" => Ok(Expr::Lit(Lit::Null)),
+        _ if self.browser_functions.iter().any(|f| f == name) => Ok(Expr::Lit(Lit::Null)),
         _ => {
           self.unbound = Some(name.to_owned());
           match crate::component::find_import(self.parsed, name) {

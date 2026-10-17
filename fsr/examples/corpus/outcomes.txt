@@ -67,17 +67,17 @@ learn-escape-hatches-5	lowered
 learn-escape-hatches-8	lowered
 learn-escape-hatches-9	lowered
 learn-extracting-state-logic-into-a-reducer-1	lowered
-learn-extracting-state-logic-into-a-reducer-10	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-extracting-state-logic-into-a-reducer-11	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-extracting-state-logic-into-a-reducer-10	lowered
+learn-extracting-state-logic-into-a-reducer-11	lowered
 learn-extracting-state-logic-into-a-reducer-12	client: src/messengerReducer.js:4:5 a numeric property name
 learn-extracting-state-logic-into-a-reducer-13	client: src/messengerReducer.js:4:5 a numeric property name
 learn-extracting-state-logic-into-a-reducer-14	client: src/messengerReducer.js:4:5 a numeric property name
 learn-extracting-state-logic-into-a-reducer-3	lowered
 learn-extracting-state-logic-into-a-reducer-4	lowered
-learn-extracting-state-logic-into-a-reducer-6	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-extracting-state-logic-into-a-reducer-7	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-extracting-state-logic-into-a-reducer-8	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-extracting-state-logic-into-a-reducer-9	client: src/App.js:15:19 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-extracting-state-logic-into-a-reducer-6	lowered
+learn-extracting-state-logic-into-a-reducer-7	lowered
+learn-extracting-state-logic-into-a-reducer-8	lowered
+learn-extracting-state-logic-into-a-reducer-9	lowered
 learn-importing-and-exporting-components-1	lowered
 learn-importing-and-exporting-components-2	lowered
 learn-importing-and-exporting-components-3	lowered
@@ -133,7 +133,7 @@ learn-managing-state-5	lowered
 learn-managing-state-6	lowered
 learn-managing-state-7	lowered
 learn-managing-state-8	client: src/Heading.js:7:5 a `case` that falls through into the next
-learn-managing-state-9	client: src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-managing-state-9	lowered
 learn-manipulating-the-dom-with-refs-1	lowered
 learn-manipulating-the-dom-with-refs-10	lowered
 learn-manipulating-the-dom-with-refs-11	lowered
@@ -296,10 +296,10 @@ learn-rsc-sandbox-test-8	client: src/actions.js:6:3 a call for its effect, which
 learn-rsc-sandbox-test-9	lowered
 learn-scaling-up-with-reducer-and-context-1	lowered
 learn-scaling-up-with-reducer-and-context-2	lowered
-learn-scaling-up-with-reducer-and-context-3	client: src/App.js:36:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-scaling-up-with-reducer-and-context-4	client: src/App.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-scaling-up-with-reducer-and-context-5	client: src/TasksContext.js:14:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
-learn-scaling-up-with-reducer-and-context-6	client: src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+learn-scaling-up-with-reducer-and-context-3	lowered
+learn-scaling-up-with-reducer-and-context-4	lowered
+learn-scaling-up-with-reducer-and-context-5	lowered
+learn-scaling-up-with-reducer-and-context-6	lowered
 learn-separating-events-from-effects-1	lowered
 learn-separating-events-from-effects-10	client: src/App.js:9:18 `useEffectEvent`, a hook the build cannot follow
 learn-separating-events-from-effects-11	client: src/App.js:9:18 `useEffectEvent`, a hook the build cannot follow
@@ -467,11 +467,11 @@ reference-react-dom-components-common-5	lowered
 reference-react-dom-components-common-6	lowered
 reference-react-dom-components-common-7	lowered
 reference-react-dom-components-form-1	lowered
-reference-react-dom-components-form-2	client: src/App.js:7:19 `search` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-dom-components-form-2	lowered
 reference-react-dom-components-form-3	client: src/actions.js:2:5 an expression statement other than a write to a local
 reference-react-dom-components-form-4	client: src/actions.js:2:3 an expression statement other than a write to a local
 reference-react-dom-components-form-6	client: src/App.js:15:9 `useActionState`
-reference-react-dom-components-form-7	client: src/App.js:14:19 `publish` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-dom-components-form-7	lowered
 reference-react-dom-components-img-1	lowered
 reference-react-dom-components-index-1	lowered
 reference-react-dom-components-index-2	client: src/App.js:4:21 `console` is not bound here; an import the build cannot follow or a name from outside the body
@@ -506,7 +506,7 @@ reference-react-dom-createportal-2	client: src/PortalExample.js:12:21 a call to 
 reference-react-dom-createportal-3	client: src/App.js:9:8 a call to `createPortal`, which the build cannot follow
 reference-react-dom-flushsync-1	lowered
 reference-react-dom-hooks-useformstatus-1	client: src/actions.js:2:5 an expression statement other than a write to a local
-reference-react-dom-hooks-useformstatus-2	client: src/App.js:9:7 an expression statement other than a write to a local
+reference-react-dom-hooks-useformstatus-2	client: src/UsernameForm.js:5:9 `useFormStatus`
 reference-react-dom-server-resume-1	refused: src/App.js: no exported `default`
 reference-react-forwardref-1	lowered
 reference-react-forwardref-2	lowered
@@ -558,10 +558,10 @@ reference-react-useactionstate-6	client: src/App.js:6:9 `useActionState`
 reference-react-usecallback-3	client: src/ShippingForm.js:6:3 a call for its effect, which a straight-line body cannot hold
 reference-react-usecontext-1	lowered
 reference-react-usecontext-2	lowered
-reference-react-usecontext-3	client: src/App.js:11:9 `setCurrentUser` is not bound here; an import the build cannot follow or a name from outside the body
-reference-react-usecontext-4	client: src/App.js:14:11 `setCurrentUser` is not bound here; an import the build cannot follow or a name from outside the body
-reference-react-usecontext-5	client: src/App.js:9:42 `setTheme` is not bound here; an import the build cannot follow or a name from outside the body
-reference-react-usecontext-6	client: src/TasksContext.js:15:36 `dispatch` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-usecontext-3	client: src/App.js:28:9 `useContext`
+reference-react-usecontext-4	client: src/App.js:34:9 `useContext`
+reference-react-usecontext-5	client: src/App.js:42:9 `useContext`
+reference-react-usecontext-6	lowered
 reference-react-usecontext-7	lowered
 reference-react-usecontext-8	lowered
 reference-react-usecontext-9	client: src/Heading.js:7:5 a `case` that falls through into the next
@@ -599,7 +599,7 @@ reference-react-usememo-1	client: src/utils.js:7:18 `Math.random`
 reference-react-usememo-2	client: src/utils.js:7:18 `Math.random`
 reference-react-usememo-3	client: src/utils.js:7:18 `Math.random`
 reference-react-usememo-6	client: src/utils.js:7:18 `Math.random`
-reference-react-useoptimistic-1	client: src/App.js:7:40 `setName` is not bound here; an import the build cannot follow or a name from outside the body
+reference-react-useoptimistic-1	client: src/EditName.js:5:9 `useOptimistic`
 reference-react-useoptimistic-2	client: src/Button.js:4:9 `useOptimistic`
 reference-react-useoptimistic-3	client: src/App.js:6:9 `useOptimistic`
 reference-react-useoptimistic-4	client: src/FollowButton.js:4:9 `useOptimistic`

@@ -3451,7 +3451,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           if let Some(body) = &f.function.body {
             self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
           }
-          self.handlers.push(bound.clone());
+          self.browser_function(bound.clone());
           renames.push((f.ident.sym.to_string(), bound));
         }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
@@ -3544,7 +3544,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         this.hook_calls += 1;
         let bound = format!("$hook{}", this.hook_calls);
         this.handler_fns.insert(bound.clone(), (arrow.params.clone(), arrow_body(arrow)));
-        this.handlers.push(bound.clone());
+        this.browser_function(bound.clone());
         return Ok(Part::Handler(bound));
       }
       Ok(match handler(this, e) {
@@ -3599,7 +3599,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// `local` at the call site is the handler `bound` inside the hook: the same function, the same state when it is a setter.
   fn alias_handler(&mut self, local: &str, bound: &str) {
-    self.handlers.push(local.to_owned());
+    self.browser_function(local.to_owned());
     if let Some(f) = self.handler_fns.get(bound).cloned() {
       self.handler_fns.insert(local.to_owned(), f);
     }
@@ -3881,6 +3881,12 @@ fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Opt
 }
 
 impl<'a, 'p> ComponentLowerer<'a, 'p> {
+  /// `name` as a function only the browser calls: a setter, a dispatcher or an inner function.
+  fn browser_function(&mut self, name: String) {
+    self.lowerer.browser_functions.push(name.clone());
+    self.handlers.push(name);
+  }
+
   /// Each JSX-holding expression under `e` outside a function, lowered to
   /// markup ahead of the statement or attribute that holds it, so
   /// `Lowerer::expr` takes it made. `fills` later places it in the tree.
@@ -4200,7 +4206,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.rebound(stmt, floor, &early, &mut lets, &guarded)?
             }
             js::Stmt::Decl(js::Decl::Fn(f)) => {
-              self.handlers.push(f.ident.sym.to_string());
+              self.browser_function(f.ident.sym.to_string());
               if let Some(body) = &f.function.body {
                 self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
               }
@@ -4531,7 +4537,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
               self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
             }
-            self.handlers.push(local);
+            self.browser_function(local);
             return Ok(None);
           }
           Some(("useMemo", call)) => {
@@ -4572,7 +4578,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               }
               _ => {}
             }
-            self.handlers.push(local);
+            self.browser_function(local);
             return Ok(None);
           }
           _ => self.lowerer.expr(init)?,
@@ -4618,7 +4624,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let Some(name) = state else { return Ok(None) };
         if let Some(setter) = setter {
           self.setters.push((setter.clone(), name.clone()));
-          self.handlers.push(setter);
+          self.browser_function(setter);
         }
         self.state.push(name.clone());
         self.state_bindings.push(name.clone());
@@ -4646,7 +4652,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     });
     let state = names.next().flatten();
     if let Some(dispatch) = names.next().flatten() {
-      self.handlers.push(dispatch);
+      self.browser_function(dispatch);
     }
     let Some(name) = state else { return Ok(None) };
     self.state.push(name.clone());
@@ -4693,7 +4699,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let Some(name) = held else { return Ok(None) };
     if let Some(setter) = setter {
       self.setters.push((setter.clone(), name.clone()));
-      self.handlers.push(setter);
+      self.browser_function(setter);
     }
     self.state.push(name.clone());
     self.state_bindings.push(name.clone());
@@ -5088,6 +5094,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         attrs.push(Entry::Field(KEY_ATTR.to_owned(), self.attr_value(attr)?));
         continue;
       }
+      if (raw == "action" || raw == "formAction") && self.passes_function(attr) {
+        bound = true;
+        if !attrs.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
+          let (line, column) = self.lowerer.parsed.loc(attr.span.lo);
+          attrs.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{line}:{column}: a form action, which the browser runs"))));
+        }
+        attrs.push(Entry::Field(raw, Expr::lit_str(snapfire_fsr_ir::render::FUNCTION_FORM_ACTION)));
+        continue;
+      }
       let value = self.attr_value(attr)?;
       match raw.as_str() {
         "dangerouslySetInnerHTML" => attrs.push(Entry::Field(RAW_ATTR.to_owned(), inner_html(value))),
@@ -5237,6 +5252,26 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(None)
       }
     }
+  }
+
+  /// Whether an attribute's value is a function: an arrow, a `function` or a name the component declares as one.
+  fn passes_function(&self, attr: &js::JSXAttr) -> bool {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return false };
+    let js::JSXExpr::Expr(e) = &c.expr else { return false };
+    match crate::meaning::bare(e) {
+      js::Expr::Arrow(_) | js::Expr::Fn(_) => true,
+      js::Expr::Ident(id) => self.handler_fns.contains_key(id.sym.as_ref()) || self.browser_function_named(attr).is_some(),
+      _ => false,
+    }
+  }
+
+  /// The setter, dispatcher or inner function an attribute passes by name.
+  fn browser_function_named(&self, attr: &js::JSXAttr) -> Option<String> {
+    let Some(js::JSXAttrValue::JSXExprContainer(c)) = &attr.value else { return None };
+    let js::JSXExpr::Expr(e) = &c.expr else { return None };
+    let js::Expr::Ident(id) = crate::meaning::bare(e) else { return None };
+    let name = id.sym.as_ref();
+    (self.handlers.iter().any(|h| h == name) && !self.lowerer.scope.iter().any(|(bound, _)| bound == name)).then(|| name.to_owned())
   }
 
   fn handler_prop(&mut self, attr: &'p js::JSXAttr, name: &str) -> Option<Lowered<usize>> {
@@ -5748,6 +5783,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         continue;
       }
       if is_handler_name(&raw) {
+        continue;
+      }
+      if let Some(name) = self.browser_function_named(attr) {
+        if !props.iter().any(|e| matches!(e, Entry::Field(n, _) if n == UNLOWERED_ATTR)) {
+          let (line, column) = self.lowerer.parsed.loc(attr.span.lo);
+          props.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{line}:{column}: `{name}`, a function only the browser calls"))));
+        }
         continue;
       }
       let value = self.attr_value(attr)?;

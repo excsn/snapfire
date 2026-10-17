@@ -2589,13 +2589,16 @@ fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut Str
     return Ok(());
   }
   let text = crate::interp::scalar_str(value)?;
-  if is_url_attr(name) && is_javascript_url(&text) {
+  if is_url_attr(name) && is_javascript_url(&text) && text != FUNCTION_FORM_ACTION {
     write_attr(name, BLOCKED_JAVASCRIPT_URL, out);
     return Ok(());
   }
   write_attr(name, &text, out);
   Ok(())
 }
+
+/// What React 19 writes as the `action` or `formAction` of a form whose action is a function, `actionJavaScriptURL` in `ReactFizzConfigDOM.js`.
+pub const FUNCTION_FORM_ACTION: &str = "javascript:throw new Error('React form unexpectedly submitted.')";
 
 /// What React 19 writes in place of a `javascript:` URL, so hydration agrees with the server.
 const BLOCKED_JAVASCRIPT_URL: &str = "javascript:throw new Error('React has blocked a javascript: URL as a security precaution.')";
