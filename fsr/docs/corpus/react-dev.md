@@ -1,16 +1,16 @@
 # react.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `71b926e4`.
+The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev through FSR as one application per example and records what the build made of each in `outcomes.txt`. Run it from `fsr/examples` with `cargo test -p corpus`. The counts here are from `552d3434`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 528 | the server renders every component on the page |
-| Partly client side rendered | 105 | at least one component renders in the browser; the outcome names each cause |
+| Lowered whole | 532 | the server renders every component on the page |
+| Partly client side rendered | 101 | at least one component renders in the browser; the outcome names each cause |
 | Refused | 3 | the build stops |
 | Not a working example (excluded) | 5 | react.dev shows it broken on purpose or as an empty exercise |
 | Total | 641 | |
 
-A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do.
+A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs a value only the browser knows is left to the browser. The guide's chapter 111 covers it.
 
 ## How causes hide each other
 
@@ -18,7 +18,7 @@ The build stops a module at its first cause and a component that fails never low
 
 ## What sends a component to the browser
 
-Every cause left is blocked. The last column is what it waits on. An example can name more than one cause, so the rows add up to more than 105.
+Every cause left is blocked. The last column is what it waits on. An example can name more than one cause, so the rows add up to more than 101.
 
 | Cause | Examples | Waits on |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ Every cause left is blocked. The last column is what it waits on. An example can
 | `useSyncExternalStore` without `getServerSnapshot` | 3 | Nothing: React's server renderer refuses it too |
 | `++` on a module-level counter | 3 | A decision on module state evaluated at load |
 | A `'use server'` action, a promise cache or a promise in state | 3 | The promise row |
-| The current time on a render path, four of them inside a `console.log` | 6 | Nothing: nondeterministic; `toLocaleTimeString` has no server form even for the log |
+| The current time on a render path | 2 | Nothing: nondeterministic |
 | A write to `foo` in an error boundary demo | 2 | Nothing: the component throws on purpose |
 | Setting state during render, `reference-react-usestate-14` | 1 | A decision on re-render semantics |
 | `Children.forEach`, `reference-react-children-3` | 1 | The IR walking a placement's children one by one |
