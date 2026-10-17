@@ -966,6 +966,9 @@ pub fn tsconfig_build(app: &Path, files: &[String], generated: &[String], jsx: &
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
   }
   let mut include: Vec<String> = files.iter().filter(|file| !generated.contains(file)).cloned().collect();
+  // Sorted so a build writes the same file whatever order its roots were
+  // reached in; an application commits it.
+  include.sort();
   // The stylesheets a page links compile beside the modules, so they are
   // minified with them and their `url()`s take the asset map's URLs.
   let styles = crate::assets::Sections::of(app).dirs.styles;
@@ -978,7 +981,8 @@ pub fn tsconfig_build(app: &Path, files: &[String], generated: &[String], jsx: &
   // A module the build generated exists in the bundle overlay alone, which
   // only `files` can name.
   if !generated.is_empty() {
-    let files: Vec<String> = generated.iter().map(|f| format!("\"{f}\"")).collect();
+    let mut files: Vec<String> = generated.iter().map(|f| format!("\"{f}\"")).collect();
+    files.sort();
     out.push_str(&format!(",\n  \"files\": [{}]", files.join(", ")));
   }
   out.push_str("\n}\n");
@@ -1430,6 +1434,24 @@ mod tests {
   }
 
   use super::*;
+
+  #[test]
+  fn the_build_tsconfig_is_the_same_whatever_order_its_files_arrive_in() {
+    let app = std::env::temp_dir().join(format!("fsr-types-build-order-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(app.join("styles")).unwrap();
+    let files = ["src/ui/money.ts", "src/ui/Header.tsx", "routes/b.island0.tsx", "routes/a.island0.tsx", "src/store.ts"].map(String::from);
+    let generated = ["routes/b.island0.tsx", "routes/a.island0.tsx"].map(String::from);
+    let mut reversed = files.clone();
+    reversed.reverse();
+    let mut generated_reversed = generated.clone();
+    generated_reversed.reverse();
+    let one = tsconfig_build(&app, &files, &generated, "react");
+    assert_eq!(one, tsconfig_build(&app, &reversed, &generated_reversed, "react"));
+    assert!(one.contains("\"include\": [\"src/store.ts\", \"src/ui/Header.tsx\", \"src/ui/money.ts\", \"styles/**/*.css\", \"generated/islands.ts\", \"generated/client.ts\"]"), "{one}");
+    assert!(one.contains("\"files\": [\"routes/a.island0.tsx\", \"routes/b.island0.tsx\"]"), "{one}");
+    std::fs::remove_dir_all(&app).unwrap();
+  }
 
   #[test]
   fn a_vendored_package_that_carries_declarations_is_declared_from_the_vendor_tree_offline() {
