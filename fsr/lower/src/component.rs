@@ -3353,12 +3353,99 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       }
       Ok(value)
     }
+    js::Stmt::For(_) | js::Stmt::ForOf(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
     straight => {
       let writable = Writable { floor, frozen: &[] };
       rebind_stmt(lowerer, straight, &writable, &mut Vec::new())?;
       block_to_expr_inner(lowerer, rest, floor)
     }
   }
+}
+
+/// Whether a loop's body returns from the function, outside a nested loop or function.
+fn returns_from_loop(stmt: &js::Stmt) -> bool {
+  let body = match stmt {
+    js::Stmt::For(f) => &f.body,
+    js::Stmt::ForOf(f) => &f.body,
+    _ => return false,
+  };
+  match &**body {
+    js::Stmt::Block(block) => block.stmts.iter().any(holds_return),
+    other => holds_return(other),
+  }
+}
+
+/// A loop that returns as one that does not: `returned` and `value` declared before it, each `return e` in its body a write of both, the rest of an iteration run only while nothing returned, then `if (returned) return value;` ahead of `rest`.
+fn loop_return(looped: &js::Stmt, rest: &[&js::Stmt]) -> Vec<js::Stmt> {
+  let span = looped.span();
+  let returned = format!("$returned{}", span.lo.0);
+  let value = format!("$value{}", span.lo.0);
+  let ident = |name: &str| js::Ident::new_no_ctxt(name.into(), span);
+  let read = |name: &str| Box::new(js::Expr::Ident(ident(name)));
+  let declare = |name: &str, init: js::Expr| {
+    js::Stmt::Decl(js::Decl::Var(Box::new(js::VarDecl {
+      span,
+      ctxt: Default::default(),
+      kind: js::VarDeclKind::Let,
+      declare: false,
+      decls: vec![js::VarDeclarator { span, name: js::Pat::Ident(ident(name).into()), init: Some(Box::new(init)), definite: false }],
+    })))
+  };
+  let set = |name: &str, to: Box<js::Expr>| {
+    js::Stmt::Expr(js::ExprStmt { span, expr: Box::new(js::Expr::Assign(js::AssignExpr { span, op: js::AssignOp::Assign, left: js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(ident(name).into())), right: to })) })
+  };
+  let flag = |on: bool| Box::new(js::Expr::Lit(js::Lit::Bool(js::Bool { span, value: on })));
+  let block = |stmts: Vec<js::Stmt>| js::Stmt::Block(js::BlockStmt { span, ctxt: Default::default(), stmts });
+  fn rewrite(stmts: &[js::Stmt], on_return: &dyn Fn(Option<Box<js::Expr>>) -> Vec<js::Stmt>, unless: &dyn Fn(Vec<js::Stmt>) -> js::Stmt) -> Vec<js::Stmt> {
+    let mut out = Vec::new();
+    for (at, stmt) in stmts.iter().enumerate() {
+      match stmt {
+        js::Stmt::Return(ret) => {
+          out.extend(on_return(ret.arg.clone()));
+          return out;
+        }
+        js::Stmt::If(branch) if holds_return(stmt) => {
+          let arm = |s: &js::Stmt| -> Box<js::Stmt> {
+            let stmts = match s {
+              js::Stmt::Block(b) => b.stmts.clone(),
+              other => vec![other.clone()],
+            };
+            Box::new(js::Stmt::Block(js::BlockStmt { span: s.span(), ctxt: Default::default(), stmts: rewrite(&stmts, on_return, unless) }))
+          };
+          out.push(js::Stmt::If(js::IfStmt { span: branch.span, test: branch.test.clone(), cons: arm(&branch.cons), alt: branch.alt.as_deref().map(arm) }));
+        }
+        js::Stmt::Block(b) if holds_return(stmt) => out.push(js::Stmt::Block(js::BlockStmt { span: b.span, ctxt: b.ctxt, stmts: rewrite(&b.stmts, on_return, unless) })),
+        other => {
+          out.push(other.clone());
+          continue;
+        }
+      }
+      let after = rewrite(&stmts[at + 1..], on_return, unless);
+      if !after.is_empty() {
+        out.push(unless(after));
+      }
+      return out;
+    }
+    out
+  }
+  let on_return = |arg: Option<Box<js::Expr>>| vec![set(&value, arg.unwrap_or_else(|| read("undefined"))), set(&returned, flag(true))];
+  let unless = |stmts: Vec<js::Stmt>| js::Stmt::If(js::IfStmt { span, test: Box::new(js::Expr::Unary(js::UnaryExpr { span, op: js::UnaryOp::Bang, arg: read(&returned) })), cons: Box::new(block(stmts)), alt: None });
+  let guard = |body: &js::Stmt| -> Box<js::Stmt> {
+    let stmts = match body {
+      js::Stmt::Block(b) => b.stmts.clone(),
+      other => vec![other.clone()],
+    };
+    Box::new(block(vec![unless(rewrite(&stmts, &on_return, &unless))]))
+  };
+  let looped = match looped {
+    js::Stmt::For(f) => js::Stmt::For(js::ForStmt { body: guard(&f.body), ..f.clone() }),
+    js::Stmt::ForOf(f) => js::Stmt::ForOf(js::ForOfStmt { body: guard(&f.body), ..f.clone() }),
+    other => other.clone(),
+  };
+  let mut out = vec![declare(&returned, *flag(false)), declare(&value, *read("undefined")), looped];
+  out.push(js::Stmt::If(js::IfStmt { span, test: read(&returned), cons: Box::new(js::Stmt::Return(js::ReturnStmt { span, arg: Some(read(&value)) })), alt: None }));
+  out.extend(rest.iter().map(|s| (*s).clone()));
+  out
 }
 
 /// The `return` an `if` with no `else` holds as its only statement, braced or bare.

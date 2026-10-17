@@ -1,4 +1,4 @@
-blog-2023-03-16-introducing-react-dev-1	client: src/App.js:111:7 `return` inside a loop
+blog-2023-03-16-introducing-react-dev-1	lowered
 blog-2023-03-16-introducing-react-dev-2	lowered
 blog-2023-03-16-introducing-react-dev-3	lowered
 blog-2023-03-16-introducing-react-dev-4	lowered
@@ -347,12 +347,12 @@ learn-synchronizing-with-effects-9	lowered
 learn-thinking-in-react-1	client: src/App.js:29:3 a call for its effect, which a straight-line body cannot hold
 learn-thinking-in-react-2	client: src/App.js:48:3 a call for its effect, which a straight-line body cannot hold
 learn-thinking-in-react-3	client: src/App.js:50:3 a call for its effect, which a straight-line body cannot hold
-learn-tutorial-tic-tac-toe-1	client: src/App.js:111:7 `return` inside a loop
-learn-tutorial-tic-tac-toe-10	client: src/App.js:91:7 `return` inside a loop
-learn-tutorial-tic-tac-toe-11	client: src/App.js:109:7 `return` inside a loop
-learn-tutorial-tic-tac-toe-12	client: src/App.js:109:7 `return` inside a loop
-learn-tutorial-tic-tac-toe-13	client: src/App.js:113:7 `return` inside a loop
-learn-tutorial-tic-tac-toe-14	client: src/App.js:111:7 `return` inside a loop
+learn-tutorial-tic-tac-toe-1	lowered
+learn-tutorial-tic-tac-toe-10	lowered
+learn-tutorial-tic-tac-toe-11	lowered
+learn-tutorial-tic-tac-toe-12	lowered
+learn-tutorial-tic-tac-toe-13	lowered
+learn-tutorial-tic-tac-toe-14	lowered
 learn-tutorial-tic-tac-toe-2	lowered
 learn-tutorial-tic-tac-toe-3	lowered
 learn-tutorial-tic-tac-toe-4	lowered
@@ -360,7 +360,7 @@ learn-tutorial-tic-tac-toe-5	lowered
 learn-tutorial-tic-tac-toe-6	lowered
 learn-tutorial-tic-tac-toe-7	lowered
 learn-tutorial-tic-tac-toe-8	lowered
-learn-tutorial-tic-tac-toe-9	client: src/App.js:73:7 `return` inside a loop
+learn-tutorial-tic-tac-toe-9	lowered
 learn-typescript-1	lowered
 learn-typescript-2	lowered
 learn-typescript-3	lowered

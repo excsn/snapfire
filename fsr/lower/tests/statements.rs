@@ -46,3 +46,22 @@ fn array_of_a_length_without_fill_is_not_lowered() {
   let page = "export default function Page() {\n  const holes = Array(3);\n  return <p>{holes.length}</p>;\n}\n";
   assert!(html("holes", page).is_err());
 }
+
+const WINNER: &str = "function calculateWinner(squares) {\n  const lines = [[0, 1, 2], [3, 4, 5], [0, 3, 6]];\n  for (let i = 0; i < lines.length; i++) {\n    const [a, b, c] = lines[i];\n    if (squares[a] && squares[a] === squares[b] && squares[a] === squares[c]) {\n      return squares[a];\n    }\n  }\n  return null;\n}\n";
+
+fn board(squares: &str) -> String {
+  format!("{WINNER}export default function Page() {{\n  const winner = calculateWinner({squares});\n  return <p>{{winner ? \"Winner: \" + winner : \"Next\"}}</p>;\n}}\n")
+}
+
+#[test]
+fn a_loop_that_returns_gives_the_first_value_returned() {
+  assert_eq!(html("win_row", &board("[\"X\", \"X\", \"X\", \"O\", \"O\", null, null, null, null]")).as_deref(), Ok("<p>Winner: X</p>"));
+  assert_eq!(html("win_col", &board("[\"O\", \"X\", \"X\", \"O\", \"X\", null, \"O\", null, null]")).as_deref(), Ok("<p>Winner: O</p>"));
+  assert_eq!(html("win_none", &board("[\"O\", \"X\", null, null, null, null, null, null, null]")).as_deref(), Ok("<p>Next</p>"));
+}
+
+#[test]
+fn what_follows_a_return_in_an_iteration_runs_only_while_nothing_returned() {
+  let page = "function firstBig(xs) {\n  let seen = 0;\n  for (const x of xs) {\n    if (x > 10) {\n      return x + \"@\" + seen;\n    }\n    seen = seen + 1;\n  }\n  return \"none@\" + seen;\n}\nexport default function Page() {\n  return <p>{firstBig([1, 2, 30, 40])}|{firstBig([1, 2])}</p>;\n}\n";
+  assert_eq!(html("after_return", page).as_deref(), Ok("<p>30@2|none@2</p>"));
+}
