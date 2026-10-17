@@ -2376,6 +2376,9 @@ pub const HANDLER_ATTR: &str = "$on:";
 /// The variant tag of a handler reference, the value `Expr::Handler` evaluates to: its payload is the token a server island's `data-sf-on` names it by, `<index>` or `<path>/<index>`.
 pub const HANDLER_VALUE: &str = "$handler";
 
+/// The handler index of a function only the browser holds, a setter or a dispatcher read as a value: no handler has it, so the value is a function that prints nothing and that no server step can run.
+pub const BROWSER_HANDLER: u32 = u32::MAX;
+
 /// A reference to handler `index` of the component rendered at `path`.
 pub fn handler_value(path: &str, index: u32) -> Value {
   let token = if path.is_empty() { index.to_string() } else { format!("{path}/{index}") };

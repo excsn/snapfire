@@ -929,7 +929,7 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
   /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
   pub(crate) reader: Option<js::Id>,
-  /// A component's setters, dispatchers and inner functions, which only the browser calls. Read as a value on the server one is null, as React renders nothing for a function.
+  /// A component's setters, dispatchers and inner functions, which only the browser calls. Read as a value on the server one is `render::BROWSER_HANDLER`, a function that renders nothing, as React renders nothing for one.
   pub(crate) browser_functions: Vec<String>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
   pub(crate) unfollowed: Vec<String>,
@@ -1657,7 +1657,7 @@ impl<'a> Lowerer<'a> {
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
       None => match name {
         "undefined" => Ok(Expr::Lit(Lit::Null)),
-        _ if self.browser_functions.iter().any(|f| f == name) => Ok(Expr::Lit(Lit::Null)),
+        _ if self.browser_functions.iter().any(|f| f == name) => Ok(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)),
         _ => {
           self.unbound = Some(name.to_owned());
           match crate::component::find_import(self.parsed, name) {

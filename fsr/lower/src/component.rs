@@ -3637,7 +3637,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         // A callback that writes state or calls out is one only the browser runs, as an effect or a listener does.
         Err(_) if matches!(crate::meaning::bare(&arg.expr), js::Expr::Arrow(_) | js::Expr::Fn(_)) && !self.unbound_is_followable() => {
           self.lowerer.unbound = None;
-          args.push(Expr::Lit(Lit::Null));
+          args.push(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER));
         }
         Err(residue) => return Err(residue),
       }
@@ -6148,6 +6148,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           let (line, column) = self.lowerer.parsed.loc(attr.span.lo);
           props.push(Entry::Field(UNLOWERED_ATTR.to_owned(), Expr::lit_str(format!("{line}:{column}: `{name}`, a function only the browser calls"))));
         }
+        props.push(Entry::Field(raw, Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)));
         continue;
       }
       let value = self.attr_value(attr)?;

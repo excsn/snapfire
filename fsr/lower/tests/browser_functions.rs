@@ -102,3 +102,18 @@ fn a_function_on_a_custom_elements_on_prop_is_a_listener_the_server_writes_nothi
   let page_component = &set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap().1;
   assert!(page_component.owner.hydrates(), "the browser attaches the listener");
 }
+
+#[test]
+fn a_dispatcher_read_as_a_value_is_a_function_as_it_is_in_the_browser() {
+  let page = "import { useReducer, useState } from \"react\";\nfunction reducer(s, a) {\n  return s;\n}\nexport default function Page() {\n  const [n, dispatch] = useReducer(reducer, 1);\n  const [v, setV] = useState(0);\n  return <p>{dispatch ? \"yes\" : \"no\"} {typeof setV} {dispatch}</p>;\n}\n";
+  let set = lowered("dispatch_truthy", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html(&set).as_deref(), Ok("<p>yes function </p>"));
+}
+
+#[test]
+fn a_dispatcher_passed_as_a_prop_is_a_function_in_the_child() {
+  let child = "export default function Count({ dispatch }) {\n  return <p>{dispatch ? \"wired\" : \"unwired\"}</p>;\n}\n";
+  let page = "import { useReducer } from \"react\";\nimport Count from \"@src/Count\";\nfunction reducer(s, a) {\n  return s;\n}\nexport default function Page() {\n  const [n, dispatch] = useReducer(reducer, 1);\n  return <Count dispatch={dispatch} />;\n}\n";
+  let set = lowered("dispatch_child", &[("src/Count.tsx", child), ("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html(&set).as_deref(), Ok("<p>wired</p>"));
+}
