@@ -1,6 +1,6 @@
 # blog_site_react_ts
 
-A blog as a site the portal mounts under `/blog`: an index, a tag list and one page per post, each post a file under `content/posts/`, two in MDX and one in markdown. React comes from the shell contract the site is built against, so the site vendors nothing. There is no Rust project: `fsr build app` writes the artifact the portal reads and `fsr serve app` runs the site alone.
+A blog as a site the portal mounts under `/blog`: an index, a tag list and one page per post, each post a file under `content/posts/`, three in MDX and two in markdown, four of them in topic directories. React comes from the shell contract the site is built against, so the site vendors nothing. There is no Rust project: `fsr build app` writes the artifact the portal reads and `fsr serve app` runs the site alone.
 
 | It shows | Where |
 | --- | --- |
@@ -11,11 +11,12 @@ A blog as a site the portal mounts under `/blog`: an index, a tag list and one p
 | Placements written against the portable template module in a React site | `@snapfire/fsr-authoring/template` in every route file |
 | Every post listed for the index, the tags and `paths` without a list of its own | `[mdx.collections]` in `config/app.toml`, `@generated/content` in `src/posts.ts` |
 | One page for every post, importing the file the post's data names | the template `import()` in `routes/post/[slug]/page.tsx` |
+| Posts grouped in subdirectories, listed by the collection and imported by the template `import()` with their path, the URL keeping the file name | `content/posts/sites/`, `content/posts/design/`, `content/posts/runtime/host/drain-before-stop.md` two directories down, `slug` in `src/posts.ts` |
 | Markdown links placed as `Link` for that page alone, so a post's link to itself is marked current | `components={{ a: Link }}` on the post body |
 | Headings and quotes styled through the component map | `mdx-components.tsx` |
-| A table, a footnote, a task list and highlighted code with a title and a marked line | `content/posts/why-a-plan-file.mdx`, `content/posts/a-site-is-a-mount.mdx`, `styles/code.css` |
+| A table, a footnote, a task list and highlighted code with a title and a marked line | `content/posts/why-a-plan-file.mdx`, `content/posts/sites/a-site-is-a-mount.mdx`, `styles/code.css` |
 | A component and an island placed from MDX | `<Aside>` and `<Island><Claps /></Island>` in the posts |
-| A markdown post titled by YAML frontmatter | `content/posts/static-under-a-shell.md`, `[mdx] frontmatter = true` |
+| A markdown post titled by YAML frontmatter | `content/posts/runtime/static-under-a-shell.md`, `[mdx] frontmatter = true` |
 | A theme the site sets for its own pages that a visitor's pick replaces, with the portal's tokens read through fallbacks | `export const theme = "editorial"` in `routes/layout.tsx`, `styles/themes/editorial.css`, `@theme reference` in `styles/blog.css` |
 | A card image per post drawn from the post's data, with its tags as a flex row of pills, at `/blog/post/<slug>/opengraph-image.png`, styled with the same Tailwind classes a page uses | `routes/post/[slug]/opengraph-image.tsx`, `generated/tailwind.cards.json` |
 

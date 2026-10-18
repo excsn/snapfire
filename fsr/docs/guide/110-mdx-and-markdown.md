@@ -80,7 +80,7 @@ export default async function PostPage({ post }: PostSlugProps) {
 }
 ```
 
-The build reads the template: every file in the directory it names that fits it is a choice, lowered once. `<Body />` renders the one whose name the key spells and `meta` is that file's export. A key that names no file renders nothing. The page may be `async` when everything it awaits is such an import; any other `await` belongs in its loader.
+The build reads the template: every file under the directory it names that fits it is a choice, lowered once, subdirectories included as a webpack context includes them. A file in a subdirectory is chosen by its path there, so `` import(`../content/${entry.file}`) `` reaches `plaza/tutorials/010-join.md` with `file` set to that path. This holds for a template import of any file, `.tsx` as much as `.mdx`. `<Body />` renders the one whose name the key spells and `meta` is that file's export. A key that names no file renders nothing. The page may be `async` when everything it awaits is such an import; any other `await` belongs in its loader.
 
 ## Collections
 
@@ -91,7 +91,7 @@ An index needs every post's title without a list of its own. `[mdx.collections]`
 posts = "content/posts"
 ```
 
-The build writes `generated/content.ts` with one entry per `.mdx` or `.md` file in it, by file name:
+The build writes `generated/content.ts` with one entry per `.mdx` or `.md` file under it, subdirectories included, by path:
 
 ```ts
 import { posts } from "@generated/content";
@@ -100,7 +100,7 @@ export const titles = posts.map((post) => post.meta.title);
 export const paths = () => posts.map((post) => ({ slug: post.slug }));
 ```
 
-Each entry is `{ slug, file, meta, toc, excerpt }`: `slug` the name without its extension, `file` the name in the directory, which is what a template import takes. `excerpt` is the plain text of the file's first paragraph, or `null` when it has none. A loader sorts and filters the list like any other constant.
+Each entry is `{ slug, file, meta, toc, excerpt }`: `file` is the path under the collection's directory and is what a template import takes. `slug` is that path without its extension. A file in a subdirectory has a `/` in both, `plaza/tutorials/010-join`, so a catch-all route takes the slug whole and a loader splits it to group by directory. A directory named `node_modules` or starting with `.` is left out. `excerpt` is the plain text of the file's first paragraph or `null` when it has none. A loader sorts and filters the list like any other constant.
 
 ## The component map
 

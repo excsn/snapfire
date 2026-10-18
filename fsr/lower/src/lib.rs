@@ -154,7 +154,7 @@ pub const GENERATED: &[(&str, &str)] = &[("@snapfire/fsr/head", "generated/head"
 pub const HEAD_MODULE: &str = "generated/head.ts";
 
 /// The module `fsr` writes from `[mdx.collections]`, which a body may read:
-/// every content file of each collection with its `meta` and `toc`.
+/// every content file under each collection's directory with its `meta` and `toc`.
 pub const CONTENT_MODULE: &str = "generated/content.ts";
 
 /// A specifier as a path relative to the app: an alias expanded or a relative

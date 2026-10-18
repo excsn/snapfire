@@ -67,3 +67,21 @@ fn an_import_resolves_to_a_js_or_jsx_file() {
   assert_eq!(set.local_reach("src/Card.jsx"), ["src/Card.jsx", "src/Title.jsx", "src/util.jsx", "src/badge/index.js"]);
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_template_import_of_tsx_reaches_the_subdirectories_of_its_directory() {
+  let dir = app(
+    "template_nested",
+    &[
+      ("routes/page.tsx", b"export default async function Page({ name }: { name: string }) {\n  const { default: Panel } = await import(`../src/panels/${name}.tsx`);\n  return <main><Panel /></main>;\n}\n"),
+      ("src/panels/top.tsx", b"export default function Top() {\n  return <b>top</b>;\n}\n"),
+      ("src/panels/admin/users.tsx", b"export default function Users() {\n  return <i>users</i>;\n}\n"),
+    ],
+  );
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/page.tsx#default").unwrap();
+  let modules: Vec<&String> = set.components.iter().map(|(m, _)| m).collect();
+  assert!(modules.iter().any(|m| *m == "src/panels/top.tsx#default"), "{modules:?}");
+  assert!(modules.iter().any(|m| *m == "src/panels/admin/users.tsx#default"), "{modules:?}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

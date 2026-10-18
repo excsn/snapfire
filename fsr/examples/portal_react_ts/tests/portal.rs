@@ -221,6 +221,9 @@ async fn the_portal_mounts_the_blog_and_writes_its_pages_ahead() {
   assert!(html.contains("href=\"/blog/static/js/app/styles/code.css\""), "the site links its code sheet: {html}");
   assert!(html.contains("<aside class=\"my-4 rounded-lg"), "a component the MDX post imports: {html}");
 
+  let response = portal.handle(Request::get("/blog/post/drain-before-stop").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK, "a post two directories under content/posts");
+  assert!(body_of(response).await.contains("<h1 class=\"mb-2 font-serif text-3xl\">Drain before stop</h1>"));
   let response = portal.handle(Request::get("/blog/post/nope").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::NOT_FOUND, "a slug off the blog is a 404 document");
   assert!(body_of(response).await.contains("That did not load"), "rendered through the blog's error page");

@@ -1,8 +1,9 @@
 import { posts as files } from "@generated/content";
 
 export type Post = {
+  /** The post's file name without its extension, whatever directory under `content/posts/` holds it. */
   slug: string;
-  /** The file under `content/posts/` the post page imports. */
+  /** The path under `content/posts/` the post page imports. */
   file: string;
   title: string;
   posted: string;
@@ -16,7 +17,7 @@ export type Post = {
 
 /** Every post under `content/posts/`, oldest first. */
 export const posts: Post[] = files
-  .map((entry) => ({ slug: entry.slug, file: entry.file, title: entry.meta.title, posted: entry.meta.posted, tags: entry.meta.tags, summary: entry.meta.summary, toc: entry.toc, excerpt: entry.excerpt }))
+  .map((entry) => ({ slug: entry.slug.split("/").at(-1) ?? entry.slug, file: entry.file, title: entry.meta.title, posted: entry.meta.posted, tags: entry.meta.tags, summary: entry.meta.summary, toc: entry.toc, excerpt: entry.excerpt }))
   .sort((a, b) => (a.posted < b.posted ? -1 : 1));
 
 /** Every tag a post carries, in the order the tag list shows them. */

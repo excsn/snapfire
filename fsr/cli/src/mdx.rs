@@ -166,8 +166,8 @@ mod built {
     Ok((set, Installed { log, mapped: map.map(|(keys, _)| keys), class_attr, settings: settings.clone() }))
   }
 
-  /// `generated/content.ts`: per collection, every `.mdx` and `.md` file in
-  /// its directory by name, with its slug, its name there, its `meta`, its `toc` and its first paragraph as `excerpt`.
+  /// `generated/content.ts`: per collection, every `.mdx` and `.md` file under
+  /// its directory by its path there, with its slug, that path, its `meta`, its `toc` and its first paragraph as `excerpt`.
   pub fn collections(app: &Path, installed: &Installed) -> Result<Option<String>, BuildError> {
     if installed.settings.collections.is_empty() {
       return Ok(None);
@@ -177,14 +177,8 @@ mod built {
     let mut n = 0;
     for (name, dir) in &installed.settings.collections {
       let full = app.join(dir);
-      let mut files: Vec<String> = std::fs::read_dir(&full)
-        .map_err(|e| BuildError::Io(full.clone(), e))?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .filter_map(|e| e.file_name().to_str().map(str::to_owned))
-        .filter(|f| Format::of(f).is_some())
-        .collect();
-      files.sort();
+      std::fs::read_dir(&full).map_err(|e| BuildError::Io(full.clone(), e))?;
+      let files: Vec<String> = snapfire_fsr_lower::component::files_under(&full).into_iter().filter(|f| Format::of(f).is_some()).collect();
       body.push_str(&format!("\nexport const {name} = [\n"));
       for file in files {
         let rel = format!("{dir}/{file}");

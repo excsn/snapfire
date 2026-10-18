@@ -30,7 +30,7 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Start a bare application or one with a direction | `fsr new <dir>`, `fsr new <dir> --with react` |
 | Give an application React, Vue, custom elements, htmx or Tera | `fsr use <app> vue`, once and again for the next |
 | Write a page or a piece of content in MDX or markdown | `page.mdx`, `page.md` or an import of one, with an fsr built with `mdx`; `fsr use <app> mdx` |
-| List every content file in a directory for an index | `[mdx.collections]`, read from `@generated/content` |
+| List every content file under a directory for an index | `[mdx.collections]`, read from `@generated/content` |
 | Serve an image resized per width and format, or a font with a sized fallback | import it and place it with `Picture`; files under `fonts/` and `[fonts.<key>]`; `fsr fonts add <app> google:Inter@400,700` |
 | Emit the whole artifact: the plan, the generated types, the tsconfigs and the browser bundle | `fsr build <app>` |
 | See what a build would emit without writing | `fsr check <app>` |

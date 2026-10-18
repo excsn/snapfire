@@ -18,5 +18,5 @@ test("paths names every post once", () => {
   const c = ctx({});
   const sets = paths();
   const slugs = sets.map((set) => set.slug);
-  expect(slugs).toEqual(["why-a-plan-file", "a-site-is-a-mount", "static-under-a-shell"]);
+  expect(slugs).toEqual(["why-a-plan-file", "a-site-is-a-mount", "static-under-a-shell", "posts-in-directories", "drain-before-stop"]);
 });

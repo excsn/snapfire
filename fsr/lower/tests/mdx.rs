@@ -92,6 +92,20 @@ fn a_template_import_places_the_file_its_key_names() {
 }
 
 #[test]
+fn a_template_import_places_a_file_in_a_subdirectory_by_its_path() {
+  let page = "export default async function Page({ file }: { file: string }) {\n  const { default: Body, meta } = await import(`../content/${file}`);\n  return <article><h1>{meta.title}</h1><Body /></article>;\n}\n";
+  let files = [
+    ("routes/page.tsx", page),
+    ("content/intro.mdx", "export const meta = { title: \"Intro\" }\n\nTop.\n"),
+    ("content/plaza/tutorials/1-foundations/010-join.md", "---\ntitle: Join\n---\n\nNested.\n"),
+  ];
+  let mut set = set(&files, Vec::new());
+  set.lower("routes/page.tsx#default").expect("lowers");
+  assert_eq!(render(&set, "routes/page.tsx#default", &[("file", Value::from("intro.mdx"))]), "<article><h1>Intro</h1><p>Top.</p></article>");
+  assert_eq!(render(&set, "routes/page.tsx#default", &[("file", Value::from("plaza/tutorials/1-foundations/010-join.md"))]), "<article><h1>Join</h1><p>Nested.</p></article>");
+}
+
+#[test]
 fn an_async_page_awaiting_anything_but_an_import_is_still_refused() {
   let page = "export default async function Page() {\n  const data = await fetch(\"/x\");\n  return <p>{String(data)}</p>;\n}\n";
   let mut set = set(&[("routes/page.tsx", page)], Vec::new());

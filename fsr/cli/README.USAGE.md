@@ -1227,7 +1227,7 @@ export default async function PostPage({ post }: PostSlugProps) {
 }
 ```
 
-A template `import()` with one substitution is expanded at build into the files of the directory it names. `<Body />` renders the one the key names. An `async` page is accepted when everything it awaits is such an import. `components` replaces markdown's elements for that placement; each value is a component the page declares or imports, a placement such as `Link` among them.
+A template `import()` with one substitution is expanded at build into the files under the directory it names, subdirectories included, each chosen by its path there. `<Body />` renders the one the key names. An `async` page is accepted when everything it awaits is such an import. `components` replaces markdown's elements for that placement; each value is a component the page declares or imports, a placement such as `Link` among them.
 
 ### Listing a collection
 
@@ -1242,7 +1242,7 @@ import { posts } from "@generated/content";
 export const paths = () => posts.map((post) => ({ slug: post.slug }));
 ```
 
-`generated/content.ts` holds one `{ slug, file, meta, toc, excerpt }`, `excerpt` the first paragraph as plain text or `null`, per `.mdx` or `.md` file in the directory, by file name. `generated/mdx.d.ts` declares `*.mdx` and `*.md` for the type checker.
+`generated/content.ts` holds one `{ slug, file, meta, toc, excerpt }`, `excerpt` the first paragraph as plain text or `null`, per `.mdx` or `.md` file under the directory, subdirectories included, by path: `file` is the path there and `slug` that path without its extension. `generated/mdx.d.ts` declares `*.mdx` and `*.md` for the type checker.
 
 ### Mapping markdown's elements
 

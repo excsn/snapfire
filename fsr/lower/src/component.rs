@@ -1033,8 +1033,9 @@ impl ComponentSet {
     Ok((imports, globals))
   }
 
-  /// The files `prefix${x}suffix` names from `file`, in the one directory the
-  /// prefix ends in, each with the text that stands for `x`.
+  /// The files `prefix${x}suffix` names from `file`, anywhere under the
+  /// directory the prefix ends in, each with the text that stands for `x`,
+  /// which holds a `/` for a file in a subdirectory as webpack's context does.
   fn import_choices(&self, file: &str, prefix: &str, suffix: &str) -> Vec<(String, String)> {
     let (dir_spec, start) = match prefix.rsplit_once('/') {
       Some((dir, start)) => (dir.to_owned(), start.to_owned()),
@@ -1042,9 +1043,9 @@ impl ComponentSet {
     };
     let Some(probe) = crate::resolve_specifier(file, &format!("{dir_spec}/x")) else { return Vec::new() };
     let dir = probe.rsplit_once('/').map(|(d, _)| d.to_owned()).unwrap_or_default();
-    let mut names: Vec<String> = std::fs::read_dir(self.app.join(&dir)).map(|entries| entries.filter_map(|e| e.ok()).filter(|e| e.path().is_file()).filter_map(|e| e.file_name().to_str().map(str::to_owned)).collect()).unwrap_or_default();
+    let mut names = files_under(&self.app.join(&dir));
     for provided in self.provided.keys() {
-      if let Some(name) = provided.strip_prefix(&format!("{dir}/")).filter(|n| !n.contains('/')) {
+      if let Some(name) = provided.strip_prefix(&format!("{dir}/")) {
         names.push(name.to_owned());
       }
     }
@@ -1054,7 +1055,7 @@ impl ComponentSet {
       .into_iter()
       .filter_map(|name| {
         let middle = name.strip_prefix(start.as_str())?.strip_suffix(suffix)?;
-        (!middle.is_empty() && !middle.contains('/') && !is_foreign(&name)).then(|| (middle.to_owned(), if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") }))
+        (!middle.is_empty() && !is_foreign(&name)).then(|| (middle.to_owned(), if dir.is_empty() { name.clone() } else { format!("{dir}/{name}") }))
       })
       .collect()
   }
@@ -2063,6 +2064,30 @@ pub const TEMPLATE_SOURCES: &[&str] = &["@snapfire/fsr-authoring/template", "@sn
 
 /// The client library's root, where `action` comes from.
 pub const CLIENT_SOURCE: &str = "@snapfire/fsr-client";
+
+/// Every file under `dir` as its path relative to it, `/`-separated, leaving
+/// out a directory whose name starts with `.` and `node_modules`.
+pub fn files_under(dir: &std::path::Path) -> Vec<String> {
+  let mut files = Vec::new();
+  let mut pending = vec![(dir.to_path_buf(), String::new())];
+  while let Some((full, rel)) = pending.pop() {
+    let Ok(entries) = std::fs::read_dir(&full) else { continue };
+    for entry in entries.filter_map(|e| e.ok()) {
+      let Some(name) = entry.file_name().to_str().map(str::to_owned) else { continue };
+      let path = entry.path();
+      let joined = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
+      if path.is_dir() {
+        if !name.starts_with('.') && name != "node_modules" {
+          pending.push((path, joined));
+        }
+      } else if path.is_file() {
+        files.push(joined);
+      }
+    }
+  }
+  files.sort();
+  files
+}
 
 /// Whether a file or a `file#export` module, is written in a language the
 /// build does not read. Such a component has no server body: a plugin

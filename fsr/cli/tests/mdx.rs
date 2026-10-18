@@ -121,6 +121,27 @@ fn collections_list_every_content_file_with_its_meta_and_toc() {
 }
 
 #[test]
+fn a_collection_lists_the_files_in_its_subdirectories_by_their_path() {
+  let files = [
+    ("content/plaza/tutorials/1-foundations/010-join.md", "# Join\n"),
+    ("content/plaza/tutorials/2-rooms/010-rooms.mdx", "export const meta = { title: \"Rooms\" }\n\nText.\n"),
+    ("content/intro.md", "# Intro\n"),
+    ("content/.drafts/hidden.md", "# Hidden\n"),
+  ];
+  let app = project("[mdx.collections]\ntutorials = \"content\"\n", &files);
+  let built = build(&app, &Options::default()).expect("builds");
+  let content = file(&built, "generated/content.ts");
+  assert!(content.contains("{ slug: \"intro\", file: \"intro.md\","), "{content}");
+  assert!(content.contains("{ slug: \"plaza/tutorials/1-foundations/010-join\", file: \"plaza/tutorials/1-foundations/010-join.md\","), "{content}");
+  assert!(content.contains("from \"../content/plaza/tutorials/2-rooms/010-rooms.mdx\";"), "{content}");
+  let join = content.find("1-foundations/010-join\"").expect("the join entry");
+  let rooms = content.find("slug: \"plaza/tutorials/2-rooms/010-rooms\"").expect("the rooms entry");
+  assert!(join < rooms, "{content}");
+  assert!(!content.contains("hidden"), "a dot directory is left out: {content}");
+  cleanup(&app);
+}
+
+#[test]
 fn a_template_import_page_builds_with_one_component_per_file() {
   let loader = "import { posts } from \"@generated/content\";\nimport type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/post/{slug}\">) {\n  return { slug: params.slug };\n}\nexport const paths = () => posts.map((p) => ({ slug: p.slug }));\n";
   let page = "import type { PostSlugProps } from \"@generated/client\";\nexport default async function Post({ slug }: PostSlugProps) {\n  const { default: Body, meta } = await import(`../../../content/posts/${slug}.mdx`);\n  return <article><h1>{meta.title}</h1><Body /></article>;\n}\n";

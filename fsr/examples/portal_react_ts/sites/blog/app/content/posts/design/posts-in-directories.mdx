@@ -1,0 +1,14 @@
+import { Aside } from "@src/ui/Aside";
+
+export const meta = {
+  title: "Posts in directories",
+  posted: "2026-10-10",
+  tags: ["design"],
+  summary: "The blog's posts sit in topic directories under content/posts. One collection and one template import still cover all of them.",
+};
+
+The collection in `config/app.toml` names `content/posts`. The build lists every `.mdx` and `.md` file under it, subdirectories included. Each entry's `file` is the path under that directory.
+
+<Aside label="Path">design/posts-in-directories.mdx</Aside>
+
+The post page imports the file by that path, `` import(`../../../content/posts/${post.file}`) ``, so a post can move into a directory without a change to the route. The URL keeps the file name: `src/posts.ts` takes the last part of the slug.

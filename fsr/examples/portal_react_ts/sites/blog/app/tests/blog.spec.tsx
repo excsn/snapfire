@@ -72,3 +72,21 @@ test("the tag list shows each post's first paragraph from the collection", async
   expect(item?.querySelector("[data-part=excerpt]")?.textContent?.startsWith("The shell reads the site's artifact from a path")).toEqual(true);
   expect(document.querySelectorAll("[data-part=tag] li").length).toEqual(document.querySelectorAll("[data-part=tag] [data-part=excerpt]").length);
 });
+
+test("a post one directory down renders by its file name", async () => {
+  await load("/blog/post/posts-in-directories");
+  expect(document.querySelector("article h1")?.textContent).toEqual("Posts in directories");
+  expect(document.querySelector("[data-part=body] [data-part=aside]")?.textContent).toEqual("Pathdesign/posts-in-directories.mdx");
+});
+
+test("a post two directories down renders by its file name", async () => {
+  await load("/blog/post/drain-before-stop");
+  expect(document.querySelector("article h1")?.textContent).toEqual("Drain before stop");
+  expect(document.querySelector("[data-part=body] code")?.textContent).toEqual("begin_drain");
+});
+
+test("the index lists the nested posts beside the flat one", async () => {
+  await load("/blog");
+  const links = Array.from(document.querySelectorAll("[data-part=posts] h2 a")).map((a) => a.getAttribute("href"));
+  expect(links).toEqual(["/blog/post/why-a-plan-file", "/blog/post/a-site-is-a-mount", "/blog/post/static-under-a-shell", "/blog/post/posts-in-directories", "/blog/post/drain-before-stop"]);
+});
