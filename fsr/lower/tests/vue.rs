@@ -296,6 +296,7 @@ fn a_page_placing_a_described_component_that_does_not_lower_keeps_it_foreign_and
   let (module, residue) = &set.foreign_residue[0];
   assert_eq!(module, "src/ui/Box.vue#default");
   assert_eq!((residue.line, residue.message.as_str()), (5, "`v-model` on `<div>`"));
+  assert_eq!(residue.to_string(), "src/ui/Box.vue:5:16: `v-model` on `<div>`");
   assert!(!set.components.iter().any(|(m, _)| m == "src/ui/Box.vue#default"));
   std::fs::remove_dir_all(&dir).unwrap();
 }

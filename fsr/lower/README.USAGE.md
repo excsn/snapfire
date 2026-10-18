@@ -256,9 +256,10 @@ for (module, residue) in &set.foreign_residue {
 ```
 
 ```text
-src/ui/Box.vue#default mounts in the browser: src/ui/Box.vue:5:18: `v-model`
-  bind `:value` for the markup and handle the input event in the browser; two-way binding is not lowered
+src/ui/Box.vue#default mounts in the browser: src/ui/Box.vue:5:16: `v-model` on `<div>`
 ```
+
+`v-model` lowers on an input, a checkbox, a radio, a textarea, a select and a `.vue` child; on any other element it is residue, which is what holds `Box.vue` here.
 
 The crate's `tests/vue.rs` renders each fixture in Rust and through Vue's own server renderer in the plugin's QuickJS and compares the bytes, which is where a new rule is checked.
 
