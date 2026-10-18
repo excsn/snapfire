@@ -43,7 +43,7 @@ The typed shape is why the cart is written as `session.cart = { ...session.cart,
 
 ## Guards
 
-`fail(kind, message)` inside an `if` is a guard. The kinds are the seven the runtime maps onto a status: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable`, `internal`. The storefront's checkout has one:
+`fail(kind, message)` inside an `if` is a guard. There is one kind per HTTP error status and the response carries that status: `unauthorized` 401, `forbidden` 403, `not_found` 404, `conflict` 409, `too_many_requests` 429, `invalid` 400, `internal` 500 and the rest the runtime reference lists. The storefront's checkout has one:
 
 ```ts
 if (lines.length === 0) fail("invalid", "the cart is empty");

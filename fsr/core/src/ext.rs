@@ -7,43 +7,106 @@ use std::sync::Arc;
 
 use crate::Value;
 
-/// The failure shapes a UI has to render, so no application re-invents the
-/// mapping. Kinds correspond to HTTP statuses at the transport edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum FailureKind {
-  Unauthorized,
-  NotFound,
-  Invalid,
-  Conflict,
-  Timeout,
-  Unavailable,
-  Internal,
+/// Defines `FailureKind` from one list, every lookup a `match` the compiler
+/// turns into a jump table or a short run of comparisons.
+macro_rules! failure_kinds {
+  ($($kind:ident = $name:literal, $status:literal;)*) => {
+    /// The failure shapes a UI has to render, so no application re-invents the
+    /// mapping: one kind per HTTP error status, 4xx for the request's own fault and
+    /// 5xx for the server's. `Invalid` is 400, `Unavailable` 503 and `Timeout` 504.
+    /// The statuses are the 4xx and 5xx ones the IANA HTTP status code registry
+    /// assigns; 418 is reserved there and has no kind.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[non_exhaustive]
+    pub enum FailureKind {
+      $(#[doc = concat!(stringify!($status), ", `", $name, "`.")] $kind,)*
+    }
+
+    impl FailureKind {
+      /// Every kind, in status order.
+      pub const ALL: &'static [FailureKind] = &[$(FailureKind::$kind),*];
+
+      /// The name a body, a payload and `fail(kind, message)` spell it with.
+      pub fn as_str(&self) -> &'static str {
+        match self { $(FailureKind::$kind => $name,)* }
+      }
+
+      pub fn http_status(&self) -> u16 {
+        match self { $(FailureKind::$kind => $status,)* }
+      }
+
+      /// The kind `name` spells, `None` for a name that is not one.
+      pub fn from_name(name: &str) -> Option<FailureKind> {
+        match name {
+          $($name => Some(FailureKind::$kind),)*
+          _ => None,
+        }
+      }
+
+      /// The kind for an HTTP status: its own, else `Invalid` for a 4xx no kind
+      /// names and `Internal` for anything else.
+      pub fn from_status(status: u16) -> FailureKind {
+        match status {
+          $($status => FailureKind::$kind,)*
+          400..=499 => FailureKind::Invalid,
+          _ => FailureKind::Internal,
+        }
+      }
+    }
+  };
+}
+
+failure_kinds! {
+  Invalid = "invalid", 400;
+  Unauthorized = "unauthorized", 401;
+  PaymentRequired = "payment_required", 402;
+  Forbidden = "forbidden", 403;
+  NotFound = "not_found", 404;
+  MethodNotAllowed = "method_not_allowed", 405;
+  NotAcceptable = "not_acceptable", 406;
+  ProxyAuthenticationRequired = "proxy_authentication_required", 407;
+  RequestTimeout = "request_timeout", 408;
+  Conflict = "conflict", 409;
+  Gone = "gone", 410;
+  LengthRequired = "length_required", 411;
+  PreconditionFailed = "precondition_failed", 412;
+  ContentTooLarge = "content_too_large", 413;
+  UriTooLong = "uri_too_long", 414;
+  UnsupportedMediaType = "unsupported_media_type", 415;
+  RangeNotSatisfiable = "range_not_satisfiable", 416;
+  ExpectationFailed = "expectation_failed", 417;
+  MisdirectedRequest = "misdirected_request", 421;
+  UnprocessableContent = "unprocessable_content", 422;
+  Locked = "locked", 423;
+  FailedDependency = "failed_dependency", 424;
+  TooEarly = "too_early", 425;
+  UpgradeRequired = "upgrade_required", 426;
+  PreconditionRequired = "precondition_required", 428;
+  TooManyRequests = "too_many_requests", 429;
+  RequestHeaderFieldsTooLarge = "request_header_fields_too_large", 431;
+  UnavailableForLegalReasons = "unavailable_for_legal_reasons", 451;
+  Internal = "internal", 500;
+  NotImplemented = "not_implemented", 501;
+  BadGateway = "bad_gateway", 502;
+  Unavailable = "unavailable", 503;
+  Timeout = "timeout", 504;
+  HttpVersionNotSupported = "http_version_not_supported", 505;
+  VariantAlsoNegotiates = "variant_also_negotiates", 506;
+  InsufficientStorage = "insufficient_storage", 507;
+  LoopDetected = "loop_detected", 508;
+  NotExtended = "not_extended", 510;
+  NetworkAuthenticationRequired = "network_authentication_required", 511;
 }
 
 impl FailureKind {
-  pub fn as_str(&self) -> &'static str {
-    match self {
-      Self::Unauthorized => "unauthorized",
-      Self::NotFound => "not_found",
-      Self::Invalid => "invalid",
-      Self::Conflict => "conflict",
-      Self::Timeout => "timeout",
-      Self::Unavailable => "unavailable",
-      Self::Internal => "internal",
-    }
+  /// A 4xx: the request's own fault.
+  pub fn is_client_error(&self) -> bool {
+    (400..500).contains(&self.http_status())
   }
 
-  pub fn http_status(&self) -> u16 {
-    match self {
-      Self::Unauthorized => 401,
-      Self::NotFound => 404,
-      Self::Invalid => 400,
-      Self::Conflict => 409,
-      Self::Timeout => 504,
-      Self::Unavailable => 503,
-      Self::Internal => 500,
-    }
+  /// A 5xx: the server's fault.
+  pub fn is_server_error(&self) -> bool {
+    self.http_status() >= 500
   }
 }
 

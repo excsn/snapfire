@@ -1711,16 +1711,7 @@ fn independent_lets(stmts: &[Stmt]) -> usize {
 }
 
 fn parse_kind(name: &str) -> Option<FailureKind> {
-  Some(match name {
-    "unauthorized" => FailureKind::Unauthorized,
-    "not_found" => FailureKind::NotFound,
-    "invalid" => FailureKind::Invalid,
-    "conflict" => FailureKind::Conflict,
-    "timeout" => FailureKind::Timeout,
-    "unavailable" => FailureKind::Unavailable,
-    "internal" => FailureKind::Internal,
-    _ => return None,
-  })
+  FailureKind::from_name(name)
 }
 
 pub(crate) use snapfire_fsr_core::ext::type_error;

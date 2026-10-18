@@ -774,20 +774,56 @@ What `segments_to_json` wrote, read back, for a memo entry a build stored beside
 
 ### `FailureKind`
 
-The failure shapes a UI has to render, shared by actions and services so no application re-invents the mapping. `Debug + Clone + Copy + PartialEq + Eq`. Defined in `snapfire_fsr_core::ext` and re-exported here.
+The failure shapes a UI has to render, shared by actions and services so no application re-invents the mapping: one kind per 4xx and 5xx status the IANA HTTP status code registry assigns, 418 aside. `Debug + Clone + Copy + PartialEq + Eq`, `#[non_exhaustive]`. Defined in `snapfire_fsr_core::ext` and re-exported here.
 
 | Variant | `as_str()` | `http_status()` |
 | :--- | :--- | :--- |
-| `Unauthorized` | `unauthorized` | 401 |
-| `NotFound` | `not_found` | 404 |
 | `Invalid` | `invalid` | 400 |
+| `Unauthorized` | `unauthorized` | 401 |
+| `PaymentRequired` | `payment_required` | 402 |
+| `Forbidden` | `forbidden` | 403 |
+| `NotFound` | `not_found` | 404 |
+| `MethodNotAllowed` | `method_not_allowed` | 405 |
+| `NotAcceptable` | `not_acceptable` | 406 |
+| `ProxyAuthenticationRequired` | `proxy_authentication_required` | 407 |
+| `RequestTimeout` | `request_timeout` | 408 |
 | `Conflict` | `conflict` | 409 |
-| `Timeout` | `timeout` | 504 |
-| `Unavailable` | `unavailable` | 503 |
+| `Gone` | `gone` | 410 |
+| `LengthRequired` | `length_required` | 411 |
+| `PreconditionFailed` | `precondition_failed` | 412 |
+| `ContentTooLarge` | `content_too_large` | 413 |
+| `UriTooLong` | `uri_too_long` | 414 |
+| `UnsupportedMediaType` | `unsupported_media_type` | 415 |
+| `RangeNotSatisfiable` | `range_not_satisfiable` | 416 |
+| `ExpectationFailed` | `expectation_failed` | 417 |
+| `MisdirectedRequest` | `misdirected_request` | 421 |
+| `UnprocessableContent` | `unprocessable_content` | 422 |
+| `Locked` | `locked` | 423 |
+| `FailedDependency` | `failed_dependency` | 424 |
+| `TooEarly` | `too_early` | 425 |
+| `UpgradeRequired` | `upgrade_required` | 426 |
+| `PreconditionRequired` | `precondition_required` | 428 |
+| `TooManyRequests` | `too_many_requests` | 429 |
+| `RequestHeaderFieldsTooLarge` | `request_header_fields_too_large` | 431 |
+| `UnavailableForLegalReasons` | `unavailable_for_legal_reasons` | 451 |
 | `Internal` | `internal` | 500 |
+| `NotImplemented` | `not_implemented` | 501 |
+| `BadGateway` | `bad_gateway` | 502 |
+| `Unavailable` | `unavailable` | 503 |
+| `Timeout` | `timeout` | 504 |
+| `HttpVersionNotSupported` | `http_version_not_supported` | 505 |
+| `VariantAlsoNegotiates` | `variant_also_negotiates` | 506 |
+| `InsufficientStorage` | `insufficient_storage` | 507 |
+| `LoopDetected` | `loop_detected` | 508 |
+| `NotExtended` | `not_extended` | 510 |
+| `NetworkAuthenticationRequired` | `network_authentication_required` | 511 |
 
+* `pub const ALL: &'static [FailureKind]`: every kind, in status order.
 * `pub fn as_str(&self) -> &'static str`
 * `pub fn http_status(&self) -> u16`
+* `pub fn from_name(name: &str) -> Option<FailureKind>`: the kind `as_str` spells, `None` for any other name.
+* `pub fn from_status(status: u16) -> FailureKind`: the kind for a status, else `Invalid` for a 4xx no kind names and `Internal` for anything else.
+* `pub fn is_client_error(&self) -> bool` and `pub fn is_server_error(&self) -> bool`: a 4xx and a 5xx.
 
 ### `LoadError`
 

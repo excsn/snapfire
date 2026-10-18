@@ -691,15 +691,6 @@ struct Route {
 /// and the generated TypeScript. Nothing is written; `write` does that.
 /// The failure kinds a route may name an error module for, as `FailureKind`
 /// spells them, paired with the filename infix `error.<infix>.tsx` uses.
-const ERROR_KINDS: [(&str, &str); 7] = [
-  ("not_found", "not-found"),
-  ("unauthorized", "unauthorized"),
-  ("invalid", "invalid"),
-  ("conflict", "conflict"),
-  ("timeout", "timeout"),
-  ("unavailable", "unavailable"),
-  ("internal", "internal"),
-];
 
 /// What a segment falls back to when its loader fails: an error module and
 /// the per-kind ones beside it.
@@ -739,11 +730,12 @@ impl Boundary {
 /// `error.not-found.tsx` and its kin beside `error.tsx`, as (kind, module).
 fn error_kind_modules(dir: &Path, rel: &str) -> Vec<(String, String)> {
   let mut found = Vec::new();
-  for (kind, infix) in ERROR_KINDS {
+  for kind in snapfire_fsr_core::ext::FailureKind::ALL {
+    let infix = kind.as_str().replace('_', "-");
     for ext in ["tsx", "ts"] {
       let file = format!("error.{infix}.{ext}");
       if dir.join(&file).is_file() {
-        found.push((kind.to_owned(), format!("{rel}/{file}#default")));
+        found.push((kind.as_str().to_owned(), format!("{rel}/{file}#default")));
         break;
       }
     }

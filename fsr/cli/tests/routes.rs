@@ -1181,6 +1181,47 @@ fn a_route_with_no_error_file_names_no_kinds() {
 }
 
 #[test]
+fn every_failure_kind_has_a_boundary_file_named_after_it() {
+  let dir = app(&[
+    ("routes/page.tsx", PAGE),
+    ("routes/error.tsx", "export default function Failed() {\n  return <p>failed</p>;\n}\n"),
+    ("routes/error.too-many-requests.tsx", "export default function Slow() {\n  return <p>slow</p>;\n}\n"),
+    ("routes/error.forbidden.tsx", "export default function Denied() {\n  return <p>denied</p>;\n}\n"),
+    ("routes/error.bad-gateway.ts", "export default function Upstream() {\n  return null;\n}\n"),
+  ]);
+  let plan = plan_json(&dir);
+  let page = &plan["routes"][0]["plan"]["children"][0]["node"];
+  let kinds: Vec<(String, String)> = page["error_kinds"].as_array().unwrap().iter().map(|k| (k[0].as_str().unwrap().to_owned(), k[1].as_str().unwrap().to_owned())).collect();
+  assert_eq!(
+    kinds,
+    [
+      ("forbidden".to_owned(), "routes/error.forbidden.tsx#default".to_owned()),
+      ("too_many_requests".to_owned(), "routes/error.too-many-requests.tsx#default".to_owned()),
+      ("bad_gateway".to_owned(), "routes/error.bad-gateway.ts#default".to_owned()),
+    ],
+    "in status order, each file named by its kind with `-` for `_`"
+  );
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_browser_and_the_declarations_name_every_failure_kind_the_server_has() {
+  use snapfire_fsr_core::ext::FailureKind;
+  let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+  let declarations = std::fs::read_to_string(root.join("embedded/authoring/index.d.ts")).unwrap();
+  let actions = std::fs::read_to_string(root.join("../client/src/actions.ts")).unwrap();
+  let start = declarations.find("export type FailureKind =").unwrap();
+  let union = &declarations[start..start + declarations[start..].find(';').unwrap()];
+  let declared: Vec<&str> = union.split('"').skip(1).step_by(2).collect();
+  let all: Vec<&str> = FailureKind::ALL.iter().map(|k| k.as_str()).collect();
+  assert_eq!(declared, all, "the `FailureKind` the authoring declarations export");
+  for kind in FailureKind::ALL {
+    let row = format!("[{}, \"{}\"]", kind.http_status(), kind.as_str());
+    assert!(actions.contains(&row), "client/src/actions.ts reads {} as `{}`", kind.http_status(), kind.as_str());
+  }
+}
+
+#[test]
 fn a_routes_own_boundary_owns_every_kind() {
   let dir = app(&[
     ("routes/error.tsx", "export default function Failed() {\n  return <p>root</p>;\n}\n"),

@@ -17,24 +17,166 @@ function failure(status, statusText, text) {
     } catch  {}
     return new ActionFailure(kindOf(status), text.trim() || statusText || `HTTP ${status}`);
 }
+const KINDS = new Map([
+    [
+        400,
+        "invalid"
+    ],
+    [
+        401,
+        "unauthorized"
+    ],
+    [
+        402,
+        "payment_required"
+    ],
+    [
+        403,
+        "forbidden"
+    ],
+    [
+        404,
+        "not_found"
+    ],
+    [
+        405,
+        "method_not_allowed"
+    ],
+    [
+        406,
+        "not_acceptable"
+    ],
+    [
+        407,
+        "proxy_authentication_required"
+    ],
+    [
+        408,
+        "request_timeout"
+    ],
+    [
+        409,
+        "conflict"
+    ],
+    [
+        410,
+        "gone"
+    ],
+    [
+        411,
+        "length_required"
+    ],
+    [
+        412,
+        "precondition_failed"
+    ],
+    [
+        413,
+        "content_too_large"
+    ],
+    [
+        414,
+        "uri_too_long"
+    ],
+    [
+        415,
+        "unsupported_media_type"
+    ],
+    [
+        416,
+        "range_not_satisfiable"
+    ],
+    [
+        417,
+        "expectation_failed"
+    ],
+    [
+        421,
+        "misdirected_request"
+    ],
+    [
+        422,
+        "unprocessable_content"
+    ],
+    [
+        423,
+        "locked"
+    ],
+    [
+        424,
+        "failed_dependency"
+    ],
+    [
+        425,
+        "too_early"
+    ],
+    [
+        426,
+        "upgrade_required"
+    ],
+    [
+        428,
+        "precondition_required"
+    ],
+    [
+        429,
+        "too_many_requests"
+    ],
+    [
+        431,
+        "request_header_fields_too_large"
+    ],
+    [
+        451,
+        "unavailable_for_legal_reasons"
+    ],
+    [
+        500,
+        "internal"
+    ],
+    [
+        501,
+        "not_implemented"
+    ],
+    [
+        502,
+        "bad_gateway"
+    ],
+    [
+        503,
+        "unavailable"
+    ],
+    [
+        504,
+        "timeout"
+    ],
+    [
+        505,
+        "http_version_not_supported"
+    ],
+    [
+        506,
+        "variant_also_negotiates"
+    ],
+    [
+        507,
+        "insufficient_storage"
+    ],
+    [
+        508,
+        "loop_detected"
+    ],
+    [
+        510,
+        "not_extended"
+    ],
+    [
+        511,
+        "network_authentication_required"
+    ]
+]);
 function kindOf(status) {
-    switch(status){
-        case 400:
-            return "invalid";
-        case 401:
-        case 403:
-            return "unauthorized";
-        case 404:
-            return "not_found";
-        case 409:
-            return "conflict";
-        case 503:
-            return "unavailable";
-        case 504:
-            return "timeout";
-        default:
-            return "internal";
-    }
+    return KINDS.get(status) ?? (status >= 400 && status < 500 ? "invalid" : "internal");
 }
 export async function upload(id, form, opts) {
     const headers = {

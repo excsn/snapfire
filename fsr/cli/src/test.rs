@@ -356,16 +356,7 @@ fn failure_of(value: &Value, service: &str, method: &str) -> ServiceError {
 }
 
 fn kind_of(kind: &str) -> Option<FailureKind> {
-  Some(match kind {
-    "unauthorized" => FailureKind::Unauthorized,
-    "not_found" => FailureKind::NotFound,
-    "invalid" => FailureKind::Invalid,
-    "conflict" => FailureKind::Conflict,
-    "timeout" => FailureKind::Timeout,
-    "unavailable" => FailureKind::Unavailable,
-    "internal" => FailureKind::Internal,
-    _ => return None,
-  })
+  FailureKind::from_name(kind)
 }
 
 /// One `ctx(...)`: the request it stands for and what the test reads back.

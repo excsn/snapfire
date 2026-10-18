@@ -123,12 +123,12 @@ impl<'a> Candidate<'a> {
   }
 }
 
-/// A failure the host's own probes refuse a candidate for: a backend that is
-/// down, a timeout or a crash. A `not_found`, `unauthorized`, `invalid` or
-/// `conflict` is a page's own answer to the request it was given and passes;
-/// a configured probe, which names its request, refuses on any of them.
+/// A failure the host's own probes refuse a candidate for: any 5xx, which is a
+/// backend down, slow or crashed, plus a 408. Any other 4xx is a page's own
+/// answer to the request it was given and passes; a configured probe, which
+/// names its request, refuses on any of them.
 fn refusing(kind: FailureKind) -> bool {
-  matches!(kind, FailureKind::Unavailable | FailureKind::Timeout | FailureKind::Internal)
+  kind.is_server_error() || kind == FailureKind::RequestTimeout
 }
 
 impl Host {

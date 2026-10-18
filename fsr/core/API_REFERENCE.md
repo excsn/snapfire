@@ -301,11 +301,13 @@ Read an extension's arguments. A wrong kind fails as `Internal` with `what wants
 
 ### FailureKind
 
-The failure shapes a UI has to render. Kinds correspond to HTTP statuses at the transport edge.
+The failure shapes a UI has to render: one kind per 4xx and 5xx status the IANA HTTP status code registry assigns, 418 aside, 39 in all. `Invalid` is 400, `Unavailable` 503 and `Timeout` 504; every other kind is the status's own name in snake case, `Forbidden` `forbidden` 403, `TooManyRequests` `too_many_requests` 429, `BadGateway` `bad_gateway` 502. The table of every kind is in the runtime reference, section 13. `#[non_exhaustive]`.
 
-* `Unauthorized`, `NotFound`, `Invalid`, `Conflict`, `Timeout`, `Unavailable`, `Internal`
-* `pub fn as_str(&self) -> &'static str` - `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable` or `internal`.
-* `pub fn http_status(&self) -> u16` - 401, 404, 400, 409, 504, 503 or 500, in variant order.
+* `pub const ALL: &'static [FailureKind]` - every kind, in status order.
+* `pub fn as_str(&self) -> &'static str` and `pub fn http_status(&self) -> u16` - its name and its status.
+* `pub fn from_name(name: &str) -> Option<FailureKind>` - the kind `as_str` spells.
+* `pub fn from_status(status: u16) -> FailureKind` - the kind for a status, else `Invalid` for a 4xx no kind names and `Internal` for anything else.
+* `pub fn is_client_error(&self) -> bool` and `pub fn is_server_error(&self) -> bool` - a 4xx and a 5xx.
 * Derives `Debug`, `Clone`, `Copy`, `PartialEq` and `Eq`.
 * Reached at `snapfire_fsr_core::ext::FailureKind`. `snapfire_fsr_runtime` re-exports it at its root.
 

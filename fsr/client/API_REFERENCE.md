@@ -635,7 +635,7 @@ Adds `<script src>` to `document.head` once per resolved URL and resolves on its
 
 Builds a callable for a stable action id. The client holds ids, never URLs.
 
-The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: application/json` and `JSON.stringify(encodeValue(input))` as the body. `input` defaults to `{}`. On a non-ok status it throws `ActionFailure`: from the body's `kind` and `message` when the body is the JSON failure shape, otherwise with the kind the status stands for (`400` `invalid`, `401` and `403` `unauthorized`, `404` `not_found`, `409` `conflict`, `503` `unavailable`, `504` `timeout`, anything else `internal`); the message is then the body's text, the `statusText` or `HTTP <status>`. On success it returns `decodeValue` of the JSON body.
+The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: application/json` and `JSON.stringify(encodeValue(input))` as the body. `input` defaults to `{}`. On a non-ok status it throws `ActionFailure`: from the body's `kind` and `message` when the body is the JSON failure shape, otherwise with the kind the status stands for, its own kind for every 4xx and 5xx status the server has one for, `invalid` for any other 4xx and `internal` for anything else; the message is then the body's text, the `statusText` or `HTTP <status>`. On success it returns `decodeValue` of the JSON body.
 
 `revalidate` defaults to true, which awaits `refresh()` after a successful call and before the result is returned. Pass `{ revalidate: false }` for a read-only action or to batch several mutations behind one manual `refresh`.
 
@@ -1257,7 +1257,7 @@ Thrown by an action callable when the server answers with a non-ok status.
 * `name` is `"ActionFailure"`
 * `message` is the server's message, the text of a body that is not the failure shape or the response's `statusText`
 
-The kinds the runtime emits: `unauthorized` (401), `not_found` (404), `invalid` (400), `conflict` (409), `timeout` (504), `unavailable` (503), `internal` (500).
+The kinds the runtime emits: one per 4xx and 5xx status, `forbidden` (403), `too_many_requests` (429), `bad_gateway` (502) and the rest, with `invalid` (400), `timeout` (504) and `unavailable` (503) the three whose names are not their status's.
 
 ### Thrown Errors
 

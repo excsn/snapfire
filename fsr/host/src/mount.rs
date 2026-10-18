@@ -124,18 +124,13 @@ pub(crate) fn mock_transport(
     let key = format!("{prefix}{name}.{method}");
     match response.get("$fail") {
       Some(fail) => {
-        let kind = match fail.get("kind").and_then(|k| k.as_str()).unwrap_or("internal") {
-          "unauthorized" => FailureKind::Unauthorized,
-          "not_found" => FailureKind::NotFound,
-          "invalid" => FailureKind::Invalid,
-          "conflict" => FailureKind::Conflict,
-          "timeout" => FailureKind::Timeout,
-          "unavailable" => FailureKind::Unavailable,
-          "internal" => FailureKind::Internal,
-          other => {
+        let name = fail.get("kind").and_then(|k| k.as_str()).unwrap_or("internal");
+        let kind = match FailureKind::from_name(name) {
+          Some(kind) => kind,
+          None => {
             return Err(HostError::Config(
               path,
-              format!("{method}: unknown failure kind `{other}`"),
+              format!("{method}: unknown failure kind `{name}`"),
             ));
           }
         };

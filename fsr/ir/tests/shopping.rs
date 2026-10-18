@@ -474,3 +474,18 @@ fn an_extension_moves_the_end_when_the_body_commits_and_not_when_it_fails() {
   assert!(fail.message.contains("session extend"), "{fail:?}");
   assert!(!c.session.is_extended());
 }
+
+#[test]
+fn a_guard_fails_with_any_kind_and_refuses_a_name_that_is_not_one() {
+  use snapfire_fsr_runtime::FailureKind;
+  let mock = Mock::returning("shopping.listProducts", Value::seq(vec![]));
+  for kind in FailureKind::ALL {
+    let body = vec![Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), kind: kind.as_str().into(), message: Expr::Lit(Lit::Str("no".into())) }];
+    let fail = run(&body, &ctx(mock.clone(), &[], ValueMap::default()), None).unwrap_err();
+    assert_eq!(fail.kind, *kind, "{}", kind.as_str());
+  }
+  let body = vec![Stmt::Guard { cond: Expr::Lit(Lit::Bool(true)), kind: "teapot".into(), message: Expr::Lit(Lit::Str("no".into())) }];
+  let fail = run(&body, &ctx(mock, &[], ValueMap::default()), None).unwrap_err();
+  assert_eq!(fail.kind, FailureKind::Internal);
+  assert!(fail.message.contains("`teapot` is not a failure kind"), "{fail}");
+}

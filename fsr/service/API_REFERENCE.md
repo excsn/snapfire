@@ -482,9 +482,9 @@ Who the request is.
 
 The failure taxonomy every error at this boundary carries.
 
-* `Unauthorized` `NotFound` `Invalid` `Conflict` `Timeout` `Unavailable` `Internal`
-* `fn as_str(&self) -> &'static str` gives `"unauthorized"`, `"not_found"`, `"invalid"`, `"conflict"`, `"timeout"`, `"unavailable"`, `"internal"`
-* `fn http_status(&self) -> u16` gives 401, 404, 400, 409, 504, 503, 500 in that order
+* One kind per 4xx and 5xx status the IANA registry assigns, `Forbidden` 403 and `TooManyRequests` 429 among them; the runtime reference lists every one.
+* `fn as_str(&self) -> &'static str`, `fn http_status(&self) -> u16`, `fn from_name(&str) -> Option<FailureKind>` and `fn from_status(u16) -> FailureKind`
+* `kind_for_status(status)` is `FailureKind::from_status`: a backend's status reaches the page as its own kind. A 4xx other than 401, 403, 404 and 408 carries the response body in its message. `grpc::kind_for_code` reads `Unauthenticated` as `unauthorized`, `PermissionDenied` as `forbidden`, `ResourceExhausted` as `too_many_requests`, `Unimplemented` as `not_implemented`, `NotFound` as `not_found`, `InvalidArgument`, `OutOfRange` and `FailedPrecondition` as `invalid`, `AlreadyExists` and `Aborted` as `conflict`, `DeadlineExceeded` as `timeout`, `Unavailable` as `unavailable` and anything else as `internal`.
 
 ### ServiceError
 

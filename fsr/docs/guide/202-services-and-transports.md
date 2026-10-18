@@ -30,7 +30,7 @@ Application code has no way to reach a token. The registry, the interceptors and
 
 ## Failure kinds
 
-A call fails with a kind from a fixed list: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable`, `internal`. The HTTP and gRPC transports map status codes onto them and a guard in a body names one directly. A loader that fails renders the route's error component with the message; an action that fails returns the kind to the browser, which is what the toast shows. The same kinds describe every failure from the backend to the rendered page; the contract check's own failures use them too, as `invalid` with the field's path.
+A call fails with a kind, one per HTTP error status: `unauthorized`, `forbidden`, `not_found`, `conflict`, `too_many_requests`, `bad_gateway`, `invalid` for 400 and the rest. The HTTP transport reads a backend's status as its own kind, so a 403 stays `forbidden` and a 429 stays `too_many_requests`; the gRPC transport maps `PermissionDenied` to `forbidden` and `ResourceExhausted` to `too_many_requests` and a guard in a body names one directly. A loader that fails renders the route's error component with the message; an action that fails returns the kind to the browser, which is what the toast shows. The same kinds describe every failure from the backend to the rendered page; the contract check's own failures use them too, as `invalid` with the field's path.
 
 ## The lab
 

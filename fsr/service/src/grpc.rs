@@ -100,7 +100,10 @@ pub fn kind_for_code(code: Code) -> FailureKind {
   match code {
     Code::NotFound => FailureKind::NotFound,
     Code::InvalidArgument | Code::OutOfRange | Code::FailedPrecondition => FailureKind::Invalid,
-    Code::Unauthenticated | Code::PermissionDenied => FailureKind::Unauthorized,
+    Code::Unauthenticated => FailureKind::Unauthorized,
+    Code::PermissionDenied => FailureKind::Forbidden,
+    Code::ResourceExhausted => FailureKind::TooManyRequests,
+    Code::Unimplemented => FailureKind::NotImplemented,
     Code::AlreadyExists | Code::Aborted => FailureKind::Conflict,
     Code::DeadlineExceeded => FailureKind::Timeout,
     Code::Unavailable => FailureKind::Unavailable,
@@ -365,5 +368,19 @@ impl Transport for GrpcTransport {
       let response = grpc.unary(request, path, Raw).await.map_err(|status| fail(kind_for_code(status.code()), status.message().to_owned()))?;
       decode_response(&output, &response.into_inner()).map_err(|e| fail(FailureKind::Internal, e))
     })
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn grpc_codes_map_onto_their_kinds() {
+    assert_eq!(kind_for_code(Code::PermissionDenied), FailureKind::Forbidden);
+    assert_eq!(kind_for_code(Code::Unauthenticated), FailureKind::Unauthorized);
+    assert_eq!(kind_for_code(Code::ResourceExhausted), FailureKind::TooManyRequests);
+    assert_eq!(kind_for_code(Code::Unimplemented), FailureKind::NotImplemented);
+    assert_eq!(kind_for_code(Code::DataLoss), FailureKind::Internal);
   }
 }

@@ -146,7 +146,7 @@ To move the session's end, `Stmt::SessionExtend { seconds: Expr::lit_int(7200) }
 
 ### Guarding Before Any Call
 
-A guard fails the body with a named kind. The kind is a `FailureKind` name: `unauthorized`, `not_found`, `invalid`, `conflict`, `timeout`, `unavailable` or `internal`.
+A guard fails the body with a named kind. The kind is a `FailureKind` name, one per HTTP error status: `unauthorized`, `forbidden`, `not_found`, `too_many_requests`, `invalid` for 400 and the rest the runtime reference lists. A name that is not one fails the body as `internal`.
 
 ```rust
 Stmt::Guard {

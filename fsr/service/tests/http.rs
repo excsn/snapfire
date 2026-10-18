@@ -216,6 +216,25 @@ async fn statuses_map_onto_the_failure_kinds_a_ui_renders() {
 }
 
 #[tokio::test]
+async fn a_backend_403_429_or_410_reaches_the_page_as_its_own_kind() {
+  let (base, _) = serve(vec![(403, "not yours"), (429, "slow down"), (410, "gone for good"), (502, "upstream"), (418, "teapot")]);
+  let services = Services::builder()
+    .contract(contract())
+    .default_transport(Arc::new(HttpTransport::new(&base)))
+    .build();
+  let handle = services.bind_anonymous();
+  let call = || handle.call("fleet", "add", args(vec![("name", Value::str("x")), ("load", Value::F64(0.1))]));
+
+  assert_eq!(call().await.unwrap_err().kind, FailureKind::Forbidden);
+  let limited = call().await.unwrap_err();
+  assert_eq!(limited.kind, FailureKind::TooManyRequests);
+  assert!(limited.message.contains("slow down"), "a 4xx other than 401, 403, 404 and 408 carries the body: {limited}");
+  assert_eq!(call().await.unwrap_err().kind, FailureKind::Gone);
+  assert_eq!(call().await.unwrap_err().kind, FailureKind::BadGateway);
+  assert_eq!(call().await.unwrap_err().kind, FailureKind::Invalid, "a 4xx no kind names is invalid");
+}
+
+#[tokio::test]
 async fn an_unreachable_backend_is_unavailable_not_a_panic() {
   let listener = TcpListener::bind("127.0.0.1:0").unwrap();
   let base = format!("http://{}", listener.local_addr().unwrap());

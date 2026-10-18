@@ -207,9 +207,7 @@ impl IdentityProvider for ServiceProvider {
         Ok(other) => return Err(AuthError::Invalid(format!("authenticate answered {other:?}"))),
         Err(error) => {
           return Err(match error.kind {
-            FailureKind::Unauthorized | FailureKind::NotFound | FailureKind::Invalid => {
-              AuthError::Denied(error.message.clone())
-            }
+            kind if kind.is_client_error() && !matches!(kind, FailureKind::RequestTimeout | FailureKind::Conflict) => AuthError::Denied(error.message.clone()),
             _ => AuthError::Invalid(error.to_string()),
           });
         }

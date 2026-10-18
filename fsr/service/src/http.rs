@@ -111,15 +111,7 @@ fn replace_lone_surrogates(text: &str) -> std::borrow::Cow<'_, str> {
 }
 
 pub fn kind_for_status(status: u16) -> FailureKind {
-  match status {
-    401 | 403 => FailureKind::Unauthorized,
-    404 => FailureKind::NotFound,
-    409 => FailureKind::Conflict,
-    408 | 504 => FailureKind::Timeout,
-    502 | 503 => FailureKind::Unavailable,
-    400..=499 => FailureKind::Invalid,
-    _ => FailureKind::Internal,
-  }
+  FailureKind::from_status(status)
 }
 
 /// The first transport that leaves the process. Metadata written by the
@@ -215,9 +207,10 @@ impl Transport for HttpTransport {
       let text = response.text().await.map_err(|e| fail(FailureKind::Internal, e.to_string()))?;
       if !(200..300).contains(&status) {
         let kind = kind_for_status(status);
-        return Err(match kind {
-          FailureKind::Invalid | FailureKind::Conflict => fail(kind, format!("{status}: {}", text.trim())),
-          _ => {
+        let says_why = kind.is_client_error() && !matches!(kind, FailureKind::Unauthorized | FailureKind::Forbidden | FailureKind::NotFound | FailureKind::RequestTimeout);
+        return Err(match says_why {
+          true => fail(kind, format!("{status}: {}", text.trim())),
+          false => {
             tracing::warn!(target: "fsr::service", status, body = %text.trim(), "backend answered with a failure");
             fail(kind, status.to_string())
           }
