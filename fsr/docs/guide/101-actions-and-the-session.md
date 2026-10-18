@@ -83,7 +83,7 @@ Do not trust the name or the type, since both are strings the client chose. The 
 
 A body has no filesystem, so `bytes` goes to a service method or to the application's own Rust through `ctx.native`.
 
-A form and a script reach the same action. A `<form method="post" enctype="multipart/form-data">` posts it with no JavaScript and is answered with a redirect back to the page, so the session the action wrote is what the next render reads. From the page, `upload(id, formData)` in the client posts a `FormData` and names JSON in `Accept`, so the host answers the action's value rather than the redirect. Both carry `_csrf`, since a form post is verified where a JSON call is not. A form anonymous visitors post needs `[session] csrf = "always"`.
+A form and a script reach the same action. A `<form method="post" enctype="multipart/form-data">` posts it with no JavaScript and is answered with a redirect back to the page, so the session the action wrote is what the next render reads. From the page, `upload(id, formData)` in the client posts a `FormData` and names JSON in `Accept`, so the host answers the action's value rather than the redirect. Both carry `_csrf`, since a form post is verified where a JSON call is not. A form anonymous visitors post needs `[session] csrf = "always"`. The token is minted when a page renders it. Only that response starts a session for a visitor who has none, so a page with no form sets no cookie and stays cacheable.
 
 ## The lab
 
