@@ -274,6 +274,8 @@ pub struct Report {
   pub images: Vec<(String, String)>,
   /// A face the font directory holds or a remote stylesheet, one line each.
   pub fonts: Vec<String>,
+  /// Each `<Embed>` whose id the page computes under `[media] embed_stills = "local"`: its module and the provider, which serves the still or none.
+  pub embeds: Vec<(String, String)>,
   /// When a stylesheet imports Tailwind: how many classes the plan renders. Each module with a
   /// class value the build cannot list comes with that value.
   pub tailwind: Option<(usize, Vec<(String, String)>)>,
@@ -287,47 +289,83 @@ pub struct Report {
   pub plan: Option<usize>,
 }
 
+/// The report with what lowered as well as what reaches the browser, `--verbose`.
+pub struct Verbose<'r>(&'r Report);
+
+impl Report {
+  /// Every row, the modules and bodies that lowered among them.
+  pub fn verbose(&self) -> Verbose<'_> {
+    Verbose(self)
+  }
+}
+
+/// What renders or runs in the browser and what the build warns about; everything else is under `Report::verbose`.
 impl fmt::Display for Report {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    section(f, "routes", &self.routes, "")?;
-    section(f, "layouts", &self.layouts, "")?;
-    section(f, "slots", &self.slots, "")?;
-    section(f, "intercepts", &self.intercepts, "")?;
-    section(f, "sources", &self.sources, "lowered")?;
-    section(f, "actions", &self.actions, "lowered")?;
-    section(f, "handlers", &self.handlers, "lowered")?;
-    if let Some(module) = &self.middleware {
+    self.write(f, false)
+  }
+}
+
+impl fmt::Display for Verbose<'_> {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    self.0.write(f, true)
+  }
+}
+
+impl Report {
+  fn write(&self, f: &mut fmt::Formatter<'_>, verbose: bool) -> fmt::Result {
+    if verbose {
+      section(f, "routes", &self.routes, "")?;
+      section(f, "layouts", &self.layouts, "")?;
+      section(f, "slots", &self.slots, "")?;
+      section(f, "intercepts", &self.intercepts, "")?;
+      section(f, "sources", &self.sources, "lowered")?;
+      section(f, "actions", &self.actions, "lowered")?;
+      section(f, "handlers", &self.handlers, "lowered")?;
+    }
+    if let Some(module) = self.middleware.as_ref().filter(|_| verbose) {
       writeln!(f, "{:<9} {:<22} {:<11} {module}", "middleware", "middleware", "lowered")?;
     }
-    if !self.themes.is_empty() {
+    if verbose && !self.themes.is_empty() {
       writeln!(f, "{:<9} {}", "themes", self.themes.join(", "))?;
     }
-    for (module, theme) in &self.theme_of {
+    for (module, theme) in self.theme_of.iter().filter(|_| verbose) {
       writeln!(f, "{:<9} {module:<34} {theme}", "theme")?;
     }
-    if let Some(module) = &self.theme_body {
+    if let Some(module) = self.theme_body.as_ref().filter(|_| verbose) {
       writeln!(f, "{:<9} {:<22} {:<11} {module}", "theme.ts", "theme", "lowered")?;
     }
     if let Some((path, keys, imports, differ)) = &self.shell {
-      writeln!(f, "{:<9} {path}: {keys} store keys, {imports} imports", "shell")?;
+      if verbose {
+        writeln!(f, "{:<9} {path}: {keys} store keys, {imports} imports", "shell")?;
+      }
       if !differ.is_empty() {
-        writeln!(f, "{:<9} {} mapped differently here; the shell's mapping serves at mount", "", differ.join(", "))?;
+        let label = if verbose { "" } else { "shell" };
+        writeln!(f, "{label:<9} {} mapped differently here; the shell's mapping serves at mount", differ.join(", "))?;
       }
     }
-    for (i, (module, owner, detail)) in self.components.iter().enumerate() {
+    for (i, (module, owner, detail)) in self.components.iter().filter(|(_, owner, _)| verbose || owner == "client" || owner == "foreign").enumerate() {
       let label = if i == 0 { "rendered" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {owner:<11} {detail}")?;
     }
-    for (i, (source, detail)) in self.images.iter().enumerate() {
-      let label = if i == 0 { "image" } else { "" };
-      writeln!(f, "{label:<9} {source:<34} {detail}")?;
-    }
-    for (i, line) in self.fonts.iter().enumerate() {
-      let label = if i == 0 { "font" } else { "" };
-      writeln!(f, "{label:<9} {line}")?;
+    if verbose {
+      for (i, (source, detail)) in self.images.iter().enumerate() {
+        let label = if i == 0 { "image" } else { "" };
+        writeln!(f, "{label:<9} {source:<34} {detail}")?;
+      }
+      for (i, line) in self.fonts.iter().enumerate() {
+        let label = if i == 0 { "font" } else { "" };
+        writeln!(f, "{label:<9} {line}")?;
+      }
+      for (module, provider) in &self.embeds {
+        let shows = if provider == "youtube" { "so YouTube serves the still" } else { "so the placeholder shows the title alone" };
+        writeln!(f, "{:<9} {module:<34} {provider}: the id is computed, {shows}", "embed")?;
+      }
     }
     if let Some((count, unlisted)) = &self.tailwind {
-      writeln!(f, "{:<9} {count} classes in {}", "tailwind", tailwind::CLASSES_FILE)?;
+      if verbose {
+        writeln!(f, "{:<9} {count} classes in {}", "tailwind", tailwind::CLASSES_FILE)?;
+      }
       for (module, value) in unlisted {
         writeln!(f, "{:<9} {module:<34} {}: a class value the build cannot list, {value}", "warning", tailwind::UNLISTED)?;
         writeln!(f, "{:<9} list its values in the stylesheet with @source inline(\"...\")", "")?;
@@ -367,7 +405,7 @@ impl fmt::Display for Report {
       let label = if i == 0 { "plugins" } else { "" };
       writeln!(f, "{label:<9} {line}")?;
     }
-    for (i, (module, island, holds)) in self.extracted.iter().enumerate() {
+    for (i, (module, island, holds)) in self.extracted.iter().filter(|_| verbose).enumerate() {
       let label = if i == 0 { "extracted" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {island} ({})", holds.join(", "))?;
     }
@@ -375,15 +413,17 @@ impl fmt::Display for Report {
       let label = if i == 0 { "kept" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {why}")?;
     }
-    for (i, (module, handlers)) in self.islands.iter().enumerate() {
+    for (i, (module, handlers)) in self.islands.iter().filter(|_| verbose).enumerate() {
       let label = if i == 0 { "islands" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {:<11} {handlers} handler{}", "server", if *handlers == 1 { "" } else { "s" })?;
     }
-    for (i, (key, owner, detail)) in self.derives.iter().enumerate() {
+    for (i, (key, owner, detail)) in self.derives.iter().filter(|(_, owner, _)| verbose || owner != "lowered").enumerate() {
       let label = if i == 0 { "derived" } else { "" };
       writeln!(f, "{label:<9} {key:<34} {owner:<11} {detail}")?;
     }
-    section(f, "extensions", &self.extensions, "")?;
+    if verbose {
+      section(f, "extensions", &self.extensions, "")?;
+    }
     for (i, (module, site)) in self.browser.iter().enumerate() {
       let label = if i == 0 { "browser" } else { "" };
       writeln!(f, "{label:<9} {module:<34} {site}")?;
@@ -392,7 +432,7 @@ impl fmt::Display for Report {
       writeln!(f, "{:<9} {what}", "csp")?;
       writeln!(f, "{:<9} {remedy}", "")?;
     }
-    for (i, (module, values, chunks, fallbacks)) in self.hoisted.iter().enumerate() {
+    for (i, (module, values, chunks, fallbacks)) in self.hoisted.iter().filter(|_| verbose).enumerate() {
       let label = if i == 0 { "hoisted" } else { "" };
       let mut parts = Vec::new();
       if *values > 0 {
@@ -406,7 +446,7 @@ impl fmt::Display for Report {
       }
       writeln!(f, "{label:<9} {module:<34} {}", parts.join(", "))?;
     }
-    for (i, (service, document)) in self.services.iter().enumerate() {
+    for (i, (service, document)) in self.services.iter().filter(|_| verbose).enumerate() {
       let label = if i == 0 { "services" } else { "" };
       let kind = if document.ends_with(".proto") {
         "grpc"
@@ -417,9 +457,11 @@ impl fmt::Display for Report {
       };
       writeln!(f, "{label:<9} {service:<22} {kind:<11} {document}")?;
     }
-    section(f, "schemas", &self.schemas, "")?;
-    section(f, "types", &self.types, "")?;
-    if let Some(written) = self.plan {
+    if verbose {
+      section(f, "schemas", &self.schemas, "")?;
+      section(f, "types", &self.types, "")?;
+    }
+    if let Some(written) = self.plan.filter(|_| verbose) {
       writeln!(f, "{:<9} {:<22} {:.1} KB written", "plan", PLAN_FILE, written as f64 / 1024.0)?;
     }
     Ok(())
@@ -1341,6 +1383,13 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     report.components.push((module.clone(), "lowered".to_owned(), detail));
     if component.owner.hydrates() && !snapfire_fsr_ir::ast::embed_players(&component.render).is_empty() {
       return Err(BuildError::EmbedInIsland(module));
+    }
+    if sections.media.embed_stills == snapfire_fsr_host::config::EmbedStills::Local {
+      for player in snapfire_fsr_ir::ast::computed_embed_players(&component.render) {
+        if let Some(provider) = snapfire_fsr_lower::assets::embed_provider(&player) {
+          report.embeds.push((module.clone(), provider.to_owned()));
+        }
+      }
     }
     if !component.owner.hydrates() {
       static_modules.push(module.clone());

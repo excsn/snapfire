@@ -81,15 +81,13 @@ export default function Clock() {
 The server writes `<p class="at">Rendered at </p>`. In the browser copy the build wraps the expression so it is null until the component has mounted: the first render matches the server's markup, so hydration has nothing to report and a second render right after mount computes the time and writes it. React's hydration never patches a text difference it is told to ignore, so this is the shape that works. The report says so:
 
 ```
-rendered  src/ui/Clock.tsx#Clock             lowered
 browser   src/ui/Clock.tsx#Clock             src/ui/Clock.tsx:2:47: the current time on a render path, which the server and the browser read at different moments
 ```
 
 The same holds for a `const` that holds the value, a helper that returns it and a prop a child writes as text: the parent computes it once mounted and the child renders again with it. The build only does this where the value is text or a prop, so the first render's markup is the server's. A browser-only value in an attribute, in a condition or choosing between markup sends the component to the browser instead:
 
 ```
-rendered  routes/page.tsx#default            lowered
-          src/ui/Clock.tsx#Clock             client      src/ui/Clock.tsx:2:34
+rendered  src/ui/Clock.tsx#Clock             client      src/ui/Clock.tsx:2:34
 client    src/ui/Clock.tsx:2:34              `.getHours()`, which reads the viewer's time zone
 ```
 

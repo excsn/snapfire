@@ -130,6 +130,24 @@ fn a_computed_id_under_local_stills_falls_back_to_the_providers_still() {
 }
 
 #[test]
+fn verbose_names_each_embed_whose_id_is_computed_under_local_stills() {
+  let root = loaded("loaded-verbose", "\n[media]\nembed_stills = \"local\"\n");
+  let app = root.join("app");
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  let verbose = built.report.verbose().to_string();
+  assert!(verbose.contains("embed     routes/page.tsx#default            youtube: the id is computed, so YouTube serves the still"), "{verbose}");
+  assert!(verbose.contains("embed     routes/page.tsx#default            vimeo: the id is computed, so the placeholder shows the title alone"), "{verbose}");
+  assert!(!built.report.to_string().contains("embed "), "{}", built.report);
+  std::fs::remove_dir_all(&root).unwrap();
+
+  let root = loaded("loaded-provider", "");
+  let app = root.join("app");
+  let built = build(&app, &Options::beside(&app)).unwrap_or_else(|e| panic!("builds: {e}"));
+  assert!(built.report.embeds.is_empty(), "the provider's still is what the configuration asked for: {:?}", built.report.embeds);
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn an_embed_the_build_cannot_place_is_refused() {
   let island = "import Player from \"@src/ui/Player\";\nexport default function Page() {\n  return <main><Player /></main>;\n}\n";
   for (tag, page, says) in [

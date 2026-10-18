@@ -471,7 +471,7 @@ fn a_layouts_slots_directory_is_a_parallel_segment_beside_its_page() {
   let ids: Vec<u64> = [&plan["routes"][0]["plan"], layout, &layout["children"][0]["node"], feed].iter().map(|n| n["id"].as_u64().unwrap()).collect();
   assert_eq!(ids, vec![0, 1, 2, 3], "ids run in tree order");
   assert!(built.files.iter().any(|(name, text)| name == "generated/client.ts" && text.contains("export type LayoutFeedProps")), "the slot's props type is generated");
-  assert!(built.report.to_string().contains("slots     layout.feed"), "{}", built.report);
+  assert!(built.report.verbose().to_string().contains("slots     layout.feed"), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -701,7 +701,7 @@ fn a_shell_emits_its_contract_and_a_site_built_against_it_gets_the_declarations(
   let (_, declarations) = built.files.iter().find(|(n, _)| n == "generated/shell.d.ts").expect("a site gets the shell's declarations");
   assert!(declarations.contains("export interface ShellStore {\n  \"cart/count\": number;\n  \"session/who\": string;\n}"), "{declarations}");
   assert!(declarations.contains("export type ShellImport = \"@snapfire/fsr-client\" | \"react\";"), "{declarations}");
-  let report = built.report.to_string();
+  let report = built.report.verbose().to_string();
   assert!(report.contains("shell     ") && report.contains("2 store keys, 2 imports") && report.contains("react mapped differently here"), "{report}");
   std::fs::remove_dir_all(&shell).unwrap();
   std::fs::remove_dir_all(&site).unwrap();
@@ -872,7 +872,7 @@ fn an_island_in_server_mode_is_refused_over_a_handler_that_did_not_lower_or_an_i
   ]);
   let built = build(&fine, &Options::default()).unwrap();
   assert_eq!(built.report.islands, vec![("src/Widget.tsx#Widget".to_owned(), 1)], "{}", built.report);
-  assert!(built.report.to_string().contains("islands   src/Widget.tsx#Widget              server      1 handler"), "{}", built.report);
+  assert!(built.report.verbose().to_string().contains("islands   src/Widget.tsx#Widget              server      1 handler"), "{}", built.report);
   std::fs::remove_dir_all(&fine).unwrap();
 }
 
@@ -979,7 +979,7 @@ fn extensions_under_ext_are_reported_and_a_render_path_body_member_or_an_unlower
   assert_eq!(built.report.browser[0].0, "routes/index/page.island0.tsx#default", "the state and its handler moved into the island: {}", built.report);
   assert!(built.report.browser[0].1.starts_with("routes/index/page.island0.tsx:"), "{}", built.report);
   assert_eq!(built.report.hoisted, vec![("routes/index/page.island0.tsx#default".to_owned(), 1, 0, 0), ("routes/index/page.tsx#default".to_owned(), 0, 0, 0)], "{}", built.report);
-  let text = built.report.to_string();
+  let text = built.report.verbose().to_string();
   assert!(text.contains("extensions ext/fmt.ts#weight      lowered") && text.contains("browser   routes/index/page.island0.tsx#default"), "{text}");
   let plan = built.manifest.to_json();
   assert!(plan.contains("\"ext\"") && plan.contains("\"intl\"") && plan.contains("\"time\""), "{plan}");
@@ -1019,7 +1019,7 @@ fn a_page_tera_is_a_route_the_plan_names_and_nothing_lowers() {
   assert!(plan["actions"].as_array().unwrap().iter().any(|a| a["id"] == "board.poke"), "actions beside a template page lower as beside a page.tsx");
   let wall = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/wall").unwrap();
   assert_eq!(wall["plan"]["children"][0]["node"]["children"][0]["node"]["module"], "routes/wall/layout.tera#default", "a template layout wraps its pages");
-  let report = built.report.to_string();
+  let report = built.report.verbose().to_string();
   assert!(report.contains("routes/board/page.tera#default") && report.contains("template"), "{report}");
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).expect("the islands registry is written");
   assert!(!islands.contains(".tera"), "a template is never bundled: {islands}");
@@ -1097,7 +1097,7 @@ fn a_service_impl_beside_the_app_is_a_contract_the_build_writes_and_types() {
   let built = build(&dir, &Options::default()).unwrap();
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
   assert_eq!(built.report.services, vec![("fleet".to_owned(), "src/services.rs".to_owned())]);
-  assert!(built.report.to_string().contains("services  fleet                  rust        src/services.rs"), "{}", built.report);
+  assert!(built.report.verbose().to_string().contains("services  fleet                  rust        src/services.rs"), "{}", built.report);
   let contract = file("generated/contracts/rust.json");
   for expected in ["\"fleet\"", "\"list\"", "\"addServer\"", "\"loadAvg\"", "\"ttl\": \"15s\"", "\"scope\": \"shared\"", "\"writes\": ["] {
     assert!(contract.contains(expected), "missing {expected} in {contract}");

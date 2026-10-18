@@ -106,7 +106,7 @@ app/
 ```
 
 ```sh
-fsr build app
+fsr build app --verbose
 ```
 
 ```
@@ -281,7 +281,7 @@ The two forms are not interchangeable. A prop is a slot only because `slots/<nam
 
 `page.modal.tsx` beside a route's `page.tsx` is the rendering a soft navigation opens in that slot of the nearest layout above it declaring one, the page under the layout staying as the browser has it. It shares the route's loader and props type, streams behind a `loading.modal.tsx` of its own when there is one and is never rendered for a document load: a reload or a shared link of the same URL is the full page. The server applies it when the navigation comes from a route under the same layout; a link forces the document's rendering with `full` or names a slot with `into`, through `Link` from `@snapfire/fsr-client/react` or the `data-sf-full` and `data-sf-into` attributes on any anchor. The layouts above the slot load under the document's request, so a layout reading `ctx.query` keeps the filter the page beneath was loaded with; `ctx.address` carries the navigation's own path, params and query for a layout that wants to reflect the overlay.
 
-The report lists slots by source id and intercepts as `<pattern> into <slot>`. A route may carry one variant per slot. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
+`fsr build --verbose` lists slots by source id and intercepts as `<pattern> into <slot>`. A route may carry one variant per slot. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
 
 ## Writing Actions
 
@@ -449,7 +449,7 @@ export function theme({ theme, session }: ThemeCtx): ThemeChoice {
 }
 ```
 
-The report lists what the build found:
+`fsr build --verbose` lists what the build found:
 
 ```text
 themes    default, forest, ocean
@@ -917,11 +917,11 @@ The key covers `build`, `check`, `dev`, `test` and `bundle`; `--strict` turns it
 `build`, `check` and `dev` run `snapfiretc` over the `tsconfig.json` the build writes, which is the one carrying `strict`, the aliases and the specs. It runs beside snapfirec rather than after it, since neither reads the other's output and it is the only thing in the toolchain that reads a type for meaning: snapfirec strips them.
 
 ```sh
-fsr build app
+fsr build app --verbose
 # typecheck tsc 7.0.2 from cache, clean
 ```
 
-An error fails `build` and `check`, printing the diagnostics with TypeScript's own codes. `dev` prints them and leaves the server running, since the bundle carries no types either way.
+An error fails `build` and `check`, printing the diagnostics with TypeScript's own codes and the `typecheck` row, which a clean check prints only under `--verbose`. `dev` prints them and leaves the server running, since the bundle carries no types either way.
 
 ```
 routes/page.tsx(1,15): error TS2305: Module '"@generated/client"' has no exported member 'IndexProps'.
@@ -1078,7 +1078,7 @@ formats = ["avif", "webp"]
 quality = { avif = 60, webp = 80 }
 ```
 
-An image gets every policy width below its own, then its own, so nothing is upscaled; an SVG, a GIF or an APNG is served as it is with its width and height. The report lists each image with its size and variant count and each face the directory holds:
+An image gets every policy width below its own, then its own, so nothing is upscaled; an SVG, a GIF or an APNG is served as it is with its width and height. `fsr build --verbose` lists each image with its size and variant count and each face the directory holds:
 
 ```text
 image     src/img/hero.png                   1600x900, 8 variants
@@ -1174,7 +1174,7 @@ Once a shell is running somewhere, `fsr sites list <shell> --host <url>` puts th
 
 The host's own events go to the project's `fibre_logging.yaml`, beside `config/`, when there is one, else warnings and errors to stderr: a card property the renderer leaves out, a card that did not draw. A file that does not load is named on stderr and the fallback takes over. `dev` runs `serve`, so it logs the same way.
 
-`dev` builds every site the shell's `[sites]` table mounts from a path as well as the shell, each through its own compiler held open for the session, so a change under a site recompiles that file in that site and reloads the host. The compiler is handed `generated/assets.map.json`, every image and font the build defines with its URL, rewriting each reference from it; when a module names one the map does not have, a client-only module importing a photo for instance, the compiler says so, the build defines it, derives its variants and the compile goes on, so nothing under `dist/` is placed by anything but the build. A change elsewhere in the project, a build script's markdown for one, runs `cargo build` and restarts the binary it produced. Every rebuild prints the paths that caused it as `dev: changed ...`; a file rewritten with the bytes it already held is not a change, whoever wrote it. Three rebuilds in a row caused by nothing but the loop's own writes stop it until an edit arrives, naming the path, rather than letting a build that keeps producing different output spin.
+`dev` builds every site the shell's `[sites]` table mounts from a path as well as the shell, each through its own compiler held open for the session, so a change under a site recompiles that file in that site and reloads the host. The compiler is handed `generated/assets.map.json`, every image and font the build defines with its URL, rewriting each reference from it; when a module names one the map does not have, a client-only module importing a photo for instance, the compiler says so, the build defines it, derives its variants and the compile goes on, so nothing under `dist/` is placed by anything but the build. A change elsewhere in the project, a build script's markdown for one, runs `cargo build` and restarts the binary it produced. Under `--verbose` every rebuild prints the paths that caused it as `dev: changed ...`; a file rewritten with the bytes it already held is not a change, whoever wrote it. Three rebuilds in a row caused by nothing but the loop's own writes stop it until an edit arrives, naming the path, rather than letting a build that keeps producing different output spin.
 
 ```sh
 fsr build app
@@ -1370,7 +1370,7 @@ A whole subtree goes the same way when everything in it is props only; no elemen
 </ul>))}
 ```
 
-Only the outermost static subtree is taken and only one that does something: a run of literal markup is left to React, which costs nothing for it. A miss renders the original JSX, which is also what a remount does when the table has no entry. The report says what was hoisted:
+Only the outermost static subtree is taken and only one that does something: a run of literal markup is left to React, which costs nothing for it. A miss renders the original JSX, which is also what a remount does when the table has no entry. `fsr build --verbose` says what was hoisted:
 
 ```
 hoisted   src/ui/ProductCard.tsx#ProductCard 5 values, 5 subtrees
@@ -1480,7 +1480,7 @@ An island can run with no JavaScript half at all: its events round-trip to the s
 </Island>
 ```
 
-The build lowers the component's handlers into the plan beside its state. A handler is `const`s, calls to state setters, `setOpen(!open)`, `setN((prev) => prev - 1)` or `setQty(Number(e.target.value))`, calls to actions, a named handler by name or called and `if` with `else` around any of those, a bare `return` inside a branch included, with `e.preventDefault()` allowed and dropped. A key set inside a branch keeps its value where the branch did not run and an action called inside one is dispatched only when it did. Anything else in a handler, a loop, a call the build cannot follow, is refused with the line when the component is placed in server mode; in browser mode it is simply the browser's. A component inside the island may hold state and handlers of its own. Each instance is addressed by its place in the island's markup, `c1` for a placement or `0.c2` for one inside a `.map`, so its state rides in the island's state under `<address>/<name>` and its handlers bind as `<address>/<index>`; a click inside it round-trips through the island and patches the island's markup. An instance the render stops placing, one inside a branch that closed, starts afresh when it returns, as it would under React. The host answers `POST /_sf/island/<module>` with the state after the handler and the markup rendered from it; the report lists what runs this way:
+The build lowers the component's handlers into the plan beside its state. A handler is `const`s, calls to state setters, `setOpen(!open)`, `setN((prev) => prev - 1)` or `setQty(Number(e.target.value))`, calls to actions, a named handler by name or called and `if` with `else` around any of those, a bare `return` inside a branch included, with `e.preventDefault()` allowed and dropped. A key set inside a branch keeps its value where the branch did not run and an action called inside one is dispatched only when it did. Anything else in a handler, a loop, a call the build cannot follow, is refused with the line when the component is placed in server mode; in browser mode it is simply the browser's. A component inside the island may hold state and handlers of its own. Each instance is addressed by its place in the island's markup, `c1` for a placement or `0.c2` for one inside a `.map`, so its state rides in the island's state under `<address>/<name>` and its handlers bind as `<address>/<index>`; a click inside it round-trips through the island and patches the island's markup. An instance the render stops placing, one inside a branch that closed, starts afresh when it returns, as it would under React. The host answers `POST /_sf/island/<module>` with the state after the handler and the markup rendered from it; `fsr build --verbose` lists what runs this way:
 
 ```
 islands   src/ui/OrderHelp.tsx#OrderHelp     server      1 handler
@@ -1557,7 +1557,7 @@ let host = Host::from(env!("CARGO_MANIFEST_DIR"))?
   .build()?;
 ```
 
-With a function the pair is `render` and that function is what the browser runs; without one it is `body`, callable from a body or a handler and refused on a render path. The name must be a string literal. A plan that calls a name nothing registers refuses to build, so a missing half is found at boot. The report lists every export:
+With a function the pair is `render` and that function is what the browser runs; without one it is `body`, callable from a body or a handler and refused on a render path. The name must be a string literal. A plan that calls a name nothing registers refuses to build, so a missing half is found at boot. `fsr build --verbose` lists every export:
 
 ```
 extensions ext/labels.ts#count      lowered
@@ -1569,7 +1569,7 @@ extensions ext/labels.ts#count      lowered
 
 ## Reading the Report
 
-Eleven sections, each row naming what was found and where it came from. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. A `csp` row is a Content-Security-Policy in the configuration that breaks the page outright, the fact and then the remedy, the same finding `fsr doctor` reports. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document, `grpc` for a `.proto` and `rust` for a `#[service]` block under the crate's `src/`, whose contract the build writes to `generated/contracts/rust.json`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
+Eleven sections, each row naming what was found and where it came from. Without `--verbose` the report prints only what renders or runs in the browser and what needs attention: the `rendered` rows that say `client` or `foreign` with their causes, `plugins`, `kept`, `browser`, `csp`, the warnings and a site's import map entries the shell maps differently. A clean build prints nothing else. `--verbose` adds the rest: routes, layouts, slots, intercepts, themes, the shell contract, sources, actions, handlers, every `rendered` row, images, fonts, `extracted`, `islands`, `hoisted`, `extensions`, services, schemas, types, the plan's size, the `typecheck` row, the `derived` line, a `wrote` line per file, the `before` and `after` rows, snapfirec's own progress lines and an `embed` row for each `<Embed>` whose id the page computes under `[media] embed_stills = "local"`, whose still the provider serves. The `extensions` rows list each export under `ext/` and whether it is `lowered`, `native render` or `native body`; the `browser` rows name, per lowered component, the render-path calls the browser still makes after hoisting, `file:line:column`, which is where the two halves of an extension must still agree. The `hoisted` rows count, per lowered component, the render-path calls and the static subtrees the server computes for the browser; the `islands` rows name the components placed in server mode and how many handlers each answers. A `csp` row is a Content-Security-Policy in the configuration that breaks the page outright, the fact and then the remedy, the same finding `fsr doctor` reports. Every source and action row says `lowered`, because that is the only owner the build produces; the host prints the same report at boot with `rust override` where Rust took a name back. Services name their document, labelled `http` for an OpenAPI document, `grpc` for a `.proto` and `rust` for a `#[service]` block under the crate's `src/`, whose contract the build writes to `generated/contracts/rust.json`; schemas name their file. The `types` rows list the fsr packages and every import map package with the directory and source of its declarations or `missing; run fsr types`.
 
 A `rendered` row says `lowered`, `client`, `foreign` or `template`; a lowered row says `static` in its detail column when nothing mounts the component: it is composition, a page, a layout or a template with no state and no handlers of its own; it says `vue` for a `.vue` component the build lowered. A `foreign` row is a `.vue` component the build could not lower, with the line of the residue, stated once more under `foreign` with the reason and the components that mount in the browser for it; a `plugins` row says a framework plugin was not on PATH and what that left foreign. A `client` row is a component that did not lower, with the `file:line:column` of the residue that decided it. It is a React island; an application without React refuses it, since FSR is no JSX framework. The page placing it lowers around it. The client rows travel in the plan file, so the host's boot report under `fsr serve` prints the same `rendered` rows and the same `client` causes without the chain. The `client` section states each cause once, whatever the number of pages that reach it:
 
@@ -1583,7 +1583,7 @@ client    src/ui/Stars.tsx:2:17              `.normalize()`, which is not a buil
 
 The second line is the rewrite that does the same thing in the IR. The indented rows are the modules that render in the browser for it, each with the tag that places it, so a leaf three files below a page names the path rather than leaving it to be found. A module is never an error for this: it renders in the browser instead, which is why the report is the only place that says so.
 
-A page or a layout holding state, handlers or effects is split before it is lowered: the smallest part of its markup that uses them moves into `page.island0.tsx` beside it, which only the bundle overlay holds. The page places it with the values it reads as props. Residue in the page's own body moves the same way. The `extracted` rows name each split with what the island took; a `kept` row names a module that could not be split, which stays a React root:
+A page or a layout holding state, handlers or effects is split before it is lowered: the smallest part of its markup that uses them moves into `page.island0.tsx` beside it, which only the bundle overlay holds. The page places it with the values it reads as props. Residue in the page's own body moves the same way. The `extracted` rows, printed under `--verbose`, name each split with what the island took; a `kept` row names a module that could not be split, which stays a React root:
 
 ```
 extracted routes/talk/[id]/page.tsx#default  routes/talk/[id]/page.island0.tsx#default (clashes, setClashes)

@@ -66,11 +66,13 @@ pub struct DevOptions {
   pub under: Option<PathBuf>,
   /// Serves a site by itself even when a shell is found for it.
   pub alone: bool,
+  /// Prints the report's rows for what lowered as well, `--verbose`.
+  pub verbose: bool,
 }
 
 impl Default for DevOptions {
   fn default() -> Self {
-    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false }
+    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false, verbose: false }
   }
 }
 
@@ -80,7 +82,7 @@ impl DevOptions {
   pub fn beside(app: &Path) -> Self {
     let build = Options::beside(app);
     let public_path = crate::bundle_base(build.site.as_ref());
-    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false }
+    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false, verbose: false }
   }
 }
 
@@ -272,10 +274,13 @@ struct Project {
   mount: Option<(String, PathBuf)>,
   /// `[build] before` and `after`, resolved against the project root.
   programs: Programs,
+  /// `--verbose`: the loop's own progress lines are printed too.
+  verbose: bool,
 }
 
 impl Project {
   fn open(app: &Path, options: DevOptions) -> Result<Self, BuildError> {
+    let verbose = options.verbose;
     if let Some(root) = shell_under(app, &options)? {
       let site = crate::site_beside(app).expect("a shell is found for a site alone");
       let site_root = crate::serve::project_root(app);
@@ -284,7 +289,9 @@ impl Project {
       site_options.under = None;
       let site_app = App::open(app, site_options)?;
       println!("dev: serving {} under the shell at {}", site.name, root.display());
-      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), programs: programs_of(app) });
+      let mut programs = programs_of(app);
+      programs.verbose = verbose;
+      return Ok(Self { apps: vec![shell, site_app], cargo: None, mount: Some((site.name, site_root)), programs, verbose });
     }
     let shell = App::open(app, options)?;
     let cargo = shell.dir.parent().map(Path::to_path_buf).filter(|p| p.join("Cargo.toml").is_file());
@@ -293,10 +300,12 @@ impl Project {
     for dir in sites {
       let mut options = DevOptions::beside(&dir);
       options.snapfirec = Some(apps[0].snapfirec.clone());
+      options.verbose = verbose;
       apps.push(App::open(&dir, options)?);
     }
-    let programs = programs_of(&apps[0].dir);
-    Ok(Self { apps, cargo, mount: None, programs })
+    let mut programs = programs_of(&apps[0].dir);
+    programs.verbose = verbose;
+    Ok(Self { apps, cargo, mount: None, programs, verbose })
   }
 
   /// The arguments `fsr serve` takes for the run: the shell's app directory
@@ -589,7 +598,7 @@ impl Driven {
     if app.dir.join(BUNDLE_OVERLAY).is_dir() {
       command.args(["--overlay", BUNDLE_OVERLAY]);
     }
-    Self::spawn(command, &app.snapfirec, reconcile, plugins, false)
+    Self::spawn(command, &app.snapfirec, reconcile, plugins, !app.options.verbose)
   }
 
   /// Starts `command`, a snapfirec invocation, under `--driven` and settles the build it starts
@@ -683,7 +692,12 @@ impl Driven {
     loop {
       self.line(&mut line)?;
       match line.trim_end() {
-        REBUILT => return Ok(()),
+        REBUILT => {
+          if let Some(held) = self.held.as_mut() {
+            held.clear();
+          }
+          return Ok(());
+        }
         FAILED => {
           return Err(BuildError::Dev(match self.held.as_mut() {
             Some(held) => format!("snapfirec failed:\n{}", std::mem::take(held).join("\n")),
@@ -783,7 +797,7 @@ impl<'a> Tracked<'a> {
     let adopted: Vec<String> = self.adopted.iter().cloned().collect();
     let mut built = self.app.generate(&adopted, &mut self.plugins)?;
     if self.files.as_ref() != Some(&built.files) {
-      print!("{}", built.report);
+      print_report(&built.report, self.app.options.verbose);
     }
     self.pending.extend(rewritten(&self.app.dir, self.files.as_deref(), &built.files));
     let batch: Vec<PathBuf> = self.pending.iter().cloned().collect();
@@ -792,7 +806,7 @@ impl<'a> Tracked<'a> {
       self.app.compile_with(|| self.bundler.bundle(self.app, &batch, &mut reconcile, &mut self.plugins))?
     };
     self.pending.clear();
-    report_types(checked.as_ref());
+    report_types(checked.as_ref(), self.app.options.verbose);
     for (rel, content) in built.refresh_assets() {
       let path = self.app.dir.join(&rel);
       std::fs::write(&path, content).map_err(|e| BuildError::Io(path, e))?;
@@ -806,7 +820,7 @@ impl<'a> Tracked<'a> {
       self.files = Some(built.files);
     }
     if let Some(built) = self.last.as_ref() {
-      report_derived(crate::assets::derive(&self.app.dir, &self.app.dir.join("dist"), built)?);
+      report_derived(crate::assets::derive(&self.app.dir, &self.app.dir.join("dist"), built)?, self.app.options.verbose);
     }
     Ok(changed)
   }
@@ -830,7 +844,9 @@ impl Server {
     self.stop();
     match project.spawn(executable) {
       Ok(child) => {
-        println!("dev: server started, pid {}", child.id());
+        if project.verbose {
+          println!("dev: server started, pid {}", child.id());
+        }
         self.child = Some(child);
       }
       Err(e) => eprintln!("dev: {e}"),
@@ -896,6 +912,15 @@ pub fn emit(app: &Path, options: DevOptions) -> Result<Emitted, BuildError> {
 }
 
 /// `emit` with the declarations it lacks fetched from `registry`.
+/// The report as `--verbose` asks for it.
+pub fn print_report(report: &crate::Report, verbose: bool) {
+  if verbose {
+    print!("{}", report.verbose());
+  } else {
+    print!("{report}");
+  }
+}
+
 pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Result<Emitted, BuildError> {
   let mut app = App::open(app, options)?;
   app.production = production(&app.dir);
@@ -926,7 +951,7 @@ pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Resu
         written.push(path);
       }
     }
-    report_derived(crate::assets::derive(&app.dir, &app.dir.join("dist"), &built.assets)?);
+    report_derived(crate::assets::derive(&app.dir, &app.dir.join("dist"), &built.assets)?, app.options.verbose);
     Ok((written, checked))
   })();
   match rest {
@@ -935,7 +960,7 @@ pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Resu
     // say why: a missing plugin is a `plugins` row here and an unresolvable
     // import there. Returning the error alone loses the half that names a fix.
     Err(e) => {
-      print!("{}", built.report);
+      print_report(&built.report, app.options.verbose);
       Err(e)
     }
   }
@@ -1012,7 +1037,8 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       }
       if !failed && reload && !restart {
         match project.shell().reload() {
-          Ok(report) => print!("{report}"),
+          Ok(report) if project.verbose => print!("{report}"),
+          Ok(_) => {}
           Err(e) => {
             println!("dev: reload refused ({e}); restarting");
             restart = true;
@@ -1050,7 +1076,9 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       }
     }
     let Some(batch) = collect(&rx, &mut server)? else {
-      println!("dev: stopping");
+      if project.verbose {
+        println!("dev: stopping");
+      }
       return Ok(());
     };
     let changed = seen.changed(batch.paths);
@@ -1067,7 +1095,9 @@ pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
       want = Change::default();
       continue;
     }
-    println!("dev: changed {}", describe(&root, &want.counted));
+    if project.verbose {
+      println!("dev: changed {}", describe(&root, &want.counted));
+    }
   }
 }
 
@@ -1167,20 +1197,22 @@ fn overlay(files: &[(String, String)]) -> HashMap<&str, &str> {
 }
 
 /// One line for what the derive pass wrote under `dist/`, when it wrote anything.
-fn report_derived(derived: crate::assets::Derived) {
-  if !derived.written.is_empty() {
+fn report_derived(derived: crate::assets::Derived, verbose: bool) {
+  if verbose && !derived.written.is_empty() {
     println!("{:<9} {} files under dist/, {} already there", "derived", derived.written.len(), derived.kept);
   }
 }
 
 /// A type error is printed and the server keeps running: the bundle carries
 /// no types, so what is served is what the sources say either way.
-fn report_types(checked: Option<&Checked>) {
+fn report_types(checked: Option<&Checked>, verbose: bool) {
   let Some(checked) = checked else { return };
   for diagnostic in &checked.diagnostics {
     eprintln!("{diagnostic}");
   }
-  println!("typecheck {}", checked.row());
+  if verbose || !checked.diagnostics.is_empty() {
+    println!("typecheck {}", checked.row());
+  }
 }
 
 /// One batch of changed paths. `queued` when the events were already waiting when the loop came
@@ -1237,6 +1269,8 @@ pub struct Programs {
   pub app: PathBuf,
   pub before: Vec<PathBuf>,
   pub after: Vec<PathBuf>,
+  /// `--verbose`: each program's `before` or `after` row is printed before it runs.
+  pub verbose: bool,
 }
 
 /// `[build] before` and `after` of the configuration beside `app`; both empty when there is no
@@ -1251,6 +1285,7 @@ pub fn programs_of(app: &Path) -> Programs {
     after: build.after.iter().map(|project| root.join(project)).collect(),
     root,
     app: app.to_path_buf(),
+    verbose: false,
   }
 }
 
@@ -1262,6 +1297,9 @@ pub const DECLARE: &str = "fsr:watch=";
 /// one that fails keeps what it declared last.
 pub fn run_programs(key: &str, projects: &[PathBuf], programs: &Programs, declared: &mut BTreeMap<PathBuf, Vec<PathBuf>>) -> Result<(), BuildError> {
   for project in projects {
+    if programs.verbose {
+      println!("{key:<9} {}", project.strip_prefix(&programs.root).unwrap_or(project).display());
+    }
     let inputs = run_program(&programs.root, key, project, &programs.app)?;
     declared.insert(project.clone(), inputs);
   }
@@ -1294,7 +1332,6 @@ pub fn run_program(root: &Path, key: &str, project: &Path, app: &Path) -> Result
   let [executable] = executables.as_slice() else {
     return Err(fail(format!("cargo build made {} binaries; a program is one", executables.len())));
   };
-  println!("{key:<9} {shown}");
   let mut child = Command::new(executable)
     .current_dir(root)
     .env("FSR_ROOT", root)
@@ -1382,11 +1419,11 @@ mod tests {
   }
 
   fn project(shell: &Path) -> Project {
-    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default() }
+    Project { apps: vec![app(shell)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default(), verbose: false }
   }
 
   fn with_site(shell: &Path, site: &Path) -> Project {
-    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default() }
+    Project { apps: vec![app(shell), app(site)], cargo: Some(shell.parent().unwrap().to_path_buf()), mount: None, programs: Programs::default(), verbose: false }
   }
 
   #[test]

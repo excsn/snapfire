@@ -41,3 +41,19 @@ fn a_rebuild_describes_only_the_vue_files_that_changed() {
   assert_eq!(plugins.units_described(), first + 1, "only the edited file is described again");
   let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn a_vue_file_left_foreign_is_printed_without_verbose() {
+  let root = std::env::temp_dir().join(format!("fsr-plugins-foreign-{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&root);
+  copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/recipes_vue_ts"), &root);
+  let app: PathBuf = root.join("app");
+  let scaler = app.join("src/ui/Scaler.vue");
+  let source = std::fs::read_to_string(&scaler).unwrap().replace("const wanted = ref(props.serves);", "class Unread {}\nconst wanted = ref(props.serves);");
+  std::fs::write(&scaler, source).unwrap();
+  let built = build_with(&app, &Options::beside(&app).strict(false), &mut Plugins::new()).expect("builds");
+  assert!(!built.report.foreign.is_empty(), "{}", built.report.verbose());
+  let quiet = built.report.to_string();
+  assert!(quiet.lines().any(|l| l.contains("src/ui/Scaler.vue#default") && l.contains("foreign")), "{quiet}");
+  std::fs::remove_dir_all(&root).unwrap();
+}

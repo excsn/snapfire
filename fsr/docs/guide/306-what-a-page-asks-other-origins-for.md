@@ -39,7 +39,7 @@ To keep the provider out of the page until the visitor plays, fetch the stills a
 embed_stills = "local"
 ```
 
-The build then fetches each still once into `generated/embeds/` and serves it from your origin under its content hash. The page asks the provider for nothing until a click and shows its stills offline, as a service worker caches them with the rest of the site. A fetch that fails, a build with no network for example, falls back to the provider's image and says so in the build output. An `id` the page computes has no still the build can fetch: a YouTube placeholder shows the still its CDN names by the id. A Vimeo one shows the title alone. The player always comes from the provider, since that is where the video is.
+The build then fetches each still once into `generated/embeds/` and serves it from your origin under its content hash. The page asks the provider for nothing until a click and shows its stills offline, as a service worker caches them with the rest of the site. A fetch that fails, a build with no network for example, falls back to the provider's image and says so in the build output. An `id` the page computes has no still the build can fetch: a YouTube placeholder shows the still its CDN names by the id. A Vimeo one shows the title alone. `fsr build --verbose` names each such `<Embed>` with an `embed` row. The player always comes from the provider, since that is where the video is.
 
 The player loads from `youtube-nocookie.com`, YouTube's domain for embeds that sets no cookie until the video plays.
 

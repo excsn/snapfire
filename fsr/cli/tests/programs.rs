@@ -40,10 +40,14 @@ fn project(tag: &str, build: &str, programs: &[&str]) -> PathBuf {
 }
 
 fn fsr_build(root: &Path, fail: Option<&str>) -> std::process::Output {
+  fsr_build_with(root, fail, &[])
+}
+
+fn fsr_build_with(root: &Path, fail: Option<&str>, args: &[&str]) -> std::process::Output {
   let snapfire = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug");
   let path = format!("{}:{}", snapfire.display(), std::env::var("PATH").unwrap_or_default());
   let mut command = Command::new(env!("CARGO_BIN_EXE_fsr"));
-  command.arg("build").arg(root.join("app")).env("PATH", path).env("CARGO_TARGET_DIR", root.join("target"));
+  command.arg("build").arg(root.join("app")).args(args).env("PATH", path).env("CARGO_TARGET_DIR", root.join("target"));
   if let Some(name) = fail {
     command.env("FAIL", name);
   }
@@ -57,7 +61,7 @@ fn ran(root: &Path) -> String {
 #[test]
 fn fsr_build_runs_before_ahead_of_the_app_and_after_once_it_is_built() {
   let root = project("order", "before = [\"one\", \"two\"]\nafter = [\"three\"]", &["one", "two", "three"]);
-  let out = fsr_build(&root, None);
+  let out = fsr_build_with(&root, None, &["--verbose"]);
   let stdout = String::from_utf8_lossy(&out.stdout);
   assert!(out.status.success(), "{stdout}{}", String::from_utf8_lossy(&out.stderr));
   let app = root.join("app").canonicalize().unwrap().display().to_string();
@@ -121,4 +125,24 @@ fn a_relative_app_path_reaches_the_program_absolute() {
   assert!(out.status.success(), "{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
   assert_eq!(ran(&root), format!("one built=true app={}\n", root.join("app").canonicalize().unwrap().display()));
   let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_build_prints_only_what_needs_attention_and_verbose_prints_the_rest() {
+  let root = project("quiet", "", &[]);
+  let quiet = fsr_build(&root, None);
+  let stdout = String::from_utf8_lossy(&quiet.stdout).into_owned();
+  assert!(quiet.status.success(), "{stdout}{}", String::from_utf8_lossy(&quiet.stderr));
+  let fresh = project("verbose", "", &[]);
+  std::fs::create_dir_all(fresh.join("app/images")).unwrap();
+  std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples/noticeboard_tera/app/images/board.png"), fresh.join("app/images/board.png")).unwrap();
+  let verbose = fsr_build_with(&fresh, None, &["--verbose"]);
+  let loud = String::from_utf8_lossy(&verbose.stdout).into_owned();
+  assert!(verbose.status.success(), "{loud}{}", String::from_utf8_lossy(&verbose.stderr));
+  for noise in ["snapfirec started", "Compiling TS", "wrote ", "routes    ", "plan      ", "typecheck ", "derived   "] {
+    assert!(!stdout.contains(noise), "`{noise}` without --verbose: {stdout}");
+    assert!(loud.contains(noise), "`{noise}` under --verbose: {loud}");
+  }
+  let _ = std::fs::remove_dir_all(&root);
+  let _ = std::fs::remove_dir_all(&fresh);
 }

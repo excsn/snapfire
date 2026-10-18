@@ -89,3 +89,19 @@ fn two_pages_over_one_leaf_are_one_cause() {
   assert!(printed.contains("1 module renders in the browser for it"), "{printed}");
   assert_eq!(printed.matches("`.normalize()`").count(), 1, "the message is printed once, not once per page\n{printed}");
 }
+
+#[test]
+fn the_report_prints_what_renders_in_the_browser_and_verbose_adds_what_lowered() {
+  let built = built(
+    "verbose",
+    &[("src/ui/Stars.tsx", STARS), ("src/ui/Header.tsx", HEADER), ("routes/page.tsx", &page("Index"))],
+  );
+  let quiet = built.report.to_string();
+  assert!(quiet.lines().any(|l| l.contains("src/ui/Stars.tsx#Stars") && l.contains("client")), "{quiet}");
+  assert!(quiet.contains("1 module renders in the browser for it"), "{quiet}");
+  assert!(!quiet.contains("src/ui/Header.tsx#Header"), "a lowered module is printed under verbose only\n{quiet}");
+
+  let verbose = built.report.verbose().to_string();
+  assert!(verbose.lines().any(|l| l.contains("src/ui/Header.tsx#Header") && l.contains("lowered")), "{verbose}");
+  assert!(verbose.lines().any(|l| l.contains("src/ui/Stars.tsx#Stars") && l.contains("client")), "{verbose}");
+}

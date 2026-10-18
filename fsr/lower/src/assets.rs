@@ -59,6 +59,15 @@ impl ImageFacts {
   }
 }
 
+/// The player each provider serves, autoplaying since the visitor's click is
+/// the play: the provider, the URL before the id and the URL after it.
+pub const EMBED_PLAYERS: [(&str, &str, &str); 2] = [("youtube", "https://www.youtube-nocookie.com/embed/", "?autoplay=1"), ("vimeo", "https://player.vimeo.com/video/", "?autoplay=1")];
+
+/// The provider whose player `url` is, read from its start.
+pub fn embed_provider(url: &str) -> Option<&'static str> {
+  EMBED_PLAYERS.iter().find(|(_, before, _)| url.starts_with(before)).map(|(provider, _, _)| *provider)
+}
+
 /// YouTube's still: the URL before the id, the URL after it, the width and the height.
 pub const YOUTUBE_STILL: (&str, &str, u32, u32) = ("https://i.ytimg.com/vi/", "/hqdefault.jpg", 480, 360);
 

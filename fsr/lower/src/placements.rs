@@ -415,14 +415,8 @@ fn picture_quality<'p>(cx: &mut impl Placer<'p>, attr: &Attr<'_>) -> Lowered<std
 /// The attribute every embed placeholder carries: the player URL the click swaps in.
 pub const EMBED_ATTR: &str = "data-sf-embed";
 
-/// The player each provider serves, autoplaying since the visitor's click is
-/// the play, as the URL before the id and the URL after it.
 fn embed_player(provider: &str) -> Option<(&'static str, &'static str)> {
-  match provider {
-    "youtube" => Some(("https://www.youtube-nocookie.com/embed/", "?autoplay=1")),
-    "vimeo" => Some(("https://player.vimeo.com/video/", "?autoplay=1")),
-    _ => None,
-  }
+  crate::assets::EMBED_PLAYERS.iter().find(|(name, _, _)| *name == provider).map(|(_, before, after)| (*before, *after))
 }
 
 /// `before`, the id and `after` as one string: written out for an id the build

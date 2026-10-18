@@ -38,11 +38,10 @@ The build reads the import and asks `snapfirec-vue` to describe the file: the te
 A component the build cannot read stays foreign: the server writes the `<sf-i>` empty with its props and Vue mounts it fresh. The report says which and why, with the line:
 
 ```text
-rendered  src/ui/Box.vue#default             foreign     src/ui/Box.vue:5:18
-foreign   src/ui/Box.vue:5:18                `v-model`
-          bind `:value` for the markup and handle the input event in the browser; two-way binding is not lowered
+rendered  src/ui/Tonight.vue#default         foreign     src/ui/Tonight.vue:10:1
+foreign   src/ui/Tonight.vue:10:1            a class in `<script setup>`
           1 component mounts in the browser for it, written empty by the server
-            src/ui/Box.vue#default
+            src/ui/Tonight.vue#default
 ```
 
 What lowers is the subset a server can evaluate. In `<script setup>`: `defineProps`, with `withDefaults` around it, `ref`, `shallowRef`, `computed` of an arrow, `reactive`, `useStore` from `@snapfire/fsr-client/vue`, a `const` bound to an expression the build reads and functions, which an `@event` can name as its handler. Lifecycle and watch calls are the browser's and are passed over. In the template: interpolation, `v-if`, `v-else-if` and `v-else`, `v-for` over a list with an item and an index, a bound attribute, `:class` as a string, an array or an object, `:style`, `v-show`, `v-html`, `v-text` and a plain `<slot />`. `v-model` on an input, a checkbox, a radio, a textarea, a select or a `.vue` child writes the value Vue's server renderer writes and the browser keeps them in step; a child reads it with `defineModel`. `v-bind` of a whole object, named and scoped slots between `.vue` files and `provide` with `inject` lower too. Outside that is residue: a component placed inside the template that is not a `.vue` file the script imports, `v-slot`, a `<script>` without `setup`. The residue names its line in the `.vue` file.
@@ -123,7 +122,7 @@ A mounter is imported only when a registered module wants it, which is what keep
 
 The stylesheets reach the head before the first island mounts. The compiler lists them in `dist/.snapfire-build.json` under `styles`; the host reads that file at boot and links each one after the application's own `styles/*.css`, so a component's rules come later in the cascade than the document's.
 
-Unchanged components are not compiled twice. The plugin's output is cached on the worker's own version, the source, the options and every sibling file the component read, in memory across a watch and on disk in the output directory. The build says how much of it the cache answered:
+Unchanged components are not compiled twice. The plugin's output is cached on the worker's own version, the source, the options and every sibling file the component read, in memory across a watch and on disk in the output directory. `fsr build --verbose` says how much of it the cache answered:
 
 ```text
    Plugin:   snapfirec-vue 0.1.0 (@vue/compiler-sfc 3.5.13)
@@ -134,7 +133,7 @@ A block may point at a sibling, `<style src="./Tonight.css" scoped>`. The plugin
 
 ## Why the page loads no React
 
-A template with no state and no handlers has nothing for the browser to change. The build marks it `static` in the report: it has no browser twin, it is not in the island registry, it is not compiled and the server writes its markup with no island marker around it. The islands inside it are mounted by the document's own scan. That is what lets the recipes application's bundle be `src/**/*` and two generated files, with the client, its store, its Vue adapter and `vue` as its only externals:
+A template with no state and no handlers has nothing for the browser to change. The build marks it `static` in the `--verbose` report: it has no browser twin, it is not in the island registry, it is not compiled and the server writes its markup with no island marker around it. The islands inside it are mounted by the document's own scan. That is what lets the recipes application's bundle be `src/**/*` and two generated files, with the client, its store, its Vue adapter and `vue` as its only externals:
 
 ```text
 rendered  routes/layout.tsx#default          lowered     static
@@ -152,7 +151,7 @@ Run `fsr build app` in the recipes example and read `app/generated/islands.ts`: 
 
 Take `snapfirec-vue` off `PATH` and build again. The bundle stops on the modules the registry imports and the report still prints, with a `plugins` row naming the binary and the install command. The three components are missing from `rendered` altogether rather than listed foreign, since nothing read them.
 
-Give `Tonight.vue` a `v-model` on an input. The report keeps the page `static`, marks the component `foreign` with the line and the bundle compiles it as before: the panel mounts fresh and everything else on the page is as it was.
+Give `Tonight.vue` a class in its `<script setup>`. `fsr build --verbose` keeps the page `static`, marks the component `foreign` with the line and the bundle compiles it as before: the panel mounts fresh and everything else on the page is as it was.
 
 Put an unclosed tag in `Scaler.vue` and build. The plugin's diagnostic names the file and the line, the other two components compile and the build stops.
 

@@ -1178,20 +1178,30 @@ pub fn embed_players(tmpl: &Tmpl) -> Vec<String> {
   literal_attrs(tmpl, &|_| true, "data-sf-embed")
 }
 
+/// The start of the player URL of every embed placeholder in `tmpl` whose id the render computes.
+pub fn computed_embed_players(tmpl: &Tmpl) -> Vec<String> {
+  attr_values(tmpl, &|_| true, "data-sf-embed").into_iter().filter_map(|(text, computed)| computed.then_some(text)).collect()
+}
+
 /// The string value of `name` on every element `tag_matches` takes, in the order written.
 /// A template whose first part is a string gives that part, which holds the URL's origin.
 fn literal_attrs(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> Vec<String> {
-  fn walk(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str, out: &mut Vec<String>) {
+  attr_values(tmpl, tag_matches, name).into_iter().map(|(text, _)| text).collect()
+}
+
+/// `literal_attrs` with whether each value is a template the render fills.
+fn attr_values(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> Vec<(String, bool)> {
+  fn walk(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str, out: &mut Vec<(String, bool)>) {
     match tmpl {
       Tmpl::Element { tag, attrs, children } => {
         if tag_matches(tag) {
           for entry in attrs {
             if let Entry::Field(field, expr) = entry {
               let text = match expr {
-                Expr::Lit(Lit::Str(s)) => Some(s.clone()),
-                Expr::Folded(snapfire_fsr_core::value::Value::Str(s)) => Some(s.to_string()),
+                Expr::Lit(Lit::Str(s)) => Some((s.clone(), false)),
+                Expr::Folded(snapfire_fsr_core::value::Value::Str(s)) => Some((s.to_string(), false)),
                 Expr::Template(parts) => match parts.first() {
-                  Some(Expr::Lit(Lit::Str(s))) => Some(s.clone()),
+                  Some(Expr::Lit(Lit::Str(s))) => Some((s.clone(), true)),
                   _ => None,
                 },
                 _ => None,

@@ -37,7 +37,7 @@ The language grows when an application shows a body that needs a construct and c
 
 ## The report
 
-Every name the application declares appears in the report with who answers it:
+`fsr build --verbose` lists every name the application declares with who answers it:
 
 ```
 sources   $root                  lowered     routes/page.loader.ts
@@ -45,7 +45,7 @@ sources   $root                  lowered     routes/page.loader.ts
 actions   cart.addToCart         lowered     routes/cart/actions.ts
 ```
 
-The build prints it after lowering and the host prints it at boot, from the same data, so what a developer saw is what runs. `lowered` means the body is IR and the interpreter runs it. `rust` means a Rust function answers the name and the plan file only declares it. `rust override` means the plan file lowered a body and Rust took the name back deliberately, which [chapter 201](201-graduating-to-rust.md) covers with the rule that makes the override explicit.
+The build prints these rows under `--verbose` and the host prints them at boot, from the same data, so what a developer saw is what runs. `lowered` means the body is IR and the interpreter runs it. `rust` means a Rust function answers the name and the plan file only declares it. `rust override` means the plan file lowered a body and Rust took the name back deliberately, which [chapter 201](201-graduating-to-rust.md) covers with the rule that makes the override explicit.
 
 The report is the only place placement is decided and it is derived from the artifacts. No configuration moves a body somewhere else and no annotation changes where it runs.
 
@@ -61,6 +61,6 @@ A Rust function that answers the same name looks like the same rows from the cal
 
 ## The lab
 
-Wrap the cart loader's service call in `try { ... } catch { ... }` and run `fsr check app`. The build stops at the line with the word `try`. Remove it and the report shows `cart` as `lowered` again.
+Wrap the cart loader's service call in `try { ... } catch { ... }` and run `fsr check app`. The build stops at the line with the word `try`. Remove it and `fsr build --verbose app` shows `cart` as `lowered` again.
 
 Then break a call instead: change `listProducts` to `listProduct` and check again. This time the contract refuses the method by name before anything is lowered, since the runtime could never answer a call to a method the contract does not have.

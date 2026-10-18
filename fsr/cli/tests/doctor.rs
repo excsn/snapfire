@@ -670,3 +670,17 @@ fn an_avif_original_carrying_metadata_is_reported_since_the_build_does_not_strip
   assert!(!findings(&with_avif("", false)).contains(&"images".to_owned()), "an AVIF with nothing to strip is fine");
   assert!(!findings(&with_avif("[images]\nstrip = false\n", true)).contains(&"images".to_owned()), "an application serving its originals as saved chose to");
 }
+
+#[test]
+fn verbose_names_each_check_that_found_nothing() {
+  let dir = app("", &[]);
+  let out = doctor::run(&dir).unwrap();
+  assert!(out.is_clean(), "{out}");
+  let quiet = out.to_string();
+  let verbose = out.verbose().to_string();
+  for check in &out.clean {
+    assert!(verbose.lines().any(|l| l.starts_with(check) && l.ends_with("nothing to report")), "{check}: {verbose}");
+  }
+  assert_eq!(quiet.lines().count(), 1, "{quiet}");
+  assert!(verbose.ends_with(&quiet), "{verbose}");
+}

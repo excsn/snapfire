@@ -20,7 +20,7 @@ For a React component the output follows React's own server renderer in the plac
 
 That fidelity is measured. A bench renders each of those pages twice, once through the interpreter and once through React's own `renderToString` in the QuickJS the test runner already embeds and fails on any byte of difference before it reports a number. The numbers are another reason to keep the interpreter: it is currently 1.8x ahead of React in QuickJS on the catalog and about 3.7x on the two small pages and a fresh QuickJS context costs around 20 ms to bring up before it renders anything, which is what an isolate-per-request design would pay. [docs/benches/render.md](../benches/render.md) has the method, what it does not measure and every run kept.
 
-A component runs on the server when the build could read it. The report says which ones it could:
+A component runs on the server when the build could read it. `fsr build --verbose` lists the ones it could:
 
 ```
 rendered  routes/page.tsx#default            lowered
@@ -31,9 +31,7 @@ rendered  routes/page.tsx#default            lowered
 A component it could not read is marked `client`, pointing at the residue that decided it. The page placing it still lowers: the component becomes a React island. In an application without React nothing could run it, so the build stops and says to make it lower or to write it as a Vue or Svelte component or a custom element. A `client` section below states each such residue once, with the rewrite that does the same thing in the IR and the tag that places the component, so when the cause is three files below a page the report gives you the path to it:
 
 ```
-rendered  routes/page.tsx#default            lowered
-          src/ui/Header.tsx#Header           lowered
-          src/ui/Stars.tsx#Stars             client      src/ui/Stars.tsx:12:19
+rendered  src/ui/Stars.tsx#Stars             client      src/ui/Stars.tsx:12:19
 client    src/ui/Stars.tsx:12:19             `.normalize()`, which is not a builtin
           the builtins are `map`, `filter`, ...; anything else goes in a module-level helper the build can read
           1 module renders in the browser for it
@@ -52,9 +50,9 @@ Navigation between routes fetches the same tree in its wire form rather than as 
 
 ## Static templates
 
-A template with no state and no handlers of its own has nothing for the browser to change. The build marks it `static` in the report, writes no browser twin for it and leaves it out of the island registry; the server writes its markup with no island marker around it. A component with state that it renders inline is placed as an island of its own, so the template stays static whatever it renders. The islands inside it are mounted by the document's own scan. The storefront's catalog page and its layout are both static: each product card is an island and so is the header. An application whose templates are all static loads no framework for them, which is what lets the recipes example ship Vue islands and no React; chapter 104 is that application.
+A template with no state and no handlers of its own has nothing for the browser to change. The build marks it `static` in the `--verbose` report, writes no browser twin for it and leaves it out of the island registry; the server writes its markup with no island marker around it. A component with state that it renders inline is placed as an island of its own, so the template stays static whatever it renders. The islands inside it are mounted by the document's own scan. The storefront's catalog page and its layout are both static: each product card is an island and so is the header. An application whose templates are all static loads no framework for them, which is what lets the recipes example ship Vue islands and no React; chapter 104 is that application.
 
-A page or a layout ends up static too, because the build moves what only a framework can run out of it. The smallest part of its markup that uses its state, handlers or effects becomes an island module beside it, `page.island0.tsx`, which exists only in the bundle overlay. The page places that island with the values it reads as props. The report lists each split under `extracted`:
+A page or a layout ends up static too, because the build moves what only a framework can run out of it. The smallest part of its markup that uses its state, handlers or effects becomes an island module beside it, `page.island0.tsx`, which exists only in the bundle overlay. The page places that island with the values it reads as props. `fsr build --verbose` lists each split under `extracted`:
 
 ```
 extracted routes/talk/[id]/page.tsx#default  routes/talk/[id]/page.island0.tsx#default (clashes, setClashes)
@@ -68,7 +66,7 @@ A static segment is still kept across navigation, since a segment's digest is of
 
 Hydration is React running an island's component again to find out where its handlers go and every helper on the render path runs with it: `money`, `percentOff`, `categoryLabel`, once in Rust for the markup and once in the browser for a tree React then discards. The two have to agree byte for byte, so the browser computes an answer the server already had.
 
-Instead, the server sends the computed values. A call whose inputs are props only, nothing that reaches a `useState`, a store key or the request, is computed once in Rust and delivered beside the props under `$h`, keyed by the module, the call and the loop it sits in. The build writes a copy of the component for the bundle in which that call reads the delivered value and keeps the original as its fallback and snapfirec compiles the copy in place of the source. A whole subtree goes the same way when nothing in it can change in the browser, meaning it has no handler, state or island: the server records its markup and the browser hands it to React as the element's inner HTML, so React renders nothing inside it and hydrates nothing inside it. The copy holds no code for such a subtree at all, since the server always renders it, so the modules only it reached stop shipping. The catalog's product cards are such subtrees. What is left for React to compute at hydration is what can actually change in the browser and the report counts the rest:
+Instead, the server sends the computed values. A call whose inputs are props only, nothing that reaches a `useState`, a store key or the request, is computed once in Rust and delivered beside the props under `$h`, keyed by the module, the call and the loop it sits in. The build writes a copy of the component for the bundle in which that call reads the delivered value and keeps the original as its fallback and snapfirec compiles the copy in place of the source. A whole subtree goes the same way when nothing in it can change in the browser, meaning it has no handler, state or island: the server records its markup and the browser hands it to React as the element's inner HTML, so React renders nothing inside it and hydrates nothing inside it. The copy holds no code for such a subtree at all, since the server always renders it, so the modules only it reached stop shipping. The catalog's product cards are such subtrees. What is left for React to compute at hydration is what can actually change in the browser and `fsr build --verbose` counts the rest:
 
 ```
 hoisted   src/ui/ProductCard.tsx#ProductCard 5 values, 5 subtrees

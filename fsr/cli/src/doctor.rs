@@ -55,11 +55,23 @@ impl Report {
   }
 }
 
-impl std::fmt::Display for Report {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+/// The report with a line for each check that found nothing, `--verbose`.
+pub struct Verbose<'r>(&'r Report);
+
+impl Report {
+  pub fn verbose(&self) -> Verbose<'_> {
+    Verbose(self)
+  }
+
+  fn write(&self, f: &mut std::fmt::Formatter<'_>, verbose: bool) -> std::fmt::Result {
     for finding in &self.findings {
       writeln!(f, "{:<12} {}", finding.check, finding.what)?;
       writeln!(f, "{:<12} {}", "", finding.remedy)?;
+    }
+    if verbose {
+      for check in &self.clean {
+        writeln!(f, "{check:<12} nothing to report")?;
+      }
     }
     if self.findings.is_empty() {
       writeln!(f, "{:<12} {} checks, nothing to report", "doctor", self.clean.len())?;
@@ -73,6 +85,18 @@ impl std::fmt::Display for Report {
       )?;
     }
     Ok(())
+  }
+}
+
+impl std::fmt::Display for Report {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.write(f, false)
+  }
+}
+
+impl std::fmt::Display for Verbose<'_> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    self.0.write(f, true)
   }
 }
 

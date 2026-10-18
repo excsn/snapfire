@@ -129,6 +129,9 @@ struct Build {
   /// The compiler that bundles the application.
   #[arg(long)]
   snapfirec: Option<PathBuf>,
+  /// Prints what lowered as well as what renders in the browser.
+  #[arg(long)]
+  verbose: bool,
   #[command(flatten)]
   typecheck: TypecheckFlags,
 }
@@ -158,6 +161,9 @@ struct Check {
   /// The slot of the shell the routes fill.
   #[arg(long)]
   slot: Option<String>,
+  /// Prints what lowered as well as what renders in the browser.
+  #[arg(long)]
+  verbose: bool,
   #[command(flatten)]
   typecheck: TypecheckFlags,
 }
@@ -232,6 +238,9 @@ struct Bundle {
 struct Doctor {
   /// The application directory.
   app_dir: PathBuf,
+  /// Names each check that found nothing as well.
+  #[arg(long)]
+  verbose: bool,
 }
 
 #[derive(Args)]
@@ -446,6 +455,7 @@ impl Dev {
 impl Build {
   fn options(&self) -> DevOptions {
     let mut options = DevOptions::beside(&self.app_dir);
+    options.verbose = self.verbose;
     if let Some(shell) = &self.shell {
       options.build.shell = shell.clone();
     }
@@ -496,12 +506,14 @@ fn list_against(shell: &Path, hosts: &[String], headers: &[(String, String)]) ->
 }
 
 /// The typecheck rows of a report and the exit code the diagnostics call for.
-fn types_row(checked: Option<&typecheck::Checked>) -> ExitCode {
+fn types_row(checked: Option<&typecheck::Checked>, verbose: bool) -> ExitCode {
   let Some(checked) = checked else { return ExitCode::SUCCESS };
   for diagnostic in &checked.diagnostics {
     println!("{diagnostic}");
   }
-  println!("typecheck {}", checked.row());
+  if verbose || !checked.diagnostics.is_empty() {
+    println!("typecheck {}", checked.row());
+  }
   if let Some(path) = &checked.recorded {
     println!("recorded  typecheck.version = \"{}\" in {}", checked.version, path.display());
   }
@@ -564,18 +576,21 @@ fn main() -> ExitCode {
     },
     Command::Bundle(args) => run_bundle(args),
     Command::Build(args) => {
-      let programs = snapfire_fsr_cli::dev::programs_of(&args.app_dir);
+      let mut programs = snapfire_fsr_cli::dev::programs_of(&args.app_dir);
+      programs.verbose = args.verbose;
       let mut declared = std::collections::BTreeMap::new();
       if let Err(e) = snapfire_fsr_cli::dev::run_programs("before", &programs.before, &programs, &mut declared) {
         return failed(e);
       }
       match emit(&args.app_dir, args.options()) {
         Ok(emitted) => {
-          print!("{}", emitted.built.report);
-          for path in emitted.written {
-            println!("wrote {}", path.display());
+          snapfire_fsr_cli::dev::print_report(&emitted.built.report, args.verbose);
+          if args.verbose {
+            for path in emitted.written {
+              println!("wrote {}", path.display());
+            }
           }
-          let code = types_row(emitted.checked.as_ref());
+          let code = types_row(emitted.checked.as_ref(), args.verbose);
           match snapfire_fsr_cli::dev::run_programs("after", &programs.after, &programs, &mut declared) {
             Ok(()) => code,
             Err(e) => failed(e),
@@ -586,7 +601,11 @@ fn main() -> ExitCode {
     }
     Command::Doctor(args) => match doctor::run(&snapfire_fsr_cli::serve::project_root(&args.app_dir)) {
       Ok(report) => {
-        print!("{report}");
+        if args.verbose {
+          print!("{}", report.verbose());
+        } else {
+          print!("{report}");
+        }
         if report.is_clean() { ExitCode::SUCCESS } else { ExitCode::from(1) }
       }
       Err(e) => {
@@ -716,8 +735,8 @@ fn run_check(args: Check) -> ExitCode {
   }
   let mut typecheck = Typecheck::beside(&args.app_dir);
   args.typecheck.apply(&mut typecheck);
-  match check(&args.app_dir, &options, &typecheck, |built| print!("{}", built.report)) {
-    Ok((_, checked)) => types_row(checked.as_ref()),
+  match check(&args.app_dir, &options, &typecheck, |built| snapfire_fsr_cli::dev::print_report(&built.report, args.verbose)) {
+    Ok((_, checked)) => types_row(checked.as_ref(), args.verbose),
     Err(e) => failed(e),
   }
 }

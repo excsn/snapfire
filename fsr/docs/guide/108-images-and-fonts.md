@@ -40,7 +40,7 @@ formats = ["avif", "webp"]
 quality = { avif = 60, webp = 80 }
 ```
 
-Those are the defaults; an application that writes nothing gets them. An image gets every policy width below its own, then its own, so a 400px logo gets one variant and a 4000px hero six. Nothing is ever upscaled. Each variant is named with the source's hash, so the second build writes nothing and a dev save costs nothing after the first; the report says what it wrote:
+Those are the defaults; an application that writes nothing gets them. An image gets every policy width below its own, then its own, so a 400px logo gets one variant and a 4000px hero six. Nothing is ever upscaled. Each variant is named with the source's hash, so the second build writes nothing and a dev save costs nothing after the first; `fsr build --verbose` says what it wrote:
 
 ```text
 image     src/img/hero.png                   1600x900, 8 variants

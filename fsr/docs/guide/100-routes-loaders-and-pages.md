@@ -8,7 +8,7 @@ The question this chapter answers: how does a directory become a route, where do
 
 Everything under `app/routes/` is a route when it holds a `page.tsx`. The directory's path is the pattern, with no name treated specially: `routes/` itself is `/`, `routes/cart/` is `/cart`, `routes/index/` is `/index`, `routes/product/[id]/` is `/product/{id}` with `id` a parameter; `[...rest]` at the end catches the remainder. A directory without a page is not a route, so a shared folder can live in the tree without becoming a URL. A directory named in parentheses, `routes/(marketing)/`, is a group: it adds nothing to the URL, so `routes/(marketing)/about/` is `/about`. Its `layout.tsx` wraps only the routes beneath it. Two groups give one URL space two layouts with no prefix to tell them apart. Two routes in different groups that answer the same URL are refused, naming both directories. Names derive from paths and nothing is named twice: the loader in `routes/cart/` is the source `cart` and the one in `routes/` is `$root`, a name no directory can produce; an action exported from `routes/cart/actions.ts` as `addToCart` is `cart.addToCart`.
 
-Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` (plus an `error.<kind>.tsx` per failure kind) and a `loading.tsx`. The build discovers them all, so adding the file registers it. A `layout.tsx` in any directory on the way wraps the pages beneath it, with its own `layout.loader.ts`. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. The report lists the pattern beside the directory:
+Beside the page a route may have a `page.loader.ts`, an `actions.ts`, an `error.tsx` (plus an `error.<kind>.tsx` per failure kind) and a `loading.tsx`. The build discovers them all, so adding the file registers it. A `layout.tsx` in any directory on the way wraps the pages beneath it, with its own `layout.loader.ts`. At the top of `routes/`, beside the shared `error.tsx`, a `not-found.tsx` is the page for a path nothing matches. `fsr build --verbose` lists the pattern beside the directory:
 
 ```
 routes    /                      routes
@@ -16,7 +16,7 @@ routes    /                      routes
           /product/{id}          routes/product/[id]
 ```
 
-A page does not have to be TSX. A directory may hold `page.tera` in place of `page.tsx` and a layout directory `layout.tera` in place of `layout.tsx`; one of each, since a directory holding both is refused naming the two files. A template is not lowered and not bundled. The stock host reads it from the file and renders it itself, with the loader's return as its context, so `page.loader.ts` and `actions.ts` sit beside it exactly as they sit beside a `page.tsx` and are lowered the same way. The report lists such a module as `template` where a TSX page is `lowered`. It needs an `fsr` built with the `tera` feature, which the published binary is; without it a `page.tera` is refused naming the feature rather than ignored. Chapter 105 has a complete application written that way.
+A page does not have to be TSX. A directory may hold `page.tera` in place of `page.tsx` and a layout directory `layout.tera` in place of `layout.tsx`; one of each, since a directory holding both is refused naming the two files. A template is not lowered and not bundled. The stock host reads it from the file and renders it itself, with the loader's return as its context, so `page.loader.ts` and `actions.ts` sit beside it exactly as they sit beside a `page.tsx` and are lowered the same way. `fsr build --verbose` lists such a module as `template` where a TSX page is `lowered`. It needs an `fsr` built with the `tera` feature, which the published binary is; without it a `page.tera` is refused naming the feature rather than ignored. Chapter 105 has a complete application written that way.
 
 ## What a route is called
 
@@ -234,7 +234,7 @@ import { Link } from "@snapfire/fsr-client/react";
 <Link href={`/product/${id}`} full>Full details</Link>
 ```
 
-The report lists each slot under `slots` by its source id and each intercept under `intercepts` as the pattern and the slot it opens in. A route may carry a variant per slot, `page.modal.tsx` and `page.drawer.tsx` side by side and the one that opens is whichever comes first in file order with a slot the live layout declares, unless a link's `into` names one. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
+`fsr build --verbose` lists each slot under `slots` by its source id and each intercept under `intercepts` as the pattern and the slot it opens in. A route may carry a variant per slot, `page.modal.tsx` and `page.drawer.tsx` side by side and the one that opens is whichever comes first in file order with a slot the live layout declares, unless a link's `into` names one. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
 
 ## The current page in a nav
 

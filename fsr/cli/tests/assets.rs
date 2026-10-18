@@ -96,7 +96,7 @@ fn the_build_sees_the_image_and_the_fonts_and_writes_the_manifest_the_plan_rows_
   let head_at = text.find("(head link").expect("the row is printed");
   assert!(text[head_at..].trim_start_matches("(head link").trim_start().starts_with("\"rel\""), "{}", &text[head_at..head_at + 80]);
 
-  let report = built.report.to_string();
+  let report = built.report.verbose().to_string();
   assert!(report.contains("image     src/img/hero.png"), "{report}");
   assert!(report.contains("160x100, 4 variants"), "{report}");
   assert!(report.contains("font      Inter 700 normal from fonts/Inter-Bold.woff2"), "{report}");
