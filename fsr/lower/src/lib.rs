@@ -2492,6 +2492,11 @@ impl<'a> Lowerer<'a> {
               return Err(self.residue(a.expr.span(), "`toLocaleString` with a locale other than \"en-US\""));
             }
           }
+          if call.args.len() > 1 {
+            let value = args.remove(0);
+            let formatted = self.intl_format("NumberFormat", &call.args, value, call.span)?;
+            return Ok(self.candidate(call.span, formatted));
+          }
           return Ok(self.candidate(call.span, Expr::Builtin { name, args }));
         }
         for a in &call.args {

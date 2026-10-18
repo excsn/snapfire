@@ -51,6 +51,17 @@ fn a_locale_written_in_the_code_formats_under_it() {
 }
 
 #[test]
+fn to_locale_string_reads_its_options_as_number_format_does() {
+  assert_eq!(page("{(100000).toLocaleString(\"en-US\", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}").as_deref(), Ok("<p>100,000.00</p>"));
+  assert_eq!(page("{(1234.5678).toLocaleString(\"en-US\", { maximumFractionDigits: 1 })}").as_deref(), Ok("<p>1,234.6</p>"));
+  assert_eq!(page("{(9999).toLocaleString(\"en-US\", { style: \"currency\", currency: \"USD\" })}").as_deref(), Ok("<p>$9,999.00</p>"));
+  assert_eq!(page("{(1234567).toLocaleString()}").as_deref(), Ok("<p>1,234,567</p>"));
+  assert_eq!(page("{(1234567).toLocaleString(\"en-US\")}").as_deref(), Ok("<p>1,234,567</p>"));
+  let out = page("{(0.5).toLocaleString(\"en-US\", { style: \"percent\" })}");
+  assert!(out.as_ref().is_err_and(|e| e.contains("`style`")), "{out:?}");
+}
+
+#[test]
 fn a_currency_writes_its_symbol_unless_the_code_is_asked_for() {
   assert_eq!(page("{new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\", minimumFractionDigits: 0 }).format(9999)}").as_deref(), Ok("<p>$9,999</p>"));
   assert_eq!(page("{new Intl.NumberFormat(\"en-US\", { style: \"currency\", currency: \"USD\" }).format(1234.5)}").as_deref(), Ok("<p>$1,234.50</p>"));
