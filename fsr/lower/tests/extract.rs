@@ -191,6 +191,32 @@ fn what_the_lowerer_cannot_read_in_a_page_body_moves_with_the_markup_that_shows_
 }
 
 #[test]
+fn what_the_lowerer_cannot_read_in_a_helper_moves_with_the_markup_that_calls_it() {
+  let page = r#"export default function Venue({ venue }: { venue: string }) {
+  return (
+    <section>
+      <h2>{venue}</h2>
+      <p className="clock">You are in {label()}.</p>
+    </section>
+  );
+}
+
+function label() {
+  return zone();
+}
+
+function zone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+"#;
+  let mut set = set(&[("routes/venue/page.tsx", page)]);
+  let extracted = set.lower_route("routes/venue/page.tsx#default").unwrap().expect("the call moved");
+  assert!(extracted.source.contains("function label()") && extracted.source.contains("function zone()"), "the island takes both helpers: {}", extracted.source);
+  assert!(extracted.page.1.contains("<p className=\"clock\">You are in <SfIsland />.</p>"), "{}", extracted.page.1);
+  assert!(extracted.page.1.contains("<h2>{venue}</h2>"), "the rest of the page stays composition: {}", extracted.page.1);
+}
+
+#[test]
 fn a_route_whose_second_extraction_does_not_lower_keeps_the_island_its_first_one_wrote() {
   let loading = r#"import { useTranslations } from "i18n-lib";
 import { home } from "urls-lib";

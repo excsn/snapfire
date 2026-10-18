@@ -200,6 +200,58 @@ struct Line<'a> {
   function: bool,
 }
 
+/// Where the default export reaches `offset`: `offset` itself when it lies in
+/// the export's body, else the first reference in the body to the
+/// module-level function holding it, followed through the module-level
+/// functions between. `None` when the body never reaches it.
+pub(crate) fn page_offset(parsed: &Parsed, offset: usize) -> Option<usize> {
+  let body = match find_function(parsed, "default")? {
+    Found::Declared(_, _, span) => parsed.range(span),
+    Found::Arrow(arrow) => parsed.range(arrow.span),
+  };
+  if body.contains(&offset) {
+    return Some(offset);
+  }
+  let mut functions: Vec<(String, Range<usize>)> = Vec::new();
+  for item in &parsed.module.body {
+    let decl = match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
+      _ => continue,
+    };
+    match decl {
+      js::Decl::Fn(f) => functions.push((f.ident.sym.to_string(), parsed.range(f.function.span))),
+      js::Decl::Var(var) => {
+        for d in &var.decls {
+          if let (js::Pat::Ident(id), Some(init @ (js::Expr::Arrow(_) | js::Expr::Fn(_)))) = (&d.name, d.init.as_deref()) {
+            functions.push((id.id.sym.to_string(), parsed.range(init.span())));
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  struct Refs<'a>(&'a Parsed, Vec<(String, usize)>);
+  impl Visit for Refs<'_> {
+    fn visit_ident(&mut self, ident: &js::Ident) {
+      self.1.push((ident.sym.to_string(), self.0.range(ident.span).start));
+    }
+  }
+  let mut refs = Refs(parsed, Vec::new());
+  parsed.module.visit_with(&mut refs);
+  let mut at = offset;
+  let mut seen: Vec<String> = Vec::new();
+  loop {
+    let (name, range) = functions.iter().find(|(name, range)| range.contains(&at) && !seen.contains(name))?.clone();
+    let uses = |within: &Range<usize>| refs.1.iter().filter(|(n, o)| *n == name && within.contains(o) && !range.contains(o)).map(|(_, o)| *o).min();
+    if let Some(found) = uses(&body) {
+      return Some(found);
+    }
+    seen.push(name.clone());
+    at = functions.iter().filter(|(other, _)| !seen.contains(other)).find_map(|(_, within)| uses(within))?;
+  }
+}
+
 /// Splits `file`'s default export, a page or a layout, into composition and
 /// an island. `None` when it holds nothing a framework has to run. `slots` are
 /// the layout's slot props, which composition fills and an island cannot take.

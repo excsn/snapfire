@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use snapfire_compiler_wire::Described;
-use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Owner, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{ArithOp, Builtin, CompareOp, Component, Consts, Entry, Expr, Handler, Lit, LogicOp, Owner, Stmt, Tmpl};
 use snapfire_fsr_ir::render::{html_attr_name, CONTEXT_PREFIX, HANDLER_ATTR, KEY_ATTR, RAW_ATTR, SERVER_MODE, TYPES_PROP, UNLOWERED_ATTR};
 use snapfire_fsr_ir::Reach;
 use swc_core::common::{Span, Spanned};
@@ -687,7 +687,7 @@ impl ComponentSet {
       return Err(error);
     }
     let Some(parsed) = self.parsed.get(&file).cloned() else { return Err(error) };
-    let Some(offset) = parsed.offset(residue.line, residue.column) else { return Err(error) };
+    let Some(offset) = parsed.offset(residue.line, residue.column).and_then(|offset| crate::extract::page_offset(&parsed, offset)) else { return Err(error) };
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
     let Ok(Some(extraction)) = crate::extract::extract(&parsed, &file, &slots, Some(offset)) else { return Err(error) };
     let forget = |set: &mut Self| {
@@ -3386,6 +3386,79 @@ fn current(lowerer: &Lowerer<'_>, name: &str) -> Expr {
   lowerer.scope.iter().rev().find(|(n, _)| n == name).map(|(_, e)| e.clone()).unwrap_or(Expr::Lit(Lit::Null))
 }
 
+fn alias_key(name: &str) -> String {
+  format!("$alias:{name}")
+}
+
+/// Records `const name = array[index]` on a writable local array as an alias:
+/// the array's name, the index as it was then and where the array was bound,
+/// so a write through `name` reaches the element JavaScript shares.
+fn note_alias(lowerer: &mut Lowerer<'_>, name: &str, init: &js::Expr, writable: &Writable<'_>) -> Lowered<()> {
+  let js::Expr::Member(member) = init else { return Ok(()) };
+  let js::MemberProp::Computed(prop) = &member.prop else { return Ok(()) };
+  let js::Expr::Ident(array) = &*member.obj else { return Ok(()) };
+  let array = array.sym.to_string();
+  if !writable.local(lowerer, &array) {
+    return Ok(());
+  }
+  let Some(at) = lowerer.scope.iter().rposition(|(n, _)| *n == array) else { return Ok(()) };
+  let index = lowerer.expr(&prop.expr)?;
+  lowerer.scope.push((alias_key(name), Expr::Array(vec![Entry::Item(Expr::lit_str(array)), Entry::Item(index), Entry::Item(Expr::Lit(Lit::Int(at as i128)))])));
+  Ok(())
+}
+
+enum Alias {
+  None,
+  Of { array: String, index: Expr },
+  Stale(String),
+}
+
+/// What a write to `name` reaches besides `name`. An alias whose array was
+/// rebound after it stands for an element the build no longer knows.
+fn alias_of(lowerer: &Lowerer<'_>, name: &str) -> Alias {
+  let key = alias_key(name);
+  let Some(at) = lowerer.scope.iter().rposition(|(n, _)| *n == key) else { return Alias::None };
+  if lowerer.scope.iter().rposition(|(n, _)| n == name).is_none_or(|bound| bound > at) {
+    return Alias::None;
+  }
+  let Expr::Array(entries) = &lowerer.scope[at].1 else { return Alias::None };
+  let [Entry::Item(Expr::Lit(Lit::Str(array))), Entry::Item(index), Entry::Item(Expr::Lit(Lit::Int(bound)))] = entries.as_slice() else { return Alias::None };
+  match lowerer.scope.iter().rposition(|(n, _)| n == array) {
+    Some(now) if now as i128 == *bound => Alias::Of { array: array.clone(), index: index.clone() },
+    _ => Alias::Stale(array.clone()),
+  }
+}
+
+/// Rebinds the local `name` to `value` after a write to one of its fields,
+/// and the array element it aliases with it.
+fn write_field(lowerer: &mut Lowerer<'_>, span: Span, name: &str, value: Expr, assigned: &mut Vec<String>) -> Lowered<()> {
+  let alias = alias_of(lowerer, name);
+  if let Alias::Stale(array) = &alias {
+    return Err(lowerer.residue(span, format!("a write through `{name}`, an element of `{array}`, after `{array}` was written")));
+  }
+  let mut note = |name: &str| {
+    if !assigned.iter().any(|a| a == name) {
+      assigned.push(name.to_owned());
+    }
+  };
+  lowerer.scope.push((name.to_owned(), value.clone()));
+  note(name);
+  if let Alias::Of { array, index } = alias {
+    let held = current(lowerer, &array);
+    let after = Expr::Arith(ArithOp::Add, Box::new(index.clone()), Box::new(Expr::Lit(Lit::Int(1))));
+    let rewritten = Expr::Array(vec![
+      Entry::Spread(Expr::Builtin { name: Builtin::Slice, args: vec![held.clone(), Expr::Lit(Lit::Int(0)), index.clone()] }),
+      Entry::Item(value),
+      Entry::Spread(Expr::Builtin { name: Builtin::Slice, args: vec![held, after] }),
+    ]);
+    lowerer.scope.push((array.clone(), rewritten));
+    note(&array);
+    let at = lowerer.scope.len() - 1;
+    lowerer.scope.push((alias_key(name), Expr::Array(vec![Entry::Item(Expr::lit_str(array)), Entry::Item(index), Entry::Item(Expr::Lit(Lit::Int(at as i128)))])));
+  }
+  Ok(())
+}
+
 /// Statements with no `return` that bind and assign, run at build time over the scope: a write rebinds its name to the new value, an `if` rebinds each name a branch wrote to the branch's value under the condition. `assigned` collects the names written, first write first.
 pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
   let note = |assigned: &mut Vec<String>, name: &str| {
@@ -3403,6 +3476,7 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         bind_pattern(lowerer, &decl.name, expr)?;
         if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
           lowerer.note_kind(id.id.sym.as_ref(), init);
+          note_alias(lowerer, id.id.sym.as_ref(), init, writable)?;
         }
       }
       Ok(())
@@ -3424,16 +3498,18 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
           None => lowerer.expr(&assign.right)?,
           Some(op) => lowerer.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(read.clone()), right: assign.right.clone() }))?,
         };
-        let value = match &read {
+        match &read {
           js::Expr::Member(member) => {
             let field = prop_name_of(member).ok_or_else(|| lowerer.residue(member.span, "a write at a computed index of a local"))?;
-            Expr::Object(vec![Entry::Spread(current(lowerer, &name)), Entry::Field(field, value)])
+            let value = Expr::Object(vec![Entry::Spread(current(lowerer, &name)), Entry::Field(field, value)]);
+            write_field(lowerer, assign.span, &name, value, assigned)
           }
-          _ => value,
-        };
-        lowerer.scope.push((name.clone(), value));
-        note(assigned, &name);
-        Ok(())
+          _ => {
+            lowerer.scope.push((name.clone(), value));
+            note(assigned, &name);
+            Ok(())
+          }
+        }
       }
       js::Expr::Update(update) => {
         let js::Expr::Ident(id) = &*update.arg else { return Err(lowerer.residue(update.span, "an update of something other than a local")) };
@@ -3490,28 +3566,43 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         let target = match &call.callee {
           js::Callee::Expr(callee) => match &**callee {
             js::Expr::Member(m) => match (&*m.obj, prop_name_of(m).as_deref()) {
-              (js::Expr::Ident(id), Some(method @ ("push" | "unshift"))) if writable.local(lowerer, id.sym.as_ref()) => Some((id.sym.to_string(), method == "push")),
+              (js::Expr::Ident(id), Some(method @ ("push" | "unshift"))) if writable.local(lowerer, id.sym.as_ref()) => Some((id.sym.to_string(), None, method == "push")),
+              (js::Expr::Member(field), Some(method @ ("push" | "unshift"))) => match (&*field.obj, prop_name_of(field)) {
+                (js::Expr::Ident(id), Some(name)) if writable.local(lowerer, id.sym.as_ref()) => Some((id.sym.to_string(), Some((name, &*m.obj)), method == "push")),
+                _ => None,
+              },
               _ => None,
             },
             _ => None,
           },
           _ => None,
         };
-        let Some((name, at_end)) = target else { return Err(lowerer.residue(call.span, "a call for its effect, which a straight-line body cannot hold")) };
+        let Some((name, field, at_end)) = target else { return Err(lowerer.residue(call.span, "a call for its effect, which a straight-line body cannot hold")) };
         let mut items = Vec::with_capacity(call.args.len() + 1);
         for arg in &call.args {
           let value = lowerer.expr(&arg.expr)?;
           items.push(if arg.spread.is_some() { Entry::Spread(value) } else { Entry::Item(value) });
         }
-        let held = Entry::Spread(current(lowerer, &name));
+        let held = Entry::Spread(match &field {
+          Some((_, read)) => lowerer.expr(read)?,
+          None => current(lowerer, &name),
+        });
         if at_end {
           items.insert(0, held);
         } else {
           items.push(held);
         }
-        lowerer.scope.push((name.clone(), Expr::Array(items)));
-        note(assigned, &name);
-        Ok(())
+        match field {
+          Some((field, _)) => {
+            let value = Expr::Object(vec![Entry::Spread(current(lowerer, &name)), Entry::Field(field, Expr::Array(items))]);
+            write_field(lowerer, call.span, &name, value, assigned)
+          }
+          None => {
+            lowerer.scope.push((name.clone(), Expr::Array(items)));
+            note(assigned, &name);
+            Ok(())
+          }
+        }
       }
       other => Err(lowerer.residue(other.span(), "an expression statement other than a write to a local")),
     },
@@ -5181,6 +5272,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                   }
                 }
                 let stmt = self.let_stmt(decl)?;
+                self.note_alias_of(decl, floor)?;
                 for pending in std::mem::take(&mut self.pending_lets) {
                   if let Stmt::Let { name, expr } = pending {
                     lets.push(Stmt::Let { name, expr: guarded(&early, expr) });
@@ -5215,6 +5307,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.premake_stmt(stmt)?;
               for decl in &var.decls {
                 let stmt = self.let_stmt(decl)?;
+                self.note_alias_of(decl, floor)?;
                 lets.append(&mut self.pending_lets);
                 if let Some(stmt) = stmt {
                   lets.push(stmt);
@@ -5241,6 +5334,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut lets = bound;
     lets.extend(std::mem::take(&mut self.store_lets));
     Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None, scope: None }, std::mem::take(&mut self.refs)))
+  }
+
+  /// Records `decl` as an alias when it binds a name to an element of a local array (`note_alias`).
+  fn note_alias_of(&mut self, decl: &js::VarDeclarator, floor: usize) -> Lowered<()> {
+    let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) else { return Ok(()) };
+    let frozen = self.state.clone();
+    note_alias(&mut self.lowerer, id.id.sym.as_ref(), init, &Writable { floor, frozen: &frozen })
   }
 
   /// The statements from a branching `return` on, as the tree each path returns: a branch is a `Tmpl::If`, a declaration a `Tmpl::Let` over what follows it, a write to a local a `Tmpl::Let` of its new value. A path that ends without a `return` renders nothing.
@@ -5325,6 +5425,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               if let Some(init) = decl.init.as_deref() {
                 self.lowerer.note_kind(&name, init);
               }
+              self.note_alias_of(decl, floor)?;
               name
             }
             pattern => {
