@@ -198,6 +198,25 @@ fn a_file_only_the_overlay_holds_is_compiled_when_files_names_it() {
 }
 
 #[test]
+fn a_stylesheet_is_read_from_the_overlay_like_a_module() {
+  let root = tempfile::tempdir().unwrap();
+  let root = root.path();
+  fs::create_dir_all(root.join("styles")).unwrap();
+  fs::create_dir_all(root.join(".overlay/styles")).unwrap();
+  fs::write(root.join("styles/shadowed.css"), "@theme {\n  --color-brand: #0e7490;\n}\n").unwrap();
+  fs::write(root.join(".overlay/styles/shadowed.css"), "[data-theme=\"ocean\"] {\n  --color-brand: #0e7490;\n}\n").unwrap();
+  fs::write(root.join(".overlay/styles/added.css"), ".added {\n  color: red;\n}\n").unwrap();
+  fs::write(root.join("tsconfig.json"), r#"{"compilerOptions":{"outDir":"dist","rootDir":"."},"include":["styles/**/*.css"],"files":["styles/added.css"]}"#).unwrap();
+
+  run_snapfirec(get_snapfirec_cmd().arg("--root").arg(root).args(["--overlay", ".overlay"]));
+
+  let shadowed = fs::read_to_string(root.join("dist/styles/shadowed.css")).unwrap();
+  assert!(shadowed.contains("[data-theme=\"ocean\"]"), "the overlay's copy, not Tailwind's reading of the source: {shadowed}");
+  let added = fs::read_to_string(root.join("dist/styles/added.css")).unwrap();
+  assert!(added.contains(".added"), "{added}");
+}
+
+#[test]
 fn a_file_files_names_that_neither_the_root_nor_the_overlay_holds_is_refused() {
   let root = tempfile::tempdir().unwrap();
   let root = root.path();

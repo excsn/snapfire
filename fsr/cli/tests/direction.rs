@@ -130,7 +130,7 @@ fn tailwind_adds_a_stylesheet_beside_the_applications_own_and_its_classes_build(
   let adopted = adopt(&dir, &["tailwind".to_owned()], offline()).unwrap();
   assert_eq!(adopted.written, [dir.join("styles/tailwind.css")]);
   let sheet = std::fs::read_to_string(dir.join("styles/tailwind.css")).unwrap();
-  assert!(sheet.contains("@import \"tailwindcss/theme\" layer(theme);") && sheet.contains("@import \"tailwindcss/utilities\" layer(utilities);") && !sheet.contains("@import \"tailwindcss\";"), "no preflight reset over the application's own styles: {sheet}");
+  assert!(sheet.contains("@import \"tailwindcss/theme\" layer(theme.root);") && sheet.contains("@import \"tailwindcss/utilities\" layer(utilities);") && !sheet.contains("@import \"tailwindcss\";"), "no preflight reset over the application's own styles: {sheet}");
   assert_eq!(std::fs::read_to_string(dir.join("styles/app.css")).unwrap(), "body { margin: 0; }\n", "the application's sheet is its own");
   assert!(adopted.mapped.is_empty() && !adopted.next.iter().any(|s| s.starts_with("fsr add")), "nothing to map or vendor: {:?}", adopted.next);
   let built = build(&dir, &Options::default()).unwrap();

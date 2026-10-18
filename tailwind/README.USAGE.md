@@ -1,6 +1,6 @@
 # Usage Guide: snapfire_tailwind
 
-How to build Tailwind stylesheets from Rust: compiling a configuration, giving it classes, loading imports, switching themes and drawing classes on card images.
+How to build Tailwind stylesheets from Rust: compiling a configuration, giving it classes and loading imports.
 
 ## Table of Contents
 
@@ -16,11 +16,6 @@ How to build Tailwind stylesheets from Rust: compiling a configuration, giving i
   * [Building Again With More Classes](#building-again-with-more-classes)
   * [Listing Classes in the Stylesheet](#listing-classes-in-the-stylesheet)
   * [Finding Classes That Are Not Utilities](#finding-classes-that-are-not-utilities)
-* [Switching Themes](#switching-themes)
-  * [Adding Named Themes](#adding-named-themes)
-  * [Tokens Only a Theme Defines](#tokens-only-a-theme-defines)
-  * [Taking the Root Theme Back](#taking-the-root-theme-back)
-* [Drawing Classes on Cards](#drawing-classes-on-cards)
 * [Error Handling](#error-handling)
 
 ## Core Concepts
@@ -33,8 +28,6 @@ How to build Tailwind stylesheets from Rust: compiling a configuration, giving i
 * **Built-in stylesheets**: `tailwindcss`, `tailwindcss/theme`, `tailwindcss/preflight` and `tailwindcss/utilities`, carried by the crate.
 * **Optimize pass**: the two Lightning CSS passes Tailwind runs on its output, with its browser targets.
 * **Theme variable**: a custom property from `@theme`. A variable no utility uses is left out of the output.
-* **Named theme**: a stylesheet of `@theme` blocks written under its own selector after the root theme, so an attribute switches it.
-* **Card rule**: a candidate as plain declarations, with variables and colors resolved, for a renderer that matches no selectors.
 * **Feature**: what the configuration uses, such as `@apply` or `@import`, read back as flags.
 * **Source**: a `@source` path the configuration names. The crate reports it and never scans it.
 
@@ -161,64 +154,6 @@ assert_eq!(compiler.invalid_candidates(), ["brand-card", "flx"]);
 
 A candidate your own CSS defines, such as `.brand-card`, is invalid to Tailwind too. Check your stylesheet's selectors before calling it a typo.
 
-## Switching Themes
-
-### Adding Named Themes
-
-```rust
-use snapfire_tailwind::{CompileOptions, Compiler, NamedTheme};
-
-let ocean = NamedTheme::new("[data-theme=\"ocean\"]".to_owned(), "@theme {\n  --color-accent: #0e7490;\n}".to_owned(), Some("themes/ocean.css".to_owned()));
-let options = CompileOptions::default().themes(vec![ocean]);
-let mut compiler = Compiler::new("@import \"tailwindcss\";\n@theme {\n  --color-accent: #1f6feb;\n}", options).unwrap();
-let css = compiler.build(["text-accent"]);
-assert!(css.find("[data-theme=\"ocean\"]").unwrap() > css.find("--color-accent: #1f6feb").unwrap());
-```
-
-The named theme's rule follows the root theme inside the same layer, so at equal specificity it wins. Every variable it sets is written, used or not, because other stylesheets on the page may read them. A theme that sets `--breakpoint-*` or `--container-*` is a warning: those are read when the stylesheet is built.
-
-### Tokens Only a Theme Defines
-
-```rust
-use snapfire_tailwind::{CompileOptions, Compiler, NamedTheme};
-
-let brand = NamedTheme::new("[data-theme=\"brand\"]".to_owned(), "@theme {\n  --color-brand: #e11d48;\n}".to_owned(), None);
-let options = CompileOptions::default().themes(vec![brand]);
-let mut compiler = Compiler::new("@import \"tailwindcss/utilities\";", options).unwrap();
-assert!(compiler.build(["bg-brand"]).contains("background-color: var(--color-brand, #e11d48)"));
-```
-
-The utility exists and falls back to the theme's value; the root never takes it.
-
-### Taking the Root Theme Back
-
-```rust
-use snapfire_tailwind::{CompileOptions, Compiler, NamedTheme};
-
-let ocean = NamedTheme::new("[data-theme=\"ocean\"]".to_owned(), "@theme {\n  --color-accent: #0e7490;\n}".to_owned(), None);
-let options = CompileOptions::default().themes(vec![ocean]).root_selectors(vec!["[data-theme=\"default\"]".to_owned()]);
-let mut compiler = Compiler::new("@import \"tailwindcss\";\n@theme {\n  --color-accent: #1f6feb;\n}", options).unwrap();
-assert!(compiler.build(["text-accent"]).contains(":root, :host, [data-theme=\"default\"] {"));
-```
-
-A named theme's selector matches any element, so `<div data-theme="ocean">` previews a theme inside a page in another. A root selector does the same for the root theme. A variable declared as `var(--other)` resolves on the element that declares it, so a token derived from another has to be declared again wherever a theme changes the one it reads.
-
-## Drawing Classes on Cards
-
-```rust
-use snapfire_tailwind::{CompileOptions, Compiler};
-
-let compiler = Compiler::new("@import \"tailwindcss\";", CompileOptions::default()).unwrap();
-let rules = compiler.card_rules(["px-4", "bg-sky-500", "text-4xl", "md:text-6xl", "hover:underline"]);
-let px = rules.iter().find(|r| r.candidate == "px-4").unwrap();
-assert_eq!(px.declarations, [("padding-left".to_owned(), "1rem".to_owned()), ("padding-right".to_owned(), "1rem".to_owned())]);
-let md = rules.iter().find(|r| r.candidate == "md:text-6xl").unwrap();
-assert_eq!(md.min_width, Some(768.0));
-assert!(rules.iter().all(|r| r.candidate != "hover:underline"));
-```
-
-Rules come in Tailwind's output order, so applying them in order gives the stylesheet's result. Variables are resolved, `calc()` of one unit is worked out, `oklch()` and opacity modifiers become sRGB and logical sides become physical ones. A breakpoint keeps its width in CSS pixels, a `rem` taken as 16. Any other variant has no rule.
-
 ## Error Handling
 
 `Error` is `#[non_exhaustive]`, so a match ends with a wildcard; today it holds `Syntax` and `Message`. `Syntax` is the stylesheet failing to parse, with `file:line:column` when `from` was given. `Message` is everything else Tailwind refuses: an unknown utility in `@apply`, an import cycle, a JavaScript plugin.
@@ -234,4 +169,4 @@ match Compiler::new(".a {\n  @apply not-a-utility;\n}", CompileOptions::default(
 }
 ```
 
-Warnings Tailwind would print, such as a named theme setting a breakpoint, are not errors. Read them with `Compiler::warnings` after building.
+Warnings Tailwind would print are not errors. Read them with `Compiler::warnings` after building.

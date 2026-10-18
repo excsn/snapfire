@@ -21,7 +21,6 @@ This guide covers running the `snapfirec` build tool: selecting source files the
 * [Compiling CSS](#compiling-css)
   * [Targeting Browsers](#targeting-browsers)
   * [Building Tailwind Stylesheets](#building-tailwind-stylesheets)
-  * [Switching Tailwind Themes](#switching-tailwind-themes)
 * [Compiling Framework Components](#compiling-framework-components)
   * [Installing a Plugin](#installing-a-plugin)
   * [What a Component Becomes](#what-a-component-becomes)
@@ -205,8 +204,6 @@ snapfirec
 | `--copy-assets` | Copy every selected file that is not compiled | off |
 | `--asset-map <path>` | Rewrite every image and font reference from the driver's map and emit none | off |
 | `--tailwind-classes <path>` | Classes a Tailwind stylesheet generates utilities for, one per line, beside those the sources name | off |
-| `--tailwind-themes <dir>` | Each `<name>.css` there is a named theme every Tailwind stylesheet writes; the root theme answers to `default` too | off |
-| `--tailwind-theme-attribute <name>` | The attribute that selects a named theme | `data-theme` |
 | `--tailwind-vendor <dir>` | The vendor tree a Tailwind stylesheet reads the imported packages' classes from; needs `--tailwind-vendor-base` and `--import-map` | off |
 | `--tailwind-vendor-base <url>` | The URL prefix the import map names the vendor tree under | none |
 | `--emit-tailwind-classes` | Write the classes the sources name to `tailwind.classes` in the output directory | off |
@@ -819,21 +816,6 @@ snapfirec --root ./app --import-map importmap.json --tailwind-vendor vendor --ta
 For every bare specifier the sources import, the import map gives the vendored file. A package directory holding `tailwind.classes` is read from that list and its modules are not parsed. Any other vendored module is read for classes like a source with its imports followed: relative ones, absolute ones under the prefix and bare ones through the map. A minifier keeps `className:"..."` and the names a module imports, so an imported helper is followed under its new local name. A helper the bundler inlined into the module and renamed is a function like any other, so a class composed through it in a package without a list is not seen; list it with `@source inline(...)`. A vendored class that is no utility is not reported, since it is not the app's typo.
 
 `@import` of a relative file is resolved against the stylesheet and inlined. Under `--watch` or `--driven`, a change to a script whose classes changed, to the classes file or to an imported stylesheet rebuilds the Tailwind stylesheets that read it.
-
-### Switching Tailwind Themes
-
-```css
-/* styles/themes/ocean.css */
-@theme {
-  --color-brand: #0e7490;
-}
-```
-
-```bash
-snapfirec --root ./app --tailwind-themes styles/themes --tailwind-theme-attribute data-theme
-```
-
-Every Tailwind stylesheet writes each theme after its root theme as `[data-theme="ocean"] { ... }`, every variable included, so `<html data-theme="ocean">` switches the page. The root theme is written under `[data-theme="default"]` too, so `<div data-theme="default">` takes the root's values back inside another theme. A theme file is not built as a stylesheet of its own.
 
 ## Compiling Framework Components
 

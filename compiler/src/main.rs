@@ -94,16 +94,6 @@ struct Args {
   #[arg(long)]
   tailwind_classes: Option<PathBuf>,
 
-  /// A directory of named themes, relative to root: each `<name>.css` holds `@theme` blocks a
-  /// stylesheet using Tailwind writes under `[<attribute>="<name>"]`; the root theme also
-  /// answers to `[<attribute>="default"]`
-  #[arg(long)]
-  tailwind_themes: Option<PathBuf>,
-
-  /// The attribute a named theme is selected by
-  #[arg(long, default_value = "data-theme")]
-  tailwind_theme_attribute: String,
-
   /// The vendor tree a stylesheet using Tailwind reads the imported packages' classes from,
   /// relative to root: a package's `tailwind.classes` when it ships one, else its modules
   #[arg(long, requires = "tailwind_vendor_base")]
@@ -161,8 +151,6 @@ fn main() -> Result<()> {
     overlay: args.overlay,
     asset_map: args.asset_map,
     tailwind_classes: args.tailwind_classes,
-    tailwind_themes: args.tailwind_themes,
-    tailwind_theme_attribute: args.tailwind_theme_attribute,
     tailwind_vendor: args.tailwind_vendor.zip(args.tailwind_vendor_base),
     emit_tailwind_classes: args.emit_tailwind_classes,
     driven: args.driven,

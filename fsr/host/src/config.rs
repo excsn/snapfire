@@ -2304,12 +2304,27 @@ impl Config {
           })
           .unwrap_or_default();
         sheets.sort();
+        let themes_prefix = format!("{}/themes/", dirs.styles);
+        let mut themes: Vec<String> = bundle
+          .iter()
+          .flat_map(|b| {
+            let twin = b.minified.clone().map(|suffix| format!("{suffix}.css"));
+            let prefix = themes_prefix.as_str();
+            b.outputs.iter().filter(move |o| o.starts_with(prefix) && o.ends_with(".css") && twin.as_ref().is_none_or(|twin| !o.ends_with(twin.as_str()))).map(|o| format!("{}/{o}", b.route))
+          })
+          .collect();
+        themes.sort();
+        let themed = !themes.is_empty();
+        sheets.extend(themes);
         if !sheets.is_empty() {
           document.styles = Some(sheets);
           inferred.push(match from_bundle {
             true => format!("document.styles from styles/*.css as {facts_dir}/.snapfire-build.json compiled them"),
             false => "document.styles from styles/*.css".to_owned(),
           });
+          if themed {
+            inferred.push(format!("document.styles gains the named theme sheets from {facts_dir}/.snapfire-build.json"));
+          }
         }
       }
     }

@@ -291,7 +291,7 @@ fn a_site_with_tailwind_takes_its_theme_and_utilities_and_leaves_the_reset_to_th
   let root = root("tailwind-site");
   create(&root, offline().with(vec!["tailwind".to_owned()]).site(Some(SiteScaffold::new("/docs".to_owned()).name(Some("docs".to_owned())).into(None)))).unwrap();
   let css = std::fs::read_to_string(root.join("app/styles/docs.css")).unwrap();
-  assert!(css.starts_with("@import \"tailwindcss/theme\" layer(theme);\n@import \"tailwindcss/utilities\" layer(utilities);\n"), "{css}");
+  assert!(css.starts_with("@import \"tailwindcss/theme\" layer(theme.root);\n@import \"tailwindcss/utilities\" layer(utilities);\n"), "{css}");
 }
 
 #[test]

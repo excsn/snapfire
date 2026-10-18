@@ -1,4 +1,4 @@
-//! Properties of the parsers and the card rules over generated and arbitrary input: nothing
+//! Properties of the parsers over generated and arbitrary input: nothing
 //! panics, answers are deterministic, a canonical spelling is a fixed point, printing what was
 //! parsed reads back the same and the optimize pass accepts every build.
 
@@ -97,17 +97,6 @@ proptest! {
   }
 
   #[test]
-  fn card_rules_never_panic_and_name_only_given_candidates(candidates in prop::collection::vec(candidate(), 0..12)) {
-    let compiler = compiler();
-    let rules = compiler.card_rules(candidates.iter().map(String::as_str));
-    for rule in &rules {
-      prop_assert!(candidates.contains(&rule.candidate), "{}", rule.candidate);
-      prop_assert!(rule.declarations.iter().all(|(property, _)| !property.starts_with("--")), "{:?}", rule.declarations);
-    }
-    prop_assert_eq!(rules, compiler.card_rules(candidates.iter().map(String::as_str)));
-  }
-
-  #[test]
   fn any_generated_stylesheet_compiles_or_is_refused_without_panicking(css in stylesheet()) {
     if let Ok(mut compiler) = Compiler::new(&css, CompileOptions::default().banner(false)) {
       let _ = compiler.build(["flex", "bg-x", "tab-4"]);
@@ -156,6 +145,5 @@ fn fuzz_any_text_as_candidates() {
       let _ = compiler.canonical_candidate(candidate);
       let _ = compiler.candidate_css(candidate);
     }
-    let _ = compiler.card_rules(candidates.iter().map(String::as_str));
   });
 }

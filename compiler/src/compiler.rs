@@ -452,7 +452,7 @@ impl Compiler {
   }
 
   pub fn compile_css(&self, path: &Path, minify: bool, map: MapRequest) -> Result<Output> {
-    let content = std::fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))?;
+    let content = self.read_source(path)?;
     self.compile_style(path, content, minify, map)
   }
 

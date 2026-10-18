@@ -97,7 +97,7 @@ A site's stylesheet is linked after the shell's in the same document, so a site 
 
 ```css
 /* sites/blog/app/styles/blog.css */
-@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/theme" layer(theme.root);
 @import "tailwindcss/utilities" layer(utilities);
 
 @theme reference {
@@ -110,7 +110,7 @@ A site's stylesheet is linked after the shell's in the same document, so a site 
 
 ## A theme is the whole document
 
-A theme is a file of `@theme` blocks under `styles/themes/`, named by the file:
+A theme is a file of `@theme` blocks under `styles/themes/`, named by the file, that overrides tokens the root theme defines:
 
 ```css
 /* app/styles/themes/ocean.css */
@@ -120,7 +120,20 @@ A theme is a file of `@theme` blocks under `styles/themes/`, named by the file:
 }
 ```
 
-Every theme is in the stylesheet as `[data-sf-theme="ocean"] { ... }`, written after the root theme, so switching is one attribute on `<html>`. The root theme is named `default` once there is a theme file and is written under `[data-sf-theme="default"]` too, so `theme.ts` can choose it over a route's own; a `styles/themes/default.css` fails the build. The generated types declare `Theme` as the union of the names, a site's own and its shell's.
+Tailwind compiles the root theme as it always does. fsr writes the named themes beside it as plain CSS, the way Tailwind's documentation switches a theme at runtime: `ocean.css` reaches the browser as `[data-sf-theme="ocean"] { --color-accent: #0e7490; --color-canvas: #f0f9fb; }`, so switching is one attribute on `<html>`. Each one sits in the `theme.named` cascade layer, so the root theme has to sit in `theme.root`, which comes before it. An application with themes imports Tailwind's theme on its own rather than through `@import "tailwindcss"`, which puts it in `theme`:
+
+```css
+/* app/styles/app.css */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme" layer(theme.root);
+@import "tailwindcss/preflight" layer(base);
+@import "tailwindcss/utilities" layer(utilities);
+```
+
+Themes are not Tailwind's. An application without it declares the root's tokens in `:root` inside `@layer theme.root { ... }`, reads them with `var()` in its own rules and writes a theme file as a `:root` rule or bare custom properties; everything below works the same. A build with themes and the root theme outside `theme.root` fails and names the line to write. So does a theme that sets a token the root does not define (for a site, neither the site's root nor its shell's): add the token to the root's `@theme` with the value it has outside the theme.
+
+The root theme is named `default` once there is a theme file. The build writes the root's value of every token a theme sets under `[data-sf-theme="default"]`, so `theme.ts` can choose it over a route's own; a `styles/themes/default.css` fails the build. The generated types declare `Theme` as the union of the names, a site's own and its shell's.
 
 A layout or a page picks one with a literal export, plain or forced:
 
@@ -169,7 +182,7 @@ Light and dark are the scheme, not a theme, so a brand theme and the visitor's s
 }
 ```
 
-The dark values go in the stylesheet's own `@layer theme`, which comes after the named themes, so at equal specificity the scheme wins over a theme's neutrals:
+The dark values go in the stylesheet's own `@layer theme`. A rule in `theme` itself outranks everything in its sublayers, so the scheme wins over a theme's neutrals whichever stylesheet the document links last:
 
 ```css
 @layer theme {

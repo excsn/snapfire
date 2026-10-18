@@ -1,81 +1,169 @@
-//! Utilities as plain declarations, for a renderer that matches no selectors and reads a small
-//! CSS subset: the card images a host draws. Variables are replaced by their values, `calc()` of
+//! Classes as plain declarations, for the card images the host draws, a renderer that matches no
+//! selectors and reads a small CSS subset. Read from the stylesheet Tailwind builds for the
+//! classes, compiled without polyfills: variables are replaced by the theme's values, `calc()` of
 //! numbers and one unit is worked out and colors are written in sRGB.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
-use crate::ast::{CtxValue, Node};
-use crate::compile;
-use crate::utils::escape::escape;
-use crate::Compiler;
+use crate::css::{parse, Node};
 
-/// What one candidate means on a card: its declarations in order, with the card width they start
-/// to apply at when the candidate carries a breakpoint variant.
+const REM: f32 = 16.0;
+
+/// One class on a card: its declarations in order, with the card width they start to apply at
+/// when the class carries a breakpoint variant.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct CardRule {
-  pub candidate: String,
+  pub class: String,
   /// In CSS pixels, a `rem` taken as 16 of them.
   pub min_width: Option<f32>,
   pub declarations: Vec<(String, String)>,
 }
 
-const REM: f32 = 16.0;
-
-impl Compiler {
-  /// The card declarations of each candidate that has some, in Tailwind's output order, so a
-  /// later rule overrides an earlier one the way it would in a stylesheet. A candidate whose
-  /// variants need a selector or a media feature other than the width, `hover:` or `dark:`
-  /// among them, has none.
-  pub fn card_rules<'c>(&self, candidates: impl IntoIterator<Item = &'c str>) -> Vec<CardRule> {
-    let compiled = compile::compile_candidates(candidates, &self.ds, true, &mut |_| {});
-    let mut initial: HashMap<String, String> = HashMap::new();
-    for (node, _) in &compiled.nodes {
-      property_initials(node, &mut initial);
+/// The card rules of each of `classes` the stylesheet `css` has a utility for, in the stylesheet's
+/// order, so a later rule overrides an earlier one the way it would on a page. A class whose
+/// variants need a selector or a media feature other than the width, `hover:` or `dark:` among
+/// them, has none.
+pub fn card_rules(css: &str, classes: &BTreeSet<String>) -> Vec<CardRule> {
+  let tree = parse(css);
+  let mut theme = HashMap::new();
+  let mut initial = HashMap::new();
+  read_values(&tree, &mut theme, &mut initial);
+  let mut rules = Vec::new();
+  let mut utilities = Vec::new();
+  utility_rules(&tree, &mut utilities);
+  for (class, nodes) in utilities {
+    if !classes.contains(&class) {
+      continue;
     }
-    let mut rules = Vec::new();
-    for (node, raw) in &compiled.nodes {
-      let mut rule = CardRule { candidate: raw.clone(), min_width: None, declarations: Vec::new() };
-      let selector = format!(".{}", escape(raw));
-      if !collect(node, &selector, true, &mut rule) || rule.declarations.is_empty() {
-        continue;
-      }
-      let locals: HashMap<String, String> = rule.declarations.iter().filter(|(p, _)| p.starts_with("--")).cloned().collect();
-      rule.declarations = rule
-        .declarations
-        .into_iter()
-        .filter(|(p, _)| !p.starts_with("--"))
-        .map(|(p, v)| {
-          let value = self.resolve(&v, &locals, &initial);
-          (p, card_value(&value))
-        })
-        .filter(|(_, v)| !v.is_empty())
-        .flat_map(|(p, v)| physical(&p, &v))
-        .collect();
-      if !rule.declarations.is_empty() {
-        rules.push(rule);
-      }
+    let mut rule = CardRule { class, min_width: None, declarations: Vec::new() };
+    if !nodes.iter().all(|node| collect(node, &mut rule)) || rule.declarations.is_empty() {
+      continue;
     }
-    rules
+    let locals: HashMap<String, String> = rule.declarations.iter().filter(|(p, _)| p.starts_with("--")).cloned().collect();
+    rule.declarations = rule
+      .declarations
+      .into_iter()
+      .filter(|(p, _)| !p.starts_with("--"))
+      .map(|(p, v)| (p, card_value(&resolve(&v, &locals, &theme, &initial))))
+      .filter(|(_, v)| !v.is_empty())
+      .flat_map(|(p, v)| physical(&p, &v))
+      .collect();
+    if !rule.declarations.is_empty() {
+      rules.push(rule);
+    }
   }
+  rules
+}
 
-  /// `value` with every `var()` replaced: the candidate's own custom properties first, then the
-  /// theme, then a registered property's initial value, then the fallback.
-  fn resolve(&self, value: &str, locals: &HashMap<String, String>, initial: &HashMap<String, String>) -> String {
-    let mut out = value.to_owned();
-    for _ in 0..16 {
-      let Some(at) = out.find("var(") else { break };
-      let Some(end) = matching(&out, at + 3) else { break };
-      let inner = &out[at + 4..end];
-      let (name, fallback) = match top_comma(inner) {
-        Some(comma) => (inner[..comma].trim(), Some(inner[comma + 1..].trim())),
-        None => (inner.trim(), None),
-      };
-      let found = locals.get(name).cloned().or_else(|| self.ds.theme.get(&[name])).or_else(|| initial.get(name).cloned()).or_else(|| fallback.map(str::to_owned)).unwrap_or_default();
-      out = format!("{}{found}{}", &out[..at], &out[end + 1..]);
+/// The theme's variables, from every `:root, :host` rule, and the initial value of every
+/// registered `@property`.
+fn read_values(nodes: &[Node], theme: &mut HashMap<String, String>, initial: &mut HashMap<String, String>) {
+  for node in nodes {
+    match node {
+      Node::Rule { selector, nodes } if selector.split(',').any(|s| s.trim() == ":root") => {
+        for child in nodes {
+          if let Node::Declaration { property, value } = child
+            && property.starts_with("--")
+          {
+            theme.insert(property.clone(), value.clone());
+          }
+        }
+      }
+      Node::At { name, params, nodes } if name == "@property" => {
+        for child in nodes {
+          if let Node::Declaration { property, value } = child
+            && property == "initial-value"
+          {
+            initial.insert(params.trim().to_owned(), value.clone());
+          }
+        }
+      }
+      Node::At { nodes, .. } => read_values(nodes, theme, initial),
+      _ => {}
     }
-    out
   }
+}
+
+/// Each rule whose selector is one class, with the class it names and its body, in order. A
+/// rule inside an at-rule other than `@layer` is not a utility of its own.
+fn utility_rules(nodes: &[Node], out: &mut Vec<(String, Vec<Node>)>) {
+  for node in nodes {
+    match node {
+      Node::Rule { selector, nodes } => {
+        if let Some(class) = single_class(selector) {
+          out.push((class, nodes.clone()));
+        }
+      }
+      Node::At { name, nodes, .. } if name == "@layer" => utility_rules(nodes, out),
+      _ => {}
+    }
+  }
+}
+
+/// The class `.name` selects, unescaped, when the selector is that one class alone.
+fn single_class(selector: &str) -> Option<String> {
+  let escaped = selector.trim().strip_prefix('.')?;
+  let mut class = String::new();
+  let mut chars = escaped.chars().peekable();
+  while let Some(c) = chars.next() {
+    match c {
+      '\\' => {
+        let mut hex = String::new();
+        while hex.len() < 6 && chars.peek().is_some_and(char::is_ascii_hexdigit) {
+          hex.push(chars.next()?);
+        }
+        if hex.is_empty() {
+          class.push(chars.next()?);
+        } else {
+          if chars.peek() == Some(&' ') {
+            chars.next();
+          }
+          class.push(char::from_u32(u32::from_str_radix(&hex, 16).ok()?)?);
+        }
+      }
+      ' ' | ',' | '.' | ':' | '>' | '+' | '~' | '[' | '#' | '&' | '(' => return None,
+      c => class.push(c),
+    }
+  }
+  (!class.is_empty()).then_some(class)
+}
+
+/// Collects a utility's declarations when everything around them is the class itself or a
+/// minimum-width media query. False when anything else wraps them.
+fn collect(node: &Node, rule: &mut CardRule) -> bool {
+  match node {
+    Node::Rule { selector, nodes } => selector.trim() == "&" && nodes.iter().all(|child| collect(child, rule)),
+    Node::At { name, params, nodes } if name == "@media" => match min_width(params) {
+      Some(width) => {
+        rule.min_width = Some(rule.min_width.map_or(width, |w| w.max(width)));
+        nodes.iter().all(|child| collect(child, rule))
+      }
+      None => false,
+    },
+    Node::At { .. } => false,
+    Node::Declaration { property, value } => {
+      rule.declarations.push((property.clone(), value.clone()));
+      true
+    }
+  }
+}
+
+/// `value` with every `var()` replaced: the utility's own custom properties first, then the
+/// theme, then a registered property's initial value, then the fallback.
+fn resolve(value: &str, locals: &HashMap<String, String>, theme: &HashMap<String, String>, initial: &HashMap<String, String>) -> String {
+  let mut out = value.to_owned();
+  for _ in 0..16 {
+    let Some(at) = out.find("var(") else { break };
+    let Some(end) = matching(&out, at + 3) else { break };
+    let inner = &out[at + 4..end];
+    let (name, fallback) = match top_comma(inner) {
+      Some(comma) => (inner[..comma].trim(), Some(inner[comma + 1..].trim())),
+      None => (inner.trim(), None),
+    };
+    let found = locals.get(name).or_else(|| theme.get(name)).or_else(|| initial.get(name)).cloned().or_else(|| fallback.map(str::to_owned)).unwrap_or_default();
+    out = format!("{}{found}{}", &out[..at], &out[end + 1..]);
+  }
+  out
 }
 
 /// A logical property as the physical ones it means on a left-to-right card, which knows no
@@ -109,105 +197,19 @@ fn physical(property: &str, value: &str) -> Vec<(String, String)> {
   }
 }
 
-/// Collects the declarations of `node` when everything around them is the candidate's own class
-/// or a minimum-width media query. False when anything else wraps them.
-fn collect(node: &Node, selector: &str, top: bool, rule: &mut CardRule) -> bool {
-  match node {
-    Node::Rule { selector: own, nodes } => {
-      let accepted = if top { own == selector } else { own == "&" };
-      accepted && nodes.iter().all(|child| collect(child, selector, false, rule))
-    }
-    Node::AtRule { name, params, nodes } if name == "@media" => match min_width(params) {
-      Some(width) => {
-        rule.min_width = Some(rule.min_width.map_or(width, |w| w.max(width)));
-        nodes.iter().all(|child| collect(child, selector, false, rule))
-      }
-      None => false,
-    },
-    Node::AtRule { .. } => false,
-    Node::Declaration { property, value: Some(value), .. } => {
-      rule.declarations.push((property.clone(), value.clone()));
-      true
-    }
-    Node::Declaration { .. } | Node::Comment(_) | Node::AtRoot { .. } => true,
-    Node::Context { context, nodes } => {
-      if context.get("reference").is_some_and(CtxValue::truthy) {
-        return true;
-      }
-      nodes.iter().all(|child| collect(child, selector, top, rule))
-    }
-  }
-}
-
-/// The initial value of each `@property` a compiled rule registers.
-fn property_initials(node: &Node, out: &mut HashMap<String, String>) {
-  match node {
-    Node::AtRule { name, params, nodes } if name == "@property" => {
-      for child in nodes {
-        if let Node::Declaration { property, value: Some(value), .. } = child
-          && property == "initial-value"
-        {
-          out.insert(params.trim().to_owned(), value.clone());
-        }
-      }
-    }
-    other => {
-      for child in other.children().into_iter().flatten() {
-        property_initials(child, out);
-      }
-    }
-  }
-}
-
 /// The width a `@media` condition starts at: `(width >= 40rem)` or `(min-width: 40rem)`.
 fn min_width(params: &str) -> Option<f32> {
-  let params = params.trim();
-  let inner = params.strip_prefix('(')?.strip_suffix(')')?.trim();
+  let inner = params.trim().strip_prefix('(')?.strip_suffix(')')?.trim();
   let length = inner.strip_prefix("width >=").or_else(|| inner.strip_prefix("min-width:"))?.trim();
-  pixels(length)
-}
-
-fn pixels(length: &str) -> Option<f32> {
   if let Some(n) = length.strip_suffix("rem") {
     return n.trim().parse::<f32>().ok().map(|n| n * REM);
   }
   length.strip_suffix("px").and_then(|n| n.trim().parse::<f32>().ok())
 }
 
-/// The index of the `)` closing the `(` at `open`.
-fn matching(text: &str, open: usize) -> Option<usize> {
-  let mut depth = 0;
-  for (i, c) in text[open..].char_indices() {
-    match c {
-      '(' => depth += 1,
-      ')' => {
-        depth -= 1;
-        if depth == 0 {
-          return Some(open + i);
-        }
-      }
-      _ => {}
-    }
-  }
-  None
-}
-
-fn top_comma(text: &str) -> Option<usize> {
-  let mut depth = 0;
-  for (i, c) in text.char_indices() {
-    match c {
-      '(' => depth += 1,
-      ')' => depth -= 1,
-      ',' if depth == 0 => return Some(i),
-      _ => {}
-    }
-  }
-  None
-}
-
 /// A resolved value in the card subset: `calc(infinity * 1px)` as a large length, `calc()` of
 /// numbers and one unit worked out, `oklch()` and `color-mix(in oklab, … transparent)` in sRGB.
-pub(crate) fn card_value(value: &str) -> String {
+pub fn card_value(value: &str) -> String {
   let mut out = value.replace("calc(infinity * 1px)", "9999px");
   out = rewrite_calls(&out, "oklch(", |args| oklch(args).map(|(r, g, b, a)| srgb(r, g, b, a)));
   out = rewrite_calls(&out, "color-mix(", mix);
@@ -297,25 +299,6 @@ fn mix(args: &str) -> Option<String> {
   Some(srgb(r, g, b, a * share))
 }
 
-fn split_top(text: &str, at: char) -> Vec<&str> {
-  let mut out = Vec::new();
-  let mut depth = 0;
-  let mut start = 0;
-  for (i, c) in text.char_indices() {
-    match c {
-      '(' => depth += 1,
-      ')' => depth -= 1,
-      c if c == at && depth == 0 => {
-        out.push(&text[start..i]);
-        start = i + 1;
-      }
-      _ => {}
-    }
-  }
-  out.push(&text[start..]);
-  out
-}
-
 /// A color this module writes, `#rrggbb` or `rgba(r, g, b, a)`, back as channels and alpha.
 fn parse_srgb(color: &str) -> Option<(f32, f32, f32, f32)> {
   if let Some(hex) = color.strip_prefix('#') {
@@ -380,6 +363,56 @@ fn calc(args: &str) -> Option<String> {
   Some(format!("{rounded}{}", unit.unwrap_or("")))
 }
 
+/// The index of the `)` closing the `(` at `open`.
+fn matching(text: &str, open: usize) -> Option<usize> {
+  let mut depth = 0;
+  for (i, c) in text[open..].char_indices() {
+    match c {
+      '(' => depth += 1,
+      ')' => {
+        depth -= 1;
+        if depth == 0 {
+          return Some(open + i);
+        }
+      }
+      _ => {}
+    }
+  }
+  None
+}
+
+fn top_comma(text: &str) -> Option<usize> {
+  let mut depth = 0;
+  for (i, c) in text.char_indices() {
+    match c {
+      '(' => depth += 1,
+      ')' => depth -= 1,
+      ',' if depth == 0 => return Some(i),
+      _ => {}
+    }
+  }
+  None
+}
+
+fn split_top(text: &str, at: char) -> Vec<&str> {
+  let mut out = Vec::new();
+  let mut depth = 0;
+  let mut start = 0;
+  for (i, c) in text.char_indices() {
+    match c {
+      '(' => depth += 1,
+      ')' => depth -= 1,
+      c if c == at && depth == 0 => {
+        out.push(&text[start..i]);
+        start = i + 1;
+      }
+      _ => {}
+    }
+  }
+  out.push(&text[start..]);
+  out
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -412,5 +445,14 @@ mod tests {
     assert_eq!(min_width("(width >= 40rem)"), Some(640.0));
     assert_eq!(min_width("(min-width: 900px)"), Some(900.0));
     assert_eq!(min_width("(prefers-color-scheme: dark)"), None);
+  }
+
+  #[test]
+  fn an_escaped_selector_reads_back_as_its_class() {
+    assert_eq!(single_class(".md\\:text-6xl").as_deref(), Some("md:text-6xl"));
+    assert_eq!(single_class(".\\32 xl\\:p-2").as_deref(), Some("2xl:p-2"));
+    assert_eq!(single_class(".w-\\[37px\\]").as_deref(), Some("w-[37px]"));
+    assert_eq!(single_class(".a .b"), None);
+    assert_eq!(single_class(":root, :host"), None);
   }
 }

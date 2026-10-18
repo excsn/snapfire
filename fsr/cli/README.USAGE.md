@@ -393,7 +393,7 @@ export default function Image({ post }: PostSlugProps) {
 
 ## Choosing a Theme
 
-A theme is a file under `styles/themes/`, named by its stem, holding `@theme` blocks:
+A theme is a file under `styles/themes/`, named by its stem, that overrides tokens the root theme defines. It holds `@theme` blocks, a `:root` rule or bare custom properties:
 
 ```css
 /* app/styles/themes/ocean.css */
@@ -401,6 +401,35 @@ A theme is a file under `styles/themes/`, named by its stem, holding `@theme` bl
   --color-accent: #0e7490;
 }
 ```
+
+The root theme goes in the `theme.root` sublayer, so the named themes the build writes in `theme.named` win over it. With Tailwind, import its theme there:
+
+```css
+/* app/styles/app.css */
+@import "tailwindcss/theme" layer(theme.root);
+@import "tailwindcss/utilities" layer(utilities);
+
+@theme {
+  --color-accent: #1f6feb;
+}
+```
+
+Without Tailwind, declare the tokens in `:root` inside the layer:
+
+```css
+/* app/styles/app.css */
+@layer theme.root {
+  :root {
+    --color-accent: #1f6feb;
+  }
+}
+
+a {
+  color: var(--color-accent);
+}
+```
+
+The build writes each theme for the bundle as plain CSS, `[data-sf-theme="ocean"] { --color-accent: #0e7490; }` in `@layer theme.named`. It also writes the root's value of every token a theme sets under `[data-sf-theme="default"]`. The host links them after the other stylesheets. A token the root does not define is `BuildError::ThemeToken`. A root theme outside `theme.root` is `BuildError::ThemeLayer`.
 
 A layout or a page sets one with a literal, forced or not; a name with no file is `BuildError::UnknownTheme`:
 

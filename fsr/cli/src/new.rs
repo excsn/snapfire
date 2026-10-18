@@ -185,7 +185,7 @@ pub fn create(root: &Path, options: NewOptions) -> Result<Created, BuildError> {
     let contents = match (tailwind && path.starts_with("app/styles/"), &site_scope) {
       (true, None) => format!("@import \"tailwindcss\";\n\n{contents}"),
       // A site's sheet joins the shell's document, whose preflight is already the base.
-      (true, Some(_)) => format!("@import \"tailwindcss/theme\" layer(theme);\n@import \"tailwindcss/utilities\" layer(utilities);\n\n{contents}"),
+      (true, Some(_)) => format!("@import \"tailwindcss/theme\" layer(theme.root);\n@import \"tailwindcss/utilities\" layer(utilities);\n\n{contents}"),
       (false, _) => contents,
     };
     let path = root.join(path);

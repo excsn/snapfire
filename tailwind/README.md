@@ -2,7 +2,7 @@
 
 License: MPL-2.0 for the crate, MIT for the Tailwind CSS sources and tests it carries. Status: Tailwind CSS v4.3.2.
 
-Tailwind CSS v4 in Rust. A stylesheet configures it the way Tailwind's own does, with `@import "tailwindcss"`, `@theme`, `@utility`, `@custom-variant` and `@source inline(...)`. The crate builds that stylesheet for the class names you give it, with no Node and no file scanning. It also writes named themes under a selector of your choosing and turns classes into plain declarations for renderers that match no selectors, such as card images. The [usage guide](README.USAGE.md) walks through each task and the [API reference](API_REFERENCE.md) lists the surface.
+Tailwind CSS v4 in Rust. A stylesheet configures it the way Tailwind's own does, with `@import "tailwindcss"`, `@theme`, `@utility`, `@custom-variant` and `@source inline(...)`. The crate builds that stylesheet for the class names you give it, with no Node and no file scanning. The [usage guide](README.USAGE.md) walks through each task and the [API reference](API_REFERENCE.md) lists the surface.
 
 ## Install
 
@@ -20,8 +20,6 @@ The crate has no features. It depends on Lightning CSS for the optimize pass Tai
 | Build a stylesheet for a set of classes | `Compiler::new`, then `Compiler::build` |
 | Resolve `@import` from your own files | `CompileOptions::load_stylesheet`, falling back to `tailwind_stylesheet` |
 | Get the output Tailwind's CLI writes | `optimize` over what `build` returned |
-| Switch the whole look with an attribute | `CompileOptions::themes` with one `NamedTheme` per theme |
-| Draw classes where no selector matches | `Compiler::card_rules` |
 | Tell a misspelt class from a real one | `Compiler::invalid_candidates` |
 | Read what the stylesheet uses | `Compiler::features`, `Compiler::sources`, `Compiler::root` |
 | Spell a class the way Tailwind prefers | `Compiler::canonical_candidate` |

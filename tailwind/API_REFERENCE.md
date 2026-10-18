@@ -7,7 +7,6 @@ Tailwind CSS v4.3.2 in Rust: a CSS-first configuration compiled once and built f
 * [1. Compiling](#1-compiling)
   * [Compiler](#compiler)
   * [CompileOptions](#compileoptions)
-  * [NamedTheme](#namedtheme)
   * [PolyfillFlags](#polyfillflags)
 * [2. Loading Stylesheets](#2-loading-stylesheets)
   * [LoadStylesheet](#loadstylesheet)
@@ -18,12 +17,10 @@ Tailwind CSS v4.3.2 in Rust: a CSS-first configuration compiled once and built f
   * [Features](#features)
   * [Source](#source)
   * [Root](#root)
-* [4. Card Declarations](#4-card-declarations)
-  * [CardRule](#cardrule)
-* [5. Optimizing](#5-optimizing)
+* [4. Optimizing](#4-optimizing)
   * [optimize](#optimize)
   * [OptimizeOptions](#optimizeoptions)
-* [6. Error Handling](#6-error-handling)
+* [5. Error Handling](#5-error-handling)
   * [Error](#error)
 
 ## 1. Compiling
@@ -38,10 +35,9 @@ A parsed configuration. Neither `Send` nor `Sync`: it holds `Rc` and `RefCell` c
 * `pub fn sources(&self) -> &[Source]`: the `@source` paths, in order. `inline(...)` sources are not among them: their candidates are already in the build.
 * `pub fn root(&self) -> Option<&Root>`: what `@import "tailwindcss" source(...)` or `@tailwind utilities source(...)` named.
 * `pub fn invalid_candidates(&self) -> Vec<String>`: every candidate a build was given that is not a utility, a variant of one or a theme variable, sorted.
-* `pub fn warnings(&self) -> Vec<String>`: what Tailwind would print to the console, in order, including a named theme that sets `--breakpoint-*` or `--container-*`.
+* `pub fn warnings(&self) -> Vec<String>`: what Tailwind would print to the console, in order.
 * `pub fn canonical_candidate(&self, candidate: &str) -> Option<String>`: the candidate in Tailwind's preferred spelling, `!flex` as `flex!`. `None` when it does not parse.
 * `pub fn candidate_css(&self, candidate: &str) -> Option<String>`: one candidate's CSS without polyfills. `None` when it is not a utility.
-* `pub fn card_rules<'c>(&self, candidates: impl IntoIterator<Item = &'c str>) -> Vec<CardRule>`: see [4. Card Declarations](#4-card-declarations).
 
 ### CompileOptions
 
@@ -52,20 +48,7 @@ What `Compiler::new` reads besides the stylesheet. `Default` is every field belo
 * `pub polyfills: PolyfillFlags`: the fallbacks written for older browsers. Default `PolyfillFlags::ALL`.
 * `pub banner: bool`: starts the output with Tailwind's license comment. Default `true`.
 * `pub from: Option<String>`: the stylesheet's file name; a syntax error then starts with `file:line:column`, columns in UTF-16 code units. Default `None`.
-* `pub themes: Vec<NamedTheme>`: written after the root theme in this order. Default empty.
-* `pub root_selectors: Vec<String>`: more selectors the root theme's rule applies under, after `:root, :host`, such as `[data-theme="default"]`. Default empty.
-* `pub fn base(self, base: String) -> Self`, `pub fn load_stylesheet(self, load_stylesheet: Option<Box<LoadStylesheet<'a>>>) -> Self`, `pub fn polyfills(self, polyfills: PolyfillFlags) -> Self`, `pub fn banner(self, banner: bool) -> Self`, `pub fn from(self, from: Option<String>) -> Self`, `pub fn themes(self, themes: Vec<NamedTheme>) -> Self`, `pub fn root_selectors(self, root_selectors: Vec<String>) -> Self`: setters for the field of the same name.
-
-### NamedTheme
-
-A stylesheet of `@theme` blocks applied under its own selector. `#[non_exhaustive]`: build one with `new`.
-
-* `pub fn new(selector: String, css: String, from: Option<String>) -> Self`
-* `pub selector: String`: the rule's selector, such as `[data-theme="ocean"]`. Written as given.
-* `pub css: String`: read for its top-level `@theme` blocks; custom properties only, everything else ignored.
-* `pub from: Option<String>`: names the file in errors and warnings.
-
-Every variable is written, used or not. A variable the root theme lacks is added to it as a reference: its utilities exist and fall back to this theme's value; the root does not write it.
+* `pub fn base(self, base: String) -> Self`, `pub fn load_stylesheet(self, load_stylesheet: Option<Box<LoadStylesheet<'a>>>) -> Self`, `pub fn polyfills(self, polyfills: PolyfillFlags) -> Self`, `pub fn banner(self, banner: bool) -> Self` and `pub fn from(self, from: Option<String>) -> Self`: setters for the field of the same name.
 
 ### PolyfillFlags
 
@@ -128,25 +111,7 @@ A configuration with `Features::NONE` builds to its input printed back, with no 
 * `Root::None`: `source(none)`.
 * `Root::Path { base: String, pattern: String }`
 
-## 4. Card Declarations
-
-### CardRule
-
-One candidate as plain declarations.
-
-* `pub candidate: String`
-* `pub min_width: Option<f32>`: the width a breakpoint variant applies from, in CSS pixels, a `rem` as 16.
-* `pub declarations: Vec<(String, String)>`: in order, custom properties left out.
-
-`Compiler::card_rules` returns rules in Tailwind's output order. A candidate has none when it is not a utility or when a variant other than a minimum-width breakpoint wraps it (`hover:`, `dark:` and `group-*` among them). Values are rewritten:
-
-* `var(--x)` from the candidate's own custom properties, then the theme, then a registered property's initial value, then the fallback.
-* `calc()` of plain numbers and one unit, times or divided by numbers, as one value; any other `calc()` is left.
-* `oklch(...)` and `color-mix(in oklab, <color> N%, transparent)` as `#rrggbb` or `rgba(r, g, b, a)`.
-* `calc(infinity * 1px)` as `9999px`.
-* `padding-inline`, `padding-block`, `margin-inline`, `margin-block`, `inset-inline`, `inset-block` and their `-start` and `-end` forms as left, right, top and bottom.
-
-## 5. Optimizing
+## 4. Optimizing
 
 ### optimize
 
@@ -162,7 +127,7 @@ Tailwind's Lightning CSS pass, run twice: targets Safari 16.4, iOS Safari 16.4, 
 * `pub file: Option<String>`: the file name messages name.
 * `pub fn minify(self, minify: bool) -> Self`, `pub fn file(self, file: Option<String>) -> Self`: setters for the field of the same name.
 
-## 6. Error Handling
+## 5. Error Handling
 
 ### Error
 

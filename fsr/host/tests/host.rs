@@ -6637,6 +6637,21 @@ async fn a_stylesheet_under_styles_is_linked_as_the_bundle_compiled_it() {
   assert!(html.contains(r#"href="/static/css/site.css""#), "a bundle that did not compile it leaves the directory's own file: {html}");
 }
 
+#[tokio::test]
+async fn the_named_theme_sheets_the_bundle_compiled_are_linked_after_the_others() {
+  let dir = styled_app(false, true);
+  std::fs::create_dir_all(dir.join("styles/themes")).unwrap();
+  std::fs::write(dir.join("styles/themes/ocean.css"), "@theme {\n  --color-brand: #0e7490;\n}\n").unwrap();
+  let facts = std::fs::read_to_string(dir.join("dist/.snapfire-build.json")).unwrap();
+  let facts = facts.replace("\"styles/site.min.css\"]", "\"styles/site.min.css\",\"styles/themes/default.css\",\"styles/themes/default.min.css\",\"styles/themes/ocean.css\",\"styles/themes/ocean.min.css\"]");
+  std::fs::write(dir.join("dist/.snapfire-build.json"), facts).unwrap();
+  let html = tuned_host(&dir).render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  let site = html.find(r#"href="/static/js/app/styles/site.min.css""#).expect(&html);
+  let default = html.find(r#"href="/static/js/app/styles/themes/default.min.css""#).expect(&html);
+  let ocean = html.find(r#"href="/static/js/app/styles/themes/ocean.min.css""#).expect(&html);
+  assert!(site < default && default < ocean, "{html}");
+}
+
 fn app_with_public() -> PathBuf {
   let dir = app_dir_with("\n[dirs]\npublic = \"web\"\n");
   std::fs::create_dir_all(dir.join("web/.well-known")).unwrap();

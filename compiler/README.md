@@ -65,7 +65,7 @@ Then read `example/dist`, which is what a browser would be served.
 | Skip recompiling components nothing changed | Nothing to pass; the plugin cache answers them and the banner says how many |
 | Hash an imported image or font and rewrite the reference | Nothing to pass; a default import or a CSS `url()` of one is emitted under its hash, with an image's displayed size read through `snapfire_media` |
 | Rewrite every image and font reference from a map a driving tool wrote, emitting none | `--asset-map <path>`; under `--driven` the compiler reports what the map does not name and waits for it |
-| Build a Tailwind CSS v4 stylesheet for the classes the sources use | `@import "tailwindcss"` in the stylesheet; `--tailwind-classes` adds classes a driving tool listed, `--tailwind-themes` adds named themes |
+| Build a Tailwind CSS v4 stylesheet for the classes the sources use | `@import "tailwindcss"` in the stylesheet; `--tailwind-classes` adds classes a driving tool listed |
 | Get other files into `dist` | `--copy-assets` |
 | Know which packages the page must supply | The `Externals:` line the build prints |
 | Catch a missing import map entry at build time | `--import-map ./static/importmap.json` |

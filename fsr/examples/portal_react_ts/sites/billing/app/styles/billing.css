@@ -1,4 +1,4 @@
-@import "tailwindcss/theme" layer(theme);
+@import "tailwindcss/theme" layer(theme.root);
 @import "tailwindcss/utilities" layer(utilities);
 
 /* The portal's tokens. The shell's stylesheet and the document's theme set them; these values are only the fallbacks. */

@@ -23,7 +23,10 @@ pub mod typecheck;
 pub mod types;
 pub mod vendor;
 pub mod tailwind;
+pub mod cards;
+pub(crate) mod css;
 pub mod mdx;
+pub mod themes;
 pub mod xwpm;
 
 pub use dev::{emit, DevOptions, Emitted};
@@ -86,6 +89,10 @@ pub enum BuildError {
   IslandImports { module: String, adapter: String, missing: String, remedy: String },
   #[error("{file} names a theme `default`, which is the root theme's name; rename the file")]
   ReservedTheme { file: String },
+  #[error("{file} sets `{token}`, which is not a token of {defined}; a named theme overrides the root's tokens, so define it in the root's @theme")]
+  ThemeToken { file: String, token: String, defined: String },
+  #[error("{file} is a named theme, but the root theme is not in `theme.root`, so it would outrank every named one; import Tailwind's theme as `@import \"tailwindcss/theme\" layer(theme.root);` or declare the root's tokens in `@layer theme.root {{ :root {{ ... }} }}`")]
+  ThemeLayer { file: String },
   #[error("{module} sets theme `{name}`, which is not a theme; the themes are {known}")]
   UnknownTheme { module: String, name: String, known: String },
   #[error("`{name}` is not a direction; the directions are {known}")]
@@ -272,6 +279,8 @@ pub struct Report {
   pub tailwind: Option<(usize, Vec<(String, String)>)>,
   /// What converting an `.mdx` or `.md` file left out: the file, the line and column, and why.
   pub mdx: Vec<(String, usize, usize, String)>,
+  /// A named theme setting a token the stylesheet reads at build, one line each.
+  pub theme_warnings: Vec<String>,
   /// The plan file as written and as it would be without whitespace, in bytes.
   /// The build writes it pretty so it reads and diffs; the second number is
   /// what a deployment would ship.
@@ -326,6 +335,9 @@ impl fmt::Display for Report {
     }
     for (file, line, column, message) in &self.mdx {
       writeln!(f, "{:<9} {file}:{line}:{column}: {message}", "warning")?;
+    }
+    for warning in &self.theme_warnings {
+      writeln!(f, "{:<9} {warning}", "warning")?;
     }
     for (i, cause) in self.causes.iter().enumerate() {
       let label = if i == 0 { "client" } else { "" };
@@ -579,6 +591,9 @@ pub struct ShellContract {
   /// The shell's named themes, from its `styles/themes/`, which a site's layouts may name too.
   #[serde(default, skip_serializing_if = "Vec::is_empty")]
   pub themes: Vec<String>,
+  /// The tokens the shell's root theme defines, which a site's named themes may override.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub tokens: Vec<String>,
 }
 
 pub const SHELL_CONTRACT_VERSION: u32 = 1;
@@ -1489,6 +1504,11 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   theme_names.sort();
   report.themes = theme_names.clone();
+  let root_tokens = themes::root_tokens(&app.join(&sections.dirs.styles))?;
+  let named_themes = themes::named_themes(app, &sections.dirs.styles)?;
+  let shell_tokens = shell.as_ref().map(|(_, contract)| contract.tokens.clone());
+  let written_themes = themes::write(&sections.dirs.styles, &named_themes, &root_tokens, shell_tokens.as_deref())?;
+  report.theme_warnings = written_themes.warnings.clone();
   let mut theme_entries: Vec<snapfire_fsr_plan::ThemeEntry> = Vec::new();
   let mut route_modules: Vec<String> = Vec::new();
   for plan in entries.iter().map(|e| &e.plan).chain(intercepts.iter().map(|e| &e.plan)).chain(not_found.iter()) {
@@ -1624,6 +1644,9 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   files.extend(contracts.into_iter().map(|(rel, c)| (rel, c.to_json() + "\n")));
   files.extend(rewritten.into_iter().filter(|(file, _)| !snapfire_fsr_lower::component::is_transformed(file)).map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   files.extend(mdx_files);
+  files.extend(written_themes.files);
+  let mut bundle_files = generated_files.clone();
+  bundle_files.extend(written_themes.added);
   #[cfg(feature = "mdx")]
   {
     let log = mdx_installed.log.borrow().clone();
@@ -1639,6 +1662,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     None => {
       let mut shell_contract = shell_contract(app, &contract, session_type, &manifest.sources, &set.consts, &config, &frameworks)?;
       shell_contract.themes = report.themes.clone();
+      shell_contract.tokens = root_tokens.names();
       files.push(("generated/shell.json".to_owned(), serde_json::to_string_pretty(&shell_contract).expect("a shell contract serializes") + "\n"));
     }
     Some(_) => {
@@ -1672,7 +1696,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
     ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some(), !vue_declarations.is_empty())?),
-    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_files, &generated_files, types::jsx_source(app, &layout)?)),
+    ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_files, &bundle_files, types::jsx_source(app, &layout)?)),
   ]);
   if let Some(shim) = shim {
     files.push((format!("{}/{}", layout.types.trim_end_matches('/'), types::FOREIGN_SHIM), shim));
@@ -1923,7 +1947,7 @@ fn shell_contract(app: &Path, contract: &Contract, session: Option<&str>, source
     .and_then(|json| json.get("imports").cloned())
     .and_then(|imports| serde_json::from_value(imports).ok())
     .unwrap_or_default();
-  Ok(ShellContract { version: SHELL_CONTRACT_VERSION, store, imports, frameworks: frameworks.clone(), fsr: env!("CARGO_PKG_VERSION").to_owned(), themes: Vec::new() })
+  Ok(ShellContract { version: SHELL_CONTRACT_VERSION, store, imports, frameworks: frameworks.clone(), fsr: env!("CARGO_PKG_VERSION").to_owned(), themes: Vec::new(), tokens: Vec::new() })
 }
 
 /// The head helpers a `meta` body imports from `@snapfire/fsr`. Plain

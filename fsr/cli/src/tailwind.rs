@@ -84,9 +84,11 @@ pub fn card_table(styles: &Path, classes: &Classes) -> Result<Vec<CardClass>, cr
     Ok(snapfire_tailwind::Loaded::new(file.to_string_lossy().into_owned(), file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content))
   };
   let base = sheet.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned();
-  let options = snapfire_tailwind::CompileOptions::default().base(base).load_stylesheet(Some(Box::new(load))).banner(false).from(Some(sheet.to_string_lossy().into_owned()));
-  let compiler = snapfire_tailwind::Compiler::new(&css, options).map_err(|e| crate::BuildError::Dev(format!("{}: {e}", sheet.display())))?;
-  Ok(compiler.card_rules(classes.listed.keys().map(String::as_str)).into_iter().map(|rule| CardClass { class: rule.candidate, min_width: rule.min_width, declarations: rule.declarations }).collect())
+  let options = snapfire_tailwind::CompileOptions::default().base(base).load_stylesheet(Some(Box::new(load))).banner(false).polyfills(snapfire_tailwind::PolyfillFlags::NONE).from(Some(sheet.to_string_lossy().into_owned()));
+  let mut compiler = snapfire_tailwind::Compiler::new(&css, options).map_err(|e| crate::BuildError::Dev(format!("{}: {e}", sheet.display())))?;
+  let built = compiler.build(classes.listed.keys().map(String::as_str));
+  let listed: BTreeSet<String> = classes.listed.keys().cloned().collect();
+  Ok(crate::cards::card_rules(&built, &listed).into_iter().map(|rule| CardClass { class: rule.class, min_width: rule.min_width, declarations: rule.declarations }).collect())
 }
 
 /// Every class the plan's components render.

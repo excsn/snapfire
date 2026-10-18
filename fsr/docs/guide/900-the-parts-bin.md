@@ -49,7 +49,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 - **`snapfire_fsr_runtime::Runtime`** and **`assemble`**, the assembler: match, resolve, load, evaluate, stitch, with **`NodeCache`** for subtrees, **`MemoryCache`**, **`FibreCache`** and **`NoCache`** as implementations and **`SegmentKeyer`** for navigation identity.
 - **`snapfire_fsr_payload::html_serialize`** and the row encoding, the tree as HTML and as the wire form the client reads.
 - **`snapfire_fsr_runtime::html_stream`** and **`wire_stream`**, the same with deferred slots streamed in.
-- **`snapfire_tailwind::Compiler`**, Tailwind CSS v4 from a stylesheet's own configuration: `build` for the classes given, `card_rules` for the same classes as plain declarations a card image draws, `CompileOptions::themes` for named themes under an attribute.
+- **`snapfire_tailwind::Compiler`**, Tailwind CSS v4 from a stylesheet's own configuration: `build` for the classes given, `candidate_css` for one of them.
 - **`snapfire_fsr_runtime::DocumentTheme`**, a request's theme and scheme, written on `<html>` and in the payload's eager head row.
 
 ## I want to serve

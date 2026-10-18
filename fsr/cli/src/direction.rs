@@ -69,7 +69,7 @@ pub const TAILWIND_SHEET: &str = "tailwind.css";
 
 /// Theme and utilities without the preflight reset, so the stylesheets an
 /// application already has keep their look.
-const TAILWIND_ADDED: &str = "/* Tailwind's theme and utilities. Its preflight reset is left out so the other stylesheets here keep their look; add `@import \"tailwindcss/preflight\" layer(base);` to take it. */\n@import \"tailwindcss/theme\" layer(theme);\n@import \"tailwindcss/utilities\" layer(utilities);\n";
+const TAILWIND_ADDED: &str = "/* Tailwind's theme and utilities. Its preflight reset is left out so the other stylesheets here keep their look; add `@import \"tailwindcss/preflight\" layer(base);` to take it. */\n@import \"tailwindcss/theme\" layer(theme.root);\n@import \"tailwindcss/utilities\" layer(utilities);\n";
 
 const TAILWIND_PAGE: &str = "export default function Styled() {\n  return (\n    <main className=\"mx-auto max-w-xl p-8\">\n      <h1 className=\"text-3xl font-bold tracking-tight\">Styled with Tailwind</h1>\n      <p className=\"mt-2 text-gray-600 dark:text-gray-300\">Each class on this page is a utility the build generated because the page renders it.</p>\n      <a href=\"/\" className=\"mt-6 inline-block rounded-md bg-sky-600 px-4 py-2 text-white hover:bg-sky-700\">Back home</a>\n    </main>\n  );\n}\n";
 

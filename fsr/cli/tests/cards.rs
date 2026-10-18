@@ -1,18 +1,27 @@
-//! Utilities as card declarations: variables resolved, colors in sRGB, a breakpoint as a width.
+//! Classes as card declarations, read from the stylesheet Tailwind builds: variables resolved,
+//! colors in sRGB, a breakpoint as a width.
 
-use snapfire_tailwind::{CardRule, CompileOptions, Compiler};
+use std::collections::{BTreeMap, BTreeSet};
 
-fn rules(candidates: &[&str]) -> Vec<CardRule> {
-  let options = CompileOptions::default().banner(false);
-  let compiler = Compiler::new("@import \"tailwindcss\";\n@theme {\n  --color-brand: #e11d48;\n}", options).unwrap();
-  compiler.card_rules(candidates.iter().copied())
+use snapfire_fsr_cli::tailwind::{card_table, CardClass, Classes};
+
+fn rules(candidates: &[&str]) -> Vec<CardClass> {
+  let n = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+  let dir = std::env::temp_dir().join(format!("fsr-cli-cards-{}-{n}", std::process::id()));
+  std::fs::create_dir_all(&dir).unwrap();
+  std::fs::write(dir.join("app.css"), "@import \"tailwindcss\";\n@theme {\n  --color-brand: #e11d48;\n}\n").unwrap();
+  let mut classes = Classes::default();
+  classes.listed = candidates.iter().map(|c| ((*c).to_owned(), BTreeSet::from(["routes/page.tsx".to_owned()]))).collect::<BTreeMap<_, _>>();
+  let table = card_table(&dir, &classes).unwrap();
+  std::fs::remove_dir_all(&dir).unwrap();
+  table
 }
 
-fn of<'a>(rules: &'a [CardRule], candidate: &str) -> Option<&'a CardRule> {
-  rules.iter().find(|r| r.candidate == candidate)
+fn of<'a>(rules: &'a [CardClass], class: &str) -> Option<&'a CardClass> {
+  rules.iter().find(|r| r.class == class)
 }
 
-fn decls(rule: &CardRule) -> Vec<(&str, &str)> {
+fn decls(rule: &CardClass) -> Vec<(&str, &str)> {
   rule.declarations.iter().map(|(p, v)| (p.as_str(), v.as_str())).collect()
 }
 
@@ -42,6 +51,15 @@ fn a_breakpoint_applies_from_its_width_and_an_interaction_never() {
   assert_eq!(md.declarations[0], ("font-size".to_owned(), "3.75rem".to_owned()));
   assert!(of(&all, "hover:bg-red-500").is_none());
   assert!(of(&all, "dark:bg-black").is_none());
-  let order: Vec<&str> = all.iter().map(|r| r.candidate.as_str()).collect();
+  let order: Vec<&str> = all.iter().map(|r| r.class.as_str()).collect();
   assert_eq!(order, ["text-4xl", "md:text-6xl"], "in output order, the breakpoint after the base");
+}
+
+/// A class whose escaped selector needs a hex escape, as a leading digit does.
+#[test]
+fn an_arbitrary_value_class_reads_back_by_its_own_name() {
+  let all = rules(&["w-[37px]", "text-[13px]", "2xl:p-2"]);
+  assert_eq!(decls(of(&all, "w-[37px]").unwrap()), [("width", "37px")]);
+  assert_eq!(decls(of(&all, "text-[13px]").unwrap()), [("font-size", "13px")]);
+  assert_eq!(of(&all, "2xl:p-2").unwrap().min_width, Some(1536.0));
 }

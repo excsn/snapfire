@@ -5,7 +5,7 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-use snapfire_tailwind::{CompileOptions, Compiler, Error, Loaded, NamedTheme, Root, tailwind_stylesheet};
+use snapfire_tailwind::{CompileOptions, Compiler, Error, Loaded, Root, tailwind_stylesheet};
 
 /// What expanding one stylesheet produced. `reads` holds every file it read besides itself,
 /// whether or not it succeeded, so a change to any of them compiles it again.
@@ -45,33 +45,13 @@ pub fn read_classes(path: &Path) -> Vec<(String, String)> {
     .collect()
 }
 
-/// The name the root theme also answers to when named themes are given, so an element inside
-/// one can take the root's values back.
-pub const ROOT_THEME: &str = "default";
-
-/// The named themes in `dir`, one per `<name>.css`, selected by `[<attribute>="<name>"]`, in
-/// name order.
-pub fn named_themes(dir: &Path, attribute: &str) -> Vec<(PathBuf, NamedTheme)> {
-  let mut files: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "css")).collect();
-  files.sort();
-  files
-    .into_iter()
-    .filter_map(|file| {
-      let name = file.file_stem()?.to_string_lossy().into_owned();
-      let css = std::fs::read_to_string(&file).ok()?;
-      let from = Some(file.to_string_lossy().into_owned());
-      Some((file, NamedTheme::new(format!("[{attribute}=\"{name}\"]"), css, from)))
-    })
-    .collect()
-}
-
 /// Runs `content`, the stylesheet at `path`, through Tailwind with the classes in `classes` and
-/// `extra` and the named themes in `themes`, a directory and the attribute that selects one.
+/// `extra`.
 /// `quiet` classes build their utilities too but are never reported as unknown: they come from
 /// vendored code, where a string that is not a utility is not the app's typo.
 /// An import resolves to one of Tailwind's own stylesheets first, then to a file relative to
 /// the stylesheet that names it.
-pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(String, String)], quiet: &[(String, String)], themes: Option<(PathBuf, &str)>, source_name: &str) -> Expanded {
+pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(String, String)], quiet: &[(String, String)], source_name: &str) -> Expanded {
   let reads = RefCell::new(Vec::new());
   let mut listed = match classes {
     Some(file) => {
@@ -83,16 +63,6 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
   let known: std::collections::HashSet<String> = listed.iter().map(|(class, _)| class.clone()).collect();
   listed.extend(extra.iter().filter(|(class, _)| !known.contains(class)).cloned());
   let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_string_lossy().into_owned();
-  let mut named = Vec::new();
-  let mut root_selectors = Vec::new();
-  if let Some((themes_dir, attribute)) = themes {
-    root_selectors.push(format!("[{attribute}=\"{ROOT_THEME}\"]"));
-    reads.borrow_mut().push(themes_dir.clone());
-    for (file, theme) in named_themes(&themes_dir, attribute) {
-      reads.borrow_mut().push(file);
-      named.push(theme);
-    }
-  }
 
   let load = |id: &str, base: &str| -> Result<Loaded, Error> {
     if let Some(loaded) = tailwind_stylesheet(id, base) {
@@ -104,7 +74,7 @@ pub fn expand(path: &Path, content: &str, classes: Option<&Path>, extra: &[(Stri
     Ok(Loaded::new(file.to_string_lossy().into_owned(), file.parent().unwrap_or(Path::new(".")).to_string_lossy().into_owned(), content))
   };
 
-  let options = CompileOptions::default().base(dir).load_stylesheet(Some(Box::new(load))).from(Some(source_name.to_owned())).themes(named).root_selectors(root_selectors);
+  let options = CompileOptions::default().base(dir).load_stylesheet(Some(Box::new(load))).from(Some(source_name.to_owned()));
   let compiled = Compiler::new(content, options).and_then(|compiler| unread_sources(&compiler).map_or(Ok(compiler), Err)).map(|mut compiler| {
     let css = compiler.build(listed.iter().chain(quiet).map(|(class, _)| class.as_str()));
     let invalid = compiler.invalid_candidates();
@@ -606,7 +576,7 @@ mod tests {
     let sheet = dir.join("app.css");
     let content = "@import \"tailwindcss/utilities\";\n@import \"./brand.css\";\n.hero {\n  margin: 0 .5rem;\n}\n";
 
-    let expanded = expand(&sheet, content, Some(&classes), &[], &[], None, "styles/app.css");
+    let expanded = expand(&sheet, content, Some(&classes), &[], &[], "styles/app.css");
     let css = expanded.css.unwrap();
     assert!(css.contains(".flex {\n  display: flex;\n}"), "{css}");
     assert!(css.contains("background-color: var(--color-brand)"), "{css}");
@@ -624,11 +594,11 @@ mod tests {
       ("@import \"tailwindcss\";\n@source not \"./legacy\";\n", "`@source not \"./legacy\"`"),
       ("@import \"tailwindcss\" source(\"../src\");\n", "`source(\"../src\")`"),
     ] {
-      let error = expand(sheet, content, None, &[], &[], None, "styles/app.css").css.unwrap_err();
+      let error = expand(sheet, content, None, &[], &[], "styles/app.css").css.unwrap_err();
       assert!(error.starts_with(&format!("{line}: ")) && error.contains("@source inline("), "{error}");
     }
     for content in ["@import \"tailwindcss\" source(none);\n", "@import \"tailwindcss\";\n@source inline(\"flex\");\n"] {
-      let css = expand(sheet, content, None, &[], &[], None, "styles/app.css").css.unwrap();
+      let css = expand(sheet, content, None, &[], &[], "styles/app.css").css.unwrap();
       assert!(!css.is_empty(), "{content}");
     }
   }

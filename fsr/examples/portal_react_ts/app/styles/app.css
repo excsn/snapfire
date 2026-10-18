@@ -1,4 +1,8 @@
-@import "tailwindcss";
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme" layer(theme.root);
+@import "tailwindcss/preflight" layer(base);
+@import "tailwindcss/utilities" layer(utilities);
 
 @custom-variant dark {
   &:where([data-sf-scheme="dark"], [data-sf-scheme="dark"] *) {
@@ -25,7 +29,7 @@
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* Written after the named themes, so a scheme beats a theme's neutrals at equal specificity. With no `data-sf-scheme` on `<html>` the browser's preference decides. The accent is derived again wherever a theme applies, since a custom property's `var()` resolves where it is declared. */
+/* In `theme` itself, which outranks the root and named themes in its sublayers, so a scheme beats a theme's neutrals whichever stylesheet loads last. With no `data-sf-scheme` on `<html>` the browser's preference decides. The accent is derived again wherever a theme applies, since a custom property's `var()` resolves where it is declared. */
 @layer theme {
   [data-sf-theme] {
     --color-accent: var(--color-brand);

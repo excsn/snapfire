@@ -50,9 +50,6 @@ pub struct Options {
   pub driven: bool,
   /// The classes file a stylesheet using Tailwind reads, relative to the root.
   pub tailwind_classes: Option<PathBuf>,
-  /// The directory of named themes a stylesheet using Tailwind writes, relative to the root.
-  pub tailwind_themes: Option<PathBuf>,
-  pub tailwind_theme_attribute: String,
   /// The vendor tree a stylesheet using Tailwind reads classes from, relative to the root, with
   /// the URL prefix the import map names it under.
   pub tailwind_vendor: Option<(PathBuf, String)>,
@@ -1113,13 +1110,11 @@ fn run(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &Job, 
   let mut plain = None;
   if matches!(job.asset, Asset::Style)
     && matches!(job.supplied, Supplied::File)
-    && let Ok(content) = fs::read_to_string(&job.source)
+    && let Ok(content) = compiler.read_source(&job.source)
   {
-    let theme_file = opts.tailwind_themes.as_ref().is_some_and(|dir| job.source.starts_with(opts.root.join(dir)));
-    if crate::tailwind::uses_tailwind(&content) && !theme_file {
+    if crate::tailwind::uses_tailwind(&content) {
       let classes = opts.tailwind_classes.as_ref().map(|c| opts.root.join(c));
-      let themes = opts.tailwind_themes.as_ref().map(|dir| (opts.root.join(dir), opts.tailwind_theme_attribute.as_str()));
-      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), extra, quiet, themes, &display(&job.source, &opts.root)));
+      expanded = Some(crate::tailwind::expand(&job.source, &content, classes.as_deref(), extra, quiet, &display(&job.source, &opts.root)));
     } else if job.emit.minify().is_none() {
       plain = Some(crate::tailwind::defined_classes(&content).into_iter().map(str::to_owned).collect());
     }
