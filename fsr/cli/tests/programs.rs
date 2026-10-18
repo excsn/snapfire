@@ -146,3 +146,22 @@ fn a_build_prints_only_what_needs_attention_and_verbose_prints_the_rest() {
   let _ = std::fs::remove_dir_all(&root);
   let _ = std::fs::remove_dir_all(&fresh);
 }
+
+#[test]
+fn a_bundle_lists_its_files_under_verbose() {
+  let root = project("bundled", "", &[]);
+  assert!(fsr_build(&root, None).status.success());
+  let snapfire = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug");
+  let path = format!("{}:{}", snapfire.display(), std::env::var("PATH").unwrap_or_default());
+  let bundle = |out: &str, args: &[&str]| {
+    let output = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("bundle").arg(root.join("app")).arg("--out").arg(root.join(out)).args(args).env("PATH", &path).env("CARGO_TARGET_DIR", root.join("target")).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    assert!(output.status.success(), "{stdout}{}", String::from_utf8_lossy(&output.stderr));
+    stdout
+  };
+  let quiet = bundle("quiet", &[]);
+  assert!(quiet.contains("place beside it") && !quiet.contains("serves /static") && !quiet.contains("read by the host"), "{quiet}");
+  let verbose = bundle("verbose", &["--verbose"]);
+  assert!(verbose.contains("serves /static") && verbose.contains("place beside it"), "{verbose}");
+  let _ = std::fs::remove_dir_all(&root);
+}

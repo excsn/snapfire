@@ -19,6 +19,8 @@ pub struct ServeOptions {
   /// table's row of that name or adding one: `fsr dev` serves a site under a
   /// shell artifact this way, with nothing written into the artifact.
   pub mounts: Vec<(String, PathBuf)>,
+  /// Prints the whole boot report, `--verbose`; without it, `HostReport::brief`.
+  pub verbose: bool,
 }
 
 impl ServeOptions {
@@ -29,6 +31,11 @@ impl ServeOptions {
 
   pub fn mounts(mut self, mounts: Vec<(String, PathBuf)>) -> Self {
     self.mounts = mounts;
+    self
+  }
+
+  pub fn verbose(mut self, verbose: bool) -> Self {
+    self.verbose = verbose;
     self
   }
 }
@@ -47,7 +54,11 @@ pub fn project_root(app: &Path) -> PathBuf {
 pub fn run(app: &Path, options: ServeOptions) -> Result<(), BuildError> {
   let (host, traces, _logging) = host_of(app, true, &options.mounts)?;
   let host = Arc::new(host);
-  print!("{}", host.report());
+  if options.verbose {
+    print!("{}", host.report());
+  } else {
+    print!("{}", host.report().brief());
+  }
   let listen = options.listen.unwrap_or_else(|| host.listen().to_owned());
   let scheme = match host.report().tls.is_some() {
     true => "https",

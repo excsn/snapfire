@@ -121,6 +121,43 @@ pub struct SiteReport {
   pub ignored: Vec<String>,
 }
 
+/// The rows of a [`HostReport`] that need attention, [`HostReport::brief`].
+pub struct Brief<'r>(&'r HostReport);
+
+impl HostReport {
+  /// What needs attention and nothing else: a route `[[route]]` declares that nothing
+  /// registers, a site's rows the shell ignored, a prerender another build wrote, a pattern
+  /// the sitemap cannot list and the top-level keys the host does not read. `fsr serve` prints
+  /// this unless `--verbose`.
+  pub fn brief(&self) -> Brief<'_> {
+    Brief(self)
+  }
+}
+
+impl std::fmt::Display for Brief<'_> {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let report = self.0;
+    for pattern in &report.unanswered_routes {
+      writeln!(f, "{:<9} {pattern:<22} declared by [[route]], registered by nothing here", "routes")?;
+    }
+    for site in report.sites.iter().filter(|site| !site.ignored.is_empty()) {
+      writeln!(f, "{:<9} {:<22} ignored [{}], the shell's", "sites", site.name, site.ignored.join(", "))?;
+    }
+    if let Some(dir) = report.prerender.as_ref().filter(|_| report.prerender_stale) {
+      for pattern in report.app.prerenderable.iter().chain(&report.app.prerenderable_anonymous) {
+        writeln!(f, "{:<9} {pattern:<22} {} written by another build, rendered live until fsr prerender runs", "prerender", dir.display())?;
+      }
+    }
+    for pattern in report.crawl.iter().flat_map(|crawl| &crawl.unlisted) {
+      writeln!(f, "{:<9} {pattern:<22} not in the sitemap: no `paths` export lists its values", "crawl")?;
+    }
+    if !report.ignored.is_empty() {
+      writeln!(f, "{:<9} {}, not the host's; left to the application's own store", "ignored", report.ignored.join(", "))?;
+    }
+    Ok(())
+  }
+}
+
 impl std::fmt::Display for HostReport {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     write!(f, "{}", self.app)?;

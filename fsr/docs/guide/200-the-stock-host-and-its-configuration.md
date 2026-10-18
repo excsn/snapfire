@@ -149,7 +149,7 @@ The values are public in the plain sense: a loader returns them, a page renders 
 
 ## The boot report
 
-Boot prints the application's report, every route, source, action and rendered module with its owner, then the services with their transport and base URL, the static roots, the configuration files and the inferences. It is the same table the build printed, with the host's own rows added. A host that cannot bind a name refuses to boot with the name, rather than serving a plan it cannot answer; the failure modes are a source nothing answers, an action nothing answers, a route claimed twice without an override and a service with no transport.
+Boot prints the application's report, every route, source, action and rendered module with its owner, then the services with their transport and base URL, the static roots, the configuration files and the inferences. It is the same table the build printed, with the host's own rows added. A Rust host that prints `host.report()` prints all of it. `fsr serve` prints only `host.report().brief()`, the rows that need attention such as a route nothing registers or a key the host does not read, unless `--verbose`, which `fsr dev --verbose` passes on. A host that cannot bind a name refuses to boot with the name, rather than serving a plan it cannot answer; the failure modes are a source nothing answers, an action nothing answers, a route claimed twice without an override and a service with no transport.
 
 ## The lab
 

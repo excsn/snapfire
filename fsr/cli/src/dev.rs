@@ -317,6 +317,9 @@ impl Project {
       args.push("--mount".into());
       args.push(format!("{name}={}", root.display()).into());
     }
+    if self.verbose {
+      args.push("--verbose".into());
+    }
     args
   }
 

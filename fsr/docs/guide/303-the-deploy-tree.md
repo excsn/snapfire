@@ -68,12 +68,14 @@ A tree therefore serves what the build saw, not what a second reading of a diffe
 
 ## `fsr bundle` writes it
 
-`fsr bundle <app> [--out <dir>]` produces that tree. It defaults to `dist/` beside the project.
+`fsr bundle <app> [--out <dir>] [--verbose]` produces that tree. It defaults to `dist/` beside the project.
 
 It runs the checks chapter 304 describes before it writes anything, so a finding stops it. A bundle is a thing about to be shipped, so the moment to notice that the canonical link is relative or that a mounted site pins nothing is before the tree exists rather than after a server is serving it. `--no-doctor` bundles anyway, for the case where the finding is understood and the tree is wanted regardless.
 
+Without `--verbose` it prints the last two lines below; `--verbose` lists the tree first:
+
 ```
-$ fsr bundle app --out dist
+$ fsr bundle app --out dist --verbose
 serve/static/js/fsr              serves /static/js/fsr
 serve/static/js/app              serves /static/js/app
 serve/static/js/vendor           serves /static/js/vendor

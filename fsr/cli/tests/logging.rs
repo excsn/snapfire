@@ -43,14 +43,14 @@ fn free_port() -> u16 {
 /// before the server binds it, so a server that exits without listening is started again on
 /// another port.
 fn serving(root: &Path, envs: &[(&str, &str)]) -> (Child, String, std::thread::JoinHandle<String>) {
-  serving_on(root, envs, std::iter::repeat_with(free_port))
+  serving_on(root, envs, &[], std::iter::repeat_with(free_port))
 }
 
-fn serving_on(root: &Path, envs: &[(&str, &str)], ports: impl Iterator<Item = u16>) -> (Child, String, std::thread::JoinHandle<String>) {
+fn serving_on(root: &Path, envs: &[(&str, &str)], args: &[&str], ports: impl Iterator<Item = u16>) -> (Child, String, std::thread::JoinHandle<String>) {
   let mut failures = Vec::new();
   for port in ports.take(5) {
     let listen = format!("127.0.0.1:{port}");
-    let mut child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("serve").arg(root.join("app")).args(["--listen", &listen]).envs(envs.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("serve").arg(root.join("app")).args(["--listen", &listen]).args(args).envs(envs.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let mut seen = String::new();
     let mut line = String::new();
@@ -117,13 +117,33 @@ fn a_port_another_test_took_before_serve_bound_it_is_not_the_one_asked() {
   let root = project("raced", None);
   let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
   let held = taken.local_addr().unwrap().port();
-  let (mut child, listen, _) = serving_on(&root, &[], [held].into_iter().chain(std::iter::repeat_with(free_port)));
+  let (mut child, listen, _) = serving_on(&root, &[], &[], [held].into_iter().chain(std::iter::repeat_with(free_port)));
   assert_ne!(listen, format!("127.0.0.1:{held}"));
   let response = get(&listen, "/notice/roof");
   let _ = child.kill();
   let _ = child.wait();
   assert!(response.starts_with("HTTP/1.1 200"), "{response}");
   drop(taken);
+  let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn serve_prints_what_needs_attention_and_verbose_prints_the_boot_report() {
+  let root = project("brief", None);
+  let config = root.join("config/app.toml");
+  let text = std::fs::read_to_string(&config).unwrap() + "\n[shop]\nlabel = \"x\"\n";
+  std::fs::write(&config, text).unwrap();
+  let boot = |args: &[&str]| {
+    let (mut child, _, stdout) = serving_on(&root, &[], args, std::iter::repeat_with(free_port));
+    let _ = child.kill();
+    let _ = child.wait();
+    stdout.join().unwrap()
+  };
+  let quiet = boot(&[]);
+  assert!(quiet.contains("ignored   shop") && quiet.contains("fsr server on"), "{quiet}");
+  assert!(!quiet.contains("config    ") && !quiet.contains("static    "), "the boot report's summary is printed under --verbose: {quiet}");
+  let verbose = boot(&["--verbose"]);
+  assert!(verbose.contains("config    ") && verbose.contains("ignored   shop"), "{verbose}");
   let _ = std::fs::remove_dir_all(&root);
 }
 

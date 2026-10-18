@@ -204,6 +204,9 @@ struct Serve {
   /// Mounts a site from a path for this run, replacing the table's row of that name; repeatable.
   #[arg(long = "mount", value_name = "NAME=PATH")]
   mount: Vec<String>,
+  /// Prints the whole boot report rather than only what needs attention.
+  #[arg(long)]
+  verbose: bool,
 }
 
 #[derive(Args)]
@@ -232,6 +235,9 @@ struct Bundle {
   /// Bundles without running the checks first.
   #[arg(long)]
   no_doctor: bool,
+  /// Lists every directory the tree serves and every file the host reads.
+  #[arg(long)]
+  verbose: bool,
 }
 
 #[derive(Args)]
@@ -552,7 +558,7 @@ fn main() -> ExitCode {
         };
         mounts.push((name.to_owned(), PathBuf::from(path)));
       }
-      let options = ServeOptions::default().listen(args.listen).mounts(mounts);
+      let options = ServeOptions::default().listen(args.listen).mounts(mounts).verbose(args.verbose);
       match serve::run(&args.app_dir, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => failed(e),
@@ -708,15 +714,18 @@ fn run_bundle(args: Bundle) -> ExitCode {
     .unwrap_or_else(|| snapfire_fsr_cli::serve::project_root(&args.app_dir).join("dist"));
   match snapfire_fsr_cli::bundle::run_checked(&args.app_dir, &out, !args.no_doctor) {
     Ok(bundled) => {
-      for (route, at) in &bundled.served {
-        println!("{at:<32} serves {route}");
-      }
-      for path in &bundled.read {
-        if !bundled.served.iter().any(|(_, at)| at == path) {
-          println!("{path:<32} read by the host");
+      if args.verbose {
+        for (route, at) in &bundled.served {
+          println!("{at:<32} serves {route}");
         }
+        for path in &bundled.read {
+          if !bundled.served.iter().any(|(_, at)| at == path) {
+            println!("{path:<32} read by the host");
+          }
+        }
+        println!();
       }
-      println!("\n{} files, {} bytes under {}", bundled.files, bundled.bytes, bundled.out.display());
+      println!("{} files, {} bytes under {}", bundled.files, bundled.bytes, bundled.out.display());
       println!("place beside it: {}", bundled.beside.join(", "));
       ExitCode::SUCCESS
     }

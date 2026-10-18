@@ -86,7 +86,7 @@ pub use mount::{Artifact, Mount};
 pub use prerender::{BUILD_FILE, LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};
 pub use probe::{Candidate, Probe, ReloadCheck};
 pub use remote::{ServiceProvider, ServiceSessionStore};
-pub use report::{CrawlReport, HostReport, SiteReport, TlsReport};
+pub use report::{Brief, CrawlReport, HostReport, SiteReport, TlsReport};
 pub use serve::{HostService, shutdown_signal};
 pub use snapfire_fsr_core::ext::{self, Ambient, Catalogs, Fail, FailureKind, Reach};
 

@@ -130,7 +130,8 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr bundle
 
-* `fsr bundle <app dir> [--out <dir>] [--no-doctor]`
+* `fsr bundle <app dir> [--out <dir>] [--no-doctor] [--verbose]`
+* Prints the file count, the size and what to place beside the tree. `--verbose` lists each `serve/` directory with the route it serves and each path the host reads first.
 * `bundle::run(app: &Path, out: &Path) -> Result<Bundled, BuildError>`: the deploy tree, `dist/` beside the project by default. The layout is `snapfire_fsr_sites::layout`: configuration under `config/`, everything the host reads at boot under `app/`, each `.tera` template at its path there, every static root under `serve/<route>/` for a web server to point at and a generated `config/bundle.toml` naming the paths that moved. Every destination is derived from what a file is rather than from where it sat in the project, so no configured path is joined onto `out` and nothing can be written outside it.
 * Runs `doctor::run` over the project before writing anything and returns `BuildError::Doctor(Report)` on a finding, which carries the findings rather than a summary so the caller prints the remedies. Nothing is written when it refuses.
 * `bundle::run_checked(app, out, check)` is the same with the check optional, which is `--no-doctor`.
@@ -138,7 +139,8 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr serve
 
-* `fsr serve <app dir> [--listen <addr>] [--mount <name>=<path>]...`
+* `fsr serve <app dir> [--listen <addr>] [--mount <name>=<path>]... [--verbose]`
+* Prints `HostReport::brief`, what needs attention, then the `fsr server on` line. `--verbose`, `ServeOptions::verbose`, prints the whole `HostReport` instead. `fsr dev` passes its own `--verbose` to the `fsr serve` it starts.
 * `--mount` lays a site from a path over the configuration's `[sites]` table for the run, replacing the row of that name or adding one, with nothing written: `serve::builder_with_mounts(root: &Path, mounts: &[(String, PathBuf)]) -> Result<HostBuilder, BuildError>` is the builder behind it, built from the configuration with the rows laid over and carrying a reloader that lays them over again.
 * `serve::run`: the stock host, `snapfire_fsr_host::Host`, over the configuration `serve::project_root` finds, the directory beside the app when it holds `config/`, `app.toml` or `app.yaml`, else the app itself; prints the host's report and listens on `--listen` or the configured `server.listen` until the process ends. Refuses a configuration whose `[app] dir` is not the app given. Exit 1 on a `BuildError::Serve`.
 * `serve::run` installs the trace collector (`snapfire_fsr_host::trace::install`) and passes it to the builder when `config.dev()`, so `GET /__fsr/traces` answers with what the last requests did; the banner's second line names the endpoint. A host that is not a development one collects nothing.
