@@ -23,6 +23,39 @@ impl HeadEl {
 /// When a head script loads, as a row's `when` names it.
 pub const SCRIPT_WHEN: [&str; 3] = ["load", "idle", "interaction"];
 
+/// Whether a `script` of this `type` is a data block the browser never runs,
+/// `application/ld+json` among them. HTML runs a script with no `type`, an
+/// empty one, `module`, `importmap`, `speculationrules` or a JavaScript MIME
+/// type; any other is data.
+pub fn is_data_block(script_type: Option<&str>) -> bool {
+  const RUNS: [&str; 20] = [
+    "",
+    "module",
+    "importmap",
+    "speculationrules",
+    "application/ecmascript",
+    "application/javascript",
+    "application/x-ecmascript",
+    "application/x-javascript",
+    "text/ecmascript",
+    "text/javascript",
+    "text/javascript1.0",
+    "text/javascript1.1",
+    "text/javascript1.2",
+    "text/javascript1.3",
+    "text/javascript1.4",
+    "text/javascript1.5",
+    "text/jscript",
+    "text/livescript",
+    "text/x-ecmascript",
+    "text/x-javascript",
+  ];
+  script_type.is_some_and(|t| {
+    let essence = t.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    !RUNS.contains(&essence.as_str())
+  })
+}
+
 impl HeadEl {
   /// A `script` row as the document carries it: inert, `type="text/plain"`
   /// with its `src` under `data-src`, its `type` under `data-type` and its
@@ -31,7 +64,14 @@ impl HeadEl {
   /// navigation. A script inserted as markup by a navigation never runs, so
   /// a live tag would work on first load and silently not after. `Err` names
   /// what the row got wrong: no `src`, an inline body or an unknown `when`.
+  /// A data block (`is_data_block`) is written as given, with `</script` in
+  /// its text escaped so the text cannot close the element.
   pub fn script(attrs: Vec<(String, String)>, children: Option<String>) -> Result<HeadEl, String> {
+    let script_type = attrs.iter().find(|(k, _)| k == "type").map(|(_, v)| v.as_str());
+    if is_data_block(script_type) {
+      let children = children.map(|text| escape_script_close(&text));
+      return Ok(HeadEl { tag: "script".to_owned(), attrs, children });
+    }
     if children.is_some() {
       return Err("a head `script` takes a `src`, not inline code; put the code in a module `src/main.ts` imports".to_owned());
     }
@@ -498,6 +538,20 @@ fn escape(text: &str) -> String {
     .replace('"', "&quot;")
 }
 
+/// `</script` in any case as `<\/script`, which JSON reads as the same text.
+fn escape_script_close(text: &str) -> String {
+  let lower = text.to_ascii_lowercase();
+  let mut out = String::with_capacity(text.len());
+  let mut at = 0;
+  while let Some(found) = lower[at..].find("</script") {
+    out.push_str(&text[at..at + found + 1]);
+    out.push('\\');
+    at += found + 1;
+  }
+  out.push_str(&text[at..]);
+  out
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -642,5 +696,25 @@ mod tests {
     assert_eq!(back.head.len(), 2);
     assert!(back.head[0].is_script() && back.head[0].attrs == meta.head[0].attrs, "the head row read back keeps its scripts: {back:?}");
     assert_eq!(back.head[1], meta.head[1], "and its other head elements, a card image's meta among them");
+  }
+
+  #[test]
+  fn a_data_block_keeps_its_text_and_is_not_a_script_row() {
+    let json_ld = HeadEl::script(vec![("type".to_owned(), "application/ld+json".to_owned())], Some(r#"{"name":"a </SCRIPT><b>"}"#.to_owned())).unwrap();
+    let mut html = String::new();
+    json_ld.render(&mut html);
+    assert_eq!(html, r#"<script type="application/ld+json">{"name":"a <\/SCRIPT><b>"}</script>"#);
+    assert!(!json_ld.is_script());
+    let json = crate::stream::meta_to_json(&Meta { head: vec![json_ld], ..Meta::default() });
+    assert!(json["scripts"].as_array().is_none_or(Vec::is_empty), "a data block is no script for the client to load: {json}");
+
+    for runs in [None, Some(""), Some("module"), Some("text/javascript"), Some(" Text/JavaScript ; charset=utf-8"), Some("importmap")] {
+      assert!(!is_data_block(runs), "{runs:?} runs");
+    }
+    for data in ["application/ld+json", "application/json", "text/plain", "text/template"] {
+      assert!(is_data_block(Some(data)), "{data} is data");
+    }
+    let code = HeadEl::script(vec![("type".to_owned(), "module".to_owned())], Some("alert(1)".to_owned()));
+    assert!(code.unwrap_err().contains("not inline code"), "a module with a body is still code");
   }
 }

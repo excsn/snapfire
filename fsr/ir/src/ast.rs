@@ -1218,7 +1218,9 @@ fn literal_attrs(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) ->
 
 /// Every script row in `body`. A helper the lowerer inlined,
 /// `scriptTag("/x.js")`, is a lambda applied to its arguments, so a
-/// parameter is read as the literal it was given.
+/// parameter is read as the literal it was given. A data block, `jsonLd`'s
+/// `application/ld+json` among them, runs nothing and is not a script row; a
+/// `type` the build cannot read is taken as code.
 pub fn head_scripts(body: &Body) -> Vec<HeadScript> {
   fn text(e: &Expr, bound: &[(String, Option<String>)]) -> Option<String> {
     match e {
@@ -1237,6 +1239,9 @@ pub fn head_scripts(body: &Body) -> Vec<HeadScript> {
   fn script(e: &Expr, bound: &[(String, Option<String>)]) -> Option<HeadScript> {
     let Expr::Object(entries) = e else { return None };
     if field(entries, "tag").and_then(|t| text(t, bound)).as_deref() != Some("script") {
+      return None;
+    }
+    if field(entries, "type").and_then(|t| text(t, bound)).is_some_and(|t| snapfire_fsr_runtime::is_data_block(Some(&t))) {
       return None;
     }
     let inline = field(entries, "children").is_some_and(|c| !matches!(c, Expr::Lit(Lit::Null)));

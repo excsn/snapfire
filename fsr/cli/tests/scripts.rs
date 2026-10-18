@@ -67,6 +67,18 @@ fn a_script_row_with_inline_code_is_refused_by_the_build() {
 }
 
 #[test]
+fn a_json_ld_row_builds_and_is_written_into_the_document() {
+  let root = project("jsonld", "import { jsonLd } from \"@snapfire/fsr/head\";\nexport async function load() {\n  return { ld: JSON.stringify({ \"@type\": \"Dataset\", name: \"Channels\" }) };\n}\nexport const meta = ({ data }: { data: { ld: string } }) => ({ head: [jsonLd(data.ld)] });\n");
+  let host = host(&root);
+  let runtime = tokio::runtime::Runtime::new().unwrap();
+  let html = runtime.block_on(host.render_to_string("/", RenderMode::Html, SessionCell::default())).unwrap();
+  assert!(html.contains(r#"<script type="application/ld+json">{"@type":"Dataset","name":"Channels"}</script>"#), "{html}");
+  let report = host.report().app.to_string();
+  assert!(!report.contains("computed at request time"), "a data block is no script for the policy: {report}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn a_script_src_computed_at_request_time_is_reported_for_the_policy_to_name() {
   let root = project("computed", "export async function load() {\n  return { cdn: \"https://cdn.example\" };\n}\nexport const meta = ({ data }: { data: { cdn: string } }) => ({ head: [{ tag: \"script\", src: `${data.cdn}/a.js` }] });\n");
   let host = host(&root);
