@@ -131,6 +131,9 @@ pub struct ComponentSet {
   /// Per module with a purity verdict, whether it holds no browser state: the
   /// half of the verdict that does not depend on the components it renders.
   stateless: HashMap<String, bool>,
+  /// Modules some placement passes a prop the browser can change, so nothing
+  /// they hoist or chunk may read their props.
+  moving_props: HashSet<String>,
   /// Per lowered module, whether it keys a hoist, a chunk or a region
   /// anywhere below it, which makes a placement of it keyed. A module met in
   /// a cycle before its verdict is in counts as keyed, which both halves
@@ -187,7 +190,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -909,6 +912,31 @@ impl ComponentSet {
     Ok(())
   }
 
+  /// Marks `module` as placed with props the browser can change and, when it
+  /// is already lowered, unwraps every hoist and chunk of it that reads its
+  /// props, trims its rewrite to what stays and does the same for what it
+  /// places with those props. One not lowered yet reads the mark when it is.
+  fn unhoist_props(&mut self, module: &str) {
+    if !self.moving_props.insert(module.to_owned()) {
+      return;
+    }
+    let pure = self.pure.clone();
+    let Some((_, component)) = self.components.iter_mut().find(|(m, _)| m == module) else { return };
+    let taint = vec![hoist::PROPS.to_owned()];
+    let mut kept = hoist::decide(component, &taint);
+    let chunks = hoist::rechunk(component, &taint, &pure);
+    let covered = hoist::cover(component, &chunks);
+    kept.retain(|id| !covered.contains(id));
+    let placed = hoist::placed_with_state(component, &taint);
+    if let Some(rewrite) = self.rewrites.iter_mut().find(|r| r.module == module) {
+      rewrite.sites.retain(|(id, _)| kept.contains(id));
+      rewrite.chunks.retain(|site| chunks.iter().any(|c| c.id == site.id));
+    }
+    for module in placed {
+      self.unhoist_props(&module);
+    }
+  }
+
   /// Brings every purity verdict to what the whole graph says. Lowering read
   /// a component still in progress as impure, which is low for anything on a
   /// cycle: purity falls from `stateless` to the greatest verdict that holds.
@@ -1395,11 +1423,18 @@ impl ComponentSet {
       }));
     }
     if let Some((candidates, state, Some(hook))) = hoisting {
-      let mut kept = hoist::decide(&mut component, &state);
+      let mut taint = state.clone();
+      if self.moving_props.contains(&module) {
+        taint.push(hoist::PROPS.to_owned());
+      }
+      let mut kept = hoist::decide(&mut component, &taint);
       let pure = state.is_empty() && !leaves_to_browser && hoist::static_tree(&component.render, &self.pure);
-      let chunks = hoist::chunks(&mut component, &state, &self.pure);
+      let chunks = hoist::chunks(&mut component, &taint, &self.pure);
       let covered = hoist::cover(&mut component, &chunks);
       kept.retain(|id| !covered.contains(id));
+      for placed in hoist::placed_with_state(&component, &taint) {
+        self.unhoist_props(&placed);
+      }
       self.pure.insert(module.clone(), pure);
       self.stateless.insert(module.clone(), state.is_empty() && !leaves_to_browser);
       let parsed = self.parsed[file].clone();
@@ -8017,6 +8052,44 @@ export default function Page({ items, note }: { items: { id: number; price: numb
     assert!(source.contains("{__sfh.c(3, (__sfHtml) => <p dangerouslySetInnerHTML={__sfHtml} />)}"), "{source}");
     assert!(source.contains("<button onClick={() => setOpen(!open)}>{note}</button>"), "a bound element is untouched: {source}");
     assert_eq!(source.matches("__sfh.c(").count(), 3, "{source}");
+  }
+
+  const PANEL: &str = "export function Panel({ n }: { n: number }) {\n  return <div className=\"panel\"><b>{n}</b><i>{(n / 100).toFixed(2)}</i></div>;\n}\n";
+  const PANEL_ON_PROPS: &str = "import { Panel } from \"@src/Panel\";\nexport default function Fixed({ n }: { n: number }) {\n  return <main><Panel n={n} /></main>;\n}\n";
+  const PANEL_ON_STATE: &str = "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { Panel } from \"@src/Panel\";\nexport default function Live() {\n  const [n] = useStore(\"demo/n\", 0);\n  return <main><Panel n={n} /></main>;\n}\n";
+
+  fn panel(set: &ComponentSet) -> (Vec<(String, u32)>, Vec<u32>, usize) {
+    let component = &set.components.iter().find(|(m, _)| m == "src/Panel.tsx#Panel").unwrap().1;
+    let mut chunks = Vec::new();
+    chunk_ids(&component.render, &mut chunks);
+    let rewritten = set.rewrites.iter().find(|r| r.module == "src/Panel.tsx#Panel").map(|r| r.chunks.len() + r.sites.len()).unwrap_or(0);
+    (chunks, hoist_ids(component), rewritten)
+  }
+
+  #[test]
+  fn a_component_placed_only_with_props_keeps_its_chunks() {
+    let set = set(&[("routes/fixed/page.tsx", PANEL_ON_PROPS), ("src/Panel.tsx", PANEL)], "routes/fixed/page.tsx#default");
+    let (chunks, _, rewritten) = panel(&set);
+    assert_eq!(chunks.iter().map(|(t, _)| t.as_str()).collect::<Vec<_>>(), ["div"], "props are fixed for the placement's life: {chunks:?}");
+    assert!(rewritten > 0);
+  }
+
+  #[test]
+  fn a_component_placed_with_state_hoists_nothing_its_props_reach() {
+    let set = set(&[("routes/live/page.tsx", PANEL_ON_STATE), ("src/Panel.tsx", PANEL)], "routes/live/page.tsx#default");
+    let (chunks, hoists, rewritten) = panel(&set);
+    assert!(chunks.is_empty(), "the store moves `n` after hydration, so markup rendered from the seed goes stale: {chunks:?}");
+    assert!(hoists.is_empty(), "{hoists:?}");
+    assert_eq!(rewritten, 0, "the browser renders the panel from its props on every render");
+  }
+
+  #[test]
+  fn a_placement_with_state_unhoists_a_component_another_placement_lowered_first() {
+    let mut set = ComponentSet::new(&app(&[("routes/fixed/page.tsx", PANEL_ON_PROPS), ("routes/live/page.tsx", PANEL_ON_STATE), ("src/Panel.tsx", PANEL)]));
+    set.lower("routes/fixed/page.tsx#default").unwrap();
+    set.lower("routes/live/page.tsx#default").unwrap();
+    let (chunks, hoists, rewritten) = panel(&set);
+    assert!(chunks.is_empty() && hoists.is_empty() && rewritten == 0, "one placement with state decides for every placement, since the component is lowered once: {chunks:?} {hoists:?} {rewritten}");
   }
 
   #[test]

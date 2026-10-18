@@ -476,6 +476,87 @@ pub fn chunks(component: &mut Component, state: &[String], pure: &HashMap<String
   kept
 }
 
+/// The name a component reads its props through, which `decide` and `chunks`
+/// count as state for a component some placement passes state.
+pub const PROPS: &str = "$props";
+
+/// The modules `component` places with a prop that reads `state` or anything
+/// the request or the browser can change, whose props therefore move after
+/// hydration.
+pub fn placed_with_state(component: &Component, state: &[String]) -> Vec<String> {
+  let mut tainted: Vec<String> = state.to_vec();
+  for stmt in &component.body {
+    let Stmt::Let { name, expr } = stmt else { continue };
+    if reads_tainted(expr, &tainted) {
+      tainted.push(name.clone());
+    }
+  }
+  let mut out = Vec::new();
+  placements_reading(&component.render, &mut tainted, &mut out);
+  out
+}
+
+fn placements_reading(t: &Tmpl, tainted: &mut Vec<String>, out: &mut Vec<String>) {
+  match t {
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } => children.iter().for_each(|c| placements_reading(c, tainted, out)),
+    Tmpl::If { then, r#else, .. } => {
+      placements_reading(then, tainted, out);
+      if let Some(other) = r#else {
+        placements_reading(other, tainted, out);
+      }
+    }
+    Tmpl::For { over, params, body } => {
+      let depth = tainted.len();
+      if reads_tainted(over, tainted) {
+        tainted.extend(params.iter().cloned());
+      }
+      placements_reading(body, tainted, out);
+      tainted.truncate(depth);
+    }
+    Tmpl::Let { name, expr, then } => {
+      let depth = tainted.len();
+      if reads_tainted(expr, tainted) {
+        tainted.push(name.clone());
+      }
+      placements_reading(then, tainted, out);
+      tainted.truncate(depth);
+    }
+    Tmpl::Component { module, props, children, .. } => {
+      if entry_exprs(props).any(|e| reads_tainted(e, tainted)) && !out.contains(module) {
+        out.push(module.clone());
+      }
+      children.iter().for_each(|c| placements_reading(c, tainted, out));
+    }
+  }
+}
+
+/// `chunks` again over a component already decided once, dropping the
+/// `UNTAKEN_ATTR` marks the first pass left so a chunk kept again is marked once.
+pub fn rechunk(component: &mut Component, state: &[String], pure: &HashMap<String, bool>) -> Vec<Chunk> {
+  clear_untaken(&mut component.render);
+  chunks(component, state, pure)
+}
+
+fn clear_untaken(t: &mut Tmpl) {
+  match t {
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
+    Tmpl::Element { attrs, children, .. } => {
+      attrs.retain(|entry| !matches!(entry, Entry::Field(n, _) if n == UNTAKEN_ATTR));
+      children.iter_mut().for_each(clear_untaken);
+    }
+    Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter_mut().for_each(clear_untaken),
+    Tmpl::If { then, r#else, .. } => {
+      clear_untaken(then);
+      if let Some(other) = r#else {
+        clear_untaken(other);
+      }
+    }
+    Tmpl::For { body, .. } => clear_untaken(body),
+    Tmpl::Let { then, .. } => clear_untaken(then),
+  }
+}
+
 /// Unwraps every value hoist among the children of a proven chunk in
 /// `chunks`, whose markup the browser adopts whole, and returns their ids.
 /// A hoist in the chunk's opening tag stays: the hit reads it.
