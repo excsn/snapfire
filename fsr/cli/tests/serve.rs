@@ -5,9 +5,12 @@ use std::path::PathBuf;
 
 use snapfire_fsr_cli::serve;
 
+static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn dir(tag: &str) -> PathBuf {
   let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let dir = std::env::temp_dir().join(format!("fsr-serve-{tag}-{}-{nanos}", std::process::id()));
+  let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let dir = std::env::temp_dir().join(format!("fsr-serve-{tag}-{}-{n}-{nanos}", std::process::id()));
   std::fs::create_dir_all(dir.join("generated/contracts")).unwrap();
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
   dir

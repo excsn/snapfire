@@ -1,8 +1,8 @@
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use snapfire_fsr_cli::new::{create, NewOptions};
 use snapfire_fsr_cli::{build, write, Options};
@@ -38,22 +38,43 @@ fn free_port() -> u16 {
   std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
+/// `fsr serve` on the project, returned once it says it listens, with the address and a reader
+/// collecting the rest of its stdout. A port `free_port` gave back can be bound by another test
+/// before the server binds it, so a server that exits without listening is started again on
+/// another port.
+fn serving(root: &Path, envs: &[(&str, &str)]) -> (Child, String, std::thread::JoinHandle<String>) {
+  serving_on(root, envs, std::iter::repeat_with(free_port))
+}
+
+fn serving_on(root: &Path, envs: &[(&str, &str)], ports: impl Iterator<Item = u16>) -> (Child, String, std::thread::JoinHandle<String>) {
+  let mut failures = Vec::new();
+  for port in ports.take(5) {
+    let listen = format!("127.0.0.1:{port}");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("serve").arg(root.join("app")).args(["--listen", &listen]).envs(envs.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+    let mut seen = String::new();
+    let mut line = String::new();
+    while stdout.read_line(&mut line).unwrap_or(0) > 0 {
+      seen.push_str(&line);
+      if line.starts_with("fsr server on") {
+        let rest = std::thread::spawn(move || {
+          let _ = stdout.read_to_string(&mut seen);
+          seen
+        });
+        return (child, listen, rest);
+      }
+      line.clear();
+    }
+    let output = child.wait_with_output().unwrap();
+    failures.push(format!("{listen}: {seen}{}", String::from_utf8_lossy(&output.stderr)));
+  }
+  panic!("fsr serve did not listen: {failures:#?}");
+}
+
 /// Runs `fsr serve` on the project, asks for the card once and returns the status line, then what the process wrote to stdout and to stderr.
 fn served(root: &Path) -> (String, String, String) {
-  let port = free_port();
-  let listen = format!("127.0.0.1:{port}");
-  let mut child: Child = Command::new(env!("CARGO_BIN_EXE_fsr")).arg("serve").arg(root.join("app")).args(["--listen", &listen]).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-  let deadline = Instant::now() + Duration::from_secs(30);
-  let mut stream = loop {
-    match TcpStream::connect(&listen) {
-      Ok(stream) => break stream,
-      Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(50)),
-      Err(e) => {
-        let _ = child.kill();
-        panic!("fsr serve did not listen on {listen}: {e}");
-      }
-    }
-  };
+  let (mut child, listen, stdout) = serving(root, &[]);
+  let mut stream = TcpStream::connect(&listen).unwrap();
   stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
   write!(stream, "GET /notice/roof/opengraph-image.png HTTP/1.1\r\nHost: {listen}\r\nAccept: image/png\r\nConnection: close\r\n\r\n").unwrap();
   let mut response = Vec::new();
@@ -62,14 +83,14 @@ fn served(root: &Path) -> (String, String, String) {
   std::thread::sleep(Duration::from_millis(300));
   let _ = child.kill();
   let output = child.wait_with_output().unwrap();
-  (status, String::from_utf8_lossy(&output.stdout).into_owned(), String::from_utf8_lossy(&output.stderr).into_owned())
+  (status, stdout.join().unwrap(), String::from_utf8_lossy(&output.stderr).into_owned())
 }
 
 #[test]
 fn a_hosts_warning_reaches_stderr_without_a_logging_configuration() {
   let root = project("plain", None);
   let (status, _, stderr) = served(&root);
-  assert!(status.contains("200"), "{status}");
+  assert!(status.contains("200"), "{status}\n{stderr}");
   assert!(stderr.contains("WARN") && stderr.contains("fsr::card") && stderr.contains("card image") && stderr.contains("display"), "{stderr}");
   let _ = std::fs::remove_dir_all(&root);
 }
@@ -89,6 +110,21 @@ fn a_logging_configuration_beside_the_project_takes_the_events() {
   assert!(stdout.contains("card image"), "the console appender writes the warning: {stdout}");
   assert!(!stderr.contains("card image"), "and the fallback does not: {stderr}");
   let _ = std::fs::remove_dir_all(&configured);
+}
+
+#[test]
+fn a_port_another_test_took_before_serve_bound_it_is_not_the_one_asked() {
+  let root = project("raced", None);
+  let taken = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let held = taken.local_addr().unwrap().port();
+  let (mut child, listen, _) = serving_on(&root, &[], [held].into_iter().chain(std::iter::repeat_with(free_port)));
+  assert_ne!(listen, format!("127.0.0.1:{held}"));
+  let response = get(&listen, "/notice/roof");
+  let _ = child.kill();
+  let _ = child.wait();
+  assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+  drop(taken);
+  let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -119,31 +155,13 @@ fn a_production_serve_reads_back_the_trace_of_an_exposed_path() {
   let config = root.join("config/app.toml");
   let text = std::fs::read_to_string(&config).unwrap() + "\n[trace]\nexpose = [\"/notice\"]\n";
   std::fs::write(&config, text).unwrap();
-  let listen = format!("127.0.0.1:{}", free_port());
-  let mut child = Command::new(env!("CARGO_BIN_EXE_fsr"))
-    .arg("serve")
-    .arg(root.join("app"))
-    .args(["--listen", &listen])
-    .env("RELEASE_ENV", "production")
-    .env("C5_SESSION__KEY", "a-test-session-key-of-at-least-32-bytes")
-    .stdout(Stdio::piped())
-    .stderr(Stdio::piped())
-    .spawn()
-    .unwrap();
-  let deadline = Instant::now() + Duration::from_secs(30);
-  while TcpStream::connect(&listen).is_err() {
-    if Instant::now() > deadline {
-      let _ = child.kill();
-      panic!("{:?}", child.wait_with_output().unwrap());
-    }
-    std::thread::sleep(Duration::from_millis(50));
-  }
+  let (mut child, listen, stdout) = serving(&root, &[("RELEASE_ENV", "production"), ("C5_SESSION__KEY", "a-test-session-key-of-at-least-32-bytes")]);
   let page = get(&listen, "/notice/roof");
   let token = page.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("x-sf-request:").map(|v| v.trim().to_owned()));
   let trace = token.as_ref().map(|token| get(&listen, &format!("/__fsr/trace/{token}")));
   let _ = child.kill();
-  let output = child.wait_with_output().unwrap();
-  let stdout = String::from_utf8_lossy(&output.stdout);
+  let _ = child.wait();
+  let stdout = stdout.join().unwrap();
   let token = token.unwrap_or_else(|| panic!("an exposed page carries x-sf-request: {page}\n{stdout}"));
   let trace = trace.unwrap();
   assert!(trace.starts_with("HTTP/1.1 200"), "/__fsr/trace/{token}: {trace}");
