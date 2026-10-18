@@ -12,6 +12,8 @@ A file posted to an action, twice: once by a form the browser submits natively a
 | A type the application refuses itself | `ACCEPTED` in `routes/actions.ts` |
 | A `fail` that lands back on the form rather than on a page of JSON | the empty-file guard in `routes/actions.ts`, read as `action_failure` in `routes/page.tsx` |
 | The per-kind error boundary | `routes/error.not-found.tsx` beside `routes/error.tsx` |
+| A page with no form starting no session under `csrf = "always"` | `routes/tour/page.tsx`, which reads no `csrf_token` |
+| An `<Embed>` whose `id` the loader gives | `<Embed provider="youtube" id={video.id}>` in `routes/tour/page.tsx` |
 
 ## Run it
 

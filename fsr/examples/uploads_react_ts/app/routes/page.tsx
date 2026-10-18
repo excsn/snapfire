@@ -78,6 +78,9 @@ export default function Page({
           <button type="submit">Clear</button>
         </form>
       </section>
+      <p>
+        <a href="/tour">A page with no form</a>
+      </p>
     </main>
   );
 }
