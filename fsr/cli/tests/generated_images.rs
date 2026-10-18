@@ -170,6 +170,27 @@ fn an_image_with_its_own_loader_draws_from_that_loaders_data() {
 }
 
 #[test]
+fn an_image_beside_a_page_covers_the_pages_under_it_with_that_pages_data() {
+  let root = project("beside", &[
+    ("routes/notice/[id]/page.tsx", PAGE),
+    ("routes/notice/[id]/page.loader.ts", LOADER),
+    ("routes/notice/[id]/opengraph-image.tsx", IMAGE),
+    ("routes/notice/[id]/history/page.tsx", "export default function Page({ entries }: { entries: number }) {\n  return <main>{entries}</main>;\n}\n"),
+    ("routes/notice/[id]/history/page.loader.ts", "export async function load() {\n  return { entries: 3 };\n}\n"),
+  ]);
+  let host = boot(&root);
+  let page = page_html(&host, "/notice/roof/history");
+  assert!(page.contains("<meta property=\"og:image\" content=\"https://board.example/notice/roof/history/opengraph-image.png?v="), "{page}");
+  let (status, kind, bytes) = get(&host, "/notice/roof/history/opengraph-image.png");
+  assert_eq!((status, kind.as_str()), (200, "image/png"), "{}", String::from_utf8_lossy(&bytes));
+  assert_eq!(png_size(&bytes), (600, 315));
+  let (status, _, body) = get(&host, "/notice/nowhere/history/opengraph-image.png");
+  assert_eq!(status, 404, "the notice page's loader ran for the history page's params: {}", String::from_utf8_lossy(&body));
+  assert!(String::from_utf8_lossy(&body).contains("no notice nowhere"));
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn a_module_listing_its_images_names_each_in_the_head_and_draws_each_at_its_id() {
   let listed = "export function images({ params }: { params: { id: string } }) {\n  return [{ id: \"small\", size: { width: 300, height: 150 }, alt: `Small ${params.id}` }, { id: \"wide\" }];\n}\n\nexport default function Image({ id }: { id: string }) {\n  return <div style={{ display: \"flex\", width: \"100%\", height: \"100%\" }}>{id}</div>;\n}\n";
   let root = project("listed", &[("routes/notice/[id]/page.tsx", PAGE), ("routes/notice/[id]/page.loader.ts", LOADER), ("routes/notice/[id]/opengraph-image.tsx", listed)]);

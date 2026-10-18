@@ -3577,6 +3577,8 @@ fn draw_image(app: &Path, routes_dir: &Path, dir: &Path, file: &Path, stem: &str
 /// or above its directory; a static image nearer than a component wins. The
 /// component's props are its own loader's data when `<stem>.loader.ts` sits
 /// beside it, else the data of the page or layout beside it, with `params`.
+/// A page under the image's directory gets the same: the page's loader there
+/// runs for the params the two share, and the layout's when no page has one.
 fn generated_images(app: &Path, routes_dir: &Path, routes: &[Route], set: &mut ComponentSet, sources: &mut Vec<SourceEntry>) -> Result<(Vec<snapfire_fsr_plan::ImageEntry>, Vec<snapfire_fsr_plan::ModuleHead>), BuildError> {
   let mut drawn: HashMap<PathBuf, DrawnImage> = HashMap::new();
   let mut images = Vec::new();
@@ -3612,7 +3614,8 @@ fn generated_images(app: &Path, routes_dir: &Path, routes: &[Route], set: &mut C
         None => {
           let (_, dir_id) = pattern_of(routes_dir, &dir)?;
           let layout = if dir == routes_dir { "layout".to_owned() } else { format!("{dir_id}.layout") };
-          sources.iter().find(|s| s.id == layout).map(|s| s.id.clone())
+          let beside = routes.iter().find(|r| r.dir == dir).map(|r| r.id.clone());
+          sources.iter().find(|s| Some(&s.id) == beside.as_ref()).or_else(|| sources.iter().find(|s| s.id == layout)).map(|s| s.id.clone())
         }
       };
       let base = if route.pattern == "/" { String::new() } else { route.pattern.clone() };

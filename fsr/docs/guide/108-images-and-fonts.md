@@ -215,7 +215,7 @@ scripts = ["Han", "Hiragana", "Katakana"]
 
 The names are Unicode's; one Unicode does not have refuses the boot. An `<img>` takes a `data:` URI or an image the build placed, by its imported URL. Nothing is fetched from another origin.
 
-An image beside a layout or in a directory with no page covers every page under it, as a file does. A nearer image (a file or a component) replaces it. Its props are the data of the page or layout beside it, with `params`. An image that needs data of its own reads it from `opengraph-image.loader.ts` beside it, a loader like any other. That loader's data are its props on every page it covers:
+An image beside a page, a layout or in a directory with no page covers every page under it, as a file does. A nearer image (a file or a component) replaces it. Its props are the data of the page beside it with `params`. With no page there, they are the layout's. On a page under it, that loader runs for the params the two share, so a card beside `post/[slug]/page.tsx` draws `/post/a/comments` from the post's data. An image that needs data of its own reads it from `opengraph-image.loader.ts` beside it, a loader like any other. That loader's data are its props on every page it covers:
 
 ```ts
 import { posts } from "@src/posts";
