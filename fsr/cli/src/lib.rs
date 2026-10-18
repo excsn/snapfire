@@ -2364,7 +2364,7 @@ fn write_action_tree(out: &mut String, entries: &[(Vec<String>, String)], prefix
     }
   }
   for group in groups {
-    let _ = writeln!(out, "{indent}{group}: {{");
+    let _ = writeln!(out, "{indent}{}: {{", object_key(&group));
     let mut next = prefix.to_vec();
     next.push(group);
     write_action_tree(out, entries, &next, depth + 1);
@@ -2372,7 +2372,7 @@ fn write_action_tree(out: &mut String, entries: &[(Vec<String>, String)], prefix
   }
   for (path, value) in entries {
     if path.len() == prefix.len() + 1 && path[..prefix.len()] == *prefix {
-      let _ = writeln!(out, "{indent}{}: {value},", path[prefix.len()]);
+      let _ = writeln!(out, "{indent}{}: {value},", object_key(&path[prefix.len()]));
     }
   }
 }
@@ -2467,7 +2467,9 @@ fn matched_shape(pattern: &str) -> String {
 
 /// `$root` is `RootProps`, `product.$id` is `ProductIdProps`, `admin.users` is
 /// `AdminUsersProps`, `(shop).cart` is `ShopCartProps`. A parameter's `$`
-/// marker and a group's parentheses are not part of the name.
+/// marker and a group's parentheses are not part of the name. A name that
+/// would start with a digit, `030-intro`, starts with `Route` instead, since a
+/// TypeScript identifier cannot: `Route030IntroProps`.
 fn props_name(id: &str) -> String {
   let mut name = String::new();
   for part in id.split(['.', '-', '_']) {
@@ -2477,7 +2479,20 @@ fn props_name(id: &str) -> String {
       name.push_str(chars.as_str());
     }
   }
+  if name.starts_with(|c: char| c.is_ascii_digit()) {
+    name.insert_str(0, "Route");
+  }
   name + "Props"
+}
+
+/// An object key as written: bare when it is an identifier, quoted otherwise,
+/// so `sign-up` and `030-intro` are `"sign-up"` and `"030-intro"`.
+fn object_key(name: &str) -> String {
+  let identifier = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$') && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+  match identifier {
+    true => name.to_owned(),
+    false => serde_json::to_string(name).expect("a string serializes"),
+  }
 }
 
 /// Every module a component places as an island, in tree order.

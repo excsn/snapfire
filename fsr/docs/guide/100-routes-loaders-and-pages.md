@@ -31,6 +31,7 @@ Every route has a **source id** and it is the name you see in the boot report, i
 | `routes/product/[id]/` | `/product/{id}` | `product.$id` | `ProductIdProps` |
 | `routes/admin/users/` | `/admin/users` | `admin.users` | `AdminUsersProps` |
 | `routes/(shop)/cart/` | `/cart` | `(shop).cart` | `ShopCartProps` |
+| `routes/030-intro/` | `/030-intro` | `030-intro` | `Route030IntroProps` |
 
 The `$` keeps ids unique. A directory name may hold alphanumerics, `_` and `-` and nothing else, so no static segment can ever produce a `$` part, which is why `routes/a/x/` and `routes/a/[x]/` cannot collide on a name. The marker is dropped when the props type is derived, so `product.$id` is `ProductIdProps` and the `$` never reaches your TypeScript. A group keeps its parentheses in the id, which is how `(shop)/layout.tsx` and `(account)/layout.tsx` stay two layouts. The type name drops them.
 
