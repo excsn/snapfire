@@ -7,6 +7,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 struct TokenState {
   tokens: ValueMap,
   dirty: bool,
+  issued: bool,
 }
 
 /// Server-side custody for backend credentials and auth flow state. Lives on
@@ -17,7 +18,7 @@ pub struct TokenCell(Arc<Mutex<TokenState>>);
 
 impl TokenCell {
   pub fn new(tokens: ValueMap) -> Self {
-    Self(Arc::new(Mutex::new(TokenState { tokens, dirty: false })))
+    Self(Arc::new(Mutex::new(TokenState { tokens, dirty: false, issued: false })))
   }
 
   pub fn get(&self, key: &str) -> Option<Value> {
@@ -59,5 +60,15 @@ impl TokenCell {
 
   pub fn snapshot(&self) -> ValueMap {
     self.0.lock().tokens.clone()
+  }
+
+  /// Marks that this request handed a token from the cell to a response.
+  /// Held for the request only and never saved.
+  pub fn mark_issued(&self) {
+    self.0.lock().issued = true;
+  }
+
+  pub fn is_issued(&self) -> bool {
+    self.0.lock().issued
   }
 }

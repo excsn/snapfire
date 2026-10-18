@@ -166,7 +166,10 @@ impl Host {
       true => {
         let scheme = self.sessions.csrf_scheme();
         let held = opened.clone();
-        CsrfHandle::new(scheme.memo(&held), move || scheme.issue(&held))
+        CsrfHandle::new(scheme.memo(&held), move || {
+          held.csrf.mark_issued();
+          scheme.issue(&held)
+        })
       }
       false => CsrfHandle::default(),
     };
@@ -960,7 +963,7 @@ impl Host {
 
   pub(crate) async fn save_session(&self, opened: &Opened, response: &mut Response<Body>) {
     let changed = opened.cell.is_dirty() || opened.tokens.is_dirty();
-    let written = if self.csrf_always {
+    let written = if self.csrf_always && opened.csrf.is_issued() {
       self.sessions.establish(opened).await
     } else {
       self.sessions.persist(opened).await

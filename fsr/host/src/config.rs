@@ -847,8 +847,9 @@ pub struct SessionSection {
   #[serde(default)]
   pub secure: bool,
   /// When the host mints the session's CSRF token into requests: `identified`,
-  /// once the session has an identity or `always`. A token joins the render
-  /// memo key, so `always` memoises every page per session.
+  /// once the session has an identity or `always`. Under `always` a fresh
+  /// session is established by the response that rendered a token and by no
+  /// other. A token joins the memo key of a subtree that renders it.
   #[serde(default = "default_csrf")]
   pub csrf: String,
   /// How a token is made and checked: `single_use`, a fresh token per form

@@ -110,6 +110,8 @@ Server-side custody for backend credentials and auth flow state. `Arc`-backed be
 * `fn clear(&self)` empties the map and marks dirty.
 * `fn is_dirty(&self) -> bool`.
 * `fn snapshot(&self) -> ValueMap` clones the map; it does not clear the dirty flag.
+* `fn mark_issued(&self)` records that this request handed a token from the cell to a response. Held for the request only and never saved.
+* `fn is_issued(&self) -> bool`. The host establishes a fresh session under `csrf = "always"` only when the `csrf` cell says so.
 
 Implements `Clone` and `Default`. There is no method that hands the cell to `RequestCtx`, which is the custody boundary. `snapfire_fsr_service` implements its `Credentials` trait for this type, so an interceptor that refreshes a credential writes back through `set`; the next `persist` stores it.
 
@@ -230,7 +232,7 @@ under the layer's signing key, stable for the life of the session id. A scheme o
 * `fn issue(&self, opened: &Opened) -> String`: a token for this request.
 * `fn verify(&self, opened: &Opened, token: &str) -> bool`.
 * `fn rotate(&self, opened: &Opened)`: the session's standing changed, identified or destroyed; the default does nothing.
-* `fn memo(&self, opened: &Opened) -> Option<String>`: what the render memo keys a subtree that renders the token by; `None` when every issue differs, which keeps such a subtree out of the memo.
+* `fn memo(&self, opened: &Opened) -> Option<String>`: what the render memo keys a subtree that renders the token by; `None` when every issue differs, which keeps such a subtree out of the memo. The host asks for it on every request, so it mints nothing: a scheme holding no token yet answers `None`.
 * A scheme keeps its state in `opened.csrf`.
 
 ### SingleUse

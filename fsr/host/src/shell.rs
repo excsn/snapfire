@@ -37,6 +37,10 @@ impl Evaluator for DocumentShell {
       Ok(Chunk::Node(Node::raw("</div></body></html>"))),
     ]))
   }
+
+  fn reads_csrf(&self, _module: &ModuleId) -> bool {
+    false
+  }
 }
 
 /// What the head slot carries: the stylesheets, the inlined import map, the

@@ -636,7 +636,7 @@ impl Session {
       return Ok(error_node(&failure.to_string()));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props, node.id.0, Static::Dynamic, true, true);
+    self.inject_ctx_props(&mut props, node.id.0, Static::Dynamic, true, self.runtime.evaluators.select(module).reads_csrf(module));
     props.insert("error".to_owned(), Value::str(failure.to_string()));
     props.insert("kind".to_owned(), Value::str(kind));
     let chunks: Vec<Chunk> = self
@@ -665,7 +665,7 @@ impl Session {
       return Ok(Node::raw(""));
     };
     let mut props = ValueMap::default();
-    self.inject_ctx_props(&mut props, child.id.0, Static::Dynamic, true, true);
+    self.inject_ctx_props(&mut props, child.id.0, Static::Dynamic, true, self.runtime.evaluators.select(module).reads_csrf(module));
     inject_store(&mut props, store, pending, None);
     let chunks: Vec<Chunk> = self
       .runtime
@@ -1089,7 +1089,8 @@ impl Session {
       }
 
       let mut props = data.get(&node.id.0).cloned().unwrap_or_default();
-      self.inject_ctx_props(&mut props, node.id.0, class, reads.is_none_or(|r| r.path), reads.is_none_or(|r| r.csrf));
+      let csrf = reads.is_none_or(|r| r.csrf) && self.runtime.evaluators.select(&node.module).reads_csrf(&node.module);
+      self.inject_ctx_props(&mut props, node.id.0, class, reads.is_none_or(|r| r.path), csrf);
       inject_store(&mut props, &seeded.merged, &seeded.pending, reads);
       if !node.children.is_empty() || !node.keep.is_empty() {
         let slots = node

@@ -119,6 +119,16 @@ fn a_per_session_token_is_stable_until_rotated() {
 }
 
 #[test]
+fn a_per_session_memo_mints_no_token() {
+  let layer = sessions().with_csrf(Arc::new(PerSession::new()));
+  let opened = block_on(layer.open(None));
+  assert_eq!(layer.csrf_scheme().memo(&opened), None);
+  assert!(!opened.csrf.is_dirty(), "asking for the memo key writes nothing to the session");
+  let token = layer.csrf_token(&opened);
+  assert_eq!(layer.csrf_scheme().memo(&opened).as_deref(), Some(token.as_str()));
+}
+
+#[test]
 fn a_derived_token_is_the_hmac_of_the_id_and_survives_rotation() {
   let layer = sessions().with_csrf(Arc::new(Derived::new(b"k")));
   let opened = block_on(layer.open(None));

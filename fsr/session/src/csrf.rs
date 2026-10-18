@@ -13,7 +13,9 @@ use crate::{to_hex, Opened};
 /// and when it is destroyed, so a token learned before either is worthless
 /// after. `memo` is what the render memo keys a subtree that renders the
 /// token by: the token itself when a session's token is stable, `None` when
-/// every issue differs, which keeps such a subtree out of the memo.
+/// every issue differs, which keeps such a subtree out of the memo. The host
+/// asks for `memo` on every request whether or not a token is rendered, so it
+/// mints nothing: a scheme holding no token yet answers `None`.
 pub trait CsrfScheme: Send + Sync {
   fn issue(&self, opened: &Opened) -> String;
 
@@ -122,7 +124,7 @@ impl CsrfScheme for PerSession {
   }
 
   fn memo(&self, opened: &Opened) -> Option<String> {
-    Some(self.issue(opened))
+    Self::current(opened)
   }
 }
 

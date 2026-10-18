@@ -28,6 +28,15 @@ impl EvalError {
 
 pub trait Evaluator: Send + Sync {
   fn evaluate(&self, module: &ModuleId, props: &Data) -> NodeChunks;
+
+  /// Whether rendering `module` can read its `csrf_token` prop. The
+  /// assembler mints a token into a module's props only when this holds, so
+  /// under `csrf = "always"` a response that renders no token starts no
+  /// session. An evaluator that cannot tell answers `true`.
+  fn reads_csrf(&self, module: &ModuleId) -> bool {
+    let _ = module;
+    true
+  }
 }
 
 /// Declines to evaluate: emits a `Client` node so the browser mounts the
