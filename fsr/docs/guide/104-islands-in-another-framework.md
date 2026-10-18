@@ -147,7 +147,7 @@ Navigation still keeps a static layout's DOM. A segment carries a digest of its 
 
 ## The lab
 
-Run `fsr build app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one mounter import. Read the report: every route module is `static` and the three components are `lowered` with `vue` in the detail column. View the source of a recipe page before the scripts run: the plan control is a `<sf-i>` holding the button Vue will hydrate, followed by its props. The three component stylesheets are linked in the head after `box.css`.
+Run `fsr build --verbose app` in the recipes example and read `app/generated/islands.ts`: three registrations, all `.vue`, one mounter import. Read the report: every route module is `static` and the three components are `lowered` with `vue` in the detail column. View the source of a recipe page before the scripts run: the plan control is a `<sf-i>` holding the button Vue will hydrate, followed by its props. The three component stylesheets are linked in the head after `box.css`.
 
 Take `snapfirec-vue` off `PATH` and build again. The bundle stops on the modules the registry imports and the report still prints, with a `plugins` row naming the binary and the install command. The three components are missing from `rendered` altogether rather than listed foreign, since nothing read them.
 

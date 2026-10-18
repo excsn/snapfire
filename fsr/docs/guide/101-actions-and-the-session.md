@@ -87,6 +87,6 @@ A form and a script reach the same action. A `<form method="post" enctype="multi
 
 ## The lab
 
-Run `fsr check app`, then remove the `export` from `checkout` in `actions.ts` and check again: the report's actions section loses `cart.checkout`, `generated/client.ts` loses its callable and `tsc` fails in the cart page at the call. A page cannot call an action the build did not declare. Put it back.
+Run `fsr check --verbose app`, then remove the `export` from `checkout` in `actions.ts` and check again: the report's actions section loses `cart.checkout`, `generated/client.ts` loses its callable and `tsc` fails in the cart page at the call. A page cannot call an action the build did not declare. Put it back.
 
 Then run `fsr test app checkout`. The test named "checkout refuses an empty cart before any call" asserts that the order service saw nothing, which is the guard running first; the one after it places the held lines and asserts the cart came back empty in the same body. Add a product in the browser and check out to watch the second one happen for real.

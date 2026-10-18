@@ -27,7 +27,7 @@ A boot check cannot see a loader that fails on every request, so the reloads a d
 
 ## The dev loop
 
-When the generated files change, `fsr dev` posts `POST /__fsr/reload` to the running server and prints the report that comes back; the process restarts only when the reload is refused or when the Rust project itself changed. A page edit keeps every session and every open document, which then hears on `/__fsr/events` that something moved and refreshes its route in place.
+When the generated files change, `fsr dev` posts `POST /__fsr/reload` to the running server and, under `--verbose`, prints the report that comes back; the process restarts only when the reload is refused or when the Rust project itself changed. A page edit keeps every session and every open document, which then hears on `/__fsr/events` that something moved and refreshes its route in place.
 
 | What changed | What happens |
 | --- | --- |
@@ -38,4 +38,4 @@ When the generated files change, `fsr dev` posts `POST /__fsr/reload` to the run
 
 ## The lab
 
-Run the portal with `fsr dev app` from `examples/portal_react_ts`, sign in, then change a line of `routes/page.tsx` and save. Watch the loop print a fresh boot report without a `dev: server started` line, reload the page and see the new text with your sign-in intact: the portal's binary adds nothing to its configuration, so the loop had the host reread it in place. Then set `session.key` in `config/development.toml` without keeping the generated one in `previous_keys`: the loop reloads in place and the next request is anonymous, since the old cookie fails to verify. Change `session.ttl` instead and the loop prints `reload refused` and restarts. The ops console restarts on every generated change instead, because its binary registers extensions and sets no reloader; add one and it reloads in place.
+Run the portal with `fsr dev --verbose app` from `examples/portal_react_ts`, sign in, then change a line of `routes/page.tsx` and save. Watch the loop print a fresh boot report without a `dev: server started` line, reload the page and see the new text with your sign-in intact: the portal's binary adds nothing to its configuration, so the loop had the host reread it in place. Then set `session.key` in `config/development.toml` without keeping the generated one in `previous_keys`: the loop reloads in place and the next request is anonymous, since the old cookie fails to verify. Change `session.ttl` instead and the loop prints `reload refused` and restarts. The ops console restarts on every generated change instead, because its binary registers extensions and sets no reloader; add one and it reloads in place.

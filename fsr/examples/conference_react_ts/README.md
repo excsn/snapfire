@@ -43,7 +43,7 @@ The programme is on <http://127.0.0.1:8150/>.
 
 ## Every body is lowered
 
-`fsr build app` prints what answers each name and every source and action row says `lowered`: no body runs in an engine and nothing is bound in Rust, because there is no Rust here to bind it in. One component row says `client`: `LocalClock` reads the visitor's time zone, which the server cannot know, so it renders in the browser alone and the venue page lowers around it.
+`fsr build --verbose app` prints what answers each name and every source and action row says `lowered`: no body runs in an engine and nothing is bound in Rust, because there is no Rust here to bind it in. One component row says `client`: `LocalClock` reads the visitor's time zone, which the server cannot know, so it renders in the browser alone and the venue page lowers around it.
 
 Read `app/generated/plan.sexp` to see what the server will actually do. The day's loader comes out as:
 
@@ -76,7 +76,7 @@ The same file shows the session defaults folded in. `session.saved` is written p
 | Metadata from loader data | `export const meta` in the talk loader and the saved loader |
 | Client navigation preserving layout state | open the masthead panel, click a talk: the page region is replaced and the panel stays open |
 | Layouts as composition | both layouts render on the server alone: a click to another talk keeps the masthead, the crumbs and the saved count's state and replaces the talk; `tests/navigation.spec.tsx` |
-| A page's own state moved into an island | the talk page's `useState` and the button that sets it become `routes/talk/[id]/page.island0.tsx`, listed under `extracted` in the report; the page around it stays `static` |
+| A page's own state moved into an island | the talk page's `useState` and the button that sets it become `routes/talk/[id]/page.island0.tsx`, listed under `extracted` in the `--verbose` report; the page around it stays `static` |
 | An island of every owner on one page | `/venue`: `Saved` in the layout hydrates under React, `LocalClock` mounts fresh under React, `Floors.vue` hydrates under Vue, `talk-count` defines itself and `AskDesk` steps on the server, while the page is server markup; `tests/venue.spec.tsx` |
 | A navigation animated by the browser | `enableNavigation({ transitions: true })` in `src/main.ts`; the masthead has a `view-transition-name` in `styles/conference.css`, so it holds still while the page crossfades |
 | A page kept while the visitor is elsewhere | `activity: true` beside `transitions` in `src/main.ts`: leave `/venue` and come back by the back button or the nav: the note typed into its textarea, the video's position, the `talk-count` element and the React checklist's ticks come back as they were, the checklist paused under React 19's `<Activity>`; the Vue rooms mount afresh, so a chosen room is not kept; `tests/activity.spec.tsx` |
@@ -112,7 +112,7 @@ fsr serve dist/app
 
 ## The lab
 
-Build it and read the report: `fsr build app` names every source, action and component; each one says `lowered` but `LocalClock`, which says `client`.
+Build it and read the report: `fsr build --verbose app` names every source, action and component; each one says `lowered` but `LocalClock`, which says `client`.
 
 Read the cache policy where it lives. `app/generated/contracts/program.json` carries `getConference` and `listTalks` with their ttl and their `program` tag while the other two carry nothing, because the policy is a property of the method rather than of a call site. Deleting `[cache.data]` from `config/app.toml` turns every one of them off without touching a loader.
 
@@ -120,4 +120,4 @@ Watch the cache work. Load `/` twice, then fetch `/__fsr/traces` and compare the
 
 Break the contract. Rename `listTalks` in `clients/program.mock.json` and restart: the host still boots, because a mock answers what it holds, while the day's page fails on the first request with the method it could not find. Rename it in `clients/program.openapi.json` instead and the build refuses, because the loader names a method the contract does not carry.
 
-Add a route. Make `app/routes/rooms/page.tsx` returning a list, run `fsr build app`, then find it in the plan and in the report with no file edited anywhere else.
+Add a route. Make `app/routes/rooms/page.tsx` returning a list, run `fsr build --verbose app`, then find it in the plan and in the report with no file edited anywhere else.

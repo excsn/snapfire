@@ -303,6 +303,6 @@ Pass `activity: true` as well and the page a visitor leaves is held out of the d
 
 ## The lab
 
-Add a route: `routes/deals/page.tsx` with a component that returns a paragraph. Run `fsr check app` and read the report: `/deals` is listed, with no source since there is no loader. Add a `page.loader.ts` that returns `{ when: ctx.now }`, check again and `deals` appears under sources as `lowered`. The page can now import `DealsProps` and it has a `when: bigint`.
+Add a route: `routes/deals/page.tsx` with a component that returns a paragraph. Run `fsr check --verbose app` and read the report: `/deals` is listed, with no source since there is no loader. Add a `page.loader.ts` that returns `{ when: ctx.now }`, check again and `deals` appears under sources as `lowered`. The page can now import `DealsProps` and it has a `when: bigint`.
 
 Then add a `loading.tsx` beside it and start the server. Load `/deals` with the network tab open: the document arrives before the loader finishes and the page fills its slot when it does.

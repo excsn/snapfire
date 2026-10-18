@@ -60,7 +60,7 @@ The most important term is **lowered**. Lowering does not emit code: the build r
 
 Each chapter opens with the question it answers and who it is for and ends with a lab: something to do to the running example that makes the chapter's claim observable. The example is [`shopping_react_ts`](../../examples/shopping_react_ts/), a storefront with a catalog, a cart and two backends it does not own, one over HTTP and one over gRPC. Its README gets it running in four commands; have it running before you start.
 
-The labs mostly use the report. The build and the host print the same table, every route, source, action, rendered module and service with who answers it. Most of what this guide claims can be checked by changing something and reading the table again.
+The labs mostly use the report. `fsr build --verbose` and the host print the same table, every route, source, action, rendered module and service with who answers it. Most of what this guide claims can be checked by changing something and reading the table again.
 
 ## The lab
 

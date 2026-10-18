@@ -40,7 +40,7 @@ fsr dev app
 
 Then open <http://127.0.0.1:8090>. The fleet backend listens on 8091 and the identity service on 8092. Sign in as `alice` / `wonder` or `bob` / `builder`; the accounts are in `config/auth.toml`, which the identity service reads and the host never opens: every sign-in is a call to `authenticate` and every session is a record the service holds, so the host keeps neither in memory.
 
-To run it with no backend at all, `APP_ENV=mock fsr serve app` picks up `config/mock.toml`. That file names the fleet client's transport as `mock`, so the fleet answers from `app/clients/fleet.mock.json`. The identity service is mocked the same way, so any password signs in as alice; sessions fall back to memory, since a canned answer cannot hold them. The report says so beside each client; acknowledging an alert fails on purpose, since the file records nothing.
+To run it with no backend at all, `APP_ENV=mock fsr serve app` picks up `config/mock.toml`. That file names the fleet client's transport as `mock`, so the fleet answers from `app/clients/fleet.mock.json`. The identity service is mocked the same way, so any password signs in as alice; sessions fall back to memory, since a canned answer cannot hold them. The report `fsr serve --verbose` prints says so beside each client; acknowledging an alert fails on purpose, since the file records nothing.
 
 ## Try it
 

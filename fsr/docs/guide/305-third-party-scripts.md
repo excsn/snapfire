@@ -80,7 +80,7 @@ The document carries the row as an inert element, `<script type="text/plain" dat
 
 A row written out takes the same keys: `{ tag: "script", src, when, crossorigin: "anonymous" }`, any attribute beyond `src` and `when` kept as written. A row needs a `src`. One with inline code in `children` is refused by the build, since that code would run on a document load and never after a navigation; the code belongs in a module `src/main.ts` imports. A data block is not code: `jsonLd(json)` writes `{ tag: "script", type: "application/ld+json", children: json }`, which the document carries as written. So is a row of any other type the browser does not run.
 
-The build reads each row's `src` and the host adds the origin of every one on another origin to `script-src`, the way it adds the import map's hash. The boot report lists them:
+The build reads each row's `src` and the host adds the origin of every one on another origin to `script-src`, the way it adds the import map's hash. The boot report lists them, which on the stock host is `fsr serve --verbose`:
 
 ```
 scripts   venue                  /static/demo/venue-map.js

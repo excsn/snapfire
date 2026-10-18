@@ -55,7 +55,7 @@ The same script lists each Content-Security-Policy violation the page meets in a
 
 When the generated files actually differ the loop asks the running server to reload its tables in place (`POST /__fsr/reload`) and restarts only when the reload is refused (a changed `[session]`, for one) or when the Rust project changed. Editing a page never restarts, because the bundle's output names are stable and the host reads it from disk; a reload keeps every session, which chapter 204 explains. A step that fails leaves the running server up and waits, so a typo never takes the page down. Stopping the loop stops the server with it.
 
-Without a Cargo project beside the app, the loop runs `fsr serve` on the app instead: the stock host over `config/app.toml`, restarted on the same rule, with `config/` watched in place of `src/`. `fsr serve <app> [--listen <addr>]` is that host on its own, for production, the way `cargo run` is for a project that has one; it refuses a configuration whose `[app] dir` names a different directory.
+Without a Cargo project beside the app, the loop runs `fsr serve` on the app instead: the stock host over `config/app.toml`, restarted on the same rule, with `config/` watched in place of `src/`. `fsr serve <app> [--listen <addr>]` is that host on its own, for production, the way `cargo run` is for a project that has one; it refuses a configuration whose `[app] dir` names a different directory. It prints the boot report's rows that need attention and `--verbose` prints the whole report, which `fsr dev --verbose` passes on.
 
 ## Prerendering
 
@@ -115,6 +115,6 @@ The host never runs this itself. A run is safe beside the requests it serves: ea
 
 ## The lab
 
-Run `fsr dev app` in the storefront, open a product in the browser and type into the header's search box. Add `h1 { letter-spacing: 3px; }` to `styles/app.css` and save: the heading spreads out and the search text is still there, since only the stylesheet and the payload moved. Now edit the button text in `routes/product/[id]/page.tsx` and save: the log shows the report again because the plan changed, the server reloads its tables in place without restarting and the page reloads with the new text. Now edit `routes/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again and the server reloads in place, again with no restart. Put it back.
+Run `fsr dev --verbose app` in the storefront, open a product in the browser and type into the header's search box. Add `h1 { letter-spacing: 3px; }` to `styles/app.css` and save: the heading spreads out and the search text is still there, since only the stylesheet and the payload moved. Now edit the button text in `routes/product/[id]/page.tsx` and save: the log shows the report again because the plan changed, the server reloads its tables in place without restarting and the page reloads with the new text. Now edit `routes/page.loader.ts`, remove `tag: query.tag` from the call and save: the log shows the report again and the server reloads in place, again with no restart. Put it back.
 
 Then break something: add `try {` without a closing brace to the loader. The loop prints the parse error with its line and waits; the previous server keeps serving. Fix it and the loop picks up where it left off.

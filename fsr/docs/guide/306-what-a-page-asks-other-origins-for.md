@@ -6,7 +6,7 @@ The question this chapter answers: when a visitor opens one of your pages, which
 
 ## The defaults
 
-A page FSR renders asks your origin for its document, its modules, its stylesheets, its images and its fonts. Something else is reached only when the application names it. Each one shows in the boot report's policy rows, since the host adds every other origin a page reaches to the Content-Security-Policy it sends.
+A page FSR renders asks your origin for its document, its modules, its stylesheets, its images and its fonts. Something else is reached only when the application names it. Each one shows in the boot report's policy rows, which the stock host prints under `fsr serve --verbose`, since the host adds every other origin a page reaches to the Content-Security-Policy it sends.
 
 | What | Reaches | When | Keep it on your origin |
 | --- | --- | --- | --- |

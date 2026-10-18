@@ -179,7 +179,7 @@ The checker is `$SNAPFIRETC`, else `snapfiretc` beside `snapfirec`, else one on 
 `fsr build`, `fsr dev` and `fsr check` run the checker over the application's `tsconfig.json`, the one that carries `strict` and the `@src`, `@routes` and `@generated` aliases, and specs are in it too. It runs beside `snapfirec` rather than after it, since neither reads the other's output:
 
 ```sh
-fsr build app
+fsr build app --verbose
 # typecheck tsc 7.0.2 from cache, clean
 ```
 

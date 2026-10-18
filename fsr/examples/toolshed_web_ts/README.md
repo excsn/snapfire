@@ -36,7 +36,7 @@ fsr dev app
 
 ## A page that mounts nothing
 
-Read `app/generated/islands.ts` after a build: one `registerIsland`, an element definition with `defineMounter`, no mounter imported from any framework. Every template is marked `static` in the report, since none has state or handlers, so no route module is bundled. The bundle is `src/**/*` and the two generated files. The import map has four entries: the client, its store, its elements module and htmx.
+Read `app/generated/islands.ts` after a build: one `registerIsland`, an element definition with `defineMounter`, no mounter imported from any framework. Every template is marked `static` in the `--verbose` report, since none has state or handlers, so no route module is bundled. The bundle is `src/**/*` and the two generated files. The import map has four entries: the client, its store, its elements module and htmx.
 
 ## Custom elements
 
