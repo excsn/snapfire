@@ -307,7 +307,7 @@ The browser half of FSR, carried by the binary and served at `client::ROUTE`, `/
 
 ### MediaSection
 
-* `pub struct MediaSection { pub embed_stills: EmbedStills }`, `[media]`, `#[non_exhaustive]`. `pub enum EmbedStills { Provider, Local }`, `provider` by default: an `Embed`'s still loads from the provider's CDN. With `local` the build fetches it once into `generated/embeds/` and the page serves it, falling back to the provider's when the fetch fails.
+* `pub struct MediaSection { pub embed_stills: EmbedStills }`, `[media]`, `#[non_exhaustive]`. `pub enum EmbedStills { Provider, Local }`, `provider` by default: an `Embed`'s still loads from the provider's CDN. With `local` the build fetches it once into `generated/embeds/` and the page serves it, falling back to the provider's when the fetch fails or the `id` is computed.
 
 ### ImagesSection
 

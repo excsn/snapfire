@@ -125,6 +125,7 @@ Where the lowerer looks an imported image, font or media file up, `assets::Asset
 * `pub struct ImageRequest { pub widths: Option<Vec<u32>>, pub quality: Option<BTreeMap<String, u8>> }`, a per-image override.
 * `pub struct ImageFacts { pub src: String, pub width: u32, pub height: u32, pub sources: Vec<(String, String)> }`, `#[non_exhaustive]`, built with `ImageFacts::new(src: String, width: u32, height: u32, sources: Vec<(String, String)>) -> Self`: the hashed original's URL, its size and `(mime, srcset)` per format, empty for an image served as it is.
 * `pub struct NoAssets`: knows nothing, so an asset import stays unbound.
+* `assets::YOUTUBE_STILL: (&str, &str, u32, u32)`: YouTube's still as the URL before the id, the URL after it, the width and the height. `assets::youtube_still(provider, id)` writes it for an id. An `Embed` whose `id` is computed renders it as a template.
 * `assets::kind(specifier: &str) -> Option<Kind>`, `Kind::Image` for `png`, `jpg`, `jpeg`, `gif`, `webp`, `avif`, `svg`, `ico` and `bmp`, `Kind::Font` for `woff2`, `woff`, `ttf` and `otf`, `Kind::Media` for `mp4`, `m4v`, `webm`, `ogv`, `mov`, `mp3`, `m4a`, `aac`, `oga`, `ogg`, `opus`, `wav` and `vtt`; `assets::default_sizes(width: u32) -> String`, `(max-width: {width}px) 100vw, {width}px`.
 * `component::RAW_ESCAPE: &str`, `data-sf-raw`, the attribute that keeps an `<img>` out of the rewrite; stripped from the markup.
 

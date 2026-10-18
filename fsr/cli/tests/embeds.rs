@@ -75,12 +75,67 @@ fn a_local_still_is_served_from_the_application_and_the_policy_names_no_image_ho
   std::fs::remove_dir_all(&root).unwrap();
 }
 
+const LOADED: &str = r#"import { Embed } from "@snapfire/fsr-authoring/template";
+
+export default function Page({ video, name, film }: { video: string; name: string; film: string }) {
+  return (
+    <main>
+      <Embed provider="youtube" id={video} title={name} />
+      <Embed provider="vimeo" id={film} title="A Vimeo film" />
+    </main>
+  );
+}
+"#;
+
+const LOADER: &str = "export async function load() {\n  return { video: \"dQw4w9WgXcQ\", name: \"Never Gonna Give You Up\", film: \"76979871\" };\n}\n";
+
+fn loaded(tag: &str, media: &str) -> PathBuf {
+  let root = project(tag, LOADED, media);
+  std::fs::write(root.join("app/routes/page.loader.ts"), LOADER).unwrap();
+  root
+}
+
+#[test]
+fn an_id_from_the_loader_renders_on_the_server_with_the_providers_still() {
+  let root = loaded("loaded", "");
+  let (html, policy) = render(&root);
+  assert!(html.contains("data-sf-embed=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ?autoplay=1\"") && html.contains("data-sf-embed-title=\"Never Gonna Give You Up\""), "{html}");
+  assert!(html.contains("src=\"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg\""), "YouTube's still, named by the id: {html}");
+  assert!(html.contains("data-sf-embed=\"https://player.vimeo.com/video/76979871?autoplay=1\""), "{html}");
+  assert!(!html.contains("<iframe"), "no player before a click: {html}");
+  for origin in ["https://i.ytimg.com", "https://www.youtube-nocookie.com", "https://player.vimeo.com"] {
+    assert!(policy.contains(origin), "{origin}: {policy}");
+  }
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_computed_vimeo_id_shows_the_title_alone() {
+  let root = loaded("vimeo", "");
+  let (html, _) = render(&root);
+  let vimeo = &html[html.find("player.vimeo.com").expect("the vimeo placeholder")..];
+  let vimeo = &vimeo[..vimeo.find("</button>").unwrap()];
+  assert!(!vimeo.contains("<img"), "Vimeo's still comes from its API, which the build cannot ask for an id it does not know: {vimeo}");
+  assert!(vimeo.contains("A Vimeo film"), "{vimeo}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_computed_id_under_local_stills_falls_back_to_the_providers_still() {
+  let root = loaded("loaded-local", "\n[media]\nembed_stills = \"local\"\n");
+  let (html, policy) = render(&root);
+  assert!(html.contains("src=\"https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg\""), "the build fetches only the stills it can name: {html}");
+  assert!(policy.contains("https://i.ytimg.com"), "the fallback still's host is allowed: {policy}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 fn an_embed_the_build_cannot_place_is_refused() {
   let island = "import Player from \"@src/ui/Player\";\nexport default function Page() {\n  return <main><Player /></main>;\n}\n";
   for (tag, page, says) in [
     ("untitled", "import { Embed } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  return <Embed provider=\"youtube\" id=\"x\" />;\n}\n", "needs a `title`"),
     ("unknown", "import { Embed } from \"@snapfire/fsr-authoring/template\";\nexport default function Page() {\n  return <Embed provider=\"tiktok\" id=\"x\" title=\"t\" />;\n}\n", "`youtube` or `vimeo`, not `tiktok`"),
+    ("computed-provider", "import { Embed } from \"@snapfire/fsr-authoring/template\";\nexport default function Page({ p }: { p: string }) {\n  return <Embed provider={p} id=\"x\" title=\"t\" />;\n}\n", "an `<Embed>`'s `provider` is a string written out"),
     ("island", island, "places an `<Embed>` and hydrates"),
   ] {
     let root = project(tag, page, "");

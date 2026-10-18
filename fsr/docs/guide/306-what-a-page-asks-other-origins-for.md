@@ -39,13 +39,13 @@ To keep the provider out of the page until the visitor plays, fetch the stills a
 embed_stills = "local"
 ```
 
-The build then fetches each still once into `generated/embeds/` and serves it from your origin under its content hash. The page asks the provider for nothing until a click and shows its stills offline, as a service worker caches them with the rest of the site. A fetch that fails, a build with no network for example, falls back to the provider's image and says so in the build output. The player always comes from the provider, since that is where the video is.
+The build then fetches each still once into `generated/embeds/` and serves it from your origin under its content hash. The page asks the provider for nothing until a click and shows its stills offline, as a service worker caches them with the rest of the site. A fetch that fails, a build with no network for example, falls back to the provider's image and says so in the build output. An `id` the page computes has no still the build can fetch: a YouTube placeholder shows the still its CDN names by the id. A Vimeo one shows the title alone. The player always comes from the provider, since that is where the video is.
 
 The player loads from `youtube-nocookie.com`, YouTube's domain for embeds that sets no cookie until the video plays.
 
 ## Content-Security-Policy
 
-With a `[document.csp]` the host widens each directive by the origins above that the build can read: `script-src` for a script's host, `img-src` for a still or any image with a literal URL, `frame-src` for a player and `media-src` for a media element's URL. A URL computed at request time is one the build cannot read, so its origin goes in the policy by hand; for a script the boot report names the row that computes it. Chapter 305 has the policy for scripts in full.
+With a `[document.csp]` the host widens each directive by the origins above that the build can read: `script-src` for a script's host, `img-src` for a still or any image whose URL starts with a written-out origin, `frame-src` for a player and `media-src` for a media element's URL. A URL whose origin is computed at request time is one the build cannot read, so its origin goes in the policy by hand; for a script the boot report names the row that computes it. Chapter 305 has the policy for scripts in full.
 
 ## The lab
 

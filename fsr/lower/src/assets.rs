@@ -59,9 +59,13 @@ impl ImageFacts {
   }
 }
 
+/// YouTube's still: the URL before the id, the URL after it, the width and the height.
+pub const YOUTUBE_STILL: (&str, &str, u32, u32) = ("https://i.ytimg.com/vi/", "/hqdefault.jpg", 480, 360);
+
 /// YouTube's still for `id`, which its CDN serves at a URL the id names.
 pub fn youtube_still(provider: &str, id: &str) -> Option<ImageFacts> {
-  (provider == "youtube").then(|| ImageFacts { src: format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg"), width: 480, height: 360, sources: Vec::new() })
+  let (before, after, width, height) = YOUTUBE_STILL;
+  (provider == "youtube").then(|| ImageFacts { src: format!("{before}{id}{after}"), width, height, sources: Vec::new() })
 }
 
 /// A resolver that knows nothing, so an asset import stays unbound.

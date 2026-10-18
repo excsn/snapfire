@@ -1163,22 +1163,23 @@ pub struct HeadScript {
 }
 
 /// The `src` of every `video`, `audio`, `source` and `track` in `tmpl` the
-/// build can read as a string, in the order written.
+/// build can read as a string or the start of a template, in the order written.
 pub fn media_sources(tmpl: &Tmpl) -> Vec<String> {
   literal_attrs(tmpl, &|tag| matches!(tag, "video" | "audio" | "source" | "track"), "src")
 }
 
-/// The `src` of every `img` in `tmpl` the build can read as a string, in the order written.
+/// The `src` of every `img` in `tmpl` the build can read as a string or the start of a template, in the order written.
 pub fn image_sources(tmpl: &Tmpl) -> Vec<String> {
   literal_attrs(tmpl, &|tag| tag == "img", "src")
 }
 
-/// The player URL of every embed placeholder in `tmpl`, its `data-sf-embed`.
+/// The player URL of every embed placeholder in `tmpl`, its `data-sf-embed`. For a computed id it is the URL's start.
 pub fn embed_players(tmpl: &Tmpl) -> Vec<String> {
   literal_attrs(tmpl, &|_| true, "data-sf-embed")
 }
 
 /// The string value of `name` on every element `tag_matches` takes, in the order written.
+/// A template whose first part is a string gives that part, which holds the URL's origin.
 fn literal_attrs(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> Vec<String> {
   fn walk(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str, out: &mut Vec<String>) {
     match tmpl {
@@ -1189,6 +1190,10 @@ fn literal_attrs(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) ->
               let text = match expr {
                 Expr::Lit(Lit::Str(s)) => Some(s.clone()),
                 Expr::Folded(snapfire_fsr_core::value::Value::Str(s)) => Some(s.to_string()),
+                Expr::Template(parts) => match parts.first() {
+                  Some(Expr::Lit(Lit::Str(s))) => Some(s.clone()),
+                  _ => None,
+                },
                 _ => None,
               };
               if let Some(text) = text.filter(|_| field == name) {
