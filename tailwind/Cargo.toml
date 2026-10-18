@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_tailwind"
-version = "0.2.0"
+version = "0.3.0"
 description = "Tailwind CSS v4 in Rust: builds the stylesheet for a set of class names from a CSS-first configuration, with no Node"
 keywords = ["snapfire", "tailwind", "css", "utility"]
 categories = ["web-programming", "development-tools::build-utils"]

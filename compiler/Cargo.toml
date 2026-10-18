@@ -1,6 +1,6 @@
 [package]
 name = "snapfire_compiler"
-version = "0.16.0"
+version = "0.17.0"
 description = "Compile TypeScript for the browser. No NodeJS required. Fast, native, opinionated."
 
 keywords = ["typescript", "compiler", "swc", "css", "browser"]
@@ -37,7 +37,7 @@ parcel_sourcemap = { version = "2.1", features = ["json"] }
 base64 = "0.23"
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 snapfire_media = { path = "../media", version = "0.3.0" }
-snapfire_tailwind = { path = "../tailwind", version = "0.2.0" }
+snapfire_tailwind = { path = "../tailwind", version = "0.3.0" }
 notify = "8"
 rayon = "1.12.0"
 

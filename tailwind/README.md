@@ -8,7 +8,7 @@ Tailwind CSS v4 in Rust. A stylesheet configures it the way Tailwind's own does,
 
 ```toml
 [dependencies]
-snapfire_tailwind = "0.2"
+snapfire_tailwind = "0.3"
 ```
 
 The crate has no features. It depends on Lightning CSS for the optimize pass Tailwind runs on its output.
