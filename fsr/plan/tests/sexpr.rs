@@ -212,6 +212,7 @@ fn every_tmpl() -> Vec<Tmpl> {
       children: vec![Tmpl::Text("in".to_owned())],
     },
     Tmpl::Baked { open: "<br/>".to_owned(), tag: None, children: Vec::new() },
+    Tmpl::Marker("<!--[0-->".to_owned()),
   ]
 }
 
@@ -309,6 +310,11 @@ fn every_manifest() -> Manifest {
           ],
         }],
       },
+      ComponentEntry {
+        module: "src/ui/Card.svelte#default".to_owned(),
+        body: Component::new(snapfire_fsr_ir::Owner::Svelte, Vec::new(), Tmpl::Fragment(vec![Tmpl::Marker("<!--[-->".to_owned()), Tmpl::Text("card".to_owned()), Tmpl::Marker("<!--]-->".to_owned())])),
+        head: Vec::new(),
+      },
     ],
     consts,
     not_found: Some(node.clone()),
@@ -327,7 +333,7 @@ fn every_manifest() -> Manifest {
       snapfire_fsr_plan::ThemeEntry { module: "routes/sale/page.tsx#default".to_owned(), name: "a \"winter\" sale".to_owned(), force: true },
     ],
     intercepts: vec![RouteEntry { pattern: "/modal".to_owned(), plan: node }],
-    frameworks: [("react".to_owned(), "18.3.1".to_owned())].into_iter().collect(),
+    frameworks: [("react".to_owned(), "18.3.1".to_owned()), ("svelte".to_owned(), "5.57.2".to_owned())].into_iter().collect(),
     reads: [("src/ui/Box.vue#default".to_owned(), vec!["cart/count".to_owned(), "user/name".to_owned()])].into_iter().collect(),
     derives: vec![
       snapfire_fsr_plan::DeriveEntry {
@@ -693,26 +699,49 @@ fn malformed_plan_terms_are_refused() {
 /// changes has been published, that comes with a bump of `FORMAT_VERSION`
 /// and a reader that still takes the old spelling, which the earlier format's
 /// file below keeps pinned; when it has not, the number stays.
-const GOLDEN: &str = include_str!("golden/format-6.sexp");
+const GOLDEN: &str = include_str!("golden/format-7.sexp");
 
 #[test]
-fn the_printed_bytes_are_the_ones_format_6_promises() {
+fn the_printed_bytes_are_the_ones_format_7_promises() {
   let printed = every_manifest().to_sexpr();
   if std::env::var("SEXP_GOLDEN").as_deref() == Ok("overwrite") {
-    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-6.sexp"), &printed)
+    std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden/format-7.sexp"), &printed)
       .expect("the golden file is writable");
     return;
   }
-  assert_eq!(printed, GOLDEN, "the printer no longer writes format 6");
+  assert_eq!(printed, GOLDEN, "the printer no longer writes format 7");
 }
 
 /// The same file read back: a reader that stops accepting what earlier builds
 /// wrote fails here rather than at someone's boot.
 #[test]
 fn the_promised_bytes_still_read() {
-  let read = Manifest::from_sexpr(GOLDEN).expect("format 6 still reads");
+  let read = Manifest::from_sexpr(GOLDEN).expect("format 7 still reads");
   assert_eq!(read, every_manifest());
   assert_eq!(read.to_sexpr(), GOLDEN);
+}
+
+/// Format 6, as the builds before marker nodes and Svelte components wrote it.
+const GOLDEN_6: &str = include_str!("golden/format-6.sexp");
+
+#[test]
+fn a_format_6_plan_still_reads() {
+  let read = Manifest::from_sexpr(GOLDEN_6).expect("format 6 still reads");
+  let mut expected = every_manifest();
+  forget_svelte(&mut expected);
+  assert_eq!(read, expected);
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
+}
+
+/// Every marker node, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
+fn forget_svelte(manifest: &mut Manifest) {
+  manifest.components.retain(|entry| entry.body.owner != snapfire_fsr_ir::Owner::Svelte);
+  manifest.frameworks.remove("svelte");
+  for entry in &mut manifest.components {
+    if let Tmpl::Fragment(children) = &mut entry.body.render {
+      children.retain(|child| !matches!(child, Tmpl::Marker(_)));
+    }
+  }
 }
 
 /// Format 5, as the builds before `derive` rows wrote it.
@@ -723,8 +752,9 @@ fn a_format_5_plan_still_reads() {
   let read = Manifest::from_sexpr(GOLDEN_5).expect("format 5 still reads");
   let mut expected = every_manifest();
   forget_derives(&mut expected);
+  forget_svelte(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
 /// Every `derive` row, every `module-head` row and every source's `defaults` dropped, which is what a plan written before format 6 carries.
@@ -758,8 +788,9 @@ fn a_plan_whose_components_name_no_owner_still_reads() {
   let mut expected = every_manifest();
   forget_store_reads(&mut expected);
   forget_derives(&mut expected);
+  forget_svelte(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
 /// Format 4, as the builds before a component's head rows wrote it.
@@ -772,8 +803,9 @@ fn a_format_4_plan_still_reads() {
   forget_heads(&mut expected);
   forget_store_reads(&mut expected);
   forget_derives(&mut expected);
+  forget_svelte(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
 /// Every component's head rows dropped, which is what a plan written before
@@ -795,8 +827,9 @@ fn a_format_3_plan_still_reads() {
   forget_heads(&mut expected);
   forget_store_reads(&mut expected);
   forget_derives(&mut expected);
+  forget_svelte(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
 /// Every node's per-kind error modules dropped, which is what a plan written
@@ -830,8 +863,9 @@ fn a_format_2_plan_still_reads() {
   forget_heads(&mut expected);
   forget_store_reads(&mut expected);
   forget_derives(&mut expected);
+  forget_svelte(&mut expected);
   assert_eq!(read, expected);
-  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 6");
+  assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
 /// One row printed alone is the same bytes the whole file holds for it.
@@ -851,5 +885,5 @@ fn a_row_views_as_the_file_writes_it_and_a_source_section_alone() {
   assert_eq!(manifest.view("index", Some("head")), Err(ViewError::NoSuchSection { section: "head".into() }));
   assert_eq!(manifest.view("cart.add", Some("body")), Err(ViewError::OneBody { id: "cart.add".into() }));
   assert_eq!(manifest.view("nothing", None), Err(ViewError::Unknown { id: "nothing".into() }));
-  assert_eq!(manifest.row_ids(), ["index", "declared", "cart.add", "cart.clear", "route.GET", "route.POST", "routes/page.tsx#default", "routes/layout.tsx#default", "order/total", "clock/now"]);
+  assert_eq!(manifest.row_ids(), ["index", "declared", "cart.add", "cart.clear", "route.GET", "route.POST", "routes/page.tsx#default", "routes/layout.tsx#default", "src/ui/Card.svelte#default", "order/total", "clock/now"]);
 }

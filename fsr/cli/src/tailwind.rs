@@ -233,7 +233,7 @@ fn walk(tmpl: &Tmpl, scope: &mut Scope, found: &mut Found) {
       walk(then, scope, found);
       restore(scope, saved);
     }
-    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 

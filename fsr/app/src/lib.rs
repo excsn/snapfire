@@ -65,6 +65,8 @@ pub enum BindError {
   React { version: String },
   #[error("the plan names vue@{version}, a Vue whose markup this fsr does not write")]
   Vue { version: String },
+  #[error("the plan names svelte@{version}, a Svelte whose markup this fsr does not write")]
+  Svelte { version: String },
   #[error("`{loader}` exports `paths`, which reads the request; a parameter set is decided with nothing of a request behind it")]
   PathsReadRequest { loader: String },
   #[error("`{loader}` exports `paths` but its route `{pattern}` has no parameter to enumerate")]
@@ -603,6 +605,9 @@ impl App {
     }
     if let Some(version) = parsed.frameworks.get("vue") {
       builder.frameworks.vue = Some(snapfire_fsr_ir::VueMajor::of(version).ok_or_else(|| BindError::Vue { version: version.clone() })?);
+    }
+    if let Some(version) = parsed.frameworks.get("svelte") {
+      builder.frameworks.svelte = Some(snapfire_fsr_ir::SvelteMajor::of(version).ok_or_else(|| BindError::Svelte { version: version.clone() })?);
     }
     for row in &parsed.handlers {
       match &row.body {
@@ -1652,7 +1657,7 @@ fn renders_path(module: &str, components: &[(String, Component)], seen: &mut Has
 
 fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
   match tmpl {
-    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().for_each(|c| placed_modules(c, out)),
     Tmpl::If { then, r#else, .. } => {
       placed_modules(then, out);

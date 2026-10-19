@@ -291,6 +291,11 @@ pub enum Tmpl {
   /// `content`; at a layout's root, the plan child of that name, so a
   /// `<Slot name="modal" />` names a second segment beside the page.
   Slot(String),
+  /// Markup a framework's hydration reads, written as given: a comment such
+  /// as `<!--[0-->` that the lowerer placed where that framework's own server
+  /// renderer writes it. The markers depend on the template's structure and
+  /// never on data, so a lowering bakes them in as the framework's compiler does.
+  Marker(String),
   /// An element whose open tag is entirely literal, baked into one slice when
   /// the component was prepared. The plan never carries this: it is what
   /// `snapfire_fsr_ir::render::prepare` turns an `Element` into, so the
@@ -432,14 +437,15 @@ impl ShadowMode {
 }
 
 /// What renders a component in the browser. `Fsr` is composition: the server
-/// renders it and nothing renders it again. `React` and `Vue` hydrate the
-/// server's markup through their adapters.
+/// renders it and nothing renders it again. `React`, `Vue` and `Svelte`
+/// hydrate the server's markup through their adapters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Owner {
   Fsr,
   React,
   Vue,
+  Svelte,
 }
 
 impl Owner {
@@ -449,6 +455,7 @@ impl Owner {
       Self::Fsr => "fsr",
       Self::React => "react",
       Self::Vue => "vue",
+      Self::Svelte => "svelte",
     }
   }
 
@@ -457,6 +464,7 @@ impl Owner {
       "fsr" => Some(Self::Fsr),
       "react" => Some(Self::React),
       "vue" => Some(Self::Vue),
+      "svelte" => Some(Self::Svelte),
       _ => None,
     }
   }
@@ -598,7 +606,7 @@ impl Tmpl {
       }
     };
     match self {
-      Tmpl::Text(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
       Tmpl::Expr(e) => e.visit(f),
       Tmpl::Element { attrs, children, .. } => {
         entries(attrs, f);
@@ -631,7 +639,7 @@ impl Tmpl {
   /// `visit` with each expression open to change: `f` sees an expression before what is beneath it.
   pub fn visit_mut(&mut self, f: &mut dyn FnMut(&mut Expr)) {
     match self {
-      Tmpl::Text(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
       Tmpl::Expr(e) => e.visit_mut(f),
       Tmpl::Element { attrs, children, .. } => {
         attrs.iter_mut().for_each(|entry| entry.visit_mut(f));
@@ -1223,7 +1231,7 @@ fn attr_values(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> V
       }
       Tmpl::For { body, .. } => walk(body, tag_matches, name, out),
       Tmpl::Let { then, .. } => walk(then, tag_matches, name, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
     }
   }
   let mut out = Vec::new();

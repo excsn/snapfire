@@ -25,12 +25,16 @@ pub mod sexpr;
 /// outranks, the `module-head` and `image` rows of generated card images, the
 /// lowered `theme.ts` and a `theme-of` row per layout or page that sets a theme.
 ///
+/// Format 7 adds the `marker` template node (markup a framework's hydration
+/// reads, placed by the lowerer) and the `svelte` owner and framework. A
+/// format 6 reader refuses both by name.
+///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of
 /// the format this number already names: add it to that format's line above
 /// and regenerate its golden file. Check the number in the last published
 /// release before raising it.
-pub const FORMAT_VERSION: u32 = 6;
+pub const FORMAT_VERSION: u32 = 7;
 /// The first format in which a component must name its owner.
 pub(crate) const OWNERS_NAMED: u32 = 5;
 const OLDEST_READABLE: u32 = 1;

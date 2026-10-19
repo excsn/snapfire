@@ -192,6 +192,7 @@ fn tmpl() -> BoxedStrategy<Tmpl> {
     text().prop_map(Tmpl::Text),
     expr().prop_map(Tmpl::Expr),
     text().prop_map(Tmpl::Slot),
+    text().prop_map(Tmpl::Marker),
   ];
   leaf.prop_recursive(4, 40, 3, |inner| {
     prop_oneof![

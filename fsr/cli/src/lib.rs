@@ -1383,7 +1383,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   for (module, component) in std::mem::take(&mut set.components) {
     let detail = match component.owner {
-      Owner::Vue => component.owner.as_str().to_owned(),
+      Owner::Vue | Owner::Svelte => component.owner.as_str().to_owned(),
       Owner::React => String::new(),
       Owner::Fsr => "static".to_owned(),
     };
@@ -2599,7 +2599,7 @@ fn inline_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
       }
       Tmpl::For { body, .. } => walk(body, out),
       Tmpl::Let { then, .. } => walk(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
   let mut out = Vec::new();
@@ -2635,7 +2635,7 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<Placement> {
       }
       Tmpl::For { body, .. } => walk(body, out),
       Tmpl::Let { then, .. } => walk(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
   walk(tmpl, &mut out);
@@ -2775,6 +2775,7 @@ fn suggested_version(package: &str) -> &'static str {
 fn adapter_for(module: &str, owners: &HashMap<String, Owner>) -> Result<&'static Adapter, BuildError> {
   match owners.get(module) {
     Some(Owner::Vue) => return Ok(&VUE),
+    Some(Owner::Svelte) => return Ok(&SVELTE),
     Some(Owner::React | Owner::Fsr) => return Ok(&REACT),
     None => {}
   }
@@ -3515,7 +3516,7 @@ fn server_islands(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
       }
       Tmpl::For { body, .. } => walk(body, out),
       Tmpl::Let { then, .. } => walk(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
   let mut out = Vec::new();
@@ -3558,7 +3559,7 @@ fn unlowered_handlers(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
       }
       Tmpl::For { body, .. } => walk(body, out),
       Tmpl::Let { then, .. } => walk(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
   let mut out = Vec::new();
@@ -3587,7 +3588,7 @@ fn nested_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
       }
       Tmpl::For { body, .. } => walk(body, out),
       Tmpl::Let { then, .. } => walk(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
   let mut out = Vec::new();
@@ -3607,7 +3608,7 @@ fn first_slot(tmpl: &snapfire_fsr_ir::Tmpl) -> Option<String> {
       Tmpl::If { then, r#else, .. } => walk(then).or_else(|| r#else.as_ref().and_then(|e| walk(e))),
       Tmpl::For { body, .. } => walk(body),
       Tmpl::Let { then, .. } => walk(then),
-      Tmpl::Text(_) | Tmpl::Expr(_) => None,
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) => None,
     }
   }
   walk(tmpl)
@@ -3621,7 +3622,7 @@ fn slots_placed(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
     match tmpl {
       Tmpl::Baked { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::Slot(name) if name != "content" && !out.contains(name) => out.push(name.clone()),
-      Tmpl::Slot(_) | Tmpl::Text(_) | Tmpl::Expr(_) => {}
+      Tmpl::Slot(_) | Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) => {}
       Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);

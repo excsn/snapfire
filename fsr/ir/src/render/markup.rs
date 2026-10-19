@@ -7,6 +7,7 @@ use std::borrow::Cow;
 use snapfire_fsr_core::Value;
 
 use super::react::ReactMajor;
+use super::svelte::SvelteMajor;
 use super::vue::VueMajor;
 use super::BOOLEAN;
 use crate::ast::Owner;
@@ -19,6 +20,7 @@ use crate::ast::Owner;
 pub struct Frameworks {
   pub react: Option<ReactMajor>,
   pub vue: Option<VueMajor>,
+  pub svelte: Option<SvelteMajor>,
 }
 
 impl Frameworks {
@@ -31,6 +33,11 @@ impl Frameworks {
     self.vue = vue;
     self
   }
+
+  pub fn svelte(mut self, svelte: Option<SvelteMajor>) -> Self {
+    self.svelte = svelte;
+    self
+  }
 }
 
 /// The rules a render is under at one point in the tree.
@@ -41,12 +48,13 @@ pub(crate) enum Markup {
   Plain,
   React(ReactMajor),
   Vue(VueMajor),
+  Svelte(SvelteMajor),
 }
 
 impl Markup {
   /// Every set of rules, so a bake keeps only what all of them print alike.
   pub(super) fn every() -> impl Iterator<Item = Markup> {
-    std::iter::once(Markup::Plain).chain(ReactMajor::ALL.into_iter().map(Markup::React)).chain(VueMajor::ALL.into_iter().map(Markup::Vue))
+    std::iter::once(Markup::Plain).chain(ReactMajor::ALL.into_iter().map(Markup::React)).chain(VueMajor::ALL.into_iter().map(Markup::Vue)).chain(SvelteMajor::ALL.into_iter().map(Markup::Svelte))
   }
 
   /// The rules a component renders under. A component a vendored framework
@@ -56,6 +64,7 @@ impl Markup {
     match owner {
       Owner::React => frameworks.react.map_or(Markup::Plain, Markup::React),
       Owner::Vue => frameworks.vue.map_or(Markup::Plain, Markup::Vue),
+      Owner::Svelte => frameworks.svelte.map_or(Markup::Plain, Markup::Svelte),
       Owner::Fsr => caller,
     }
   }
@@ -64,19 +73,24 @@ impl Markup {
     matches!(self, Markup::Vue(_))
   }
 
+  pub(super) fn is_svelte(self) -> bool {
+    matches!(self, Markup::Svelte(_))
+  }
+
   /// Whether `name` is present or absent rather than valued: a truthy value writes `name=""`.
   pub(super) fn is_boolean(self, name: &str) -> bool {
     match self {
       Markup::Plain => BOOLEAN.contains(&name),
       Markup::React(major) => major.is_boolean(name),
       Markup::Vue(_) => super::vue::is_boolean(name),
+      Markup::Svelte(_) => super::svelte::is_boolean(name),
     }
   }
 
   /// Whether `false` on `name` is written as `"false"` rather than omitted.
   pub(super) fn writes_false(self, name: &str) -> bool {
     match self {
-      Markup::Plain | Markup::Vue(_) => false,
+      Markup::Plain | Markup::Vue(_) | Markup::Svelte(_) => false,
       Markup::React(major) => major.writes_false(name),
     }
   }
@@ -84,7 +98,7 @@ impl Markup {
   /// Whether `true` on `name` writes nothing.
   pub(super) fn drops_true(self, name: &str) -> bool {
     match self {
-      Markup::Plain | Markup::Vue(_) => false,
+      Markup::Plain | Markup::Vue(_) | Markup::Svelte(_) => false,
       Markup::React(major) => major.drops_true(name),
     }
   }
@@ -92,7 +106,7 @@ impl Markup {
   /// Whether an empty string on `name` of `tag` writes nothing rather than `name=""`.
   pub(super) fn drops_empty(self, tag: &str, name: &str) -> bool {
     match self {
-      Markup::Plain | Markup::Vue(_) => false,
+      Markup::Plain | Markup::Vue(_) | Markup::Svelte(_) => false,
       Markup::React(major) => major.drops_empty(tag, name),
     }
   }
@@ -100,7 +114,7 @@ impl Markup {
   /// Whether these rules may move `tag` into the document head.
   pub(super) fn may_hoist(self, tag: &str) -> bool {
     match self {
-      Markup::Plain | Markup::Vue(_) => false,
+      Markup::Plain | Markup::Vue(_) | Markup::Svelte(_) => false,
       Markup::React(major) => major.may_hoist(tag),
     }
   }
@@ -109,7 +123,7 @@ impl Markup {
   /// answers for where it sits: nothing inside `<svg>` or `<noscript>` moves.
   pub(super) fn hoists(self, tag: &str, attrs: &[(Cow<'_, str>, Value)]) -> bool {
     match self {
-      Markup::Plain | Markup::Vue(_) => false,
+      Markup::Plain | Markup::Vue(_) | Markup::Svelte(_) => false,
       Markup::React(major) => major.hoists(tag, attrs),
     }
   }

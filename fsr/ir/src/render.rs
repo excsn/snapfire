@@ -21,12 +21,14 @@ mod markup;
 mod react;
 mod react18;
 mod react19;
+mod svelte;
 mod vue;
 
 pub use markup::Frameworks;
 pub(crate) use markup::Markup;
 use react::is_custom_element;
 pub use react::ReactMajor;
+pub use svelte::SvelteMajor;
 pub use vue::VueMajor;
 
 /// Every lowered component by module id, so one may render another.
@@ -272,13 +274,15 @@ pub const ISLAND_MARK: &str = "\u{0}sf-island:";
 impl Out {
   /// Text under `markup`'s rules: React separates two adjacent runs with an
   /// empty comment and escapes three characters; Vue joins them and escapes
-  /// five; plain markup joins them and escapes three.
+  /// five; Svelte joins them and escapes two; plain markup joins them and
+  /// escapes three.
   fn text(&mut self, text: &str, markup: Markup) {
     if text.is_empty() {
       return;
     }
     match markup {
       Markup::Vue(_) => vue::escape(text, &mut self.html),
+      Markup::Svelte(_) => svelte::escape_text(text, &mut self.html),
       Markup::Plain => escape_text(text, &mut self.html),
       Markup::React(_) => {
         if self.text_open {
@@ -730,7 +734,15 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
   if fragment {
     out.markup(vue::FRAGMENT_OPEN);
   }
+  // Rendering enters Svelte where Svelte's `hydrate` mounts it.
+  let svelte_root = env.markup.is_svelte() && !caller.is_svelte();
+  if svelte_root {
+    out.markup(svelte::ROOT_OPEN);
+  }
   render(env, &component.render, library, slots, out)?;
+  if svelte_root {
+    out.markup(svelte::ROOT_CLOSE);
+  }
   if fragment {
     out.markup(vue::FRAGMENT_CLOSE);
   }
@@ -862,6 +874,7 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
 fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   match tmpl {
     Tmpl::Text(text) => out.text(text, env.markup),
+    Tmpl::Marker(markup) => out.markup(markup),
     Tmpl::Expr(expr) => render_expr(env, expr, library, out)?,
     Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
@@ -942,7 +955,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
   let mut bound = Vec::new();
   let mut raw: Option<String> = None;
   let markup = env.markup;
-  let evaluated = entries(env, attrs, !markup.is_vue())?;
+  let evaluated = entries(env, attrs, !markup.is_vue() && !markup.is_svelte())?;
   if markup.may_hoist(tag) && !env.server_mode && !env.in_svg && !env.in_noscript && markup.hoists(tag, &evaluated) {
     return Err(hoisted_in_place(env, tag));
   }
@@ -995,7 +1008,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
     attribute(markup, tag, "data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
   }
   if VOID.contains(&tag) {
-    open.push_str(if matches!(markup, Markup::React(_)) { "/>" } else { ">" });
+    open.push_str(if matches!(markup, Markup::React(_) | Markup::Svelte(_)) { "/>" } else { ">" });
     out.markup(&open);
     return Ok(());
   }
@@ -1190,7 +1203,7 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
       env.scope.truncate(depth);
       result
     }
-    Tmpl::Let { .. } | Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) => Ok(()),
+    Tmpl::Let { .. } | Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => Ok(()),
   }
 }
 
@@ -1203,7 +1216,7 @@ fn holds_chunk(tmpl: &Tmpl, mark: &str) -> bool {
     Tmpl::If { then, r#else, .. } => holds_chunk(then, mark) || r#else.as_ref().is_some_and(|other| holds_chunk(other, mark)),
     Tmpl::For { body, .. } => holds_chunk(body, mark),
     Tmpl::Let { then, .. } => holds_chunk(then, mark),
-    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) => false,
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => false,
   }
 }
 
@@ -1314,6 +1327,7 @@ fn child_values(env: &mut Env, children: &[Tmpl], slots: &[Slot<'_>], frame: usi
 fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &mut Vec<Value>) -> Result<(), Fail> {
   match t {
     Tmpl::Text(text) if text.is_empty() => {}
+    Tmpl::Marker(_) => {}
     Tmpl::Text(text) => out.push(Value::str(text.as_str())),
     Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Fragment(_) => out.push(env.make(&Arc::new(t.clone()))?),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
@@ -1472,6 +1486,7 @@ fn count_children(env: &mut Env, children: &[Tmpl], slots: &[Slot<'_>], frame: u
 fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, empties: bool) -> Result<usize, Fail> {
   Ok(match t {
     Tmpl::Text(text) => usize::from(!text.is_empty()),
+    Tmpl::Marker(_) => 0,
     Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } => 1,
     Tmpl::Fragment(items) => usize::from(empties || !items.is_empty()),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
@@ -1859,7 +1874,7 @@ pub fn store_keys(component: &Component, library: &Components) -> Vec<String> {
       }
       Tmpl::For { body, .. } => inline_modules(body, out),
       Tmpl::Let { then, .. } => inline_modules(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
     }
   }
   let mut keys = std::collections::BTreeSet::new();
@@ -2176,7 +2191,7 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
       Tmpl::Island { module: module.clone(), props, children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id, define: *define }
     }
     Tmpl::Baked { open, tag, children } => Tmpl::Baked { open: open.clone(), tag: tag.clone(), children: children.iter().map(prepare_tmpl).collect() },
-    Tmpl::Text(_) | Tmpl::Slot(_) => tmpl.clone(),
+    Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => tmpl.clone(),
   }
 }
 
@@ -2559,6 +2574,10 @@ fn interpolate(value: &Value, out: &mut Out, markup: Markup) -> Result<(), Fail>
     out.text(&vue::display(value)?, markup);
     return Ok(());
   }
+  if markup.is_svelte() {
+    out.text(&svelte::display(value)?, markup);
+    return Ok(());
+  }
   match value {
     Value::Null | Value::Bool(_) => Ok(()),
     _ if handler_token(value).is_some() => Ok(()),
@@ -2617,6 +2636,9 @@ fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut Str
   if markup.is_vue() {
     return vue::attribute(name, value, out);
   }
+  if markup.is_svelte() {
+    return svelte::attribute(name, value, out);
+  }
   if matches!(value, Value::Null) {
     return Ok(());
   }
@@ -2624,7 +2646,7 @@ fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut Str
     match markup {
       Markup::React(major) => return major.custom_attribute(name, value, out),
       Markup::Plain if !is_scalar(value) => return Err(unset_property(tag, name, value)),
-      Markup::Plain | Markup::Vue(_) => {}
+      Markup::Plain | Markup::Vue(_) | Markup::Svelte(_) => {}
     }
   }
   if matches!(value, Value::Bool(false)) && !markup.writes_false(name) {
@@ -2880,7 +2902,7 @@ mod tests {
       }, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
     let values = props(&[("items", Value::seq(vec![Value::Null, Value::Null]))]);
-    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
+    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None, svelte: None });
     assert_eq!(react.render(&component, &values, &Components::new()).unwrap().html, "<p class=\"count\">2<!-- --> result<!-- -->s<!-- --> &lt;3</p>");
     assert_eq!(Interpreter::default().render(&component, &values, &Components::new()).unwrap().html, "<p class=\"count\">2 results &lt;3</p>", "plain markup joins adjacent text");
   }
@@ -2988,7 +3010,7 @@ mod tests {
         Tmpl::Expr(Expr::Lit(Lit::Null)),
       ]), state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
-    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None });
+    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V19), vue: None, svelte: None });
     assert_eq!(react.render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"/><br/>");
     assert_eq!(Interpreter::default().render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<input value=\"a &quot;b&quot; &amp; c\" disabled=\"\" aria-hidden=\"true\"><br>", "plain markup closes no void element");
   }
@@ -3005,7 +3027,7 @@ mod tests {
       },
       state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::React, shadow: None, scope: None
     };
-    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V18), vue: None });
+    let react = Interpreter::default().with_frameworks(Frameworks { react: Some(ReactMajor::V18), vue: None, svelte: None });
     assert_eq!(react.render(&component, &ValueMap::default(), &Components::new()).unwrap().html, "<video playsinline=\"\" autoplay=\"\" controls=\"\"><track srcLang=\"en\" default=\"\"/></video>");
   }
 
@@ -3615,7 +3637,33 @@ mod markup_tests {
 
   fn render_under(react: Option<ReactMajor>, owner: crate::ast::Owner, render: Tmpl, props: &ValueMap, library: &Components) -> Result<String, Fail> {
     let component = Component { body: Vec::new(), render, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner, shadow: None, scope: None };
-    Interpreter::default().with_frameworks(Frameworks { react, vue: None }).render(&component, props, library).map(|rendered| rendered.html)
+    Interpreter::default().with_frameworks(Frameworks { react, vue: None, svelte: None }).render(&component, props, library).map(|rendered| rendered.html)
+  }
+
+  fn render_svelte(render: Tmpl, props: &ValueMap) -> String {
+    let component = Component { body: Vec::new(), render, state: Vec::new(), stores: Vec::new(), handlers: Vec::new(), owner: crate::ast::Owner::Svelte, shadow: None, scope: None };
+    Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5))).render(&component, props, &Components::new()).unwrap().html
+  }
+
+  /// Each expected string is what `svelte/server` 5.57.2 wrote for the same template.
+  #[test]
+  fn a_svelte_component_prints_text_and_attributes_as_svelte_server_does() {
+    let values = props(&[("title", Value::str("Hi & bye")), ("t", Value::str("a\"b&c<d")), ("on", Value::Bool(true)), ("off", Value::Bool(false)), ("none", Value::Null)]);
+    let heading = element("h1", vec![("class", Expr::lit_str("t"))], vec![Tmpl::Expr(p("title"))]);
+    assert_eq!(render_svelte(heading, &values), "<!--[--><h1 class=\"t\">Hi &amp; bye</h1><!--]-->");
+    let input = element("input", vec![("disabled", p("on")), ("hidden", p("off")), ("value", Expr::lit_str("v"))], Vec::new());
+    assert_eq!(render_svelte(input, &values), "<!--[--><input disabled=\"\" value=\"v\"/><!--]-->");
+    let escaped = element("p", vec![("title", p("t")), ("lang", p("none"))], vec![Tmpl::Expr(Expr::lit_str("<i>"))]);
+    assert_eq!(render_svelte(escaped, &values), "<!--[--><p title=\"a&quot;b&amp;c&lt;d\">&lt;i></p><!--]-->");
+    let shown = Tmpl::Fragment(vec![Tmpl::Expr(p("on")), Tmpl::Text(" ".to_owned()), Tmpl::Expr(p("none")), Tmpl::Expr(Expr::Array(vec![Entry::Item(Expr::Lit(Lit::Int(1i64.into()))), Entry::Item(Expr::Lit(Lit::Null)), Entry::Item(Expr::lit_str("a"))]))]);
+    assert_eq!(render_svelte(shown, &values), "<!--[-->true 1,,a<!--]-->");
+  }
+
+  #[test]
+  fn a_marker_is_written_as_given_and_the_svelte_root_is_wrapped_once() {
+    let values = props(&[("on", Value::Bool(true))]);
+    let branch = Tmpl::Fragment(vec![Tmpl::If { cond: p("on"), then: Box::new(Tmpl::Fragment(vec![Tmpl::Marker("<!--[0-->".to_owned()), element("b", Vec::new(), vec![Tmpl::Text("y".to_owned())])])), r#else: Some(Box::new(Tmpl::Marker("<!--[-1-->".to_owned()))) }, Tmpl::Marker("<!--]-->".to_owned())]);
+    assert_eq!(render_svelte(branch, &values), "<!--[--><!--[0--><b>y</b><!--]--><!--]-->");
   }
 
   #[test]

@@ -260,7 +260,7 @@ let body = vec![
 
 ## Matching the Framework That Owns a Component
 
-A lowered component is written the way the framework that mounts it in the browser would write it, so hydration finds the markup it expects. `owner` on the component names that framework, `Owner::React` or `Owner::Vue`. `Owner::Fsr` is composition, which nothing mounts. `Frameworks` on the interpreter names the major the application vendors; the plan carries it and `AppBuilder` hands it on.
+A lowered component is written the way the framework that mounts it in the browser would write it, so hydration finds the markup it expects. `owner` on the component names that framework, `Owner::React`, `Owner::Vue` or `Owner::Svelte`. `Owner::Fsr` is composition, which nothing mounts. `Frameworks` on the interpreter names the major the application vendors; the plan carries it and `AppBuilder` hands it on.
 
 ```rust
 use snapfire_fsr_ir::{Frameworks, Interpreter, ReactMajor};

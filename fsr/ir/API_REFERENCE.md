@@ -40,6 +40,7 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [Frameworks](#frameworks)
   * [ReactMajor](#reactmajor)
   * [VueMajor](#vuemajor)
+  * [SvelteMajor](#sveltemajor)
 * [5. Evaluation Rules](#5-evaluation-rules)
   * [Reads](#reads)
   * [Truthiness](#truthiness)
@@ -126,13 +127,13 @@ One expression. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize
 
 ### Tmpl
 
-A lowered component's tree: `Text`, `Expr`, `Element { tag, attrs, children }`, `Fragment`, `If`, `For`, `Let`, `Component { module, props, children, id, keyed }`, `Slot` and `Island { module, props, children, when, mode }`, a component placed as its own island with `when` its hydration timing, `"load"`, `"visible"` or `"idle"`, when the use named one and `mode` `Some("server")` for an island whose events round-trip to the server, absent for the browser mode every island is in otherwise.
+A lowered component's tree: `Text`, `Expr`, `Element { tag, attrs, children }`, `Fragment`, `If`, `For`, `Let`, `Component { module, props, children, id, keyed }`, `Slot` and `Island { module, props, children, when, mode }`, a component placed as its own island with `when` its hydration timing, `"load"`, `"visible"` or `"idle"`, when the use named one and `mode` `Some("server")` for an island whose events round-trip to the server, absent for the browser mode every island is in otherwise. `Marker(String)` is markup a framework's hydration reads, such as `<!--[0-->`, placed by the lowerer where that framework's server renderer writes it and written as given; the plan spells it `(marker "<!--[0-->")`. Nothing evaluates in it, it counts as no child and it is static.
 
 ### Component
 
 * `pub struct Component { pub body: Body, pub render: Tmpl, pub state: Vec<String>, pub stores: Vec<(String, String)>, pub handlers: Vec<Handler>, pub owner: Owner, pub shadow: Option<ShadowRoot>, pub scope: Option<ScopedStyle> }`; `Component::new(owner: Owner, body: Body, render: Tmpl)` has no state, no handlers and no shadow root.
 * `stores` are the `useStore` bindings among `state`, each with the store key it reads; `Component::store_key(&self, name) -> Option<&str>`. The plan writes them as `(stores (count "cart/count") ...)` and the JSON form as `"stores": [["count", "cart/count"]]`. A store binding is never island state: it reads the render's store every time.
-* `owner` is what renders the component in the browser, if anything does; see [Owner](#owner). The plan writes it as `(owner fsr)`, `(owner react)` or `(owner vue)` and the JSON form as `"owner": "fsr"`. A plan older than format 5 reads as before: a component with no section is `React`, `(static)` is `Fsr`, `(tree)` is `React` and `(vue)` is `Vue`. In the JSON form a component with neither `owner` nor `hydrate` is `React`, `"hydrate": false` is `Fsr`, `true` and `"tree"` are `React` and `"vue"` is `Vue`. The renderer takes its markup rules from it; see [Frameworks](#frameworks).
+* `owner` is what renders the component in the browser, if anything does; see [Owner](#owner). The plan writes it as `(owner fsr)`, `(owner react)`, `(owner vue)` or `(owner svelte)` and the JSON form as `"owner": "fsr"`. A plan older than format 5 reads as before: a component with no section is `React`, `(static)` is `Fsr`, `(tree)` is `React` and `(vue)` is `Vue`. In the JSON form a component with neither `owner` nor `hydrate` is `React`, `"hydrate": false` is `Fsr`, `true` and `"tree"` are `React` and `"vue"` is `Vue`. The renderer takes its markup rules from it; see [Frameworks](#frameworks).
 * `shadow` is the shadow root an element template declares, read from its root `<template>` by `ShadowRoot::take` at build time. It is `None` for every other component and for an element template whose root is anything else, which the renderer wraps in an open root. See [ShadowRoot](#shadowroot).
 * `scope` is a Vue component's scoped style; see [ScopedStyle](#scopedstyle). `None` for every other component.
 * `state` names the body `let`s the browser can change, the `useState` and `useStore` bindings in order. `handlers` are the component's event handlers as bodies, for an island in server mode, each `Handler { event, body }` running with `$props`, `$state` and `$event` bound after the body's `let`s and returning an object whose keys are the state names it sets, with any `Act` it holds collected for the host to dispatch. An element binds one through an attribute `$on:<event>` holding the handler's index; an element whose handler did not lower carries `$unlowered` with the line and the reason; an element's React `key` is kept as `$key`; an element's `dangerouslySetInnerHTML` is kept as `$html` holding the `__html` expression; a placement of a custom element whose template sits under `elements/` carries `$shadow` holding the template's module. `render::HANDLER_ATTR`, `render::UNLOWERED_ATTR`, `render::KEY_ATTR`, `render::RAW_ATTR` and `render::SHADOW_ATTR` name them.
@@ -141,7 +142,7 @@ A lowered component's tree: `Text`, `Expr`, `Element { tag, attrs, children }`, 
 
 What renders a component in the browser.
 
-* `pub enum Owner { Fsr, React, Vue }`; derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`, lowercase in the JSON form.
+* `pub enum Owner { Fsr, React, Vue, Svelte }`; derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Serialize`, `Deserialize`, lowercase in the JSON form.
 * `Fsr` is composition: the server renders it and nothing renders it again. A template with no state, no handlers and no context provider of its own is `Fsr`. A page or a layout holding any of them is split by the build so that it is `Fsr` too, unless the report names it under `kept`. `React` is a TSX component with state, handlers or a context provider, which the React adapter hydrates. `Vue` is a `.vue` file the build lowered, which the Vue adapter hydrates.
 * `Owner::as_str(self) -> &'static str`: `fsr`, `react` or `vue`. `Owner::of(word: &str) -> Option<Owner>` reads one back.
 * `Owner::hydrates(self) -> bool`: true for every owner but `Fsr`.
@@ -335,8 +336,8 @@ Message tables by locale, `catalog::Catalogs`, re-exported from `snapfire_fsr_co
 
 The frameworks an application vendors, each at the major whose server markup the renderer writes.
 
-* `pub struct Frameworks { pub react: Option<ReactMajor>, pub vue: Option<VueMajor> }`, `#[non_exhaustive]`; `Default` vendors nothing. Defined in `render` and re-exported at the root.
-* `Frameworks::react(self, react: Option<ReactMajor>) -> Self`, `Frameworks::vue(self, vue: Option<VueMajor>) -> Self`: setters for the field of the same name; build one with `Default` and these.
+* `pub struct Frameworks { pub react: Option<ReactMajor>, pub vue: Option<VueMajor>, pub svelte: Option<SvelteMajor> }`, `#[non_exhaustive]`; `Default` vendors nothing. Defined in `render` and re-exported at the root.
+* `Frameworks::react(self, react: Option<ReactMajor>) -> Self`, `Frameworks::vue(self, vue: Option<VueMajor>) -> Self`, `Frameworks::svelte(self, svelte: Option<SvelteMajor>) -> Self`: setters for the field of the same name; build one with `Default` and these.
 * `Interpreter::with_frameworks(self, frameworks: Frameworks) -> Interpreter` and `Interpreter::frameworks(&self) -> Frameworks`.
 * `Interpreter::with_island_reads(self, reads: BTreeMap<String, Vec<String>>) -> Interpreter`: the plan's `reads`. An island the renderer has no body for carries `$aw` with those of its keys that are pending.
 * `Interpreter::with_derives(self, derives: Vec<Derive>) -> Interpreter`: the plan's derived keys, each after the derived keys it reads. `pub struct Derive { pub key: String, pub sources: Vec<String>, pub body: Option<Expr> }`, `#[non_exhaustive]`, built with `Derive::new(key: String, sources: Vec<String>, body: Option<Expr>) -> Self`, re-exported at the root. A server-mode island that reads a derived key asks the browser for its sources too. `island_step` computes each derived key with a body again after the handler's writes and before the render, except a key the handler wrote itself. A derived key is never answered in `Stepped.store`.
@@ -373,6 +374,14 @@ The frameworks an application vendors, each at the major whose server markup the
 * `VueMajor::of(version: &str) -> Option<VueMajor>`: the major of a version such as `3.5.13`; `None` for any other major.
 * `VueMajor::number(self) -> u32`
 * `VueMajor::ALL: [VueMajor; 1]`
+
+### SvelteMajor
+
+* `pub enum SvelteMajor { V5 }`; `Default` is `V5`. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`.
+* `SvelteMajor::of(version: &str) -> Option<SvelteMajor>`: the major of a version such as `5.57.2`; `None` for any other major.
+* `SvelteMajor::number(self) -> u32`
+* `SvelteMajor::ALL: [SvelteMajor; 1]`
+* Under Svelte's rules text escapes `&` and `<` and adjacent runs join; an attribute escapes `&`, `"` and `<`; `null` omits an attribute and so does a falsy boolean attribute other than `""`, which Svelte's `is_boolean_attribute` list names; `hidden` is boolean unless it is `until-found`; `translate` writes `yes` and `no`; an empty `class` or `style` is omitted; a value prints as `String(value)` and a void element closes with `/>`. Where rendering enters a Svelte component from markup that is not Svelte's, the renderer writes `<!--[-->` before it and `<!--]-->` after it, as `svelte/server`'s `render` wraps the component `hydrate` mounts. Every other marker is a `Tmpl::Marker` the lowerer placed.
 
 ## 5. Evaluation Rules
 
