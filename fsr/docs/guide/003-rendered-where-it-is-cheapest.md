@@ -10,6 +10,15 @@ Client-side rendering ships a blank document and a script; the browser builds th
 
 All four are variations on a tree the server produces, where some nodes are finished markup and some name a module the browser must mount, along with the props to mount it with. fsr builds that tree and does not label a route as SSR or islands. A route gets whatever mix of nodes the plan and the evaluators produce and the browser's client reads any mix the same way. Pages and layouts always render on the server; which components inside them reach the browser is decided per component by what they hold and what the build could lower.
 
+The other names describe when the server renders rather than what it sends:
+
+- **Static generation (SSG)** is a prerender: a route whose loader reads no params, query, session, identity, host or clock renders the same for every request, so `fsr prerender` writes it to a file. [300](300-the-build-and-the-dev-loop.md#prerendering) shows it.
+- **Incremental regeneration (ISR)** is the same prerender run again while the host serves, by calling `Host::prerender` on the application's own schedule. [300](300-the-build-and-the-dev-loop.md#prerendering-again-while-the-host-serves) shows it.
+- **Streaming** is a route with a `loading.tsx` or a parallel slot: the document ships with the fallback and the segment streams in when its loader finishes. [100](100-routes-loaders-and-pages.md#errors-and-loading) shows it.
+- **Stale-while-revalidate (SWR)** is a service method's `cache` on the contract with a `stale` window, which serves the last answer while a refresh runs. [202](202-services-and-transports.md) covers the chain it runs in.
+- **Server-mode islands** keep their state on the server and patch the DOM from what each event renders. [102](102-components-the-server-renders.md#server-mode-islands) shows them.
+- **Client navigation** swaps the page region from a payload and leaves the layout's DOM alone, so moving between pages behaves like an SPA without the browser rendering pages. [100](100-routes-loaders-and-pages.md#client-navigation) shows it.
+
 ## Where the markup comes from
 
 A page in the storefront is a React component. React cannot run in Rust, so the usual approach would be a JavaScript engine on the server. fsr avoids needing one for the common case.

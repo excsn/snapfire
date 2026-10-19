@@ -32,6 +32,24 @@ FSR is a native, systems-level engine built from the ground up, preserving the d
 
 * **Tests without Node.** The runtime can test loaders, actions, rendering, hydration, navigation and page behavior inside the same application environment.
 
+## Rendering modes
+
+FSR does not make you pick a mode per route. Each route gets whatever mix the build and its loader allow.
+
+| Mode | Supported | How |
+|---|---|---|
+| SSR | Yes, the default | Pages and layouts always render on the server, in Rust, without a JavaScript engine. See [003](docs/guide/003-rendered-where-it-is-cheapest.md). |
+| SSG / prerender | Yes | `fsr prerender` writes a file for every route whose loader reads no params, query, session, identity, host or clock. Nothing is declared; a `paths` export lists the pages of a route with a parameter. See [300](docs/guide/300-the-build-and-the-dev-loop.md#prerendering). |
+| ISR | Yes, on your schedule | `Host::prerender` rewrites the prerendered files while the host serves, from the application's own timer. Files are swapped atomically and a failed loader keeps the last file. See [300](docs/guide/300-the-build-and-the-dev-loop.md#prerendering-again-while-the-host-serves). |
+| Streaming | Yes | A `loading.tsx` ships the fallback and streams the page in when its loader finishes. Parallel slots stream with their own loading and error boundaries. See [100](docs/guide/100-routes-loaders-and-pages.md#errors-and-loading). |
+| SWR | Yes, on service data | A method's contract declares `ttl`, `stale`, `scope` and `tags`; `stale` serves the last answer while a refresh runs and a method that `writes` a tag drops it. See [service](service/README.USAGE.md#caching-a-methods-answers). |
+| Islands | Yes | React, Vue and Svelte islands hydrate on load, when visible or when idle, several frameworks on one page. See [104](docs/guide/104-islands-in-another-framework.md). |
+| Server-mode islands | Yes | An island with no JavaScript half: its events run on the server and the browser patches the markup that comes back. See [102](docs/guide/102-components-the-server-renders.md#server-mode-islands). |
+| Server islands (deferred fragments) | Yes, as streaming | A segment behind `loading.tsx` or a parallel slot renders after the document and streams into its place. |
+| SPA navigation | Yes | Client navigation fetches a payload and swaps the page region, keeping the layout and its islands; a link's payload is fetched on hover, focus or touch. See [100](docs/guide/100-routes-loaders-and-pages.md#client-navigation). |
+| Client-only SPA | No | Pages always render on the server; only islands render in the browser. |
+| Static export | Partly | There is no export command. The handbook example builds a static site from the prerender output, the client modules it writes and the static roots the boot report lists, then serves it from a plain file server. |
+
 ## Architecture
 
 FSR treats backend logic and client presentation as one set of composable blocks. 
