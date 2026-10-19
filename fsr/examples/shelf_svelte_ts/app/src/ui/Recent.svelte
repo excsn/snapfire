@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { recent } from "./visits.svelte.js";
+  import { recent } from "./recent.svelte.js";
   import { link } from "@snapfire/fsr-client/svelte";
 
   let { titles }: { titles: { id: string; title: string }[] } = $props();

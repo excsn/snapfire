@@ -30,7 +30,7 @@ Svelte itself is vendored as published, `fsr add --published app svelte@5.57.2`,
 | `src/ui/Tally.svelte` | the masthead island, written in legacy mode |
 | `src/ui/Progress.svelte` | the book's island, written with runes |
 | `src/ui/Recent.svelte` | the side column's island, placed with `<Island when="idle">` |
-| `src/ui/visits.svelte.ts` | a runes module both `Progress` and `Recent` import |
+| `src/ui/recent.svelte.ts` | a runes module both `Progress` and `Recent` import |
 
 ## The three islands
 
@@ -38,13 +38,13 @@ Svelte itself is vendored as published, `fsr add --published app svelte@5.57.2`,
 
 `Tally` is a Svelte 4 component: `export let`, a `$:` statement and a store read as `$count`. `useStore` from `@snapfire/fsr-client/svelte` returns a Svelte store over the FSR key, so a legacy component subscribes the way it always has.
 
-`Recent` reads `visits.svelte.ts`, which exports a `$state` object and a `visit` function. `Progress` calls `visit` when it mounts. Both islands import the same module, so they share the one object and the list updates as you open books. The list is browser state and starts empty on a reload.
+`Recent` reads `recent.svelte.ts`, which exports a `$state` object and a `visit` function. `Progress` calls `visit` when it mounts. Both islands import the same module, so they share the one object and the list updates as you open books. The list is browser state and starts empty on a reload.
 
-A runes module is named for what it holds rather than for a component. On a case-insensitive file system TypeScript resolves `./Recent.svelte` to `recent.svelte.ts` before it reaches the `*.svelte` declaration, so a module sharing a component's name hides the component from the typecheck.
+`recent.svelte.ts` sits beside `Recent.svelte`. TypeScript alone would resolve an import of the component to that module, so the build writes a declaration for `Recent.svelte` under `generated/shadowed/` and maps `@src/ui/Recent.svelte` to it. A template imports the component through the alias for that reason; a relative import of it is refused with the alias to use.
 
 ## What the server writes
 
-The server has no body for a Svelte component. It writes each island's marker and props with nothing between them. Svelte mounts rather than hydrates. `fsr build --verbose` lists the three as `foreign` with the plugin's reason. The build still reads each component's scripts, so `src/store.ts` and `visits.svelte.ts` are compiled for the browser because a Svelte file imports them.
+The server has no body for a Svelte component. It writes each island's marker and props with nothing between them. Svelte mounts rather than hydrates. `fsr build --verbose` lists the three as `foreign` with the plugin's reason. The build still reads each component's scripts, so `src/store.ts` and `recent.svelte.ts` are compiled for the browser because a Svelte file imports them.
 
 ## What each thing proves
 
@@ -54,7 +54,7 @@ The server has no body for a Svelte component. It writes each island's marker an
 | An action that writes the session | `progress` clamps the page, marks the book finished and answers the count |
 | Optimistic store writes from Svelte | `Progress` around `optimistic(doneCount, ...)` |
 | A legacy component beside runes | `Tally` in the masthead, `Progress` on the page |
-| A shared runes module | `visits.svelte.ts`, written by one island and read by another |
+| A shared runes module | `recent.svelte.ts`, written by one island and read by another |
 | Islands on load and on idle | `<Island when="load">` around `Tally` and `Progress`, `<Island when="idle">` around `Recent` |
 | Client navigation keeping layout state | open two books: the side column keeps its list while the page region is replaced |
 

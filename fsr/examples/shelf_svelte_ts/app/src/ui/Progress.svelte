@@ -4,7 +4,7 @@
 
   import { actions } from "@generated/client";
   import { doneCount } from "@src/store";
-  import { visit } from "./visits.svelte.js";
+  import { visit } from "./recent.svelte.js";
 
   let { id, pages, read, done, current }: { id: string; pages: number; read: number; done: boolean; current: boolean } = $props();
   // svelte-ignore state_referenced_locally
