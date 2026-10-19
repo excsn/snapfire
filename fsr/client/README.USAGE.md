@@ -441,7 +441,7 @@ registerIsland("src/ui/Counter.svelte#default", {
 });
 ```
 
-A patch hands the component new props without remounting it, so a `$state` the component holds survives a revalidation. The island's children arrive as its `children` snippet:
+When the server rendered the component, the mounter hydrates that markup rather than mounting fresh. The region the server wrote the island's children in is kept as it stands. A patch hands the component new props without remounting it, so a `$state` the component holds survives a revalidation. The island's children arrive as its `children` snippet:
 
 ```svelte
 <script lang="ts">

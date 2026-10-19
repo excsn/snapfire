@@ -72,9 +72,11 @@ function childrenSnippet(state) {
             render: ()=>`<sf-s ${CHILDREN_ATTR}></sf-s>`,
             setup: (region)=>{
                 state.region = region;
-                const template = document.createElement("template");
-                template.innerHTML = state.children ?? "";
-                region.replaceChildren(template.content);
+                if (!state.hydrating) {
+                    const template = document.createElement("template");
+                    template.innerHTML = state.children ?? "";
+                    region.replaceChildren(template.content);
+                }
                 scan(region);
                 return ()=>{
                     if (state.region === region) state.region = null;
@@ -90,14 +92,19 @@ export const svelteMounter = (module, props, el, isHydrating)=>{
         changed: ()=>{},
         region: null,
         children: region ? region.innerHTML : null,
-        snippet: null
+        snippet: null,
+        hydrating: isHydrating
     };
     held.set(el, state);
     const options = {
         target: el,
         props: liveProps(state)
     };
-    if (isHydrating) return hydrate(componentOf(module), options);
+    if (isHydrating) {
+        const instance = hydrate(componentOf(module), options);
+        state.hydrating = false;
+        return instance;
+    }
     el.replaceChildren();
     return mount(componentOf(module), options);
 };

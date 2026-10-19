@@ -33,11 +33,11 @@ No features.
 | Keep a Svelte 4 component | `export let`, `$:` and `on:` compile unchanged in legacy mode |
 | Type a component's script | `<script lang="ts">`; Svelte strips the types, so the module comes back as JavaScript |
 | Scope a component's styles | a `<style>` block; scoping is Svelte's default and the class is in the module and the sheet |
-| Let `fsr build` follow what a component imports | `describe`: the scripts and an error saying the template is not described yet |
+| Let `fsr build` lower a component and follow what it imports | `describe`: the scripts and the template as Svelte's server compiler cleans and flags it |
 
 ## Status
 
-Compiles for the browser. Describing a component's template for `fsr build` to lower is not built; a describe answers its scripts only. Neither is rendering one on the server.
+Compiles for the browser and describes a component for `fsr build` to lower and render on the server. `ssr_module` and `render_module` run Svelte's own server renderer in QuickJS, the oracle the lowering is checked against.
 
 ## License
 

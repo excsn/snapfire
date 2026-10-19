@@ -48,12 +48,10 @@
     return /\.svelte\.(ts|js)$/i.test(filename);
   }
 
-  const UNDESCRIBED = "snapfirec-svelte does not describe a component yet; it renders in the browser";
-
   /**
-   * The component's scripts at their own byte offsets, everything else
-   * blanked to spaces, so the host can follow what they import. The error
-   * diagnostic keeps the component foreign.
+   * The component's template as `__svelte_template` reads it and its scripts
+   * at their own byte offsets with everything else blanked to spaces, so the
+   * host lowers the scripts and follows what they import.
    */
   globalThis.__svelte_describe = function (filename, source) {
     const refused = unsupported(source, filename);
@@ -72,8 +70,7 @@
       return JSON.stringify({ status: "failed", diagnostics: [diagnostic(e, filename)] });
     }
     const blocks = [root.module, root.instance].filter(Boolean);
-    const undescribed = { severity: "error", message: UNDESCRIBED, file: filename };
-    if (!blocks.length) return JSON.stringify({ status: "described", template, diagnostics: [undescribed] });
+    if (!blocks.length) return JSON.stringify({ status: "described", template, diagnostics: [] });
     const kept = blocks.map((block) => [block.content.start, block.content.end]);
     // Svelte's offsets count UTF-16 units; the blanks count UTF-8 bytes, so
     // every byte offset the host reads matches the file.
@@ -89,7 +86,7 @@
       at += ch.length;
     }
     const typed = blocks.some((block) => block.attributes.some((a) => a.name === "lang" && Array.isArray(a.value) && a.value.some((v) => v.data === "ts")));
-    return JSON.stringify({ status: "described", template, script: { content, lang: typed ? "ts" : "js", line: 1, column: 1 }, diagnostics: [undescribed] });
+    return JSON.stringify({ status: "described", template, script: { content, lang: typed ? "ts" : "js", line: 1, column: 1 }, diagnostics: [] });
   };
 
   /** A component or runes module compiled for Svelte's own server renderer, for the oracle. */

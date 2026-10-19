@@ -215,7 +215,7 @@ fn describe(source: &str) -> Outcome {
 }
 
 #[test]
-fn a_description_carries_the_scripts_where_they_stand_and_the_error_that_keeps_it_foreign() {
+fn a_description_carries_the_scripts_where_they_stand_and_the_template() {
   let source = "<script module>\n  import { a } from \"./a.js\";\n</script>\n\n<script lang=\"ts\">\n  import { b } from \"@src/b\";\n  let n: number = a + b;\n</script>\n\n<p>{n}</p>\n";
   let Outcome::Described(described) = describe(source) else { panic!("not described") };
   let script = described.script.expect("a script");
@@ -226,9 +226,7 @@ fn a_description_carries_the_scripts_where_they_stand_and_the_error_that_keeps_i
   assert_eq!(script.content.lines().nth(5), Some("  import { b } from \"@src/b\";"));
   assert!(!script.content.contains("<p>") && !script.content.contains("script"), "{}", script.content);
   assert!(described.template.is_some());
-  assert_eq!(described.diagnostics.len(), 1);
-  assert_eq!(described.diagnostics[0].severity, Severity::Error);
-  assert!(described.diagnostics[0].message.contains("does not describe a component yet"));
+  assert!(described.diagnostics.is_empty(), "{:?}", described.diagnostics);
 }
 
 #[test]
@@ -237,7 +235,7 @@ fn a_legacy_component_is_described_as_javascript_and_one_without_a_script_carrie
   assert_eq!(legacy.script.expect("a script").lang, Lang::Js);
   let Outcome::Described(bare) = describe("<p>hi</p>\n") else { panic!("not described") };
   assert!(bare.script.is_none());
-  assert_eq!(bare.diagnostics[0].severity, Severity::Error);
+  assert!(bare.diagnostics.is_empty());
 }
 
 #[test]

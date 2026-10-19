@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use snapfire_compiler_wire::{Hello, Kind, Options, Outcome, Request, Response, Severity, Unit, PROTOCOL};
+use snapfire_compiler_wire::{Hello, Kind, Options, Outcome, Request, Response, Unit, PROTOCOL};
 
 struct Worker {
   child: Child,
@@ -114,11 +114,11 @@ fn closing_stdin_ends_it() {
 }
 
 #[test]
-fn a_describe_request_answers_the_script_and_the_error_that_keeps_the_component_foreign() {
+fn a_describe_request_answers_the_script_and_the_template() {
   let (mut worker, _) = Worker::start();
   let response = worker.ask_for(3, Kind::Describe, vec![unit("card.svelte", CARD)]);
   let Outcome::Described(described) = &response.results[0] else { panic!("{:?}", response.results[0]) };
   assert!(described.script.as_ref().is_some_and(|script| script.content.contains("$props()")));
-  assert_eq!(described.diagnostics[0].severity, Severity::Error);
-  assert_eq!(described.diagnostics[0].file.as_deref(), Some("card.svelte"));
+  assert!(described.template.is_some());
+  assert!(described.diagnostics.is_empty());
 }

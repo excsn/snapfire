@@ -21,6 +21,8 @@ interface Held {
   region: Element | null;
   children: string | null;
   snippet: ReturnType<typeof createRawSnippet> | null;
+  /** True while Svelte hydrates the server's markup, when the region already holds what the server wrote. */
+  hydrating: boolean;
 }
 
 const held = new WeakMap<Element, Held>();
@@ -80,16 +82,23 @@ function liveProps(state: Held): { [key: string]: unknown } {
   );
 }
 
-/** An island's children as its `children` snippet: an `<sf-s data-sf-children>` written from the server's markup and scanned for islands, which a patch morphs in place. */
+/**
+ * An island's children as its `children` snippet: an `<sf-s data-sf-children>`
+ * written from the server's markup and scanned for islands, which a patch
+ * morphs in place. While hydrating, the region the server rendered is kept as
+ * it stands, so the islands inside it are not torn down.
+ */
 function childrenSnippet(state: Held) {
   if (state.snippet) return state.snippet;
   state.snippet = createRawSnippet(() => ({
     render: () => `<sf-s ${CHILDREN_ATTR}></sf-s>`,
     setup: (region: Element) => {
       state.region = region;
-      const template = document.createElement("template");
-      template.innerHTML = state.children ?? "";
-      region.replaceChildren(template.content);
+      if (!state.hydrating) {
+        const template = document.createElement("template");
+        template.innerHTML = state.children ?? "";
+        region.replaceChildren(template.content);
+      }
       scan(region);
       return () => {
         if (state.region === region) state.region = null;
@@ -101,10 +110,14 @@ function childrenSnippet(state: Held) {
 
 export const svelteMounter: Mounter = (module, props, el, isHydrating) => {
   const region = childrenRegion(el);
-  const state: Held = { props: ownProps(props), changed: () => {}, region: null, children: region ? region.innerHTML : null, snippet: null };
+  const state: Held = { props: ownProps(props), changed: () => {}, region: null, children: region ? region.innerHTML : null, snippet: null, hydrating: isHydrating };
   held.set(el, state);
   const options = { target: el, props: liveProps(state) };
-  if (isHydrating) return hydrate(componentOf(module), options);
+  if (isHydrating) {
+    const instance = hydrate(componentOf(module), options);
+    state.hydrating = false;
+    return instance;
+  }
   el.replaceChildren();
   return mount(componentOf(module), options);
 };

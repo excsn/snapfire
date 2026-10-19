@@ -44,7 +44,7 @@ Svelte itself is vendored as published, `fsr add --published app svelte@5.57.2`,
 
 ## What the server writes
 
-The server has no body for a Svelte component. It writes each island's marker and props with nothing between them. Svelte mounts rather than hydrates. `fsr build --verbose` lists the three as `foreign` with the plugin's reason. The build still reads each component's scripts, so `src/store.ts` and `recent.svelte.ts` are compiled for the browser because a Svelte file imports them.
+The build lowers all three components, so the server writes their markup with Svelte's hydration markers and Svelte hydrates it in the browser. `fsr build --verbose` lists them as `lowered` with `svelte` in the detail column. The page reads `Tally`'s count from the store seed, `Progress`'s page and percentage from the session and `Recent`'s empty list from `recent.svelte.ts`, whose `$state` holds its initial value on the server. `src/store.ts` and `recent.svelte.ts` are compiled for the browser because a Svelte file imports them.
 
 ## What each thing proves
 

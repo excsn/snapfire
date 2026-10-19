@@ -84,7 +84,7 @@ proptest! {
   fn a_description_holds_each_script_where_it_stands_and_blanks_the_rest((source, bodies) in component()) {
     match describe(&source) {
       Outcome::Described(described) => {
-        prop_assert_eq!(described.diagnostics.iter().filter(|d| d.severity == Severity::Error).count(), 1);
+        prop_assert_eq!(described.diagnostics.iter().filter(|d| d.severity == Severity::Error).count(), 0);
         match described.script {
           Some(script) => assert_blanked(&source, &script.content, &bodies),
           None => prop_assert!(bodies.is_empty(), "{}", source),
