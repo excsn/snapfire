@@ -13,6 +13,7 @@ use crate::{types, Adapter, BuildError};
 /// The React runtime a direction vendors, pinned the way the examples pin it.
 pub const REACT: &str = "19.3.1";
 pub const VUE: &str = "3.5.13";
+pub const SVELTE: &str = "5.57.2";
 pub const HTMX: &str = "4.0.0";
 
 #[non_exhaustive]
@@ -24,6 +25,11 @@ pub struct Direction {
   pub(crate) adapter: Option<&'static Adapter>,
   /// Package, version and subpath of every module the direction vendors.
   pub vendors: &'static [(&'static str, &'static str, Option<&'static str>)],
+  /// Vendors the package as published, its module tree kept, rather than one
+  /// bundle per subpath: Svelte's subpaths share one runtime by relative path.
+  pub published: bool,
+  /// Files of a vendored package kept beside its modules that no import reaches, as package and path.
+  pub keeps: &'static [(&'static str, &'static str)],
   /// File and line an existing application edits by hand, printed rather
   /// than written: the file is the application's and its structure is not
   /// the command's to guess. The scaffold writes them into its own files.
@@ -36,22 +42,49 @@ pub const DIRECTIONS: &[Direction] = &[
     maps: &[("@snapfire/fsr-client/react", "react.js"), ("@snapfire/fsr-authoring/template", "template.js")],
     adapter: Some(&crate::REACT),
     vendors: &[("react", REACT, None), ("react", REACT, Some("jsx-runtime")), ("react-dom", REACT, Some("client"))],
+    published: false,
+    keeps: &[],
     edits: &[],
   },
-  Direction { name: "vue", maps: &[("@snapfire/fsr-client/vue", "vue.js")], adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], edits: &[] },
-  Direction { name: "elements", maps: &[("@snapfire/fsr-client/elements", "elements.js")], adapter: None, vendors: &[], edits: &[] },
+  Direction { name: "vue", maps: &[("@snapfire/fsr-client/vue", "vue.js")], adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], published: false, keeps: &[], edits: &[] },
+  Direction {
+    name: "svelte",
+    maps: &[("@snapfire/fsr-client/svelte", "svelte.js")],
+    adapter: Some(&crate::SVELTE),
+    vendors: &[
+      ("svelte", SVELTE, None),
+      ("svelte", SVELTE, Some("internal/client")),
+      ("svelte", SVELTE, Some("internal/disclose-version")),
+      ("svelte", SVELTE, Some("internal/flags/legacy")),
+      ("svelte", SVELTE, Some("store")),
+      ("svelte", SVELTE, Some("reactivity")),
+      ("svelte", SVELTE, Some("legacy")),
+      ("svelte", SVELTE, Some("transition")),
+      ("svelte", SVELTE, Some("animate")),
+      ("svelte", SVELTE, Some("easing")),
+      ("svelte", SVELTE, Some("motion")),
+      ("svelte", SVELTE, Some("events")),
+      ("svelte", SVELTE, Some("attachments")),
+    ],
+    published: true,
+    keeps: &[("svelte", "compiler/index.js")],
+    edits: &[],
+  },
+  Direction { name: "elements", maps: &[("@snapfire/fsr-client/elements", "elements.js")], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
   Direction {
     name: "htmx",
     maps: &[("@snapfire/fsr-client/htmx", "htmx.js")],
     adapter: None,
     vendors: &[("htmx.org", HTMX, None)],
+    published: false,
+    keeps: &[],
     edits: &[("src/main.ts", "import htmx from \"htmx.org\";"), ("src/main.ts", "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";"), ("src/main.ts", "bindHtmx(htmx); after enableNavigation()")],
   },
-  Direction { name: "tailwind", maps: &[], adapter: None, vendors: &[], edits: &[] },
+  Direction { name: "tailwind", maps: &[], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
   #[cfg(feature = "tera")]
-  Direction { name: "tera", maps: &[], adapter: None, vendors: &[], edits: &[] },
+  Direction { name: "tera", maps: &[], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
   #[cfg(feature = "mdx")]
-  Direction { name: "mdx", maps: &[], adapter: None, vendors: &[], edits: &[] },
+  Direction { name: "mdx", maps: &[], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
 ];
 
 /// The stylesheet `fsr use <app> mdx` writes for highlighted code.
@@ -100,6 +133,11 @@ impl Direction {
       _ => (Vec::new(), Vec::new()),
     }
   }
+}
+
+/// The files every direction keeps for `package` beside its modules.
+pub fn keeps_for(package: &str) -> Vec<(String, String)> {
+  DIRECTIONS.iter().flat_map(|d| d.keeps.iter()).filter(|(owner, _)| *owner == package).map(|(owner, file)| ((*owner).to_owned(), (*file).to_owned())).collect()
 }
 
 pub fn find(name: &str) -> Result<&'static Direction, BuildError> {
@@ -164,8 +202,18 @@ pub struct Adopted {
 /// present and a package already recorded at the pinned version is kept.
 pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopted, BuildError> {
   let mut directions: Vec<&'static Direction> = Vec::new();
+  // A direction named `svelte@5.60.0` vendors that version in place of its own.
+  let mut versions: std::collections::HashMap<&'static str, String> = std::collections::HashMap::new();
   for name in names {
-    let direction = find(name)?;
+    let (bare, version) = match name.split_once('@') {
+      Some((bare, version)) if types::range::Version::parse(version).is_some() => (bare, Some(version.to_owned())),
+      Some(_) => return Err(BuildError::Spec(name.clone())),
+      None => (name.as_str(), None),
+    };
+    let direction = find(bare)?;
+    if let Some(version) = version {
+      versions.insert(direction.name, version);
+    }
     if !directions.iter().any(|d| d.name == direction.name) {
       directions.push(direction);
     }
@@ -189,16 +237,21 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
     None => None,
   };
   let mut wanted: Vec<Spec> = Vec::new();
+  let mut published: Vec<Spec> = Vec::new();
   let mut served: Vec<Spec> = Vec::new();
   for direction in &directions {
     write_map(app, &layout, direction, &mut adopted)?;
-    for spec in direction.specs() {
+    for mut spec in direction.specs() {
+      if let Some(version) = versions.get(direction.name) {
+        spec.version = version.clone();
+      }
       match manifest.packages.get(&spec.package) {
         Some(recorded) if recorded.version == spec.version => adopted.kept.push(spec.specifier()),
         Some(recorded) => {
           return Err(BuildError::DirectionPinned { direction: direction.name.to_owned(), package: spec.package.clone(), recorded: recorded.version.clone(), wanted: spec.version.clone(), manifest: format!("`{}`", app.join(&layout.vendor).join(vendor::VENDOR_MANIFEST).display()) });
         }
         None if shell.as_ref().is_some_and(|contract| contract.imports.contains_key(&spec.specifier())) => served.push(spec),
+        None if direction.published => published.push(spec),
         None => wanted.push(spec),
       }
     }
@@ -225,10 +278,12 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
     }
   }
 
-  let add = match wanted.is_empty() {
+  let line = |flag: &str, specs: &[Spec]| match specs.is_empty() {
     true => None,
-    false => Some(format!("fsr add {} {}", app.display(), wanted.iter().map(|s| format!("{}@{}{}", s.package, s.version, s.subpath.as_ref().map(|sub| format!("/{sub}")).unwrap_or_default())).collect::<Vec<_>>().join(" "))),
+    false => Some(format!("fsr add {}{flag} {}", app.display(), specs.iter().map(|s| format!("{}@{}{}", s.package, s.version, s.subpath.as_ref().map(|sub| format!("/{sub}")).unwrap_or_default())).collect::<Vec<_>>().join(" "))),
   };
+  let add = line("", &wanted);
+  let add_published = line(" --published", &published);
   if options.fetch {
     if !wanted.is_empty() {
       match vendor::add(app, &wanted, &[]) {
@@ -238,6 +293,15 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
           adopted.delegated = report.delegated;
         }
         Err(e) => adopted.notes.push(format!("vendoring failed ({e}); run `{}`", add.as_deref().unwrap_or_default())),
+      }
+    }
+    if !published.is_empty() {
+      match crate::published::add_published(app, &published, &[]) {
+        Ok(report) => {
+          adopted.vendored.extend(report.added);
+          adopted.delegated.extend(report.delegated);
+        }
+        Err(e) => adopted.notes.push(format!("vendoring failed ({e}); run `{}`", add_published.as_deref().unwrap_or_default())),
       }
     }
     match types::fetch(app, false) {
@@ -252,6 +316,7 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
     }
   } else {
     adopted.next.extend(add);
+    adopted.next.extend(add_published);
     adopted.next.push(format!("fsr types {}", app.display()));
     adopted.next.push(format!("fsr build {}", app.display()));
   }

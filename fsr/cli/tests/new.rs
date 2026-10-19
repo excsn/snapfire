@@ -68,8 +68,8 @@ fn with_adopts_each_direction_after_the_template() {
 #[test]
 fn a_direction_outside_the_table_leaves_no_project() {
   let root = root("direction");
-  let refused = create(&root, offline().with(vec!["svelte".to_owned()])).unwrap_err().to_string();
-  assert!(refused.contains("`svelte` is not a direction") && refused.contains("react, vue, elements, htmx, tailwind"), "{refused}");
+  let refused = create(&root, offline().with(vec!["solid".to_owned()])).unwrap_err().to_string();
+  assert!(refused.contains("`solid` is not a direction") && refused.contains("react, vue, svelte, elements, htmx, tailwind"), "{refused}");
   assert!(!root.join("config").exists(), "the refusal left a project behind");
 }
 

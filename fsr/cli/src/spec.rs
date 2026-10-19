@@ -610,6 +610,10 @@ fn compile(app: &Path, test_dir: &Path, bundle: &str, plugins: &mut crate::plugi
   if app.join(dev::BUNDLE_OVERLAY).is_dir() {
     command.args(["--overlay", dev::BUNDLE_OVERLAY]);
   }
+  let layout = crate::xwpm::Layout::of(app)?;
+  for (ext, path) in crate::plugin_compilers(app, &layout)? {
+    command.arg("--plugin-compiler").arg(format!("{ext}={}", path.display()));
+  }
   dev::Driven::spawn(command, &snapfirec, &mut |_: &[String]| Ok(()), plugins, true)
     .map(drop)
     .map_err(|e| BuildError::Dev(format!("compiling the spec files into {}: {e}", test_dir.display())))

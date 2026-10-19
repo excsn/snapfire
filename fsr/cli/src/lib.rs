@@ -110,6 +110,10 @@ pub enum BuildError {
   ReactMajor { version: String, supported: String },
   #[error("vue@{version} is vendored, but this fsr renders for Vue {supported} only")]
   VueMajor { version: String, supported: String },
+  #[error("svelte {version} is vendored, but this fsr mounts Svelte {supported} only")]
+  SvelteMajor { version: String, supported: String },
+  #[error("svelte@{version} is vendored without `{file}`, and a Svelte component compiles with the application's own compiler so it calls the runtime the application serves; `fsr add <app dir> svelte@{version}` vendors it")]
+  PluginCompilerMissing { version: String, file: String },
   /// A framework plugin that started and then failed to answer.
   #[error("{0}")]
   Plugin(String),
@@ -1588,6 +1592,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   check_vendor_urls(app, &layout)?;
   check_shell_urls(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
   let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
+  plugin_compilers(app, &layout)?;
   let clients: Vec<snapfire_fsr_plan::ClientEntry> = report
     .components
     .iter()
@@ -2708,7 +2713,9 @@ pub(crate) const REACT: Adapter = Adapter { module: "@snapfire/fsr-client/react"
 
 pub(crate) const VUE: Adapter = Adapter { module: "@snapfire/fsr-client/vue", mounter: "vueMounter", patcher: "vuePatcher", unmounter: "vueUnmounter", pauser: None, needs: &["vue"] };
 
-const ADAPTERS: &[&Adapter] = &[&REACT, &VUE];
+pub(crate) const SVELTE: Adapter = Adapter { module: "@snapfire/fsr-client/svelte", mounter: "svelteMounter", patcher: "sveltePatcher", unmounter: "svelteUnmounter", pauser: None, needs: &["svelte", "svelte/internal/client"] };
+
+const ADAPTERS: &[&Adapter] = &[&REACT, &VUE, &SVELTE];
 
 /// The packages a client adapter imports at runtime. A shell records the
 /// version it vendors of each, so a site built against it renders under the
@@ -2729,6 +2736,7 @@ fn framework_needs(package: &str) -> Vec<&'static str> {
 fn suggested_version(package: &str) -> &'static str {
   match package {
     "react" | "react-dom" => crate::direction::REACT,
+    "svelte" => crate::direction::SVELTE,
     _ => "<version>",
   }
 }
@@ -2749,6 +2757,7 @@ fn adapter_for(module: &str, owners: &HashMap<String, Owner>) -> Result<&'static
   let ext = Path::new(file).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
   match snapfire_compiler_wire::claimed(&ext) {
     Some("vue") => Ok(&VUE),
+    Some("svelte") => Ok(&SVELTE),
     Some(ext) => Err(BuildError::NoAdapter { module: module.to_owned(), ext: ext.to_owned() }),
     None => Err(BuildError::UnknownComponent { module: module.to_owned() }),
   }
@@ -2917,6 +2926,32 @@ fn check_vendor_urls(app: &Path, layout: &crate::xwpm::Layout) -> Result<(), Bui
 /// application reads its own vendor manifest. An import map serving a
 /// framework package with no version recorded anywhere is refused. So is a
 /// React major the renderer has no rules for.
+/// The Svelte majors the client adapter mounts.
+const SVELTE_MAJORS: &[u64] = &[5];
+
+fn svelte_major_supported(version: &str) -> bool {
+  types::range::Version::parse(version).is_some_and(|v| SVELTE_MAJORS.contains(&v.major))
+}
+
+/// Svelte's compiler inside the vendored package, relative to the package.
+pub(crate) const SVELTE_COMPILER: &str = "compiler/index.js";
+
+/// Per plugin extension, the compiler the application vendors, which the
+/// plugin boots in place of the one it carries so the output calls the
+/// runtime the application serves. A vendored Svelte without its compiler is
+/// refused rather than compiled by another version.
+pub(crate) fn plugin_compilers(app: &Path, layout: &crate::xwpm::Layout) -> Result<Vec<(&'static str, PathBuf)>, BuildError> {
+  let manifest = crate::vendor::VendorManifest::read(app, layout)?;
+  let Some(record) = manifest.packages.get("svelte") else {
+    return Ok(Vec::new());
+  };
+  let compiler = app.join(&layout.vendor).join("svelte").join(SVELTE_COMPILER);
+  if !compiler.is_file() {
+    return Err(BuildError::PluginCompilerMissing { version: record.version.clone(), file: format!("{}/svelte/{SVELTE_COMPILER}", layout.vendor.trim_end_matches('/')) });
+  }
+  Ok(vec![("svelte", compiler)])
+}
+
 fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<std::collections::BTreeMap<String, String>, BuildError> {
   let contract = shell.map(|(_, contract)| contract);
   let manifest = || format!("`{}`", app.join(&layout.vendor).join(crate::vendor::VENDOR_MANIFEST).display());
@@ -2935,6 +2970,10 @@ fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(
       Some(version) if package == "react" && snapfire_fsr_ir::ReactMajor::of(&version).is_none() => {
         let majors: Vec<String> = snapfire_fsr_ir::ReactMajor::ALL.iter().map(|major| major.number().to_string()).collect();
         return Err(BuildError::ReactMajor { version, supported: majors_text(&majors) });
+      }
+      Some(version) if package == "svelte" && !svelte_major_supported(&version) => {
+        let majors: Vec<String> = SVELTE_MAJORS.iter().map(u64::to_string).collect();
+        return Err(BuildError::SvelteMajor { version, supported: majors_text(&majors) });
       }
       Some(version) if package == "vue" && snapfire_fsr_ir::VueMajor::of(&version).is_none() => {
         let majors: Vec<String> = snapfire_fsr_ir::VueMajor::ALL.iter().map(|major| major.number().to_string()).collect();
@@ -3017,13 +3056,17 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report, plu
   for dir in types::source_dirs(app) {
     collect_plugin_files(&app.join(dir), &mut by_ext);
   }
+  // A missing compiler is refused with the vendored frameworks; here it only
+  // decides which compiler reads a component.
+  let compilers = crate::xwpm::Layout::of(app).ok().and_then(|layout| plugin_compilers(app, &layout).ok()).unwrap_or_default();
   for (ext, mut files) in by_ext {
     files.sort();
+    let options = snapfire_compiler_wire::Options { compiler: compilers.iter().find(|(e, _)| *e == ext).map(|(_, path)| path.to_string_lossy().into_owned()), ..Default::default() };
     let mut units = Vec::new();
     for path in &files {
       let filename = path.strip_prefix(app).unwrap_or(path).to_string_lossy().replace('\\', "/");
       let source = std::fs::read_to_string(path).map_err(|e| BuildError::Io(path.clone(), e))?;
-      units.push(Unit { filename, path: path.to_string_lossy().into_owned(), source, options: Default::default(), files: Default::default() });
+      units.push(Unit { filename, path: path.to_string_lossy().into_owned(), source, options: options.clone(), files: Default::default() });
     }
     for round in 0..2 {
       let outcomes = match plugins.describe(ext, units.clone()) {

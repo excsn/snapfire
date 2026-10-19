@@ -50,7 +50,7 @@ enum Command {
   Check(Check),
   /// Counts what the build refuses or leaves to the browser across applications, by cause, writing nothing.
   Census(Census),
-  /// Gives an application a direction: react, vue, elements, htmx, tailwind, tera or mdx.
+  /// Gives an application a direction: react, vue, svelte, elements, htmx, tailwind, tera or mdx.
   Use(Use),
   /// Vendors packages into the application and names them in its import map.
   Add(Add),
@@ -253,7 +253,7 @@ struct Doctor {
 struct Use {
   /// The application directory.
   app_dir: PathBuf,
-  /// Directions to adopt, in order: react, vue, elements, htmx or tailwind, and tera or mdx in an fsr built with that feature.
+  /// Directions to adopt, in order: react, vue, svelte, elements, htmx or tailwind; tera or mdx in an fsr built with that feature.
   #[arg(required = true)]
   directions: Vec<String>,
   /// Skips vendoring packages and fetching declarations.
@@ -274,6 +274,9 @@ struct Add {
   /// Packages to leave to the importing page, comma separated.
   #[arg(long)]
   external: Vec<String>,
+  /// Vendors each package as published on npm, its module tree kept, rather than one bundle per subpath; for a package whose subpaths share state, as Svelte's do.
+  #[arg(long, conflicts_with = "external")]
+  published: bool,
 }
 
 #[derive(Args)]
@@ -807,7 +810,18 @@ fn run_add(args: Add) -> ExitCode {
     .map(|s| s.trim().to_owned())
     .filter(|s| !s.is_empty())
     .collect();
-  match vendor::add(&args.app_dir, &specs, &externals) {
+  // A package vendored as published before takes its new version the same way,
+  // every specifier and file it recorded, so `svelte@5.60.0` alone is enough.
+  let recorded = match snapfire_fsr_cli::published::recorded(&args.app_dir, &specs) {
+    Ok(recorded) => recorded,
+    Err(e) => return failed(e),
+  };
+  let added = match (recorded, args.published) {
+    (Some((specs, keeps)), _) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs, &keeps),
+    (None, true) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs, &[]),
+    (None, false) => vendor::add(&args.app_dir, &specs, &externals),
+  };
+  match added {
     Ok(report) => {
       if !externals.is_empty() && !report.delegated.is_empty() {
         eprintln!("note: xwpm carries dependencies itself; --external was not used");

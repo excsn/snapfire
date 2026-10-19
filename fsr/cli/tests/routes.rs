@@ -400,13 +400,14 @@ fn a_vue_island_registers_through_the_vue_adapter_without_react_in_the_map() {
 }
 
 #[test]
-fn an_island_whose_framework_has_no_client_adapter_is_refused() {
+fn a_svelte_island_whose_adapter_the_import_map_does_not_name_is_refused_with_the_direction() {
   let page = placing("Chart.svelte");
   let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.svelte", "<p>chart</p>\n")]);
   match fails(&dir) {
-    BuildError::NoAdapter { module, ext } => {
+    BuildError::IslandImports { module, adapter, remedy, .. } => {
       assert_eq!(module, "src/ui/Chart.svelte#default");
-      assert_eq!(ext, "svelte");
+      assert_eq!(adapter, "@snapfire/fsr-client/svelte");
+      assert!(remedy.contains("`fsr use <app dir> svelte` writes it"), "{remedy}");
     }
     other => panic!("{other}"),
   }

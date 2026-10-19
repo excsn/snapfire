@@ -86,8 +86,8 @@ fn a_bare_application_given_vue_builds_a_vue_island() {
 #[test]
 fn the_refusals_name_the_table_the_url_and_the_version() {
   let dir = bare(&[]);
-  let unknown = adopt(&dir, &["svelte".to_owned()], offline()).unwrap_err().to_string();
-  assert!(unknown.contains("`svelte` is not a direction") && unknown.contains("react, vue, elements, htmx, tailwind, tera"), "{unknown}");
+  let unknown = adopt(&dir, &["solid".to_owned()], offline()).unwrap_err().to_string();
+  assert!(unknown.contains("`solid` is not a direction") && unknown.contains("react, vue, svelte, elements, htmx, tailwind, tera"), "{unknown}");
 
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/cdn/react.js"}}"#).unwrap();
   let url = adopt(&dir, &["react".to_owned()], offline()).unwrap_err().to_string();
@@ -168,4 +168,78 @@ fn tailwinds_example_is_a_styled_page_and_a_theme() {
 fn the_react_a_direction_vendors_pauses_an_island_under_activity() {
   let pinned: Vec<u32> = snapfire_fsr_cli::direction::REACT.split('.').map(|part| part.parse().unwrap()).collect();
   assert!((pinned[0], pinned[1]) >= (19, 2), "React {} unmounts an island activity holds; <Activity> is 19.2 and later", snapfire_fsr_cli::direction::REACT);
+}
+
+#[test]
+fn svelte_maps_its_adapter_and_names_a_published_add_for_its_runtime() {
+  let dir = bare(&[]);
+  let adopted = adopt(&dir, &["svelte".to_owned()], offline()).unwrap();
+  assert_eq!(adopted.mapped, vec![("@snapfire/fsr-client/svelte".to_owned(), "/static/js/fsr/svelte.js".to_owned())]);
+  let svelte = snapfire_fsr_cli::direction::SVELTE;
+  let add = adopted.next.first().expect("an add line");
+  assert!(add.starts_with(&format!("fsr add {} --published svelte@{svelte} ", dir.display())), "the runtime is vendored as published, one copy for every subpath: {add}");
+  for subpath in ["internal/client", "internal/disclose-version", "store", "reactivity", "legacy"] {
+    assert!(add.contains(&format!("svelte@{svelte}/{subpath}")), "{subpath}: {add}");
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_bare_application_given_svelte_builds_a_svelte_island() {
+  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Counter from \"../src/ui/Counter.svelte\";\nexport default function Page() {\n  return <Island><Counter start={0} /></Island>;\n}\n";
+  let dir = bare(&[("routes/page.tsx", page), ("src/ui/Counter.svelte", "<script>\n  let { start } = $props();\n</script>\n<p>{start}</p>\n")]);
+  let refused = match build(&dir, &Options::default()) {
+    Ok(_) => panic!("a .svelte island built with no adapter in the map"),
+    Err(e) => e.to_string(),
+  };
+  assert!(refused.contains("`fsr use <app dir> svelte` writes it"), "{refused}");
+  adopt(&dir, &["svelte".to_owned()], offline()).unwrap();
+  let svelte = snapfire_fsr_cli::direction::SVELTE;
+  let mut map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("importmap.json")).unwrap()).unwrap();
+  map["imports"]["svelte"] = serde_json::Value::String("/static/js/vendor/svelte/src/index-client.js".to_owned());
+  map["imports"]["svelte/internal/client"] = serde_json::Value::String("/static/js/vendor/svelte/src/internal/client/index.js".to_owned());
+  std::fs::write(dir.join("importmap.json"), map.to_string()).unwrap();
+  std::fs::create_dir_all(dir.join("vendor")).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"svelte":{{"version":"{svelte}","published":true,"files":["compiler/index.js"],"entries":{{"svelte":"svelte/src/index-client.js","svelte/internal/client":"svelte/src/internal/client/index.js"}}}}}}}}"#)).unwrap();
+  let refused = match build(&dir, &Options::default()) {
+    Ok(_) => panic!("built"),
+    Err(e) => e.to_string(),
+  };
+  assert!(refused.contains("svelte/compiler/index.js") && refused.contains(&format!("fsr add <app dir> svelte@{svelte}")), "a vendored Svelte compiles with its own compiler, so one without it is refused: {refused}");
+  std::fs::create_dir_all(dir.join("vendor/svelte/compiler")).unwrap();
+  std::fs::write(dir.join("vendor/svelte/compiler/index.js"), "globalThis.svelte = {};\n").unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("registerIsland(\"src/ui/Counter.svelte#default\""), "{islands}");
+  assert!(islands.contains("svelteMounter"), "mounted by the Svelte adapter: {islands}");
+  let shim = snapfire_fsr_cli::types::foreign_shim(&dir, &[]).expect("a shim");
+  assert!(shim.contains("declare module \"*.svelte\""), "{shim}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_svelte_major_the_adapter_does_not_mount_is_refused_naming_the_ones_it_does() {
+  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Counter from \"../src/ui/Counter.svelte\";\nexport default function Page() {\n  return <Island><Counter /></Island>;\n}\n";
+  let dir = bare(&[("routes/page.tsx", page), ("src/ui/Counter.svelte", "<p>x</p>\n")]);
+  adopt(&dir, &["svelte".to_owned()], offline()).unwrap();
+  std::fs::create_dir_all(dir.join("vendor/svelte/compiler")).unwrap();
+  std::fs::write(dir.join("vendor/svelte/compiler/index.js"), "globalThis.svelte = {};\n").unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"6.0.0","published":true,"files":["compiler/index.js"],"entries":{"svelte":"svelte/src/index-client.js"}}}}"#).unwrap();
+  let refused = match build(&dir, &Options::default()) {
+    Ok(_) => panic!("built"),
+    Err(e) => e.to_string(),
+  };
+  assert!(refused.contains("svelte 6.0.0") && refused.contains("5"), "{refused}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_direction_named_with_a_version_vendors_that_version() {
+  let dir = bare(&[]);
+  let adopted = adopt(&dir, &["svelte@5.60.0".to_owned()], offline()).unwrap();
+  let add = adopted.next.first().expect("an add line");
+  assert!(add.contains("svelte@5.60.0 ") && add.contains("svelte@5.60.0/internal/client") && !add.contains(snapfire_fsr_cli::direction::SVELTE), "{add}");
+  let unknown = adopt(&dir, &["svelte@five".to_owned()], offline()).unwrap_err().to_string();
+  assert!(unknown.contains("svelte@five"), "{unknown}");
+  std::fs::remove_dir_all(&dir).unwrap();
 }

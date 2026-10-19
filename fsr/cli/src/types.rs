@@ -22,7 +22,7 @@ pub const FOREIGN_SHIM: &str = "foreign.d.ts";
 
 /// The extensions of components a snapfirec plugin compiles, found by
 /// scanning the sources; a template's placements add whatever else they name.
-const FOREIGN_COMPONENTS: &[&str] = &["vue"];
+const FOREIGN_COMPONENTS: &[&str] = &["vue", "svelte"];
 
 /// The directories the typechecker reads, of those the application has.
 const SOURCE_DIRS: &[&str] = &["src", "ext", "elements", "routes", "schemas", "tests"];
@@ -537,7 +537,7 @@ pub fn foreign_shim(app: &Path, placed: &[String]) -> Option<String> {
     match ext.as_str() {
       // Loose on purpose: a template places the component with the props the
       // build reads; the browser types the component's own script itself.
-      "vue" => out.push_str("\ndeclare module \"*.vue\" {\n  const component: (props: { [prop: string]: unknown }) => any;\n  export default component;\n}\n"),
+      framework @ ("vue" | "svelte") => out.push_str(&format!("\ndeclare module \"*.{framework}\" {{\n  const component: (props: {{ [prop: string]: unknown }}) => any;\n  export default component;\n}}\n")),
       other => out.push_str(&format!("\ndeclare module \"*.{other}\" {{\n  const component: unknown;\n  export default component;\n}}\n")),
     }
   }

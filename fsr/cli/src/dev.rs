@@ -160,6 +160,10 @@ impl App {
     if let Some((vendor, base)) = self.vendor_tree() {
       command.arg("--tailwind-vendor").arg(vendor).args(["--tailwind-vendor-base", &base]);
     }
+    // A missing compiler is refused by the build before this compiler runs.
+    for (ext, path) in crate::plugin_compilers(&self.dir, &self.layout).unwrap_or_default() {
+      command.arg("--plugin-compiler").arg(format!("{ext}={}", path.display()));
+    }
     command
   }
 
@@ -1418,6 +1422,20 @@ mod tests {
     let args = args(&app(&root));
     let at = args.iter().position(|a| a == "--tailwind-vendor").expect("--tailwind-vendor is passed");
     assert_eq!(&args[at + 1..at + 4], ["vendor", "--tailwind-vendor-base", "/static/js/vendor"]);
+    std::fs::remove_dir_all(&root).unwrap();
+  }
+
+  #[test]
+  fn a_vendored_svelte_compiler_is_named_to_the_compiler() {
+    let root = std::env::temp_dir().join(format!("fsr-cli-dev-svelte-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("vendor/svelte/compiler")).unwrap();
+    assert!(!args(&app(&root)).iter().any(|a| a == "--plugin-compiler"), "nothing vendored, no flag");
+    std::fs::write(root.join("vendor/svelte/compiler/index.js"), "globalThis.svelte = {};\n").unwrap();
+    std::fs::write(root.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"5.57.2","published":true,"files":["compiler/index.js"]}}}"#).unwrap();
+    let args = args(&app(&root));
+    let at = args.iter().position(|a| a == "--plugin-compiler").expect("--plugin-compiler is passed");
+    assert_eq!(args[at + 1], format!("svelte={}", root.join("vendor/svelte/compiler/index.js").display()));
     std::fs::remove_dir_all(&root).unwrap();
   }
 

@@ -693,6 +693,15 @@ A module that imports a package outside its bundle stops the command naming it; 
 
 A site is the exception: its tree is served under its own prefix, `/billing/static/js/vendor`, since a mount drops a static root outside it. `fsr add` rewrites every entry the vendor manifest records to the current prefix and prints `remapped` for each one it moved, so an application that becomes a site is migrated by its next add. The build refuses a map entry for a vendored package that points anywhere else, naming the URL it expects. A package the site's shell already serves is not vendored at all: `fsr add` writes the shell's URL into the map and prints `shell` for it, since the shell's map overrides the site's at mount.
 
+Svelte is vendored differently. Its subpaths, `svelte/store`, `svelte/internal/client` and the rest, share one runtime through relative imports, so a bundle per subpath would give each its own. `fsr use app svelte` vendors it as published on npm instead: the tarball checked against the registry's integrity, the module tree kept and every specifier mapped to its file. Svelte's own `compiler/index.js` is kept beside it. Every Svelte component in the application compiles with that compiler, so the output always calls the runtime the browser loads. Updating is one command; the record says how the package was vendored, so every specifier moves with it:
+
+```sh
+fsr use app svelte@5.57.2
+fsr add app svelte@5.60.0
+```
+
+A vendored Svelte whose major the client adapter does not mount stops the build, naming the majors it does. So does one vendored without its compiler.
+
 The build reads the React version back from `vendor/.fsr-vendor.json` and writes it into the plan as `(framework react 19.3.1)`. React hydrates the markup the server writes. React 18 and 19 print some props differently, so the renderer follows the one vendored. An import map that serves `react` with no version recorded stops the build with the `fsr add` command that records it. A major other than 18 or 19 stops it too.
 
 ## Adopting a Direction

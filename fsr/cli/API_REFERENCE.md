@@ -79,8 +79,8 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr use
 
-* `fsr use <app dir> <direction>... [--no-fetch] [--example]`
-* `direction::adopt` over the names, in order. Gives an existing application a direction: `react`, `vue`, `elements`, `htmx`, `tailwind` or `tera`. `tailwind` maps and vendors nothing; it writes `styles/tailwind.css` importing `tailwindcss/theme` and `tailwindcss/utilities` without the preflight, unless a stylesheet under the styles directory already imports Tailwind, which it reports as `present tailwind in <sheet>`. An application whose `[document] styles` is written rather than inferred is given the edit that lists the new sheet. Running it again changes nothing. Prints `mapped <specifier> <url>` per import map line written, `present <specifier>` per line already there, `added <specifier> <file> <bytes>` per vendored module, `shell <specifier> <url>` per package taken from the site's shell, `kept <specifier>` per package the vendor manifest already records at the pinned version, `xwpm add <spec>` per delegated call, `types <package> <from> <version>` per declaration set, `wrote <path>` per example and generated file, `note <text>` on stderr for a step that failed without stopping the command, `edit <file>: <line>` for what the application changes by hand and `next <command>` for what to run. Exit 0 on success, 1 on a `BuildError`.
+* `fsr use <app dir> <direction[@version]>... [--no-fetch] [--example]`
+* `direction::adopt` over the names, in order. Gives an existing application a direction: `react`, `vue`, `svelte`, `elements`, `htmx`, `tailwind` or `tera`. `<direction>@<version>` vendors that version of the direction's packages in place of the one it pins; a version that does not parse is refused as a `Spec`. `svelte` vendors its runtime as published, its module tree kept, together with its `compiler/index.js`. `tailwind` maps and vendors nothing; it writes `styles/tailwind.css` importing `tailwindcss/theme` and `tailwindcss/utilities` without the preflight, unless a stylesheet under the styles directory already imports Tailwind, which it reports as `present tailwind in <sheet>`. An application whose `[document] styles` is written rather than inferred is given the edit that lists the new sheet. Running it again changes nothing. Prints `mapped <specifier> <url>` per import map line written, `present <specifier>` per line already there, `added <specifier> <file> <bytes>` per vendored module, `shell <specifier> <url>` per package taken from the site's shell, `kept <specifier>` per package the vendor manifest already records at the pinned version, `xwpm add <spec>` per delegated call, `types <package> <from> <version>` per declaration set, `wrote <path>` per example and generated file, `note <text>` on stderr for a step that failed without stopping the command, `edit <file>: <line>` for what the application changes by hand and `next <command>` for what to run. Exit 0 on success, 1 on a `BuildError`.
 * `--example` writes one component per direction and prints where to place it; for `tailwind` a styled page, `routes/styled/page.tsx` and a theme, `styles/themes/ocean.css`. A file already there is refused before anything is written.
 * `--no-fetch` writes the map lines and the examples alone and names `fsr add`, `fsr types` and `fsr build` as the steps to run.
 
@@ -168,8 +168,9 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 
 ### fsr add
 
-* `fsr add <app dir> <name@version[/subpath]>... [--external <name,...>]`
-* `vendor::add` over the specs; prints `added <specifier> <file> <bytes>` per entry, `remapped <specifier> <url>` per entry moved to the layout's base or `xwpm add <spec>` per delegated call. Same exit codes; a spec without a version exits 2.
+* `fsr add <app dir> <name@version[/subpath]>... [--external <name,...> | --published]`
+* A package `vendor/.fsr-vendor.json` records as vendored as published takes the new version the same way: `published::recorded` widens the specs to every specifier and kept file the record names, so `fsr add app svelte@5.60.0` updates the whole runtime. `--published` vendors a package that way the first time, through `published::add_published`.
+* Otherwise `vendor::add` over the specs; prints `added <specifier> <file> <bytes>` per entry, `remapped <specifier> <url>` per entry moved to the layout's base or `xwpm add <spec>` per delegated call. Same exit codes; a spec without a version exits 2.
 * Each module's source map is vendored beside it under the name its `sourceMappingURL` comment gives. A module whose map esm.sh does not have loses the comment.
 
 ### fsr types
@@ -454,7 +455,7 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 | `htmx` | `@snapfire/fsr-client/htmx` | `htmx.org@4.0.0` | `src/main.ts`: the htmx import, the `bindHtmx` import and `bindHtmx(htmx)` after `enableNavigation()` |
 | `tera` | nothing | nothing | nothing; present only under the `tera` feature |
 
-* `pub const direction::REACT`, `direction::VUE`, `direction::HTMX`: the pinned versions, stated once. The `fsr add` command a build suggests for an unrecorded React names `REACT`.
+* `pub const direction::REACT`, `direction::VUE`, `direction::SVELTE`, `direction::HTMX`: the pinned versions, stated once. The `fsr add` command a build suggests for an unrecorded React names `REACT`.
 * `Direction::specifier(&self) -> Option<String>` and `Direction::url(&self) -> Option<String>`: the map key and the URL under `snapfire_fsr_host::client::ROUTE`, `None` for a direction with no entry. `Direction::specs(&self) -> Vec<Spec>`.
 
 ### adopt
@@ -557,7 +558,9 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `ShellPinned { specifier: String, package: String, wanted: String, shell: String, contract: String }`, an `fsr add` pinning a version of a package the site's shell already serves.
 * `ElementName { file: String }`, a file under `elements/` whose name is not a custom element tag.
 * `ElementTemplate { module: String, reason: String }`, an element template with state or a handler or a root `<template>` that cannot be its shadow root; `reason` says which.
-* `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`.
+* `Spec(String)`, an `fsr add` argument that is not `name@version[/subpath]`. An `fsr use` direction whose version does not parse is refused the same way.
+* `SvelteMajor { version: String, supported: String }`, a vendored Svelte whose major the client adapter does not mount.
+* `PluginCompilerMissing { version: String, file: String }`, a vendored Svelte without `compiler/index.js`, which a Svelte component compiles with so it calls the runtime the application serves.
 * `Http(String, String)`, the URL and the failure.
 * `Manifest(PathBuf, String)`, a vendor manifest, types manifest, import map or `xwpm.wmf` that did not parse.
 * `Serve(String)`, the stock host refusing to build or the listener failing, from `fsr serve`.
