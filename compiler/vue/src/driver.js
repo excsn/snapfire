@@ -286,6 +286,11 @@ globalThis.__vue_ssr_module = function (filename, source, options, files) {
  * props held and the caller's children as the default slot in a region.
  */
 globalThis.__vue_render = async function (name, props, children) {
+  // What a bundler defines for Vue's esm-bundler builds in a production server build.
+  globalThis.process ??= { env: { NODE_ENV: "production" } };
+  globalThis.__VUE_OPTIONS_API__ ??= true;
+  globalThis.__VUE_PROD_DEVTOOLS__ ??= false;
+  globalThis.__VUE_PROD_HYDRATION_MISMATCH_DETAILS__ ??= false;
   const { createSSRApp, defineComponent, h } = await import("vue");
   const { renderToString } = await import("vue/server-renderer");
   const component = (await import(name)).default;

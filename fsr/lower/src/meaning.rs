@@ -144,6 +144,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("vue", "provide", Construct::Vue("provide")),
   ("vue", "inject", Construct::Vue("inject")),
   ("vue", "defineAsyncComponent", Construct::AsyncComponent),
+  ("vue", "defineComponent", Construct::Vue("defineComponent")),
   ("react", "Children", Construct::Children),
   ("react", "cloneElement", Construct::CloneElement),
   ("react", "isValidElement", Construct::IsValidElement),

@@ -1274,11 +1274,16 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
     let count = count_children(env, children, slots, slots.len(), empties)?;
     map.insert(name.clone(), Value::F64(count as f64));
   }
-  let stamp = match (&env.slot_owner, map.get(PARENT_SCOPE_PROP)) {
+  let stamp = match map.get(PARENT_SCOPE_PROP) {
     _ if component.owner != crate::ast::Owner::Vue => Vec::new(),
-    (Some(owner), _) => owner.clone(),
-    (None, Some(Value::Str(scope))) => vec![scope.to_string()],
-    (None, _) => Vec::new(),
+    parent => {
+      let mut stamp = match parent {
+        Some(Value::Str(scope)) => vec![scope.to_string()],
+        _ => Vec::new(),
+      };
+      stamp.extend(env.slot_stamps.iter().flatten().cloned());
+      stamp
+    }
   };
   let depth = env.scope.len();
   let given = given_slots(env, children)?;
@@ -1287,13 +1292,13 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
   slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false, framework: env.in_framework, owner_path: env.component_path.clone(), scoped: env.scoped.clone() });
   let held = std::mem::replace(&mut env.stamp, stamp);
   let held_slotted = std::mem::take(&mut env.slotted);
-  let held_owner = env.slot_owner.take();
+  let held_stamps = env.slot_stamps.take();
   let held_scoped = std::mem::replace(&mut env.scoped, component.scope.clone());
   let mut body =|env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
   let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
   env.stamp = held;
   env.slotted = held_slotted;
-  env.slot_owner = held_owner;
+  env.slot_stamps = held_stamps;
   env.scoped = held_scoped;
   slots.pop();
   env.scope = Rc::try_unwrap(outer).unwrap_or_else(|held| (*held).clone());
@@ -1632,16 +1637,12 @@ fn stamped(attrs: &[Entry], root: &[String], slotted: &[String]) -> Vec<Entry> {
   attrs
 }
 
-/// What slot content renders under: the stamps a component placed in it takes on its root and the slotted stamp every element in it carries, from the scoped style of the component whose `<slot>` it fills.
+/// What slot content renders under, from the scoped style of the component whose `<slot>` it fills: the stamps a component placed in it takes on its root after its parent's scope and the slotted stamp every element in it carries, both that style's slotted stamp when it uses `:slotted()`.
 fn content_stamps(env: &Env) -> (Vec<String>, Vec<String>) {
-  let Some(scope) = &env.scoped else { return (Vec::new(), Vec::new()) };
-  let mut root = vec![scope.id.clone()];
-  let mut slotted = Vec::new();
-  if scope.slotted {
-    root.push(scope.slotted_attr());
-    slotted.push(scope.slotted_attr());
+  match &env.scoped {
+    Some(scope) if scope.slotted => (vec![scope.slotted_attr()], vec![scope.slotted_attr()]),
+    _ => (Vec::new(), Vec::new()),
   }
-  (root, slotted)
 }
 
 fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
@@ -1954,9 +1955,9 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
       let inner = std::mem::replace(&mut env.scope, scope);
       let outer_framework = std::mem::replace(&mut env.in_framework, slot.framework);
       let outer_path = std::mem::replace(&mut env.component_path, slot.owner_path.clone());
-      let (owner, slotted) = content_stamps(env);
+      let (stamps, slotted) = content_stamps(env);
       let outer_slotted = std::mem::replace(&mut env.slotted, slotted);
-      let outer_owner = std::mem::replace(&mut env.slot_owner, Some(owner));
+      let outer_stamps = std::mem::replace(&mut env.slot_stamps, Some(stamps));
       let outer_scoped = std::mem::replace(&mut env.scoped, slot.scoped.clone());
       let mut result = Ok(());
       for child in content {
@@ -1969,7 +1970,7 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
       env.in_framework = outer_framework;
       env.component_path = outer_path;
       env.slotted = outer_slotted;
-      env.slot_owner = outer_owner;
+      env.slot_stamps = outer_stamps;
       env.scoped = outer_scoped;
       slots.push(slot);
       result
@@ -1996,9 +1997,9 @@ fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Compo
         (Some((module, path)), Some(h)) => Some((std::mem::replace(&mut h.module, module.clone()), std::mem::replace(&mut h.path, path.clone()))),
         _ => None,
       };
-      let (owner, slotted) = content_stamps(env);
+      let (stamps, slotted) = content_stamps(env);
       let outer_slotted = std::mem::replace(&mut env.slotted, slotted);
-      let outer_owner = std::mem::replace(&mut env.slot_owner, Some(owner));
+      let outer_stamps = std::mem::replace(&mut env.slot_stamps, Some(stamps));
       let outer_scoped = std::mem::replace(&mut env.scoped, slot.scoped.clone());
       let mut result = Ok(());
       for child in slot.children {
@@ -2012,7 +2013,7 @@ fn render_slot_content<'a>(env: &mut Env, mut slot: Slot<'a>, library: &'a Compo
         }
       }
       env.slotted = outer_slotted;
-      env.slot_owner = outer_owner;
+      env.slot_stamps = outer_stamps;
       env.scoped = outer_scoped;
       if let (Some((module, path)), Some(h)) = (callee_keys, &mut env.hoists) {
         h.module = module;

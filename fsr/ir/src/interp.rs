@@ -250,7 +250,7 @@ impl Interpreter {
       contexts: Vec::new(),
       stamp: Vec::new(),
       slotted: Vec::new(),
-      slot_owner: None,
+      slot_stamps: None,
       scoped: None,
       made: Some(Vec::new()),
       closures: Some(Vec::new()),
@@ -373,12 +373,12 @@ pub(crate) struct Env {
   pub(crate) unrendered: bool,
   /// The values the providers around the render point hold, by context, innermost last.
   pub(crate) contexts: Vec<(String, Value)>,
-  /// Attributes waiting for the first element the component just placed renders, its root: a Vue parent's scoped-style id. Inside slot content they are the slot owner's id and its slotted stamp.
+  /// Attributes waiting for the first element the component just placed renders, its root: a Vue parent's scoped-style id, followed inside slot content by the slot host's slotted stamp.
   pub(crate) stamp: Vec<String>,
   /// The slotted stamps every element of the slot content being rendered carries.
   pub(crate) slotted: Vec<String>,
-  /// Set while slot content renders: the root stamps a component placed in it takes, in place of the parent scope its placement carries.
-  pub(crate) slot_owner: Option<Vec<String>>,
+  /// Set while slot content renders: the stamps a component placed in it takes on its root after the parent scope its placement carries, the slot host's slotted stamp when its style uses `:slotted()`.
+  pub(crate) slot_stamps: Option<Vec<String>>,
   /// The scoped style of the component whose template is being rendered, which its slots stamp their content by.
   pub(crate) scoped: Option<ScopedStyle>,
   /// The markup values this render made, which a value made here names by index. `None` in a copy for parallel evaluation, whose table would be lost.
@@ -583,7 +583,7 @@ impl Env {
       contexts: Vec::new(),
       stamp: Vec::new(),
       slotted: Vec::new(),
-      slot_owner: None,
+      slot_stamps: None,
       scoped: None,
       made: Some(Vec::new()),
       closures: Some(Vec::new()),
@@ -789,7 +789,7 @@ impl Env {
       contexts: self.contexts.clone(),
       stamp: Vec::new(),
       slotted: Vec::new(),
-      slot_owner: None,
+      slot_stamps: None,
       scoped: None,
       made: None,
       closures: None,

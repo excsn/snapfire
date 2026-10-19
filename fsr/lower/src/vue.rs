@@ -310,6 +310,97 @@ pub(crate) fn model_props(parsed: &crate::Parsed) -> Vec<String> {
 }
 
 /// A property key's name when it is written out.
+/// An entry of `computed` or `methods`: a method or a value written after its key.
+enum OptionValue<'p> {
+  Method(&'p js::Function),
+  Expr(&'p js::Expr),
+}
+
+/// The names a function body reads, for the order computed values are lowered in.
+fn names_read(body: &FunctionBody<'_>) -> Vec<String> {
+  use swc_core::ecma::visit::{Visit, VisitWith};
+  struct Names(Vec<String>);
+  impl Visit for Names {
+    fn visit_ident(&mut self, id: &js::Ident) {
+      self.0.push(id.sym.to_string());
+    }
+  }
+  let mut names = Names(Vec::new());
+  match body {
+    FunctionBody::Expr(e) => e.visit_with(&mut names),
+    FunctionBody::Block(stmts) => stmts.iter().for_each(|stmt| stmt.visit_with(&mut names)),
+  }
+  names.0
+}
+
+/// The names an options object's `props` declares, as a list or as an object's keys, `defineComponent`'s included.
+pub(crate) fn option_props(parsed: &crate::Parsed) -> Vec<String> {
+  let mut names = Vec::new();
+  for item in &parsed.module.body {
+    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) = item else { continue };
+    let object = match unwrap_types(&e.expr) {
+      js::Expr::Object(object) => object,
+      js::Expr::Call(call) => match call.args.first().map(|a| unwrap_types(&a.expr)) {
+        Some(js::Expr::Object(object)) => object,
+        _ => continue,
+      },
+      _ => continue,
+    };
+    for prop in &object.props {
+      let js::PropOrSpread::Prop(prop) = prop else { continue };
+      let js::Prop::KeyValue(kv) = &**prop else { continue };
+      if prop_name_of_key(&kv.key).as_deref() != Some("props") {
+        continue;
+      }
+      match unwrap_types(&kv.value) {
+        js::Expr::Array(list) => names.extend(list.elems.iter().flatten().filter_map(|item| match unwrap_types(&item.expr) {
+          js::Expr::Lit(js::Lit::Str(name)) => Some(name.value.to_atom_lossy().to_string()),
+          _ => None,
+        })),
+        js::Expr::Object(declared) => names.extend(declared.props.iter().filter_map(|p| match p {
+          js::PropOrSpread::Prop(p) => match &**p {
+            js::Prop::KeyValue(kv) => prop_name_of_key(&kv.key),
+            js::Prop::Shorthand(id) => Some(id.sym.to_string()),
+            _ => None,
+          },
+          _ => None,
+        })),
+        _ => {}
+      }
+    }
+  }
+  names
+}
+
+/// Rewrites each `this.name` in an options object's own functions to the name, which the lowering binds to the prop, the `data` entry, the computed value or the method it reads. A `this` inside a nested `function` is that function's and is left alone.
+pub(crate) fn name_this(module: &mut js::Module) {
+  use swc_core::ecma::visit::{VisitMut, VisitMutWith};
+  struct NameThis {
+    depth: usize,
+  }
+  impl VisitMut for NameThis {
+    fn visit_mut_function(&mut self, f: &mut js::Function) {
+      self.depth += 1;
+      if self.depth == 1 {
+        f.visit_mut_children_with(self);
+      }
+      self.depth -= 1;
+    }
+    fn visit_mut_expr(&mut self, expr: &mut js::Expr) {
+      if self.depth == 1 {
+        if let js::Expr::Member(member) = expr {
+          if let (js::Expr::This(_), js::MemberProp::Ident(prop)) = (&*member.obj, &member.prop) {
+            *expr = js::Expr::Ident(js::Ident::new_no_ctxt(prop.sym.clone(), member.span));
+            return;
+          }
+        }
+      }
+      expr.visit_mut_children_with(self);
+    }
+  }
+  module.visit_mut_with(&mut NameThis { depth: 0 });
+}
+
 fn prop_name_of_key(key: &js::PropName) -> Option<String> {
   match key {
     js::PropName::Ident(i) => Some(i.sym.to_string()),
@@ -429,6 +520,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
 
   fn script(&mut self) -> Lowered<()> {
     let Some(script) = &self.described.script else { return Ok(()) };
+    if script.plain && !script.setup {
+      return self.options();
+    }
     if script.plain {
       let (line, column) = (script.line as usize, script.column as usize);
       return Err(match script.setup {
@@ -448,6 +542,230 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     Ok(())
   }
 
+  /// A plain `<script>` exporting an options object (or `defineComponent` of one): `props` read from `$props` with their defaults, `data()` as state, `computed` in the order they read each other and `methods` as the functions handlers and the template call. The browser alone runs the lifecycle hooks and `watch`.
+  fn options(&mut self) -> Lowered<()> {
+    let parsed = self.lowerer.parsed;
+    let mut object: Option<&'p js::ObjectLit> = None;
+    for item in &parsed.module.body {
+      match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(_)) => {}
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => {
+          object = Some(match unwrap_types(&e.expr) {
+            js::Expr::Object(object) => object,
+            js::Expr::Call(call) if matches!(self.callee(call), Some((name, Some(source))) if name == "defineComponent" && source == "vue") => match call.args.first().map(|a| unwrap_types(&a.expr)) {
+              Some(js::Expr::Object(object)) => object,
+              _ => return Err(self.lowerer.residue(call.span, "`defineComponent` of something other than an options object")),
+            },
+            other => return Err(self.lowerer.residue(other.span(), "a default export that is not an options object")),
+          });
+        }
+        js::ModuleItem::ModuleDecl(other) => return Err(self.lowerer.residue(other.span(), "an export beside the options object")),
+        js::ModuleItem::Stmt(stmt) => self.setup_stmt(stmt)?,
+      }
+    }
+    let Some(object) = object else {
+      let (line, column) = self.described.script.as_ref().map_or((1, 1), |s| (s.line as usize, s.column as usize));
+      return Err(self.at(line, column, "a `<script>` without `setup` that exports no options object"));
+    };
+    let mut options: Vec<(String, &'p js::Prop)> = Vec::new();
+    for prop in &object.props {
+      let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(object.span, "a spread in the options object")) };
+      let key = match &**prop {
+        js::Prop::KeyValue(kv) => prop_name_of_key(&kv.key),
+        js::Prop::Method(m) => prop_name_of_key(&m.key),
+        js::Prop::Shorthand(id) => Some(id.sym.to_string()),
+        _ => None,
+      };
+      let key = key.ok_or_else(|| self.lowerer.residue(prop.span(), "an option the build does not read"))?;
+      match key.as_str() {
+        "name" | "components" | "emits" | "inheritAttrs" | "expose" | "watch" | "beforeMount" | "mounted" | "beforeUpdate" | "updated" | "beforeUnmount" | "unmounted" | "activated" | "deactivated" | "errorCaptured" | "renderTracked" | "renderTriggered" => {}
+        "props" | "data" | "computed" | "methods" => options.push((key, &**prop)),
+        other => return Err(self.lowerer.residue(prop.span(), format!("the `{other}` option, which the build does not read"))),
+      }
+    }
+    let option = |key: &str| options.iter().find(|(k, _)| k == key).map(|(_, prop)| *prop);
+    if let Some(prop) = option("props") {
+      self.options_props(prop)?;
+    }
+    if let Some(prop) = option("data") {
+      let returned = self.returned_object(prop, "data")?;
+      for entry in &returned.props {
+        let js::PropOrSpread::Prop(entry) = entry else { return Err(self.lowerer.residue(returned.span, "a spread in what `data` returns")) };
+        let (name, value): (String, js::Expr) = match &**entry {
+          js::Prop::KeyValue(kv) => (prop_name_of_key(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed `data` key"))?, (*kv.value).clone()),
+          js::Prop::Shorthand(id) => (id.sym.to_string(), js::Expr::Ident(id.clone())),
+          other => return Err(self.lowerer.residue(other.span(), "a `data` entry the build does not read")),
+        };
+        let expr = self.lowerer.expr(&value)?;
+        self.lets.push(Stmt::Let { name: name.clone(), expr });
+        self.state.push(name.clone());
+        self.bind(name.clone(), Expr::Var(name.clone()), Expr::Var(name));
+      }
+    }
+    if let Some(prop) = option("computed") {
+      let entries = self.option_entries(prop, "computed")?;
+      let mut getters: Vec<(String, FunctionBody<'p>)> = Vec::new();
+      for (name, value) in entries {
+        let body = match value {
+          OptionValue::Method(f) => FunctionBody::Block(f.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or_default()),
+          OptionValue::Expr(js::Expr::Fn(f)) => FunctionBody::Block(f.function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or_default()),
+          OptionValue::Expr(js::Expr::Arrow(arrow)) => arrow_body(arrow),
+          OptionValue::Expr(other) => return Err(self.lowerer.residue(other.span(), "a computed value other than a getter; a writable computed is not lowered")),
+        };
+        getters.push((name, body));
+      }
+      let names: Vec<String> = getters.iter().map(|(name, _)| name.clone()).collect();
+      while !getters.is_empty() {
+        let ready = getters.iter().position(|(_, body)| {
+          let read = names_read(body);
+          !read.iter().any(|name| names.contains(name) && !self.lowerer.scope.iter().any(|(bound, _)| bound == name))
+        });
+        let Some(ready) = ready else {
+          return Err(self.lowerer.residue(object.span, "computed values that read each other in a cycle"));
+        };
+        let (name, body) = getters.remove(ready);
+        let expr = match body {
+          FunctionBody::Expr(e) => self.lowerer.expr(e)?,
+          FunctionBody::Block(stmts) => block_to_expr(&mut self.lowerer, stmts)?,
+        };
+        self.lets.push(Stmt::Let { name: name.clone(), expr });
+        self.bind(name.clone(), Expr::Var(name.clone()), Expr::Var(name));
+      }
+    }
+    if let Some(prop) = option("methods") {
+      for (name, value) in self.option_entries(prop, "methods")? {
+        match value {
+          OptionValue::Method(f) => {
+            if let Some(body) = &f.body {
+              self.handler_fns.insert(name.clone(), (patterns(f), FunctionBody::Block(&body.stmts)));
+              self.callable(&name, js::Expr::Fn(js::FnExpr { ident: None, function: Box::new(f.clone()) }));
+            }
+          }
+          OptionValue::Expr(js::Expr::Fn(f)) => {
+            if let Some(body) = &f.function.body {
+              self.handler_fns.insert(name.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+              self.callable(&name, js::Expr::Fn(f.clone()));
+            }
+          }
+          OptionValue::Expr(js::Expr::Arrow(arrow)) => {
+            self.handler_fns.insert(name.clone(), (arrow.params.clone(), arrow_body(arrow)));
+            self.callable(&name, js::Expr::Arrow(arrow.clone()));
+          }
+          OptionValue::Expr(other) => return Err(self.lowerer.residue(other.span(), "a method that is not a function")),
+        }
+      }
+    }
+    self.script_scope = self.lowerer.scope.clone();
+    Ok(())
+  }
+
+  /// Binds `name` to `function` as a value the template calls when its body lowers; one that does not stays a handler the browser runs.
+  fn callable(&mut self, name: &str, function: js::Expr) {
+    if matches!(&function, js::Expr::Fn(f) if f.function.is_async || f.function.is_generator) || matches!(&function, js::Expr::Arrow(a) if a.is_async || a.is_generator) {
+      return;
+    }
+    let before = self.lowerer.scope.len();
+    let lowered = self.lowerer.expr(&function);
+    self.lowerer.scope.truncate(before);
+    match lowered {
+      Ok(lambda) => {
+        self.lets.push(Stmt::Let { name: name.to_owned(), expr: lambda });
+        self.bind(name.to_owned(), Expr::Var(name.to_owned()), Expr::Var(name.to_owned()));
+      }
+      Err(_) => self.lowerer.unbound = None,
+    }
+  }
+
+  /// The `props` option, a list of names or an object of each prop's type or `{ type, default }`, with the defaults under `$props`.
+  fn options_props(&mut self, prop: &'p js::Prop) -> Lowered<()> {
+    let js::Prop::KeyValue(kv) = prop else { return Err(self.lowerer.residue(prop.span(), "a `props` option that is not a list or an object")) };
+    let mut names: Vec<String> = Vec::new();
+    let mut defaults: Vec<Entry> = Vec::new();
+    match unwrap_types(&kv.value) {
+      js::Expr::Array(list) => {
+        for item in list.elems.iter().flatten() {
+          let js::Expr::Lit(js::Lit::Str(name)) = unwrap_types(&item.expr) else { return Err(self.lowerer.residue(item.expr.span(), "a prop name that is not a string")) };
+          names.push(name.value.to_atom_lossy().to_string());
+        }
+      }
+      js::Expr::Object(object) => {
+        for entry in &object.props {
+          let js::PropOrSpread::Prop(entry) = entry else { return Err(self.lowerer.residue(object.span, "a spread in `props`")) };
+          let js::Prop::KeyValue(declared) = &**entry else { return Err(self.lowerer.residue(entry.span(), "a prop declared other than `name: type`")) };
+          let name = prop_name_of_key(&declared.key).ok_or_else(|| self.lowerer.residue(declared.key.span(), "a computed prop name"))?;
+          if let js::Expr::Object(spec) = unwrap_types(&declared.value) {
+            let default = spec.props.iter().find_map(|p| match p {
+              js::PropOrSpread::Prop(p) => match &**p {
+                js::Prop::KeyValue(kv) if prop_name_of_key(&kv.key).as_deref() == Some("default") => Some(&*kv.value),
+                _ => None,
+              },
+              _ => None,
+            });
+            if let Some(default) = default {
+              let value = match unwrap_types(default) {
+                js::Expr::Arrow(arrow) if arrow.params.is_empty() => match arrow_body(arrow) {
+                  FunctionBody::Expr(e) => self.lowerer.expr(e)?,
+                  FunctionBody::Block(stmts) => block_to_expr(&mut self.lowerer, stmts)?,
+                },
+                js::Expr::Fn(_) | js::Expr::Arrow(_) => return Err(self.lowerer.residue(default.span(), "a prop default made by a function with parameters")),
+                other => self.lowerer.expr(other)?,
+              };
+              defaults.push(Entry::Field(name.clone(), value));
+            }
+          }
+          names.push(name);
+        }
+      }
+      other => return Err(self.lowerer.residue(other.span(), "a `props` option that is not a list or an object")),
+    }
+    if !defaults.is_empty() {
+      self.lets.push(Stmt::Let { name: "$props".to_owned(), expr: Expr::Object(vec![Entry::Spread(Expr::Object(defaults)), Entry::Spread(Expr::Var("$props".to_owned()))]) });
+    }
+    for name in names {
+      let read = Expr::Var("$props".to_owned()).field(name.clone());
+      self.bind(name, read.clone(), read);
+    }
+    Ok(())
+  }
+
+  /// The object a `data`-style option returns: `data() { return { … } }`, `data: () => ({ … })` or `data: function () { return { … } }`.
+  fn returned_object(&self, prop: &'p js::Prop, option: &str) -> Lowered<&'p js::ObjectLit> {
+    let body = match prop {
+      js::Prop::Method(m) => m.function.body.as_ref().map(|b| FunctionBody::Block(&b.stmts)),
+      js::Prop::KeyValue(kv) => match unwrap_types(&kv.value) {
+        js::Expr::Arrow(arrow) => Some(arrow_body(arrow)),
+        js::Expr::Fn(f) => f.function.body.as_ref().map(|b| FunctionBody::Block(&b.stmts)),
+        _ => None,
+      },
+      _ => None,
+    };
+    let returned = match body {
+      Some(FunctionBody::Expr(e)) => Some(e),
+      Some(FunctionBody::Block([js::Stmt::Return(js::ReturnStmt { arg: Some(e), .. })])) => Some(&**e),
+      _ => None,
+    };
+    match returned.map(unwrap_types) {
+      Some(js::Expr::Object(object)) => Ok(object),
+      _ => Err(self.lowerer.residue(prop.span(), format!("a `{option}` option other than a function returning an object literal"))),
+    }
+  }
+
+  /// The entries of an object-valued option, `computed` or `methods`, by name.
+  fn option_entries(&self, prop: &'p js::Prop, option: &str) -> Lowered<Vec<(String, OptionValue<'p>)>> {
+    let js::Prop::KeyValue(kv) = prop else { return Err(self.lowerer.residue(prop.span(), format!("a `{option}` option that is not an object"))) };
+    let js::Expr::Object(object) = unwrap_types(&kv.value) else { return Err(self.lowerer.residue(kv.value.span(), format!("a `{option}` option that is not an object"))) };
+    let mut out = Vec::new();
+    for entry in &object.props {
+      let js::PropOrSpread::Prop(entry) = entry else { return Err(self.lowerer.residue(object.span, format!("a spread in `{option}`"))) };
+      match &**entry {
+        js::Prop::Method(m) => out.push((prop_name_of_key(&m.key).ok_or_else(|| self.lowerer.residue(m.function.span, "a computed name"))?, OptionValue::Method(&m.function))),
+        js::Prop::KeyValue(kv) => out.push((prop_name_of_key(&kv.key).ok_or_else(|| self.lowerer.residue(kv.key.span(), "a computed name"))?, OptionValue::Expr(unwrap_types(&kv.value)))),
+        other => return Err(self.lowerer.residue(other.span(), format!("a `{option}` entry the build does not read"))),
+      }
+    }
+    Ok(out)
+  }
+
   fn setup_stmt(&mut self, stmt: &'p js::Stmt) -> Lowered<()> {
     match stmt {
       js::Stmt::Decl(js::Decl::Var(var)) => {
@@ -459,6 +777,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       js::Stmt::Decl(js::Decl::Fn(f)) => {
         if let Some(body) = &f.function.body {
           self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+          self.callable(&f.ident.sym, js::Expr::Fn(js::FnExpr { ident: None, function: f.function.clone() }));
         }
         Ok(())
       }

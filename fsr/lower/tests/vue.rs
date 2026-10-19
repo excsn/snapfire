@@ -74,15 +74,15 @@ fn render_rust(set: &ComponentSet, module: &str, props: &ValueMap, children: Vec
 }
 
 fn runtime() -> BTreeMap<String, String> {
-  let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compiler/vue/tests/runtime");
-  BTreeMap::from([
-    ("vue".to_owned(), std::fs::read_to_string(dir.join("vue.js")).expect("the runtime is vendored for tests")),
-    ("vue/server-renderer".to_owned(), std::fs::read_to_string(dir.join("server-renderer.js")).expect("the server renderer is vendored for tests")),
+  let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compiler/vue/tests/runtime/esm");
+  let mut modules: BTreeMap<String, String> = snapfire_vue::SERVER_RUNTIME.iter().map(|(specifier, file)| ((*specifier).to_owned(), std::fs::read_to_string(dir.join(file)).expect("the runtime is vendored for tests"))).collect();
+  modules.extend([
     ("@snapfire/fsr-client/vue".to_owned(), "export function useStore(key, initial) { return { value: initial }; }\n".to_owned()),
     ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\n".to_owned()),
     ("@generated/client".to_owned(), "export const actions = {};\n".to_owned()),
     ("@src/store".to_owned(), "export const plannedCount = \"tonight/planned\";\n".to_owned()),
-  ])
+  ]);
+  modules
 }
 
 /// What Vue's own server renderer writes for `source` with `props` as JSON.
@@ -277,7 +277,7 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
   };
   assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n"), "5:16: `v-model` on `<div>`", "the directive's own position, not its expression's");
   assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
-  assert!(refused("Options", "<script>\nexport default { data() { return {}; } };\n</script>\n<template><p /></template>\n").ends_with("a `<script>` without `setup`"));
+  assert_eq!(refused("Options", "<script>\nexport default {\n  created() {},\n};\n</script>\n<template><p /></template>\n"), "3:3: the `created` option, which the build does not read");
   assert_eq!(refused("Inject", "<script setup>\nimport { inject } from \"vue\";\nconst theme = inject(\"theme\", () => \"x\", true);\n</script>\n<template><p>{{ theme }}</p></template>\n"), "3:31: `inject` with a default factory");
   let bare = refused("Bare", "<template><p>{{ nowhere }}</p></template>\n");
   assert!(bare.starts_with("1:17: `nowhere` is not bound here"), "{bare}");
@@ -1155,4 +1155,86 @@ fn a_top_level_await_in_setup_is_refused_with_the_loader_named() {
     Ok(_) => panic!("a bare top-level await lowered"),
   };
   assert!(message.contains("top-level `await`") && message.contains("page.loader.ts"), "{message}");
+}
+
+const OPTIONS_PARENT: &str = r#"<script>
+import Item from "./Item.vue";
+
+export default {
+  name: "Board",
+  components: { Item },
+  props: { title: String, start: { type: Number, default: 3 } },
+  emits: ["done"],
+  data() {
+    return { count: this.start, items: ["a", "b"], text: "" };
+  },
+  computed: {
+    first() {
+      return this.later + 1;
+    },
+    later() {
+      return this.count * 2;
+    },
+    label() {
+      return `${this.title}: ${this.first}`;
+    },
+    total: function () {
+      return this.items.length + this.count;
+    },
+  },
+  methods: {
+    increment() {
+      this.count++;
+    },
+    shout(s) {
+      return s.toUpperCase();
+    },
+  },
+  watch: {
+    count() {
+      this.$emit("done");
+    },
+  },
+  mounted() {
+    this.count = 100;
+  },
+};
+</script>
+
+<template>
+  <h1>{{ label }}</h1>
+  <p>{{ count }} {{ later }} {{ total }} {{ shout(title) }}</p>
+  <button @click="increment">+</button>
+  <ul><Item v-for="i in items" :key="i" :name="i" /></ul>
+  <input v-model="text">
+</template>
+"#;
+
+const OPTIONS_ITEM: &str = r#"<script>
+import { defineComponent } from "vue";
+
+export default defineComponent({
+  props: ["name"],
+  data: () => ({ seen: false }),
+  computed: {
+    upper() {
+      return this.name.toUpperCase();
+    },
+  },
+});
+</script>
+
+<template>
+  <li :class="{ seen }">{{ upper }}</li>
+</template>
+"#;
+
+#[test]
+fn an_options_api_component_renders_what_vue_renders() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("options", &[("src/ui/Board.vue", OPTIONS_PARENT), ("src/ui/Item.vue", OPTIONS_ITEM)]);
+  let files = [("src/ui/Board.vue", "", OPTIONS_PARENT), ("src/ui/Item.vue", "Item.vue", OPTIONS_ITEM)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Board.vue", &props(&[("title", Value::str("Ten"))]));
+  assert!(html.contains("<h1>Ten: 7</h1>"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
 }

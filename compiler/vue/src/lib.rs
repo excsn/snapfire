@@ -46,6 +46,19 @@ enum Ask {
   Render { js: String, props: String, children: Option<String>, modules: BTreeMap<String, String>, reply: Sender<Result<String, VueError>> },
 }
 
+/// The bare specifiers a server-compiled component and `vue/server-renderer`
+/// import, as files under a runtime directory holding Vue's esm-bundler builds
+/// as published. They import each other by these names, so the server
+/// renderer and the component share one runtime, as they do under Node.
+pub const SERVER_RUNTIME: &[(&str, &str)] = &[
+  ("vue", "vue.runtime.esm-bundler.js"),
+  ("vue/server-renderer", "server-renderer.esm-bundler.js"),
+  ("@vue/runtime-dom", "runtime-dom.esm-bundler.js"),
+  ("@vue/runtime-core", "runtime-core.esm-bundler.js"),
+  ("@vue/reactivity", "reactivity.esm-bundler.js"),
+  ("@vue/shared", "shared.esm-bundler.js"),
+];
+
 /// One QuickJS context holding the compiler, owned by the thread it runs on.
 /// Booting is the expensive step and compiling is cheap after it, which is
 /// the whole reason a plugin worker is long-lived.

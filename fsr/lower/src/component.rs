@@ -392,7 +392,10 @@ impl ComponentSet {
       None => (String::new(), 1),
     };
     let padded = format!("{}{source}", "\n".repeat(line.saturating_sub(1)));
-    let parsed = parse_with(file, &padded, false)?;
+    let mut parsed = parse_with(file, &padded, false)?;
+    if described.script.as_ref().is_some_and(|script| script.plain && !script.setup) && file.ends_with(".vue") {
+      crate::vue::name_this(&mut parsed.module);
+    }
     self.parsed.insert(file.to_owned(), Rc::new(parsed));
     Ok(())
   }
@@ -1559,6 +1562,7 @@ impl ComponentSet {
       let mut declared: Vec<String> = self.described.get(&child_file).map(|d| d.bindings.iter().filter(|(_, kind)| kind.as_str() == "props").map(|(name, _)| name.clone()).collect()).unwrap_or_default();
       if let Some(parsed) = self.parsed.get(&child_file) {
         declared.extend(crate::vue::model_props(parsed));
+        declared.extend(crate::vue::option_props(parsed));
       }
       if let Some(stray) = child.attrs.iter().find(|a| !declared.contains(a)) {
         return Err(at(format!("`{stray}` on `<{}>`, which it does not declare as a prop, so Vue would fall it through onto its root element", child.local)));

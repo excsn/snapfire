@@ -134,11 +134,8 @@ fn the_compiled_module_leaves_template_comments_out_like_the_description_does() 
 }
 
 fn runtime() -> BTreeMap<String, String> {
-  let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/runtime");
-  BTreeMap::from([
-    ("vue".to_owned(), std::fs::read_to_string(dir.join("vue.js")).expect("the runtime is vendored for tests")),
-    ("vue/server-renderer".to_owned(), std::fs::read_to_string(dir.join("server-renderer.js")).expect("the server renderer is vendored for tests")),
-  ])
+  let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/runtime/esm");
+  snapfire_vue::SERVER_RUNTIME.iter().map(|(specifier, file)| ((*specifier).to_owned(), std::fs::read_to_string(dir.join(file)).expect("the runtime is vendored for tests"))).collect()
 }
 
 const CARD: &str = r#"<script setup>
