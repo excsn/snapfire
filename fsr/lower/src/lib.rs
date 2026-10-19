@@ -2169,6 +2169,14 @@ impl<'a> Lowerer<'a> {
           "BigInt" => Ok(Expr::BigInt(one(self)?)),
           "Boolean" => Ok(Expr::Not(Box::new(Expr::Not(one(self)?)))),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
+          "isNaN" => Ok(Expr::Builtin { name: Builtin::IsNaN, args: vec![*one(self)?] }),
+          "parseInt" => {
+            let mut args = vec![*one(self)?];
+            if let Some(radix) = call.args.get(1) {
+              args.push(self.expr(&radix.expr)?);
+            }
+            Ok(Expr::Builtin { name: Builtin::ParseInt, args })
+          }
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.args.first() {
             Some(_) => Ok(*one(self)?),
@@ -2418,6 +2426,7 @@ impl<'a> Lowerer<'a> {
       "flatMap" => Ok(Expr::FlatMap(target, lambda(self, 0)?)),
       "flat" if call.args.is_empty() || matches!(&*call.args[0].expr, js::Expr::Lit(js::Lit::Num(n)) if n.value == 1.0) => Ok(Expr::FlatMap(target, Box::new(Expr::Lambda { params: vec!["$item".to_owned()], body: Box::new(Expr::Var("$item".to_owned())) }))),
       "toString" if call.args.is_empty() => Ok(Expr::Str(target)),
+      "toString" => Ok(Expr::Builtin { name: Builtin::Radix, args: vec![*target, self.expr(&call.args[0].expr)?] }),
       "getTime" | "valueOf" => Ok(*target),
       "toISOString" | "toJSON" => Ok(Expr::Builtin { name: Builtin::IsoString, args: vec![*target] }),
       "getUTCFullYear" | "getUTCMonth" | "getUTCDate" | "getUTCDay" | "getUTCHours" | "getUTCMinutes" | "getUTCSeconds" | "getUTCMilliseconds" | "getMilliseconds" => {
@@ -2458,11 +2467,13 @@ impl<'a> Lowerer<'a> {
         };
         Ok(Expr::Sort(target, f))
       }
-      "slice" | "at" | "indexOf" | "concat" | "padStart" | "padEnd" | "substring" => {
+      "slice" | "at" | "indexOf" | "lastIndexOf" | "charCodeAt" | "concat" | "padStart" | "padEnd" | "substring" => {
         let name = match method.as_str() {
           "slice" => Builtin::Slice,
           "at" => Builtin::At,
           "indexOf" => Builtin::IndexOf,
+          "lastIndexOf" => Builtin::LastIndexOf,
+          "charCodeAt" => Builtin::CharCodeAt,
           "concat" => Builtin::Concat,
           "padStart" => Builtin::PadStart,
           "padEnd" => Builtin::PadEnd,

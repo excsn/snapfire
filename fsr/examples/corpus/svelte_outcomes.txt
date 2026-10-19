@@ -15,7 +15,7 @@ examples-bindings-dimensions	lowered
 examples-bindings-each-block-bindings	lowered
 examples-bindings-file-inputs	lowered
 examples-bindings-group-inputs	lowered
-examples-bindings-media-elements	client: src/App.svelte:42:13 a call to `isNaN`, which the build cannot follow
+examples-bindings-media-elements	lowered
 examples-bindings-multiple-select-bindings	lowered
 examples-bindings-numeric-inputs	lowered
 examples-bindings-select-bindings	lowered
@@ -56,7 +56,7 @@ examples-logic-if-blocks	lowered
 examples-logic-keyed-each-blocks	lowered
 examples-miscellaneous-dynamic-components	lowered
 examples-miscellaneous-hacker-news	lowered
-examples-miscellaneous-recursive-components	client: src/App.svelte:39:1 `<Folder>` does not lower: src/Folder.svelte:22:6: `<File>` does not lower: src/File.svelte:3:36: `.lastIndexOf()`, which is not a builtin
+examples-miscellaneous-recursive-components	lowered
 examples-module-context-module-exports	lowered
 examples-motion-spring	lowered
 examples-motion-tweened	lowered
@@ -95,7 +95,7 @@ tutorial-advanced-svelte-advanced-bindings-component-this	lowered
 tutorial-advanced-svelte-advanced-bindings-contenteditable-bindings	lowered
 tutorial-advanced-svelte-advanced-bindings-dimensions	lowered
 tutorial-advanced-svelte-advanced-bindings-each-block-bindings	lowered
-tutorial-advanced-svelte-advanced-bindings-media-elements	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:9:13: a call to `isNaN`, which the build cannot follow
+tutorial-advanced-svelte-advanced-bindings-media-elements	lowered
 tutorial-advanced-svelte-advanced-reactivity-getters-and-setters	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
 tutorial-advanced-svelte-advanced-reactivity-raw-state	client: src/data.js:16:12 an assignment inside an expression
 tutorial-advanced-svelte-advanced-reactivity-reactive-builtins	client: src/App.svelte:4:16 the current time on a render path, which the server and the browser read at different moments
@@ -103,15 +103,15 @@ tutorial-advanced-svelte-advanced-reactivity-reactive-classes	client: src/App.sv
 tutorial-advanced-svelte-advanced-reactivity-stores	lowered
 tutorial-advanced-svelte-advanced-transitions-animations	lowered
 tutorial-advanced-svelte-advanced-transitions-deferred-transitions	lowered
-tutorial-advanced-svelte-context-context-api	client: src/App.svelte:21:10 a call to `Array`, which the build cannot follow
+tutorial-advanced-svelte-context-context-api	client: src/App.svelte:9:9 a compound assignment; write the full expression
 tutorial-advanced-svelte-motion-springs	lowered
 tutorial-advanced-svelte-motion-tweens	lowered
 tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:20 `Math.random`
-tutorial-advanced-svelte-script-module-module-exports	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:17:13: a call to `isNaN`, which the build cannot follow
-tutorial-advanced-svelte-script-module-sharing-code	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:13:13: a call to `isNaN`, which the build cannot follow
-tutorial-advanced-svelte-snippets-implicit-snippet-props	client: src/data.js:154:13 a call to `parseInt`, which the build cannot follow
-tutorial-advanced-svelte-snippets-passing-snippets	client: src/data.js:154:13 a call to `parseInt`, which the build cannot follow
-tutorial-advanced-svelte-snippets-snippets-and-render-tags	client: src/App.svelte:16:12 `.charCodeAt()`, which is not a builtin
+tutorial-advanced-svelte-script-module-module-exports	lowered
+tutorial-advanced-svelte-script-module-sharing-code	lowered
+tutorial-advanced-svelte-snippets-implicit-snippet-props	client: src/App.svelte:6:1 `<FilteredList>` does not lower: src/FilteredList.svelte:9:23: `new RegExp`
+tutorial-advanced-svelte-snippets-passing-snippets	client: src/App.svelte:6:1 `<FilteredList>` does not lower: src/FilteredList.svelte:9:23: `new RegExp`
+tutorial-advanced-svelte-snippets-snippets-and-render-tags	client: src/App.svelte:17:15 `.codePointAt()`, which is not a builtin
 tutorial-advanced-svelte-special-elements-svelte-body	lowered
 tutorial-advanced-svelte-special-elements-svelte-boundary	lowered
 tutorial-advanced-svelte-special-elements-svelte-document	lowered
@@ -120,7 +120,7 @@ tutorial-advanced-svelte-special-elements-svelte-head	client: src/App.svelte:6:1
 tutorial-advanced-svelte-special-elements-svelte-window	lowered
 tutorial-advanced-svelte-special-elements-svelte-window-bindings	lowered
 tutorial-advanced-svelte-xx-currently-unused-debug	lowered
-tutorial-advanced-svelte-xx-currently-unused-svelte-self	client: src/App.svelte:6:1 `<Folder>` does not lower: src/Folder.svelte:21:6: `<File>` does not lower: src/File.svelte:4:36: `.lastIndexOf()`, which is not a builtin
+tutorial-advanced-svelte-xx-currently-unused-svelte-self	lowered
 tutorial-svelte-attachments-attach	lowered
 tutorial-svelte-bindings-checkbox-inputs	lowered
 tutorial-svelte-bindings-group-inputs	client: src/App.svelte:5:27 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`

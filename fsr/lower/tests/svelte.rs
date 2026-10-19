@@ -359,6 +359,24 @@ fn svelte_library_values_hold_what_the_server_reads() {
   check("library-values", source, &props(&[]));
 }
 
+#[test]
+fn number_and_string_builtins_render_what_javascript_computes() {
+  let source = r#"<script>let { word, nums, hex, n, half } = $props();</script>
+<p>{isNaN(n)} {isNaN(word)} {isNaN('12')} {isNaN(0 / 0)} {isNaN(null)} {isNaN(true)} {isNaN(' ')} {isNaN('0x1g')} {isNaN(half)}</p>
+<p>{parseInt(hex.slice(1, 3), 16)} {parseInt('  -42px')} {parseInt('0x1f')} {parseInt('0x1f', 16)} {parseInt('0x1f', 10)} {parseInt('z', 36)} {parseInt('abc')} {parseInt('12.9e3')} {parseInt('101', 2)} {parseInt('9', 8)} {parseInt('', 10)} {parseInt('+7')} {parseInt('-0')} {parseInt('1e21')} {parseInt(half)} {parseInt('7', 1)} {parseInt('7', 37)} {parseInt('7', 0)} {parseInt('ffffffffffffffffffff', 16)} {parseInt(null)} {parseInt(n, 36)}</p>
+<p>{word.lastIndexOf('l')} {word.lastIndexOf('l', 2)} {word.lastIndexOf('')} {word.lastIndexOf('', 2)} {word.lastIndexOf('z')} {word.lastIndexOf('lo', -5)} {nums.lastIndexOf(3)} {nums.lastIndexOf(3, -2)} {nums.lastIndexOf(9)} {nums.lastIndexOf(1, -99)}</p>
+<p>{word.charCodeAt(0)} {word.charCodeAt(99)} {'😀'.charCodeAt(1)} {word.charCodeAt()} {word.charCodeAt(-1)} {word.charCodeAt(1.7)}</p>
+<p>{(255).toString(16)} {(255).toString(2)} {(-255).toString(36)} {n.toString(16)} {'😀'.charCodeAt(0).toString(16)} {(0).toString(7)} {(1e21).toString(16)} {n.toString(10)}</p>
+<p>{n * 1e20} {n * 1e19} {n / 1e8} {half * 1e-7} {half / 1e6} {-n * 1e30} {String(2 ** 70)} {1 / 3} {n * 1e300 * 1e10} {n * 0 - 121353887610955.125}</p>
+<ul>{#each Array(3) as _, i}<li>{i}</li>{/each}</ul>
+<ol>{#each Array(n % 4) as _, i}<li>{i}</li>{/each}</ol>"#;
+  check(
+    "builtins",
+    source,
+    &props(&[("word", s("hello")), ("nums", Value::Seq(vec![Value::int(1i64), Value::int(3i64), Value::int(5i64), Value::int(3i64)].into())), ("hex", s("#ff8000")), ("n", Value::int(42i64)), ("half", Value::F64(12.5))]),
+  );
+}
+
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);
@@ -752,6 +770,32 @@ mod generated {
       let source = source(&nodes, legacy, styled);
       let (rust, svelte) = both("generated", &[("src/C.svelte", &source)], &given, None);
       prop_assert_eq!(rust, svelte, "{}\n{:?}", source, given);
+    }
+  }
+
+  const NUMBERS: &str = "<script>let { rows } = $props();</script>{#each rows as r}<p>{parseInt(r.s, r.radix)}|{parseInt(r.s)}|{isNaN(r.s)}|{r.n}|{String(r.n)}|{r.i.toString(r.base)}|{r.s.lastIndexOf(r.t, r.at)}|{r.s.lastIndexOf(r.t)}|{r.s.charCodeAt(r.at)}</p>{/each}";
+
+  fn row() -> impl Strategy<Value = Value> {
+    let text = "[ \t\u{a0}\u{85}\u{feff}\u{2028}+-]{0,2}(0[xX])?[0-9a-zA-Z._🙂]{0,10}".prop_map(Value::str);
+    let radix = prop_oneof![(-2i64..40).prop_map(Value::int), Just(Value::Null)];
+    let finite = any::<f64>().prop_filter("finite", |f| f.is_finite());
+    let number = prop_oneof![finite.clone(), (-1_000_000i64..1_000_000).prop_map(|n| n as f64 / 1000.0), (-30i32..30).prop_map(|e| 10f64.powi(e))];
+    let integer = prop_oneof![(-(1i64 << 53)..=(1i64 << 53)).prop_map(|n| n as f64), finite.prop_map(f64::trunc)];
+    let search = "[ab🙂]{0,2}".prop_map(Value::str);
+    (text, radix, number, integer, 2i64..=36, search, -3i64..14).prop_map(|(s, radix, n, i, base, t, at)| {
+      let base = if i.abs() > (1i64 << 53) as f64 { 1 << (base % 5 + 1) } else { base };
+      Value::Map(props(&[("s", s), ("radix", radix), ("n", Value::F64(n)), ("i", Value::F64(i)), ("base", Value::int(base)), ("t", t), ("at", Value::int(at))]))
+    })
+  }
+
+  proptest! {
+    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+
+    #[test]
+    fn number_parsing_and_printing_render_as_svelte_server_writes_them(rows in prop::collection::vec(row(), 1..12)) {
+      let given = props(&[("rows", Value::seq(rows))]);
+      let (rust, svelte) = both("numbers", &[("src/C.svelte", NUMBERS)], &given, None);
+      prop_assert_eq!(rust, svelte, "{:?}", given);
     }
   }
 }

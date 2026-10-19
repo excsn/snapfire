@@ -805,8 +805,13 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// that renders writes its fallback after `<!--[!-->` instead.
   fn each_block(&mut self, node: &Node, out: &mut Vec<Tmpl>) -> Lowered<()> {
     let Node::Each { expression, context, index, body, fallback, at, .. } = node else { unreachable!("an each block") };
-    let over = Expr::Coalesce(Box::new(self.expr(&expression.code, expression.at)?), Box::new(Expr::Array(Vec::new())));
-    let length = self.expr(&format!("(({}) ?? []).length", expression.code), expression.at)?;
+    let (over, length) = match self.holes(&expression.code, expression.at)? {
+      Some(length) => (Expr::Map(Box::new(Expr::Builtin { name: Builtin::Range, args: vec![length.clone()] }), Box::new(Expr::Lambda { params: vec!["$hole".to_owned()], body: Box::new(Expr::Lit(Lit::Null)) })), length),
+      None => (
+        Expr::Coalesce(Box::new(self.expr(&expression.code, expression.at)?), Box::new(Expr::Array(Vec::new()))),
+        self.expr(&format!("(({}) ?? []).length", expression.code), expression.at)?,
+      ),
+    };
     let scope_before = self.lowerer.scope.len();
     let item = match context {
       Some(context) => self.holder(context),
@@ -839,6 +844,32 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let _ = at;
     out.push(Tmpl::Marker(BLOCK_CLOSE.to_owned()));
     Ok(())
+  }
+
+  /// The length of `Array(n)` or `new Array(n)` when that is what `code` is: an array of `n` holes, which an each block reads as `undefined`.
+  fn holes(&mut self, code: &str, (line, column): (usize, usize)) -> Lowered<Option<Expr>> {
+    let mut parsed = self.lowerer.parsed.parse_expr_at(code, line, column).map_err(|message| self.at(line, column, format!("`{}`: {message}", code.trim())))?;
+    let declared = |this: &Self, name: &str| this.lowerer.scope.iter().any(|(bound, _)| bound == name) || this.lowerer.meanings.as_ref().is_some_and(|meanings| meanings.bindings.contains_key(name));
+    if declared(self, "Array") {
+      return Ok(None);
+    }
+    if let Some(top) = self.lowerer.meanings.as_ref().map(|meanings| meanings.top) {
+      let local: Vec<String> = self.lowerer.scope.iter().map(|(name, _)| name.clone()).collect();
+      parsed.visit_mut_with(&mut TopLevel { top, local });
+    }
+    let (callee, args) = match unwrap_types(&parsed) {
+      js::Expr::Call(call) => match &call.callee {
+        js::Callee::Expr(callee) => (&**callee, &call.args[..]),
+        _ => return Ok(None),
+      },
+      js::Expr::New(made) => (&*made.callee, made.args.as_deref().unwrap_or_default()),
+      _ => return Ok(None),
+    };
+    let js::Expr::Ident(id) = unwrap_types(callee) else { return Ok(None) };
+    match args {
+      [length] if id.sym.as_ref() == "Array" && length.spread.is_none() => Ok(Some(self.lowerer.expr(&length.expr)?)),
+      _ => Ok(None),
+    }
   }
 
   /// `RenderTag`: a snippet the template declared renders where it is

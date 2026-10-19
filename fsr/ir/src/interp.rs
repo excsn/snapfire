@@ -1826,9 +1826,103 @@ fn to_number(value: &Value) -> Option<f64> {
   }
 }
 
+/// JavaScript's `ToInt32`.
+fn int32(n: f64) -> i32 {
+  if !n.is_finite() {
+    return 0;
+  }
+  n.trunc().rem_euclid(4_294_967_296.0) as u32 as i32
+}
+
+/// `parseInt(s, radix)` once `s` is a string and `radix` an `int32`.
+fn parse_int(s: &str, radix: i32) -> f64 {
+  let s = s.trim_start_matches(js_whitespace);
+  let (negative, s) = match s.as_bytes().first() {
+    Some(b'-') => (true, &s[1..]),
+    Some(b'+') => (false, &s[1..]),
+    _ => (false, s),
+  };
+  let (radix, s) = match radix {
+    0 | 16 => match s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+      Some(rest) => (16, rest),
+      None => (if radix == 0 { 10 } else { 16 }, s),
+    },
+    2..=36 => (radix as u32, s),
+    _ => return f64::NAN,
+  };
+  let digits = &s[..s.find(|c: char| !c.is_digit(radix)).unwrap_or(s.len())];
+  if digits.is_empty() {
+    return f64::NAN;
+  }
+  let magnitude = if radix == 10 {
+    digits.parse::<f64>().unwrap_or(f64::NAN)
+  } else {
+    let mut exact: u128 = 0;
+    let mut rest = digits;
+    while let Some(c) = rest.chars().next() {
+      match exact.checked_mul(u128::from(radix)).and_then(|n| n.checked_add(u128::from(c.to_digit(radix).expect("a digit")))) {
+        Some(n) => exact = n,
+        None => break,
+      }
+      rest = &rest[1..];
+    }
+    exact as f64 * f64::from(radix).powi(rest.len() as i32)
+  };
+  if negative { -magnitude } else { magnitude }
+}
+
+/// The digits of an integer `n` in `radix`, as `Number.prototype.toString` writes them; `None` for a finite number with a fraction and for one past `Number.MAX_SAFE_INTEGER` in a radix that is not a power of 2, whose digits engines round differently.
+fn radix_digits(n: f64, radix: u32) -> Option<String> {
+  if n.is_nan() {
+    return Some("NaN".to_owned());
+  }
+  if n.is_infinite() {
+    return Some(if n < 0.0 { "-Infinity" } else { "Infinity" }.to_owned());
+  }
+  if n.fract() != 0.0 || (n.abs() > SAFE_INTEGER && !radix.is_power_of_two()) {
+    return None;
+  }
+  let bits = n.abs().to_bits();
+  let exponent = ((bits >> 52) & 0x7ff) as i64;
+  let mantissa = if exponent == 0 { (bits & ((1 << 52) - 1)) << 1 } else { (bits & ((1 << 52) - 1)) | (1 << 52) };
+  let shift = exponent - 1075;
+  let mut limbs: Vec<u32> = vec![mantissa as u32, (mantissa >> 32) as u32];
+  if shift > 0 {
+    let (words, bits) = ((shift / 32) as usize, (shift % 32) as u32);
+    let mut shifted = vec![0u32; words];
+    let mut carry = 0u32;
+    for limb in limbs {
+      shifted.push(if bits == 0 { limb } else { (limb << bits) | carry });
+      carry = if bits == 0 { 0 } else { limb >> (32 - bits) };
+    }
+    shifted.push(carry);
+    limbs = shifted;
+  } else if shift < 0 {
+    let value = mantissa >> (-shift).min(63);
+    limbs = vec![value as u32, (value >> 32) as u32];
+  }
+  let mut out = Vec::new();
+  while limbs.iter().any(|&limb| limb != 0) {
+    let mut remainder = 0u64;
+    for limb in limbs.iter_mut().rev() {
+      let current = (remainder << 32) | u64::from(*limb);
+      *limb = (current / u64::from(radix)) as u32;
+      remainder = current % u64::from(radix);
+    }
+    out.push(char::from_digit(remainder as u32, radix).expect("a digit"));
+  }
+  if out.is_empty() {
+    out.push('0');
+  }
+  if n < 0.0 {
+    out.push('-');
+  }
+  Some(out.into_iter().rev().collect())
+}
+
 /// JavaScript's `StringToNumber`: surrounding whitespace is dropped, empty is 0, `0x`, `0o` and `0b` read unsigned in their base, `Infinity` may carry a sign and anything else that is not a decimal literal is NaN.
 fn string_number(s: &str) -> f64 {
-  let s = s.trim();
+  let s = s.trim_matches(js_whitespace);
   if s.is_empty() {
     return 0.0;
   }
@@ -2713,6 +2807,68 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       other => Value::Bool(truthy(other)),
     },
+    Builtin::IsNaN => Value::Bool(match arg(0)? {
+      Value::Map(_) => true,
+      Value::Seq(_) => string_number(&stringify(arg(0)?)?).is_nan(),
+      other => to_number(other).is_none_or(f64::is_nan),
+    }),
+    Builtin::ParseInt => {
+      let radix = match args.get(1) {
+        None | Some(Value::Null) => 0.0,
+        Some(v) => to_number(v).ok_or_else(|| type_error(&format!("{name:?}"), "a number", v))?,
+      };
+      whole(parse_int(&stringify(arg(0)?)?, int32(radix)))
+    }
+    Builtin::LastIndexOf => match arg(0)? {
+      Value::Seq(items) => {
+        let len = items.len() as f64;
+        let from = match args.get(2) {
+          None => len - 1.0,
+          Some(_) => integer(name, args.get(2))?,
+        };
+        let from = if from < 0.0 { len + from } else { from.min(len - 1.0) };
+        if from < 0.0 {
+          return Ok(whole(-1.0));
+        }
+        let wanted = arg(1)?;
+        whole(items[..=from as usize].iter().rposition(|item| strictly_equal(item, wanted)).map_or(-1.0, |i| i as f64))
+      }
+      Value::Str(s) => {
+        let units: Vec<u16> = s.encode_utf16().collect();
+        let wanted: Vec<u16> = stringify(arg(1)?)?.encode_utf16().collect();
+        let from = match args.get(2) {
+          None | Some(Value::Null) => f64::INFINITY,
+          Some(v) => {
+            let n = to_number(v).ok_or_else(|| type_error(&format!("{name:?}"), "a number", v))?;
+            if n.is_nan() { f64::INFINITY } else { n.trunc() }
+          }
+        };
+        if wanted.len() > units.len() {
+          return Ok(whole(-1.0));
+        }
+        let start = from.clamp(0.0, (units.len() - wanted.len()) as f64) as usize;
+        whole((0..=start).rev().find(|&at| units[at..].starts_with(&wanted)).map_or(-1.0, |at| at as f64))
+      }
+      other => return Err(type_error(&format!("{name:?}"), "an array or a string", other)),
+    },
+    Builtin::CharCodeAt => {
+      let units: Vec<u16> = text(name, arg(0)?)?.encode_utf16().collect();
+      let at = integer(name, args.get(1))?;
+      whole(if at < 0.0 || at >= units.len() as f64 { f64::NAN } else { f64::from(units[at as usize]) })
+    }
+    Builtin::Radix => {
+      let radix = match args.get(1) {
+        None | Some(Value::Null) => 10.0,
+        v => integer(name, v)?,
+      };
+      if !(2.0..=36.0).contains(&radix) {
+        return Err(Fail::internal(format!("{name:?}: a radix of {radix}, where JavaScript throws a RangeError for one outside 2 to 36")));
+      }
+      match arg(0)? {
+        v if radix == 10.0 || !is_number(v) => Value::str(stringify(v)?),
+        v => Value::str(radix_digits(number(name, v)?, radix as u32).ok_or_else(|| Fail::internal(format!("{name:?}: a number with a fraction or past 2^53 in a radix that is not a power of 2, whose digits engines print differently in radix {radix}")))?),
+      }
+    }
     Builtin::Pow => whole(js_pow(number(name, arg(0)?)?, number(name, arg(1)?)?)),
     Builtin::Sqrt => whole(number(name, arg(0)?)?.sqrt()),
     Builtin::Trunc => whole(number(name, arg(0)?)?.trunc()),
@@ -2752,18 +2908,51 @@ pub fn number_key(n: f64) -> String {
   stringify(&Value::F64(n)).expect("a number is a scalar")
 }
 
+/// JavaScript's `Number::toString` in radix 10: the fewest digits that read back as `n`, the closest of those to `n` with a tie to the even one, in exponent form from 1e21 up and below 1e-6.
+fn number_text(n: f64) -> String {
+  if n.is_nan() {
+    return "NaN".to_owned();
+  }
+  if n == 0.0 {
+    return "0".to_owned();
+  }
+  if n.is_infinite() {
+    return if n > 0.0 { "Infinity" } else { "-Infinity" }.to_owned();
+  }
+  let sign = if n < 0.0 { "-" } else { "" };
+  let shortest = format!("{:e}", n.abs());
+  let length = shortest.split_once('e').expect("`{:e}` writes an exponent").0.replace('.', "").len();
+  let closest = format!("{:.*e}", length - 1, n.abs());
+  let scientific = if closest.parse::<f64>() == Ok(n.abs()) { closest } else { shortest };
+  let (mantissa, exponent) = scientific.split_once('e').expect("`{:e}` writes an exponent");
+  let digits = mantissa.replace('.', "");
+  let k = digits.len() as i64;
+  let point = exponent.parse::<i64>().expect("an integer exponent") + 1;
+  let body = if k <= point && point <= 21 {
+    format!("{digits}{}", "0".repeat((point - k) as usize))
+  } else if 0 < point && point <= 21 {
+    format!("{}.{}", &digits[..point as usize], &digits[point as usize..])
+  } else if -6 < point && point <= 0 {
+    format!("0.{}{digits}", "0".repeat((-point) as usize))
+  } else {
+    let e = point - 1;
+    let e = if e < 0 { format!("-{}", -e) } else { format!("+{e}") };
+    match digits.split_at(1) {
+      (first, "") => format!("{first}e{e}"),
+      (first, rest) => format!("{first}.{rest}e{e}"),
+    }
+  };
+  format!("{sign}{body}")
+}
+
 pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
   Ok(match value {
     Value::Null => "null".to_owned(),
     Value::Bool(b) => b.to_string(),
     Value::Int(n) => n.to_string(),
     Value::UInt(n) => n.to_string(),
-    Value::F64(f) if *f == 0.0 => "0".to_owned(),
-    Value::F64(f) if f.is_infinite() => if *f > 0.0 { "Infinity" } else { "-Infinity" }.to_owned(),
-    Value::F64(f) => f.to_string(),
-    Value::F32(f) if *f == 0.0 => "0".to_owned(),
-    Value::F32(f) if f.is_infinite() => if *f > 0.0 { "Infinity" } else { "-Infinity" }.to_owned(),
-    Value::F32(f) => (*f as f64).to_string(),
+    Value::F64(f) => number_text(*f),
+    Value::F32(f) => number_text(f64::from(*f)),
     Value::Str(s) => s.to_string(),
     other => return Err(type_error("String", "a scalar", other)),
   })

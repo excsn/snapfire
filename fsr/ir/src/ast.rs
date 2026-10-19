@@ -253,6 +253,16 @@ pub enum Builtin {
   Checked,
   /// A radio's or an option's `v-model`: whether an array model holds the value, else whether the two are equal as text.
   LooseMatch,
+  /// The global `isNaN(x)`: whether `Number(x)` is NaN.
+  IsNaN,
+  /// `parseInt(s, radix)` over `String(s)`: a radix of 0 or none reads 10 (16 after `0x`); one outside 2 to 36 is NaN.
+  ParseInt,
+  /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.
+  LastIndexOf,
+  /// `s.charCodeAt(i)`: the UTF-16 code unit at `i`, NaN past either end.
+  CharCodeAt,
+  /// `x.toString(radix)`: a number's digits in a radix from 2 to 36, anything else as `String(x)`. In a radix other than 10 a number with a fraction is an error. So is one past 2^53 in a radix that is not a power of 2, since engines print their digits differently.
+  Radix,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is

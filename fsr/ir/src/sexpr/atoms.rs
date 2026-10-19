@@ -137,6 +137,11 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::ReplaceAll => "replace-all",
     Builtin::Checked => "checked",
     Builtin::LooseMatch => "loose-match",
+    Builtin::IsNaN => "is-nan",
+    Builtin::ParseInt => "parse-int",
+    Builtin::LastIndexOf => "last-index-of",
+    Builtin::CharCodeAt => "char-code-at",
+    Builtin::Radix => "radix",
   }
 }
 
@@ -201,6 +206,11 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "replace-all" => Builtin::ReplaceAll,
     "checked" => Builtin::Checked,
     "loose-match" => Builtin::LooseMatch,
+    "is-nan" => Builtin::IsNaN,
+    "parse-int" => Builtin::ParseInt,
+    "last-index-of" => Builtin::LastIndexOf,
+    "char-code-at" => Builtin::CharCodeAt,
+    "radix" => Builtin::Radix,
     _ => return None,
   })
 }
