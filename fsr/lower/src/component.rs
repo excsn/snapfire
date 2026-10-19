@@ -1624,7 +1624,13 @@ impl ComponentSet {
           if globals.iter().any(|(n, _)| *n == name) {
             return Err(residue.into());
           }
-          let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          let store = name.strip_prefix('$').filter(|base| !base.starts_with('$'));
+          let Some((expr, key)) = (match store {
+            Some(base) => self.global(file, base)?,
+            None => self.global(file, &name)?,
+          }) else {
+            return Err(residue.into());
+          };
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
           }

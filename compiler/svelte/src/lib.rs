@@ -30,11 +30,14 @@ const ENGINE_STACK: usize = 48 << 20;
 /// The bare specifiers a server-compiled component and `svelte/server` import,
 /// as paths under a runtime directory holding `svelte`, `esm-env`, `clsx` and
 /// `devalue` as published. `esm-env` answers as a production server.
+/// `svelte/store` is the stores its server entry re-exports, without
+/// `toStore` and `fromStore`.
 pub const SERVER_RUNTIME: &[(&str, &str)] = &[
   ("svelte/server", "svelte/src/server/index.js"),
   ("svelte/internal/server", "svelte/src/internal/server/index.js"),
   ("svelte/internal/flags/legacy", "svelte/src/internal/flags/legacy.js"),
   ("#client/constants", "svelte/src/internal/client/constants.js"),
+  ("svelte/store", "svelte/src/store/shared/index.js"),
   ("esm-env", "esm-env/index.js"),
   ("esm-env/browser", "esm-env/false.js"),
   ("esm-env/development", "esm-env/false.js"),

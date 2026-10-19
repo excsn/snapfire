@@ -50,6 +50,8 @@ pub(crate) enum Construct {
   IsValidElement,
   /// React's `Suspense` or `Activity`, which the server writes as a boundary around its children.
   Boundary(&'static str),
+  /// `svelte/store`'s `writable`, `readable`, `readonly`, `derived` or `get`: a store is its value on the server.
+  SvelteStore(&'static str),
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -148,6 +150,11 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("clsx", "clsx", Construct::ClassNames),
   ("clsx", "default", Construct::ClassNames),
   ("classnames", "default", Construct::ClassNames),
+  ("svelte/store", "writable", Construct::SvelteStore("writable")),
+  ("svelte/store", "readable", Construct::SvelteStore("readable")),
+  ("svelte/store", "readonly", Construct::SvelteStore("readonly")),
+  ("svelte/store", "derived", Construct::SvelteStore("derived")),
+  ("svelte/store", "get", Construct::SvelteStore("get")),
 ];
 
 /// Whether `module` is one the table speaks for, so an export it does not list is a library value the build does not read rather than the application's.

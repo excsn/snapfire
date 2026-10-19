@@ -76,6 +76,9 @@ fn both(tag: &str, files: &[(&str, &str)], props: &ValueMap, children: Option<&s
   let mut set = ComponentSet::new(&dir);
   let mut modules = stubs();
   COMPILER.with(|compiler| {
+    for (file, source) in files.iter().filter(|(f, _)| f.ends_with(".js")) {
+      modules.insert(format!("/{file}"), (*source).to_owned());
+    }
     for (file, source) in files.iter().filter(|(f, _)| f.ends_with(".svelte")) {
       match compiler.describe(file, source, &Options::default()).expect("the driver answers") {
         Outcome::Described(described) => set.describe(*file, described),
@@ -299,6 +302,16 @@ fn key_await_boundary_and_window_elements_render_as_svelte_writes_them() {
   }
 }
 
+#[test]
+fn stores_css_props_and_component_bindings_render_as_svelte_writes_them() {
+  let a = "<script>let { x = 0, value = $bindable(5) } = $props();</script><b>{x} {value}</b>";
+  let parent = "<script>import A from './A.svelte'; import { writable, readable, derived, get } from 'svelte/store'; import { count } from './stores.js'; const w = writable(1); const r = readable('r'); const d = derived(w, (x) => x * 2); const both = derived([w, r], ([x, y]) => `${x}${y}`); let v = $state(3); let { c, n } = $props();</script>\
+    <p>{$w} {$r} {$d} {$both} {$count} {get(w)}</p><A --color={c} --size=\"2px\" x={1}/><svg><A --color=\"red\"/></svg><A bind:value={v}/><A bind:value={() => n, (x) => {}}/><A />";
+  let stores = "import { writable } from 'svelte/store';\nexport const count = writable(7);\n";
+  let (rust, svelte) = both("stores", &[("src/C.svelte", parent), ("src/A.svelte", a), ("src/stores.js", stores)], &props(&[("c", s("blue")), ("n", Value::int(4i64))]), None);
+  assert_eq!(rust, svelte);
+}
+
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);
@@ -310,6 +323,14 @@ fn refused(tag: &str, source: &str) -> String {
   let refusal = set.lower("src/C.svelte#default").expect_err("refused").to_string();
   let _ = std::fs::remove_dir_all(&dir);
   refusal
+}
+
+#[test]
+fn a_store_that_sets_its_value_when_subscribed_is_refused() {
+  let started = refused("started", "<script>import { readable } from 'svelte/store'; const now = readable(0, (set) => set(1));</script><p>{$now}</p>");
+  assert!(started.contains("start function"), "{started}");
+  let derived = refused("derived-set", "<script>import { writable, derived } from 'svelte/store'; const w = writable(1); const d = derived(w, (x, set) => set(x));</script><p>{$d}</p>");
+  assert!(derived.contains("sets its value"), "{derived}");
 }
 
 #[test]

@@ -2088,6 +2088,9 @@ impl<'a> Lowerer<'a> {
       }
       return Ok(Expr::Builtin { name, args });
     }
+    if let Some(meaning::Meaning::Library(meaning::Construct::SvelteStore(store))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
+      return self.svelte_store(store, call);
+    }
     if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClassNames)) {
       let mut items = Vec::with_capacity(call.args.len());
       for a in &call.args {
@@ -3063,3 +3066,45 @@ mod declares_unexported_tests {
   }
 }
 
+
+impl Lowerer<'_> {
+  /// A `svelte/store` call, a store being the value it holds when the server
+  /// subscribes: `writable(v)`, `readable(v)`, `readonly(s)` and `get(s)` the
+  /// value, `derived(source, fn)` `fn` of the source's value. A start function
+  /// or a `derived` callback that sets the value runs on subscribe, so either
+  /// is refused.
+  fn svelte_store(&mut self, store: &str, call: &js::CallExpr) -> Lowered<Expr> {
+    let arg = |i: usize| call.args.get(i).map(|a| &*a.expr);
+    match store {
+      "writable" | "readable" => {
+        if call.args.len() > 1 {
+          return Err(self.residue(call.span, format!("a `{store}` store with a start function, which sets its value when it is subscribed")));
+        }
+        match arg(0) {
+          Some(value) => self.expr(value),
+          None => Ok(Expr::Lit(Lit::Null)),
+        }
+      }
+      "readonly" | "get" => match arg(0) {
+        Some(value) => self.expr(value),
+        None => Ok(Expr::Lit(Lit::Null)),
+      },
+      _ => {
+        let (Some(source), Some(callback)) = (arg(0), arg(1)) else {
+          return Err(self.residue(call.span, "a `derived` store without its source and callback"));
+        };
+        let params = match strip_parens(callback) {
+          js::Expr::Arrow(arrow) => arrow.params.len(),
+          js::Expr::Fn(f) => f.function.params.len(),
+          _ => return Err(self.residue(callback.span(), "a `derived` callback that is not a function written out")),
+        };
+        if params != 1 {
+          return Err(self.residue(callback.span(), "a `derived` callback that sets its value, which runs when the store is subscribed"));
+        }
+        let f = self.expr(callback)?;
+        let source = self.expr(source)?;
+        Ok(Expr::Apply { f: Box::new(f), args: vec![source] })
+      }
+    }
+  }
+}

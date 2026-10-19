@@ -344,7 +344,7 @@
           return { type: "element", name: namespace === "html" ? n.name.toLowerCase() : n.name, svg: n.__svg, mathml: n.__mathml, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, ns, keep), at: where };
         }
         case "Component":
-          return { type: "component", name: n.name, dynamic: n.__dynamic, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), slots: slot_groups(n, path, namespace, preserve), at: where };
+          return { type: "component", name: n.name, dynamic: n.__dynamic, svg: namespace === "svg", attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), slots: slot_groups(n, path, namespace, preserve), at: where };
         case "SlotElement":
           return { type: "slot", attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), at: where };
         case "IfBlock":

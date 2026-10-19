@@ -16,6 +16,7 @@ use snapfire_fsr_ir::render::{CHOSEN_TAG, CONTEXT_PREFIX, RAW_ATTR, SLOTS_GIVEN,
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
+use swc_core::ecma::visit::{VisitMut, VisitMutWith};
 
 use crate::assets::AssetResolver;
 use crate::component::{bind_object, block_to_expr, HeadRow};
@@ -78,7 +79,7 @@ pub enum Node {
   Element { name: String, svg: bool, #[serde(default)] mathml: bool, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
   /// `slots` groups the children as `build_inline_component` does: by their
   /// static `slot` attribute, snippets aside, each group cleaned on its own.
-  Component { name: String, dynamic: bool, attrs: Vec<Attr>, fragment: Fragment, #[serde(default)] slots: Vec<SlotGroup>, at: (usize, usize) },
+  Component { name: String, dynamic: bool, #[serde(default)] svg: bool, attrs: Vec<Attr>, fragment: Fragment, #[serde(default)] slots: Vec<SlotGroup>, at: (usize, usize) },
   Slot { attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
   If { elseif: bool, test: Code, consequent: Fragment, alternate: Option<Fragment>, at: (usize, usize) },
   Each { expression: Code, context: Option<Code>, index: Option<String>, key: Option<Code>, body: Fragment, fallback: Option<Fragment>, at: (usize, usize) },
@@ -200,7 +201,11 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   fn expr(&mut self, code: &str, (line, column): (usize, usize)) -> Lowered<Expr> {
-    let parsed = self.lowerer.parsed.parse_expr_at(code, line, column).map_err(|message| self.at(line, column, format!("`{}`: {message}", code.trim())))?;
+    let mut parsed = self.lowerer.parsed.parse_expr_at(code, line, column).map_err(|message| self.at(line, column, format!("`{}`: {message}", code.trim())))?;
+    if let Some(top) = self.lowerer.meanings.as_ref().map(|meanings| meanings.top) {
+      let local: Vec<String> = self.lowerer.scope.iter().map(|(name, _)| name.clone()).collect();
+      parsed.visit_mut_with(&mut TopLevel { top, local });
+    }
     if let Some(picture) = self.picture_call(&parsed, At::Line(line, column))? {
       return Ok(picture);
     }
@@ -318,6 +323,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         None => read,
       };
       self.lets.push(Stmt::Let { name: name.clone(), expr });
+      self.bind(format!("${name}"), Expr::Var(name.clone()));
       self.bind(name.clone(), Expr::Var(name));
     }
     Ok(())
@@ -355,6 +361,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
             }
           }
           bind_object(&mut self.lowerer, &obj, if rest { Expr::Var("$props".to_owned()) } else { Expr::var(PROPS) })?;
+          let bound: Vec<String> = self.prop_keys.iter().map(|(local, _)| local.clone()).collect();
+          for local in bound {
+            if let Some(read) = self.lowerer.scope.iter().rev().find(|(n, _)| *n == local).map(|(_, e)| e.clone()) {
+              self.bind(format!("${local}"), read);
+            }
+          }
         }
         (Some("$props"), js::Pat::Ident(name)) if runes => self.bind(name.id.sym.to_string(), Expr::Var("$props".to_owned())),
         (Some("$props"), other) if runes => return Err(self.lowerer.residue(other.span(), "`$props()` bound to a pattern the build does not read")),
@@ -441,6 +453,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       self.state.push(name.clone());
     }
     self.bind(name.clone(), Expr::Var(name.clone()));
+    self.bind(format!("${name}"), Expr::Var(name.clone()));
     self.lowerer.note_kind(&name, init);
     Ok(())
   }
@@ -520,11 +533,15 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       Node::Special { kind, attrs, this: Some(this), fragment, at, .. } if kind == "SvelteElement" => self.dynamic_element(attrs, this, fragment, *at, out)?,
       Node::Special { kind, attrs, this: Some(this), fragment, slots, .. } if kind == "SvelteComponent" => {
         let choice = self.expr(&this.code, this.at)?;
-        let (props, children) = self.component_parts(attrs, fragment, slots)?;
-        out.push(chosen_component(choice, props, children));
+        let (props, children, css) = self.component_parts(attrs, fragment, slots)?;
+        let placed = chosen_component(choice, props, children);
+        match css.is_empty() {
+          true => out.push(placed),
+          false => out.extend(css_props(false, css, placed, true)),
+        }
       }
       Node::Special { kind, attrs, fragment, slots, at, .. } if kind == "SvelteSelf" => {
-        let (props, children) = self.component_parts(attrs, fragment, slots)?;
+        let (props, children, _) = self.component_parts(attrs, fragment, slots)?;
         self.child_refs.push(ChildRef { local: SELF.to_owned(), attrs: Vec::new(), line: at.0, column: at.1 });
         out.push(Tmpl::Component { module: SELF.to_owned(), props, children, id: 0, keyed: false });
         if !parent.standalone {
@@ -822,24 +839,34 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// the caller's content for that slot; an anchor after it unless it is its
   /// fragment's one node.
   fn component_node(&mut self, node: &Node, standalone: bool, out: &mut Vec<Tmpl>) -> Lowered<()> {
-    let Node::Component { name, dynamic, attrs, fragment, slots, at } = node else { unreachable!("a component") };
-    let (props, children) = self.component_parts(attrs, fragment, slots)?;
-    if *dynamic || name.contains('.') {
-      let choice = self.expr(name, *at)?;
-      out.push(chosen_component(choice, props, children));
+    let Node::Component { name, dynamic, svg, attrs, fragment, slots, at } = node else { unreachable!("a component") };
+    let (props, children, css) = self.component_parts(attrs, fragment, slots)?;
+    let dynamic = *dynamic || name.contains('.');
+    let placed = match dynamic {
+      true => {
+        let choice = self.expr(name, *at)?;
+        chosen_component(choice, props, children)
+      }
+      false => {
+        self.child_refs.push(ChildRef { local: name.clone(), attrs: Vec::new(), line: at.0, column: at.1 });
+        Tmpl::Component { module: name.clone(), props, children, id: 0, keyed: false }
+      }
+    };
+    if !css.is_empty() {
+      out.extend(css_props(*svg, css, placed, dynamic));
       return Ok(());
     }
-    self.child_refs.push(ChildRef { local: name.clone(), attrs: Vec::new(), line: at.0, column: at.1 });
-    out.push(Tmpl::Component { module: name.clone(), props, children, id: 0, keyed: false });
-    if !standalone {
+    out.push(placed);
+    if !dynamic && !standalone {
       out.push(Tmpl::Marker(EMPTY.to_owned()));
     }
     Ok(())
   }
 
   /// A component's props and its children as `build_inline_component` passes them.
-  fn component_parts(&mut self, attrs: &[Attr], fragment: &Fragment, slots: &[SlotGroup]) -> Lowered<(Vec<Entry>, Vec<Tmpl>)> {
+  fn component_parts(&mut self, attrs: &[Attr], fragment: &Fragment, slots: &[SlotGroup]) -> Lowered<(Vec<Entry>, Vec<Tmpl>, Vec<(String, Expr)>)> {
     let mut props = Vec::new();
+    let mut css: Vec<(String, Expr)> = Vec::new();
     let mut wrappers = Vec::new();
     let mut own_lets = Vec::new();
     for attr in attrs {
@@ -862,9 +889,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           let value = self.attr_value(value, false)?;
           props.push(Entry::Field(prop.clone(), value));
         }
-        Attr::Attr { at, .. } => return Err(self.at(at.0, at.1, "a CSS custom property passed to a component")),
+        Attr::Attr { name: prop, value, .. } => css.push((prop.clone(), self.attr_value(value, false)?)),
         Attr::Spread { code, at } => props.push(Entry::Spread(self.expr(code, *at)?)),
-        Attr::Directive { kind, at, .. } if kind == "bind" => return Err(self.at(at.0, at.1, "`bind:` on a component")),
+        Attr::Directive { kind, name: bound, expression, at, .. } if kind == "bind" => {
+          if bound != "this" {
+            let (value, _) = self.bound(expression, bound, *at)?;
+            props.push(Entry::Field(bound.clone(), value));
+          }
+        }
         Attr::Directive { .. } | Attr::Attach { .. } => {}
       }
     }
@@ -908,7 +940,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     self.snippets.truncate(snippets_before);
     lowered?;
     children.extend(wrappers);
-    Ok((props, children))
+    Ok((props, children, css))
   }
 
   /// `<svelte:element this={tag}>`, `$.element`: its attributes as an
@@ -1353,10 +1385,16 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     };
     let parsed = self.lowerer.parsed.parse_expr_at(code, at.0, at.1).map_err(|message| self.at(at.0, at.1, format!("`{}`: {message}", code.trim())))?;
     match unwrap_types(&parsed) {
-      js::Expr::Seq(seq) if !seq.exprs.is_empty() => {
-        let call = js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(seq.exprs[0].clone()), ..Default::default() });
-        Ok((self.lowerer.expr(&call)?, true))
-      }
+      js::Expr::Seq(seq) if !seq.exprs.is_empty() => match unwrap_types(&seq.exprs[0]) {
+        js::Expr::Arrow(arrow) if arrow.params.is_empty() => match &*arrow.body {
+          js::ArrowFunctionBody::Expr(body) => Ok((self.lowerer.expr(body)?, true)),
+          js::ArrowFunctionBody::FunctionBody(block) => Ok((crate::component::block_to_expr(&mut self.lowerer, &block.stmts)?, true)),
+        },
+        _ => {
+          let call = js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(seq.exprs[0].clone()), ..Default::default() });
+          Ok((self.lowerer.expr(&call)?, true))
+        }
+      },
       _ => Ok((self.lowerer.expr(&parsed)?, false)),
     }
   }
@@ -1528,6 +1566,34 @@ const ATTRS: &str = "attrs@";
 pub(crate) const SELF: &str = "svelte:self";
 /// The `SVELTE_FLAGS` bit of `<svelte:element>`, whose void tag `$.element` closes with `>`.
 const DYNAMIC_ELEMENT: i128 = 8;
+
+/// `$.css_props`: a component with CSS custom properties inside
+/// `<svelte-css-wrapper style="display: contents; …">` (`<g style="…">`
+/// where Svelte takes the namespace for SVG) holding each property with a
+/// value as `name: value;`. A static component takes an anchor after it.
+fn css_props(svg: bool, css: Vec<(String, Expr)>, placed: Tmpl, dynamic: bool) -> Vec<Tmpl> {
+  let declarations = Expr::Array(
+    css
+      .into_iter()
+      .map(|(name, value)| {
+        let written = logic(LogicOp::And, cmp(CompareOp::Ne, value.clone(), Expr::Lit(Lit::Null)), cmp(CompareOp::Ne, value.clone(), text("")));
+        let escaped = [("&", "&amp;"), ("\"", "&quot;"), ("<", "&lt;")].iter().fold(Expr::Str(Box::new(value)), |e, (from, to)| call(Builtin::ReplaceAll, vec![e, text(from), text(to)]));
+        Entry::Item(Expr::Ternary(Box::new(written), Box::new(Expr::Template(vec![text(&format!("{name}: ")), escaped, text(";")])), Box::new(Expr::Lit(Lit::Null))))
+      })
+      .collect(),
+  );
+  let styles = call(Builtin::Join, vec![Expr::Filter(Box::new(declarations), Box::new(Expr::lambda(&["d@"], cmp(CompareOp::Ne, var("d@"), Expr::Lit(Lit::Null))))), text(" ")]);
+  let (open, close) = match svg {
+    false => (Expr::Template(vec![text("<svelte-css-wrapper style=\"display: contents; "), styles, text("\">")]), "</svelte-css-wrapper>"),
+    true => (Expr::Template(vec![text("<g style=\""), styles, text("\">")]), "</g>"),
+  };
+  let mut out = vec![Tmpl::Html(open), placed];
+  if !dynamic {
+    out.push(Tmpl::Marker(EMPTY.to_owned()));
+  }
+  out.push(Tmpl::Marker(close.to_owned()));
+  out
+}
 
 /// A component chosen at run time, Svelte's `if` block around it: the
 /// chosen-tag element the renderer places the component the value
@@ -1762,6 +1828,22 @@ fn kept_declarations(text: &str, reserved: &[String]) -> String {
     }
   }
   out
+}
+
+/// Gives a template expression's free names the script's top-level context,
+/// which is what they name in Svelte's scope, so the library ones read by
+/// what they are bound to. A name the template binds keeps its own.
+struct TopLevel {
+  top: swc_core::common::SyntaxContext,
+  local: Vec<String>,
+}
+
+impl VisitMut for TopLevel {
+  fn visit_mut_ident(&mut self, id: &mut js::Ident) {
+    if id.ctxt == swc_core::common::SyntaxContext::empty() && !self.local.iter().any(|name| *name == *id.sym) {
+      id.ctxt = self.top;
+    }
+  }
 }
 
 fn callee_name(call: &js::CallExpr) -> Option<String> {
