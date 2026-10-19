@@ -381,6 +381,14 @@ globalThis.__sf.load = (html, url) => {
     for (const name of nested.getAttributeNames()) globalThis.document.documentElement.setAttribute(name, nested.getAttribute(name));
   }
 };
+// linkedom binds its MutationObserver to one document and a test loads a document per page, so the global observes the one showing when it is made.
+if (typeof globalThis.MutationObserver !== "function") {
+  globalThis.MutationObserver = class MutationObserver {
+    constructor(callback) {
+      return new globalThis.document.defaultView.MutationObserver(callback);
+    }
+  };
+}
 globalThis.IntersectionObserver = class IntersectionObserver {
   constructor(cb) {
     this.cb = cb;
@@ -655,6 +663,68 @@ if (globalThis.HTMLButtonElement && !Object.getOwnPropertyDescriptor(globalThis.
     },
     set(value) {
       this.setAttribute("value", String(value));
+    },
+  });
+}
+// linkedom's select reads its value from the `selected` attribute alone and
+// takes none. A browser's answers the selected option's value (the first
+// option's for a single select with none selected). Setting it selects the
+// first option of that value. An option without a `value` attribute is worth
+// its text with whitespace collapsed.
+if (globalThis.HTMLOptionElement) {
+  const proto = globalThis.HTMLOptionElement.prototype;
+  const base = Object.getOwnPropertyDescriptor(proto, "value");
+  Object.defineProperty(proto, "value", {
+    configurable: true,
+    get() {
+      return this.hasAttribute("value") ? this.getAttribute("value") : (this.textContent ?? "").replace(/[ \t\n\f\r]+/g, " ").trim();
+    },
+    set(value) {
+      if (base && base.set) base.set.call(this, value);
+      else this.setAttribute("value", String(value));
+    },
+  });
+}
+if (globalThis.HTMLSelectElement) {
+  const proto = globalThis.HTMLSelectElement.prototype;
+  const chosen = (select) => {
+    const options = [...select.options];
+    const marked = options.find((option) => option.selected);
+    if (marked || select.multiple || Number(select.getAttribute("size") ?? 0) > 1) return marked ?? null;
+    return options.find((option) => !option.disabled) ?? null;
+  };
+  if (!Object.getOwnPropertyDescriptor(proto, "multiple")) {
+    Object.defineProperty(proto, "multiple", { configurable: true, get() { return this.hasAttribute("multiple"); }, set(on) { if (on) this.setAttribute("multiple", ""); else this.removeAttribute("multiple"); } });
+  }
+  Object.defineProperty(proto, "value", {
+    configurable: true,
+    get() {
+      return chosen(this)?.value ?? "";
+    },
+    set(value) {
+      const wanted = String(value);
+      let found = false;
+      for (const option of this.options) {
+        const take = !found && option.value === wanted;
+        if (option.selected !== take) {
+          if (take) option.setAttribute("selected", "");
+          else option.removeAttribute("selected");
+        }
+        found = found || take;
+      }
+    },
+  });
+  Object.defineProperty(proto, "selectedIndex", {
+    configurable: true,
+    get() {
+      const option = chosen(this);
+      return option ? [...this.options].indexOf(option) : -1;
+    },
+    set(index) {
+      [...this.options].forEach((option, i) => {
+        if (i === Number(index)) option.setAttribute("selected", "");
+        else option.removeAttribute("selected");
+      });
     },
   });
 }

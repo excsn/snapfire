@@ -469,6 +469,10 @@ function click(el, init = {}) {
         revert?.();
         return false;
     }
+    if (revert) {
+        el.dispatchEvent(createEvent("input", el));
+        el.dispatchEvent(createEvent("change", el));
+    }
     activate(el);
     return true;
 }

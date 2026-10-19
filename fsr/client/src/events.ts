@@ -145,7 +145,7 @@ function submitForm(form: Element, submitter: Element | null): void {
   form.dispatchEvent(event);
 }
 
-/** A click's effect before listeners see it, the way a browser runs it: a checkbox toggles and a radio checks. The returned function undoes it when a listener cancels the click. */
+/** A click's effect before listeners see it, the way a browser runs it: a checkbox toggles and a radio checks. The returned function undoes it when a listener cancels the click; when none does, the change fires `input` then `change`. */
 function preActivate(el: Element): (() => void) | null {
   if (el.tagName !== "INPUT") return null;
   const input = el as HTMLInputElement;
@@ -195,6 +195,10 @@ function click(el: Element, init: Record<string, unknown> = {}): boolean {
   if (!ok) {
     revert?.();
     return false;
+  }
+  if (revert) {
+    el.dispatchEvent(createEvent("input", el));
+    el.dispatchEvent(createEvent("change", el));
   }
   activate(el);
   return true;
