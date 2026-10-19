@@ -352,7 +352,7 @@ fn crawl(name: &str, package: &mut Package, rel: &str, bare: &mut Vec<String>) -
 /// Each static or dynamic import's and each re-export's specifier with the
 /// byte range between its quotes, in source order, as SWC's parser reads the
 /// module. A file that does not parse as a module is refused with the reason.
-fn imports_of(text: &str) -> Result<Vec<(std::ops::Range<usize>, String)>, String> {
+pub fn imports_of(text: &str) -> Result<Vec<(std::ops::Range<usize>, String)>, String> {
   use swc_core::common::{sync::Lrc, FileName, SourceMap, Spanned};
   use swc_core::ecma::ast::{CallExpr, Callee, ExportAll, Expr, ImportDecl, Lit, NamedExport, Str};
   use swc_core::ecma::parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax};
@@ -608,51 +608,6 @@ mod tests {
     let manifest = crate::vendor::VendorManifest::read(&app, &layout).unwrap();
     assert_eq!(manifest.packages["dep"].version, "1.2.0", "the highest 1.x, not the latest 2.0.0");
     assert_eq!(manifest.packages["pkg"].version, "1.0.0");
-    std::fs::remove_dir_all(&app).unwrap();
-  }
-
-  /// Against registry.npmjs.org: `cargo test -p snapfire_fsr_cli --lib svelte_from_the_registry -- --ignored`.
-  #[test]
-  #[ignore = "reads the npm registry"]
-  fn svelte_from_the_registry_keeps_one_runtime_under_every_subpath() {
-    let app = app("svelte");
-    let subpaths = ["", "/internal/client", "/internal/disclose-version", "/internal/flags/legacy", "/store", "/reactivity", "/legacy", "/transition", "/motion", "/events"];
-    let specs: Vec<Spec> = subpaths.iter().map(|sub| Spec::parse(&format!("svelte@5.57.2{sub}")).unwrap()).collect();
-    let report = add_published(&app, &specs).unwrap();
-    let layout = Layout::of(&app).unwrap();
-    let vendor = app.join(&layout.vendor);
-    let runtime = vendor.join("svelte/src/internal/client/runtime.js");
-    assert!(runtime.is_file(), "the runtime is vendored once, where it was published");
-    assert!(!vendor.join("svelte/compiler").exists(), "the compiler is a build tool, never vendored");
-    let mut readers = Vec::new();
-    fn walk(dir: &Path, into: &mut Vec<std::path::PathBuf>) {
-      for entry in std::fs::read_dir(dir).unwrap().flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-          walk(&path, into);
-        } else {
-          into.push(path);
-        }
-      }
-    }
-    let mut all = Vec::new();
-    walk(&vendor.join("svelte"), &mut all);
-    for file in &all {
-      let text = std::fs::read_to_string(file).unwrap_or_default();
-      assert!(!imports_of(&text).unwrap().iter().any(|(_, s)| s.starts_with('#')), "{} still imports an alias", file.display());
-      if text.contains("internal/client/runtime.js'") || text.contains("/runtime.js'") {
-        readers.push(file.clone());
-      }
-    }
-    assert!(readers.len() > 1, "more than one module reaches the one runtime file");
-    let map = imports(&app);
-    for (specifier, _, _) in &report.added {
-      assert!(map.contains_key(specifier), "{specifier} is in the import map");
-    }
-    for dependency in ["esm-env", "clsx"] {
-      assert!(map.contains_key(dependency), "{dependency} came with Svelte: {map:?}");
-    }
-    eprintln!("{} files, {} specifiers: {:?}", all.len(), report.added.len(), report.added.iter().map(|(s, r, _)| format!("{s} -> {r}")).collect::<Vec<_>>());
     std::fs::remove_dir_all(&app).unwrap();
   }
 

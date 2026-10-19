@@ -442,6 +442,13 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 * `vendor::package_of(specifier: &str) -> String`.
 * `vendor::ESM_HOST` is `https://esm.sh`.
 
+### published
+
+* `pub fn published::add_published(app: &Path, specs: &[Spec]) -> Result<AddReport, BuildError>`: vendors each package as published on npm. Per package: the version document from `https://registry.npmjs.org/<name>/<version>`, refused unless it answers for that version; the tarball, refused unless it hashes to the document's `sha512` integrity; its regular files by their path under the top directory, leaving out an entry whose path climbs out or holds a `\` or a `:`. Each spec's entry resolves through `exports` under the conditions `browser`, `production`, `import`, `module` and `default`, else `module`, `main` or `index.js`. The files it reaches by relative import or `#alias` are kept, an alias rewritten to the relative path it names. Each bare import is vendored the same way at the highest version the importer's declared range accepts. A name that is not an npm package name is `BuildError::PackageName`. Each package's tree under the vendor directory is replaced whole; the import map and `.fsr-vendor.json` record every specifier with `published` set.
+* `pub fn published::recorded(app: &Path, specs: &[Spec]) -> Result<Option<Vec<Spec>>, BuildError>`: `specs` widened to every specifier the vendor manifest records for a package it holds as published, at the version asked for; `None` when none is.
+* `pub fn published::compiler(app: &Path, name: &str, version: &str, file: &str) -> Result<PathBuf, BuildError>`: `file` of `name@version` at `<app>/.fsr/compilers/<name>/<version>/<file name>`, fetched and checked as above the first time. A `version` that does not parse as one is refused. `pub const published::COMPILERS` is `.fsr/compilers`.
+* `pub fn published::imports_of(text: &str) -> Result<Vec<(Range<usize>, String)>, String>`: the specifier of every static import, dynamic `import("…")` and re-export with the byte range between its quotes, in source order, read by SWC's parser; a comment or a string that only looks like an import is not one. `Err` with the parser's message when the text is not a module.
+
 ### Direction
 
 * `pub struct direction::Direction { pub name: &'static str, pub entry: Option<&'static str>, pub vendors: &'static [(&'static str, &'static str, Option<&'static str>)], pub edits: &'static [(&'static str, &'static str)] }`: the name `fsr use` takes, the client entry under `@snapfire/fsr-client/` the import map names when the direction has a browser half, the package, version and subpath of each module it vendors and the file and line an existing application edits by hand.
