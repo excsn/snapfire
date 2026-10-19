@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { fork } from "node:child_process";
 
-const TEST_DIR = new URL("../app/.fsr-test/", import.meta.url);
+const TEST_DIR = new URL("../app/.fsr/test/", import.meta.url);
 const PAGE = "catalog_12";
 const COUNTS = [1, 2, 4, 8];
 const SECONDS = Number(process.env.SOAK_SECONDS ?? 10);

@@ -79,7 +79,7 @@ fn mdx_components_places_its_components_for_markdown_elements() {
   let modules = modules(&built);
   assert!(modules.contains(&"mdx-components.tsx#Heading".to_owned()), "{modules:?}");
   assert!(modules.contains(&"mdx-components.tsx#__mdx_blockquote".to_owned()), "{modules:?}");
-  let copy = file(&built, ".fsr-bundle/routes/page.mdx");
+  let copy = file(&built, ".fsr/bundle/routes/page.mdx");
   assert!(copy.contains("import { useMDXComponents as _provideComponents } from \"@app/mdx-components\";"), "{copy}");
   assert!(copy.contains("<_components.h2 id={\"mapped\"}>"), "{copy}");
   cleanup(&app);

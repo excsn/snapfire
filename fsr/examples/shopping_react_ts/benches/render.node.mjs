@@ -8,7 +8,7 @@ import { execSync } from "node:child_process";
 import { register } from "node:module";
 import { pathToFileURL } from "node:url";
 
-const TEST_DIR = new URL("../app/.fsr-test/", import.meta.url);
+const TEST_DIR = new URL("../app/.fsr/test/", import.meta.url);
 const PAGES = ["catalog_12", "product", "cart_3"];
 const ITERATIONS = 2000;
 const WARMUP = 500;

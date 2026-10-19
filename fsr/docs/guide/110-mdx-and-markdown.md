@@ -162,7 +162,7 @@ No colours are written: `styles/code.css` from `fsr use app mdx` colours the cla
 
 ## In the browser
 
-A file lowers and renders on the server like any page, so the browser loads nothing for it. When an island imports one, the browser renders it too: the build writes the browser's copy into `.fsr-bundle/` and snapfirec compiles that copy. The copy reads the map through `useMDXComponents` as MDX's own output does:
+A file lowers and renders on the server like any page, so the browser loads nothing for it. When an island imports one, the browser renders it too: the build writes the browser's copy into `.fsr/bundle/` and snapfirec compiles that copy. The copy reads the map through `useMDXComponents` as MDX's own output does:
 
 ```tsx
 import { useState } from "react";

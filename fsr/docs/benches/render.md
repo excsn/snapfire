@@ -26,7 +26,7 @@ The host's work around the render: route matching, loaders, the payload assembly
 
 ## Preparation
 
-The bench prepares the app the way `fsr test` does, compiling the pages into `app/.fsr-test/dist` with the workspace's `target/debug/snapfirec` or the one `SNAPFIREC` names; a `snapfirec` on `PATH` from before tsconfig `paths` support cannot compile the aliases. It fetches `react-dom/server` from esm.sh into `app/.fsr-test/vendor` on its first run and keeps it.
+The bench prepares the app the way `fsr test` does, compiling the pages into `app/.fsr/test/dist` with the workspace's `target/debug/snapfirec` or the one `SNAPFIREC` names; a `snapfirec` on `PATH` from before tsconfig `paths` support cannot compile the aliases. It fetches `react-dom/server` from esm.sh into `app/.fsr/test/vendor` on its first run and keeps it.
 
 ## Results
 

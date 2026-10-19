@@ -435,7 +435,7 @@ impl Project {
 
 fn ignored(rel: &Path) -> bool {
   let first = rel.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned()).unwrap_or_default();
-  IGNORED.contains(&first.as_str()) || first.starts_with(".fsr-") || first == "tests" || rel.to_string_lossy().ends_with(".test.ts")
+  IGNORED.contains(&first.as_str()) || first == crate::spec::FSR_DIR || first.starts_with(".fsr-") || first == "tests" || rel.to_string_lossy().ends_with(".test.ts")
 }
 
 /// The shell a site runs under, when it runs under one: `--under` as given, a
@@ -902,7 +902,7 @@ pub struct Emitted {
 
 /// The directory under the app holding the sources the build rewrote for the
 /// browser, read by snapfirec in place of the originals at the same path.
-pub const BUNDLE_OVERLAY: &str = ".fsr-bundle";
+pub const BUNDLE_OVERLAY: &str = ".fsr/bundle";
 
 /// Whether `emit` bundles for production: unless `app`'s configuration writes `server.dev = true`.
 fn production(app: &Path) -> bool {
@@ -1429,13 +1429,14 @@ mod tests {
   fn a_vendored_svelte_compiler_is_named_to_the_compiler() {
     let root = std::env::temp_dir().join(format!("fsr-cli-dev-svelte-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(root.join("vendor/svelte/compiler")).unwrap();
+    std::fs::create_dir_all(root.join("vendor")).unwrap();
     assert!(!args(&app(&root)).iter().any(|a| a == "--plugin-compiler"), "nothing vendored, no flag");
-    std::fs::write(root.join("vendor/svelte/compiler/index.js"), "globalThis.svelte = {};\n").unwrap();
-    std::fs::write(root.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"5.57.2","published":true,"files":["compiler/index.js"]}}}"#).unwrap();
+    std::fs::create_dir_all(root.join(".fsr/compilers/svelte/5.57.2")).unwrap();
+    std::fs::write(root.join(".fsr/compilers/svelte/5.57.2/index.js"), "globalThis.svelte = {};\n").unwrap();
+    std::fs::write(root.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"5.57.2","published":true}}}"#).unwrap();
     let args = args(&app(&root));
     let at = args.iter().position(|a| a == "--plugin-compiler").expect("--plugin-compiler is passed");
-    assert_eq!(args[at + 1], format!("svelte={}", root.join("vendor/svelte/compiler/index.js").display()));
+    assert_eq!(args[at + 1], format!("svelte={}", root.join(".fsr/compilers/svelte/5.57.2/index.js").display()));
     std::fs::remove_dir_all(&root).unwrap();
   }
 
@@ -1468,7 +1469,7 @@ mod tests {
   #[test]
   fn a_batch_names_only_the_paths_that_rebuild() {
     let p = project(Path::new("/p/app"));
-    let change = p.classify(&[PathBuf::from("/p/app/dist/src/main.js"), PathBuf::from("/p/app/.fsr-bundle/routes/page.tsx"), PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/config/app.toml")], &[]);
+    let change = p.classify(&[PathBuf::from("/p/app/dist/src/main.js"), PathBuf::from("/p/app/.fsr/bundle/routes/page.tsx"), PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/config/app.toml")], &[]);
     assert_eq!(change.counted, vec![PathBuf::from("/p/app/routes/index/page.tsx"), PathBuf::from("/p/config/app.toml")]);
   }
 

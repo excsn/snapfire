@@ -1,5 +1,5 @@
 //! `fsr test`, the DOM half: every `*.spec.tsx` under the app, compiled by
-//! snapfirec beside the app's own modules into `.fsr-test/dist` and run in
+//! snapfirec beside the app's own modules into `.fsr/test/dist` and run in
 //! QuickJS over linkedom with React's development build, so a hydration
 //! mismatch says what mismatched. A page the build lowered is hydrated over
 //! the server's own markup. An action the page calls is answered by the
@@ -35,7 +35,9 @@ use crate::vendor::{self, ESM_HOST, VendorManifest};
 use crate::xwpm::Layout;
 use crate::{BuildError, Built, dev, serve};
 
-pub const TEST_DIR: &str = ".fsr-test";
+/// What fsr writes under an application for its own use: the test build, the overlay and the compilers. Gitignored whole.
+pub const FSR_DIR: &str = ".fsr";
+pub const TEST_DIR: &str = ".fsr/test";
 const LINKEDOM: &str = "0.18.12";
 /// The framework modules a spec loads as development builds when the
 /// application vendors them, so each framework's own messages arrive in words,
@@ -60,7 +62,7 @@ pub struct Prepared {
   pub boot: PathBuf,
 }
 
-/// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr-test/dist`.
+/// Vendors the test-only builds, writes the test config and compiles the app's modules and spec files into `.fsr/test/dist`.
 pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lowered: &[String], composition_files: &[(String, Vec<String>)], generated: &[String], plugins: &mut crate::plugins::Plugins) -> Result<Prepared, BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let layout = Layout::of(&app)?;
@@ -141,7 +143,7 @@ fn entry_module(app: &Path) -> Option<String> {
   ["main.ts", "main.tsx"].iter().find(|name| app.join("src").join(name).is_file()).map(|name| name.trim_end_matches(".tsx").trim_end_matches(".ts").to_owned())
 }
 
-/// Fetches one more esm.sh build into `.fsr-test/vendor`, for a bench or a tool that needs a module the specs do not; cached by specifier and version.
+/// Fetches one more esm.sh build into `.fsr/test/vendor`, for a bench or a tool that needs a module the specs do not; cached by specifier and version.
 pub fn test_bundle(app: &Path, specifier: &str, version: &str, url: &str) -> Result<PathBuf, BuildError> {
   let dir = app.join(TEST_DIR).join("vendor");
   let manifest_path = dir.join("manifest.json");
@@ -416,7 +418,7 @@ fn discover(app: &Path, dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildE
   for path in entries {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     if path.is_dir() {
-      if path.parent() == Some(app) && (["generated", "dist", "types", "vendor", "node_modules"].contains(&name.as_str()) || name.starts_with(".fsr-")) {
+      if path.parent() == Some(app) && (["generated", "dist", "types", "vendor", "node_modules"].contains(&name.as_str()) || name == FSR_DIR || name.starts_with(".fsr-")) {
         continue;
       }
       discover(app, &path, out)?;
@@ -494,7 +496,7 @@ fn dev_builds(vendored: &VendorManifest, served: &serde_json::Map<String, serde_
   out
 }
 
-/// The development builds of linkedom and of the React modules the app vendors, fetched once from esm.sh into `.fsr-test/vendor`; by specifier.
+/// The development builds of linkedom and of the React modules the app vendors, fetched once from esm.sh into `.fsr/test/vendor`; by specifier.
 fn test_vendor(app: &Path, layout: &Layout, test_dir: &Path, shell: Option<&crate::ShellContract>) -> Result<HashMap<String, PathBuf>, BuildError> {
   let dir = test_dir.join("vendor");
   let manifest_path = dir.join("manifest.json");
@@ -564,21 +566,23 @@ fn fetch_bundle_from(client: &reqwest::blocking::Client, host: &str, url: &str, 
   Ok(first.expect("one path"))
 }
 
-/// `.fsr-test/tsconfig.json` and `.fsr-test/importmap.json`: the browser build's roots plus the spec files and the testing module, each compiled with what it imports.
+/// `.fsr/test/tsconfig.json` and `.fsr/test/importmap.json`: the browser build's roots plus the spec files and the testing module, each compiled with what it imports.
 fn write_config(app: &Path, layout: &Layout, test_dir: &Path, roots: &[String], generated: &[String]) -> Result<(), BuildError> {
   let jsx = crate::types::jsx_source(app, layout)?;
   let compile = crate::types::CompileOptions::of(app).lines();
-  let mut tsconfig = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"outDir\": \"dist\",\n    \"rootDir\": \"..\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
-  let aliases: Vec<(String, String)> = snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("../{dir}*"))).collect();
+  // From the test directory back to the application, one `..` per level of `TEST_DIR`.
+  let up = TEST_DIR.split('/').map(|_| "..").collect::<Vec<_>>().join("/");
+  let mut tsconfig = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"outDir\": \"dist\",\n    \"rootDir\": \"{up}\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
+  let aliases: Vec<(String, String)> = snapfire_fsr_lower::ALIASES.iter().map(|(alias, dir)| (format!("{alias}*"), format!("{up}/{dir}*"))).collect();
   for (i, (from, to)) in aliases.iter().enumerate() {
     tsconfig.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i + 1 == aliases.len() { "" } else { "," }));
   }
-  let mut include: Vec<String> = roots.iter().filter(|root| !generated.contains(root)).map(|file| format!("../{file}")).collect();
-  include.extend(["../generated/islands.ts", "../generated/client.ts", "../tests/**/*.spec.tsx", "../tests/**/*.spec.ts"].map(str::to_owned));
+  let mut include: Vec<String> = roots.iter().filter(|root| !generated.contains(root)).map(|file| format!("{up}/{file}")).collect();
+  include.extend(["generated/islands.ts", "generated/client.ts", "tests/**/*.spec.tsx", "tests/**/*.spec.ts"].map(|file| format!("{up}/{file}")));
   let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
   tsconfig.push_str(&format!("    }}\n  }},\n  \"include\": [{}]", include.join(", ")));
   if !generated.is_empty() {
-    let files: Vec<String> = generated.iter().map(|file| format!("\"../{file}\"")).collect();
+    let files: Vec<String> = generated.iter().map(|file| format!("\"{up}/{file}\"")).collect();
     tsconfig.push_str(&format!(",\n  \"files\": [{}]", files.join(", ")));
   }
   tsconfig.push_str("\n}\n");

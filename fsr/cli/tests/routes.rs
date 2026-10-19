@@ -667,7 +667,7 @@ fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   assert!(declarations.contains("ledger") && !declarations.contains("billing:"), "the TypeScript surface keeps the unprefixed names: {declarations}");
   let fsr = file("generated/fsr.ts");
   assert!(fsr.contains("\"/\":") && !fsr.contains("/billing"), "route keys stay as written: {fsr}");
-  let overlay = file(".fsr-bundle/src/Tips.tsx");
+  let overlay = file(".fsr/bundle/src/Tips.tsx");
   assert!(overlay.contains("__sfUseHoisted(\"billing:src/Tips.tsx#TipList\")") && overlay.contains("__sfh.c(1, (__sfHtml) => <ul dangerouslySetInnerHTML={__sfHtml} />)"), "the reader keys under the prefixed module the host renders and the list is a proven subtree: {overlay}");
   assert_eq!(built.report.hoisted, vec![("billing:routes/page.tsx#default".to_owned(), 0, 1, 0), ("billing:src/Tips.tsx#TipList".to_owned(), 0, 1, 0)], "the page's div around the pure TipList is a subtree of its own and the list's read is carried by its markup: {}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
@@ -1063,7 +1063,7 @@ fn an_island_takes_the_dialects_placements_from_its_own_framework() {
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(islands.contains("registerIsland(\"routes/page.island0.tsx#default\"") && islands.contains("reactMounter"), "{islands}");
-  let island = built.files.iter().find(|(name, _)| name == ".fsr-bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
+  let island = built.files.iter().find(|(name, _)| name == ".fsr/bundle/routes/page.island0.tsx").map(|(_, text)| text.clone()).expect("the island's bundle copy");
   assert!(island.contains("import { Link } from \"@snapfire/fsr-client/react\";"), "{island}");
   assert!(!island.contains("@snapfire/fsr-authoring/template"), "the map need not serve the dialect for an island: {island}");
   std::fs::remove_dir_all(&dir).unwrap();
@@ -1295,7 +1295,7 @@ fn an_island_takes_the_dialects_placements_from_its_own_framework_wherever_it_re
   let page = "import { Link } from \"@snapfire/fsr-authoring/template\";\nexport default function Venue() {\n  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;\n  return <section><h2>venue</h2><p>{zone} <Link href=\"/\">home</Link></p></section>;\n}\n";
   let dir = app(&[("routes/page.tsx", page)]);
   let built = build(&dir, &Options::default()).unwrap();
-  let island = generated(&built, ".fsr-bundle/routes/page.island0.tsx").expect("the island's bundle copy");
+  let island = generated(&built, ".fsr/bundle/routes/page.island0.tsx").expect("the island's bundle copy");
   assert!(island.contains("import { Link } from \"@snapfire/fsr-client/react\";"), "{island}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1331,7 +1331,7 @@ fn a_react_island_places_a_component_another_framework_mounts_through_foreign() 
   let built = build(&dir, &Options::default()).unwrap();
   let islands = generated(&built, "generated/islands.ts").unwrap();
   assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "the build registers what the island mounts by id: {islands}");
-  let copy = generated(&built, ".fsr-bundle/src/ui/Panel.tsx").expect("the island's bundle copy");
+  let copy = generated(&built, ".fsr/bundle/src/ui/Panel.tsx").expect("the island's bundle copy");
   assert!(copy.contains("const Chart = __sfForeign(\"src/ui/Chart.vue#default\");") && !copy.contains("import Chart"), "{copy}");
   let plan = serde_json::from_str::<serde_json::Value>(&built.manifest.to_json()).unwrap();
   let render = plan["components"].as_array().unwrap().iter().find(|c| c["module"] == "src/ui/Panel.tsx#Panel").map(|c| c["body"]["render"].to_string()).unwrap();

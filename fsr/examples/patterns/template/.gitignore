@@ -3,6 +3,5 @@ app/tsconfig.json
 app/tsconfig.build.json
 app/types/
 app/dist/
-app/.fsr-test/
-app/.fsr-bundle/
+app/.fsr/
 *.map

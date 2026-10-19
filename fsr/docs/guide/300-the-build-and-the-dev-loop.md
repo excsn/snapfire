@@ -28,7 +28,7 @@ A `.vue` file under `src/` is compiled by a plugin, `snapfirec-vue` on `PATH`, w
 
 The bundle's own facts file, `dist/.snapfire-build.json`, is what the host reads to infer the public path, the entry script and the component stylesheets to link, so the two tools share a file instead of configuration.
 
-They also share a second directory. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr-bundle/` with those calls turned into reads of what the server delivered and `fsr dev` passes `--overlay .fsr-bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
+They also share a second directory. For every component whose render-path calls or static subtrees the server computes for the browser, the build writes a copy of the module under `app/.fsr/bundle/` with those calls turned into reads of what the server delivered and `fsr dev` passes `--overlay .fsr/bundle` so snapfirec compiles the copy in place of the source at the same path. The source is never touched, the editor and `fsr check` never see the copy and the directory is rebuilt on every build, so a component that stops qualifying stops being overlaid. It is not committed either; the example's `.gitignore` lists it beside `generated/`.
 
 ## A Cargo project runs the build for you
 

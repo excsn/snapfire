@@ -52,7 +52,7 @@ fn a_named_theme_is_written_as_plain_css_in_the_named_sublayer() {
   let dir = app(&[("styles/app.css", ROOT), ("styles/themes/ocean.css", "@theme {\n  --color-accent: #0e7490;\n  --color-blue-500: #0000ff;\n}\n")]);
   let built = snapfire_fsr_cli::build(&dir, &snapfire_fsr_cli::Options::default()).expect("builds");
   assert_eq!(
-    written(&built, ".fsr-bundle/styles/themes/ocean.css"),
+    written(&built, ".fsr/bundle/styles/themes/ocean.css"),
     Some("@layer theme.root, theme.named;\n\n@layer theme.named {\n  [data-sf-theme=\"ocean\"] {\n    --color-accent: #0e7490;\n    --color-blue-500: #0000ff;\n  }\n}\n")
   );
   std::fs::remove_dir_all(&dir).unwrap();
@@ -65,7 +65,7 @@ fn the_default_theme_resets_every_token_a_theme_sets_to_the_roots_value() {
   let dir = app(&[("styles/app.css", ROOT), ("styles/themes/ocean.css", "@theme {\n  --color-accent: #0e7490;\n  --color-blue-500: #0000ff;\n}\n"), ("styles/themes/forest.css", "@theme {\n  --color-ink: #052e16;\n}\n")]);
   let built = snapfire_fsr_cli::build(&dir, &snapfire_fsr_cli::Options::default()).expect("builds");
   assert_eq!(
-    written(&built, ".fsr-bundle/styles/themes/default.css"),
+    written(&built, ".fsr/bundle/styles/themes/default.css"),
     Some("@layer theme.root, theme.named;\n\n@layer theme.named {\n  [data-sf-theme=\"default\"] {\n    --color-accent: var(--color-brand);\n    --color-blue-500: oklch(62.3% 0.214 259.815);\n    --color-brand: #1f6feb;\n    --color-ink: #111111;\n  }\n}\n")
   );
   let config = written(&built, "tsconfig.build.json").expect("the bundle's config");
@@ -89,7 +89,7 @@ fn a_root_token_in_a_stylesheet_the_root_imports_counts() {
     ("styles/themes/ocean.css", "@theme {\n  --color-wave: #0e7490;\n}\n"),
   ]);
   let built = snapfire_fsr_cli::build(&dir, &snapfire_fsr_cli::Options::default()).expect("builds");
-  assert!(written(&built, ".fsr-bundle/styles/themes/default.css").unwrap().contains("--color-wave: #1f6feb;"));
+  assert!(written(&built, ".fsr/bundle/styles/themes/default.css").unwrap().contains("--color-wave: #1f6feb;"));
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -104,8 +104,8 @@ fn a_sites_theme_may_set_what_its_shells_root_defines_and_writes_no_reset() {
   options.site = Some(snapfire_fsr_cli::SiteOptions::new("blog".to_owned(), "/blog".to_owned()).shell(Some(shell.join("generated/shell.json"))));
   let site = site_with("@theme {\n  --color-brand: #6d28d9;\n  --color-ink: #222222;\n}\n");
   let built = snapfire_fsr_cli::build(&site, &options).expect("the site builds");
-  assert!(written(&built, ".fsr-bundle/styles/themes/editorial.css").unwrap().contains("[data-sf-theme=\"editorial\"] {\n    --color-brand: #6d28d9;\n    --color-ink: #222222;\n  }"));
-  assert_eq!(written(&built, ".fsr-bundle/styles/themes/default.css"), None, "the shell owns the root theme and its reset");
+  assert!(written(&built, ".fsr/bundle/styles/themes/editorial.css").unwrap().contains("[data-sf-theme=\"editorial\"] {\n    --color-brand: #6d28d9;\n    --color-ink: #222222;\n  }"));
+  assert_eq!(written(&built, ".fsr/bundle/styles/themes/default.css"), None, "the shell owns the root theme and its reset");
   let refused = site_with("@theme {\n  --color-wave: #6d28d9;\n}\n");
   let err = snapfire_fsr_cli::build(&refused, &options).err().expect("refused").to_string();
   assert!(err.contains("--color-wave"), "{err}");
@@ -137,9 +137,9 @@ fn themes_work_without_tailwind() {
     ("styles/themes/forest.css", "--ink: #052e16;\n"),
   ]);
   let built = snapfire_fsr_cli::build(&dir, &snapfire_fsr_cli::Options::default()).expect("builds");
-  assert_eq!(written(&built, ".fsr-bundle/styles/themes/ocean.css"), Some("@layer theme.root, theme.named;\n\n@layer theme.named {\n  [data-sf-theme=\"ocean\"] {\n    --brand: #0e7490;\n  }\n}\n"));
-  assert!(written(&built, ".fsr-bundle/styles/themes/forest.css").unwrap().contains("--ink: #052e16;"));
-  assert!(written(&built, ".fsr-bundle/styles/themes/default.css").unwrap().contains("    --brand: #1f6feb;\n    --ink: #111111;\n"));
+  assert_eq!(written(&built, ".fsr/bundle/styles/themes/ocean.css"), Some("@layer theme.root, theme.named;\n\n@layer theme.named {\n  [data-sf-theme=\"ocean\"] {\n    --brand: #0e7490;\n  }\n}\n"));
+  assert!(written(&built, ".fsr/bundle/styles/themes/forest.css").unwrap().contains("--ink: #052e16;"));
+  assert!(written(&built, ".fsr/bundle/styles/themes/default.css").unwrap().contains("    --brand: #1f6feb;\n    --ink: #111111;\n"));
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { register } from "node:module";
 
-const TEST_DIR = new URL("../app/.fsr-test/", import.meta.url);
+const TEST_DIR = new URL("../app/.fsr/test/", import.meta.url);
 const LENGTHS = [1, 12, 100, 1000];
 const ITERATIONS = 500;
 const WARMUP = 200;

@@ -74,7 +74,7 @@ That test checks that an empty cart never reaches the order service.
 
 ## Page tests
 
-A body test never touches a component. A page test renders a page or a component into a DOM, clicks it and reads what it shows. `fsr test` runs those too, in QuickJS inside the same process, over a DOM from linkedom and the development build of each framework the application vendors, React's or Vue's, since page code is browser JavaScript. No Node is involved: snapfirec compiles the spec file beside the app's modules into `app/.fsr-test/`, the engine resolves imports through the app's import map and the vendor tree and the few test-only builds it needs are fetched once into the same directory.
+A body test never touches a component. A page test renders a page or a component into a DOM, clicks it and reads what it shows. `fsr test` runs those too, in QuickJS inside the same process, over a DOM from linkedom and the development build of each framework the application vendors, React's or Vue's, since page code is browser JavaScript. No Node is involved: snapfirec compiles the spec file beside the app's modules into `app/.fsr/test/`, the engine resolves imports through the app's import map and the vendor tree and the few test-only builds it needs are fetched once into the same directory.
 
 A page test is a `*.spec.tsx` under `app/tests/`:
 

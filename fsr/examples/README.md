@@ -74,7 +74,7 @@ cd shopping_react_ts && fsr dev app
 
 `fsr test <app>` runs an example's body tests and page specs. `cargo test` here runs every example's Rust tests, which is every example but the conference, the blog, the recipes, the tool shed and the noticeboard.
 
-The cli's `examples` test, `cargo test -p snapfire_fsr_cli --test examples` from `fsr/`, copies every example with only the files a checkout holds, then builds it, runs its specs, bundles it and boots the host from its sources and from its deploy tree. An output an earlier run left in `dist/`, `generated/` or `.fsr-test/` never reaches that copy, so what passes there passes for a new clone.
+The cli's `examples` test, `cargo test -p snapfire_fsr_cli --test examples` from `fsr/`, copies every example with only the files a checkout holds, then builds it, runs its specs, bundles it and boots the host from its sources and from its deploy tree. An output an earlier run left in `dist/`, `generated/` or `.fsr/test/` never reaches that copy, so what passes there passes for a new clone.
 
 ## Ports
 

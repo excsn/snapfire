@@ -6,7 +6,7 @@ The question this chapter answers: what do you copy to a server and how does wha
 
 ## The servable directory
 
-An application's directory is mostly things a server must never hand out. `routes/` and `src/` are the TypeScript the application is written in. `types/` is declarations for the editor. `tsconfig.json` and `tsconfig.build.json` are compiler input. `.fsr-bundle/` is the overlay chapter 300 describes. None of it is reachable in development either, because the host serves the static roots and nothing else, but a deployment that copies the app directory wholesale puts every one of those files under a web server's root and relies on the routing to hide them.
+An application's directory is mostly things a server must never hand out. `routes/` and `src/` are the TypeScript the application is written in. `types/` is declarations for the editor. `tsconfig.json` and `tsconfig.build.json` are compiler input. `.fsr/bundle/` is the overlay chapter 300 describes. None of it is reachable in development either, because the host serves the static roots and nothing else, but a deployment that copies the app directory wholesale puts every one of those files under a web server's root and relies on the routing to hide them.
 
 So a deploy tree has one directory a web server is pointed at (`serve/`) and everything else sits outside it:
 

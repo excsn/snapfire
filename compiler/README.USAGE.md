@@ -363,10 +363,10 @@ The wildcards are `*`, `?` and `**`, as in tsc. Every other character matches it
 ```
 
 ```sh
-snapfirec --root app --config build/tsconfig.json --overlay .fsr-bundle
+snapfirec --root app --config build/tsconfig.json --overlay .fsr/bundle
 ```
 
-`app/routes/venue/page.island0.tsx` does not exist and `app/.fsr-bundle/routes/venue/page.island0.tsx` does, so the build compiles the overlay's copy as that input.
+`app/routes/venue/page.island0.tsx` does not exist and `app/.fsr/bundle/routes/venue/page.island0.tsx` does, so the build compiles the overlay's copy as that input.
 
 An `.mdx` or `.md` input is compiled only from the overlay: `fsr build` writes the TSX module it made from the file there, the build compiles that as TSX and an import of the file names the `.js` beside it. Without an overlay copy the file is no input, so a `README.md` a glob matches is left as it is.
 

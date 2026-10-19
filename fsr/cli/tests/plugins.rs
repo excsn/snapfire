@@ -9,7 +9,7 @@ fn copy(from: &Path, to: &Path) {
   std::fs::create_dir_all(to).unwrap();
   for entry in std::fs::read_dir(from).unwrap().flatten() {
     let name = entry.file_name();
-    if ["target", "node_modules", ".fsr-test"].contains(&name.to_string_lossy().as_ref()) {
+    if ["target", "node_modules", ".fsr"].contains(&name.to_string_lossy().as_ref()) {
       continue;
     }
     let path = entry.path();
