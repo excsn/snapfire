@@ -235,7 +235,105 @@
    * standalone, text_first }` and every expression its source with where it
    * starts, `{ code, at: [line, column] }`.
    */
-  globalThis.__svelte_template = function (root, source, runes) {
+  /**
+   * Which elements Svelte's CSS analysis scopes, read from what its server
+   * compiler writes: each element is compiled with a numbered `data-sf-scope`
+   * attribute and is scoped when its own attributes carry the `svelte-` hash.
+   * A `Map` from each element's start to its hash, empty without a style, or
+   * `null` when the output could not be read.
+   */
+  globalThis.__svelte_scoping = function (svelte, source, root, filename) {
+    const found = new Map();
+    if (!root.css) return found;
+    const elements = [];
+    const walk = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (node.type === "RegularElement" || node.type === "SvelteElement") elements.push(node);
+      for (const key of Object.keys(node)) {
+        if (key === "parent" || key === "metadata") continue;
+        const value = node[key];
+        if (value && typeof value === "object") walk(value);
+      }
+    };
+    walk(root.fragment);
+    let marked = source;
+    const order = elements.map((n, i) => ({ i, at: n.start + 1 + n.name.length })).sort((a, b) => b.at - a.at);
+    for (const { i, at } of order) marked = marked.slice(0, at) + ` data-sf-scope="${i}"` + marked.slice(at);
+    let program;
+    try {
+      const code = svelte.compile(marked, { filename, generate: "server", dev: false }).js.code;
+      program = svelte.parse(`<script>${code}</script>`, { modern: true }).instance.content;
+    } catch {
+      return null;
+    }
+    const HASH = /^svelte-[a-z0-9]+$/;
+    const hash_in = (node) => {
+      let hit = null;
+      const look = (n) => {
+        if (hit || !n || typeof n !== "object") return;
+        if (Array.isArray(n)) return n.forEach(look);
+        const inside = n.type === "Literal" && typeof n.value === "string" ? n.value.match(/svelte-[a-z0-9]+/) : null;
+        if (inside) hit = inside[0];
+        for (const key of Object.keys(n)) if (key !== "metadata") look(n[key]);
+      };
+      look(node);
+      return hit;
+    };
+    const visit = (node) => {
+      if (!node || typeof node !== "object") return;
+      if (Array.isArray(node)) return node.forEach(visit);
+      if (node.type === "TemplateLiteral") {
+        node.quasis.forEach((quasi, q) => {
+          const text = quasi.value.cooked ?? "";
+          for (const m of text.matchAll(/data-sf-scope="(\d+)"/g)) {
+            let hit = null;
+            let quoted = false;
+            let rest = text.slice(m.index + m[0].length);
+            let part = q;
+            for (;;) {
+              let end = -1;
+              for (let k = 0; k < rest.length; k++) {
+                if (rest[k] === '"') quoted = !quoted;
+                else if (rest[k] === ">" && !quoted) {
+                  end = k;
+                  break;
+                }
+              }
+              const seen = end < 0 ? rest : rest.slice(0, end);
+              const inline = seen.match(/svelte-[a-z0-9]+/);
+              if (inline) hit = hit ?? inline[0];
+              if (end >= 0 || part >= node.expressions.length) break;
+              hit = hit ?? hash_in(node.expressions[part]);
+              part += 1;
+              rest = node.quasis[part].value.cooked ?? "";
+            }
+            if (hit) found.set(elements[Number(m[1])].start, hit);
+          }
+        });
+      }
+      if (node.type === "CallExpression") {
+        node.arguments.forEach((arg, a) => {
+          if (arg.type !== "ObjectExpression") return;
+          for (const prop of arg.properties) {
+            if (prop.type === "Property" && prop.key.type === "Literal" && prop.key.value === "data-sf-scope") {
+              const hit = node.arguments.slice(a + 1).find((later) => later.type === "Literal" && typeof later.value === "string" && HASH.test(later.value));
+              if (hit) found.set(elements[Number(prop.value.value)].start, hit.value);
+            }
+          }
+        });
+      }
+      for (const key of Object.keys(node)) {
+        if (key === "metadata") continue;
+        const value = node[key];
+        if (value && typeof value === "object") visit(value);
+      }
+    };
+    visit(program);
+    return found;
+  };
+
+  globalThis.__svelte_template = function (root, source, runes, scoping) {
     const at = locator(source);
     const code = (node) => (node ? { code: source.slice(node.start, node.end), at: at(node.start) } : null);
     const kinds = script_kinds(root.module && root.module.content, true, new Map());
@@ -341,7 +439,7 @@
         case "RegularElement": {
           const ns = n.name === "foreignObject" ? "html" : n.__svg ? "svg" : n.__mathml ? "mathml" : "html";
           const keep = preserve || n.name === "pre" || n.name === "textarea";
-          return { type: "element", name: namespace === "html" ? n.name.toLowerCase() : n.name, svg: n.__svg, mathml: n.__mathml, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, ns, keep), at: where };
+          return { type: "element", name: namespace === "html" ? n.name.toLowerCase() : n.name, svg: n.__svg, mathml: n.__mathml, scoped: scoping ? scoping.get(n.start) ?? null : null, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, ns, keep), at: where };
         }
         case "Component":
           return { type: "component", name: n.name, dynamic: n.__dynamic, svg: namespace === "svg", attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), slots: slot_groups(n, path, namespace, preserve), at: where };
@@ -376,7 +474,7 @@
         case "SvelteSelf":
         case "SvelteComponent":
         case "SvelteElement":
-          return { type: "special", kind: n.type, name: n.name, attrs: n.attributes.map(attribute), this: code(n.type === "SvelteElement" ? n.tag : n.expression), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), slots: n.type === "SvelteComponent" || n.type === "SvelteSelf" ? slot_groups(n, path, namespace, preserve) : [], at: where };
+          return { type: "special", kind: n.type, name: n.name, scoped: scoping ? scoping.get(n.start) ?? null : null, attrs: n.attributes.map(attribute), this: code(n.type === "SvelteElement" ? n.tag : n.expression), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), slots: n.type === "SvelteComponent" || n.type === "SvelteSelf" ? slot_groups(n, path, namespace, preserve) : [], at: where };
         default:
           return { type: "other", kind: n.type, at: where };
       }
@@ -385,6 +483,7 @@
     mark(root.fragment.nodes, false, true);
     return {
       runes,
+      scoping: scoping === null ? "unread" : "read",
       instance: root.instance ? [byte_offset(source, root.instance.content.start), byte_offset(source, root.instance.content.end)] : null,
       module: root.module ? [byte_offset(source, root.module.content.start), byte_offset(source, root.module.content.end)] : null,
       fragment: fragment(root.fragment, root.fragment.nodes, [], "html", false),

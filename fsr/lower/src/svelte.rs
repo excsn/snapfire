@@ -38,6 +38,9 @@ const BROWSER_CALLS: &[&str] = &["$effect", "$effect.pre", "$effect.root", "$ins
 #[derive(Debug, Deserialize)]
 pub struct Template {
   pub runes: bool,
+  /// `read` when the plugin read which elements Svelte's CSS scopes, `unread` when it could not.
+  #[serde(default)]
+  pub scoping: Option<String>,
   pub instance: Option<(u32, u32)>,
   pub module: Option<(u32, u32)>,
   pub fragment: Fragment,
@@ -76,7 +79,8 @@ pub enum Node {
   Html { code: String, at: (usize, usize) },
   Const { id: Code, init: Code, at: (usize, usize) },
   Render { callee: Code, args: Vec<Code>, optional: bool, dynamic: bool, at: (usize, usize) },
-  Element { name: String, svg: bool, #[serde(default)] mathml: bool, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
+  /// `scoped` is the `svelte-` class Svelte's CSS gives the element, when it gives one.
+  Element { name: String, svg: bool, #[serde(default)] mathml: bool, #[serde(default)] scoped: Option<String>, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
   /// `slots` groups the children as `build_inline_component` does: by their
   /// static `slot` attribute, snippets aside, each group cleaned on its own.
   Component { name: String, dynamic: bool, #[serde(default)] svg: bool, attrs: Vec<Attr>, fragment: Fragment, #[serde(default)] slots: Vec<SlotGroup>, at: (usize, usize) },
@@ -88,7 +92,7 @@ pub enum Node {
   Await { expression: Code, value: Option<Code>, error: Option<Code>, pending: Option<Fragment>, then: Option<Fragment>, catch: Option<Fragment>, at: (usize, usize) },
   /// A `svelte:` element or `<title>`: `kind` is Svelte's node type and `this`
   /// the expression `svelte:element` and `svelte:component` take.
-  Special { kind: String, name: String, attrs: Vec<Attr>, this: Option<Code>, fragment: Fragment, #[serde(default)] slots: Vec<SlotGroup>, at: (usize, usize) },
+  Special { kind: String, name: String, #[serde(default)] scoped: Option<String>, attrs: Vec<Attr>, this: Option<Code>, fragment: Fragment, #[serde(default)] slots: Vec<SlotGroup>, at: (usize, usize) },
   Other { kind: String, at: (usize, usize) },
 }
 
@@ -174,6 +178,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let template: Template = serde_json::from_value(value.clone()).map_err(|e| self.at(1, 1, format!("the template description did not read: {e}")))?;
     let runes = template.runes;
     let ranges = (template.module, template.instance);
+    if template.scoping.as_deref() == Some("unread") {
+      return Err(self.at(1, 1, "a `<style>` whose scoping the build could not read from Svelte's compiler"));
+    }
     let fragment = template.fragment.clone();
     self.template = Some(template);
     self.lets.push(Stmt::Let { name: PROPS.to_owned(), expr: props_with_slots() });
@@ -530,7 +537,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       Node::Slot { attrs, fragment, .. } => self.slot_element(attrs, fragment, out)?,
       Node::Special { kind, fragment, .. } if kind == "SvelteFragment" => out.extend(self.fragment(fragment)?),
       Node::Special { kind, fragment, .. } if kind == "SvelteBoundary" => self.boundary(fragment, out)?,
-      Node::Special { kind, attrs, this: Some(this), fragment, at, .. } if kind == "SvelteElement" => self.dynamic_element(attrs, this, fragment, *at, out)?,
+      Node::Special { kind, attrs, scoped, this: Some(this), fragment, at, .. } if kind == "SvelteElement" => self.dynamic_element(attrs, scoped, this, fragment, *at, out)?,
       Node::Special { kind, attrs, this: Some(this), fragment, slots, .. } if kind == "SvelteComponent" => {
         let choice = self.expr(&this.code, this.at)?;
         let (props, children, css) = self.component_parts(attrs, fragment, slots)?;
@@ -947,9 +954,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// element's, built without the rules an element name picks, its content
   /// then an anchor unless the tag holds raw text, `<!---->` around it all
   /// and nothing between for a tag that is `null` or `''`.
-  fn dynamic_element(&mut self, attrs: &[Attr], this: &Code, fragment: &Fragment, at: (usize, usize), out: &mut Vec<Tmpl>) -> Lowered<()> {
+  fn dynamic_element(&mut self, attrs: &[Attr], scoped: &Option<String>, this: &Code, fragment: &Fragment, at: (usize, usize), out: &mut Vec<Tmpl>) -> Lowered<()> {
     let tag = self.expr(&this.code, this.at)?;
-    let shell = Node::Element { name: "svelte:element".to_owned(), svg: false, mathml: false, attrs: attrs.to_vec(), fragment: Fragment { hoisted: Vec::new(), nodes: Vec::new(), standalone: false, text_first: false }, at };
+    let shell = Node::Element { name: "svelte:element".to_owned(), svg: false, mathml: false, scoped: scoped.clone(), attrs: attrs.to_vec(), fragment: Fragment { hoisted: Vec::new(), nodes: Vec::new(), standalone: false, text_first: false }, at };
     let Tmpl::Element { attrs: mut entries, .. } = self.element(&shell)? else { unreachable!("an element") };
     let mut flags = DYNAMIC_ELEMENT;
     entries.retain(|entry| match entry {
@@ -1047,7 +1054,8 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// through `$.attributes` when a spread or an input's `defaultValue` is
   /// among them and one by one otherwise.
   fn element(&mut self, node: &Node) -> Lowered<Tmpl> {
-    let Node::Element { name, svg, mathml, attrs, fragment, at } = node else { unreachable!("an element") };
+    let Node::Element { name, svg, mathml, scoped, attrs, fragment, at } = node else { unreachable!("an element") };
+    let hash = scoped.clone();
     for attr in attrs {
       if let Attr::Spread { code, at: spread_at } = attr {
         match self.placement_spread(code, *spread_at)? {
@@ -1172,12 +1180,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           Item::Spread(e) => fields.push(Entry::Spread(e)),
         }
       }
-      entries.push(Entry::Spread(merged_attributes(fields, class_directives, style_directives)));
+      entries.push(Entry::Spread(merged_attributes(fields, hash.as_deref(), class_directives, style_directives)));
       let flags = if namespaced { 1 | 2 } else if name.contains('-') || attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "is")) { 2 } else if name == "input" { 4 } else { 0 };
       if flags != 0 {
         entries.push(Entry::Field(SVELTE_FLAGS.to_owned(), int(flags)));
       }
     } else {
+      let items_had_class = items.iter().any(|item| matches!(item, Item::Attr { name, value } if (if namespaced { name.clone() } else { name.to_lowercase() }) == "class" && (matches!(value, AttrValue::Present(true)) || static_text(value).is_some())));
+      let mut classed = false;
       for item in items {
         match item {
           Item::Bound { name, value } => entries.push(Entry::Field(name, value)),
@@ -1187,13 +1197,16 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
             let directed = (n == "class" && !class_directives.is_empty()) || (n == "style" && !style_directives.is_empty());
             let trim = n == "class" || n == "style";
             if !directed && (matches!(value, AttrValue::Present(true)) || static_text(&value).is_some()) {
-              let written = match &value {
+              let mut written = match &value {
                 AttrValue::Present(_) => String::new(),
                 _ => match self.ss(&value, trim)? {
                   Expr::Lit(Lit::Str(text)) => text.to_string(),
                   _ => unreachable!("static text is a literal"),
                 },
               };
+              if let (true, Some(hash)) = (n == "class", &hash) {
+                written = format!("{written} {hash}").trim().to_owned();
+              }
               if n != "class" || !written.is_empty() || matches!(value, AttrValue::Present(_)) {
                 entries.push(Entry::Baked(format!(" {n}=\"{written}\"")));
               }
@@ -1203,7 +1216,8 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
               "class" => {
                 let class = self.class_value(&value)?;
                 let directives = std::mem::take(&mut class_directives);
-                entries.push(Entry::Field(n, self.class_attr(Some(class), directives)?.expect("a class")));
+                classed = true;
+                entries.push(Entry::Field(n, self.class_attr(Some(class), hash.as_deref(), directives)?.expect("a class")));
               }
               "style" => {
                 let style = self.ss(&value, true)?;
@@ -1218,8 +1232,13 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           }
         }
       }
-      if !class_directives.is_empty() {
-        entries.push(Entry::Field("class".to_owned(), self.class_attr(None, class_directives)?.expect("a class")));
+      let static_class = items_had_class;
+      match (&hash, class_directives.is_empty()) {
+        _ if classed || static_class => {}
+        (Some(hash), true) => entries.push(Entry::Baked(format!(" class=\"{hash}\""))),
+        (Some(hash), false) => entries.push(Entry::Field("class".to_owned(), self.class_attr(Some(text(hash)), None, class_directives)?.expect("a class"))),
+        (None, false) => entries.push(Entry::Field("class".to_owned(), self.class_attr(None, None, class_directives)?.expect("a class"))),
+        (None, true) => {}
       }
       if !style_directives.is_empty() {
         entries.push(Entry::Field("style".to_owned(), self.style_attr(None, style_directives)?.expect("a style")));
@@ -1254,7 +1273,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// its content as written with each `<!---->` taken out, is that value or
   /// is among them for a `multiple` select; `<!>` closing rich content.
   fn listed(&mut self, node: &Node) -> Lowered<Tmpl> {
-    let Node::Element { name, svg, mathml, attrs, fragment, .. } = node else { unreachable!("an element") };
+    let Node::Element { name, svg, mathml, scoped, attrs, fragment, .. } = node else { unreachable!("an element") };
     let namespaced = *svg || *mathml;
     let mut fields: Vec<Entry> = Vec::new();
     let mut class_directives: Vec<(String, Expr)> = Vec::new();
@@ -1300,7 +1319,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         },
       }
     }
-    let merged = merged_attributes(fields, class_directives, style_directives);
+    let merged = merged_attributes(fields, scoped.as_deref(), class_directives, style_directives);
     let flags = if namespaced { 1 | 2 } else if attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "is")) { 2 } else { 0 };
     let rich = is_rich(name, &fragment.nodes);
     let mut children = self.fragment(fragment)?;
@@ -1454,7 +1473,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// `to_class(value, hash, directives)`: a directive that holds appends its
   /// name; one that does not removes each whitespace-delimited occurrence of
   /// the name together with the character after it.
-  fn class_attr(&mut self, class: Option<Expr>, directives: Vec<(String, Expr)>) -> Lowered<Option<Expr>> {
+  fn class_attr(&mut self, class: Option<Expr>, hash: Option<&str>, directives: Vec<(String, Expr)>) -> Lowered<Option<Expr>> {
+    let class = match (class, hash) {
+      (Some(Expr::Lit(Lit::Str(given))), Some(hash)) => Some(text(format!("{given} {hash}").trim())),
+      (class, None) => class,
+      (class, Some(hash)) => return Ok(Some(to_class(class, Some(hash), directives))),
+    };
     if directives.is_empty() {
       return Ok(class);
     }
@@ -1470,7 +1494,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       }
       return Ok(Some(Expr::Builtin { name: Builtin::ClassNames, args: vec![Expr::Array(parts)] }));
     }
-    Ok(Some(to_class(class, directives)))
+    Ok(Some(to_class(class, None, directives)))
   }
 
   /// `to_style(value, directives)`: the attribute's declarations less those
@@ -1736,7 +1760,7 @@ fn svelte_clsx(value: Expr) -> Expr {
 /// The object `$.attributes` receives, its `style` through `to_style` when a
 /// `style:` directive is present, its `class` through `clsx` when it holds
 /// anything and then through `to_class` when a `class:` directive is present.
-fn merged_attributes(fields: Vec<Entry>, class_directives: Vec<(String, Expr)>, style_directives: Vec<StyleDirective>) -> Expr {
+fn merged_attributes(fields: Vec<Entry>, hash: Option<&str>, class_directives: Vec<(String, Expr)>, style_directives: Vec<StyleDirective>) -> Expr {
   let with = |name: &str, value: Expr| Expr::Object(vec![Entry::Spread(var(ATTRS)), Entry::Field(name.to_owned(), value)]);
   let field = |name: &str| var(ATTRS).field(name);
   let mut body = vec![bind(ATTRS, Expr::Object(fields))];
@@ -1745,8 +1769,8 @@ fn merged_attributes(fields: Vec<Entry>, class_directives: Vec<(String, Expr)>, 
     body.push(set(ATTRS, with("style", to_style(field("style"), &reserved, style_directives))));
   }
   body.push(when(field("class"), vec![set(ATTRS, with("class", svelte_clsx(field("class"))))], Vec::new()));
-  if !class_directives.is_empty() {
-    body.push(set(ATTRS, with("class", to_class(Some(field("class")), class_directives))));
+  if hash.is_some() || !class_directives.is_empty() {
+    body.push(set(ATTRS, with("class", to_class(Some(field("class")), hash, class_directives))));
   }
   body.push(Stmt::Return(var(ATTRS)));
   Expr::Block(body)
@@ -1994,7 +2018,7 @@ const CLASS_WHITESPACE: &[&str] = &[" ", "\t", "\n", "\r", "\u{c}", "\u{a0}", "\
 
 /// `to_class` written out in the IR, its `while` a loop over enough
 /// iterations for each to remove or step past one occurrence.
-fn to_class(class: Option<Expr>, directives: Vec<(String, Expr)>) -> Expr {
+fn to_class(class: Option<Expr>, hash: Option<&str>, directives: Vec<(String, Expr)>) -> Expr {
   let eq = |a: Expr, b: Expr| cmp(CompareOp::Eq, a, b);
   let space_at = |at: Expr| {
     let whitespace = Expr::Array(CLASS_WHITESPACE.iter().map(|w| Entry::Item(text(w))).collect());
@@ -2005,6 +2029,9 @@ fn to_class(class: Option<Expr>, directives: Vec<(String, Expr)>) -> Expr {
     None => text(""),
   };
   let mut body = vec![bind(CLASS, start)];
+  if let Some(hash) = hash {
+    body.push(set(CLASS, Expr::Ternary(Box::new(eq(var(CLASS), text(""))), Box::new(text(hash)), Box::new(Expr::Template(vec![var(CLASS), text(&format!(" {hash}"))])))));
+  }
   for (name, cond) in directives {
     let len = name.encode_utf16().count() as i128;
     let append = set(CLASS, Expr::Ternary(Box::new(eq(var(CLASS), text(""))), Box::new(text(&name)), Box::new(Expr::Template(vec![var(CLASS), text(&format!(" {name}"))]))));

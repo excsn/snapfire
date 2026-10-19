@@ -312,6 +312,17 @@ fn stores_css_props_and_component_bindings_render_as_svelte_writes_them() {
   assert_eq!(rust, svelte);
 }
 
+#[test]
+fn scoped_styles_add_the_hash_svelte_adds() {
+  let source = "<script>let { on, c, o } = $props();</script>\
+    <p class=\"a\" class:b={on} title=\"t\">x</p><p id=\"i\">bare</p><span>y</span><div class={c} {...o}></div><div class={on ? 'c' : null}></div>\
+    <select value={c} class=\"s\"><option value=\"a\">A</option></select><ul>{#each [1, 2] as n}<li>{n}</li>{/each}</ul><em class:b={on}>e</em>\
+    <style>p { color: red } .b { color: blue } div { margin: 0 } option { color: red } li:first-child { x: y } em { z: 1 } :global(span) { q: 1 }</style>";
+  for (on, c) in [(true, s("a")), (false, Value::Null)] {
+    check("scoped", source, &props(&[("on", Value::Bool(on)), ("c", c.clone()), ("o", Value::Map(props(&[("class", s("k"))])))]));
+  }
+}
+
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);
@@ -638,13 +649,14 @@ impl Printer {
   }
 }
 
-fn source(nodes: &[Node], legacy: bool) -> String {
+fn source(nodes: &[Node], legacy: bool, styled: bool) -> String {
   let scope = Scope { strs: vec!["a".to_owned()], nums: vec!["n".to_owned()], depth: 0 };
   let mut printer = Printer { out: String::new(), row: false };
   printer.nodes(nodes, &scope);
   let script = if legacy { "<script>export let a; export let n; export let on; export let xs; export let h; export let sp;</script>\n" } else { "<script>let { a, n, on, xs, h, sp } = $props();</script>\n" };
   let row = if printer.row { "{#snippet row(v)}<i>{v}</i>{/snippet}\n" } else { "" };
-  format!("{script}{row}{}", printer.out)
+  let style = if styled { "\n<style>div { a: b } .c { a: b } span em { a: b } section > b { x: y } .z { q: r } input { i: j }</style>" } else { "" };
+  format!("{script}{row}{}{style}", printer.out)
 }
 
 mod generated {
@@ -686,8 +698,8 @@ mod generated {
     #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
 
     #[test]
-    fn generated_templates_render_as_svelte_server_writes_them(nodes in prop::collection::vec(node(), 1..4), given in given(), legacy in any::<bool>()) {
-      let source = source(&nodes, legacy);
+    fn generated_templates_render_as_svelte_server_writes_them(nodes in prop::collection::vec(node(), 1..4), given in given(), legacy in any::<bool>(), styled in any::<bool>()) {
+      let source = source(&nodes, legacy, styled);
       let (rust, svelte) = both("generated", &[("src/C.svelte", &source)], &given, None);
       prop_assert_eq!(rust, svelte, "{}\n{:?}", source, given);
     }

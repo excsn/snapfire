@@ -65,7 +65,7 @@
     let template;
     try {
       const runes = svelte.compile(source, { filename, generate: false }).metadata.runes;
-      template = globalThis.__svelte_template(root, source, runes);
+      template = globalThis.__svelte_template(root, source, runes, globalThis.__svelte_scoping(svelte, source, root, filename));
     } catch (e) {
       return JSON.stringify({ status: "failed", diagnostics: [diagnostic(e, filename)] });
     }

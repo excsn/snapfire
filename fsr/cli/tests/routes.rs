@@ -418,7 +418,7 @@ fn a_svelte_island_whose_adapter_the_import_map_does_not_name_is_refused_with_th
 fn the_modules_a_svelte_island_imports_reach_the_browser_whether_or_not_it_lowers() {
   let page = placing("Chart.svelte");
   let lowered = "<script lang=\"ts\">\n  import { count } from \"@src/store\";\n  import { held } from \"./held.svelte.js\";\n  let n: number = count + held.n;\n</script>\n\n<p>{n}</p>\n";
-  let refused = "<script lang=\"ts\">\n  import { count } from \"@src/store\";\n  import { held } from \"./held.svelte.js\";\n  let n: number = count + held.n;\n</script>\n\n{#key n}<p>{n}</p>{/key}\n";
+  let refused = "<script lang=\"ts\">\n  import { count } from \"@src/store\";\n  import { held } from \"./held.svelte.js\";\n  let n: number = count + held.n;\n</script>\n\n<svelte:head><title>{n}</title></svelte:head><p>{n}</p>\n";
   for (chart, lowers) in [(lowered, true), (refused, false)] {
     let dir = app(&[
       ("routes/page.tsx", &page),
@@ -437,7 +437,7 @@ fn the_modules_a_svelte_island_imports_reach_the_browser_whether_or_not_it_lower
       true => assert_eq!(row.map(|(_, how, detail)| (how, detail)), Some(("lowered".to_owned(), "svelte".to_owned())), "{}", built.report),
       false => {
         let why: Vec<&str> = built.report.foreign.iter().filter(|cause| cause.pages.iter().any(|(module, _)| module == "src/ui/Chart.svelte#default")).map(|cause| cause.message.as_str()).collect();
-        assert!(why.iter().any(|message| message.contains("{#key}")), "{why:?}");
+        assert!(why.iter().any(|message| message.contains("<svelte:head>")), "{why:?}");
       }
     }
     std::fs::remove_dir_all(&dir).unwrap();
