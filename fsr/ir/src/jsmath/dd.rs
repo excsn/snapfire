@@ -69,3 +69,17 @@ pub(super) fn div(a: Dd, b: Dd) -> Dd {
 pub(super) fn multiply_add(a: Dd, b: Dd, c: Dd) -> Dd {
   add(c, quick_mult(a, b))
 }
+
+/// `hi + mid + lo`, LLVM's `TripleDouble`; the low part is written first, as in the tables.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(super) struct Td {
+  pub(super) lo: f64,
+  pub(super) mid: f64,
+  pub(super) hi: f64,
+}
+
+/// `coeffs[0] + x * (coeffs[1] + x * (...))` with each step the double-double `multiply_add`.
+pub(super) fn polyeval(x: Dd, coeffs: &[Dd]) -> Dd {
+  let (last, rest) = coeffs.split_last().expect("a coefficient");
+  rest.iter().rev().fold(*last, |acc, coeff| multiply_add(x, acc, *coeff))
+}

@@ -16,6 +16,8 @@ mod atan_tables;
 mod cbrt;
 mod dd;
 mod dyadic;
+mod exp;
+mod exp_tables;
 mod trig;
 mod trig_tables;
 
@@ -65,4 +67,14 @@ pub fn acos(x: f64) -> f64 {
 /// `Math.cbrt(x)`.
 pub fn cbrt(x: f64) -> f64 {
   cbrt::cbrt(x)
+}
+
+/// `Math.exp(x)`.
+pub fn exp(x: f64) -> f64 {
+  exp::exp(x)
+}
+
+/// `Math.expm1(x)`.
+pub fn expm1(x: f64) -> f64 {
+  exp::expm1(x)
 }
