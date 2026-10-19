@@ -458,6 +458,8 @@
           const body = with_scope(params, () => fragment(n, n.body.nodes, path, namespace, preserve));
           return { type: "snippet", name: n.expression.name, params: n.parameters.map(code), body, at: where };
         }
+        case "DeclarationTag":
+          return { type: "declare", items: n.declaration.declarations.map((d) => ({ id: code(d.id), init: code(d.init) })), at: where };
         case "KeyBlock":
           return { type: "key", expression: code(n.expression), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), at: where };
         case "AwaitBlock": {

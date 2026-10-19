@@ -323,6 +323,29 @@ fn scoped_styles_add_the_hash_svelte_adds() {
   }
 }
 
+#[test]
+fn scripts_and_patterns_lower_as_svelte_runs_them() {
+  let legacy = "<script>export let a = 1; export let o = { x: 1 }; let b = 0; let c; $: if (a > 0) b = a * 2; $: { c = b + 1; } $: ({ x: d } = o); $: e = d + c;</script><p>{b} {c} {d} {e} {$$props.a} {JSON.stringify($$restProps)}</p>{#each [1] as n}{@const y = z + 1}{@const z = n}{y}{/each}";
+  let runes = "<script>let { items, p } = $props(); let s = $state({ q: 1 }); const snap = $state.snapshot(s);</script><p>{snap.q} {$effect.tracking()}</p>{#each items as { k, v: [first] }, i (k)}{@const { a = 2, b } = { b: k }}<i>{k}{first}{a}{b}{i}</i>{/each}{#snippet row({ x }, y = 3)}{x}{y}{/snippet}{@render row({ x: 1 })}{#await p then { w }}{w}{/await}";
+  for a in [Value::int(2i64), Value::int(-1i64)] {
+    check("legacy-script", legacy, &props(&[("a", a.clone()), ("o", Value::Map(props(&[("x", Value::int(5i64))]))), ("extra", s("x"))]));
+  }
+  let declared = "<script>let { n, obj } = $props(); const { q, r: [t] = [9] } = obj;</script><p>{q} {t}</p>{#if n}{const y = n * 2}{let z = y + 1, w}<p>{y} {z} {w}</p>{/if}";
+  check("declared", declared, &props(&[("n", Value::int(3i64)), ("obj", Value::Map(props(&[("q", s("q"))])))]));
+  let child = "<slot item={{ a: 1, b: [2] }} />";
+  let parent = "<script>import L from './L.svelte';</script><L let:item={{ a, b: [c] }}>{a}{c}</L>";
+  let (rust, svelte) = both("let-pattern", &[("src/P.svelte", parent), ("src/L.svelte", child)], &props(&[]), None);
+  assert_eq!(rust, svelte);
+  let items = Value::seq(vec![Value::Map(props(&[("k", s("a")), ("v", Value::seq(vec![s("f")]))]))]);
+  check("runes-script", runes, &props(&[("items", items), ("p", Value::Map(props(&[("w", s("w"))])))]));
+}
+
+#[test]
+fn props_id_is_refused_until_the_render_counts_in_order() {
+  let refusal = refused("props-id", "<script>const id = $props.id();</script><p id={id}>x</p>");
+  assert!(refusal.contains("$props.id()"), "{refusal}");
+}
+
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);

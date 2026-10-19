@@ -16,7 +16,7 @@ use snapfire_fsr_ir::render::{CHOSEN_TAG, CONTEXT_PREFIX, RAW_ATTR, SLOTS_GIVEN,
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
-use swc_core::ecma::visit::{VisitMut, VisitMutWith};
+use swc_core::ecma::visit::{VisitMut, VisitMutWith, VisitWith};
 
 use crate::assets::AssetResolver;
 use crate::component::{bind_object, block_to_expr, HeadRow};
@@ -59,6 +59,12 @@ pub struct Fragment {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct Declarator {
+  pub id: Code,
+  pub init: Option<Code>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct SlotGroup {
   pub name: String,
   pub fragment: Fragment,
@@ -89,6 +95,8 @@ pub enum Node {
   Each { expression: Code, context: Option<Code>, index: Option<String>, key: Option<Code>, body: Fragment, fallback: Option<Fragment>, at: (usize, usize) },
   Snippet { name: String, params: Vec<Code>, body: Fragment, at: (usize, usize) },
   Key { expression: Code, fragment: Fragment, at: (usize, usize) },
+  /// `{let x = …}` or `{const x = …}` in the template, each declarator.
+  Declare { items: Vec<Declarator>, at: (usize, usize) },
   Await { expression: Code, value: Option<Code>, error: Option<Code>, pending: Option<Fragment>, then: Option<Fragment>, catch: Option<Fragment>, at: (usize, usize) },
   /// A `svelte:` element or `<title>`: `kind` is Svelte's node type and `this`
   /// the expression `svelte:element` and `svelte:component` take.
@@ -191,6 +199,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       self.bind("$$slots".to_owned(), var(SLOTS));
     }
     self.script(runes, ranges)?;
+    if !runes && reads_props_whole(value, self.described.script.as_ref().map(|s| s.content.as_str())) {
+      let mut internal = vec![Expr::Var("$props".to_owned())];
+      internal.extend(["children", "$$slots", "$$events", "$$legacy"].iter().map(|k| text(k)));
+      let mut rest = internal.clone();
+      rest.extend(self.prop_keys.iter().map(|(_, key)| text(key)));
+      self.bind("$$props".to_owned(), call(Builtin::Omit, internal));
+      self.bind("$$restProps".to_owned(), call(Builtin::Omit, rest));
+    }
     let mut nodes = self.fragment(&fragment)?;
     let render = match nodes.len() {
       1 => nodes.pop().expect("one node"),
@@ -303,18 +319,58 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     self.lowerer.residue_with(span, "a statement in a Svelte script the build cannot follow", "a script the build reads is declarations, runes, `useStore` and the calls the browser alone runs: `$effect`, `$inspect`, `onMount` and the other lifecycle functions")
   }
 
-  /// `$: name = expr` is a value derived from what it reads; any other reactive statement runs in the browser.
+  /// `$:` runs where it is written on the server: `$: name = expr` binds the
+  /// name and a destructuring assignment each name it writes; any other
+  /// statement runs as a block whose writes reach the names declared before
+  /// it. A name a `$:` assigns that nothing declares is declared first, as
+  /// Svelte does.
   fn reactive(&mut self, labeled: &'p js::LabeledStmt) -> Lowered<()> {
-    let js::Stmt::Expr(e) = &*labeled.body else { return Ok(()) };
-    let js::Expr::Assign(assign) = &*e.expr else { return Ok(()) };
-    let Some(js::SimpleAssignTarget::Ident(target)) = assign.left.as_simple() else { return Ok(()) };
-    if assign.op != js::AssignOp::Assign {
-      return Err(self.lowerer.residue(assign.span, "a `$:` that updates rather than assigns"));
+    if let js::Stmt::Expr(e) = &*labeled.body {
+      if let js::Expr::Assign(assign) = &*e.expr {
+        if let (Some(js::SimpleAssignTarget::Ident(target)), js::AssignOp::Assign) = (assign.left.as_simple(), assign.op) {
+          let name = target.id.sym.to_string();
+          let expr = self.lowerer.expr(&assign.right)?;
+          self.lets.push(Stmt::Let { name: name.clone(), expr });
+          self.bind(format!("${name}"), Expr::Var(name.clone()));
+          self.bind(name.clone(), Expr::Var(name));
+          return Ok(());
+        }
+      }
     }
-    let name = target.id.sym.to_string();
-    let expr = self.lowerer.expr(&assign.right)?;
-    self.lets.push(Stmt::Let { name: name.clone(), expr });
-    self.bind(name.clone(), Expr::Var(name));
+    if let js::Stmt::Expr(e) = &*labeled.body {
+      if let js::Expr::Assign(assign) = unwrap_types(&e.expr) {
+        if let (js::AssignTarget::Pat(target), js::AssignOp::Assign) = (&assign.left, assign.op) {
+          let holder = self.lowerer.temp();
+          let value = self.lowerer.expr(&assign.right)?;
+          self.lets.push(Stmt::Let { name: holder.clone(), expr: value });
+          let pat: js::Pat = target.clone().into();
+          let before = self.lowerer.scope.len();
+          crate::component::bind_pattern(&mut self.lowerer, &pat, Expr::Var(holder))?;
+          let bound: Vec<(String, Expr)> = self.lowerer.scope.drain(before..).collect();
+          for (name, expr) in bound {
+            self.lets.push(Stmt::Let { name: name.clone(), expr });
+            self.bind(format!("${name}"), Expr::Var(name.clone()));
+            self.bind(name.clone(), Expr::Var(name));
+          }
+          return Ok(());
+        }
+      }
+    }
+    let mut assigned = Vec::new();
+    assigned_names(&labeled.body, &mut assigned);
+    for name in assigned {
+      if !self.lowerer.scope.iter().any(|(bound, _)| *bound == name) {
+        self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Lit(Lit::Null) });
+        self.bind(format!("${name}"), Expr::Var(name.clone()));
+        self.bind(name.clone(), Expr::Var(name));
+      }
+    }
+    let body = match &*labeled.body {
+      js::Stmt::Block(block) => self.lowerer.block(&block.stmts)?,
+      stmt => self.lowerer.block(std::slice::from_ref(stmt))?,
+    };
+    let ran = self.lowerer.temp();
+    self.lets.push(Stmt::Let { name: ran, expr: Expr::Block(body) });
     Ok(())
   }
 
@@ -395,8 +451,15 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
                 js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e)?,
                 js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts)?,
               },
-              _ => return Err(self.lowerer.residue(call.span, "`$derived.by` of something other than an arrow without parameters")),
+              Some(f) => Expr::Apply { f: Box::new(self.lowerer.expr(f)?), args: Vec::new() },
+              None => return Err(self.lowerer.residue(call.span, "`$derived.by` without a function")),
             },
+            "$state.snapshot" => match arg {
+              Some(arg) => self.lowerer.expr(arg)?,
+              None => Expr::Lit(Lit::Null),
+            },
+            "$effect.tracking" => Expr::Lit(Lit::Bool(false)),
+            "$props.id" => return Err(self.lowerer.residue(call.span, "`$props.id()`, whose ids Svelte counts in render order, which the build does not count yet")),
             other => return Err(self.lowerer.residue(call.span, format!("`{other}`, a rune the build does not read"))),
           };
           self.lets.push(Stmt::Let { name: name.clone(), expr });
@@ -406,7 +469,25 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           self.bind(name.clone(), Expr::Var(name));
         }
         (_, js::Pat::Ident(name)) => self.binding(name.id.sym.to_string(), init, decl.span, runes)?,
-        (_, other) => return Err(self.lowerer.residue(other.span(), "a declaration pattern the build does not read")),
+        (_, pattern) => {
+          if matches!(unwrap_types(init), js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+            continue;
+          }
+          let holder = self.lowerer.temp();
+          let expr = self.lowerer.expr(init)?;
+          self.lets.push(Stmt::Let { name: holder.clone(), expr });
+          let before = self.lowerer.scope.len();
+          crate::component::bind_pattern(&mut self.lowerer, pattern, Expr::Var(holder))?;
+          let bound: Vec<(String, Expr)> = self.lowerer.scope.drain(before..).collect();
+          for (name, expr) in bound {
+            self.lets.push(Stmt::Let { name: name.clone(), expr });
+            if !runes {
+              self.state.push(name.clone());
+            }
+            self.bind(format!("${name}"), Expr::Var(name.clone()));
+            self.bind(name.clone(), Expr::Var(name));
+          }
+        }
       }
     }
     Ok(())
@@ -481,17 +562,30 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let snippets_before = self.snippets.len();
     let mut consts: Vec<(String, Expr)> = Vec::new();
     let scope_before = self.lowerer.scope.len();
-    for node in &fragment.hoisted {
+    let legacy = self.template.as_ref().is_some_and(|t| !t.runes);
+    let hoisted = match legacy {
+      true => self.sorted_consts(&fragment.hoisted),
+      false => fragment.hoisted.clone(),
+    };
+    for node in &hoisted {
       match node {
         Node::Snippet { name, params, body, .. } => self.snippets.push(Snippet { name: name.clone(), params: params.clone(), body: body.clone() }),
-        Node::Const { id, init, at } => {
-          let name = id.code.trim().to_owned();
-          if !is_identifier(&name) {
-            return Err(self.at(at.0, at.1, "a `{@const}` that destructures"));
-          }
+        Node::Const { id, init, .. } => {
+          let holder = self.holder(id);
           let expr = self.expr(&init.code, init.at)?;
-          consts.push((name.clone(), expr));
-          self.bind(name.clone(), Expr::Var(name));
+          consts.push((holder.clone(), expr));
+          self.pattern(id, &holder)?;
+        }
+        Node::Declare { items, .. } => {
+          for item in items {
+            let holder = self.holder(&item.id);
+            let expr = match &item.init {
+              Some(init) => self.expr(&init.code, init.at)?,
+              None => Expr::Lit(Lit::Null),
+            };
+            consts.push((holder.clone(), expr));
+            self.pattern(&item.id, &holder)?;
+          }
         }
         Node::Other { kind, at } if kind == "DebugTag" => {
           let _ = at;
@@ -555,7 +649,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           out.push(Tmpl::Marker(EMPTY.to_owned()));
         }
       }
-      Node::Const { at, .. } | Node::Snippet { at, .. } => return Err(self.at(at.0, at.1, "a declaration among the nodes")),
+      Node::Const { at, .. } | Node::Snippet { at, .. } | Node::Declare { at, .. } => return Err(self.at(at.0, at.1, "a declaration among the nodes")),
       Node::Other { kind, at } | Node::Special { kind, at, .. } => return Err(self.at(at.0, at.1, format!("`{}`, which the build does not render on the server", kind_name(kind)))),
       Node::Key { fragment, .. } => {
         out.push(Tmpl::Marker(EMPTY.to_owned()));
@@ -606,18 +700,15 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let length = self.expr(&format!("(({}) ?? []).length", expression.code), expression.at)?;
     let scope_before = self.lowerer.scope.len();
     let item = match context {
-      Some(context) => {
-        let name = context.code.trim().to_owned();
-        if !is_identifier(&name) {
-          return Err(self.at(context.at.0, context.at.1, "an `{#each}` item that destructures"));
-        }
-        name
-      }
+      Some(context) => self.holder(context),
       None => self.lowerer.temp(),
     };
     let index_name = index.clone().unwrap_or_else(|| self.lowerer.temp());
     self.bind(item.clone(), Expr::Var(item.clone()));
     self.bind(index_name.clone(), Expr::Var(index_name.clone()));
+    if let Some(context) = context {
+      self.pattern(context, &item)?;
+    }
     let lowered = self.fragment(body);
     self.lowerer.scope.truncate(scope_before);
     let items = Tmpl::For { over: over.clone(), params: vec![item, index_name], body: Box::new(Tmpl::Fragment(lowered?)) };
@@ -666,21 +757,21 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       return Err(self.at(at.0, at.1, format!("`{name}`, a snippet that renders itself")));
     }
     let mut bound = Vec::new();
-    for (i, param) in snippet.params.iter().enumerate() {
-      let param_name = param.code.trim().to_owned();
-      if !is_identifier(&param_name) {
-        return Err(self.at(param.at.0, param.at.1, "a snippet parameter that destructures or has a default"));
-      }
+    for (i, _) in snippet.params.iter().enumerate() {
       let value = match args.get(i) {
         Some(arg) => self.expr(&arg.code, arg.at)?,
         None => Expr::Lit(Lit::Null),
       };
-      bound.push((param_name, value));
+      bound.push(value);
     }
     let scope_before = self.lowerer.scope.len();
-    for (param, _) in &bound {
-      self.bind(param.clone(), Expr::Var(param.clone()));
+    let mut holders = Vec::new();
+    for param in &snippet.params {
+      let holder = self.holder(param);
+      self.pattern(param, &holder)?;
+      holders.push(holder);
     }
+    let bound: Vec<(String, Expr)> = holders.into_iter().zip(bound).collect();
     self.rendering.push(snippet.name.clone());
     let body = self.fragment(&snippet.body);
     self.rendering.pop();
@@ -705,12 +796,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       let scope_before = self.lowerer.scope.len();
       let name = match value {
         Some(code) => {
-          let name = code.code.trim().to_owned();
-          if !is_identifier(&name) {
-            return Err(self.at(code.at.0, code.at.1, "an `{:then}` value that destructures"));
-          }
-          self.bind(name.clone(), Expr::Var(name.clone()));
-          Some(name)
+          let holder = self.holder(code);
+          self.pattern(code, &holder)?;
+          Some(holder)
         }
         None => None,
       };
@@ -749,6 +837,77 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     Ok(())
   }
 
+  /// `sort_const_tags` in Svelte 4 mode: each `{@const}` after the ones its
+  /// value reads, the other hoisted nodes where they were.
+  fn sorted_consts(&self, hoisted: &[Node]) -> Vec<Node> {
+    let consts: Vec<(usize, Vec<String>, Vec<String>)> = hoisted
+      .iter()
+      .enumerate()
+      .filter_map(|(i, node)| match node {
+        Node::Const { id, init, .. } => Some((i, self.names_in(&format!("({}) => 0", id.code), true), self.names_in(&init.code, false))),
+        _ => None,
+      })
+      .collect();
+    let mut placed: Vec<usize> = Vec::new();
+    let mut pending: Vec<&(usize, Vec<String>, Vec<String>)> = consts.iter().collect();
+    while !pending.is_empty() {
+      let ready = pending.iter().position(|(_, _, reads)| !reads.iter().any(|read| pending.iter().any(|(_, declares, _)| declares.contains(read)))).unwrap_or(0);
+      placed.push(pending.remove(ready).0);
+    }
+    let mut order = placed.into_iter();
+    hoisted.iter().map(|node| match node {
+      Node::Const { .. } => hoisted[order.next().expect("a const for each const")].clone(),
+      other => other.clone(),
+    }).collect()
+  }
+
+  /// The names an expression reads (with `declared` the names an arrow's parameters bind).
+  fn names_in(&self, code: &str, declared: bool) -> Vec<String> {
+    struct Names(Vec<String>, bool);
+    impl swc_core::ecma::visit::Visit for Names {
+      fn visit_ident(&mut self, id: &js::Ident) {
+        if !self.1 {
+          self.0.push(id.sym.to_string());
+        }
+      }
+      fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
+        if self.1 {
+          self.0.push(id.id.sym.to_string());
+        }
+      }
+    }
+    let Ok(parsed) = self.lowerer.parsed.parse_expr_at(code, 1, 1) else { return Vec::new() };
+    let mut names = Names(Vec::new(), declared);
+    match (&*parsed, declared) {
+      (js::Expr::Arrow(arrow), true) => arrow.params.visit_with(&mut names),
+      (expr, _) => expr.visit_with(&mut names),
+    }
+    names.0
+  }
+
+  /// A pattern the template binds, `{ a, b: [c] = d }` or a name, bound to
+  /// the parts of `value`, which is read once: a name is bound to it and a
+  /// pattern to the parts of the variable `holder` it is held in.
+  fn pattern(&mut self, code: &Code, holder: &str) -> Lowered<()> {
+    let text = code.code.trim();
+    if is_identifier(text) {
+      self.bind(text.to_owned(), Expr::Var(holder.to_owned()));
+      return Ok(());
+    }
+    let (line, column) = code.at;
+    let wrapped = format!("({text}) => 0");
+    let parsed = self.lowerer.parsed.parse_expr_at(&wrapped, line, column.saturating_sub(1).max(1)).map_err(|message| self.at(line, column, format!("`{text}`: {message}")))?;
+    let js::Expr::Arrow(arrow) = &*parsed else { return Err(self.at(line, column, format!("`{text}`, a pattern the build does not read"))) };
+    let Some(pat) = arrow.params.first() else { return Err(self.at(line, column, format!("`{text}`, a pattern the build does not read"))) };
+    crate::component::bind_pattern(&mut self.lowerer, pat, Expr::Var(holder.to_owned()))
+  }
+
+  /// The variable a template binding is held in: its own name (a fresh one for a pattern).
+  fn holder(&mut self, code: &Code) -> String {
+    let text = code.code.trim();
+    if is_identifier(text) { text.to_owned() } else { self.lowerer.temp() }
+  }
+
   /// `<slot name="…" {props}>fallback</slot>`, `$.slot` between block
   /// markers: the caller's content for the slot with the props as its one
   /// argument, else the fallback. A snippet passed as an attribute is a prop
@@ -785,12 +944,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let scope_before = self.lowerer.scope.len();
     let mut params = Vec::new();
     for (i, param) in snippet.params.iter().enumerate() {
-      let name = param.code.trim().to_owned();
-      if !is_identifier(&name) {
-        return Err(self.at(param.at.0, param.at.1, "a snippet parameter that destructures or has a default"));
-      }
-      self.bind(name.clone(), Expr::Var(name.clone()));
-      params.push((name, Expr::Index(Box::new(var(SLOT_PROPS)), Box::new(int(i as i128)))));
+      let holder = self.holder(param);
+      self.pattern(param, &holder)?;
+      params.push((holder, Expr::Index(Box::new(var(SLOT_PROPS)), Box::new(int(i as i128)))));
     }
     self.rendering.push(snippet.name.clone());
     let body = self.fragment(&snippet.body);
@@ -810,14 +966,20 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         if kind != "let" {
           continue;
         }
-        let local = match expression {
-          Some(code) => code.code.trim().to_owned(),
-          None => name.clone(),
-        };
-        if !is_identifier(&local) {
-          return Err(self.at(at.0, at.1, "a `let:` directive that destructures"));
+        let value = Expr::Index(Box::new(var(SLOT_PROPS)), Box::new(int(0))).field(name.clone());
+        match expression {
+          Some(code) if !is_identifier(code.code.trim()) => {
+            let holder = self.lowerer.temp();
+            lets.push((holder.clone(), value));
+            let before = self.lowerer.scope.len();
+            self.pattern(code, &holder)?;
+            let bound: Vec<(String, Expr)> = self.lowerer.scope.drain(before..).collect();
+            lets.extend(bound);
+          }
+          Some(code) => lets.push((code.code.trim().to_owned(), value)),
+          None => lets.push((name.clone(), value)),
         }
-        lets.push((local, Expr::Index(Box::new(var(SLOT_PROPS)), Box::new(int(0))).field(name.clone())));
+        let _ = at;
       }
     }
     Ok(())
@@ -1854,6 +2016,37 @@ fn kept_declarations(text: &str, reserved: &[String]) -> String {
   out
 }
 
+/// Whether a Svelte 4 component reads `$$props` or `$$restProps`.
+fn reads_props_whole(template: &serde_json::Value, script: Option<&str>) -> bool {
+  let text = template.to_string();
+  ["$$props", "$$restProps"].iter().any(|name| text.contains(name) || script.is_some_and(|s| s.contains(name)))
+}
+
+/// Each name an assignment in `stmt` writes, its patterns included.
+fn assigned_names(stmt: &js::Stmt, out: &mut Vec<String>) {
+  struct Assigned<'o>(&'o mut Vec<String>);
+  impl swc_core::ecma::visit::Visit for Assigned<'_> {
+    fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
+      match &assign.left {
+        js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.0.push(id.id.sym.to_string()),
+        js::AssignTarget::Pat(pat) => {
+          struct Bound<'o>(&'o mut Vec<String>);
+          impl swc_core::ecma::visit::Visit for Bound<'_> {
+            fn visit_binding_ident(&mut self, id: &js::BindingIdent) {
+              self.0.push(id.id.sym.to_string());
+            }
+            fn visit_expr(&mut self, _: &js::Expr) {}
+          }
+          pat.visit_with(&mut Bound(self.0));
+        }
+        _ => {}
+      }
+      assign.right.visit_with(self);
+    }
+  }
+  stmt.visit_with(&mut Assigned(out));
+}
+
 /// Gives a template expression's free names the script's top-level context,
 /// which is what they name in Svelte's scope, so the library ones read by
 /// what they are bound to. A name the template binds keeps its own.
@@ -1863,6 +2056,24 @@ struct TopLevel {
 }
 
 impl VisitMut for TopLevel {
+  /// What Svelte's server writes for a rune a template reads:
+  /// `$state.snapshot(x)` is `x`, `$effect.tracking()` is `false` and
+  /// `$effect.pending()` is `0`.
+  fn visit_mut_expr(&mut self, expr: &mut js::Expr) {
+    if let js::Expr::Call(call) = expr {
+      let rune = callee_name(call);
+      match rune.as_deref() {
+        Some("$state.snapshot") if call.args.len() == 1 => {
+          *expr = *call.args[0].expr.clone();
+        }
+        Some("$effect.tracking") => *expr = js::Expr::Lit(js::Lit::Bool(js::Bool { span: call.span, value: false })),
+        Some("$effect.pending") => *expr = js::Expr::Lit(js::Lit::Num(js::Number { span: call.span, value: 0.0, raw: None })),
+        _ => {}
+      }
+    }
+    expr.visit_mut_children_with(self);
+  }
+
   fn visit_mut_ident(&mut self, id: &mut js::Ident) {
     if id.ctxt == swc_core::common::SyntaxContext::empty() && !self.local.iter().any(|name| *name == *id.sym) {
       id.ctxt = self.top;

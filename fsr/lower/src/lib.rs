@@ -1155,7 +1155,7 @@ impl<'a> Lowerer<'a> {
     root_named(name)
   }
 
-  fn block(&mut self, stmts: &[js::Stmt]) -> Lowered<Body> {
+  pub(crate) fn block(&mut self, stmts: &[js::Stmt]) -> Lowered<Body> {
     let depth = self.scope.len();
     let mut out = Vec::with_capacity(stmts.len());
     for stmt in stmts {
