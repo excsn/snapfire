@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
-use snapfire_fsr_ir::ast::{Builtin, CompareOp, Component, Entry, Expr, Lit, Stmt, Tmpl};
+use snapfire_fsr_ir::ast::{ArithOp, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl};
 use snapfire_fsr_ir::render::RAW_ATTR;
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
@@ -695,11 +695,11 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           }
           match attr_name.as_str() {
             "class" => {
-              class = Some(self.class_value(value)?);
+              class = Some(self.class_value(&collapsed(value))?);
               entries.push(Entry::Field("class".to_owned(), Expr::Lit(Lit::Null)));
             }
             "style" => {
-              style = Some(self.attr_value(value, true)?);
+              style = Some(self.attr_value(&collapsed(value), true)?);
               entries.push(Entry::Field("style".to_owned(), Expr::Lit(Lit::Null)));
             }
             "value" if name == "textarea" => body = Some(self.attr_value(value, false)?),
@@ -726,7 +726,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           }
           "style" => {
             let value = match value {
-              Some(value) => self.attr_value(value, true)?,
+              Some(value) => self.attr_value(&collapsed(value), true)?,
               None => self.expr(directive, *at)?,
             };
             style_directives.push((directive.clone(), value));
@@ -745,7 +745,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         },
       }
     }
-    for (name, value) in [("class", self.class_attr(class, class_directives, *at)?), ("style", self.style_attr(style, style_directives, *at)?)] {
+    for (name, value) in [("class", self.class_attr(class, class_directives)?), ("style", self.style_attr(style, style_directives)?)] {
       let Some(value) = value else { continue };
       match entries.iter_mut().find(|e| matches!(e, Entry::Field(n, _) if n == name)) {
         Some(slot) => *slot = Entry::Field(name.to_owned(), value),
@@ -783,47 +783,89 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     }
   }
 
-  /// `to_class(value, hash, directives)`: each `class:` directive that holds appends its name.
-  fn class_attr(&mut self, class: Option<Expr>, directives: Vec<(String, Expr)>, at: (usize, usize)) -> Lowered<Option<Expr>> {
+  /// `to_class(value, hash, directives)`: a directive that holds appends its
+  /// name; one that does not removes each whitespace-delimited occurrence of
+  /// the name together with the character after it.
+  fn class_attr(&mut self, class: Option<Expr>, directives: Vec<(String, Expr)>) -> Lowered<Option<Expr>> {
     if directives.is_empty() {
       return Ok(class);
     }
-    if let Some(Expr::Lit(Lit::Str(text))) = &class {
-      if directives.iter().any(|(name, _)| text.split_whitespace().any(|word| word == name)) {
-        return Err(self.at(at.0, at.1, "a `class:` directive naming a class the attribute already holds"));
+    let literal = match &class {
+      None => Some(String::new()),
+      Some(Expr::Lit(Lit::Str(text))) => Some(text.to_string()),
+      Some(_) => None,
+    };
+    if let Some(text) = literal.filter(|text| !directives.iter().any(|(name, _)| text.split_whitespace().any(|word| word == name))) {
+      let mut parts: Vec<Entry> = class.filter(|_| !text.is_empty()).map(|c| vec![Entry::Item(c)]).unwrap_or_default();
+      for (name, cond) in directives {
+        parts.push(Entry::Item(Expr::Ternary(Box::new(cond), Box::new(Expr::lit_str(name)), Box::new(Expr::lit_str(String::new())))));
       }
+      return Ok(Some(Expr::Builtin { name: Builtin::ClassNames, args: vec![Expr::Array(parts)] }));
     }
-    if matches!(&class, Some(e) if !matches!(e, Expr::Lit(Lit::Str(_)))) {
-      return Err(self.at(at.0, at.1, "`class:` directives beside a `class` the render computes"));
-    }
-    let mut parts: Vec<Entry> = class.map(|c| vec![Entry::Item(c)]).unwrap_or_default();
-    for (name, cond) in directives {
-      parts.push(Entry::Item(Expr::Ternary(Box::new(cond), Box::new(Expr::lit_str(name)), Box::new(Expr::lit_str(String::new())))));
-    }
-    Ok(Some(Expr::Builtin { name: Builtin::ClassNames, args: vec![Expr::Array(parts)] }))
+    Ok(Some(to_class(class, directives)))
   }
 
   /// `to_style(value, directives)`: the attribute's declarations less those
   /// a directive names, then each directive whose value is neither `null`
   /// nor empty, trimmed. A `style` the render computes beside a directive is
   /// not read yet.
-  fn style_attr(&mut self, style: Option<Expr>, directives: Vec<(String, Expr)>, at: (usize, usize)) -> Lowered<Option<Expr>> {
+  fn style_attr(&mut self, style: Option<Expr>, directives: Vec<(String, Expr)>) -> Lowered<Option<Expr>> {
     if directives.is_empty() {
       return Ok(style);
     }
     let reserved: Vec<String> = directives.iter().map(|(name, _)| css_name(name)).collect();
     let kept = match &style {
       None => String::new(),
-      Some(Expr::Lit(Lit::Str(text))) => kept_declarations(text, &reserved),
-      Some(_) => return Err(self.at(at.0, at.1, "`style:` directives beside a `style` the render computes")),
+      Some(Expr::Lit(Lit::Str(text))) if !text.contains("/*") => kept_declarations(text, &reserved),
+      Some(_) => return Ok(Some(to_style(style.unwrap(), &reserved, directives))),
     };
     let mut parts = vec![Expr::lit_str(kept)];
-    for (name, value) in directives {
-      let written = Expr::Logic(snapfire_fsr_ir::ast::LogicOp::And, Box::new(Expr::Compare(CompareOp::Ne, Box::new(value.clone()), Box::new(Expr::Lit(Lit::Null)))), Box::new(Expr::Compare(CompareOp::Ne, Box::new(value.clone()), Box::new(Expr::lit_str(String::new())))));
-      let declaration = Expr::Template(vec![Expr::lit_str(format!(" {name}: ")), value, Expr::lit_str(";")]);
-      parts.push(Expr::Ternary(Box::new(written), Box::new(declaration), Box::new(Expr::lit_str(String::new()))));
-    }
+    parts.extend(appended_styles(directives));
     Ok(Some(Expr::Builtin { name: Builtin::Trim, args: vec![Expr::Template(parts)] }))
+  }
+}
+
+/// `append_styles`: each directive whose value is neither `null` nor `''` as ` name: value;`.
+fn appended_styles(directives: Vec<(String, Expr)>) -> Vec<Expr> {
+  directives
+    .into_iter()
+    .map(|(name, value)| {
+      let written = logic(LogicOp::And, cmp(CompareOp::Ne, value.clone(), Expr::Lit(Lit::Null)), cmp(CompareOp::Ne, value.clone(), Expr::lit_str(String::new())));
+      let declaration = Expr::Template(vec![Expr::lit_str(format!(" {name}: ")), value, Expr::lit_str(";")]);
+      Expr::Ternary(Box::new(written), Box::new(declaration), Box::new(Expr::lit_str(String::new())))
+    })
+    .collect()
+}
+
+/// A `class`, `style` or `style:` value as `build_attribute_value` hands it
+/// on with `trim_whitespace`: each run of `[ \t\n\r\f]` in its text is one
+/// space and a value that is text alone is trimmed.
+fn collapsed(value: &AttrValue) -> AttrValue {
+  let collapse = |text: &str| {
+    let mut out = String::with_capacity(text.len());
+    let mut run = false;
+    for c in text.chars() {
+      if matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{c}') {
+        if !run {
+          out.push(' ');
+        }
+        run = true;
+      } else {
+        out.push(c);
+        run = false;
+      }
+    }
+    out
+  };
+  match value {
+    AttrValue::Parts(parts) => match parts.as_slice() {
+      [Part::Text { text }] => AttrValue::Parts(vec![Part::Text { text: collapse(text).trim_matches(js_whitespace).to_owned() }]),
+      parts => AttrValue::Parts(parts.iter().map(|part| match part {
+        Part::Text { text } => Part::Text { text: collapse(text) },
+        code => code.clone(),
+      }).collect()),
+    },
+    other => other.clone(),
   }
 }
 
@@ -835,23 +877,11 @@ fn css_name(name: &str) -> String {
   }
 }
 
-/// The declarations of a literal `style` that `to_style` keeps: comments
-/// stripped, each `name: value` whose name no directive reserves, each
-/// written with a leading space and a closing `;`.
-fn kept_declarations(value: &str, reserved: &[String]) -> String {
-  let mut text = String::new();
-  let mut rest = value;
-  while let Some(open) = rest.find("/*") {
-    text.push_str(&rest[..open]);
-    match rest[open + 2..].find("*/") {
-      Some(close) => rest = &rest[open + 2 + close + 2..],
-      None => {
-        rest = "";
-      }
-    }
-  }
-  text.push_str(rest);
-  let chars: Vec<char> = text.trim().chars().collect();
+/// The declarations of a literal `style` holding no comment that `to_style`
+/// keeps: each `name: value` whose name no directive reserves, written with a
+/// leading space and a closing `;`.
+fn kept_declarations(text: &str, reserved: &[String]) -> String {
+  let chars: Vec<char> = text.trim_matches(js_whitespace).chars().collect();
   let mut out = String::new();
   let (mut in_str, mut depth, mut start, mut name_at) = (None::<char>, 0i32, 0usize, None::<usize>);
   for i in 0..chars.len() {
@@ -869,11 +899,11 @@ fn kept_declarations(value: &str, reserved: &[String]) -> String {
         name_at = Some(i);
       } else if c == ';' || i == chars.len() - 1 {
         if let Some(n) = name_at {
-          let name = css_name(chars[start..n].iter().collect::<String>().trim());
+          let name = css_name(chars[start..n].iter().collect::<String>().trim_matches(js_whitespace));
           if !reserved.contains(&name) {
             let end = if c == ';' { i } else { i + 1 };
             out.push(' ');
-            out.push_str(chars[start..end].iter().collect::<String>().trim());
+            out.push_str(chars[start..end].iter().collect::<String>().trim_matches(js_whitespace));
             out.push(';');
           }
         }
@@ -963,4 +993,223 @@ fn kind_name(kind: &str) -> String {
     "DeclarationTag" => "a template declaration".to_owned(),
     other => other.to_owned(),
   }
+}
+
+fn var(name: &str) -> Expr {
+  Expr::var(name)
+}
+
+fn int(n: i128) -> Expr {
+  Expr::Lit(Lit::Int(n))
+}
+
+fn text(s: &str) -> Expr {
+  Expr::lit_str(s)
+}
+
+fn call(name: Builtin, args: Vec<Expr>) -> Expr {
+  Expr::Builtin { name, args }
+}
+
+fn cmp(op: CompareOp, a: Expr, b: Expr) -> Expr {
+  Expr::Compare(op, Box::new(a), Box::new(b))
+}
+
+fn arith(op: ArithOp, a: Expr, b: Expr) -> Expr {
+  Expr::Arith(op, Box::new(a), Box::new(b))
+}
+
+fn logic(op: LogicOp, a: Expr, b: Expr) -> Expr {
+  Expr::Logic(op, Box::new(a), Box::new(b))
+}
+
+fn plus(a: Expr, n: i128) -> Expr {
+  arith(ArithOp::Add, a, int(n))
+}
+
+fn bind(name: &str, expr: Expr) -> Stmt {
+  Stmt::Let { name: name.to_owned(), expr }
+}
+
+fn set(name: &str, expr: Expr) -> Stmt {
+  Stmt::Set { name: name.to_owned(), expr }
+}
+
+fn when(cond: Expr, then: Vec<Stmt>, otherwise: Vec<Stmt>) -> Stmt {
+  Stmt::If { cond, then, r#else: otherwise }
+}
+
+/// `for (const _ of range(n))`.
+fn repeat(name: &str, n: Expr, body: Vec<Stmt>) -> Stmt {
+  Stmt::ForOf { name: name.to_owned(), over: call(Builtin::Range, vec![n]), body }
+}
+
+/// Whether `haystack` holds `needle` at `at`, a UTF-16 index.
+fn holds_at(haystack: &str, needle: Expr, at: Expr) -> Expr {
+  call(Builtin::StartsWith, vec![var(haystack), needle, at])
+}
+
+/// JavaScript's `WhiteSpace` and `LineTerminator`, what `trim` strips.
+fn js_whitespace(c: char) -> bool {
+  matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+}
+
+const CLASS: &str = "class@";
+const AT: &str = "at@";
+const END: &str = "end@";
+
+/// The whitespace `to_class` splits on, from `svelte/src/internal/shared/attributes.js`.
+const CLASS_WHITESPACE: &[&str] = &[" ", "\t", "\n", "\r", "\u{c}", "\u{a0}", "\u{b}", "\u{feff}"];
+
+/// `to_class` written out in the IR, its `while` a loop over enough
+/// iterations for each to remove or step past one occurrence.
+fn to_class(class: Option<Expr>, directives: Vec<(String, Expr)>) -> Expr {
+  let eq = |a: Expr, b: Expr| cmp(CompareOp::Eq, a, b);
+  let space_at = |at: Expr| {
+    let whitespace = Expr::Array(CLASS_WHITESPACE.iter().map(|w| Entry::Item(text(w))).collect());
+    Expr::Some(Box::new(whitespace), Box::new(Expr::lambda(&["w@"], holds_at(CLASS, var("w@"), at))))
+  };
+  let start = match class {
+    Some(value) => Expr::Ternary(Box::new(eq(value.clone(), Expr::Lit(Lit::Null))), Box::new(text("")), Box::new(Expr::Str(Box::new(value)))),
+    None => text(""),
+  };
+  let mut body = vec![bind(CLASS, start)];
+  for (name, cond) in directives {
+    let len = name.encode_utf16().count() as i128;
+    let append = set(CLASS, Expr::Ternary(Box::new(eq(var(CLASS), text(""))), Box::new(text(&name)), Box::new(Expr::Template(vec![var(CLASS), text(&format!(" {name}"))]))));
+    let bounded = logic(
+      LogicOp::And,
+      logic(LogicOp::Or, eq(var(AT), int(0)), space_at(plus(var(AT), -1))),
+      logic(LogicOp::Or, eq(var(END), Expr::Length(Box::new(var(CLASS)))), space_at(var(END))),
+    );
+    let remove = set(CLASS, Expr::Template(vec![call(Builtin::Substring, vec![var(CLASS), int(0), var(AT)]), call(Builtin::Substring, vec![var(CLASS), plus(var(END), 1)])]));
+    let found = cmp(CompareOp::Ge, var(AT), int(0));
+    let step = when(
+      found.clone(),
+      vec![set(AT, call(Builtin::IndexOf, vec![var(CLASS), text(&name), var(AT)])), when(found, vec![bind(END, plus(var(AT), len)), when(bounded, vec![remove], vec![set(AT, var(END))])], Vec::new())],
+      Vec::new(),
+    );
+    let passes = plus(arith(ArithOp::Mul, Expr::Length(Box::new(var(CLASS))), int(2)), 1);
+    body.push(when(cond, vec![append], vec![bind(AT, int(0)), repeat("_", passes, vec![step])]));
+  }
+  body.push(Stmt::Return(var(CLASS)));
+  Expr::Block(body)
+}
+
+const STYLE: &str = "style@";
+const OUT: &str = "out@";
+const SRC: &str = "src@";
+const KEPT: &str = "kept@";
+const FROM: &str = "from@";
+const OPEN: &str = "open@";
+const CLOSE: &str = "close@";
+const I: &str = "i@";
+const LEN: &str = "len@";
+const QUOTE: &str = "quote@";
+const DEPTH: &str = "depth@";
+const COMMENT: &str = "comment@";
+const NAME_AT: &str = "name_at@";
+const NAME: &str = "name@";
+const START: &str = "start@";
+
+/// `to_style` written out in the IR for a `style` the render computes: the
+/// value with `/\/\*.*?\*\//g` removed and trimmed, then each declaration
+/// whose name no directive reserves, then the directives.
+fn to_style(style: Expr, reserved: &[String], directives: Vec<(String, Expr)>) -> Expr {
+  let eq = |a: Expr, b: Expr| cmp(CompareOp::Eq, a, b);
+  let at = |c: &str| holds_at(STYLE, text(c), var(I));
+  let reserved = Expr::Array(reserved.iter().map(|name| Entry::Item(text(name))).collect());
+  let line_break = Expr::Some(
+    Box::new(Expr::Array(["\n", "\r", "\u{2028}", "\u{2029}"].iter().map(|w| Entry::Item(text(w))).collect())),
+    Box::new(Expr::lambda(&["w@"], call(Builtin::Includes, vec![call(Builtin::Substring, vec![var(SRC), plus(var(OPEN), 2), var(CLOSE)]), var("w@")]))),
+  );
+  let uncomment = vec![
+    bind(SRC, Expr::Str(Box::new(var(STYLE)))),
+    bind(KEPT, int(0)),
+    bind(FROM, int(0)),
+    set(STYLE, text("")),
+    repeat(
+      "_",
+      plus(Expr::Length(Box::new(var(SRC))), 2),
+      vec![when(
+        cmp(CompareOp::Ge, var(KEPT), int(0)),
+        vec![
+          bind(OPEN, call(Builtin::IndexOf, vec![var(SRC), text("/*"), var(FROM)])),
+          when(
+            cmp(CompareOp::Lt, var(OPEN), int(0)),
+            vec![set(STYLE, Expr::Template(vec![var(STYLE), call(Builtin::Substring, vec![var(SRC), var(KEPT)])])), set(KEPT, int(-1))],
+            vec![
+              bind(CLOSE, call(Builtin::IndexOf, vec![var(SRC), text("*/"), plus(var(OPEN), 2)])),
+              when(
+                logic(LogicOp::And, cmp(CompareOp::Ge, var(CLOSE), int(0)), Expr::Not(Box::new(line_break))),
+                vec![set(STYLE, Expr::Template(vec![var(STYLE), call(Builtin::Substring, vec![var(SRC), var(KEPT), var(OPEN)])])), set(KEPT, plus(var(CLOSE), 2)), set(FROM, plus(var(CLOSE), 2))],
+                vec![set(FROM, plus(var(OPEN), 1))],
+              ),
+            ],
+          ),
+        ],
+        Vec::new(),
+      )],
+    ),
+    set(STYLE, call(Builtin::Trim, vec![var(STYLE)])),
+  ];
+  let track = when(
+    var(COMMENT),
+    vec![when(logic(LogicOp::And, at("/"), logic(LogicOp::And, cmp(CompareOp::Gt, var(I), int(0)), holds_at(STYLE, text("*"), plus(var(I), -1)))), vec![set(COMMENT, Expr::Lit(Lit::Bool(false)))], Vec::new())],
+    vec![when(
+      cmp(CompareOp::Ne, var(QUOTE), text("")),
+      vec![when(holds_at(STYLE, var(QUOTE), var(I)), vec![set(QUOTE, text(""))], Vec::new())],
+      vec![when(
+        logic(LogicOp::And, at("/"), holds_at(STYLE, text("*"), plus(var(I), 1))),
+        vec![set(COMMENT, Expr::Lit(Lit::Bool(true)))],
+        vec![when(
+          at("\""),
+          vec![set(QUOTE, text("\""))],
+          vec![when(at("'"), vec![set(QUOTE, text("'"))], vec![when(at("("), vec![set(DEPTH, plus(var(DEPTH), 1))], vec![when(at(")"), vec![set(DEPTH, plus(var(DEPTH), -1))], Vec::new())])])],
+        )],
+      )],
+    )],
+  );
+  let declaration = vec![
+    bind(NAME, call(Builtin::Trim, vec![call(Builtin::Substring, vec![var(STYLE), var(START), var(NAME_AT)])])),
+    set(NAME, Expr::Ternary(Box::new(call(Builtin::StartsWith, vec![var(NAME), text("--")])), Box::new(var(NAME)), Box::new(call(Builtin::Lower, vec![var(NAME)])))),
+    when(
+      Expr::Not(Box::new(call(Builtin::Includes, vec![reserved, var(NAME)]))),
+      vec![set(OUT, Expr::Template(vec![var(OUT), text(" "), call(Builtin::Trim, vec![call(Builtin::Substring, vec![var(STYLE), var(START), Expr::Ternary(Box::new(at(";")), Box::new(var(I)), Box::new(plus(var(I), 1)))])]), text(";")]))],
+      Vec::new(),
+    ),
+  ];
+  let split = when(
+    logic(LogicOp::And, Expr::Not(Box::new(var(COMMENT))), logic(LogicOp::And, eq(var(QUOTE), text("")), eq(var(DEPTH), int(0)))),
+    vec![when(
+      logic(LogicOp::And, at(":"), eq(var(NAME_AT), int(-1))),
+      vec![set(NAME_AT, var(I))],
+      vec![when(
+        logic(LogicOp::Or, at(";"), eq(var(I), plus(var(LEN), -1))),
+        vec![when(cmp(CompareOp::Ne, var(NAME_AT), int(-1)), declaration, Vec::new()), set(START, plus(var(I), 1)), set(NAME_AT, int(-1))],
+        Vec::new(),
+      )],
+    )],
+    Vec::new(),
+  );
+  let mut scan = uncomment;
+  scan.extend([
+    bind(QUOTE, text("")),
+    bind(DEPTH, int(0)),
+    bind(COMMENT, Expr::Lit(Lit::Bool(false))),
+    bind(START, int(0)),
+    bind(NAME_AT, int(-1)),
+    bind(LEN, Expr::Length(Box::new(var(STYLE)))),
+    repeat(I, var(LEN), vec![track, split]),
+  ]);
+  let mut tail = vec![var(OUT)];
+  tail.extend(appended_styles(directives));
+  let body = vec![
+    bind(STYLE, style),
+    bind(OUT, text("")),
+    when(var(STYLE), scan, Vec::new()),
+    set(OUT, call(Builtin::Trim, vec![Expr::Template(tail)])),
+    Stmt::Return(Expr::Ternary(Box::new(eq(var(OUT), text(""))), Box::new(Expr::Lit(Lit::Null)), Box::new(var(OUT)))),
+  ];
+  Expr::Block(body)
 }

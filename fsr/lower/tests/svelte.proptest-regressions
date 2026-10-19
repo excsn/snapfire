@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 409c30b69e4e8932cb93cb7ca5c9cfbbac33a0eb11fcfd977bfdf3d9209df16e # shrinks to nodes = [Each([Elem(0, [597, 829], [])], None, false)], given = {"a": Str(""), "n": Int(0), "on": Bool(false), "xs": Seq([]), "h": Str("")}, legacy = false
+cc 1c4d0e61a3ca7f36e90e47e475e43e1f0319a98faa59b0edae87107f4c4b1f49 # shrinks to nodes = [If(0, [Elem(0, [502, 252], [])], None, false)], given = {"a": Str(""), "n": Int(0), "on": Bool(false), "xs": Seq([]), "h": Str("")}, legacy = false

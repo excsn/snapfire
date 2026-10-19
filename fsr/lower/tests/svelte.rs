@@ -160,6 +160,33 @@ fn attributes_print_as_svelte_server_prints_them() {
 }
 
 #[test]
+fn class_directives_apply_to_any_class_value() {
+  let source = "<script>let { on, c } = $props();</script><p class={{ k: on }} class:z={on}>a</p><p class=\"z y z\" class:z={on}>b</p><p class={c} class:z={on} class:y={!on}>c</p><p class=\"{c} w\" class:w={on}>d</p>";
+  for (on, c) in [(true, "z"), (false, "z"), (false, "a z\tz y"), (true, ""), (false, "zz z🙂")] {
+    check("class-directives", source, &props(&[("on", Value::Bool(on)), ("c", s(c))]));
+  }
+  check("class-directive-null", source, &props(&[("on", Value::Bool(false)), ("c", Value::Null)]));
+}
+
+#[test]
+fn style_directives_apply_to_any_style_value() {
+  let source = "<script>let { c, s } = $props();</script><p style=\"margin: {c}px; Color: blue\" style:color={c}>a</p><p style={s} style:color={c} style:--x=\"1\">b</p><p style=\"/* a\nb */ color: red; width: 1px /* c */\" style:width={c}>c</p>";
+  let styles = ["", "color: red", "content: '🙂;'; COLOR: x; background: url(a;b)", "/* x */ color: red; /* y\n */ width: 2px", "a: b; c", "\u{feff} color: red \u{85}", "x: '/*'; color: y"];
+  for s_value in styles {
+    for c in [Value::Null, s("4"), s("")] {
+      check("style-directives", source, &props(&[("c", c.clone()), ("s", s(s_value))]));
+    }
+  }
+  check("style-directive-null", source, &props(&[("c", s("1")), ("s", Value::Null)]));
+}
+
+#[test]
+fn class_and_style_text_collapses_whitespace_as_svelte_does() {
+  let source = "<script>let { c } = $props();</script><p class=\"\n x\n\t y \" style=\" a:\n b \" title=\"t\n u\">a</p><p class=\"x\n {c}\n\" style=\"a:\n {c}\n\" style:width=\" {c}\n px\">b</p><p style=\"/* a\nb */ color: red\" style:width={c}>c</p>";
+  check("collapse", source, &props(&[("c", s("1"))]));
+}
+
+#[test]
 fn runes_bind_as_lets_the_template_reads() {
   let source = "<script>\n  let { title = 'none', rows = [] } = $props();\n  let n = $state(2);\n  const doubled = $derived(n * 2);\n  const total = $derived.by(() => rows.length + n);\n</script>\n\n<h1>{title}</h1><p>{n} {doubled} {total}</p>";
   check("runes", source, &props(&[("rows", Value::seq(vec![s("a")]))]));
@@ -252,5 +279,239 @@ fn the_examples_svelte_components_render_as_svelte_server_writes_them() {
   for watched in ["ACME", "INIT", "NONE"] {
     let focus = repo("uni/js", "src/ui/Focus.svelte", &[], &props(&[("holdings", holdings.clone()), ("watched", s(watched))]));
     assert_eq!(focus.0, focus.1, "Focus watching {watched}");
+  }
+}
+
+/// A generated template. Indexes pick a text, an expression, an attribute or a
+/// condition, which are printed against the names in scope at that point.
+#[derive(Debug, Clone)]
+enum Node {
+  Text(usize),
+  Expr(usize),
+  Html,
+  Void(usize),
+  Render(usize),
+  Elem(usize, Vec<usize>, Vec<Node>),
+  If(usize, Vec<Node>, Option<Vec<Node>>, bool),
+  Each(Vec<Node>, Option<Vec<Node>>, bool),
+}
+
+const TEXTS: &[&str] = &["hi", " ", "\n  ", "a & b", "&amp;", "&lt;x&gt;", "x y", "é", "&nbsp;"];
+const TAGS: &[&str] = &["div", "section", "span", "em", "b", "article"];
+
+#[derive(Clone)]
+struct Scope {
+  strs: Vec<String>,
+  nums: Vec<String>,
+  depth: usize,
+}
+
+struct Printer {
+  out: String,
+  row: bool,
+}
+
+impl Scope {
+  fn s(&self, k: usize) -> &str {
+    &self.strs[k / 13 % self.strs.len()]
+  }
+
+  fn n(&self, k: usize) -> &str {
+    &self.nums[k / 7 % self.nums.len()]
+  }
+
+  fn expr(&self, k: usize) -> String {
+    let (s, n) = (self.s(k), self.n(k));
+    match k % 11 {
+      0 => s.to_owned(),
+      1 => n.to_owned(),
+      2 => format!("{n} * 2"),
+      3 => format!("{n} / 4"),
+      4 => "on".to_owned(),
+      5 => format!("{s}.length"),
+      6 => format!("{s} + {n}"),
+      7 => format!("on ? {s} : 'no'"),
+      8 => format!("`${{{s}}}-${{{n}}}`"),
+      9 => format!("{n} % 3"),
+      _ => "xs.length".to_owned(),
+    }
+  }
+
+  fn cond(&self, k: usize) -> String {
+    let (s, n) = (self.s(k), self.n(k));
+    match k % 6 {
+      0 => "on".to_owned(),
+      1 => "!on".to_owned(),
+      2 => format!("{n} > 2"),
+      3 => format!("{s}.length > 1"),
+      4 => "xs.length".to_owned(),
+      _ => format!("{s} === 'x'"),
+    }
+  }
+
+  fn attr(&self, k: usize) -> (&'static str, String) {
+    let (s, n) = (self.s(k), self.n(k));
+    match k % 16 {
+      11 => ("class", format!("class=\"x\n {{{s}}} \"")),
+      12 => ("class", format!("class={{{s}}}")),
+      13 => ("style", format!("style={{{s}}}")),
+      14 => ("style", format!("style=\"/* a\n b */ color: {{{s}}};\n width: 1px /* c */\"")),
+      15 => ("style:width", format!("style:width=\" {{{n}}}\n px\"")),
+      0 => ("title", format!("title={{{s}}}")),
+      1 => ("title", format!("title=\"t {{{n}}}\"")),
+      2 => ("class", "class=\"c\"".to_owned()),
+      3 => ("class", "class={{ k: on }}".to_owned()),
+      4 => ("class:z", "class:z={on}".to_owned()),
+      5 => ("hidden", "hidden={on}".to_owned()),
+      6 => ("data-x", format!("data-x={{{n}}}")),
+      7 => ("style:color", format!("style:color={{{s}}}")),
+      8 => ("aria-pressed", "aria-pressed={on}".to_owned()),
+      9 => ("id", format!("id=\"i{{{n}}}\"")),
+      _ => ("style", format!("style=\"margin: {{{n}}}px\"")),
+    }
+  }
+}
+
+impl Printer {
+  fn nodes(&mut self, nodes: &[Node], scope: &Scope) {
+    for node in nodes {
+      self.node(node, scope);
+    }
+  }
+
+  fn node(&mut self, node: &Node, scope: &Scope) {
+    match node {
+      Node::Text(i) => self.out.push_str(TEXTS[*i]),
+      Node::Expr(k) => {
+        let e = scope.expr(*k);
+        self.out.push_str(&format!("{{{e}}}"));
+      }
+      Node::Html => self.out.push_str("<div>{@html h}</div>"),
+      Node::Void(k) => {
+        let s = scope.s(*k);
+        self.out.push_str(&match k % 5 {
+          0 => "<br>".to_owned(),
+          1 => "<hr>".to_owned(),
+          2 => format!("<input value={{{s}}}>"),
+          3 => format!("<img alt={{{s}}} src=\"x.png\">"),
+          _ => "<input type=\"checkbox\" checked={on}>".to_owned(),
+        });
+      }
+      Node::Render(k) => {
+        self.row = true;
+        let s = scope.s(*k);
+        self.out.push_str(&format!("{{@render row({s})}}"));
+      }
+      Node::Elem(t, attrs, kids) => {
+        let tag = TAGS[*t];
+        self.out.push('<');
+        self.out.push_str(tag);
+        let mut names = Vec::new();
+        for k in attrs {
+          let (name, text) = scope.attr(*k);
+          if !names.contains(&name) {
+            names.push(name);
+            self.out.push(' ');
+            self.out.push_str(&text);
+          }
+        }
+        self.out.push('>');
+        self.nodes(kids, scope);
+        self.out.push_str(&format!("</{tag}>"));
+      }
+      Node::If(k, then, otherwise, chain) => {
+        self.out.push_str(&format!("{{#if {}}}", scope.cond(*k)));
+        self.nodes(then, scope);
+        self.rest(otherwise.as_deref(), *chain, scope);
+        self.out.push_str("{/if}");
+      }
+      Node::Each(body, otherwise, constant) => {
+        let d = scope.depth;
+        let mut inner = scope.clone();
+        inner.depth += 1;
+        inner.strs.push(format!("x{d}"));
+        inner.nums.push(format!("i{d}"));
+        self.out.push_str(&format!("{{#each xs as x{d}, i{d}}}"));
+        if *constant {
+          self.out.push_str(&format!("{{@const y{d} = x{d} + i{d}}}"));
+          inner.strs.push(format!("y{d}"));
+        }
+        self.nodes(body, &inner);
+        if let Some(otherwise) = otherwise {
+          self.out.push_str("{:else}");
+          self.nodes(otherwise, scope);
+        }
+        self.out.push_str("{/each}");
+      }
+    }
+  }
+
+  /// An else holding a lone `if` is printed as `{:else if}` when `chain` is set.
+  fn rest(&mut self, otherwise: Option<&[Node]>, chain: bool, scope: &Scope) {
+    match otherwise {
+      None => {}
+      Some([Node::If(k, then, more, next)]) if chain => {
+        self.out.push_str(&format!("{{:else if {}}}", scope.cond(*k)));
+        self.nodes(then, scope);
+        self.rest(more.as_deref(), *next, scope);
+      }
+      Some(nodes) => {
+        self.out.push_str("{:else}");
+        self.nodes(nodes, scope);
+      }
+    }
+  }
+}
+
+fn source(nodes: &[Node], legacy: bool) -> String {
+  let scope = Scope { strs: vec!["a".to_owned()], nums: vec!["n".to_owned()], depth: 0 };
+  let mut printer = Printer { out: String::new(), row: false };
+  printer.nodes(nodes, &scope);
+  let script = if legacy { "<script>export let a; export let n; export let on; export let xs; export let h;</script>\n" } else { "<script>let { a, n, on, xs, h } = $props();</script>\n" };
+  let row = if printer.row { "{#snippet row(v)}<i>{v}</i>{/snippet}\n" } else { "" };
+  format!("{script}{row}{}", printer.out)
+}
+
+mod generated {
+  use proptest::prelude::*;
+
+  use super::*;
+
+  fn node() -> impl Strategy<Value = Node> {
+    let leaf = prop_oneof![
+      (0..TEXTS.len()).prop_map(Node::Text),
+      (0..1000usize).prop_map(Node::Expr),
+      Just(Node::Html),
+      (0..1000usize).prop_map(Node::Void),
+      (0..1000usize).prop_map(Node::Render),
+    ];
+    leaf.prop_recursive(4, 32, 4, |inner| {
+      let kids = prop::collection::vec(inner, 0..4);
+      prop_oneof![
+        (0..TAGS.len(), prop::collection::vec(0..1000usize, 0..3), kids.clone()).prop_map(|(t, a, c)| Node::Elem(t, a, c)),
+        (0..1000usize, kids.clone(), prop::option::of(kids.clone()), any::<bool>()).prop_map(|(k, t, e, c)| Node::If(k, t, e, c)),
+        (kids.clone(), prop::option::of(kids), any::<bool>()).prop_map(|(b, e, c)| Node::Each(b, e, c)),
+      ]
+    })
+  }
+
+  fn word() -> impl Strategy<Value = Value> {
+    prop::sample::select(vec!["", "x", "<b>", "a\"b", "&amp;", "Zoë", "x y", "z", "a: b; color: x", "🙂 z\tk", "'/*' ; x: (;)"]).prop_map(Value::str)
+  }
+
+  fn given() -> impl Strategy<Value = ValueMap> {
+    let html = prop::sample::select(vec!["", "<b>x</b>", "a &amp; b"]).prop_map(Value::str);
+    (word(), -3i64..12, any::<bool>(), prop::collection::vec(word(), 0..3), html).prop_map(|(a, n, on, xs, h)| props(&[("a", a), ("n", Value::int(n)), ("on", Value::Bool(on)), ("xs", Value::seq(xs)), ("h", h)]))
+  }
+
+  proptest! {
+    #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
+
+    #[test]
+    fn generated_templates_render_as_svelte_server_writes_them(nodes in prop::collection::vec(node(), 1..4), given in given(), legacy in any::<bool>()) {
+      let source = source(&nodes, legacy);
+      let (rust, svelte) = both("generated", &[("src/C.svelte", &source)], &given, None);
+      prop_assert_eq!(rust, svelte, "{}\n{:?}", source, given);
+    }
   }
 }
