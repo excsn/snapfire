@@ -1,6 +1,6 @@
 //! `Math.sin` and `Math.cos` against what V8 computes and at the values JavaScript defines exactly.
 
-use snapfire_fsr_ir::jsmath::{acos, asin, atan, atan2, cbrt, cos, exp, expm1, sin, tan};
+use snapfire_fsr_ir::jsmath::{acos, asin, atan, atan2, cbrt, cos, exp, expm1, log, log10, log1p, log2, sin, tan};
 
 fn same(ours: f64, theirs: f64) -> bool {
   ours.to_bits() == theirs.to_bits() || (ours.is_nan() && theirs.is_nan())
@@ -104,6 +104,10 @@ const V8_DIGESTS: &[(&str, [&str; 5])] = &[
   ("tan", ["0209389d22ed049d", "ed0908ec82f85a70", "8c1f5d7c4c1aee10", "7f5bca933945a681", "0f3a7eaff8a704cf"]),
   ("exp", ["a96f40a3ea726a42", "bb2e272287794b58", "5eb07e98cdcebe89", "8dc772f29afcc010", "fbdd50416f9dc10c"]),
   ("expm1", ["78333706477d8fd5", "c2610bb8ba5c1e23", "b7208ac78b038e8a", "fc5a7be17169f2af", "cb06526ccbd00adc"]),
+  ("log", ["508abdacacb3c3a2", "1c352eb643607aa6", "02d0a7835960dc25", "c4f5fdf163d503d5", "9261f48f6f01d390"]),
+  ("log2", ["4ec0ffe09fe42099", "f05bbe1ea23fdf78", "fc143f73a3de6345", "33ced0cf17552d0d", "d587cb521cdbb91a"]),
+  ("log10", ["58cdc82bdba3027d", "b7ab98dffadea09e", "6cfca582aa4bb449", "64564f86678435b6", "d8636eefad8bf29f"]),
+  ("log1p", ["046d67b2e89fffe9", "e8c853725da6cbca", "3455bd7efea65e2e", "9312411eed3b9236", "2b2e5379f03ab3ab"]),
   ("cbrt", ["c10f3070024fb0ee", "351cda7ec6fa370a", "bc4c4630678bd4ef", "c03a1b04ff298eee", "75a2ec558157a79d"]),
   ("asin", ["2f576aa6ab901f38", "d3c124e1b66ec3b0", "31608ee98ba1f594", "8452424cce6999e1", "eea7a189428fc5a1"]),
   ("acos", ["eac148242226ccb6", "e6d36f20bcf77ff6", "63f237259b8fc6c5", "624eb7762b0205ef", "cb21746ff3620734"]),
@@ -124,6 +128,10 @@ fn every_function_answers_what_v8_answers_over_half_a_million_inputs() {
       "tan" => Box::new(unary(tan)),
       "exp" => Box::new(unary(exp)),
       "expm1" => Box::new(unary(expm1)),
+      "log" => Box::new(unary(log)),
+      "log2" => Box::new(unary(log2)),
+      "log10" => Box::new(unary(log10)),
+      "log1p" => Box::new(unary(log1p)),
       "cbrt" => Box::new(unary(cbrt)),
       "asin" => Box::new(unary(asin)),
       "acos" => Box::new(unary(acos)),

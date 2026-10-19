@@ -18,6 +18,12 @@ mod dd;
 mod dyadic;
 mod exp;
 mod exp_tables;
+mod ln_tables;
+mod log;
+mod log10_tables;
+mod log1p_tables;
+mod log2_tables;
+mod log_tables;
 mod trig;
 mod trig_tables;
 
@@ -77,4 +83,24 @@ pub fn exp(x: f64) -> f64 {
 /// `Math.expm1(x)`.
 pub fn expm1(x: f64) -> f64 {
   exp::expm1(x)
+}
+
+/// `Math.log(x)`.
+pub fn log(x: f64) -> f64 {
+  log::ln(x)
+}
+
+/// `Math.log2(x)`.
+pub fn log2(x: f64) -> f64 {
+  log::log2(x)
+}
+
+/// `Math.log10(x)`.
+pub fn log10(x: f64) -> f64 {
+  log::log10(x)
+}
+
+/// `Math.log1p(x)`.
+pub fn log1p(x: f64) -> f64 {
+  log::log1p(x)
 }
