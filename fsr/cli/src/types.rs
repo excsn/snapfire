@@ -163,13 +163,13 @@ struct Dist {
   tarball: String,
 }
 
-fn encode(name: &str) -> String {
+pub(crate) fn encode(name: &str) -> String {
   name.replace('/', "%2f")
 }
 
 /// The version of `name` to take: the highest release every range accepts,
 /// else the highest the first accepts, else `latest`.
-fn choose_version(client: &reqwest::blocking::Client, registry: &str, name: &str, ranges: &[range::Range]) -> Result<Option<String>, BuildError> {
+pub(crate) fn choose_version(client: &reqwest::blocking::Client, registry: &str, name: &str, ranges: &[range::Range]) -> Result<Option<String>, BuildError> {
   let url = format!("{registry}/{}", encode(name));
   let response = client
     .get(&url)

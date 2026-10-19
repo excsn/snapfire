@@ -9,6 +9,7 @@ pub mod direction;
 pub mod doctor;
 pub mod new;
 pub mod plugins;
+pub mod published;
 pub mod serve;
 pub mod sites;
 pub mod spec;

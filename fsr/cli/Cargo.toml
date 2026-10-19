@@ -61,6 +61,8 @@ snapfire_fsr_service = { workspace = true, features = ["grpc"] }
 snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.3.0" }
 snapfire_tailwind = { path = "../../tailwind", version = "0.3.0" }
 tar = "0.4.46"
+sha2 = "0.10"
+base64 = "0.22"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net"] }
 toml = "0.8"
