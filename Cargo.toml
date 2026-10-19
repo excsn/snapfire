@@ -9,7 +9,8 @@ members = [
   "web/examples/basic_site",
   "typecheck",
   "compiler/wire",
-  "compiler/vue"
+  "compiler/vue",
+  "compiler/svelte"
 ]
 exclude = [
   # Its own workspace: the published crates version and release together.

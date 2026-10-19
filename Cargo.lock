@@ -3989,7 +3989,6 @@ dependencies = [
  "snapfire_compiler_wire",
  "snapfire_media",
  "snapfire_tailwind",
- "snapfire_vue",
  "swc_core",
  "tempfile",
  "walkdir",
@@ -4022,6 +4021,17 @@ name = "snapfire_sitemap"
 version = "0.2.0"
 dependencies = [
  "chrono",
+]
+
+[[package]]
+name = "snapfire_svelte"
+version = "0.1.0"
+dependencies = [
+ "rquickjs",
+ "serde",
+ "serde_json",
+ "snapfire_compiler_wire",
+ "thiserror 2.0.20",
 ]
 
 [[package]]
