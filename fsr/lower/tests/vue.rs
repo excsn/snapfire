@@ -1344,3 +1344,28 @@ const on = true;
   agree_tree(&compiler, &dir, &files, "src/ui/Row.vue", &ValueMap::default());
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn vues_built_in_components_and_destructured_lists_render_what_vue_renders() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = r##"<script setup>
+import { ref } from "vue";
+const items = ref([1, 2]);
+const open = ref(false);
+const rows = ref([{ id: 1, name: "a", tags: ["x"] }, { id: 2, name: "b", tags: [] }]);
+</script>
+
+<template>
+  <TransitionGroup name="list" tag="ul" class="c" move-class="m" appear data-x="1"><li v-for="i in items" :key="i">{{ i }}</li><li>tail</li></TransitionGroup>
+  <TransitionGroup><p v-for="i in items" :key="i">{{ i }}</p></TransitionGroup>
+  <Transition name="fade"><p v-if="open">o</p></Transition>
+  <Transition><p class="own">shown</p></Transition>
+  <KeepAlive><p>kept</p></KeepAlive>
+  <Teleport to="#x" disabled><b>in place</b></Teleport>
+  <ol><li v-for="({ id, name, tags: [first = 'none'] }, index) in rows" :key="id">{{ index }} {{ name }} {{ first }}</li></ol>
+</template>
+"##;
+  let dir = app("builtins", &[("src/ui/B.vue", source)]);
+  agree(&compiler, &dir, "src/ui/B.vue", source, &ValueMap::default(), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

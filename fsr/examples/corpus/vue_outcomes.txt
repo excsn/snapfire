@@ -10,7 +10,7 @@ examples-counter-composition	lowered
 examples-counter-options	lowered
 examples-crud-composition	lowered
 examples-crud-options	lowered
-examples-fetching-data-composition	client: src/App.vue:44:9 `v-for` over `{ html_url`, a pattern; name the item and read its fields
+examples-fetching-data-composition	lowered
 examples-fetching-data-options	client: src/App.vue:16:3 the `created` option, which the build does not read
 examples-flight-booker-composition	client: src/App.vue:35:5 `.getFullYear()`, which reads the viewer's time zone
 examples-flight-booker-options	client: src/App.vue:13:5 `.getFullYear()`, which reads the viewer's time zone
@@ -22,12 +22,12 @@ examples-handling-input-composition	lowered
 examples-handling-input-options	lowered
 examples-hello-world-composition	lowered
 examples-hello-world-options	lowered
-examples-list-transition-composition	client: src/App.vue:41:3 `<TransitionGroup>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
-examples-list-transition-options	client: src/App.vue:45:3 `<TransitionGroup>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
+examples-list-transition-composition	lowered
+examples-list-transition-options	lowered
 examples-markdown-composition	client: src/App.vue:12:31 a call to `marked`, which the build cannot follow
 examples-markdown-options	client: src/App.vue:15:14 a call to `marked`, which the build cannot follow
-examples-modal-composition	client: src/App.vue:15:3 `<Teleport>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
-examples-modal-options	client: src/App.vue:23:3 `<Teleport>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
+examples-modal-composition	client: src/App.vue:15:3 `<Teleport>` to a target; Vue's server writes its content beside the page for the target rather than in place, which the build does not collect
+examples-modal-options	client: src/App.vue:23:3 `<Teleport>` to a target; Vue's server writes its content beside the page for the target rather than in place, which the build does not collect
 examples-simple-component-composition	lowered
 examples-simple-component-options	lowered
 examples-svg-composition	client: src/App.vue:40:5 `<PolyGraph>` does not lower: src/util.js:4:19: `Math` is not bound here; an import the build cannot follow or a name from outside the body

@@ -178,6 +178,10 @@ pub fn props_declaration(file: &str, described: &Described) -> Option<String> {
 
 /// The props type of `defineProps<T>()` or of `withDefaults(defineProps<T>(), { ... })` with each defaulted key optional.
 const FRAGMENT_OPEN: &str = "<!--[-->";
+const TELEPORT_OPEN: &str = "<!--teleport start-->";
+const TELEPORT_CLOSE: &str = "<!--teleport end-->";
+/// The `Tmpl::Let` a `<TransitionGroup>` holds its children under, whose lists Vue writes without anchors.
+const GROUP: &str = "$transition-group";
 const FRAGMENT_CLOSE: &str = "<!--]-->";
 /// Where a `v-if` chain rendered no branch.
 const EMPTY: &str = "<!---->";
@@ -240,6 +244,20 @@ fn anchors(tmpl: Tmpl) -> Tmpl {
     Tmpl::For { over, params, body } => fragment(Tmpl::For { over, params, body: Box::new(branch(*body)) }),
     Tmpl::Slot(name) => fragment(Tmpl::Slot(name)),
     Tmpl::Let { name, expr, then } if name.starts_with(SLOT_OUT_PREFIX) => fragment(Tmpl::Let { name, expr, then: Box::new(anchors(*then)) }),
+    Tmpl::Let { name, expr, then } if name == GROUP => {
+      let children = match *then {
+        Tmpl::Fragment(children) => children,
+        other => vec![other],
+      };
+      let children = children
+        .into_iter()
+        .map(|child| match child {
+          Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(branch(*body)) },
+          other => anchors(other),
+        })
+        .collect();
+      Tmpl::Let { name, expr, then: Box::new(Tmpl::Fragment(children)) }
+    }
     Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(anchors(*then)) },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
     Tmpl::Fragment(children) => Tmpl::Fragment(walk(children)),
@@ -1185,7 +1203,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   /// it cannot see them.
   fn element(&mut self, node: &Node) -> Lowered<Placed> {
     let mut branch: Option<Branch> = None;
-    let mut each: Option<(Expr, Vec<String>)> = None;
+    let mut each: Option<(Expr, Vec<(String, Option<js::Pat>)>)> = None;
     for prop in node.props.iter().filter(|p| p.prop == "directive") {
       match prop.name.as_str() {
         "if" | "else-if" => {
@@ -1198,16 +1216,17 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-for` without an expression")) };
           let (aliases, source) = for_parts(exp).ok_or_else(|| self.at(prop.line, prop.column, format!("`v-for=\"{exp}\"`; write `item in items` or `(item, index) in items`")))?;
           let over = self.expr_at(source, prop.exp_line, prop.exp_column)?;
-          let mut params = Vec::new();
-          for alias in aliases.split(',') {
-            let alias = alias.trim();
-            if alias.is_empty() || !alias.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$') {
-              return Err(self.at(prop.line, prop.column, format!("`v-for` over `{alias}`, a pattern; name the item and read its fields")));
-            }
-            params.push(alias.to_owned());
-          }
-          if params.len() > 2 {
+          let parsed = self.lowerer.parsed.parse_expr_at(&format!("({aliases}) => 0"), prop.exp_line, prop.exp_column).map_err(|message| self.at(prop.line, prop.column, format!("`v-for` aliases `{aliases}`: {message}")))?;
+          let js::Expr::Arrow(arrow) = *parsed else { return Err(self.at(prop.line, prop.column, format!("`v-for` aliases `{aliases}`"))) };
+          if arrow.params.len() > 2 {
             return Err(self.at(prop.line, prop.column, "`v-for` with three aliases, which iterates an object; a list has an item and an index"));
+          }
+          let mut params = Vec::new();
+          for pat in arrow.params {
+            match pat {
+              js::Pat::Ident(id) => params.push((id.id.sym.to_string(), None)),
+              pattern => params.push((self.lowerer.temp(), Some(pattern))),
+            }
           }
           each = Some((over, params));
         }
@@ -1216,8 +1235,14 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     }
     let depth = self.lowerer.scope.len();
     if let Some((_, params)) = &each {
-      for param in params {
+      for (param, pattern) in params {
         self.lowerer.scope.push((param.clone(), Expr::Var(param.clone())));
+        if let Some(pattern) = pattern {
+          if let Err(residue) = bind_pattern(&mut self.lowerer, pattern, Expr::Var(param.clone())) {
+            self.lowerer.scope.truncate(depth);
+            return Err(residue);
+          }
+        }
       }
     }
     let body = match node.kind {
@@ -1229,7 +1254,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     self.lowerer.scope.truncate(depth);
     let body = body?;
     let body = match each {
-      Some((over, params)) => Tmpl::For { over, params, body: Box::new(body) },
+      Some((over, params)) => Tmpl::For { over, params: params.into_iter().map(|(param, _)| param).collect(), body: Box::new(body) },
       None => body,
     };
     Ok(match branch {
@@ -1262,8 +1287,59 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         let attrs = self.placement_attrs(node)?;
         placements::embed(self, &attrs, At::Line(node.line, node.column))
       }
-      _ => self.child_component(node),
+      _ => match node.tag.as_str() {
+        "Transition" | "transition" | "KeepAlive" | "keep-alive" => {
+          let mut children = self.children(&node.children)?;
+          Ok(match children.len() {
+            1 => children.pop().expect("one child"),
+            _ => Tmpl::Fragment(children),
+          })
+        }
+        "TransitionGroup" | "transition-group" => self.transition_group(node),
+        "Teleport" | "teleport" => {
+          let disabled = node.props.iter().any(|prop| (prop.prop == "attribute" && prop.name == "disabled" && prop.value.as_deref().is_none_or(|v| v != "false")) || (prop.binds("disabled") && prop.exp.as_deref().map(str::trim) == Some("true")));
+          if !disabled {
+            return Err(self.at(node.line, node.column, "`<Teleport>` to a target; Vue's server writes its content beside the page for the target rather than in place, which the build does not collect"));
+          }
+          let mut out = vec![Tmpl::Marker(TELEPORT_OPEN.to_owned())];
+          out.extend(self.children(&node.children)?);
+          out.push(Tmpl::Marker(TELEPORT_CLOSE.to_owned()));
+          Ok(Tmpl::Fragment(out))
+        }
+        _ => self.child_component(node),
+      },
     }
+  }
+
+  /// `<TransitionGroup>`: its `tag` element carrying its other attributes as written (a fragment when it names no tag), with its children in place and no anchors around a list.
+  fn transition_group(&mut self, node: &Node) -> Lowered<Tmpl> {
+    let mut tag: Option<String> = None;
+    let mut attrs = Vec::new();
+    for prop in &node.props {
+      if prop.prop == "attribute" {
+        match prop.name.as_str() {
+          "tag" => tag = prop.value.clone(),
+          name => attrs.push(Entry::Field(name.to_owned(), match &prop.value {
+            Some(value) => Expr::lit_str(value.clone()),
+            None => Expr::Lit(Lit::Bool(true)),
+          })),
+        }
+        continue;
+      }
+      match (prop.name.as_str(), &prop.arg, prop.arg_static) {
+        ("on", _, _) => {}
+        ("bind", Some(arg), true) if arg != "tag" => {
+          let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-bind` without a value")) };
+          attrs.push(Entry::Field(arg.clone(), self.expr_at(exp, prop.exp_line, prop.exp_column)?));
+        }
+        (other, _, _) => return Err(self.at(prop.line, prop.column, format!("`{other}` on `<TransitionGroup>` written other than as a static attribute or a named binding"))),
+      }
+    }
+    let children = Tmpl::Let { name: GROUP.to_owned(), expr: Expr::Lit(Lit::Null), then: Box::new(Tmpl::Fragment(self.children(&node.children)?)) };
+    Ok(match tag {
+      Some(tag) => Tmpl::Element { tag, attrs, children: vec![children] },
+      None => Tmpl::Fragment(vec![Tmpl::Marker(FRAGMENT_OPEN.to_owned()), children, Tmpl::Marker(FRAGMENT_CLOSE.to_owned())]),
+    })
   }
 
   /// A child's slot contents: each `<template #name="params">` as a `SLOT_CONTENT_PREFIX` wrapper, the rest as the default slot, which a `v-slot` on the child itself gives params to.
