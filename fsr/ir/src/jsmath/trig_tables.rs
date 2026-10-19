@@ -1,4 +1,4 @@
-// The tables of LLVM libc's double-precision `sin` and `cos`, from
+// The tables of LLVM libc's double-precision `sin`, `cos` and `tan`, from
 // libc/src/__support/math/range_reduction_double_common.h and
 // range_reduction_double_fma.h in llvm-project at
 // 64f50ffd4f1c9e2d7cfde07251dadcb8573d4451, written as bit patterns since Rust
@@ -7,7 +7,8 @@
 // See https://llvm.org/LICENSE.txt for license information.
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
-use super::{Dd, Dyadic};
+use super::dd::Dd;
+use super::dyadic::Dyadic;
 
 /// Four chunks of `2^(16 * (i - 3)) * 128 / pi`, `ONE_TWENTY_EIGHT_OVER_PI`.
 pub(super) const ONE_TWENTY_EIGHT_OVER_PI: [[f64; 4]; 64] = [
