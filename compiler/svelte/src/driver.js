@@ -43,16 +43,27 @@
     return refused;
   }
 
+  /** A runes module, `name.svelte.ts` or `name.svelte.js`, rather than a component. */
+  function isModule(filename) {
+    return /\.svelte\.(ts|js)$/i.test(filename);
+  }
+
   globalThis.__svelte_compile = function (filename, source, options) {
     try {
-      const refused = unsupported(source, filename);
-      if (refused.length) return JSON.stringify({ status: "failed", diagnostics: refused });
-      const result = svelte.compile(source, { filename, generate: "client", dev: !options.production, css: "external" });
+      let result;
+      if (isModule(filename)) {
+        result = svelte.compileModule(source, { filename, generate: "client", dev: !options.production });
+      } else {
+        const refused = unsupported(source, filename);
+        if (refused.length) return JSON.stringify({ status: "failed", diagnostics: refused });
+        result = svelte.compile(source, { filename, generate: "client", dev: !options.production, css: "external" });
+      }
       return JSON.stringify({
         status: "ok",
         js: result.js.code,
         lang: "js",
         css: result.css ? result.css.code : null,
+        source_map: options.source_map && result.js.map ? result.js.map.toString() : null,
         deps: [],
         diagnostics: result.warnings.map((w) => diagnostic(w, filename, "warning")),
       });

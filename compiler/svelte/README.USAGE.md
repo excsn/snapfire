@@ -12,6 +12,7 @@ Compiling Svelte components through `snapfirec` and the same compile from Rust.
   * [Runes](#runes)
   * [Legacy Mode](#legacy-mode)
   * [Languages](#languages)
+* [Writing a Runes Module](#writing-a-runes-module)
 * [Reading What Comes Out](#reading-what-comes-out)
 * [Error Handling](#error-handling)
 
@@ -153,6 +154,33 @@ A Svelte 4 component compiles unchanged:
 
 The refusal is an `Error` diagnostic whose message is `style lang="scss" needs a compiler this plugin does not carry`, with the line of the opening tag.
 
+## Writing a Runes Module
+
+Shared `$state` lives in a module named `name.svelte.ts` or `name.svelte.js`, which `snapfirec` hands to this plugin rather than compiling it as plain TypeScript:
+
+```ts
+// src/cart.svelte.ts
+export const cart: { count: number } = $state({ count: 0 });
+
+export function add(n: number = 1) {
+  cart.count += n;
+}
+```
+
+```svelte
+<script lang="ts">
+  import { cart, add } from "./cart.svelte.js";
+</script>
+
+<button onclick={() => add()}>{cart.count}</button>
+```
+
+The module becomes `cart.svelte.js` beside the others. Svelte's `compileModule` reads no TypeScript, so `snapfirec` strips a `.svelte.ts` file's types before sending it and the plugin compiles JavaScript. In process, hand `compile` the stripped source under the `.svelte.ts` name:
+
+```rust
+let outcome = compiler.compile("src/cart.svelte.ts", "export const cart = $state({ count: 0 });\n", &Options::default(), &Default::default())?;
+```
+
 ## Reading What Comes Out
 
 ```rust
@@ -168,6 +196,7 @@ if let Outcome::Ok(compiled) = compiler.compile("src/Card.svelte", &source, &Opt
 * `css` is `None` for a component with no style block.
 * `diagnostics` holds Svelte's warnings, an `<img>` with no `alt` among them; a warning never stops the compile.
 * `deps` is always empty, since a component reads no other file.
+* `source_map` is Svelte's map as JSON when `Options::source_map` is set, `None` otherwise.
 
 ## Error Handling
 

@@ -133,3 +133,38 @@ fn one_context_compiles_many_components() {
     assert!(matches!(outcome, Outcome::Ok(_)), "component {i} compiled");
   }
 }
+
+/// A `.svelte.ts` module as the host sends it: its types already stripped.
+const COUNTER: &str = r#"export const counter = $state({ n: 0 });
+
+export function bump(by = 1) {
+  counter.n += by;
+}
+"#;
+
+#[test]
+fn a_runes_module_the_host_stripped_compiles_to_javascript_on_svelte_s_runtime() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let compiled = ok(compiler.compile("src/counter.svelte.ts", COUNTER, &Options::default(), &Default::default()).expect("answers"));
+  assert_eq!(compiled.lang, Lang::Js);
+  assert!(compiled.js.contains("from 'svelte/internal/client'"), "the rune became a runtime call: {}", compiled.js);
+  assert!(!compiled.js.contains("$state("), "no rune is left for the browser: {}", compiled.js);
+  assert!(compiled.js.contains("export function bump"), "the module keeps its exports");
+  assert!(compiled.css.is_none());
+}
+
+#[test]
+fn a_plain_javascript_runes_module_compiles_too() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let compiled = ok(compiler.compile("src/counter.svelte.js", "export const counter = $state({ n: 0 });\n", &Options::default(), &Default::default()).expect("answers"));
+  assert!(!compiled.js.contains("$state("), "{}", compiled.js);
+}
+
+#[test]
+fn a_source_map_comes_back_when_one_is_asked_for() {
+  let with = ok(compile_with(CARD, &Options { source_map: true, ..Options::default() }));
+  let map = with.source_map.expect("a map");
+  assert!(map.contains("\"mappings\""), "a source map: {map}");
+  assert!(map.contains("Card.svelte"), "naming the component: {map}");
+  assert!(ok(compile(CARD)).source_map.is_none(), "and none when it is not");
+}

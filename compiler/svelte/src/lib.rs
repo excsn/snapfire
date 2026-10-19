@@ -154,11 +154,13 @@ fn decode(answer: &str, filename: &str) -> Result<Outcome, SvelteError> {
     #[serde(default)]
     css: Option<String>,
     #[serde(default)]
+    source_map: Option<String>,
+    #[serde(default)]
     diagnostics: Vec<Diagnostic>,
   }
   let answer: Answer = serde_json::from_str(answer).map_err(|e| SvelteError::Js(format!("{filename}: the driver answered {e}")))?;
   match answer.status.as_str() {
-    "ok" => Ok(Outcome::Ok(Compiled { js: answer.js, lang: Lang::Js, css: answer.css, source_map: None, deps: Vec::new(), diagnostics: answer.diagnostics })),
+    "ok" => Ok(Outcome::Ok(Compiled { js: answer.js, lang: Lang::Js, css: answer.css, source_map: answer.source_map, deps: Vec::new(), diagnostics: answer.diagnostics })),
     _ => {
       let diagnostics = match answer.diagnostics.is_empty() {
         true => vec![Diagnostic::error("the component did not compile").at(filename, None, None)],

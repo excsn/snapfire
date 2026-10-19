@@ -61,7 +61,7 @@ fn it_announces_itself_before_it_is_asked_anything() {
   let (_worker, hello) = Worker::start();
   assert_eq!(hello.protocol, PROTOCOL);
   assert_eq!(hello.name, "svelte");
-  assert_eq!(hello.extensions, vec![".svelte".to_owned()]);
+  assert_eq!(hello.extensions, vec![".svelte".to_owned(), ".svelte.ts".to_owned(), ".svelte.js".to_owned()]);
   assert_eq!(hello.compiler, "svelte 5.57.2", "it says what it carries");
 }
 

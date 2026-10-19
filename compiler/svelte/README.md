@@ -29,6 +29,7 @@ No features.
 | See which Svelte compiler is carried | `snapfirec-svelte --version` |
 | Compile one component in process | `Compiler::new()`, then `compile` |
 | Write a component with runes | `$props`, `$state`, `$derived`; compiled as written |
+| Keep shared state in a runes module | `name.svelte.ts` or `name.svelte.js`; compiled with `compileModule`, a `.svelte.ts` stripped of its types by `snapfirec` first |
 | Keep a Svelte 4 component | `export let`, `$:` and `on:` compile unchanged in legacy mode |
 | Type a component's script | `<script lang="ts">`; Svelte strips the types, so the module comes back as JavaScript |
 | Scope a component's styles | a `<style>` block; scoping is Svelte's default and the class is in the module and the sheet |

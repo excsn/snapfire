@@ -56,7 +56,7 @@ fn serve() -> ExitCode {
     name: NAME.to_owned(),
     version: env!("CARGO_PKG_VERSION").to_owned(),
     compiler: format!("svelte {carried}"),
-    extensions: vec![".svelte".to_owned()],
+    extensions: vec![".svelte".to_owned(), ".svelte.ts".to_owned(), ".svelte.js".to_owned()],
   };
   if !say(&mut out, &hello) {
     return ExitCode::FAILURE;
