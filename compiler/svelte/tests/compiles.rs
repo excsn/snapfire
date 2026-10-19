@@ -168,3 +168,43 @@ fn a_source_map_comes_back_when_one_is_asked_for() {
   assert!(map.contains("Card.svelte"), "naming the component: {map}");
   assert!(ok(compile(CARD)).source_map.is_none(), "and none when it is not");
 }
+
+/// A stand-in for an application's own `compiler/index.js`: the same global, a version of its own.
+const OTHER_COMPILER: &str = r#"(function () {
+  globalThis.svelte = {
+    VERSION: "9.9.9",
+    parse: function () { return {}; },
+    compile: function () { return { js: { code: "// compiled by 9.9.9\nexport default function Card() {}\n", map: null }, css: null, warnings: [] }; },
+    compileModule: function () { return { js: { code: "// module by 9.9.9\n", map: null }, css: null, warnings: [] }; }
+  };
+})();
+"#;
+
+fn compiler_file(name: &str, text: &str) -> String {
+  let path = std::env::temp_dir().join(format!("snapfire-svelte-{name}-{}.js", std::process::id()));
+  std::fs::write(&path, text).unwrap();
+  path.to_string_lossy().into_owned()
+}
+
+#[test]
+fn a_compiler_the_host_names_compiles_in_place_of_the_carried_one() {
+  let path = compiler_file("other", OTHER_COMPILER);
+  let compiler = Compiler::new().expect("the compiler boots");
+  let named = Options { compiler: Some(path.clone()), ..Options::default() };
+  let compiled = ok(compiler.compile("src/Card.svelte", CARD, &named, &Default::default()).expect("answers"));
+  assert!(compiled.js.contains("compiled by 9.9.9"), "the application's compiler answered: {}", compiled.js);
+  let module = ok(compiler.compile("src/counter.svelte.ts", COUNTER, &named, &Default::default()).expect("answers"));
+  assert!(module.js.contains("module by 9.9.9"), "{}", module.js);
+  let carried = ok(compiler.compile("src/Card.svelte", CARD, &Options::default(), &Default::default()).expect("answers"));
+  assert!(carried.js.contains("from 'svelte/internal/client'"), "with no path the carried compiler answers: {}", carried.js);
+  std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_compiler_path_that_holds_nothing_is_refused_by_name() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let missing = std::env::temp_dir().join("snapfire-svelte-no-such-compiler.js").to_string_lossy().into_owned();
+  let named = Options { compiler: Some(missing.clone()), ..Options::default() };
+  let Outcome::Failed { diagnostics } = compiler.compile("src/Card.svelte", CARD, &named, &Default::default()).expect("answers") else { panic!("refused") };
+  assert!(diagnostics[0].message.contains(&missing), "{diagnostics:?}");
+}

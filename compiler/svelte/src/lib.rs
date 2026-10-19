@@ -4,14 +4,15 @@
 //! The bundle is a UMD script that sets `globalThis.svelte` and imports
 //! nothing, so it is evaluated as a script rather than declared as a module.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 
 use rquickjs::{Context, Function, Runtime};
 use snapfire_compiler_wire::{Compiled, Diagnostic, Lang, Options, Outcome};
 
-/// `svelte/compiler` 5.57.2 as published. Never edited here.
+/// `svelte/compiler` 5.57.2 as published, the compiler used when the host names none. Never edited here.
 const COMPILER: &str = include_str!("../vendor/compiler.js");
 
 const DRIVER: &str = include_str!("driver.js");
@@ -87,7 +88,7 @@ fn gone() -> SvelteError {
 }
 
 fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), SvelteError>>) {
-  let engine = match Engine::new() {
+  let engine = match Engine::new(COMPILER) {
     Ok(engine) => engine,
     Err(e) => {
       let _ = booted.send(Err(e));
@@ -95,13 +96,38 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), SvelteError>>) {
     }
   };
   let _ = booted.send(Ok(()));
+  // The application's own compilers, by path and content, so one that a new
+  // vendoring replaced under the same path boots again.
+  let mut named: HashMap<(String, u64), Engine> = HashMap::new();
   for ask in inbox {
     match ask {
       Ask::Version(reply) => {
         let _ = reply.send(engine.version());
       }
       Ask::Compile { filename, source, options, reply } => {
-        let _ = reply.send(engine.compile(&filename, &source, &options));
+        let answered = match &options.compiler {
+          None => engine.compile(&filename, &source, &options),
+          Some(path) => match std::fs::read_to_string(path) {
+            Err(e) => Ok(Outcome::Failed { diagnostics: vec![Diagnostic::error(format!("the Svelte compiler `{path}` could not be read: {e}")).at(filename.clone(), None, None)] }),
+            Ok(text) => {
+              let mut hasher = DefaultHasher::new();
+              text.hash(&mut hasher);
+              let key = (path.clone(), hasher.finish());
+              let booted = match named.get(&key) {
+                Some(_) => Ok(()),
+                None => Engine::new(&text).map(|engine| {
+                  named.retain(|(held, _), _| held != path);
+                  named.insert(key.clone(), engine);
+                }),
+              };
+              match booted {
+                Ok(()) => named[&key].compile(&filename, &source, &options),
+                Err(e) => Ok(Outcome::Failed { diagnostics: vec![Diagnostic::error(format!("the Svelte compiler `{path}` would not boot: {e}")).at(filename.clone(), None, None)] }),
+              }
+            }
+          },
+        };
+        let _ = reply.send(answered);
       }
     }
   }
@@ -113,12 +139,12 @@ struct Engine {
 }
 
 impl Engine {
-  fn new() -> Result<Self, SvelteError> {
+  fn new(compiler: &str) -> Result<Self, SvelteError> {
     let runtime = Runtime::new().map_err(js)?;
     runtime.set_max_stack_size(ENGINE_STACK);
     let context = Context::full(&runtime).map_err(js)?;
     context.with(|ctx| -> Result<(), SvelteError> {
-      ctx.eval::<(), _>(COMPILER).map_err(|e| threw(&ctx, e))?;
+      ctx.eval::<(), _>(compiler).map_err(|e| threw(&ctx, e))?;
       ctx.eval::<(), _>(DRIVER).map_err(|e| threw(&ctx, e))?;
       Ok(())
     })?;
