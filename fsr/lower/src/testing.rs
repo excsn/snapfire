@@ -10,7 +10,7 @@ use snapfire_fsr_ir::ast::{Entry, Expr, Lit};
 use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 
-use crate::{Lowered, LowerError, Lowerer, Parsed, SessionDefaults, parse, prop_name};
+use crate::{Lowered, LowerError, Lowerer, Parsed, Residue, SessionDefaults, parse, prop_name};
 
 /// The field that marks an object inside an expected value as one of
 /// `expect`'s helpers: `expect.any(String)` lowers to
@@ -643,7 +643,15 @@ impl<'a> Reader<'a> {
     let mut steps = Vec::new();
     for stmt in &block.stmts {
       let line = self.line(stmt.span());
-      steps.push((line, tl.stmt(stmt)?));
+      let step = tl.stmt(stmt).map_err(|residue| match tl.lowerer.unbound.take() {
+        Some(name) if self.imports.iter().any(|(local, _)| *local == name) => Residue {
+          message: format!("a run of `{name}` inside a function the test declares"),
+          hint: Some(format!("a body test is lowered, so a run is a statement of the test, `const data = await {name}(c)`, or the value `expect` takes")),
+          ..residue
+        },
+        _ => residue,
+      })?;
+      steps.push((line, step));
     }
     Ok(steps)
   }

@@ -184,3 +184,17 @@ fn an_awaited_run_inside_expect_reads_as_its_resolved_value() {
   assert_eq!(summary.passed, 1, "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_run_inside_a_helper_function_is_refused_saying_where_a_run_goes() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("routes/page.loader.ts", "export async function load() {\n  return { n: 2 };\n}\n"),
+    ("tests/page.test.ts", "import { load } from \"@routes/page.loader\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"a helper\", async () => {\n  const c = ctx({});\n  const n = async () => (await load(c)).n;\n  expect(await n()).toEqual(2);\n});\n"),
+  ]);
+  let refused = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).map(|summary| summary.to_string()).unwrap_or_else(|e| e.to_string());
+  assert!(refused.contains("tests/page.test.ts:6:"), "{refused}");
+  assert!(refused.contains("a run of `load` inside a function the test declares"), "{refused}");
+  assert!(!refused.contains("which the build cannot follow"), "{refused}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
