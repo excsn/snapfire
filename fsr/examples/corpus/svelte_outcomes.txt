@@ -5,9 +5,9 @@ examples-7guis-7guis-flight-booker	client: src/App.svelte:3:31 the current time 
 examples-7guis-7guis-temperature	lowered
 examples-7guis-7guis-timer	lowered
 examples-actions-actions	lowered
-examples-actions-actions-pannable	client: src/App.svelte:5:20 a call to `spring`, which the build cannot follow
+examples-actions-actions-pannable	lowered
 examples-actions-adding-parameters-to-actions	lowered
-examples-animations-animate	client: src/App.svelte:6:29 a call to `crossfade`, which the build cannot follow
+examples-animations-animate	lowered
 examples-bindings-bind-this	lowered
 examples-bindings-checkbox-inputs	lowered
 examples-bindings-component-bindings	client: src/App.svelte:5:43 a regular expression with a lookahead
@@ -31,7 +31,7 @@ examples-composition-render-prop-props	lowered
 examples-composition-render-props	lowered
 examples-context-context-api	client: src/App.svelte:7:2 `<MapMarker>` does not lower: src/MapMarker.svelte:5:24: a call to `getContext`, which the build cannot follow
 examples-debugging-debug	lowered
-examples-easing-easing	client: src/App.svelte:15:23 a call to `tweened`, which the build cannot follow
+examples-easing-easing	lowered
 examples-embeds-blog-svelte-css-in-js	client: src/styles.js:13:26 a tagged template
 examples-embeds-blog-write-less-code	lowered
 examples-embeds-untitled	lowered
@@ -58,8 +58,8 @@ examples-miscellaneous-dynamic-components	lowered
 examples-miscellaneous-hacker-news	lowered
 examples-miscellaneous-recursive-components	client: src/App.svelte:39:1 `<Folder>` does not lower: src/Folder.svelte:22:6: `<File>` does not lower: src/File.svelte:3:36: `.lastIndexOf()`, which is not a builtin
 examples-module-context-module-exports	lowered
-examples-motion-spring	client: src/App.svelte:4:18 a call to `spring`, which the build cannot follow
-examples-motion-tweened	client: src/App.svelte:5:22 a call to `tweened`, which the build cannot follow
+examples-motion-spring	lowered
+examples-motion-tweened	lowered
 examples-props-declaring-props	lowered
 examples-props-default-values	lowered
 examples-props-spread-props	lowered
@@ -85,7 +85,7 @@ examples-svg-svg-transitions	lowered
 examples-transitions-adding-parameters-to-transitions	lowered
 examples-transitions-custom-css-transitions	lowered
 examples-transitions-custom-js-transitions	lowered
-examples-transitions-deferred-transitions	client: src/App.svelte:5:29 a call to `crossfade`, which the build cannot follow
+examples-transitions-deferred-transitions	lowered
 examples-transitions-in-and-out	lowered
 examples-transitions-transition	lowered
 examples-transitions-transition-events	lowered
@@ -98,14 +98,14 @@ tutorial-advanced-svelte-advanced-bindings-each-block-bindings	lowered
 tutorial-advanced-svelte-advanced-bindings-media-elements	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:9:13: a call to `isNaN`, which the build cannot follow
 tutorial-advanced-svelte-advanced-reactivity-getters-and-setters	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
 tutorial-advanced-svelte-advanced-reactivity-raw-state	client: src/data.js:16:12 an assignment inside an expression
-tutorial-advanced-svelte-advanced-reactivity-reactive-builtins	client: src/App.svelte:4:20 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-advanced-svelte-advanced-reactivity-reactive-builtins	client: src/App.svelte:4:16 the current time on a render path, which the server and the browser read at different moments
 tutorial-advanced-svelte-advanced-reactivity-reactive-classes	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
 tutorial-advanced-svelte-advanced-reactivity-stores	lowered
 tutorial-advanced-svelte-advanced-transitions-animations	lowered
 tutorial-advanced-svelte-advanced-transitions-deferred-transitions	lowered
 tutorial-advanced-svelte-context-context-api	client: src/App.svelte:21:10 a call to `Array`, which the build cannot follow
-tutorial-advanced-svelte-motion-springs	client: src/App.svelte:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
-tutorial-advanced-svelte-motion-tweens	client: src/App.svelte:5:24 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-advanced-svelte-motion-springs	lowered
+tutorial-advanced-svelte-motion-tweens	lowered
 tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:20 `Math.random`
 tutorial-advanced-svelte-script-module-module-exports	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:17:13: a call to `isNaN`, which the build cannot follow
 tutorial-advanced-svelte-script-module-sharing-code	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:13:13: a call to `isNaN`, which the build cannot follow

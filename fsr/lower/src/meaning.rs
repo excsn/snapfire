@@ -50,8 +50,10 @@ pub(crate) enum Construct {
   IsValidElement,
   /// React's `Suspense` or `Activity`, which the server writes as a boundary around its children.
   Boundary(&'static str),
-  /// `svelte/store`'s `writable`, `readable`, `readonly`, `derived` or `get`: a store is its value on the server.
+  /// `svelte/store`'s `writable`, `readable`, `readonly`, `derived` or `get`, `svelte/motion`'s `spring` or `tweened` or `svelte/transition`'s `crossfade`: a store is its value on the server.
   SvelteStore(&'static str),
+  /// A class of `svelte/reactivity` or `svelte/motion`, named by what it is on the server: `Set`, `Map`, `Date` and `URLSearchParams` the built-ins Svelte's server entry exports, `Spring` and `Tween` an object holding its value as `current` and `target`.
+  SvelteClass(&'static str),
 }
 
 /// Where the placements are exported: the template dialect and each client adapter, which offer the same ones.
@@ -155,6 +157,16 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("svelte/store", "readonly", Construct::SvelteStore("readonly")),
   ("svelte/store", "derived", Construct::SvelteStore("derived")),
   ("svelte/store", "get", Construct::SvelteStore("get")),
+  ("svelte", "createEventDispatcher", Construct::SvelteStore("createEventDispatcher")),
+  ("svelte/motion", "spring", Construct::SvelteStore("spring")),
+  ("svelte/motion", "tweened", Construct::SvelteStore("tweened")),
+  ("svelte/motion", "Spring", Construct::SvelteClass("Spring")),
+  ("svelte/motion", "Tween", Construct::SvelteClass("Tween")),
+  ("svelte/transition", "crossfade", Construct::SvelteStore("crossfade")),
+  ("svelte/reactivity", "SvelteSet", Construct::SvelteClass("Set")),
+  ("svelte/reactivity", "SvelteMap", Construct::SvelteClass("Map")),
+  ("svelte/reactivity", "SvelteDate", Construct::SvelteClass("Date")),
+  ("svelte/reactivity", "SvelteURLSearchParams", Construct::SvelteClass("URLSearchParams")),
 ];
 
 /// Whether `module` is one the table speaks for, so an export it does not list is a library value the build does not read rather than the application's.

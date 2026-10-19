@@ -29,7 +29,6 @@ fn stubs() -> BTreeMap<String, String> {
     ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
     ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\nexport function key(name) { return name; }\n".to_owned()),
     ("@snapfire/fsr-client/store".to_owned(), "export function key(name) { return name; }\n".to_owned()),
-    ("svelte".to_owned(), "export function onMount() {}\nexport function onDestroy() {}\nexport function tick() { return Promise.resolve(); }\n".to_owned()),
   ])
 }
 
@@ -352,6 +351,12 @@ fn script_functions_handlers_and_promises_render_as_svelte_runs_them() {
   let child = "<script>let { onclick, increment } = $props();</script><button {onclick}>go</button><button onclick={increment}>up</button>";
   let (rust, svelte) = both("functions", &[("src/P.svelte", parent), ("src/C.svelte", child)], &props(&[("item", Value::Map(props(&[("count", Value::int(0i64))])))]), None);
   assert_eq!(rust, svelte);
+}
+
+#[test]
+fn svelte_library_values_hold_what_the_server_reads() {
+  let source = "<script>import { spring, tweened, Spring, Tween } from 'svelte/motion'; import { SvelteSet, SvelteMap } from 'svelte/reactivity'; import { crossfade } from 'svelte/transition'; import { createEventDispatcher } from 'svelte'; const dispatch = createEventDispatcher(); const size = spring(10, { stiffness: 0.1 }); const progress = tweened(0.5, { duration: 400 }); const coords = new Spring({ x: 1, y: 2 }); const t = new Tween(3, { duration: 10 }); const picked = new SvelteSet(['a', 'b']); const names = new SvelteMap([['k', 'v']]); const [send, receive] = crossfade({ duration: 200 });</script><p>{$size} {$progress} {coords.current.x} {coords.target.y} {t.current} {picked.has('a')} {picked.size} {names.get('k')}</p>";
+  check("library-values", source, &props(&[]));
 }
 
 /// What lowering `source` refuses, as `file:line:column: message`.

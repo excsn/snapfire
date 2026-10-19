@@ -2663,7 +2663,20 @@ impl<'a> Lowerer<'a> {
     if let Some(spread) = args.iter().find(|a| a.spread.is_some()) {
       return Err(self.residue(spread.expr.span(), "a spread argument"));
     }
+    let svelte = match self.meanings.as_ref().and_then(|meanings| meanings.of_expr(&n.callee)) {
+      Some(meaning::Meaning::Library(meaning::Construct::SvelteClass(class))) => Some(class),
+      _ => None,
+    };
+    if let Some(class @ ("Spring" | "Tween")) = svelte {
+      let value = match args.first() {
+        Some(a) => self.expr(&a.expr)?,
+        None => Expr::Lit(Lit::Null),
+      };
+      let _ = class;
+      return Ok(Expr::Object(vec![Entry::Field("current".to_owned(), value.clone()), Entry::Field("target".to_owned(), value)]));
+    }
     let global = match &*n.callee {
+      _ if svelte.is_some() => svelte.expect("checked").to_owned(),
       js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
       _ if intl_formatter(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
       other => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`")),
@@ -2902,10 +2915,10 @@ pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
     js::Expr::TsAs(a) => made_kind(&a.expr),
     js::Expr::TsNonNull(a) => made_kind(&a.expr),
     js::Expr::New(n) => match &*n.callee {
-      js::Expr::Ident(id) if id.sym.as_ref() == "Map" => Some(Kind::Map),
-      js::Expr::Ident(id) if id.sym.as_ref() == "Set" => Some(Kind::Set),
-      js::Expr::Ident(id) if id.sym.as_ref() == "URLSearchParams" => Some(Kind::Query),
-      js::Expr::Ident(id) if id.sym.as_ref() == "Date" => Some(Kind::Date),
+      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Map" | "SvelteMap") => Some(Kind::Map),
+      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Set" | "SvelteSet") => Some(Kind::Set),
+      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URLSearchParams" | "SvelteURLSearchParams") => Some(Kind::Query),
+      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Date" | "SvelteDate") => Some(Kind::Date),
       _ => None,
     },
     js::Expr::Lit(js::Lit::BigInt(_)) => Some(Kind::BigInt),
@@ -3069,8 +3082,11 @@ mod declares_unexported_tests {
 
 impl Lowerer<'_> {
   /// A `svelte/store` call, a store being the value it holds when the server
-  /// subscribes: `writable(v)`, `readable(v)`, `readonly(s)` and `get(s)` the
-  /// value, `derived(source, fn)` `fn` of the source's value. A start function
+  /// subscribes: `writable(v)`, `readable(v)`, `readonly(s)`, `get(s)` and
+  /// `svelte/motion`'s `spring(v)` and `tweened(v)` the value, `derived(source,
+  /// fn)` `fn` of the source's value. `crossfade` makes the pair of transitions
+  /// only the browser runs and `createEventDispatcher` the function only a
+  /// handler calls. A start function
   /// or a `derived` callback that sets the value runs on subscribe, so either
   /// is refused.
   fn svelte_store(&mut self, store: &str, call: &js::CallExpr) -> Lowered<Expr> {
@@ -3084,6 +3100,15 @@ impl Lowerer<'_> {
           Some(value) => self.expr(value),
           None => Ok(Expr::Lit(Lit::Null)),
         }
+      }
+      "spring" | "tweened" => match arg(0) {
+        Some(value) => self.expr(value),
+        None => Ok(Expr::Lit(Lit::Null)),
+      },
+      "createEventDispatcher" => Ok(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)),
+      "crossfade" => {
+        let browser = || Entry::Item(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER));
+        Ok(Expr::Array(vec![browser(), browser()]))
       }
       "readonly" | "get" => match arg(0) {
         Some(value) => self.expr(value),

@@ -33,11 +33,17 @@ const ENGINE_STACK: usize = 48 << 20;
 /// `svelte/store` is the stores its server entry re-exports, without
 /// `toStore` and `fromStore`.
 pub const SERVER_RUNTIME: &[(&str, &str)] = &[
+  ("svelte", "svelte/src/index-server.js"),
   ("svelte/server", "svelte/src/server/index.js"),
   ("svelte/internal/server", "svelte/src/internal/server/index.js"),
   ("svelte/internal/flags/legacy", "svelte/src/internal/flags/legacy.js"),
   ("#client/constants", "svelte/src/internal/client/constants.js"),
   ("svelte/store", "svelte/src/store/shared/index.js"),
+  ("svelte/motion", "svelte/src/motion/index.js"),
+  ("svelte/internal/client", "svelte/src/internal/client/index.js"),
+  ("svelte/transition", "svelte/src/transition/index.js"),
+  ("svelte/easing", "svelte/src/easing/index.js"),
+  ("svelte/reactivity", "svelte/src/reactivity/index-server.js"),
   ("esm-env", "esm-env/index.js"),
   ("esm-env/browser", "esm-env/false.js"),
   ("esm-env/development", "esm-env/false.js"),

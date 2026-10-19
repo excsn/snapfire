@@ -352,21 +352,22 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   /// Whether `name`, which the template awaits, holds a promise: its value,
-  /// under `$state` when it is wrapped in one, is a call the build cannot
-  /// lower. Svelte's server writes the pending branch for it.
+  /// under `$state` or `$derived` when it is wrapped in one, is a call other
+  /// than a rune that the build cannot lower. Svelte's server writes the pending branch for it.
   fn promised(&mut self, name: &str, init: &'p js::Expr) -> bool {
     if !self.awaited.iter().any(|awaited| awaited == name) {
       return false;
     }
     let value = match unwrap_types(init) {
-      js::Expr::Call(call) if callee_name(call).as_deref() == Some("$state") => match call.args.first() {
+      js::Expr::Call(call) if matches!(callee_name(call).as_deref(), Some("$state" | "$state.raw" | "$derived")) => match call.args.first() {
         Some(arg) => &*arg.expr,
         None => return false,
       },
       other => other,
     };
-    if !matches!(unwrap_types(value), js::Expr::Call(_)) {
-      return false;
+    match unwrap_types(value) {
+      js::Expr::Call(call) if !callee_name(call).is_some_and(|name| name.starts_with('$')) => {}
+      _ => return false,
     }
     let before = self.lowerer.scope.len();
     let lowered = self.lowerer.expr(value);
