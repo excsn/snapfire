@@ -1540,7 +1540,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `x++` or `--x` inside an expression, with `x` a local: the old value is held under a temporary, the write becomes a statement before the one holding it and the expression reads the temporary, the new value for a prefix. Only an update the statement reaches unconditionally is lifted; one under a condition or inside a function stays where it is.
-  fn lift_updates(&mut self, stmt: &js::Stmt, out: &mut Vec<Stmt>) -> Lowered<()> {
+  pub(crate) fn lift_updates(&mut self, stmt: &js::Stmt, out: &mut Vec<Stmt>) -> Lowered<()> {
     if let js::Stmt::Expr(e) = stmt {
       if matches!(strip_parens(&e.expr), js::Expr::Update(_)) {
         return Ok(());
@@ -1871,6 +1871,8 @@ impl<'a> Lowerer<'a> {
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
       None => match name {
         "undefined" => Ok(Expr::Lit(Lit::Null)),
+        "Infinity" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(1.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
+        "NaN" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
         _ if self.browser_functions.iter().any(|f| f == name) => Ok(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)),
         _ => {
           self.unbound = Some(name.to_owned());

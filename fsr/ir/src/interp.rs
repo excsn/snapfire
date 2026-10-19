@@ -249,6 +249,7 @@ impl Interpreter {
       unrendered: false,
       contexts: Vec::new(),
       stamp: Vec::new(),
+      fallthrough: None,
       slotted: Vec::new(),
       slot_stamps: None,
       scoped: None,
@@ -375,6 +376,8 @@ pub(crate) struct Env {
   pub(crate) contexts: Vec<(String, Value)>,
   /// Attributes waiting for the first element the component just placed renders, its root: a Vue parent's scoped-style id, followed inside slot content by the slot host's slotted stamp.
   pub(crate) stamp: Vec<String>,
+  /// The attributes a Vue parent gave a child that the child does not declare as props, waiting for the child's root element, which takes them as Vue's `mergeProps` does.
+  pub(crate) fallthrough: Option<ValueMap>,
   /// The slotted stamps every element of the slot content being rendered carries.
   pub(crate) slotted: Vec<String>,
   /// Set while slot content renders: the stamps a component placed in it takes on its root after the parent scope its placement carries, the slot host's slotted stamp when its style uses `:slotted()`.
@@ -582,6 +585,7 @@ impl Env {
       unrendered: false,
       contexts: Vec::new(),
       stamp: Vec::new(),
+      fallthrough: None,
       slotted: Vec::new(),
       slot_stamps: None,
       scoped: None,
@@ -788,6 +792,7 @@ impl Env {
       unrendered: false,
       contexts: self.contexts.clone(),
       stamp: Vec::new(),
+      fallthrough: None,
       slotted: Vec::new(),
       slot_stamps: None,
       scoped: None,

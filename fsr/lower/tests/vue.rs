@@ -1238,3 +1238,109 @@ fn an_options_api_component_renders_what_vue_renders() {
   assert!(html.contains("<h1>Ten: 7</h1>"), "{html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn counters_and_global_numbers_in_a_setup_render_what_vue_renders() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = r#"<script setup>
+import { ref } from "vue";
+
+let id = 0;
+const todos = ref([
+  { id: id++, text: "a" },
+  { id: id++, text: "b" },
+  { id: ++id, text: "c" },
+]);
+const powers = [Infinity, -Infinity, 9000];
+const odd = NaN;
+</script>
+
+<template>
+  <ul><li v-for="t in todos" :key="t.id">{{ t.id }} {{ t.text }}</li></ul>
+  <p>{{ id }} {{ powers.join() }} {{ odd }} {{ Math.max(...powers) }}</p>
+</template>
+"#;
+  let dir = app("counters", &[("src/ui/Todos.vue", source)]);
+  agree(&compiler, &dir, "src/ui/Todos.vue", source, &ValueMap::default(), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_counter_options_data_reads_renders_what_vue_renders() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = r#"<script>
+let id = 0;
+
+export default {
+  data() {
+    return {
+      todos: [
+        { id: id++, text: "a" },
+        { id: id++, text: "b" },
+      ],
+    };
+  },
+};
+</script>
+
+<template>
+  <ul><li v-for="t in todos" :key="t.id">{{ t.id }} {{ t.text }}</li></ul>
+</template>
+"#;
+  let dir = app("options_counter", &[("src/ui/Todos.vue", source)]);
+  agree(&compiler, &dir, "src/ui/Todos.vue", source, &ValueMap::default(), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_component_placing_itself_by_its_file_name_renders_what_vue_renders() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = r#"<script setup>
+defineProps({ model: Object });
+</script>
+
+<template>
+  <li>
+    {{ model.name }}
+    <ul v-if="model.children">
+      <TreeItem class="item" v-for="child in model.children" :model="child"></TreeItem>
+    </ul>
+  </li>
+</template>
+"#;
+  let leaf = |name: &str| Value::Map(props(&[("name", Value::str(name))]));
+  let tree = Value::Map(props(&[("name", Value::str("root")), ("children", Value::seq(vec![leaf("a"), Value::Map(props(&[("name", Value::str("b")), ("children", Value::seq(vec![leaf("c")]))]))]))]));
+  let dir = app("self", &[("src/ui/TreeItem.vue", source)]);
+  agree(&compiler, &dir, "src/ui/TreeItem.vue", source, &props(&[("model", tree)]), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn attributes_a_child_does_not_declare_fall_through_onto_its_root_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let parent = r#"<script setup>
+import Card from "./Card.vue";
+import Note from "./Note.vue";
+const on = true;
+</script>
+
+<template>
+  <div class="row">
+    <Card title="t" class="wide" id="c1" aria-label="L" data-x="1" />
+    <Card title="u" :class="{ on }" />
+    <Note class="n" hidden />
+    <Note />
+  </div>
+</template>
+
+<style scoped>
+.row { color: red; }
+</style>
+"#;
+  let card = "<script setup>\ndefineProps({ title: String });\n</script>\n\n<template>\n  <section class=\"card\" :id=\"title\"><h3>{{ title }}</h3></section>\n</template>\n";
+  let note = "<script setup>\n</script>\n\n<template>\n  <p class=\"note\">x</p>\n</template>\n\n<style scoped>\n.note { color: blue; }\n</style>\n";
+  let dir = app("fallthrough", &[("src/ui/Row.vue", parent), ("src/ui/Card.vue", card), ("src/ui/Note.vue", note)]);
+  let files = [("src/ui/Row.vue", "", parent), ("src/ui/Card.vue", "Card.vue", card), ("src/ui/Note.vue", "Note.vue", note)];
+  agree_tree(&compiler, &dir, &files, "src/ui/Row.vue", &ValueMap::default());
+  std::fs::remove_dir_all(&dir).unwrap();
+}

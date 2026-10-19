@@ -16,8 +16,8 @@ examples-flight-booker-composition	client: src/App.vue:35:5 `.getFullYear()`, wh
 examples-flight-booker-options	client: src/App.vue:13:5 `.getFullYear()`, which reads the viewer's time zone
 examples-form-bindings-composition	lowered
 examples-form-bindings-options	lowered
-examples-grid-composition	client: src/App.vue:12:34 `Infinity` is not bound here; an import the build cannot follow or a name from outside the body
-examples-grid-options	client: src/App.vue:16:38 `Infinity` is not bound here; an import the build cannot follow or a name from outside the body
+examples-grid-composition	client: src/App.vue:23:3 `<DemoGrid>` does not lower: src/Grid.vue:12:37: a comma expression
+examples-grid-options	client: src/App.vue:29:3 `<DemoGrid>` does not lower: src/Grid.vue:11:52: a comma expression
 examples-handling-input-composition	lowered
 examples-handling-input-options	lowered
 examples-hello-world-composition	lowered
@@ -36,8 +36,8 @@ examples-temperature-converter-composition	lowered
 examples-temperature-converter-options	lowered
 examples-timer-composition	client: src/App.vue:10:5 a declaration without a value
 examples-timer-options	client: src/App.vue:13:3 the `created` option, which the build does not read
-examples-tree-composition	client: src/App.vue:36:5 `<TreeItem>` does not lower: src/TreeItem.vue:44:7: `<TreeItem>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
-examples-tree-options	client: src/App.vue:46:5 `<TreeItem>` does not lower: src/TreeItem.vue:53:7: `<TreeItem>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
+examples-tree-composition	lowered
+examples-tree-options	lowered
 tutorial-step-1-composition	lowered
 tutorial-step-1-options	lowered
 tutorial-step-10-composition	client: src/App.vue:15:1 a statement in `<script setup>` the build cannot follow
@@ -62,9 +62,9 @@ tutorial-step-5-composition	lowered
 tutorial-step-5-options	lowered
 tutorial-step-6-composition	lowered
 tutorial-step-6-options	lowered
-tutorial-step-7-composition	client: src/App.vue:9:9 `++` or `--`, which mutate
-tutorial-step-7-options	client: src/App.vue:10:15 `++` or `--`, which mutate
-tutorial-step-8-composition	client: src/App.vue:9:9 `++` or `--`, which mutate
-tutorial-step-8-options	client: src/App.vue:10:15 `++` or `--`, which mutate
+tutorial-step-7-composition	lowered
+tutorial-step-7-options	lowered
+tutorial-step-8-composition	lowered
+tutorial-step-8-options	lowered
 tutorial-step-9-composition	lowered
 tutorial-step-9-options	lowered

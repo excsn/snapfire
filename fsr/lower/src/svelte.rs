@@ -951,7 +951,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       }
       Node::Special { kind, attrs, fragment, slots, at, .. } if kind == "SvelteSelf" => {
         let (props, children, _) = self.component_parts(attrs, fragment, slots)?;
-        self.child_refs.push(ChildRef { local: SELF.to_owned(), attrs: Vec::new(), line: at.0, column: at.1 });
+        self.child_refs.push(ChildRef { local: SELF.to_owned(), attrs: Vec::new(), written: Vec::new(), line: at.0, column: at.1 });
         out.push(Tmpl::Component { module: SELF.to_owned(), props, children, id: 0, keyed: false });
         if !parent.standalone {
           out.push(Tmpl::Marker(EMPTY.to_owned()));
@@ -1365,7 +1365,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         chosen_component(choice, props, children)
       }
       false => {
-        self.child_refs.push(ChildRef { local: name.clone(), attrs: Vec::new(), line: at.0, column: at.1 });
+        self.child_refs.push(ChildRef { local: name.clone(), attrs: Vec::new(), written: Vec::new(), line: at.0, column: at.1 });
         Tmpl::Component { module: name.clone(), props, children, id: 0, keyed: false }
       }
     };

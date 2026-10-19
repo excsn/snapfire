@@ -845,7 +845,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Expr(expr) => render_expr(env, expr, library, out)?,
     Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
-      write_baked_open(env, open, out);
+      write_baked_open(env, open, out)?;
       if let Some(tag) = tag {
         let context = enter(env, tag);
         for child in children {
@@ -857,6 +857,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     }
     Tmpl::Fragment(children) => {
       env.stamp.clear();
+      env.fallthrough = None;
       for child in children {
         render(env, child, library, slots, out)?;
       }
@@ -1274,6 +1275,10 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
     let count = count_children(env, children, slots, slots.len(), empties)?;
     map.insert(name.clone(), Value::F64(count as f64));
   }
+  let fallthrough = match map.shift_remove(FALLTHROUGH_PROP) {
+    Some(Value::Map(attrs)) if component.owner == crate::ast::Owner::Vue => Some(attrs),
+    _ => None,
+  };
   let stamp = match map.get(PARENT_SCOPE_PROP) {
     _ if component.owner != crate::ast::Owner::Vue => Vec::new(),
     parent => {
@@ -1291,12 +1296,14 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
   let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
   slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false, framework: env.in_framework, owner_path: env.component_path.clone(), scoped: env.scoped.clone() });
   let held = std::mem::replace(&mut env.stamp, stamp);
+  let held_fallthrough = std::mem::replace(&mut env.fallthrough, fallthrough);
   let held_slotted = std::mem::take(&mut env.slotted);
   let held_stamps = env.slot_stamps.take();
   let held_scoped = std::mem::replace(&mut env.scoped, component.scope.clone());
   let mut body =|env: &mut Env| in_module(env, module, |env| call(env, module, |env| render_component(env, component, library, slots, out)));
   let result = if keyed { in_step(env, Step::Placement(id), body) } else { body(env) };
   env.stamp = held;
+  env.fallthrough = held_fallthrough;
   env.slotted = held_slotted;
   env.slot_stamps = held_stamps;
   env.scoped = held_scoped;
@@ -1551,6 +1558,9 @@ fn count_value(value: &Value, empties: bool) -> usize {
 /// The scoped-style attribute of the Vue parent that placed a child, which Vue writes on the child's root element after the child's own attributes and before the child's own scope.
 pub const PARENT_SCOPE_PROP: &str = "$scope";
 
+/// The attributes a Vue parent gave a child beyond its declared props, as an object, which the child's root element takes: `class` after the root's own and anything else in place of the root's value or after its attributes.
+pub const FALLTHROUGH_PROP: &str = "$attrs";
+
 /// The tag of an element whose tag a value chose at render: its first attribute is the choice, an element name or a component reference.
 pub const CHOSEN_TAG: &str = "$tag";
 
@@ -1597,21 +1607,30 @@ fn render_stamped_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], childre
     return Ok(());
   }
   let root = std::mem::take(&mut env.stamp);
-  if root.is_empty() && env.slotted.is_empty() {
+  let fallen = env.fallthrough.take();
+  if root.is_empty() && env.slotted.is_empty() && fallen.is_none() {
     return render_element(env, tag, attrs, children, library, slots, out);
   }
-  let attrs = stamped(attrs, &root, &env.slotted);
+  let attrs = match fallen {
+    Some(fallen) => fall_onto(attrs, fallen)?,
+    None => attrs.to_vec(),
+  };
+  let attrs = stamped(&attrs, &root, &env.slotted);
   render_element(env, tag, &attrs, children, library, slots, out)
 }
 
 /// A baked element's opening tag with the stamps waiting for it: the root's before the element's own scope, the slotted ones last.
-fn write_baked_open(env: &mut Env, open: &str, out: &mut Out) {
+fn write_baked_open(env: &mut Env, open: &str, out: &mut Out) -> Result<(), Fail> {
   let root = std::mem::take(&mut env.stamp);
-  if root.is_empty() && env.slotted.is_empty() {
+  let fallen = env.fallthrough.take();
+  if root.is_empty() && env.slotted.is_empty() && fallen.is_none() {
     out.markup(open);
-    return;
+    return Ok(());
   }
-  let mut open = open.to_owned();
+  let mut open = match fallen {
+    Some(fallen) => fall_onto_baked(open, &fallen)?,
+    None => open.to_owned(),
+  };
   if !root.is_empty() {
     let at = open.rfind(" data-v-").unwrap_or(open.len() - 1);
     open.insert_str(at, &format!(" {}", root.join(" ")));
@@ -1621,6 +1640,130 @@ fn write_baked_open(env: &mut Env, open: &str, out: &mut Out) {
     open.insert_str(at, &format!(" {}", env.slotted.join(" ")));
   }
   out.markup(&open);
+  Ok(())
+}
+
+/// A root element's attributes with what fell through onto it, as Vue's `mergeProps` merges them: `class` joined after the root's own, any other name taking the root's place or following its attributes, before its scope. Literal attributes printed in place are split one to a piece first.
+fn fall_onto(attrs: &[Entry], fallen: ValueMap) -> Result<Vec<Entry>, Fail> {
+  use crate::ast::Expr;
+  let mut pieces: Vec<Entry> = Vec::new();
+  for entry in attrs {
+    match entry {
+      Entry::Baked(text) => {
+        for (name, value) in attr_text(text)? {
+          pieces.push(Entry::Baked(match value {
+            Some(value) => format!(" {name}=\"{value}\""),
+            None => format!(" {name}"),
+          }));
+        }
+      }
+      other => pieces.push(other.clone()),
+    }
+  }
+  let named = |entry: &Entry, want: &str| match entry {
+    Entry::Field(own, _) => own == want,
+    Entry::Baked(text) => text[1..].split('=').next() == Some(want),
+    _ => false,
+  };
+  for (name, value) in fallen {
+    match pieces.iter().position(|entry| named(entry, &name)) {
+      Some(at) if name == "class" => match &mut pieces[at] {
+        Entry::Field(_, own) => {
+          let held = std::mem::replace(own, Expr::Lit(crate::ast::Lit::Null));
+          *own = Expr::Array(vec![Entry::Item(held), Entry::Item(Expr::Folded(value))]);
+        }
+        Entry::Baked(text) => {
+          let mut added = String::new();
+          escape_attr(&vue::class_text(&value)?, &mut added);
+          if !added.is_empty() {
+            let own = text.trim_end_matches('"').split_once("=\"").map_or(String::new(), |(_, own)| own.to_owned());
+            *text = if own.is_empty() { format!(" class=\"{added}\"") } else { format!(" class=\"{own} {added}\"") };
+          }
+        }
+        _ => {}
+      },
+      Some(at) => pieces[at] = Entry::Field(name, Expr::Folded(value)),
+      None => {
+        let at = pieces.iter().position(|entry| match entry {
+          Entry::Field(own, _) => own.starts_with("data-v-"),
+          Entry::Baked(text) => text.starts_with(" data-v-"),
+          _ => false,
+        });
+        pieces.insert(at.unwrap_or(pieces.len()), Entry::Field(name, Expr::Folded(value)));
+      }
+    }
+  }
+  Ok(pieces)
+}
+
+/// Attributes this renderer printed, ` name` or ` name="text"` with the text escaped, one after another.
+fn attr_text(text: &str) -> Result<Vec<(String, Option<String>)>, Fail> {
+  let mut rest = text.strip_prefix(' ').unwrap_or(text);
+  let mut attrs = Vec::new();
+  while !rest.is_empty() {
+    let end = rest.find([' ', '=']).unwrap_or(rest.len());
+    let name = rest[..end].to_owned();
+    rest = &rest[end..];
+    let value = match rest.strip_prefix("=\"") {
+      Some(quoted) => {
+        let close = quoted.find('"').ok_or_else(|| Fail::internal("a printed attribute without its closing quote"))?;
+        rest = &quoted[close + 1..];
+        Some(quoted[..close].to_owned())
+      }
+      None => None,
+    };
+    rest = rest.strip_prefix(' ').unwrap_or(rest);
+    attrs.push((name, value));
+  }
+  Ok(attrs)
+}
+
+/// A baked opening tag with what fell through onto it, merged as [`fall_onto`] merges an element's attributes. The tag is one this renderer wrote: a name, then ` name` or ` name="text"` with the text escaped, then `>`.
+fn fall_onto_baked(open: &str, fallen: &ValueMap) -> Result<String, Fail> {
+  let inner = open.strip_prefix('<').and_then(|rest| rest.strip_suffix('>')).ok_or_else(|| Fail::internal("a baked tag that is not an opening tag"))?;
+  let (tag, rest) = inner.split_once(' ').unwrap_or((inner, ""));
+  let mut attrs = attr_text(rest)?;
+  for (name, value) in fallen {
+    let mut written = String::new();
+    match name.as_str() {
+      "class" => {
+        let mut text = String::new();
+        escape_attr(&vue::class_text(value)?, &mut text);
+        if let Some((_, Some(own))) = attrs.iter_mut().find(|(own, _)| own == "class") {
+          if !text.is_empty() {
+            *own = if own.is_empty() { text } else { format!("{own} {text}") };
+          }
+          continue;
+        }
+        vue::attribute(name, value, &mut written)?;
+      }
+      _ => vue::attribute(name, value, &mut written)?,
+    }
+    let parsed = written.strip_prefix(' ').map(|piece| match piece.split_once("=\"") {
+      Some((name, value)) => (name.to_owned(), Some(value.trim_end_matches('"').to_owned())),
+      None => (piece.to_owned(), None),
+    });
+    match (attrs.iter().position(|(own, _)| own == name), parsed) {
+      (Some(at), Some(piece)) => attrs[at] = piece,
+      (Some(at), None) => {
+        attrs.remove(at);
+      }
+      (None, Some(piece)) => {
+        let at = attrs.iter().position(|(own, _)| own.starts_with("data-v-")).unwrap_or(attrs.len());
+        attrs.insert(at, piece);
+      }
+      (None, None) => {}
+    }
+  }
+  let mut out = format!("<{tag}");
+  for (name, value) in attrs {
+    match value {
+      Some(value) => out.push_str(&format!(" {name}=\"{value}\"")),
+      None => out.push_str(&format!(" {name}")),
+    }
+  }
+  out.push('>');
+  Ok(out)
 }
 
 /// `attrs` with `root` inserted before the element's own scope, where Vue writes a root's inherited stamps. `slotted` goes after everything.

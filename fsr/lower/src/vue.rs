@@ -112,10 +112,11 @@ enum Placed {
   Else { cond: Option<Expr>, body: Tmpl },
 }
 
-/// A Vue child the template placed: the import's local name, the attributes it was given by their prop spelling and where.
+/// A Vue child the template placed: the import's local name, where it was placed and the attributes it was given, by their prop spelling and as written.
 pub(crate) struct ChildRef {
   pub(crate) local: String,
   pub(crate) attrs: Vec<String>,
+  pub(crate) written: Vec<String>,
   pub(crate) line: usize,
   pub(crate) column: usize,
 }
@@ -331,6 +332,82 @@ fn names_read(body: &FunctionBody<'_>) -> Vec<String> {
     FunctionBody::Block(stmts) => stmts.iter().for_each(|stmt| stmt.visit_with(&mut names)),
   }
   names.0
+}
+
+/// What a component's render has at its root, which decides where attributes it does not declare as props fall through to.
+#[derive(Clone, Copy)]
+pub(crate) enum RootKind {
+  Element,
+  Several,
+  Component,
+}
+
+pub(crate) fn root_kind(render: &Tmpl) -> RootKind {
+  match render {
+    Tmpl::Let { then, .. } => root_kind(then),
+    Tmpl::Fragment(children) if matches!(children.first(), Some(Tmpl::Marker(open)) if open == FRAGMENT_OPEN) => RootKind::Several,
+    Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) => RootKind::Component,
+    Tmpl::If { then, r#else, .. } => match (root_kind(then), r#else.as_deref().map(root_kind)) {
+      (RootKind::Element, None | Some(RootKind::Element)) => RootKind::Element,
+      (RootKind::Several, _) | (_, Some(RootKind::Several)) => RootKind::Several,
+      _ => RootKind::Component,
+    },
+    _ => RootKind::Element,
+  }
+}
+
+/// Whether a component lets attributes it does not declare fall through onto its root: not when its options or `defineOptions` say `inheritAttrs: false`.
+pub(crate) fn inherits_attrs(parsed: &crate::Parsed) -> bool {
+  use swc_core::ecma::visit::{Visit, VisitWith};
+  struct Finds(bool);
+  impl Visit for Finds {
+    fn visit_key_value_prop(&mut self, kv: &js::KeyValueProp) {
+      if prop_name_of_key(&kv.key).as_deref() == Some("inheritAttrs") && matches!(&*kv.value, js::Expr::Lit(js::Lit::Bool(js::Bool { value: false, .. }))) {
+        self.0 = true;
+      }
+      kv.visit_children_with(self);
+    }
+  }
+  let mut finds = Finds(false);
+  parsed.module.visit_with(&mut finds);
+  !finds.0
+}
+
+/// Moves each attribute a placement gives a child that the child does not declare into the placement's `$attrs` object under the name it was written with. It drops one where the child does not inherit attributes, named by an empty written name.
+pub(crate) fn fall_through(tmpl: &mut Tmpl, strays: &HashMap<String, Vec<(String, String)>>) {
+  match tmpl {
+    Tmpl::Component { module, props, children, .. } => {
+      if let Some(names) = strays.get(module.as_str()) {
+        let mut attrs = Vec::new();
+        props.retain(|entry| match entry {
+          Entry::Field(name, value) => match names.iter().find(|(prop, _)| prop == name) {
+            Some((_, written)) => {
+              if !written.is_empty() {
+                attrs.push(Entry::Field(written.clone(), value.clone()));
+              }
+              false
+            }
+            None => true,
+          },
+          _ => true,
+        });
+        if !attrs.is_empty() {
+          props.push(Entry::Field(snapfire_fsr_ir::render::FALLTHROUGH_PROP.to_owned(), Expr::Object(attrs)));
+        }
+      }
+      children.iter_mut().for_each(|child| fall_through(child, strays));
+    }
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } => children.iter_mut().for_each(|child| fall_through(child, strays)),
+    Tmpl::If { then, r#else, .. } => {
+      fall_through(then, strays);
+      if let Some(other) = r#else {
+        fall_through(other, strays);
+      }
+    }
+    Tmpl::For { body, .. } => fall_through(body, strays),
+    Tmpl::Let { then, .. } => fall_through(then, strays),
+    _ => {}
+  }
 }
 
 /// The names an options object's `props` declares, as a list or as an object's keys, `defineComponent`'s included.
@@ -589,6 +666,12 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     }
     if let Some(prop) = option("data") {
       let returned = self.returned_object(prop, "data")?;
+      let mut lifted = Vec::new();
+      self.lowerer.lift_updates(&js::Stmt::Expr(js::ExprStmt { span: returned.span, expr: Box::new(js::Expr::Object(returned.clone())) }), &mut lifted)?;
+      self.lets.extend(lifted.into_iter().map(|step| match step {
+        Stmt::Set { name, expr } => Stmt::Let { name, expr },
+        other => other,
+      }));
       for entry in &returned.props {
         let js::PropOrSpread::Prop(entry) = entry else { return Err(self.lowerer.residue(returned.span, "a spread in what `data` returns")) };
         let (name, value): (String, js::Expr) = match &**entry {
@@ -769,6 +852,12 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
   fn setup_stmt(&mut self, stmt: &'p js::Stmt) -> Lowered<()> {
     match stmt {
       js::Stmt::Decl(js::Decl::Var(var)) => {
+        let mut lifted = Vec::new();
+        self.lowerer.lift_updates(stmt, &mut lifted)?;
+        self.lets.extend(lifted.into_iter().map(|step| match step {
+          Stmt::Set { name, expr } => Stmt::Let { name, expr },
+          other => other,
+        }));
         for decl in &var.decls {
           self.setup_decl(decl)?;
         }
@@ -1254,11 +1343,17 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
     let local = pascal(&node.tag);
     let declared = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(&local)).and_then(|meant| meant.origin().map(|(f, _)| f.to_owned()));
     let unfollowed = crate::component::find_import(self.lowerer.parsed, &local).is_some_and(|(source, _)| source.ends_with(".vue"));
-    if !declared.as_deref().is_some_and(|f| f.ends_with(".vue")) && !unfollowed {
+    let own_name = std::path::Path::new(&self.lowerer.parsed.file).file_stem().and_then(|stem| stem.to_str()).map(pascal);
+    let local = match declared.is_none() && !unfollowed && own_name.as_deref() == Some(local.as_str()) {
+      true => crate::svelte::SELF.to_owned(),
+      false => local,
+    };
+    if local != crate::svelte::SELF && !declared.as_deref().is_some_and(|f| f.ends_with(".vue")) && !unfollowed {
       return Err(self.at(node.line, node.column, format!("`<{}>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else", node.tag)));
     }
     let mut props = Vec::new();
     let mut names = Vec::new();
+    let mut written = Vec::new();
     for prop in &node.props {
       if prop.prop == "attribute" {
         let name = camel(&prop.name);
@@ -1267,6 +1362,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           None => Expr::Lit(Lit::Bool(true)),
         }));
         names.push(name);
+        written.push(prop.name.clone());
         continue;
       }
       match prop.name.as_str() {
@@ -1280,6 +1376,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             (Some(_), false) => return Err(self.at(prop.line, prop.column, "a `v-model` whose name is an expression")),
           };
           props.push(Entry::Field(name.clone(), value));
+          written.push(name.clone());
           names.push(name);
         }
         "bind" => {
@@ -1291,6 +1388,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
               let name = camel(arg);
               props.push(Entry::Field(name.clone(), value));
               names.push(name);
+              written.push(arg.clone());
             }
             (None, _) => props.push(Entry::Spread(value)),
             (Some(arg), false) => props.push(Entry::Computed(self.expr_at(arg, prop.line, prop.column)?, value)),
@@ -1303,7 +1401,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       props.push(Entry::Field(snapfire_fsr_ir::render::PARENT_SCOPE_PROP.to_owned(), Expr::lit_str(scope.clone())));
     }
     let children = self.slot_contents(node)?;
-    self.child_refs.push(ChildRef { local: local.clone(), attrs: names, line: node.line, column: node.column });
+    self.child_refs.push(ChildRef { local: local.clone(), attrs: names, written, line: node.line, column: node.column });
     Ok(Tmpl::Component { module: local, props, children, id: 0, keyed: false })
   }
 

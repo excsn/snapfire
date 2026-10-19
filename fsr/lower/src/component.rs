@@ -1541,33 +1541,54 @@ impl ComponentSet {
         }
       }
     });
-    children.extend(referenced.into_iter().map(|local| crate::vue::ChildRef { local, attrs: Vec::new(), line: 1, column: 1 }));
+    children.extend(referenced.into_iter().map(|local| crate::vue::ChildRef { local, attrs: Vec::new(), written: Vec::new(), line: 1, column: 1 }));
     let mut modules: HashMap<String, String> = HashMap::new();
+    let own_root = crate::vue::root_kind(&component.render);
+    let mut fallthrough: HashMap<String, Vec<(String, String)>> = HashMap::new();
     for child in children {
-      if child.local == crate::svelte::SELF {
-        modules.insert(child.local, module.clone());
-        continue;
-      }
-      if modules.contains_key(&child.local) {
-        continue;
-      }
       let at = |message: String| LowerError::Residue(Residue { file: file.to_owned(), line: child.line, column: child.column, message, hint: None, via: Vec::new() });
-      let (target, _) = self.component_module(file, &child.local).map_err(at)?;
+      let target = match modules.get(&child.local) {
+        Some(target) => target.clone(),
+        None if child.local == crate::svelte::SELF => module.clone(),
+        None => {
+          let (target, _) = self.component_module(file, &child.local).map_err(at)?;
+          match self.lower(&target) {
+            Ok(()) => {}
+            Err(LowerError::Residue(residue)) => return Err(at(format!("`<{}>` does not lower: {}:{}:{}: {}", child.local, residue.file, residue.line, residue.column, residue.message))),
+            Err(other) => return Err(other),
+          }
+          target
+        }
+      };
       let child_file = target.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_else(|| target.clone());
-      match self.lower(&target) {
-        Ok(()) => {}
-        Err(LowerError::Residue(residue)) => return Err(at(format!("`<{}>` does not lower: {}:{}:{}: {}", child.local, residue.file, residue.line, residue.column, residue.message))),
-        Err(other) => return Err(other),
-      }
       let mut declared: Vec<String> = self.described.get(&child_file).map(|d| d.bindings.iter().filter(|(_, kind)| kind.as_str() == "props").map(|(name, _)| name.clone()).collect()).unwrap_or_default();
       if let Some(parsed) = self.parsed.get(&child_file) {
         declared.extend(crate::vue::model_props(parsed));
         declared.extend(crate::vue::option_props(parsed));
       }
-      if let Some(stray) = child.attrs.iter().find(|a| !declared.contains(a)) {
-        return Err(at(format!("`{stray}` on `<{}>`, which it does not declare as a prop, so Vue would fall it through onto its root element", child.local)));
+      let strays: Vec<(String, String)> = child.attrs.iter().zip(&child.written).filter(|(name, _)| !declared.contains(name)).map(|(name, written)| (name.clone(), written.clone())).collect();
+      if !strays.is_empty() {
+        let tag = if child.local == crate::svelte::SELF { "itself" } else { child.local.as_str() };
+        if strays.iter().any(|(name, _)| name == "style") {
+          return Err(at(format!("`style` on `<{tag}>`, which it does not declare as a prop; Vue merges it into its root element's style, which the build does not")));
+        }
+        let root = match child.local == crate::svelte::SELF {
+          true => own_root,
+          false => self.components.iter().find(|(m, _)| *m == target).map_or(crate::vue::RootKind::Element, |(_, c)| crate::vue::root_kind(&c.render)),
+        };
+        let inherits = self.parsed.get(&child_file).is_none_or(|parsed| crate::vue::inherits_attrs(parsed));
+        match root {
+          _ if !inherits => {}
+          crate::vue::RootKind::Element => {}
+          crate::vue::RootKind::Several => return Err(at(format!("`{}` on `<{tag}>`, which it does not declare as a prop; Vue falls it through onto a single root element and this one has several", strays[0].1))),
+          crate::vue::RootKind::Component => return Err(at(format!("`{}` on `<{tag}>`, which it does not declare as a prop; its root is a component, which Vue would hand it to", strays[0].1))),
+        }
+        fallthrough.entry(child.local.clone()).or_default().extend(strays.into_iter().map(|(name, written)| (name, if inherits { written } else { String::new() })));
       }
       modules.insert(child.local, target);
+    }
+    if !fallthrough.is_empty() {
+      crate::vue::fall_through(&mut component.render, &fallthrough);
     }
     if !modules.is_empty() {
       component.render = rewrite_modules(component.render, &modules, &HashMap::new());
@@ -1688,7 +1709,7 @@ impl ComponentSet {
         }
       }
     });
-    children.extend(referenced.into_iter().map(|local| crate::vue::ChildRef { local, attrs: Vec::new(), line: 1, column: 1 }));
+    children.extend(referenced.into_iter().map(|local| crate::vue::ChildRef { local, attrs: Vec::new(), written: Vec::new(), line: 1, column: 1 }));
     let mut modules: HashMap<String, String> = HashMap::new();
     for child in children {
       if child.local == crate::svelte::SELF {
