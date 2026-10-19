@@ -50,7 +50,7 @@ pub(crate) enum Construct {
   IsValidElement,
   /// React's `Suspense` or `Activity`, which the server writes as a boundary around its children.
   Boundary(&'static str),
-  /// `svelte/store`'s `writable`, `readable`, `readonly`, `derived` or `get`, `svelte/motion`'s `spring` or `tweened` or `svelte/transition`'s `crossfade`: a store is its value on the server.
+  /// `svelte/store`'s `writable`, `readable`, `readonly`, `derived` or `get`, `svelte/motion`'s `spring` or `tweened`, `svelte/transition`'s `crossfade` or `svelte`'s `createEventDispatcher`, `getContext` and `setContext`: a store is its value on the server.
   SvelteStore(&'static str),
   /// A class of `svelte/reactivity` or `svelte/motion`, named by what it is on the server: `Set`, `Map`, `Date` and `URLSearchParams` the built-ins Svelte's server entry exports, `Spring` and `Tween` an object holding its value as `current` and `target`.
   SvelteClass(&'static str),
@@ -158,6 +158,8 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("svelte/store", "derived", Construct::SvelteStore("derived")),
   ("svelte/store", "get", Construct::SvelteStore("get")),
   ("svelte", "createEventDispatcher", Construct::SvelteStore("createEventDispatcher")),
+  ("svelte", "getContext", Construct::SvelteStore("getContext")),
+  ("svelte", "setContext", Construct::SvelteStore("setContext")),
   ("svelte/motion", "spring", Construct::SvelteStore("spring")),
   ("svelte/motion", "tweened", Construct::SvelteStore("tweened")),
   ("svelte/motion", "Spring", Construct::SvelteClass("Spring")),

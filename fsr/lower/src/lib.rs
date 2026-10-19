@@ -949,6 +949,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) reader: Option<js::Id>,
   /// A component's setters, dispatchers and inner functions, which only the browser calls. Read as a value on the server one is `render::BROWSER_HANDLER`, a function that renders nothing, as React renders nothing for one.
   pub(crate) browser_functions: Vec<String>,
+  /// The contexts this component provides, by key, for a `getContext` of its own to read.
+  pub(crate) provided: Vec<(String, Expr)>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
   pub(crate) unfollowed: Vec<String>,
 }
@@ -1013,7 +1015,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), provided: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -3068,7 +3070,7 @@ fn root_named(name: &str) -> Option<Root> {
   })
 }
 
-fn prop_name(name: &js::PropName) -> Option<String> {
+pub(crate) fn prop_name(name: &js::PropName) -> Option<String> {
   match name {
     js::PropName::Ident(id) => Some(id.sym.to_string()),
     js::PropName::Str(s) => Some(s.value.to_atom_lossy().to_string()),
@@ -3133,6 +3135,18 @@ impl Lowerer<'_> {
   /// handler calls. A start function
   /// or a `derived` callback that sets the value runs on subscribe, so either
   /// is refused.
+  /// The context a key names, under `framework`: a string key as `framework:` and the string, a name as `framework:` and the file and name it is declared under, followed through its import.
+  pub(crate) fn context_key(&self, framework: &str, key: &js::Expr) -> Lowered<String> {
+    match crate::meaning::bare(key) {
+      js::Expr::Lit(js::Lit::Str(s)) => Ok(format!("{framework}:{}", s.value.to_atom_lossy())),
+      js::Expr::Ident(id) => Ok(match self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).and_then(|meant| meant.origin()) {
+        Some((declared, name)) => format!("{framework}:{declared}#{name}"),
+        None => format!("{framework}:{}", id.sym),
+      }),
+      other => Err(self.residue(other.span(), "a context key that is not a string or a name")),
+    }
+  }
+
   fn svelte_store(&mut self, store: &str, call: &js::CallExpr) -> Lowered<Expr> {
     let arg = |i: usize| call.args.get(i).map(|a| &*a.expr);
     match store {
@@ -3150,6 +3164,15 @@ impl Lowerer<'_> {
         None => Ok(Expr::Lit(Lit::Null)),
       },
       "createEventDispatcher" => Ok(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)),
+      "getContext" => {
+        let key = arg(0).ok_or_else(|| self.residue(call.span, "`getContext` without a key"))?;
+        let key = self.context_key("svelte", key)?;
+        Ok(match self.provided.iter().rev().find(|(provided, _)| *provided == key) {
+          Some((_, value)) => value.clone(),
+          None => Expr::Context(key),
+        })
+      }
+      "setContext" => Err(self.residue(call.span, "`setContext` inside an expression; it is a statement of the script")),
       "crossfade" => {
         let browser = || Entry::Item(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER));
         Ok(Expr::Array(vec![browser(), browser()]))

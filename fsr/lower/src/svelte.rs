@@ -156,6 +156,8 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   promises: Vec<String>,
   /// The names the script binds at its top level, which a template expression reads there; any other name it reads that no block binds is a global.
   module_names: Vec<String>,
+  /// The classes the script declares, which a `new` in a declaration builds as the object its constructor leaves.
+  classes: Vec<(String, &'p js::Class)>,
 }
 
 impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
@@ -183,7 +185,7 @@ impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
 
 impl<'a, 'p> SvelteLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new(), module_names: Vec::new() }
+    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new(), module_names: Vec::new(), classes: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -215,10 +217,13 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       self.bind("$$restProps".to_owned(), call(Builtin::Omit, rest));
     }
     let mut nodes = self.fragment(&fragment)?;
-    let render = match nodes.len() {
+    let mut render = match nodes.len() {
       1 => nodes.pop().expect("one node"),
       _ => Tmpl::Fragment(nodes),
     };
+    for (key, value) in std::mem::take(&mut self.lowerer.provided).into_iter().rev() {
+      render = Tmpl::Let { name: format!("{CONTEXT_PREFIX}{key}"), expr: value, then: Box::new(render) };
+    }
     Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), stores: std::mem::take(&mut self.stores), handlers: Vec::new(), owner: Owner::Svelte, shadow: None, scope: None })
   }
 
@@ -237,6 +242,162 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       return Ok(picture);
     }
     self.lowerer.expr(&parsed)
+  }
+
+  /// `const name = new Class(args)` for a class the script declares: its fields in order, `$state` holding its value, then the constructor's `this.field = value` writes, then each `$derived` field and getter read once construction ends, bound as an object of the public fields and getters with each method a function the browser runs.
+  fn instance(&mut self, name: &str, class: &'p js::Class, made: &js::NewExpr) -> Lowered<()> {
+    if let Some(parent) = &class.super_class {
+      return Err(self.lowerer.residue(parent.span(), "a class that extends another"));
+    }
+    let scope_before = self.lowerer.scope.len();
+    let constructor = class.body.iter().find_map(|member| match member {
+      js::ClassMember::Constructor(c) => Some(c),
+      _ => None,
+    });
+    let given = made.args.as_deref().unwrap_or_default();
+    let mut params: Vec<(String, Expr)> = Vec::new();
+    if let Some(constructor) = constructor {
+      for (i, param) in constructor.params.iter().enumerate() {
+        let js::ParamOrTsParamProp::Param(param) = param else { return Err(self.lowerer.residue(constructor.span, "a constructor parameter property")) };
+        let js::Pat::Ident(id) = &param.pat else { return Err(self.lowerer.residue(param.span, "a constructor parameter that is not a name")) };
+        let value = match given.get(i) {
+          Some(arg) if arg.spread.is_some() => return Err(self.lowerer.residue(arg.expr.span(), "a spread argument")),
+          Some(arg) => self.lowerer.expr(&arg.expr)?,
+          None => Expr::Lit(Lit::Null),
+        };
+        let temp = self.lowerer.temp();
+        self.lets.push(Stmt::Let { name: temp.clone(), expr: value });
+        params.push((id.id.sym.to_string(), Expr::Var(temp)));
+      }
+    }
+    let mut public: Vec<(String, bool)> = Vec::new();
+    let mut deferred: Vec<(String, &'p js::Expr)> = Vec::new();
+    let mut setters: Vec<String> = Vec::new();
+    for member in &class.body {
+      let (key, value, shown) = match member {
+        js::ClassMember::ClassProp(prop) if !prop.is_static => {
+          let key = crate::prop_name(&prop.key).ok_or_else(|| self.lowerer.residue(prop.span, "a computed class field"))?;
+          (key, prop.value.as_deref(), true)
+        }
+        js::ClassMember::PrivateProp(prop) if !prop.is_static => (format!("#{}", prop.key.name), prop.value.as_deref(), false),
+        js::ClassMember::Method(method) if !method.is_static => {
+          let key = crate::prop_name(&method.key).ok_or_else(|| self.lowerer.residue(method.span, "a computed method name"))?;
+          match method.kind {
+            js::MethodKind::Method => public.push((key, false)),
+            js::MethodKind::Getter => {
+              let body = method.function.body.as_ref().map(|body| body.stmts.as_slice()).unwrap_or_default();
+              let [js::Stmt::Return(js::ReturnStmt { arg: Some(value), .. })] = body else {
+                return Err(self.lowerer.residue(method.span, "a getter whose body is not one `return`"));
+              };
+              deferred.push((key.clone(), value));
+              public.push((key, true));
+            }
+            js::MethodKind::Setter => setters.push(key),
+          }
+          continue;
+        }
+        js::ClassMember::PrivateMethod(_) | js::ClassMember::Constructor(_) | js::ClassMember::Empty(_) => continue,
+        other => return Err(self.lowerer.residue(other.span(), "a class member the build does not read")),
+      };
+      if shown {
+        public.push((key.clone(), true));
+      }
+      let value = match value.map(unwrap_types) {
+        None => Expr::Lit(Lit::Null),
+        Some(js::Expr::Call(call)) if matches!(callee_name(call).as_deref(), Some("$derived")) => {
+          let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`$derived` without a value")) };
+          deferred.push((key, &*arg.expr));
+          continue;
+        }
+        Some(js::Expr::Call(call)) if matches!(callee_name(call).as_deref(), Some("$derived.by")) => return Err(self.lowerer.residue(call.span, "`$derived.by` in a class field")),
+        Some(js::Expr::Call(call)) if matches!(callee_name(call).as_deref(), Some("$state" | "$state.raw")) => match call.args.first() {
+          Some(arg) => self.through_this(&arg.expr)?,
+          None => Expr::Lit(Lit::Null),
+        },
+        Some(other) => self.through_this(other)?,
+      };
+      self.hold(&key, value);
+    }
+    for (param, value) in params {
+      self.bind(param, value);
+    }
+    for stmt in constructor.and_then(|c| c.body.as_ref()).map(|body| body.stmts.as_slice()).unwrap_or_default() {
+      let js::Stmt::Expr(js::ExprStmt { expr, .. }) = stmt else { return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")) };
+      let js::Expr::Assign(assign) = &**expr else { return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")) };
+      let key = match &assign.left {
+        js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) if assign.op == js::AssignOp::Assign && matches!(&*member.obj, js::Expr::This(_)) => match &member.prop {
+          js::MemberProp::Ident(prop) => prop.sym.to_string(),
+          js::MemberProp::PrivateName(prop) => format!("#{}", prop.name),
+          js::MemberProp::Computed(_) => return Err(self.lowerer.residue(assign.span, "a constructor write to a computed field")),
+        },
+        _ => return Err(self.lowerer.residue(stmt.span(), "a constructor statement other than `this.field = value`")),
+      };
+      if setters.contains(&key) {
+        return Err(self.lowerer.residue(assign.span, "a constructor write through a setter"));
+      }
+      let value = self.through_this(&assign.right)?;
+      self.hold(&key, value);
+    }
+    for (key, value) in deferred {
+      let value = self.through_this(value)?;
+      self.hold(&key, value);
+    }
+    let entries = public
+      .into_iter()
+      .map(|(key, held)| {
+        let value = if held {
+          let this = format!("this@{key}");
+          self.lowerer.scope.iter().rev().find(|(bound, _)| *bound == this).map_or(Expr::Lit(Lit::Null), |(_, value)| value.clone())
+        } else {
+          Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)
+        };
+        Entry::Field(key, value)
+      })
+      .collect();
+    self.lowerer.scope.truncate(scope_before);
+    self.lets.push(Stmt::Let { name: name.to_owned(), expr: Expr::Object(entries) });
+    self.bind(name.to_owned(), Expr::Var(name.to_owned()));
+    Ok(())
+  }
+
+  /// Binds `this.key` to `value` for what a class's later fields, constructor and getters read.
+  fn hold(&mut self, key: &str, value: Expr) {
+    let temp = self.lowerer.temp();
+    self.lets.push(Stmt::Let { name: temp.clone(), expr: value });
+    self.bind(format!("this@{key}"), Expr::Var(temp));
+  }
+
+  /// `expr` lowered with each `this.field` and `this.#field` read as the value the instance holds for it.
+  fn through_this(&mut self, expr: &js::Expr) -> Lowered<Expr> {
+    struct This;
+    impl VisitMut for This {
+      fn visit_mut_expr(&mut self, expr: &mut js::Expr) {
+        if let js::Expr::Member(member) = expr {
+          if matches!(&*member.obj, js::Expr::This(_)) {
+            let key = match &member.prop {
+              js::MemberProp::Ident(prop) => Some(prop.sym.to_string()),
+              js::MemberProp::PrivateName(prop) => Some(format!("#{}", prop.name)),
+              js::MemberProp::Computed(_) => None,
+            };
+            if let Some(key) = key {
+              *expr = js::Expr::Ident(js::Ident::new_no_ctxt(format!("this@{key}").into(), member.span));
+              return;
+            }
+          }
+        }
+        expr.visit_mut_children_with(self);
+      }
+      fn visit_mut_function(&mut self, _: &mut js::Function) {}
+    }
+    let mut expr = expr.clone();
+    expr.visit_mut_with(&mut This);
+    self.lowerer.expr(&expr)
+  }
+
+  /// Whether `call` calls `export` of a library the meaning table speaks for, `svelte`'s `setContext` for one.
+  fn calls_library(&self, call: &js::CallExpr, export: &str) -> bool {
+    let js::Callee::Expr(callee) = &call.callee else { return false };
+    matches!(self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)), Some(crate::meaning::Meaning::Library(crate::meaning::Construct::SvelteStore(name))) if name == export)
   }
 
   /// Gives each name `parsed` reads that no block binds the syntax context of where it resolves: the module's top level for a name the script binds there, the unresolved context for a global.
@@ -321,9 +482,20 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         Ok(())
       }
       js::Stmt::Decl(js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
+      js::Stmt::Decl(js::Decl::Class(c)) => {
+        self.classes.push((c.ident.sym.to_string(), &c.class));
+        Ok(())
+      }
       js::Stmt::Expr(e) => match &*e.expr {
         js::Expr::Call(call) if callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call) => Ok(()),
         js::Expr::Call(call) if subscribed(call).is_some() => self.subscription(call),
+        js::Expr::Call(call) if self.calls_library(call, "setContext") => {
+          let (Some(key), Some(value)) = (call.args.first(), call.args.get(1)) else { return Err(self.lowerer.residue(call.span, "`setContext` takes a key and a value")) };
+          let key = self.lowerer.context_key("svelte", &key.expr)?;
+          let value = self.lowerer.expr(&value.expr)?;
+          self.lowerer.provided.push((key, value));
+          Ok(())
+        }
         _ => Err(self.statement_residue(e.span)),
       },
       js::Stmt::Labeled(labeled) if !runes && labeled.label.sym == "$" => self.reactive(labeled),
@@ -512,6 +684,16 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         }
         if self.lowerer.bind_formatter(&name, init) {
           continue;
+        }
+        if let js::Expr::New(made) = unwrap_types(init) {
+          let class = match unwrap_types(&made.callee) {
+            js::Expr::Ident(id) => self.classes.iter().rev().find(|(declared, _)| *declared == *id.sym).map(|(_, class)| *class),
+            _ => None,
+          };
+          if let Some(class) = class {
+            self.instance(&name, class, made)?;
+            continue;
+          }
         }
       }
       let Some(init) = decl.init.as_deref() else {

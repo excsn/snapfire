@@ -385,6 +385,58 @@ fn patterns_built_at_run_time_and_code_points_render_what_javascript_computes() 
   check("patterns", source, &props(&[("data", Value::seq(vec![s("Banana"), s("ANT"), s("cat")])), ("search", s("an")), ("flags", s("i")), ("word", s("a😀"))]));
 }
 
+#[test]
+fn contexts_reach_the_components_beneath_as_svelte_passes_them() {
+  let parent = "<script>import { setContext, getContext } from 'svelte'; import C from './C.svelte'; import { key } from './keys.js'; let { name } = $props(); setContext(key, { name, greet: 'hi' }); setContext('theme', 'dark'); const own = getContext('theme');</script><p>{own}</p><C /><section><C /></section>";
+  let child = "<script>import { getContext } from 'svelte'; import { key } from './keys.js'; const { name, greet } = getContext(key); const theme = getContext('theme'); const none = getContext('missing');</script><p>{greet} {name} {theme} [{none}]</p>";
+  let (rust, svelte) = both("contexts", &[("src/P.svelte", parent), ("src/C.svelte", child), ("src/keys.js", "export const key = Symbol('map');")], &props(&[("name", s("Ada"))]), None);
+  assert_eq!(rust, svelte);
+}
+
+#[test]
+fn a_class_with_state_fields_renders_what_its_constructor_leaves() {
+  let source = r#"<script>
+  const MAX = 200;
+  class Box {
+    width = $state(0);
+    height = $state(0);
+    label = 'box';
+    area = $derived(this.width * this.height);
+    constructor(width, height) {
+      this.width = width;
+      this.height = Math.min(MAX, height);
+    }
+    embiggen(amount) {
+      this.width += amount;
+    }
+  }
+  class Guarded {
+    #width = $state(0);
+    #height = $state.raw(1);
+    area = $derived(this.#width * this.#height);
+    constructor(width) {
+      this.#width = width;
+    }
+    get width() {
+      return this.#width;
+    }
+    set width(value) {
+      this.#width = Math.max(0, Math.min(MAX, value));
+    }
+    get half() {
+      return this.width / 2;
+    }
+  }
+  let { w } = $props();
+  const box = new Box(w, 300);
+  const guarded = new Guarded(w + 1);
+</script>
+<p>{box.width} {box.height} {box.label} {box.area} {typeof box.embiggen}</p>
+<p>{guarded.width} {guarded.area} {guarded.half}</p>
+<button onclick={() => box.embiggen(10)}>more</button>"#;
+  check("classes", source, &props(&[("w", Value::int(7i64))]));
+}
+
 /// What FSR renders for `source` alone, for what the oracle cannot run: QuickJS has no `Intl`.
 fn ours(tag: &str, source: &str, props: &ValueMap) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);

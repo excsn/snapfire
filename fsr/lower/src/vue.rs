@@ -733,14 +733,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
 
   /// The context an `inject` or a `provide` key names: `vue:` and a string key, `vue:` and the name a key binding is declared under for a name, followed through its import.
   fn injection_key(&self, key: &js::Expr) -> Lowered<String> {
-    match unwrap_types(key) {
-      js::Expr::Lit(js::Lit::Str(s)) => Ok(format!("vue:{}", s.value.to_atom_lossy())),
-      js::Expr::Ident(id) => Ok(match self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).and_then(|meant| meant.origin()) {
-        Some((declared, name)) => format!("vue:{declared}#{name}"),
-        None => format!("vue:{}", id.sym),
-      }),
-      other => Err(self.lowerer.residue(other.span(), "an injection key that is not a string or a name")),
-    }
+    self.lowerer.context_key("vue", key)
   }
 
   fn expr_at(&mut self, source: &str, line: usize, column: usize) -> Lowered<Expr> {

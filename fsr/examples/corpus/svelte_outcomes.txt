@@ -29,7 +29,7 @@ examples-composition-named-render-props	lowered
 examples-composition-render-prop-fallbacks	lowered
 examples-composition-render-prop-props	lowered
 examples-composition-render-props	lowered
-examples-context-context-api	client: src/App.svelte:7:2 `<MapMarker>` does not lower: src/MapMarker.svelte:5:24: a call to `getContext`, which the build cannot follow
+examples-context-context-api	client: src/App.svelte:7:2 `<MapMarker>` does not lower: src/MapMarker.svelte:10:23: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 examples-debugging-debug	lowered
 examples-easing-easing	lowered
 examples-embeds-blog-svelte-css-in-js	client: src/styles.js:13:26 a tagged template
@@ -96,10 +96,10 @@ tutorial-advanced-svelte-advanced-bindings-contenteditable-bindings	lowered
 tutorial-advanced-svelte-advanced-bindings-dimensions	lowered
 tutorial-advanced-svelte-advanced-bindings-each-block-bindings	lowered
 tutorial-advanced-svelte-advanced-bindings-media-elements	lowered
-tutorial-advanced-svelte-advanced-reactivity-getters-and-setters	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
+tutorial-advanced-svelte-advanced-reactivity-getters-and-setters	lowered
 tutorial-advanced-svelte-advanced-reactivity-raw-state	client: src/data.js:16:12 an assignment inside an expression
 tutorial-advanced-svelte-advanced-reactivity-reactive-builtins	client: src/App.svelte:4:16 the current time on a render path, which the server and the browser read at different moments
-tutorial-advanced-svelte-advanced-reactivity-reactive-classes	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
+tutorial-advanced-svelte-advanced-reactivity-reactive-classes	lowered
 tutorial-advanced-svelte-advanced-reactivity-stores	lowered
 tutorial-advanced-svelte-advanced-transitions-animations	lowered
 tutorial-advanced-svelte-advanced-transitions-deferred-transitions	lowered
