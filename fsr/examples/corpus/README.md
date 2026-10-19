@@ -19,7 +19,7 @@ A change to the lowerer that moves an outcome fails the test, naming each exampl
 | `template/` | the configuration, `app.toml`, and the import map every example is built with |
 | `outcomes.txt` | one line per example, the outcome it is held to |
 | `tests/corpus.rs` | the build of every example and the comparison |
-| `svelte_dev/` | 166 examples and tutorial solutions from svelte.dev, see [NOTICE.md](NOTICE.md) |
+| `svelte_dev/` | 167 examples and tutorial solutions from svelte.dev, see [NOTICE.md](NOTICE.md) |
 | `template_svelte/` | the configuration and the import map every Svelte example is built with, Svelte 5.57.2 vendored |
 | `svelte_outcomes.txt` | one line per Svelte example, the outcome it is held to |
 | `tests/svelte_dev.rs` | the build of every Svelte example and the comparison |

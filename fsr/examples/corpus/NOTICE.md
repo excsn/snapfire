@@ -8,7 +8,7 @@ Each directory is one `<Sandpack>` block, named after the page it appears on and
 
 The components under `svelte_dev/` are the code examples of the Svelte documentation, svelte.dev, copied from https://github.com/sveltejs/svelte.dev at commit `89f941caf5a2229356fc38facae6ee0dca3122e7` (2026-10-15), `apps/svelte.dev/content`. The repository is licensed under the MIT License by the svelte.dev contributors, https://github.com/sveltejs/svelte.dev/graphs/contributors.
 
-Each `examples-…` directory is one playground example, its `+assets` files as authored. Each `tutorial-…` directory is one exercise of the Svelte and advanced Svelte chapters as its solution reads: the `src/lib` files of `app-a` with those of `app-b` over them. Exercises carrying a `package.json` are not copied. Nothing in the files was changed.
+Each `examples-…` directory is one playground example, its `+assets` files as authored. Each `tutorial-…` directory is one exercise of the Svelte and advanced Svelte chapters as its solution reads: the `src/lib` files of `app-a` with those of `app-b` over them, an exercise with no `app-a` starting from the previous exercise's solution as svelte.dev's tutorial loader does. Exercises carrying a `package.json` are not copied. Nothing in the files was changed.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 

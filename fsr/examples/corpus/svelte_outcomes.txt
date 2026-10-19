@@ -101,14 +101,15 @@ tutorial-advanced-svelte-advanced-reactivity-raw-state	client: src/data.js:16:12
 tutorial-advanced-svelte-advanced-reactivity-reactive-builtins	client: src/App.svelte:4:20 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 tutorial-advanced-svelte-advanced-reactivity-reactive-classes	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
 tutorial-advanced-svelte-advanced-reactivity-stores	lowered
+tutorial-advanced-svelte-advanced-transitions-animations	client: src/App.svelte:4:19 a call to `$state`, which the build cannot follow
 tutorial-advanced-svelte-advanced-transitions-deferred-transitions	client: src/App.svelte:4:19 a call to `$state`, which the build cannot follow
 tutorial-advanced-svelte-context-context-api	client: src/App.svelte:21:10 a call to `Array`, which the build cannot follow
 tutorial-advanced-svelte-motion-springs	client: src/App.svelte:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 tutorial-advanced-svelte-motion-tweens	client: src/App.svelte:5:24 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:20 `Math.random`
-tutorial-advanced-svelte-script-module-module-exports	client: src/App.svelte:7:9 `tracks` comes from `./tracks.js`, which the build cannot follow
+tutorial-advanced-svelte-script-module-module-exports	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:17:13: a call to `isNaN`, which the build cannot follow
 tutorial-advanced-svelte-script-module-sharing-code	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:13:13: a call to `isNaN`, which the build cannot follow
-tutorial-advanced-svelte-snippets-implicit-snippet-props	client: src/App.svelte:6:21 `colors` comes from `./data.js`, which the build cannot follow
+tutorial-advanced-svelte-snippets-implicit-snippet-props	client: src/data.js:154:13 a call to `parseInt`, which the build cannot follow
 tutorial-advanced-svelte-snippets-passing-snippets	client: src/data.js:154:13 a call to `parseInt`, which the build cannot follow
 tutorial-advanced-svelte-snippets-snippets-and-render-tags	client: src/App.svelte:16:12 `.charCodeAt()`, which is not a builtin
 tutorial-advanced-svelte-special-elements-svelte-body	lowered
