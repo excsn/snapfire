@@ -122,7 +122,10 @@ fn every_cut_of_the_repositorys_components_is_described_or_refused_and_a_script_
   assert!(components.len() >= 5, "{components:?}");
   for (path, source) in &components {
     let Outcome::Described(whole) = describe(source) else { panic!("{} is not described", path.display()) };
-    assert_eq!(whole.script.expect("a script").content.len(), source.len(), "{}", path.display());
+    match whole.script {
+      Some(script) => assert_eq!(script.content.len(), source.len(), "{}", path.display()),
+      None => assert!(!source.contains("<script"), "{} has a script it does not describe", path.display()),
+    }
     let step = (source.len() / 48).max(1);
     for (cut, _) in source.char_indices().step_by(step) {
       for piece in [&source[..cut], &source[cut..]] {
