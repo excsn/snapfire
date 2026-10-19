@@ -437,6 +437,16 @@ fn a_class_with_state_fields_renders_what_its_constructor_leaves() {
   check("classes", source, &props(&[("w", Value::int(7i64))]));
 }
 
+#[test]
+fn a_helper_the_browser_alone_runs_is_skipped_where_the_script_calls_it() {
+  let source = "<script>import { onInterval, onFrame } from './utils.js'; let seconds = $state(0); onInterval(() => (seconds += 1), 1000); onFrame(() => seconds);</script><p>{seconds} {seconds === 1 ? 'second' : 'seconds'}</p>";
+  let utils = "import { onDestroy, onMount } from 'svelte';\nexport function onInterval(callback, ms) {\n  const interval = setInterval(callback, ms);\n  onDestroy(() => {\n    clearInterval(interval);\n  });\n}\nexport function onFrame(callback) {\n  onMount(() => {\n    const frame = requestAnimationFrame(callback);\n    return () => cancelAnimationFrame(frame);\n  });\n}\n";
+  let (rust, svelte) = both("effects", &[("src/C.svelte", source), ("src/utils.js", utils)], &props(&[]), None);
+  assert_eq!(rust, svelte);
+  let refusal = refused_files("effects-not", &[("src/C.svelte", "<script>import { tally } from './utils.js'; let n = $state(0); tally(n);</script><p>{n}</p>"), ("src/utils.js", "export function tally(n) {\n  const t = setTimeout(() => {}, 1);\n  window.count = n;\n}\n")]);
+  assert!(refusal.contains("src/utils.js"), "{refusal}");
+}
+
 /// What FSR renders for `source` alone, for what the oracle cannot run: QuickJS has no `Intl`.
 fn ours(tag: &str, source: &str, props: &ValueMap) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);
@@ -470,8 +480,14 @@ fn a_list_formatter_joins_as_the_locale_joins() {
 
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
-  let dir = app(tag, &[("src/C.svelte", source)]);
+  refused_files(tag, &[("src/C.svelte", source)])
+}
+
+/// What lowering the first of `files` refuses, the rest beside it.
+fn refused_files(tag: &str, files: &[(&str, &str)]) -> String {
+  let dir = app(tag, files);
   let mut set = ComponentSet::new(&dir);
+  let source = files[0].1;
   COMPILER.with(|compiler| match compiler.describe("src/C.svelte", source, &Options::default()).expect("the driver answers") {
     Outcome::Described(described) => set.describe("src/C.svelte", described),
     other => panic!("not described: {other:?}"),

@@ -489,6 +489,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       js::Stmt::Expr(e) => match &*e.expr {
         js::Expr::Call(call) if callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call) => Ok(()),
         js::Expr::Call(call) if subscribed(call).is_some() => self.subscription(call),
+        js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(callee), .. }) if matches!(&**callee, js::Expr::Ident(id) if self.lowerer.browser_effects.iter().any(|name| *name == *id.sym)) => Ok(()),
+        js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(callee), .. }) if matches!(&**callee, js::Expr::Ident(id) if self.lowerer.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)).is_some_and(|meant| meant.origin().is_some())) => {
+          let js::Expr::Ident(id) = &**callee else { unreachable!("matched a name") };
+          self.lowerer.unbound = Some(id.sym.to_string());
+          Err(self.statement_residue(e.span))
+        }
         js::Expr::Call(call) if self.calls_library(call, "setContext") => {
           let (Some(key), Some(value)) = (call.args.first(), call.args.get(1)) else { return Err(self.lowerer.residue(call.span, "`setContext` takes a key and a value")) };
           let key = self.lowerer.context_key("svelte", &key.expr)?;

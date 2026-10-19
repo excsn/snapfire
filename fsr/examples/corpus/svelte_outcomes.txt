@@ -45,7 +45,7 @@ examples-introduction-hello-world	lowered
 examples-introduction-html-tags	lowered
 examples-introduction-nested-components	lowered
 examples-introduction-styling	lowered
-examples-lifecycle-ondestroy	client: src/App.svelte:5:5 a statement in a Svelte script the build cannot follow
+examples-lifecycle-ondestroy	lowered
 examples-lifecycle-onmount	lowered
 examples-lifecycle-tick	lowered
 examples-logic-await-blocks	lowered

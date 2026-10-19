@@ -106,6 +106,8 @@
    * mounter hands a component as its `children` snippet.
    */
   globalThis.__svelte_render = async function (name, props, children) {
+    // Node's timers, which a script may start while it renders; none fires before `render` returns.
+    for (const timer of ["setTimeout", "setInterval", "clearTimeout", "clearInterval", "requestAnimationFrame", "cancelAnimationFrame"]) globalThis[timer] ??= () => 0;
     const { render } = await import("svelte/server");
     const component = (await import(name)).default;
     if (children != null) props = { ...props, children: ($$renderer) => $$renderer.push("<sf-s data-sf-children>" + children + "</sf-s>") };

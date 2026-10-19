@@ -1585,6 +1585,34 @@ impl ComponentSet {
     Ok(component)
   }
 
+  /// Whether `name` in `file` is a function of the application whose every statement the browser alone runs: a `svelte` lifecycle call or a timer it starts.
+  fn runs_in_browser_only(&mut self, file: &str, name: &str) -> bool {
+    let Some((declared, declared_name)) = self.meanings(file).bindings.get(name).and_then(|meant| meant.origin()).map(|(f, n)| (f.to_owned(), n.to_owned())) else { return false };
+    if self.load(&declared).is_err() {
+      return false;
+    }
+    let parsed = self.parsed[&declared].clone();
+    let Some(Found::Declared(_, stmts, _)) = find_function(&parsed, &declared_name) else { return false };
+    let lifecycle = |callee: &js::Callee| match callee {
+      js::Callee::Expr(callee) => match &**callee {
+        js::Expr::Ident(id) if id.ctxt == parsed.top => find_import(&parsed, id.sym.as_ref()).is_some_and(|(source, imported)| source == "svelte" && matches!(imported.as_str(), "onMount" | "onDestroy" | "beforeUpdate" | "afterUpdate")),
+        _ => false,
+      },
+      _ => false,
+    };
+    let timer = |expr: &js::Expr| match expr {
+      js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(callee), .. }) => matches!(&**callee, js::Expr::Ident(id) if id.ctxt == parsed.unresolved && matches!(id.sym.as_ref(), "setInterval" | "setTimeout" | "requestAnimationFrame")),
+      _ => false,
+    };
+    !stmts.is_empty()
+      && stmts.iter().all(|stmt| match stmt {
+        js::Stmt::Expr(e) => matches!(&*e.expr, js::Expr::Call(call) if lifecycle(&call.callee)) || timer(&e.expr),
+        js::Stmt::Decl(js::Decl::Var(var)) => var.decls.iter().all(|decl| matches!(&decl.name, js::Pat::Ident(_)) && decl.init.as_deref().is_some_and(timer)),
+        js::Stmt::Empty(_) => true,
+        _ => false,
+      })
+  }
+
   /// A Svelte component the plugin described, lowered through the Svelte front end the way `lower_vue` lowers a Vue one.
   fn lower_svelte(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
     if export != "default" {
@@ -1596,6 +1624,7 @@ impl ComponentSet {
     self.meanings(file);
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
+    let mut browser_effects: Vec<String> = Vec::new();
     let component = loop {
       let (result, unbound) = {
         let parsed = self.parsed[file].clone();
@@ -1605,6 +1634,7 @@ impl ComponentSet {
         lowerer.global_kinds = global_kinds.clone();
         lowerer.natives = self.natives.clone();
         lowerer.render_path = true;
+        lowerer.browser_effects = browser_effects.clone();
         let mut vue = crate::svelte::SvelteLowerer::new(lowerer, &described, self.assets.clone());
         let result = vue.component();
         let result = match result {
@@ -1621,8 +1651,12 @@ impl ComponentSet {
         Ok(component) => break component,
         Err(residue) => {
           let Some(name) = unbound else { return Err(residue.into()) };
-          if globals.iter().any(|(n, _)| *n == name) {
+          if globals.iter().any(|(n, _)| *n == name) || browser_effects.contains(&name) {
             return Err(residue.into());
+          }
+          if self.runs_in_browser_only(file, &name) {
+            browser_effects.push(name);
+            continue;
           }
           let store = name.strip_prefix('$').filter(|base| !base.starts_with('$'));
           let Some((expr, key)) = (match store {
