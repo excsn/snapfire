@@ -702,6 +702,12 @@ fsr add app svelte@5.60.0
 
 A vendored Svelte whose major the client adapter does not mount stops the build, naming the majors it does.
 
+A runes module may share its component's name, `recent.svelte.ts` beside `Recent.svelte`. TypeScript resolves an import of `Recent.svelte` by adding `.ts` before it reads any declaration. macOS and Windows match that name whatever its case, so the typechecker would read the module in place of the component. The build finds every component with a module of its name beside it, `.ts`, `.tsx`, `.d.ts`, `.js` or `.jsx` added and case ignored, the same for a `.vue` file. It declares the component in `generated/shadowed/<path>.d.ts` (a typed `.vue` component keeps its own declaration) and maps each alias of the component to that declaration, so `@src/ui/Recent.svelte` typechecks as the component. A relative import of such a component has no setting that steers it, so the build refuses one and names the alias:
+
+```text
+routes/page.tsx imports `../src/ui/Recent.svelte`, which TypeScript resolves to `src/ui/recent.svelte.ts` beside the component rather than to the component; import it as `@src/ui/Recent.svelte`
+```
+
 The build reads the React version back from `vendor/.fsr-vendor.json` and writes it into the plan as `(framework react 19.3.1)`. React hydrates the markup the server writes. React 18 and 19 print some props differently, so the renderer follows the one vendored. An import map that serves `react` with no version recorded stops the build with the `fsr add` command that records it. A major other than 18 or 19 stops it too.
 
 ## Adopting a Direction

@@ -64,6 +64,8 @@ pub enum BuildError {
   NoRoutes(PathBuf),
   #[error("{path}: `{name}` is not a route segment; use a name, `[param]`, `[...rest]` or `(group)`")]
   Segment { path: PathBuf, name: String },
+  #[error("{file} imports `{specifier}`, which TypeScript resolves to `{module}` beside the component rather than to the component; import it as `{alias}`")]
+  ShadowedImport { file: String, specifier: String, module: String, alias: String },
   #[error("{file} is answered at `{path}` by {by} as well; a web server in front answers the file and the host the other, so rename one")]
   PublicClaimed { file: String, path: String, by: String },
   #[error("two routes answer `{pattern}`: {first} and {second}")]
@@ -1501,6 +1503,22 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let layout = crate::xwpm::Layout::of_site(app, options.site.as_ref())?;
   let mut vue_declarations: Vec<(String, String)> = set.described().filter_map(|(file, described)| snapfire_fsr_lower::vue::props_declaration(file, described).map(|declaration| (snapfire_fsr_lower::vue::props_declaration_path(file), declaration))).collect();
   vue_declarations.sort();
+  let mut shadowed_declarations: Vec<(String, String)> = Vec::new();
+  let shadowed: Vec<(String, String)> = types::shadowed_components(app)
+    .into_iter()
+    .map(|(file, _)| {
+      let typed = snapfire_fsr_lower::vue::props_declaration_path(&file);
+      match vue_declarations.iter().any(|(path, _)| *path == typed) {
+        true => (file, typed),
+        false => {
+          let path = types::shadowed_declaration_path(&file);
+          shadowed_declarations.push((path.clone(), types::shadowed_declaration(&file)));
+          (file, path)
+        }
+      }
+    })
+    .collect();
+  refuse_shadowed_relative_imports(app, &mut set)?;
   let shim = types::foreign_shim(app, &set.foreign);
   let mut browser_route_files: Vec<String> = report
     .components
@@ -1733,7 +1751,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     }
   }
   let split: Vec<String> = report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file.to_owned())).collect();
-  let registry = islands_module(&islands, &static_modules, &defines, &owners, &split, &exported, &function_modules, options)?;
+  let shadowed_files: Vec<String> = shadowed.iter().map(|(file, _)| file.clone()).collect();
+  let registry = islands_module(&islands, &static_modules, &defines, &owners, &split, &exported, &function_modules, &shadowed_files, options)?;
   check_island_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract), &islands, &static_modules, &defines, &owners)?;
   files.extend([
     ("generated/uploads.d.ts".to_owned(), UPLOAD_DECLARATION.to_owned()),
@@ -1748,13 +1767,14 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     ("generated/islands.ts".to_owned(), registry),
     ("generated/client.ts".to_owned(), client),
     ("generated/testing.ts".to_owned(), testing_module()),
-    ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some(), !vue_declarations.is_empty())?),
+    ("tsconfig.json".to_owned(), types::tsconfig(app, true, shim.is_some(), !vue_declarations.is_empty(), &shadowed)?),
     ("tsconfig.build.json".to_owned(), types::tsconfig_build(app, &browser_files, &bundle_files, types::jsx_source(app, &layout)?)),
   ]);
   if let Some(shim) = shim {
     files.push((format!("{}/{}", layout.types.trim_end_matches('/'), types::FOREIGN_SHIM), shim));
   }
   files.extend(vue_declarations);
+  files.extend(shadowed_declarations);
   let mut report = report;
   let declarations = types::Declarations::read(app)?;
   report.types = declarations.status();
@@ -2766,7 +2786,56 @@ fn adapter_for(module: &str, owners: &HashMap<String, Owner>) -> Result<&'static
 /// mounts exactly what the plan file refers to. A module nothing mounts is
 /// left out and a mounter nothing registers is never imported, which is what
 /// keeps a framework off a page that has no component of it.
-fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, generated: &[String], exported: &[String], modules: &[String], options: &Options) -> Result<String, BuildError> {
+/// A relative import of a component [`types::shadowed_components`] finds,
+/// which no typecheck configuration can steer away from the module beside it.
+fn refuse_shadowed_relative_imports(app: &Path, set: &mut ComponentSet) -> Result<(), BuildError> {
+  let shadowed = types::shadowed_components(app);
+  if shadowed.is_empty() {
+    return Ok(());
+  }
+  fn scripts_under(app: &Path, dir: &Path, into: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for path in entries.flatten().map(|entry| entry.path()) {
+      if path.is_dir() {
+        scripts_under(app, &path, into);
+        continue;
+      }
+      let rel = path.strip_prefix(app).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+      if [".ts", ".tsx", ".js", ".jsx"].iter().any(|ext| rel.ends_with(ext)) && !rel.ends_with(".d.ts") {
+        into.push(rel);
+      }
+    }
+  }
+  let mut scripts = Vec::new();
+  for dir in types::source_dirs(app) {
+    scripts_under(app, &app.join(dir), &mut scripts);
+  }
+  scripts.sort();
+  for file in scripts {
+    for import in set.foreign_imports(&file) {
+      let Some(specifier) = import.text.rsplit(['"', '\'']).nth(1) else { continue };
+      if !specifier.starts_with('.') {
+        continue;
+      }
+      let Some((component, module)) = import.bindings.iter().find_map(|(_, target)| {
+        let target = target.split_once('#').map(|(f, _)| f).unwrap_or(target);
+        shadowed.iter().find(|(component, _)| component == target)
+      }) else {
+        continue;
+      };
+      let alias = snapfire_fsr_lower::ALIASES
+        .iter()
+        .filter_map(|(alias, dir)| component.strip_prefix(dir).map(|rest| (dir.len(), format!("{alias}{rest}"))))
+        .max_by_key(|(len, _)| *len)
+        .map(|(_, alias)| alias)
+        .unwrap_or_else(|| format!("@app/{component}"));
+      return Err(BuildError::ShadowedImport { file, specifier: specifier.to_owned(), module: module.clone(), alias });
+    }
+  }
+  Ok(())
+}
+
+fn islands_module(islands: &[String], static_modules: &[String], defines: &[String], owners: &HashMap<String, Owner>, generated: &[String], exported: &[String], modules: &[String], shadowed: &[String], options: &Options) -> Result<String, BuildError> {
   let mut out = String::from("// Generated by fsr build. Do not edit.\n\n");
   let registered: Vec<&String> = islands.iter().filter(|m| !static_modules.contains(m)).collect();
   let defining = registered.iter().any(|m| defines.contains(m));
@@ -2804,12 +2873,15 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
     // A foreign source is imported as itself: the typechecker knows it through
     // `<types>/foreign.d.ts` and snapfirec rewrites the specifier to the
     // module its plugin emitted.
+    // A component with a module of its own name beside it is imported through
+    // the alias, the one form the typechecker resolves to its declaration.
     let js = match snapfire_fsr_lower::component::is_foreign(path) {
-      true => path.to_owned(),
-      false => path.rsplit_once('.').map(|(stem, _)| format!("{stem}.js")).unwrap_or_else(|| format!("{path}.js")),
+      true if shadowed.iter().any(|file| file == path) => format!("@app/{path}"),
+      true => format!("../{path}"),
+      false => path.rsplit_once('.').map(|(stem, _)| format!("../{stem}.js")).unwrap_or_else(|| format!("../{path}.js")),
     };
     if defines.contains(module) {
-      let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\"), mount: defineMounter }});");
+      let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"{js}\"), mount: defineMounter }});");
       continue;
     }
     let adapter = adapter_for(module, owners)?;
@@ -2821,7 +2893,7 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       out.push_str("  // @ts-ignore: the bundle overlay exports this component, which its file declares without exporting\n");
     }
     let pause = adapter.pauser.map(|name| format!(", pause: {name}")).unwrap_or_default();
-    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"../{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {}{pause} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
+    let _ = writeln!(out, "  registerIsland(\"{prefix}{module}\", {{ loader: () => import(\"{js}\").then((m) => m.{export}), mount: {}, patch: {}, unmount: {}{pause} }});", adapter.mounter, adapter.patcher, adapter.unmounter);
   }
   // A module the browser imports a function prop from, by the file's own path: a function prop's module id carries no site prefix.
   for file in modules {

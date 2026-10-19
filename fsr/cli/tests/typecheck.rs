@@ -98,3 +98,61 @@ fn check_typechecks_the_generated_files_of_the_build_it_holds() {
   assert!(seen.contains("total") && !seen.contains("count"), "the checker read the build's own types: {seen}");
 }
 
+
+fn shadowed_app(tag: &str, page: &str) -> PathBuf {
+  use snapfire_fsr_cli::new::{create, NewOptions};
+  let dir = root(tag);
+  std::fs::remove_dir_all(&dir).unwrap();
+  create(&dir, NewOptions::default().fetch(false).with(vec!["svelte".to_owned()])).unwrap();
+  let app = dir.join("app");
+  let svelte = snapfire_fsr_cli::direction::SVELTE;
+  for (name, text) in [
+    ("vendor/.fsr-vendor.json", format!(r#"{{"packages":{{"svelte":{{"version":"{svelte}","published":true,"entries":{{"svelte":"svelte/src/index-client.js","svelte/internal/client":"svelte/src/internal/client/index.js"}}}}}}}}"#)),
+    (&format!(".fsr/compilers/svelte/{svelte}/index.js"), "globalThis.svelte = {};\n".to_owned()),
+    ("tsconfig.json", "{}\n".to_owned()),
+    ("routes/page.tsx", page.to_owned()),
+    ("src/ui/Card.svelte", "<script lang=\"ts\">\n  import { held } from \"./Card.svelte.js\";\n</script>\n\n<p>{held.n}</p>\n".to_owned()),
+    ("src/ui/Card.svelte.ts", "export const held = { n: 1 };\n".to_owned()),
+  ] {
+    let path = app.join(name);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, text).unwrap();
+  }
+  let mut map: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(app.join("importmap.json")).unwrap()).unwrap();
+  map["imports"]["svelte"] = serde_json::Value::String("/static/js/vendor/svelte/src/index-client.js".to_owned());
+  map["imports"]["svelte/internal/client"] = serde_json::Value::String("/static/js/vendor/svelte/src/internal/client/index.js".to_owned());
+  std::fs::write(app.join("importmap.json"), map.to_string()).unwrap();
+  snapfire_fsr_cli::types::refresh_embedded(&app).unwrap();
+  app
+}
+
+/// Needs `snapfiretc` and `snapfirec-svelte` on PATH, as `fsr build` does.
+#[test]
+fn a_component_beside_a_module_of_its_own_name_typechecks_as_the_component() {
+  use snapfire_fsr_cli::{build, write, Options};
+  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Card from \"@src/ui/Card.svelte\";\n\nexport default function Page() {\n  return (\n    <Island when=\"load\">\n      <Card />\n    </Island>\n  );\n}\n";
+  let app = shadowed_app("shadowed", page);
+  let built = build(&app, &Options::default()).unwrap();
+  write(&app, &built).unwrap();
+  let checked = typecheck::run(&app, &Typecheck::default().enabled(true)).unwrap().expect("snapfiretc is on PATH");
+  let errors: Vec<String> = checked.diagnostics.iter().map(|d| d.to_string()).collect();
+  assert_eq!(checked.errors(), 0, "{errors:#?}");
+  let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
+  assert!(islands.contains("import(\"@app/src/ui/Card.svelte\")"), "{islands}");
+  std::fs::remove_dir_all(app.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_relative_import_of_a_component_beside_a_module_of_its_own_name_is_refused_naming_the_alias() {
+  use snapfire_fsr_cli::{build, Options};
+  let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Card from \"../src/ui/Card.svelte\";\n\nexport default function Page() {\n  return (\n    <Island when=\"load\">\n      <Card />\n    </Island>\n  );\n}\n";
+  let app = shadowed_app("shadowed-relative", page);
+  let refused = match build(&app, &Options::default()) {
+    Err(e) => e.to_string(),
+    Ok(_) => panic!("built"),
+  };
+  assert!(refused.contains("routes/page.tsx imports `../src/ui/Card.svelte`"), "{refused}");
+  assert!(refused.contains("`src/ui/Card.svelte.ts`"), "{refused}");
+  assert!(refused.contains("`@src/ui/Card.svelte`"), "{refused}");
+  std::fs::remove_dir_all(app.parent().unwrap()).unwrap();
+}
