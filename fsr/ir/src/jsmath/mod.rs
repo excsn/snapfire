@@ -9,6 +9,8 @@
 //! See https://llvm.org/LICENSE.txt for license information.
 //! SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 
+mod asin;
+mod asin_tables;
 mod atan;
 mod atan_tables;
 mod dd;
@@ -47,4 +49,14 @@ pub fn atan(x: f64) -> f64 {
 /// `Math.atan2(y, x)`.
 pub fn atan2(y: f64, x: f64) -> f64 {
   atan::atan2(y, x)
+}
+
+/// `Math.asin(x)`.
+pub fn asin(x: f64) -> f64 {
+  asin::asin(x)
+}
+
+/// `Math.acos(x)`.
+pub fn acos(x: f64) -> f64 {
+  asin::acos(x)
 }
