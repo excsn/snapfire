@@ -15,6 +15,9 @@ export default function ShelfLayout({ children, done, total, reading }: { childr
           <Tally done={done} total={total} />
         </Island>
         {reading === "" ? null : <span className="reading">Reading {reading}</span>}
+        <Link href="/stats" className="to-stats">
+          Stats
+        </Link>
       </header>
       <div className="columns">
         <main className="content">{children}</main>

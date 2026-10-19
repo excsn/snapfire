@@ -427,22 +427,29 @@ fn an_islands_children_render_where_the_component_renders_its_children() {
 /// A component of an example application lowered where it lives, its imports
 /// followed by the build, against Svelte's render with each import stubbed.
 fn repo(app: &str, file: &str, stubbed: &[(&str, &str)], props: &ValueMap) -> (String, String) {
+  repo_with(app, file, &[], stubbed, props, None)
+}
+
+/// `repo` for a component that renders `others`, the Svelte files it imports, with `children` for its island.
+fn repo_with(app: &str, file: &str, others: &[&str], stubbed: &[(&str, &str)], props: &ValueMap, children: Option<&str>) -> (String, String) {
   let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples").join(app);
-  let source = std::fs::read_to_string(dir.join(file)).unwrap();
   let mut set = ComponentSet::new(&dir);
   let mut modules = stubs();
   for (specifier, js) in stubbed {
     modules.insert((*specifier).to_owned(), (*js).to_owned());
   }
   COMPILER.with(|compiler| {
-    match compiler.describe(file, &source, &Options::default()).expect("the driver answers") {
-      Outcome::Described(described) => set.describe(file, described),
-      other => panic!("{file}: not described: {other:?}"),
+    for each in std::iter::once(&file).chain(others) {
+      let source = std::fs::read_to_string(dir.join(each)).unwrap();
+      match compiler.describe(each, &source, &Options::default()).expect("the driver answers") {
+        Outcome::Described(described) => set.describe(*each, described),
+        other => panic!("{each}: not described: {other:?}"),
+      }
+      match compiler.ssr_module(each, &source).expect("the driver answers") {
+        Outcome::Ok(compiled) => modules.insert(format!("/{each}"), compiled.js),
+        other => panic!("{each}: no server module: {other:?}"),
+      };
     }
-    match compiler.ssr_module(file, &source).expect("the driver answers") {
-      Outcome::Ok(compiled) => modules.insert(format!("/{file}"), compiled.js),
-      other => panic!("{file}: no server module: {other:?}"),
-    };
   });
   let module = format!("{file}#default");
   if let Err(e) = set.lower(&module) {
@@ -450,9 +457,10 @@ fn repo(app: &str, file: &str, stubbed: &[(&str, &str)], props: &ValueMap) -> (S
   }
   let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
   let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
-  let rendered = interpreter.render(&host(&module, Vec::new()), props, &library).expect("renders");
+  let child_tree = children.map(|c| vec![Tmpl::Text(c.to_owned())]).unwrap_or_default();
+  let rendered = interpreter.render(&host(&module, child_tree), props, &library).expect("renders");
   let rust = rendered.islands[0].body.html.clone();
-  let svelte = COMPILER.with(|compiler| compiler.render_module(&format!("/{file}"), &modules, &value_json(&Value::Map(props.clone())), None, &runtime())).expect("Svelte renders");
+  let svelte = COMPILER.with(|compiler| compiler.render_module(&format!("/{file}"), &modules, &value_json(&Value::Map(props.clone())), children, &runtime())).expect("Svelte renders");
   (rust, svelte)
 }
 
@@ -474,6 +482,12 @@ fn the_examples_svelte_components_render_as_svelte_server_writes_them() {
   assert_eq!(shown.0, shown.1, "Recent");
   let holding = |symbol: &str, price: f64| Value::Map(props(&[("symbol", s(symbol)), ("name", s("Name & co")), ("shares", Value::int(3i64)), ("price", Value::F64(price)), ("change", Value::F64(0.5))]));
   let holdings = Value::seq(vec![holding("ACME", 12.5), holding("INIT", 3.0)]);
+  let row = |id: &str, title: &str, pages: i64, read: i64, done: bool| Value::Map(props(&[("id", s(id)), ("title", s(title)), ("author", s("A & B")), ("pages", Value::int(pages)), ("read", Value::int(read)), ("done", Value::Bool(done))]));
+  for rows in [Value::seq(vec![row("stoner", "Stoner", 278, 120, false), row("gilead", "Gilead", 247, 247, true)]), Value::seq(Vec::new())] {
+    let others = ["src/ui/Table.svelte", "src/ui/Legend.svelte", "src/ui/Bars.svelte", "src/ui/Dots.svelte"];
+    let stats = repo_with("shelf_svelte_ts/app", "src/ui/Stats.svelte", &others, &[], &props(&[("rows", rows.clone())]), Some("hint"));
+    assert_eq!(stats.0, stats.1, "Stats");
+  }
   for watched in ["ACME", "INIT", "NONE"] {
     let focus = repo("uni/js", "src/ui/Focus.svelte", &[], &props(&[("holdings", holdings.clone()), ("watched", s(watched))]));
     assert_eq!(focus.0, focus.1, "Focus watching {watched}");

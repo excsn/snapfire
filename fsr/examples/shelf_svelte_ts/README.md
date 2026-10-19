@@ -31,6 +31,11 @@ Svelte itself is vendored as published, `fsr add --published app svelte@5.57.2`,
 | `src/ui/Progress.svelte` | the book's island, written with runes |
 | `src/ui/Recent.svelte` | the side column's island, placed with `<Island when="idle">` |
 | `src/ui/recent.svelte.ts` | a runes module both `Progress` and `Recent` import |
+| `routes/stats/` | the reading stats, over a loader that reads the session |
+| `src/ui/Stats.svelte` | the stats island, which renders the four components below |
+| `src/ui/Table.svelte` | a table that renders the row snippet its caller passes |
+| `src/ui/Legend.svelte` | a legacy component with a named slot, `$$slots` and `$$restProps` |
+| `src/ui/Bars.svelte`, `src/ui/Dots.svelte` | the two views `Stats` picks between at run time |
 
 ## The three islands
 
@@ -42,9 +47,20 @@ Svelte itself is vendored as published, `fsr add --published app svelte@5.57.2`,
 
 `recent.svelte.ts` sits beside `Recent.svelte`. TypeScript alone would resolve an import of the component to that module, so the build writes a declaration for `Recent.svelte` under `generated/shadowed/` and maps `@src/ui/Recent.svelte` to it. A template imports the component through the alias for that reason; a relative import of it is refused with the alias to use.
 
+## The stats page
+
+`/stats` is one island, `Stats`, written to use most of what Svelte's templates offer, so the build's Svelte front end is exercised by an application as well as by its tests.
+
+- `{#each rows as { id, title, pages, read, done }, i}` destructures inside a snippet that `Table` renders with `{@render row(item, i)}`. `{const share = …}` declares a value inside it.
+- `class:done` and `style:--share` sit on each row, under a `<style>` Svelte scopes to the component.
+- A `<select bind:value>` orders the rows and a checkbox switches the view: `View` is `Bars` or `Dots`, chosen at run time and placed inside `{#key share}`.
+- The heading is `<svelte:element this={$heading}>`, its tag from a `derived` store over a `writable`.
+- The total is written with `{@html}`, the legend's default slot holds an `{#await}` and the fine print sits in a `<svelte:boundary>`.
+- `Legend` is a Svelte 4 component: `export let`, `$:` statements, a named `<slot>` the caller fills with `let:average`, `{#if $$slots.title}` and `{...$$restProps}`.
+
 ## What the server writes
 
-The build lowers all three components, so the server writes their markup with Svelte's hydration markers and Svelte hydrates it in the browser. `fsr build --verbose` lists them as `lowered` with `svelte` in the detail column. The page reads `Tally`'s count from the store seed, `Progress`'s page and percentage from the session and `Recent`'s empty list from `recent.svelte.ts`, whose `$state` holds its initial value on the server. `src/store.ts` and `recent.svelte.ts` are compiled for the browser because a Svelte file imports them.
+The build lowers every component, so the server writes their markup with Svelte's hydration markers and Svelte hydrates it in the browser. `fsr build --verbose` lists them as `lowered` with `svelte` in the detail column. The page reads `Tally`'s count from the store seed, `Progress`'s page and percentage from the session and `Recent`'s empty list from `recent.svelte.ts`, whose `$state` holds its initial value on the server. `src/store.ts` and `recent.svelte.ts` are compiled for the browser because a Svelte file imports them.
 
 ## What each thing proves
 
@@ -56,8 +72,9 @@ The build lowers all three components, so the server writes their markup with Sv
 | A legacy component beside runes | `Tally` in the masthead, `Progress` on the page |
 | A shared runes module | `recent.svelte.ts`, written by one island and read by another |
 | Islands on load and on idle | `<Island when="load">` around `Tally` and `Progress`, `<Island when="idle">` around `Recent` |
+| Svelte's template features rendered on the server | `/stats`: snippets passed to a child, slots, scoped styles, stores, a component chosen at run time, `svelte:element`, `{#key}`, `{#await}`, `{@html}` and `<svelte:boundary>` |
 | Client navigation keeping layout state | open two books: the side column keeps its list while the page region is replaced |
 
 ## Tests
 
-`tests/book/actions.test.ts`, `tests/book/loader.test.ts` and `tests/shelves.test.ts` are body tests: lowered, run against a mocked context and read back from its session. `tests/progress.spec.tsx` and `tests/recent.spec.tsx` load pages in the test DOM, click through the Svelte islands and check what the session, the masthead and the side column say afterwards.
+`tests/book/actions.test.ts`, `tests/book/loader.test.ts` and `tests/shelves.test.ts` are body tests: lowered, run against a mocked context and read back from its session. `tests/progress.spec.tsx` and `tests/recent.spec.tsx` load pages in the test DOM, click through the Svelte islands and check what the session, the masthead and the side column say afterwards. `tests/stats.spec.tsx` loads the stats page, checks what the server wrote and reorders and redraws it in the test DOM.
