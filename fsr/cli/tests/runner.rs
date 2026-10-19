@@ -170,3 +170,17 @@ fn a_mocked_session_that_is_not_written_out_is_refused_naming_the_part_and_what_
   assert!(refused.contains("`session` in a mocked context is an object literal written in the test; a call is not read"), "{refused}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn an_awaited_run_inside_expect_reads_as_its_resolved_value() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("routes/page.loader.ts", "export async function load() {\n  return { n: 2 };\n}\n"),
+    ("routes/actions.ts", "import { action } from \"@snapfire/fsr\";\n\nexport const bump = action(async () => ({ n: 3 }));\n"),
+    ("tests/page.test.ts", "import { load } from \"@routes/page.loader\";\nimport { bump } from \"@routes/actions\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"awaited in place\", async () => {\n  const c = ctx({});\n  expect(await load(c)).toEqual({ n: 2 });\n  expect(await bump(c)).toEqual({ n: 3 });\n  expect(await bump(c)).not.toEqual({ n: 4 });\n});\n"),
+  ]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 1, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

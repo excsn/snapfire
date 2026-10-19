@@ -1002,7 +1002,16 @@ impl<'a> TestLowerer<'a> {
         };
         Subject::Mock(id.sym.to_string())
       }
-      None => Subject::Value(self.lowerer.expr(&arg.expr)?),
+      None => match &*arg.expr {
+        js::Expr::Await(awaited) => match unwrap_await(&awaited.arg) {
+          js::Expr::Call(run) => match self.run_target(run)? {
+            Some((target, ctx, input)) => Subject::Settled { target, ctx, input, rejects: false },
+            None => Subject::Value(self.lowerer.expr(&arg.expr)?),
+          },
+          _ => Subject::Value(self.lowerer.expr(&arg.expr)?),
+        },
+        _ => Subject::Value(self.lowerer.expr(&arg.expr)?),
+      },
     };
     Ok(Some(Assertion::Expect { subject, not, matcher, message }))
   }
