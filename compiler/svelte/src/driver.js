@@ -64,9 +64,16 @@
     } catch (e) {
       return JSON.stringify({ status: "failed", diagnostics: [diagnostic(e, filename)] });
     }
+    let template;
+    try {
+      const runes = svelte.compile(source, { filename, generate: false }).metadata.runes;
+      template = globalThis.__svelte_template(root, source, runes);
+    } catch (e) {
+      return JSON.stringify({ status: "failed", diagnostics: [diagnostic(e, filename)] });
+    }
     const blocks = [root.module, root.instance].filter(Boolean);
     const undescribed = { severity: "error", message: UNDESCRIBED, file: filename };
-    if (!blocks.length) return JSON.stringify({ status: "described", diagnostics: [undescribed] });
+    if (!blocks.length) return JSON.stringify({ status: "described", template, diagnostics: [undescribed] });
     const kept = blocks.map((block) => [block.content.start, block.content.end]);
     // Svelte's offsets count UTF-16 units; the blanks count UTF-8 bytes, so
     // every byte offset the host reads matches the file.
@@ -82,7 +89,7 @@
       at += ch.length;
     }
     const typed = blocks.some((block) => block.attributes.some((a) => a.name === "lang" && Array.isArray(a.value) && a.value.some((v) => v.data === "ts")));
-    return JSON.stringify({ status: "described", script: { content, lang: typed ? "ts" : "js", line: 1, column: 1 }, diagnostics: [undescribed] });
+    return JSON.stringify({ status: "described", template, script: { content, lang: typed ? "ts" : "js", line: 1, column: 1 }, diagnostics: [undescribed] });
   };
 
   /** A component or runes module compiled for Svelte's own server renderer, for the oracle. */

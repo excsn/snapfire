@@ -225,7 +225,7 @@ fn a_description_carries_the_scripts_where_they_stand_and_the_error_that_keeps_i
   assert_eq!(script.content.lines().nth(1), Some("  import { a } from \"./a.js\";"));
   assert_eq!(script.content.lines().nth(5), Some("  import { b } from \"@src/b\";"));
   assert!(!script.content.contains("<p>") && !script.content.contains("script"), "{}", script.content);
-  assert!(described.template.is_none());
+  assert!(described.template.is_some());
   assert_eq!(described.diagnostics.len(), 1);
   assert_eq!(described.diagnostics[0].severity, Severity::Error);
   assert!(described.diagnostics[0].message.contains("does not describe a component yet"));
@@ -246,4 +246,53 @@ fn a_description_of_what_does_not_parse_or_a_style_it_cannot_carry_fails_with_th
   assert_eq!(diagnostics[0].line, Some(1));
   let Outcome::Failed { diagnostics } = describe("<p>hi</p>\n<style lang=\"scss\">\n</style>\n") else { panic!("described scss") };
   assert!(diagnostics[0].message.contains("lang=\"scss\""), "{diagnostics:?}");
+}
+
+fn template(source: &str) -> serde_json::Value {
+  let Outcome::Described(described) = describe(source) else { panic!("not described") };
+  described.template.expect("a template")
+}
+
+fn kinds(fragment: &serde_json::Value) -> Vec<String> {
+  fragment["nodes"].as_array().unwrap().iter().map(|n| match n["type"].as_str().unwrap() {
+    "text" => format!("text {:?}", n["data"].as_str().unwrap()),
+    other => other.to_owned(),
+  }).collect()
+}
+
+#[test]
+fn a_template_is_described_with_whitespace_cleaned_as_svelte_cleans_it() {
+  let t = template("\n\n<p>a</p>\n\n  <p>b</p>\n");
+  assert_eq!(kinds(&t["fragment"]), ["element", "text \" \"", "element"]);
+  let t = template("<ul>\n  <li>a</li>\n</ul><svg>\n  <path d=\"M0\"/>\n</svg><p>  a  {b}  c  </p>");
+  let nodes = t["fragment"]["nodes"].as_array().unwrap();
+  assert_eq!(kinds(&nodes[0]["fragment"]), ["element"], "a list keeps no whitespace around its one item");
+  assert_eq!(kinds(&nodes[1]["fragment"]), ["element"], "whitespace between svg nodes goes");
+  assert_eq!(kinds(&nodes[2]["fragment"]), ["text \"a  \"", "expr", "text \"  c\""], "text beside an expression keeps its own spacing");
+  let t = template("<pre>\n<b>a</b>\n</pre><pre>\n  a\n</pre>");
+  assert_eq!(kinds(&t["fragment"]["nodes"][0]["fragment"]), ["element", "text \"\\n\""], "a pre drops a first text that is only a newline");
+  assert_eq!(kinds(&t["fragment"]["nodes"][1]["fragment"]), ["text \"\\n  a\\n\""], "and keeps one that holds more");
+}
+
+#[test]
+fn each_fragment_says_whether_it_is_text_first_or_one_static_component() {
+  let t = template("hello");
+  assert_eq!(t["fragment"]["text_first"], true);
+  let t = template("<script>import C from './C.svelte'; let { xs } = $props();</script>{#if xs}<C/>{/if}<div>{xs}</div>");
+  let branch = &t["fragment"]["nodes"][0]["consequent"];
+  assert_eq!(branch["standalone"], true);
+  assert_eq!(branch["text_first"], false, "an if branch never adds the anchor");
+  assert_eq!(t["fragment"]["nodes"][1]["fragment"]["text_first"], false, "nor does an element's content");
+}
+
+#[test]
+fn a_component_or_a_render_is_dynamic_unless_its_name_binds_as_svelte_calls_normal() {
+  let t = template("<script>import C from './C.svelte'; let { children, Other } = $props(); let Local = $state(C);</script>{#snippet row()}<i>r</i>{/snippet}<C/><Other/><Local/>{@render row()}{@render children?.()}");
+  let nodes = t["fragment"]["nodes"].as_array().unwrap();
+  let dynamic: Vec<bool> = nodes.iter().map(|n| n["dynamic"].as_bool().unwrap()).collect();
+  assert_eq!(dynamic, [false, true, true, false, true]);
+  assert_eq!(t["fragment"]["hoisted"][0]["type"], "snippet");
+  assert_eq!(t["runes"], true);
+  let legacy = template("<script>export let a = 1;</script><p>{a}</p>");
+  assert_eq!(legacy["runes"], false);
 }

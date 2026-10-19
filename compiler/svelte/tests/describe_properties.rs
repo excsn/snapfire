@@ -42,7 +42,10 @@ fn module_body() -> impl Strategy<Value = String> {
 }
 
 fn instance_body() -> impl Strategy<Value = String> {
-  body(vec!["import B from '@src/b';", "let n = 1;", "// a comment with é", "let { title } = $props();", "const u = \"<p>\";", "$: double = n * 2;"])
+  prop_oneof![
+    body(vec!["import B from '@src/b';", "let n = $state(1);", "// a comment with é", "let { title } = $props();", "const u = \"<p>\";"]),
+    body(vec!["import B from '@src/b';", "let n = 1;", "// a comment with é", "export let title = 'é';", "const u = \"<p>\";", "$: double = n * 2;"]),
+  ]
 }
 
 fn style() -> impl Strategy<Value = String> {

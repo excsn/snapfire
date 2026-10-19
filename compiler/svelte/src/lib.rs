@@ -19,6 +19,8 @@ const COMPILER: &str = include_str!("../vendor/compiler.js");
 
 const DRIVER: &str = include_str!("driver.js");
 
+const DESCRIBE: &str = include_str!("describe.js");
+
 /// The compiler's parser and its walkers recurse once per nesting level and
 /// QuickJS refuses at 256 KiB by default. The engine runs on a thread with
 /// room to spare and is told how much of it to use.
@@ -209,6 +211,7 @@ impl Engine {
     context.with(|ctx| -> Result<(), SvelteError> {
       ctx.eval::<(), _>(compiler).map_err(|e| threw(&ctx, e))?;
       ctx.eval::<(), _>(DRIVER).map_err(|e| threw(&ctx, e))?;
+      ctx.eval::<(), _>(DESCRIBE).map_err(|e| threw(&ctx, e))?;
       Ok(())
     })?;
     Ok(Self { context, runtime, rendered: std::cell::Cell::new(0) })
@@ -327,12 +330,14 @@ fn decode(answer: &str, filename: &str) -> Result<Outcome, SvelteError> {
     #[serde(default)]
     script: Option<Script>,
     #[serde(default)]
+    template: Option<serde_json::Value>,
+    #[serde(default)]
     diagnostics: Vec<Diagnostic>,
   }
   let answer: Answer = serde_json::from_str(answer).map_err(|e| SvelteError::Js(format!("{filename}: the driver answered {e}")))?;
   match answer.status.as_str() {
     "ok" => Ok(Outcome::Ok(Compiled { js: answer.js, lang: Lang::Js, css: answer.css, source_map: answer.source_map, deps: Vec::new(), diagnostics: answer.diagnostics })),
-    "described" => Ok(Outcome::Described(Described { template: None, script: answer.script, bindings: Default::default(), scope: None, slotted: false, deps: Vec::new(), diagnostics: answer.diagnostics })),
+    "described" => Ok(Outcome::Described(Described { template: answer.template, script: answer.script, bindings: Default::default(), scope: None, slotted: false, deps: Vec::new(), diagnostics: answer.diagnostics })),
     _ => {
       let diagnostics = match answer.diagnostics.is_empty() {
         true => vec![Diagnostic::error("the component did not compile").at(filename, None, None)],
