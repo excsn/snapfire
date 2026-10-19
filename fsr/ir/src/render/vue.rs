@@ -1,6 +1,7 @@
-//! What Vue's server renderer writes, so a lowered Vue component's markup is
-//! what Vue's client hydrates over. Checked against `@vue/server-renderer`
-//! and `@vue/shared` at v3.5.13.
+//! How Vue's server renderer prints values, so a lowered Vue component's
+//! markup is what Vue's client hydrates over. Checked against
+//! `@vue/server-renderer` and `@vue/shared` at v3.5.13. The anchors around
+//! fragments, lists, branches and slots are not here: the lowerer places them.
 
 use snapfire_fsr_core::{Value, ValueMap};
 
@@ -30,13 +31,6 @@ impl VueMajor {
     }
   }
 }
-
-/// Opens a fragment: a multi-root component, a `v-for` list, slot content or
-/// a branch holding more than one element.
-pub const FRAGMENT_OPEN: &str = "<!--[-->";
-pub const FRAGMENT_CLOSE: &str = "<!--]-->";
-/// Where a `v-if` chain rendered no branch.
-pub const EMPTY: &str = "<!---->";
 
 /// `@vue/shared`'s `isBooleanAttr`: present or absent rather than valued.
 const BOOLEAN: &[&str] = &["itemscope", "allowfullscreen", "formnovalidate", "ismap", "nomodule", "novalidate", "readonly", "async", "autofocus", "autoplay", "controls", "default", "defer", "disabled", "hidden", "inert", "loop", "open", "required", "reversed", "scoped", "seamless", "checked", "muted", "multiple", "selected"];

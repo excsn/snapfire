@@ -730,10 +730,6 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
     }
     env.scope.push((name.clone(), value));
   }
-  let fragment = env.markup.is_vue() && vue_root_fragment(&component.render);
-  if fragment {
-    out.markup(vue::FRAGMENT_OPEN);
-  }
   // Rendering enters Svelte where Svelte's `hydrate` mounts it.
   let svelte_root = env.markup.is_svelte() && !caller.is_svelte();
   if svelte_root {
@@ -743,44 +739,8 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
   if svelte_root {
     out.markup(svelte::ROOT_CLOSE);
   }
-  if fragment {
-    out.markup(vue::FRAGMENT_CLOSE);
-  }
   env.scope.truncate(depth);
   env.markup = caller;
-  Ok(())
-}
-
-/// Whether Vue writes a component's root as a fragment: more than one root
-/// node, at least one of them not text.
-fn vue_root_fragment(render: &Tmpl) -> bool {
-  match render {
-    Tmpl::Fragment(children) => children.len() > 1 && children.iter().any(|c| !matches!(c, Tmpl::Text(_) | Tmpl::Expr(_))),
-    Tmpl::Let { name, then, .. } if name.starts_with(CONTEXT_PREFIX) => vue_root_fragment(then),
-    _ => false,
-  }
-}
-
-/// Whether Vue wraps a branch or a loop body in fragment anchors: anything
-/// other than exactly one element.
-fn vue_wraps(tmpl: &Tmpl) -> bool {
-  match tmpl {
-    Tmpl::Let { name, .. } if name.starts_with(SLOT_OUT_PREFIX) => false,
-    Tmpl::Let { name, then, .. } if name.starts_with(CONTEXT_PREFIX) => vue_wraps(then),
-    other => !matches!(other, Tmpl::Element { .. } | Tmpl::Baked { .. } | Tmpl::For { .. } | Tmpl::If { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_)),
-  }
-}
-
-/// Renders `tmpl` inside fragment anchors when Vue's rules call for them.
-fn render_vue_wrapped<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
-  let wrapped = env.markup.is_vue() && vue_wraps(tmpl);
-  if wrapped {
-    out.markup(vue::FRAGMENT_OPEN);
-  }
-  render(env, tmpl, library, slots, out)?;
-  if wrapped {
-    out.markup(vue::FRAGMENT_CLOSE);
-  }
   Ok(())
 }
 
@@ -903,15 +863,13 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     }
     Tmpl::If { cond, then, r#else } => {
       if env.truth_of(cond)? {
-        render_vue_wrapped(env, then, library, slots, out)?;
+        render(env, then, library, slots, out)?;
         if let Some(other) = r#else {
           record_untaken(env, other, library, slots);
         }
       } else {
         if let Some(other) = r#else {
-          render_vue_wrapped(env, other, library, slots, out)?;
-        } else if env.markup.is_vue() {
-          out.markup(vue::EMPTY);
+          render(env, other, library, slots, out)?;
         }
         record_untaken(env, then, library, slots);
       }
@@ -1167,19 +1125,12 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
     other => return Err(crate::interp::type_error("map", "an array", &other)),
   };
   let depth = env.scope.len();
-  let list = env.markup.is_vue();
-  if list {
-    out.markup(vue::FRAGMENT_OPEN);
-  }
   for i in 0..items.len() {
     env.scope.truncate(depth);
     for (param, value) in params.iter().zip([items[i].clone(), Value::F64(i as f64)]) {
       env.scope.push((param.clone(), value));
     }
-    in_step(env, Step::Iteration(i), |env| render_vue_wrapped(env, body, library, slots, out))?;
-  }
-  if list {
-    out.markup(vue::FRAGMENT_CLOSE);
+    in_step(env, Step::Iteration(i), |env| render(env, body, library, slots, out))?;
   }
   env.scope.truncate(depth);
   Ok(())
@@ -1935,12 +1886,6 @@ fn render_slot<'a>(env: &mut Env, name: &str, library: &'a Components, slots: &m
     out.html.push_str(&slot_mark(name));
     return Ok(());
   };
-  if env.markup.is_vue() {
-    out.markup(vue::FRAGMENT_OPEN);
-    let result = render_slot_content(env, slot, library, slots, out);
-    out.markup(vue::FRAGMENT_CLOSE);
-    return result;
-  }
   render_slot_content(env, slot, library, slots, out)
 }
 
@@ -1982,7 +1927,7 @@ fn slot_content<'a>(children: &'a [Tmpl], name: &str) -> Option<(Option<&'a crat
   (!plain.is_empty()).then_some((None, plain))
 }
 
-/// A `<slot>` that names itself, hands props or holds a fallback: the caller's content for it with its props bound under `SLOT_PROPS`, else the fallback. Vue's fragment markers wrap it under Vue's markup. An island's children keep their region and fill its default slot (every slot under Vue's markup).
+/// A `<slot>` that names itself, hands props or holds a fallback: the caller's content for it with its props bound under `SLOT_PROPS`, else the fallback. An island's children keep their region and fill its default slot (every slot under Vue's markup).
 fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fallback: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let vue = env.markup.is_vue();
   if slots.last().is_some_and(|frame| frame.island) && (vue || name == "default") {
@@ -1990,9 +1935,6 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
   }
   let given = env.eval_sync(props)?;
   let content = slots.last().filter(|frame| !frame.island).and_then(|frame| slot_content(frame.children, name));
-  if vue {
-    out.markup(vue::FRAGMENT_OPEN);
-  }
   let content = match content {
     Some((Some(when), content)) => {
       let caller = slots.last().map(|frame| (*frame.scope).clone()).unwrap_or_default();
@@ -2039,9 +1981,6 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
       render(env, fallback, library, slots, out)
     }
   };
-  if vue {
-    out.markup(vue::FRAGMENT_CLOSE);
-  }
   result
 }
 

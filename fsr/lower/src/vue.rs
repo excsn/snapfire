@@ -176,6 +176,79 @@ pub fn props_declaration(file: &str, described: &Described) -> Option<String> {
 }
 
 /// The props type of `defineProps<T>()` or of `withDefaults(defineProps<T>(), { ... })` with each defaulted key optional.
+const FRAGMENT_OPEN: &str = "<!--[-->";
+const FRAGMENT_CLOSE: &str = "<!--]-->";
+/// Where a `v-if` chain rendered no branch.
+const EMPTY: &str = "<!---->";
+
+/// A component's tree with Vue's hydration anchors placed where
+/// `@vue/server-renderer` writes them: fragment anchors around a root of more
+/// than one node, at least one of them not text; around each `v-for` list and
+/// each item or branch that is not exactly one element; around slot content.
+/// `<!---->` stands where a `v-if` chain renders no branch.
+fn anchored(render: Tmpl) -> Tmpl {
+  let root = root_fragment(&render);
+  let placed = anchors(render);
+  match root {
+    true => fragment(placed),
+    false => placed,
+  }
+}
+
+fn fragment(inner: Tmpl) -> Tmpl {
+  Tmpl::Fragment(vec![Tmpl::Marker(FRAGMENT_OPEN.to_owned()), inner, Tmpl::Marker(FRAGMENT_CLOSE.to_owned())])
+}
+
+fn root_fragment(render: &Tmpl) -> bool {
+  match render {
+    Tmpl::Fragment(children) => children.len() > 1 && children.iter().any(|c| !matches!(c, Tmpl::Text(_) | Tmpl::Expr(_))),
+    Tmpl::Let { name, then, .. } if name.starts_with(CONTEXT_PREFIX) => root_fragment(then),
+    _ => false,
+  }
+}
+
+/// Whether Vue wraps a branch or a list item in fragment anchors: anything but exactly one element.
+fn wraps(tmpl: &Tmpl) -> bool {
+  match tmpl {
+    Tmpl::Let { name, .. } if name.starts_with(SLOT_OUT_PREFIX) => false,
+    Tmpl::Let { name, then, .. } if name.starts_with(CONTEXT_PREFIX) => wraps(then),
+    other => !matches!(other, Tmpl::Element { .. } | Tmpl::Baked { .. } | Tmpl::For { .. } | Tmpl::If { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_)),
+  }
+}
+
+fn branch(tmpl: Tmpl) -> Tmpl {
+  let wrapped = wraps(&tmpl);
+  let placed = anchors(tmpl);
+  match wrapped {
+    true => fragment(placed),
+    false => placed,
+  }
+}
+
+fn anchors(tmpl: Tmpl) -> Tmpl {
+  let walk = |children: Vec<Tmpl>| children.into_iter().map(anchors).collect::<Vec<_>>();
+  match tmpl {
+    Tmpl::If { cond, then, r#else } => Tmpl::If {
+      cond,
+      then: Box::new(branch(*then)),
+      r#else: Some(Box::new(match r#else {
+        Some(other) => branch(*other),
+        None => Tmpl::Marker(EMPTY.to_owned()),
+      })),
+    },
+    Tmpl::For { over, params, body } => fragment(Tmpl::For { over, params, body: Box::new(branch(*body)) }),
+    Tmpl::Slot(name) => fragment(Tmpl::Slot(name)),
+    Tmpl::Let { name, expr, then } if name.starts_with(SLOT_OUT_PREFIX) => fragment(Tmpl::Let { name, expr, then: Box::new(anchors(*then)) }),
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(anchors(*then)) },
+    Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
+    Tmpl::Fragment(children) => Tmpl::Fragment(walk(children)),
+    Tmpl::Component { module, props, children, id, keyed } => Tmpl::Component { module, props, children: walk(children), id, keyed },
+    Tmpl::Island { module, props, children, when, mode, id, define } => Tmpl::Island { module, props, children: walk(children), when, mode, id, define },
+    Tmpl::Baked { open, tag, children } => Tmpl::Baked { open, tag, children: walk(children) },
+    other => other,
+  }
+}
+
 fn declared_props(expr: &js::Expr, text: &dyn Fn(swc_core::common::Span) -> String) -> Option<String> {
   let js::Expr::Call(call) = unwrap_types(expr) else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
@@ -331,7 +404,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
     self.script()?;
-    let render = self.template()?;
+    let render = anchored(self.template()?);
     Ok(Component { body: std::mem::take(&mut self.lets), render, state: std::mem::take(&mut self.state), stores: std::mem::take(&mut self.stores), handlers: std::mem::take(&mut self.handlers), owner: Owner::Vue, shadow: None, scope: self.described.scope.as_ref().map(|id| ScopedStyle { id: id.clone(), slotted: self.described.slotted }) })
   }
 
