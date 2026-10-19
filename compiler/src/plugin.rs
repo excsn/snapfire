@@ -123,8 +123,7 @@ impl Plugins {
   }
 }
 
-/// The extension of a path, lowercased, when a plugin would claim it.
+/// The extension of the plugin that would claim a path.
 pub fn plugin_ext(path: &Path) -> Option<&'static str> {
-  let ext = path.extension()?.to_str()?.to_ascii_lowercase();
-  claimed(&ext)
+  snapfire_compiler_wire::claimed_name(path.file_name()?.to_str()?)
 }

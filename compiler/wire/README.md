@@ -29,7 +29,7 @@ No features.
 | Describe a component for a host that lowers it rather than shipping it | answer a `Request` whose `kind` is `Describe` with `Outcome::Described(Described)` |
 | Spawn a plugin and talk to it | `host::Worker`, which `snapfirec` and `fsr` both use |
 | Refuse a host speaking another protocol | compare `Hello::protocol` with `PROTOCOL` |
-| Know which extensions go to a plugin and what each binary is called | `EXTENSIONS`, `claimed`, `binary_for`, `install_hint` |
+| Know which extensions go to a plugin and what each binary is called | `EXTENSIONS`, `SUFFIXES`, `claimed`, `claimed_name`, `binary_for`, `install_hint` |
 | Drive `snapfirec --driven` and refuse one speaking another protocol | `driven::hello`, `driven::parse_hello`, `driven::PROTOCOL` and the line constants |
 | Hand the compiler the URLs of every image and font you serve | `driven::AssetMap`, written as JSON and named with `--asset-map` |
 

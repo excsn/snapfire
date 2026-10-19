@@ -26,6 +26,29 @@ pub fn claimed(ext: &str) -> Option<&'static str> {
   EXTENSIONS.iter().find(|known| **known == ext).copied()
 }
 
+/// File name suffixes a plugin claims ahead of the last extension, with the
+/// extension whose plugin compiles them: a Svelte 5 runes module is
+/// `name.svelte.ts` or `name.svelte.js`.
+pub const SUFFIXES: &[(&str, &str)] = &[(".svelte.ts", "svelte"), (".svelte.js", "svelte")];
+
+/// Whether the host strips a file's types before sending it: a claimed suffix
+/// ending in `.ts` reaches the plugin as JavaScript, since Svelte's
+/// `compileModule` reads no TypeScript.
+pub fn stripped_first(name: &str) -> bool {
+  let lower = name.to_ascii_lowercase();
+  SUFFIXES.iter().any(|(suffix, _)| suffix.ends_with(".ts") && lower.ends_with(suffix))
+}
+
+/// The plugin a file name asks for: a suffix in [`SUFFIXES`] first, then its last extension.
+pub fn claimed_name(name: &str) -> Option<&'static str> {
+  let lower = name.to_ascii_lowercase();
+  if let Some((_, ext)) = SUFFIXES.iter().find(|(suffix, _)| lower.ends_with(suffix)) {
+    return Some(ext);
+  }
+  let (_, ext) = lower.rsplit_once('.')?;
+  claimed(ext)
+}
+
 /// The binary an extension asks for.
 pub fn binary_for(ext: &str) -> String {
   format!("snapfirec-{ext}")

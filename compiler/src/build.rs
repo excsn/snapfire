@@ -187,6 +187,10 @@ fn asset(path: &Path) -> Option<Asset> {
     return None;
   }
 
+  if let Some(ext) = crate::plugin::plugin_ext(path) {
+    return Some(Asset::Plugin { ext });
+  }
+
   let ext = path.extension()?.to_str()?.to_ascii_lowercase();
 
   match ext.as_str() {
@@ -216,7 +220,7 @@ fn asset(path: &Path) -> Option<Asset> {
       markup: Markup::Allowed,
       out_ext: "js",
     }),
-    other => crate::plugin::claimed(other).map(|ext| Asset::Plugin { ext }),
+    _ => None,
   }
 }
 
@@ -757,7 +761,14 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
     let mut pending: Vec<Pending> = Vec::new();
     for path in &paths {
       build.plugin_hits.1 += 1;
-      let source = match build.compiler.read_source(path) {
+      let read = build.compiler.read_source(path).and_then(|source| {
+        let stripped = path.file_name().and_then(|n| n.to_str()).is_some_and(snapfire_compiler_wire::stripped_first);
+        match stripped {
+          true => build.compiler.strip_types(path, source),
+          false => Ok(source),
+        }
+      });
+      let source = match read {
         Ok(source) => source,
         Err(e) => {
           eprintln!("❌ {}: {e}", display(path, &opts.root));

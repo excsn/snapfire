@@ -44,6 +44,9 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 * `pub const EXTENSIONS: &[&str] = &["vue", "svelte"]`
 * The extensions a plugin compiles, without dots, one framework each.
 * `claimed(ext: &str) -> Option<&'static str>`: `ext` as a static name when the list holds it.
+* `pub const SUFFIXES: &[(&str, &str)] = &[(".svelte.ts", "svelte"), (".svelte.js", "svelte")]`: file name suffixes a plugin claims ahead of the last extension, with the extension whose plugin compiles them.
+* `claimed_name(name: &str) -> Option<&'static str>`: the extension whose plugin compiles a file name: a suffix in `SUFFIXES` first, then the last extension, case-insensitive.
+* `stripped_first(name: &str) -> bool`: whether the file name ends in a claimed suffix that ends in `.ts`. Such a file reaches its plugin as JavaScript: the host strips its types before sending it.
 * `binary_for(ext: &str) -> String`: `snapfirec-<ext>`, the binary the host looks for on `PATH`.
 * `install_hint(ext: &str) -> String`: `cargo install snapfire_<ext>`, what the host prints when that binary is missing.
 

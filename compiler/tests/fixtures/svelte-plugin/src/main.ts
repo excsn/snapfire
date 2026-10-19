@@ -1,2 +1,3 @@
 import Card from "./Card.svelte";
-export { Card };
+import { counter, bump } from "./counter.svelte.js";
+export { Card, counter, bump };

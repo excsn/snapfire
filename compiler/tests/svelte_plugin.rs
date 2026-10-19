@@ -33,7 +33,7 @@ fn an_import_of_a_svelte_component_names_the_module_it_became() {
   let fixture = build();
   let main = fs::read_to_string(fixture.root().join("dist/src/main.js")).expect("the importer");
   assert!(main.contains("from \"./Card.js\""), "a `.svelte` specifier becomes the `.js` beside it: {main}");
-  assert!(!main.contains(".svelte"), "{main}");
+  assert!(!main.contains("./Card.svelte"), "{main}");
 }
 
 #[test]
@@ -53,6 +53,17 @@ fn the_build_says_snapfirec_svelte_answered_and_what_it_carries() {
   let said = String::from_utf8_lossy(&output.stdout);
   assert!(said.contains("snapfirec-svelte"), "the plugin is named: {said}");
   assert!(said.contains("svelte 5.57.2"), "with what it compiles through: {said}");
+}
+
+#[test]
+fn a_runes_module_goes_to_the_plugin_and_keeps_its_name() {
+  let fixture = build();
+  let module = fs::read_to_string(fixture.root().join("dist/src/counter.svelte.js")).expect("the module, named for its source");
+  assert!(!module.contains("$state("), "the plugin compiled the rune rather than the TypeScript front end: {module}");
+  assert!(module.contains("from 'svelte/internal/client'"), "{module}");
+  assert!(!module.contains(": number"), "snapfirec stripped the types before the plugin saw it: {module}");
+  let main = fs::read_to_string(fixture.root().join("dist/src/main.js")).expect("the importer");
+  assert!(main.contains("from \"./counter.svelte.js\""), "{main}");
 }
 
 #[test]

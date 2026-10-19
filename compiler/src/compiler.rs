@@ -451,6 +451,38 @@ impl Compiler {
     })
   }
 
+  /// TypeScript with its types removed and nothing else changed, imports as
+  /// written: what a plugin is handed for a claimed suffix ending in `.ts`.
+  pub fn strip_types(&self, path: &Path, content: String) -> Result<String> {
+    let cm: Lrc<SourceMap> = Default::default();
+    GLOBALS.set(&Globals::new(), || {
+      let fm = cm.new_source_file(Lrc::new(FileName::Real(path.to_path_buf())), content);
+      let comments = SingleThreadedComments::default();
+      let syntax = Syntax::Typescript(TsSyntax { decorators: true, ..Default::default() });
+      let lexer = Lexer::new(syntax, EsVersion::latest(), StringInput::from(&*fm), Some(&comments));
+      let mut parser = Parser::new_from(lexer);
+      let parsed = parser.parse_module();
+      let recovered = parser.take_errors();
+      let module = match parsed {
+        Ok(module) if recovered.is_empty() => module,
+        Ok(_) => return Err(anyhow!("{}", recovered.iter().map(|e| describe(&cm, e)).collect::<Vec<_>>().join("\n"))),
+        Err(fatal) => return Err(anyhow!("{}", describe(&cm, &fatal))),
+      };
+      let unresolved_mark = Mark::new();
+      let top_level_mark = Mark::new();
+      let program = Program::Module(module)
+        .apply(&mut resolver(unresolved_mark, top_level_mark, true))
+        .apply(&mut strip(unresolved_mark, top_level_mark))
+        .apply(&mut (hygiene(), fixer(None)));
+      let mut buf = vec![];
+      {
+        let mut emitter = Emitter { cfg: CodegenConfig::default(), cm: cm.clone(), comments: Some(&comments), wr: JsWriter::new(cm.clone(), "\n", &mut buf, None) };
+        emitter.emit_program(&program).context("Failed to emit module")?;
+      }
+      Ok(String::from_utf8(buf)?)
+    })
+  }
+
   pub fn compile_css(&self, path: &Path, minify: bool, map: MapRequest) -> Result<Output> {
     let content = self.read_source(path)?;
     self.compile_style(path, content, minify, map)
