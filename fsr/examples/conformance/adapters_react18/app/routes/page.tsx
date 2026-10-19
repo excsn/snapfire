@@ -4,6 +4,7 @@ import ReactProbe from "@src/ui/ReactProbe";
 import VueProbe from "@src/ui/VueProbe.vue";
 import ServerProbe from "@src/ui/ServerProbe";
 import ServerVueProbe from "@src/ui/ServerVueProbe.vue";
+import SvelteProbe from "@src/ui/SvelteProbe.svelte";
 
 const REACT = "src/ui/ReactProbe.tsx#default";
 const VUE = "src/ui/VueProbe.vue#default";
@@ -20,6 +21,11 @@ export default function Probes() {
         <VueProbe label="vue" nest={[REACT]}>
           <em>vue children</em>
         </VueProbe>
+      </Island>
+      <Island>
+        <SvelteProbe label="svelte">
+          <em>svelte children</em>
+        </SvelteProbe>
       </Island>
       <Island mode="server">
         <ServerProbe />

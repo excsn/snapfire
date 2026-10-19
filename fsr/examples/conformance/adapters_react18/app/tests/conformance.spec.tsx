@@ -8,6 +8,7 @@ import HeldVueProbe from "@src/ui/HeldVueProbe.vue";
 import LazyProbe from "@src/ui/LazyProbe";
 import LazyVueProbe from "@src/ui/LazyVueProbe.vue";
 import ReactProbe from "@src/ui/ReactProbe";
+import SvelteProbe from "@src/ui/SvelteProbe.svelte";
 import VueProbe from "@src/ui/VueProbe.vue";
 
 const REACT = "src/ui/ReactProbe.tsx#default";
@@ -89,7 +90,7 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, 
     expect(counts().every((count) => count === "0"), counts().join()).toEqual(true);
     await fireEvent.click(probe(owner).querySelector(".add")!);
     await settle();
-    expect(counts().length, "both probes, both nested probes and both server islands").toEqual(6);
+    expect(counts().length, "both probes, both nested probes, the svelte probe and both server islands").toEqual(7);
     expect(counts().every((count) => count === "1"), counts().join()).toEqual(true);
   });
 
@@ -201,7 +202,48 @@ describe.each(SERVER)("the $owner island", ({ owner, written }) => {
     await fireEvent.click(probe(owner).querySelector(".add")!);
     await settle();
     await waitFor(() => expect(counts().every((count) => count === "1"), counts().join()).toEqual(true));
-    expect(counts().length).toEqual(6);
+    expect(counts().length).toEqual(7);
+  });
+});
+
+describe("the svelte adapter", () => {
+  test("mounts the island in the browser with its props", async () => {
+    await page();
+    expect(probe("svelte")?.querySelector(".label")?.textContent).toEqual("svelte");
+    expect(tally().renders.svelte, "Svelte ran it").toBeGreaterThan(0);
+  });
+
+  test("renders the children the page placed inside it", async () => {
+    await page();
+    expect(probe("svelte").querySelector(".children em")?.textContent).toEqual("svelte children");
+  });
+
+  test("binds the store, so its write shows in every island and theirs in it", async () => {
+    await page();
+    await fireEvent.click(probe("svelte").querySelector(".add")!);
+    await settle();
+    await waitFor(() => expect(counts().every((count) => count === "1"), counts().join()).toEqual(true));
+    await fireEvent.click(probe("react").querySelector(".add")!);
+    await settle();
+    await waitFor(() => expect(probe("svelte").querySelector(".count")?.textContent).toEqual("2"));
+  });
+
+  test("patches the island in place", async () => {
+    const r = await render(<SvelteProbe label="first" />);
+    const button = r.getByText("add");
+    await r.rerender(<SvelteProbe label="second" />);
+    expect(r.getByText("second")).toBeTruthy();
+    expect(r.queryByText("first")).toBeNull();
+    expect(r.getByText("add"), "the patch kept the element").toBe(button);
+  });
+
+  test("unmounts the island", async () => {
+    const r = await render(<SvelteProbe label="gone" />);
+    const before = tally().unmounts.svelte ?? 0;
+    r.unmount();
+    await settle();
+    expect(tally().unmounts.svelte, "Svelte ran its cleanup").toEqual(before + 1);
+    expect(r.queryByText("gone")).toBeNull();
   });
 });
 

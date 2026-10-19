@@ -9,6 +9,25 @@
     "react": "/static/js/vendor/react/react.bundle.mjs",
     "react/jsx-runtime": "/static/js/vendor/react/jsx-runtime.bundle.mjs",
     "react-dom/client": "/static/js/vendor/react-dom/client.bundle.mjs",
-    "vue": "/static/js/vendor/vue/vue.bundle.mjs"
+    "vue": "/static/js/vendor/vue/vue.bundle.mjs",
+    "@snapfire/fsr-client/svelte": "/static/js/fsr/svelte.js",
+    "clsx": "/static/js/vendor/clsx/dist/clsx.mjs",
+    "esm-env": "/static/js/vendor/esm-env/index.js",
+    "esm-env/browser": "/static/js/vendor/esm-env/true.js",
+    "esm-env/development": "/static/js/vendor/esm-env/false.js",
+    "esm-env/node": "/static/js/vendor/esm-env/false.js",
+    "svelte": "/static/js/vendor/svelte/src/index-client.js",
+    "svelte/animate": "/static/js/vendor/svelte/src/animate/index.js",
+    "svelte/attachments": "/static/js/vendor/svelte/src/attachments/index.js",
+    "svelte/easing": "/static/js/vendor/svelte/src/easing/index.js",
+    "svelte/events": "/static/js/vendor/svelte/src/events/index.js",
+    "svelte/internal/client": "/static/js/vendor/svelte/src/internal/client/index.js",
+    "svelte/internal/disclose-version": "/static/js/vendor/svelte/src/internal/disclose-version.js",
+    "svelte/internal/flags/legacy": "/static/js/vendor/svelte/src/internal/flags/legacy.js",
+    "svelte/legacy": "/static/js/vendor/svelte/src/legacy/legacy-client.js",
+    "svelte/motion": "/static/js/vendor/svelte/src/motion/index.js",
+    "svelte/reactivity": "/static/js/vendor/svelte/src/reactivity/index-client.js",
+    "svelte/store": "/static/js/vendor/svelte/src/store/index-client.js",
+    "svelte/transition": "/static/js/vendor/svelte/src/transition/index.js"
   }
 }

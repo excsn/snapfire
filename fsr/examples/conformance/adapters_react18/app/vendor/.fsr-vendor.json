@@ -1,5 +1,24 @@
 {
   "packages": {
+    "clsx": {
+      "version": "2.1.1",
+      "externals": [],
+      "entries": {
+        "clsx": "clsx/dist/clsx.mjs"
+      },
+      "published": true
+    },
+    "esm-env": {
+      "version": "1.2.2",
+      "externals": [],
+      "entries": {
+        "esm-env": "esm-env/index.js",
+        "esm-env/browser": "esm-env/true.js",
+        "esm-env/development": "esm-env/false.js",
+        "esm-env/node": "esm-env/false.js"
+      },
+      "published": true
+    },
     "react": {
       "version": "18.3.1",
       "externals": [
@@ -18,6 +37,26 @@
       "entries": {
         "react-dom/client": "react-dom/client.bundle.mjs"
       }
+    },
+    "svelte": {
+      "version": "5.57.2",
+      "externals": [],
+      "entries": {
+        "svelte": "svelte/src/index-client.js",
+        "svelte/animate": "svelte/src/animate/index.js",
+        "svelte/attachments": "svelte/src/attachments/index.js",
+        "svelte/easing": "svelte/src/easing/index.js",
+        "svelte/events": "svelte/src/events/index.js",
+        "svelte/internal/client": "svelte/src/internal/client/index.js",
+        "svelte/internal/disclose-version": "svelte/src/internal/disclose-version.js",
+        "svelte/internal/flags/legacy": "svelte/src/internal/flags/legacy.js",
+        "svelte/legacy": "svelte/src/legacy/legacy-client.js",
+        "svelte/motion": "svelte/src/motion/index.js",
+        "svelte/reactivity": "svelte/src/reactivity/index-client.js",
+        "svelte/store": "svelte/src/store/index-client.js",
+        "svelte/transition": "svelte/src/transition/index.js"
+      },
+      "published": true
     },
     "vue": {
       "version": "3.5.13",
