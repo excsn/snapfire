@@ -13,6 +13,7 @@ mod asin;
 mod asin_tables;
 mod atan;
 mod atan_tables;
+mod cbrt;
 mod dd;
 mod dyadic;
 mod trig;
@@ -59,4 +60,9 @@ pub fn asin(x: f64) -> f64 {
 /// `Math.acos(x)`.
 pub fn acos(x: f64) -> f64 {
   asin::acos(x)
+}
+
+/// `Math.cbrt(x)`.
+pub fn cbrt(x: f64) -> f64 {
+  cbrt::cbrt(x)
 }

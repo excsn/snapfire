@@ -1,6 +1,6 @@
 //! `Math.sin` and `Math.cos` against what V8 computes and at the values JavaScript defines exactly.
 
-use snapfire_fsr_ir::jsmath::{acos, asin, atan, atan2, cos, sin, tan};
+use snapfire_fsr_ir::jsmath::{acos, asin, atan, atan2, cbrt, cos, sin, tan};
 
 fn same(ours: f64, theirs: f64) -> bool {
   ours.to_bits() == theirs.to_bits() || (ours.is_nan() && theirs.is_nan())
@@ -102,6 +102,7 @@ const V8_DIGESTS: &[(&str, [&str; 5])] = &[
   ("sin", ["6afa0fb8cd7820b7", "c4dbb71e33d91e09", "4483fb8ae6cd8cdd", "1cce69a903d6d103", "c580d0c04c257303"]),
   ("cos", ["ae80b43f7b14e441", "dcc9f7c19ef4c9b2", "c24a9b2e20da980f", "ac2adf7e006053b0", "ee30404f40d91e4a"]),
   ("tan", ["0209389d22ed049d", "ed0908ec82f85a70", "8c1f5d7c4c1aee10", "7f5bca933945a681", "0f3a7eaff8a704cf"]),
+  ("cbrt", ["c10f3070024fb0ee", "351cda7ec6fa370a", "bc4c4630678bd4ef", "c03a1b04ff298eee", "75a2ec558157a79d"]),
   ("asin", ["2f576aa6ab901f38", "d3c124e1b66ec3b0", "31608ee98ba1f594", "8452424cce6999e1", "eea7a189428fc5a1"]),
   ("acos", ["eac148242226ccb6", "e6d36f20bcf77ff6", "63f237259b8fc6c5", "624eb7762b0205ef", "cb21746ff3620734"]),
   ("atan", ["c239f00f9e9e5571", "edb7a7feb2fa35f1", "7bd510a8c01d366d", "38988199c9664db0", "c2f60319d0012004"]),
@@ -119,6 +120,7 @@ fn every_function_answers_what_v8_answers_over_half_a_million_inputs() {
       "sin" => Box::new(unary(sin)),
       "cos" => Box::new(unary(cos)),
       "tan" => Box::new(unary(tan)),
+      "cbrt" => Box::new(unary(cbrt)),
       "asin" => Box::new(unary(asin)),
       "acos" => Box::new(unary(acos)),
       "atan" => Box::new(unary(atan)),
