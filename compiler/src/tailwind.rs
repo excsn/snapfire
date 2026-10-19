@@ -154,8 +154,9 @@ fn declaration_follows(rest: &[u8]) -> bool {
 }
 
 /// The class names a script names where a class goes: a `class` or `className` attribute or
-/// property or an argument to `clsx`, `cn`, `cx`, `classnames`, `twMerge` or Vue's
-/// `normalizeClass`. Whole tokens only: a token a template expression touches is left out.
+/// property, an argument to `clsx`, `cn`, `cx`, `classnames`, `twMerge` or Vue's
+/// `normalizeClass` or what Svelte's compiled output hands its runtime's `from_html` and
+/// `set_class`. Whole tokens only: a token a template expression touches is left out.
 pub fn source_classes(path: &Path, source: &str) -> Vec<String> {
   use oxc_ast_visit::Visit;
   let allocator = oxc_allocator::Allocator::default();
@@ -163,7 +164,7 @@ pub fn source_classes(path: &Path, source: &str) -> Vec<String> {
   let parsed = oxc_parser::Parser::new(&allocator, source, source_type).parse();
   let mut consts = Consts::default();
   consts.visit_program(&parsed.program);
-  let mut collector = Classes { consts: Some(&consts.table), aliases: helper_aliases(&parsed.program), ..Classes::default() };
+  let mut collector = Classes { consts: Some(&consts.table), aliases: helper_aliases(&parsed.program), svelte: svelte_runtimes(&parsed.program), ..Classes::default() };
   collector.visit_program(&parsed.program);
   let mut found: Vec<String> = collector.found.into_iter().collect();
   found.sort();
@@ -225,6 +226,26 @@ struct Classes<'t> {
   consts: Option<&'t ConstTable>,
   /// Local names an import binds a class helper to, `e` in `import { cn as e } from "./cn.js"`.
   aliases: std::collections::HashSet<String>,
+  /// Local names Svelte's client runtime is imported under, `$` in compiled output.
+  svelte: std::collections::HashSet<String>,
+}
+
+/// The names a program imports `svelte/internal/client` under as a namespace.
+fn svelte_runtimes(program: &oxc_ast::ast::Program) -> std::collections::HashSet<String> {
+  use oxc_ast::ast::{ImportDeclarationSpecifier, Statement};
+  let mut out = std::collections::HashSet::new();
+  for statement in &program.body {
+    let Statement::ImportDeclaration(import) = statement else { continue };
+    if import.source.value != "svelte/internal/client" {
+      continue;
+    }
+    for specifier in import.specifiers.iter().flatten() {
+      if let ImportDeclarationSpecifier::ImportNamespaceSpecifier(s) = specifier {
+        out.insert(s.local.name.to_string());
+      }
+    }
+  }
+  out
 }
 
 /// The packages whose default export joins classes.
@@ -360,6 +381,12 @@ impl Classes<'_> {
   }
 
   fn call(&mut self, call: &oxc_ast::ast::CallExpression) {
+    if let oxc_ast::ast::Expression::StaticMemberExpression(m) = &call.callee
+      && let oxc_ast::ast::Expression::Identifier(object) = &m.object
+      && self.svelte.contains(object.name.as_str())
+    {
+      self.svelte_call(m.property.name.as_str(), call);
+    }
     let name = match &call.callee {
       oxc_ast::ast::Expression::Identifier(id) => Some(id.name.as_str()),
       oxc_ast::ast::Expression::StaticMemberExpression(m) => Some(m.property.name.as_str()),
@@ -371,6 +398,43 @@ impl Classes<'_> {
           self.expression(e);
         }
       }
+    }
+  }
+}
+
+impl Classes<'_> {
+  /// Svelte's compiled output: `set_class(element, flags, value, hash, previous, directives)`
+  /// sets `value` and toggles each key of `directives`, and `from_html` and its siblings hold
+  /// the template's static markup, whose `class` attributes are classes.
+  fn svelte_call(&mut self, name: &str, call: &oxc_ast::ast::CallExpression) {
+    let argument = |i: usize| call.arguments.get(i).and_then(|a| a.as_expression());
+    match name {
+      "set_class" => {
+        for i in [2, 5] {
+          if let Some(e) = argument(i) {
+            self.expression(e);
+          }
+        }
+      }
+      "from_html" | "from_svg" | "from_mathml" => {
+        let markup = match argument(0) {
+          Some(oxc_ast::ast::Expression::StringLiteral(s)) => Some(s.value.to_string()),
+          Some(oxc_ast::ast::Expression::TemplateLiteral(t)) if t.expressions.is_empty() => t.quasis.first().map(|q| q.value.cooked.as_ref().map(|c| c.to_string()).unwrap_or_else(|| q.value.raw.to_string())),
+          _ => None,
+        };
+        let Some(markup) = markup else { return };
+        let mut rest = markup.as_str();
+        while let Some(at) = rest.find("class=\"") {
+          let attribute = rest[..at].ends_with(char::is_whitespace);
+          let value = &rest[at + 7..];
+          let end = value.find('"').unwrap_or(value.len());
+          if attribute {
+            self.words(&value[..end]);
+          }
+          rest = &value[end..];
+        }
+      }
+      _ => {}
     }
   }
 }
@@ -527,6 +591,14 @@ mod tests {
     assert_eq!(found, ["animate-pulse", "font-bold", "font-mono", "px-2", "ring-0", "ring-2", "rounded", "text-emerald-600", "text-sm"]);
     let vue = "import { normalizeClass as _normalizeClass, createElementVNode as _createElementVNode } from \"vue\";\nexport function render(_ctx) {\n  return _createElementVNode(\"div\", { class: _normalizeClass([\"card\", { \"card-on\": _ctx.on }]) }, [_createElementVNode(\"p\", { class: \"p-4 text-lg\" })]);\n}\n";
     assert_eq!(source_classes(Path::new("src/Box.vue.js"), vue), ["card", "card-on", "p-4", "text-lg"]);
+  }
+
+  #[test]
+  fn reads_the_classes_svelte_compiles_into_its_template_and_its_class_calls() {
+    let svelte = "import * as $ from 'svelte/internal/client';\nvar root = $.from_html(`<div data-class=\"not-read\" class=\"p-4 text-lg\"><p>a</p> <p>b</p> <p>c</p> <p>d</p></div>`);\nexport default function Tw($$anchor, $$props) {\n  var div = root();\n  var p = $.child(div);\n  let classes;\n  $.template_effect(() => {\n    $.set_class(p, 1, $.clsx($$props.on ? \"font-bold\" : \"font-light\"));\n    $.set_class(p, 1, $.clsx([\"rounded\", { \"ring-2\": $$props.on }]));\n    classes = $.set_class(p, 1, 'base-x', null, classes, { 'text-red-500': $$props.on, underline: !$$props.on });\n    $.set_class(p, 1, `m-2 ${$$props.tone}`);\n  });\n}\n";
+    assert_eq!(source_classes(Path::new("src/Tw.svelte"), svelte), ["base-x", "font-bold", "font-light", "m-2", "p-4", "ring-2", "rounded", "text-lg", "text-red-500", "underline"]);
+    let unrelated = "import { set_class, from_html } from \"./mine.js\";\nset_class(el, 1, \"not-a-class\");\nfrom_html(`<p class=\"nor-this\"></p>`);\n";
+    assert!(source_classes(Path::new("src/mine.js"), unrelated).is_empty(), "only Svelte's own runtime is read this way");
   }
 
   #[test]

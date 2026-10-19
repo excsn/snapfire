@@ -106,3 +106,15 @@ fn the_applications_own_compiler_compiles_and_a_new_one_under_the_same_path_comp
   fs::write(&compiler, stand_in_compiler("9.9.10")).unwrap();
   assert!(run().contains("\"9.9.10\""), "a new compiler under the same path is not answered from the cache");
 }
+
+#[test]
+fn every_way_a_svelte_component_names_a_class_reaches_the_tailwind_stylesheet() {
+  let fixture = Fixture::new("svelte-tailwind");
+  let mut cmd = get_snapfirec_cmd();
+  with_plugin_on_path(&mut cmd);
+  cmd.arg("--root").arg(fixture.root()).assert().success();
+  let css = fs::read_to_string(fixture.root().join("dist/styles/app.css")).expect("the stylesheet");
+  for class in ["p-4", "text-lg", "font-bold", "font-light", "rounded", "ring-2", "tracking-wide", "text-red-500", "underline", "m-2"] {
+    assert!(css.contains(&format!(".{class}")), "{class} is generated: {css}");
+  }
+}
