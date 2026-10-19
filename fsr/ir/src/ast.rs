@@ -261,10 +261,8 @@ pub enum Builtin {
   LastIndexOf,
   /// `s.charCodeAt(i)`: the UTF-16 code unit at `i`, NaN past either end.
   CharCodeAt,
-  /// `Math.sin(n)`, correctly rounded as V8 computes it.
-  Sin,
-  /// `Math.cos(n)`, correctly rounded as V8 computes it.
-  Cos,
+  /// A `Math` function V8 computes in its own code: the first argument names it (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p` or `cbrt`) and the rest are its arguments, computed as `jsmath` does.
+  Math,
   /// `s.codePointAt(i)`: the code point starting at UTF-16 index `i`, a lone surrogate as its unit, null past either end.
   CodePointAt,
   /// `x.toString(radix)`: a number's digits in a radix from 2 to 36, anything else as `String(x)`. In a radix other than 10 a number with a fraction is an error. So is one past 2^53 in a radix that is not a power of 2, since engines print their digits differently.

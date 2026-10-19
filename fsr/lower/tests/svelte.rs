@@ -482,6 +482,15 @@ fn sine_cosine_and_math_constants_print_what_v8_prints() {
 }
 
 #[test]
+fn every_math_function_prints_what_v8_prints() {
+  let source = "<script>let { h, two } = $props();</script><p>{Math.tan(h)} {Math.asin(h)} {Math.acos(h)} {Math.atan(two)} {Math.atan2(1, two)} {Math.sinh(h)} {Math.cosh(h)} {Math.asinh(h)} {Math.acosh(two)} {Math.atanh(h)}</p><p>{Math.exp(h)} {Math.expm1(h)} {Math.log(h)} {Math.log2(3)} {Math.log10(1000)} {Math.log1p(h)} {Math.cbrt(two)}</p>";
+  assert_eq!(
+    ours("math", source, &props(&[("h", Value::F64(0.5)), ("two", Value::F64(2.0))])),
+    "<!--[--><p>0.5463024898437905 0.5235987755982989 1.0471975511965979 1.1071487177940904 0.4636476090008061 0.5210953054937474 1.1276259652063807 0.48121182505960347 1.3169578969248166 0.5493061443340549</p><p>1.6487212707001282 0.6487212707001282 -0.6931471805599453 1.584962500721156 3 0.4054651081081644 1.2599210498948732</p><!--]-->"
+  );
+}
+
+#[test]
 fn a_list_formatter_joins_as_the_locale_joins() {
   let source = "<script>let { flavours } = $props(); const formatter = new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' });</script><p>{formatter.format(flavours)}</p><p>{new Intl.ListFormat('en', { type: 'disjunction' }).format(flavours.slice(0, 2))}</p>";
   assert_eq!(ours("list-formatter", source, &props(&[("flavours", Value::seq(vec![s("Mint"), s("Fudge"), s("Ripple")]))])), "<!--[--><p>Mint, Fudge and Ripple</p><p>Mint or Fudge</p><!--]-->");

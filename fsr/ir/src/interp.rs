@@ -2889,8 +2889,32 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }
     Builtin::Pow => whole(js_pow(number(name, arg(0)?)?, number(name, arg(1)?)?)),
     Builtin::Sqrt => whole(number(name, arg(0)?)?.sqrt()),
-    Builtin::Sin => whole(crate::jsmath::sin(number(name, arg(0)?)?)),
-    Builtin::Cos => whole(crate::jsmath::cos(number(name, arg(0)?)?)),
+    Builtin::Math => {
+      use crate::jsmath as m;
+      let x = number(name, arg(1)?)?;
+      whole(match text(name, arg(0)?)? {
+        "sin" => m::sin(x),
+        "cos" => m::cos(x),
+        "tan" => m::tan(x),
+        "asin" => m::asin(x),
+        "acos" => m::acos(x),
+        "atan" => m::atan(x),
+        "atan2" => m::atan2(x, number(name, arg(2)?)?),
+        "sinh" => m::sinh(x),
+        "cosh" => m::cosh(x),
+        "asinh" => m::asinh(x),
+        "acosh" => m::acosh(x),
+        "atanh" => m::atanh(x),
+        "exp" => m::exp(x),
+        "expm1" => m::expm1(x),
+        "log" => m::log(x),
+        "log2" => m::log2(x),
+        "log10" => m::log10(x),
+        "log1p" => m::log1p(x),
+        "cbrt" => m::cbrt(x),
+        other => return Err(Fail::internal(format!("`Math.{other}`, which the interpreter does not compute"))),
+      })
+    }
     Builtin::Trunc => whole(number(name, arg(0)?)?.trunc()),
     Builtin::Sign => {
       let n = number(name, arg(0)?)?;

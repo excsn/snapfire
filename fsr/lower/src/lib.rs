@@ -2252,6 +2252,16 @@ impl<'a> Lowerer<'a> {
               _ => Err(self.residue(member.span, format!("`Object.{method}`"))),
             };
           }
+          "Math" if crate::JS_MATH.contains(&method.as_str()) => {
+            let mut args = vec![Expr::lit_str(method.as_str())];
+            for a in &call.args {
+              if a.spread.is_some() {
+                return Err(self.residue(a.expr.span(), "a spread argument"));
+              }
+              args.push(self.expr(&a.expr)?);
+            }
+            return Ok(Expr::Builtin { name: Builtin::Math, args });
+          }
           "Math" => {
             let name = match method.as_str() {
               "round" => Builtin::Round,
@@ -2262,8 +2272,6 @@ impl<'a> Lowerer<'a> {
               "max" => Builtin::Max,
               "pow" => Builtin::Pow,
               "sqrt" => Builtin::Sqrt,
-              "sin" => Builtin::Sin,
-              "cos" => Builtin::Cos,
               "trunc" => Builtin::Trunc,
               "sign" => Builtin::Sign,
               _ => return Err(self.residue(member.span, format!("`Math.{method}`"))),
@@ -3095,6 +3103,9 @@ fn root_named(name: &str) -> Option<Root> {
     _ => return None,
   })
 }
+
+/// The `Math` functions `Builtin::Math` computes as V8 does.
+pub(crate) const JS_MATH: [&str; 19] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt"];
 
 pub(crate) fn prop_name(name: &js::PropName) -> Option<String> {
   match name {
