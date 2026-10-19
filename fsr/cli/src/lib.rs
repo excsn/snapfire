@@ -1935,12 +1935,20 @@ pub fn write(app: &Path, built: &Built) -> Result<Vec<PathBuf>, BuildError> {
   Ok(written)
 }
 
-/// `build`, then the typecheck over the build's own `generated/`, written
-/// first so the types the checker reads are the ones this build produced.
+/// `build`, then the typecheck over the build's own `generated/`,
+/// `tsconfig.json` and foreign shim, written first so what the checker reads
+/// is what this build produced.
 /// `report` runs between the two, while the checker is still to come.
 pub fn check(app: &Path, options: &Options, typecheck: &typecheck::Typecheck, report: impl FnOnce(&Built)) -> Result<(Built, Option<typecheck::Checked>), BuildError> {
   let built = build(app, options)?;
   write_generated(app, &built)?;
+  for (rel, content) in built.files.iter().filter(|(rel, _)| rel == "tsconfig.json" || rel.ends_with(&format!("/{}", types::FOREIGN_SHIM))) {
+    let path = app.join(rel);
+    if let Some(parent) = path.parent() {
+      std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+    }
+    std::fs::write(&path, content).map_err(|e| BuildError::Io(path.clone(), e))?;
+  }
   types::refresh_embedded(app)?;
   report(&built);
   let checked = typecheck::run(app, typecheck)?;

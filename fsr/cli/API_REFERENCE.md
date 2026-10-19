@@ -97,7 +97,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 ### fsr check
 
 * `fsr check <app dir> [--shell <module id>] [--slot <name>] [--strict] [--verbose] [--no-typecheck] [--tsc <path>] [--tsc-version <version>] [--snapfiretc <path>]`
-* Runs the build and prints the report; writes nothing, so the typecheck reads whichever `tsconfig.json` is on disk. Same exit codes, plus 1 when a diagnostic is an error.
+* Runs the build and prints the report. Writes the build's `generated/` files, its `tsconfig.json` and its `types/foreign.d.ts` and nothing else, so the typecheck reads the configuration of the build it ran. Same exit codes, plus 1 when a diagnostic is an error.
 
 ### fsr test
 

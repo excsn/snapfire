@@ -156,3 +156,26 @@ fn a_relative_import_of_a_component_beside_a_module_of_its_own_name_is_refused_n
   assert!(refused.contains("`@src/ui/Card.svelte`"), "{refused}");
   std::fs::remove_dir_all(app.parent().unwrap()).unwrap();
 }
+
+/// `check` typechecks with the configuration its own build writes, not one an earlier `fsr build` left or none at all.
+#[cfg(unix)]
+#[test]
+fn check_typechecks_with_the_configuration_of_the_build_it_holds() {
+  use std::os::unix::fs::PermissionsExt;
+  use snapfire_fsr_cli::{check, Options};
+  let dir = root("config");
+  let app = dir.join("app");
+  std::fs::create_dir_all(app.join("routes/index")).unwrap();
+  std::fs::write(app.join("importmap.json"), r#"{"imports":{}}"#).unwrap();
+  std::fs::write(app.join("routes/index/page.tsx"), "export default function Page() {\n  return <p>page</p>;\n}\n").unwrap();
+  let checker = dir.join("snapfiretc");
+  std::fs::write(&checker, "#!/bin/sh\necho '{\"tsc\":\"/c/tsc\",\"version\":\"7.0.2\",\"source\":\"cache\",\"sha512\":null,\"pinned\":true,\"diagnostics\":[]}'\n").unwrap();
+  std::fs::set_permissions(&checker, std::fs::Permissions::from_mode(0o755)).unwrap();
+  let options = Typecheck::default().enabled(true).checker(Some(checker));
+  let (built, checked) = check(&app, &Options::default(), &options, |_| {}).unwrap();
+  assert!(checked.is_some(), "an app no build has written a tsconfig for is still checked");
+  let written = std::fs::read_to_string(app.join("tsconfig.json")).unwrap();
+  let own = built.files.iter().find(|(name, _)| name == "tsconfig.json").map(|(_, text)| text.clone()).unwrap();
+  assert_eq!(written, own);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
