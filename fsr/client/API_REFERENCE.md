@@ -113,14 +113,20 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [vueUnmounter](#vueunmounter)
   * [Mount (Vue)](#mount-vue)
   * [useStore (Vue)](#usestore-vue)
-* [12. The JSX Element Builder](#12-the-jsx-element-builder)
+* [12. The Svelte Mounter](#12-the-svelte-mounter)
+  * [svelteMounter](#sveltemounter)
+  * [sveltePatcher](#sveltepatcher)
+  * [svelteUnmounter](#svelteunmounter)
+  * [useStore (Svelte)](#usestore-svelte)
+  * [useLocale (Svelte)](#uselocale-svelte)
+* [13. The JSX Element Builder](#13-the-jsx-element-builder)
   * [jsx and jsxs](#jsx-and-jsxs)
   * [Placements](#placements)
-* [13. Custom Elements and htmx](#13-custom-elements-and-htmx)
+* [14. Custom Elements and htmx](#14-custom-elements-and-htmx)
   * [shadowOf](#shadowof)
   * [HtmxProcessor](#htmxprocessor)
   * [bindHtmx](#bindhtmx)
-* [14. The Standard Library](#14-the-standard-library)
+* [15. The Standard Library](#15-the-standard-library)
   * [localeTag](#localetag)
   * [intl](#intl)
   * [text](#text)
@@ -129,7 +135,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [id](#id)
   * [t](#t)
   * [native](#native)
-* [15. Testing](#15-testing)
+* [16. Testing](#16-testing)
   * [test and it](#test-and-it)
   * [describe](#describe)
   * [Hooks](#hooks)
@@ -147,7 +153,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [userEvent](#userevent)
   * [settle and advance](#settle-and-advance)
   * [assert](#assert)
-* [16. Error Handling](#16-error-handling)
+* [17. Error Handling](#17-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
@@ -162,6 +168,7 @@ Eight ES module entry points, resolved through an import map. There is no packag
 | `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale` and the placement elements | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
+| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `useStore`, `useLocale` | `svelte`, `svelte/reactivity` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 | `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
 | `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
@@ -1008,7 +1015,41 @@ The counterpart of the React `Mount` in a Vue tree: it writes the island marker 
 
 A store key as a Vue ref: reads the store's value (`initial` while nothing has set the key) and follows every later write to the key from any root. Writing `.value` writes the store. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`.
 
-## 12. The JSX Element Builder
+## 12. The Svelte Mounter
+
+`@snapfire/fsr-client/svelte`: its own entry point, so the core package never imports Svelte and a page with no Svelte island never loads it. Requires `svelte` and `svelte/reactivity` in the page's import map, which `fsr use <app> svelte` writes. Svelte 5.
+
+### svelteMounter
+
+* `const svelteMounter: Mounter`
+
+Takes the module's default export (the module itself when it is the component) and mounts it into `el` with Svelte's `mount`. With `hydrate` true it uses `hydrate` instead. The runtime's own keys, `$h`, `$k`, `$s` and `$sv`, are lifted off before the component sees its props. The component reads its props through an object whose reads subscribe through `createSubscriber`, so a patch re-renders only what reads a changed prop and keeps the component's own `$state`. When `el` holds a children region, `<sf-s data-sf-children>` outside any nested island or `<template data-sf-children>`, its markup is read before mounting and given to the component as its `children` snippet, an `<sf-s data-sf-children>` written from that markup and scanned for islands. Returns what `mount` returned.
+
+### sveltePatcher
+
+* `const sveltePatcher: Patcher`
+
+Replaces the island's props and tells every read of them; a new children markup is morphed into the children region in place, so the islands inside it keep their DOM.
+
+### svelteUnmounter
+
+* `const svelteUnmounter: Unmounter`
+
+Calls Svelte's `unmount` on what the mounter returned and forgets the props and children held for `el`.
+
+### useStore (Svelte)
+
+* `function useStore<T>(key: StoreKey<T>, initial: T): { subscribe(run: (value: T) => void): () => void; set(value: T): void; update(fn: (value: T) => T): void }`
+
+A store key as a Svelte store: `$count` reads it (`initial` while nothing has set the key) and `$count = 3` writes it, in runes and legacy components alike. Every other island reading the key follows a write, whichever framework mounts it.
+
+### useLocale (Svelte)
+
+* `function useLocale(): { subscribe(run: (value: string) => void): () => void }`
+
+The document's locale as a readable Svelte store, `$locale`, following every navigation that changes it.
+
+## 13. The JSX Element Builder
 
 `@snapfire/fsr-client/jsx-runtime`, served at `/static/js/fsr/jsx-runtime.js`: what TSX compiles against where no JSX framework is, which is a spec's JSX in an application without React and a template the browser never loads. FSR is no JSX framework, so nothing here mounts, renders or updates an element.
 
@@ -1033,7 +1074,7 @@ An element is a description and nothing more: `render` in a spec reads its `type
 
 The dialect's placements as plain elements, which `@snapfire/fsr-authoring/template` resolves to in the browser. `Link` describes an anchor with the marks the navigator reads and `Picture` the `<picture>` or `<img>` the server writes for the same props. `Island` and `Slot` describe their child where it stands and `island` returns the component unchanged.
 
-## 13. Custom Elements and htmx
+## 14. Custom Elements and htmx
 
 `@snapfire/fsr-client/elements` and `@snapfire/fsr-client/htmx`: two entry points for markup nothing mounts, each importing nothing outside the package. htmx itself is the application's, passed in, so the binding works with whatever version the import map names.
 
@@ -1061,7 +1102,7 @@ Once as it binds and then on `sf:navigate` and `sf:fill` on `document`: `htmx.pr
 
 On `htmx:before:history:restore` on `document`, while `enableNavigation` has wired the document: `preventDefault()`, so a step back or forward is the navigator's. htmx 4 stamps the entry it loaded on and, on a step back to it, fetches the page and swaps the body under the navigator's patch.
 
-## 14. The Standard Library
+## 15. The Standard Library
 
 `@snapfire/fsr-client/std`: the browser half of the standard library the server's interpreter carries under the same names. Every `render` member agrees with the server byte for byte under the same locale, which is `currentLocale()`; a member marked server only has no such promise and the build refuses it on a component's render path. Under `fsr test` the engine has no `Intl`, so the `intl` members ask the runner through `__sf.ext` and the Rust half answers.
 
@@ -1108,7 +1149,7 @@ Instants are milliseconds since the epoch and every calendar field is UTC.
 
 * `native<F extends (...args: never[]) => unknown>(name: string, f?: F): F`: declares the browser half of a native pair under `name`, `module.member`, whose Rust half the host registers under the same name. With `f`, the pair has `render` reach and `f` is returned and registered on `globalThis.__sf_natives` for the runner; without, it has `body` reach and the returned function throws `<name> runs on the server only`. `name` must be a string literal, since the build reads the declaration.
 
-## 15. Testing
+## 16. Testing
 
 `@snapfire/fsr-client/testing`: what a page spec imports under `fsr test`, which runs it in QuickJS over linkedom. Its names are the ones Jest, Vitest and Testing Library use, so a suite written for those moves over with small changes; guide chapter 107 lists them. Every call that acts on the page returns a promise that settles the engine before it resolves.
 
@@ -1245,7 +1286,7 @@ A user at the pointer and the keyboard. `click` hovers, presses and releases, mo
 
 The assertions specs used before `expect`, kept for code outside this repository. `equal` is deep with the bigint allowance. `match` takes a string to contain or a RegExp. `throws` and `rejects` match a string against the kind and message of what was thrown.
 
-## 16. Error Handling
+## 17. Error Handling
 
 ### ActionFailure
 

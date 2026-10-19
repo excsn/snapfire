@@ -20,6 +20,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Sharing State Between a Layout and Its Page](#sharing-state-between-a-layout-and-its-page)
 * [Mounting Vue Components](#mounting-vue-components)
+* [Mounting Svelte Components](#mounting-svelte-components)
 * [Writing a Mounter for Another Framework](#writing-a-mounter-for-another-framework)
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
@@ -61,7 +62,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Node**: one entry in the payload tree. Its five kinds are `text`, `raw`, `seq`, `client` and `pending`.
 * **Island**: a `client` node. The server renders it inside an `<sf-i>` marker with its props in a sibling JSON script tag; the browser mounts a component over that markup.
 * **Module id**: the string that names a component, source path plus export, for example `components/ServerChart.tsx#default`. It is the key `registerIsland` is called with and the value of the marker's `data-sf-module`.
-* **Mounter**: the function that turns a loaded module plus props into a mounted component in an element. React has one in the `/react` entry and Vue one in the `/vue` entry; every other framework plugs in the same way.
+* **Mounter**: the function that turns a loaded module plus props into a mounted component in an element. React has one in the `/react` entry, Vue one in the `/vue` entry and Svelte one in the `/svelte` entry; every other framework plugs in the same way.
 * **Hydration timing**: per island, `"load"`, `"visible"` or `"idle"`. It decides when the loader runs, not whether the island exists.
 * **Slot**: a hole a deferred segment fills later. It renders as `<div data-sf-slot="N">` holding a fallback until its content arrives.
 * **Segment**: a region of the page with a comparable key, delimited in the HTML by `<!--sf-g:key-->` and `<!--/sf-g-->` comments. Same key across two responses means the region survives navigation.
@@ -423,6 +424,41 @@ export function Panel() {
 
 `Chart` takes props and no children: React children cannot cross into a Vue component. The build refuses them.
 
+
+## Mounting Svelte Components
+
+The `/svelte` entry mounts a Svelte 5 component, runes or legacy mode. `fsr build` registers every `.svelte` island a template places with it, the same way it registers a `.vue` one:
+
+```ts
+import { registerIsland } from "@snapfire/fsr-client";
+import { svelteMounter, sveltePatcher, svelteUnmounter } from "@snapfire/fsr-client/svelte";
+
+registerIsland("src/ui/Counter.svelte#default", {
+  loader: () => import("../src/ui/Counter.svelte").then((m) => m.default),
+  mount: svelteMounter,
+  patch: sveltePatcher,
+  unmount: svelteUnmounter,
+});
+```
+
+A patch hands the component new props without remounting it, so a `$state` the component holds survives a revalidation. The island's children arrive as its `children` snippet:
+
+```svelte
+<script lang="ts">
+  import type { Snippet } from "svelte";
+  import { useStore } from "@snapfire/fsr-client/svelte";
+  import { cartCount } from "@src/store";
+
+  let { label, children }: { label: string; children?: Snippet } = $props();
+  const count = useStore(cartCount, 0);
+</script>
+
+<p>{label}: {$count}</p>
+<button onclick={() => ($count = $count + 1)}>add</button>
+{@render children?.()}
+```
+
+`useStore` hands back a Svelte store, so `$count` reads the key and `$count = …` writes it, in a legacy component as in a runes one. Every other island reading the key follows, whether React, Vue or Svelte mounts it.
 ## Writing a Mounter for Another Framework
 
 A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller and handed back to the entry's `Unmounter` when a navigation takes the marker out of the document, so return whatever the framework needs for teardown:

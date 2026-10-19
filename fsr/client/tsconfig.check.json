@@ -109,5 +109,9 @@
         "../examples/conformance/adapters_react18/app/types/vue/*"
       ]
     }
-  }
+  },
+  "include": [
+    "src/**/*",
+    "../examples/conformance/adapters_react18/app/types/svelte/types/index.d.ts"
+  ]
 }

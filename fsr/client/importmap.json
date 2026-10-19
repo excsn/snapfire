@@ -3,6 +3,8 @@
     "react": "/static/js/vendor/react/react.js",
     "react-dom/client": "/static/js/vendor/react/react-dom-client.js",
     "react/jsx-runtime": "/static/js/vendor/react/react-jsx-runtime.js",
-    "vue": "/static/js/vendor/vue/vue.js"
+    "vue": "/static/js/vendor/vue/vue.js",
+    "svelte": "/static/js/vendor/svelte/src/index-client.js",
+    "svelte/reactivity": "/static/js/vendor/svelte/src/reactivity/index-client.js"
   }
 }

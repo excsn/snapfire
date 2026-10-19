@@ -34,6 +34,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | `@snapfire/fsr-client` | `dist/index.js` | none |
 | `@snapfire/fsr-client/react` | `dist/react.js` | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vue` |
+| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelte`, `svelte/reactivity` |
 | `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | none |
 
 `react/jsx-runtime` is not imported by this package. It is what `snapfirec` emits for a `.tsx` component compiled under `"jsx": "react-jsx"`, so an application with JSX components needs the entry even though its components carry no React import.
@@ -57,6 +58,8 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Mount React components | `reactMounter` from `@snapfire/fsr-client/react` |
 | Mount Vue components | `vueMounter` from `@snapfire/fsr-client/vue` |
 | Read the store as a Vue ref | `useStore` from `@snapfire/fsr-client/vue` |
+| Mount Svelte components | `svelteMounter` from `@snapfire/fsr-client/svelte` |
+| Read the store as a Svelte store | `useStore` from `@snapfire/fsr-client/svelte`, then `$count` |
 | Mount anything else | your own `Mounter` |
 | Take over link clicks and history | `enableNavigation` |
 | Warm a route before its link is clicked | `prefetch`, on by default for hovered, focused and touched links |
