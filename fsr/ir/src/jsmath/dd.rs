@@ -50,12 +50,6 @@ pub(super) fn add(a: Dd, b: Dd) -> Dd {
   exact_add(r.hi, r.lo + lo)
 }
 
-/// `a + b` renormalised for a double `b`.
-pub(super) fn add_scalar(a: Dd, b: f64) -> Dd {
-  let r = exact_add(a.hi, b);
-  exact_add(r.hi, r.lo + a.lo)
-}
-
 /// `a / b` to about 104 bits.
 pub(super) fn div(a: Dd, b: Dd) -> Dd {
   let q = 1.0 / b.hi;

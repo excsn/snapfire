@@ -11,8 +11,6 @@ pub(super) struct Dyadic {
 }
 
 impl Dyadic {
-  pub(super) const ZERO: Dyadic = Dyadic { neg: false, exp: 0, mant: 0 };
-
   pub(super) const fn new(neg: bool, exp: i32, mant: u128) -> Self {
     let mut d = Dyadic { neg, exp, mant };
     if mant != 0 {
@@ -103,10 +101,6 @@ pub(super) fn quick_add(mut a: Dyadic, mut b: Dyadic) -> Dyadic {
   }
   let result = if a.mant >= b.mant { Dyadic { neg: a.neg, exp: a.exp, mant: a.mant - b.mant } } else { Dyadic { neg: b.neg, exp: b.exp, mant: b.mant - a.mant } };
   Dyadic::new(result.neg, result.exp, result.mant)
-}
-
-pub(super) fn quick_sub(a: Dyadic, b: Dyadic) -> Dyadic {
-  quick_add(a, b.negated())
 }
 
 pub(super) fn quick_mul(a: Dyadic, b: Dyadic) -> Dyadic {

@@ -1,6 +1,6 @@
 //! `Math.sin` and `Math.cos` against what V8 computes and at the values JavaScript defines exactly.
 
-use snapfire_fsr_ir::jsmath::{acos, asin, atan, atan2, cbrt, cos, exp, expm1, log, log10, log1p, log2, sin, tan};
+use snapfire_fsr_ir::jsmath::{acos, acosh, asin, asinh, atan, atan2, atanh, cbrt, cos, cosh, exp, expm1, log, log10, log1p, log2, sin, sinh, tan};
 
 fn same(ours: f64, theirs: f64) -> bool {
   ours.to_bits() == theirs.to_bits() || (ours.is_nan() && theirs.is_nan())
@@ -108,6 +108,11 @@ const V8_DIGESTS: &[(&str, [&str; 5])] = &[
   ("log2", ["4ec0ffe09fe42099", "f05bbe1ea23fdf78", "fc143f73a3de6345", "33ced0cf17552d0d", "d587cb521cdbb91a"]),
   ("log10", ["58cdc82bdba3027d", "b7ab98dffadea09e", "6cfca582aa4bb449", "64564f86678435b6", "d8636eefad8bf29f"]),
   ("log1p", ["046d67b2e89fffe9", "e8c853725da6cbca", "3455bd7efea65e2e", "9312411eed3b9236", "2b2e5379f03ab3ab"]),
+  ("sinh", ["08c99abcd6dff65c", "7421e1640c30714c", "d04a10360b9df712", "5a31cb4f2c133041", "401af6dbd26476cf"]),
+  ("cosh", ["9d45ba689df6c167", "c940c5857021796d", "0e227599d8a4c18c", "cf571498b8f72200", "a9046e29187bfc8a"]),
+  ("asinh", ["bc5ae0e19b8adde3", "433ff1239f476845", "f0019c3c5a049ab7", "251fc910d806343e", "51d12a5f1ebaacf3"]),
+  ("acosh", ["bfe49b677258779f", "8c047c3bd05e4289", "798092fb2bf062eb", "4df2de440315fb0a", "1dae03d7cf2685b7"]),
+  ("atanh", ["1b26f56f8a75cbdd", "579dab61652051e2", "2789f4748999aab3", "62a76f0ef38f15da", "38964e4bf119c853"]),
   ("cbrt", ["c10f3070024fb0ee", "351cda7ec6fa370a", "bc4c4630678bd4ef", "c03a1b04ff298eee", "75a2ec558157a79d"]),
   ("asin", ["2f576aa6ab901f38", "d3c124e1b66ec3b0", "31608ee98ba1f594", "8452424cce6999e1", "eea7a189428fc5a1"]),
   ("acos", ["eac148242226ccb6", "e6d36f20bcf77ff6", "63f237259b8fc6c5", "624eb7762b0205ef", "cb21746ff3620734"]),
@@ -132,6 +137,11 @@ fn every_function_answers_what_v8_answers_over_half_a_million_inputs() {
       "log2" => Box::new(unary(log2)),
       "log10" => Box::new(unary(log10)),
       "log1p" => Box::new(unary(log1p)),
+      "sinh" => Box::new(unary(sinh)),
+      "cosh" => Box::new(unary(cosh)),
+      "asinh" => Box::new(unary(asinh)),
+      "acosh" => Box::new(unary(acosh)),
+      "atanh" => Box::new(unary(atanh)),
       "cbrt" => Box::new(unary(cbrt)),
       "asin" => Box::new(unary(asin)),
       "acos" => Box::new(unary(acos)),
@@ -146,4 +156,28 @@ fn every_function_answers_what_v8_answers_over_half_a_million_inputs() {
       assert_eq!(digest(name, seed as u32 + 1, 100_000, &*f), *expected, "{name} seed {}", seed + 1);
     }
   }
+}
+
+#[test]
+fn every_function_answers_what_v8_answers_at_special_values() {
+  let one: &[(&str, fn(f64) -> f64)] = &[
+    ("sin", sin), ("cos", cos), ("tan", tan), ("asin", asin), ("acos", acos), ("atan", atan), ("sinh", sinh), ("cosh", cosh), ("asinh", asinh),
+    ("acosh", acosh), ("atanh", atanh), ("exp", exp), ("expm1", expm1), ("log", log), ("log2", log2), ("log10", log10), ("log1p", log1p), ("cbrt", cbrt),
+  ];
+  let bits = |h: &str| f64::from_bits(u64::from_str_radix(h, 16).expect("hex bits"));
+  let mut checked = 0;
+  for line in include_str!("fixtures/math_specials.txt").lines().filter(|line| !line.starts_with('#')) {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    let (ours, theirs) = match parts.as_slice() {
+      ["atan2", y, x, r] => (atan2(bits(y), bits(x)), bits(r)),
+      [name, x, r] => {
+        let f = one.iter().find(|(n, _)| n == name).unwrap_or_else(|| panic!("{name}")).1;
+        (f(bits(x)), bits(r))
+      }
+      _ => panic!("{line}"),
+    };
+    assert!(same(ours, theirs), "{line}: ours {:016x}", ours.to_bits());
+    checked += 1;
+  }
+  assert_eq!(checked, 2035);
 }

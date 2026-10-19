@@ -18,6 +18,7 @@ mod dd;
 mod dyadic;
 mod exp;
 mod exp_tables;
+mod hyperbolic;
 mod ln_tables;
 mod log;
 mod log10_tables;
@@ -103,4 +104,29 @@ pub fn log10(x: f64) -> f64 {
 /// `Math.log1p(x)`.
 pub fn log1p(x: f64) -> f64 {
   log::log1p(x)
+}
+
+/// `Math.sinh(x)`.
+pub fn sinh(x: f64) -> f64 {
+  hyperbolic::sinh(x)
+}
+
+/// `Math.cosh(x)`.
+pub fn cosh(x: f64) -> f64 {
+  hyperbolic::cosh(x)
+}
+
+/// `Math.asinh(x)`.
+pub fn asinh(x: f64) -> f64 {
+  hyperbolic::asinh(x)
+}
+
+/// `Math.acosh(x)`.
+pub fn acosh(x: f64) -> f64 {
+  hyperbolic::acosh(x)
+}
+
+/// `Math.atanh(x)`.
+pub fn atanh(x: f64) -> f64 {
+  hyperbolic::atanh(x)
 }
