@@ -1258,6 +1258,7 @@ const odd = NaN;
 <template>
   <ul><li v-for="t in todos" :key="t.id">{{ t.id }} {{ t.text }}</li></ul>
   <p>{{ id }} {{ powers.join() }} {{ odd }} {{ Math.max(...powers) }}</p>
+  <p>{{ +"5" + 10 }} {{ +"" }} {{ +" 3 " }} {{ +true }} {{ +"x" }} {{ +id }}</p>
 </template>
 "#;
   let dir = app("counters", &[("src/ui/Todos.vue", source)]);

@@ -2889,6 +2889,8 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }
     Builtin::Pow => whole(js_pow(number(name, arg(0)?)?, number(name, arg(1)?)?)),
     Builtin::Sqrt => whole(number(name, arg(0)?)?.sqrt()),
+    Builtin::Sin => whole(crate::jsmath::sin(number(name, arg(0)?)?)),
+    Builtin::Cos => whole(crate::jsmath::cos(number(name, arg(0)?)?)),
     Builtin::Trunc => whole(number(name, arg(0)?)?.trunc()),
     Builtin::Sign => {
       let n = number(name, arg(0)?)?;

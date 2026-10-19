@@ -473,6 +473,15 @@ fn an_intl_formatter_kept_in_a_name_formats_where_the_template_calls_it() {
 }
 
 #[test]
+fn sine_cosine_and_math_constants_print_what_v8_prints() {
+  let source = "<script>let { n } = $props();</script><p>{Math.sin(Math.PI)} {Math.cos(Math.PI)} {Math.cos(Math.PI / 2)} {Math.sin(n)} {Math.cos(n * 1e300)}</p><p>{Math.PI} {Math.E} {Math.LN2} {Math.LN10} {Math.LOG2E} {Math.LOG10E} {Math.SQRT2} {Math.SQRT1_2}</p>";
+  assert_eq!(
+    ours("trig", source, &props(&[("n", Value::F64(0.5))])),
+    "<!--[--><p>1.2246467991473532e-16 -1 6.123233995736766e-17 0.479425538604203 0.46076777667413493</p><p>3.141592653589793 2.718281828459045 0.6931471805599453 2.302585092994046 1.4426950408889634 0.4342944819032518 1.4142135623730951 0.7071067811865476</p><!--]-->"
+  );
+}
+
+#[test]
 fn a_list_formatter_joins_as_the_locale_joins() {
   let source = "<script>let { flavours } = $props(); const formatter = new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' });</script><p>{formatter.format(flavours)}</p><p>{new Intl.ListFormat('en', { type: 'disjunction' }).format(flavours.slice(0, 2))}</p>";
   assert_eq!(ours("list-formatter", source, &props(&[("flavours", Value::seq(vec![s("Mint"), s("Fudge"), s("Ripple")]))])), "<!--[--><p>Mint, Fudge and Ripple</p><p>Mint or Fudge</p><!--]-->");

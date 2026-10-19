@@ -1781,6 +1781,7 @@ impl<'a> Lowerer<'a> {
           js::Expr::Lit(js::Lit::BigInt(b)) => Ok(Expr::Lit(Lit::Int(-self.bigint(b)?))),
           other => Ok(Expr::Arith(ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(self.expr(other)?))),
         },
+        js::UnaryOp::Plus => Ok(Expr::Num(Box::new(self.expr(&u.arg)?))),
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
@@ -1918,6 +1919,25 @@ impl<'a> Lowerer<'a> {
     };
 
     if let js::Expr::Ident(id) = &*member.obj {
+      if id.sym.as_ref() == "Math" && !self.scope.iter().any(|(n, _)| n == "Math") && !self.globals.iter().any(|(n, _)| n == "Math") {
+        if let js::MemberProp::Ident(name) = &member.prop {
+          use std::f64::consts;
+          let value = match name.sym.as_ref() {
+            "PI" => Some(consts::PI),
+            "E" => Some(consts::E),
+            "LN2" => Some(consts::LN_2),
+            "LN10" => Some(consts::LN_10),
+            "LOG2E" => Some(consts::LOG2_E),
+            "LOG10E" => Some(consts::LOG10_E),
+            "SQRT2" => Some(consts::SQRT_2),
+            "SQRT1_2" => Some(consts::FRAC_1_SQRT_2),
+            _ => None,
+          };
+          if let Some(value) = value {
+            return Ok(Expr::Lit(Lit::Float(value)));
+          }
+        }
+      }
       if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) {
         match self.root_of(id) {
           Some(Root::Params) => {
@@ -2242,6 +2262,8 @@ impl<'a> Lowerer<'a> {
               "max" => Builtin::Max,
               "pow" => Builtin::Pow,
               "sqrt" => Builtin::Sqrt,
+              "sin" => Builtin::Sin,
+              "cos" => Builtin::Cos,
               "trunc" => Builtin::Trunc,
               "sign" => Builtin::Sign,
               _ => return Err(self.residue(member.span, format!("`Math.{method}`"))),

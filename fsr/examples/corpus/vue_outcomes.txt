@@ -30,8 +30,8 @@ examples-modal-composition	client: src/App.vue:15:3 `<Teleport>` to a target; Vu
 examples-modal-options	client: src/App.vue:23:3 `<Teleport>` to a target; Vue's server writes its content beside the page for the target rather than in place, which the build does not collect
 examples-simple-component-composition	lowered
 examples-simple-component-options	lowered
-examples-svg-composition	client: src/App.vue:40:5 `<PolyGraph>` does not lower: src/util.js:4:19: `Math` is not bound here; an import the build cannot follow or a name from outside the body
-examples-svg-options	client: src/App.vue:46:5 `<PolyGraph>` does not lower: src/util.js:4:19: `Math` is not bound here; an import the build cannot follow or a name from outside the body
+examples-svg-composition	lowered
+examples-svg-options	lowered
 examples-temperature-converter-composition	lowered
 examples-temperature-converter-options	lowered
 examples-timer-composition	client: src/App.vue:10:5 a declaration without a value
