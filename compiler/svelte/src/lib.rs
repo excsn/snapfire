@@ -53,7 +53,7 @@ enum Ask {
   Version(Sender<Result<String, SvelteError>>),
   Run { kind: Kind, filename: String, source: String, options: Options, reply: Sender<Result<Outcome, SvelteError>> },
   Ssr { filename: String, source: String, reply: Sender<Result<Outcome, SvelteError>> },
-  Render { entry: String, modules: BTreeMap<String, String>, props: String, runtime: PathBuf, reply: Sender<Result<String, SvelteError>> },
+  Render { entry: String, modules: BTreeMap<String, String>, props: String, children: Option<String>, runtime: PathBuf, reply: Sender<Result<String, SvelteError>> },
 }
 
 /// One QuickJS context holding the compiler, owned by the thread it runs on.
@@ -107,16 +107,18 @@ impl Compiler {
   }
 
   /// The body `svelte/server`'s `render` writes for the component `entry`
-  /// names, given `props` as JSON. `modules` holds what `ssr_module` answered
+  /// names, given `props` as JSON and `children`, when given, as markup the
+  /// `children` snippet writes. `modules` holds what `ssr_module` answered
   /// for it and for each component it imports, by an absolute path such as
-  /// `/src/ui/Card.svelte`, which a relative import between them resolves
-  /// against. `runtime` is a directory laid out as [`SERVER_RUNTIME`] reads
-  /// it, since the plugin carries a compiler and no runtime.
-  pub fn render_module(&self, entry: &str, modules: &BTreeMap<String, String>, props: &str, runtime: &Path) -> Result<String, SvelteError> {
+  /// `/src/ui/Card.svelte` that a relative import between them resolves
+  /// against. Any other module a component imports is keyed by its bare
+  /// specifier. `runtime` is a directory laid out as [`SERVER_RUNTIME`]
+  /// reads it, since the plugin carries a compiler and no runtime.
+  pub fn render_module(&self, entry: &str, modules: &BTreeMap<String, String>, props: &str, children: Option<&str>, runtime: &Path) -> Result<String, SvelteError> {
     let (reply, answer) = channel();
     self
       .asks
-      .send(Ask::Render { entry: entry.to_owned(), modules: modules.clone(), props: props.to_owned(), runtime: runtime.to_path_buf(), reply })
+      .send(Ask::Render { entry: entry.to_owned(), modules: modules.clone(), props: props.to_owned(), children: children.map(str::to_owned), runtime: runtime.to_path_buf(), reply })
       .map_err(|_| gone())?;
     answer.recv().map_err(|_| gone())?
   }
@@ -190,8 +192,8 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), SvelteError>>) {
       Ask::Ssr { filename, source, reply } => {
         let _ = reply.send(engine.ssr_module(&filename, &source));
       }
-      Ask::Render { entry, modules, props, runtime, reply } => {
-        let _ = reply.send(engine.render_module(&entry, modules, &props, &runtime));
+      Ask::Render { entry, modules, props, children, runtime, reply } => {
+        let _ = reply.send(engine.render_module(&entry, modules, &props, children.as_deref(), &runtime));
       }
     }
   }
@@ -234,17 +236,18 @@ impl Engine {
 
   /// Each render names its modules under a prefix of its own, since QuickJS
   /// keeps a module it loaded for the rest of the runtime's life.
-  fn render_module(&self, entry: &str, modules: BTreeMap<String, String>, props: &str, runtime: &Path) -> Result<String, SvelteError> {
+  fn render_module(&self, entry: &str, modules: BTreeMap<String, String>, props: &str, children: Option<&str>, runtime: &Path) -> Result<String, SvelteError> {
     let n = self.rendered.get() + 1;
     self.rendered.set(n);
     let prefix = format!("/render-{n}");
     let component = format!("{prefix}{entry}");
-    let modules = modules.into_iter().map(|(path, js)| (format!("{prefix}{path}"), js)).collect();
-    self.runtime.set_loader(RuntimeResolver { root: runtime.to_path_buf() }, RuntimeLoader { modules });
+    let bare: BTreeMap<String, String> = modules.keys().filter(|key| !key.starts_with('/')).map(|key| (key.clone(), format!("{prefix}/@bare/{key}"))).collect();
+    let modules = modules.into_iter().map(|(key, js)| (bare.get(&key).cloned().unwrap_or_else(|| format!("{prefix}{key}")), js)).collect();
+    self.runtime.set_loader(RuntimeResolver { root: runtime.to_path_buf(), bare }, RuntimeLoader { modules });
     self.context.with(|ctx| -> Result<String, SvelteError> {
       let render: Function = ctx.globals().get("__svelte_render").map_err(|e| threw(&ctx, e))?;
       let props = ctx.json_parse(props).map_err(|e| threw(&ctx, e))?;
-      let promise: Promise = render.call((component.as_str(), props)).map_err(|e| threw(&ctx, e))?;
+      let promise: Promise = render.call((component.as_str(), props, children)).map_err(|e| threw(&ctx, e))?;
       promise.finish::<String>().map_err(|e| threw(&ctx, e))
     })
   }
@@ -268,6 +271,8 @@ impl Engine {
 /// against the importing file.
 struct RuntimeResolver {
   root: PathBuf,
+  /// The bare specifiers a render was handed modules for, with the names they load under.
+  bare: BTreeMap<String, String>,
 }
 
 impl Resolver for RuntimeResolver {
@@ -278,6 +283,9 @@ impl Resolver for RuntimeResolver {
     }
     if name.starts_with('/') {
       return Ok(name.to_owned());
+    }
+    if let Some(loaded) = self.bare.get(name) {
+      return Ok(loaded.clone());
     }
     match SERVER_RUNTIME.iter().find(|(specifier, _)| *specifier == name) {
       Some((_, rel)) => Ok(normalise(&self.root.join(rel))),

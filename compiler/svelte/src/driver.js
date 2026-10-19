@@ -103,10 +103,15 @@
     }
   };
 
-  /** The body `svelte/server`'s `render` writes for the component module `name` given `props`. */
-  globalThis.__svelte_render = async function (name, props) {
+  /**
+   * The body `svelte/server`'s `render` writes for the component module
+   * `name` given `props`. `children`, when given, is the region the client's
+   * mounter hands a component as its `children` snippet.
+   */
+  globalThis.__svelte_render = async function (name, props, children) {
     const { render } = await import("svelte/server");
     const component = (await import(name)).default;
+    if (children != null) props = { ...props, children: ($$renderer) => $$renderer.push("<sf-s data-sf-children>" + children + "</sf-s>") };
     return render(component, { props }).body;
   };
 

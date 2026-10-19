@@ -12,6 +12,7 @@ mod meaning;
 mod placements;
 pub mod schema;
 pub mod testing;
+pub mod svelte;
 pub mod vue;
 
 use component::FunctionBody;

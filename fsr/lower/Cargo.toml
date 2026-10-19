@@ -32,6 +32,7 @@ snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
 futures = "0.3"
 snapfire_vue = { path = "../../compiler/vue" }
+snapfire_svelte = { path = "../../compiler/svelte" }
 snapfire_fsr_mdx = { workspace = true, features = ["highlight", "frontmatter"] }
 
 [dev-dependencies.swc_core]

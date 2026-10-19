@@ -120,6 +120,8 @@
       trimmed.push({ type: "Comment", data: "", start: -1, end: -1 });
     }
     const standalone =
+      parent.type !== "RegularElement" &&
+      parent.type !== "SvelteElement" &&
       trimmed.length === 1 &&
       ((first.type === "RenderTag" && !first.__dynamic) || (first.type === "Component" && !first.__dynamic && !first.attributes.some((a) => a.type === "Attribute" && a.name.startsWith("--"))));
     const text_first = TEXT_FIRST_PARENTS.has(parent.type) && !!first && (first.type === "Text" || first.type === "ExpressionTag");

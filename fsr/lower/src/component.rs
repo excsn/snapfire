@@ -896,7 +896,10 @@ impl ComponentSet {
     let result = match is_foreign(file) && self.described.contains_key(file) {
       true => {
         self.resolving.push(module.to_owned());
-        let result = self.lower_vue(file, export);
+        let result = match file.ends_with(".svelte") {
+          true => self.lower_svelte(file, export),
+          false => self.lower_vue(file, export),
+        };
         self.resolving.pop();
         result
       }
@@ -1541,6 +1544,75 @@ impl ComponentSet {
       }
       if let Some(stray) = child.attrs.iter().find(|a| !declared.contains(a)) {
         return Err(at(format!("`{stray}` on `<{}>`, which it does not declare as a prop, so Vue would fall it through onto its root element", child.local)));
+      }
+      modules.insert(child.local, target);
+    }
+    if !modules.is_empty() {
+      component.render = rewrite_modules(component.render, &modules, &HashMap::new());
+    }
+    self.keys.insert(module.clone(), false);
+    self.pure.insert(module.clone(), false);
+    self.stateless.insert(module, component.state.is_empty());
+    Ok(component)
+  }
+
+  /// A Svelte component the plugin described, lowered through the Svelte front end the way `lower_vue` lowers a Vue one.
+  fn lower_svelte(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
+    if export != "default" {
+      return Err(LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() });
+    }
+    let module = format!("{file}#{export}");
+    let described = self.described.get(file).cloned().expect("a described file");
+    self.parse_described(file, &described)?;
+    self.meanings(file);
+    let mut globals: Vec<(String, Expr)> = Vec::new();
+    let mut global_kinds = Vec::new();
+    let component = loop {
+      let (result, unbound) = {
+        let parsed = self.parsed[file].clone();
+        let defaults = self.defaults.clone();
+        let mut lowerer = Lowerer::new(&parsed, &defaults);
+        lowerer.globals = globals.clone();
+        lowerer.global_kinds = global_kinds.clone();
+        lowerer.natives = self.natives.clone();
+        lowerer.render_path = true;
+        let mut vue = crate::svelte::SvelteLowerer::new(lowerer, &described, self.assets.clone());
+        let result = vue.component();
+        let result = match result {
+          Err(residue) if vue.lowerer.reach_violation => return Err(LowerError::Reach(residue)),
+          other => other,
+        };
+        if result.is_ok() && !vue.heads.is_empty() {
+          self.heads.insert(module.clone(), std::mem::take(&mut vue.heads));
+        }
+        let result = result.map(|component| (component, std::mem::take(&mut vue.child_refs)));
+        (result, vue.lowerer.unbound.take())
+      };
+      match result {
+        Ok(component) => break component,
+        Err(residue) => {
+          let Some(name) = unbound else { return Err(residue.into()) };
+          if globals.iter().any(|(n, _)| *n == name) {
+            return Err(residue.into());
+          }
+          let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
+          if let Some(kind) = self.global_kind(file, &name)? {
+            global_kinds.push((name.clone(), kind));
+          }
+          let expr = self.name_if_large(key, expr);
+          globals.push((name, expr));
+        }
+      }
+    };
+    let (mut component, children) = component;
+    let mut modules: HashMap<String, String> = HashMap::new();
+    for child in children {
+      let at = |message: String| LowerError::Residue(Residue { file: file.to_owned(), line: child.line, column: child.column, message, hint: None, via: Vec::new() });
+      let (target, _) = self.component_module(file, &child.local).map_err(at)?;
+      match self.lower(&target) {
+        Ok(()) => {}
+        Err(LowerError::Residue(residue)) => return Err(at(format!("`<{}>` does not lower: {}:{}:{}: {}", child.local, residue.file, residue.line, residue.column, residue.message))),
+        Err(other) => return Err(other),
       }
       modules.insert(child.local, target);
     }

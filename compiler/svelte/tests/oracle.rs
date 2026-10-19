@@ -21,7 +21,7 @@ fn render(compiler: &Compiler, components: &[(&str, &str)], props: &str) -> Stri
     modules.insert(format!("/{path}"), js);
   }
   let entry = format!("/{}", components[0].0);
-  compiler.render_module(&entry, &modules, props, &runtime()).unwrap_or_else(|e| panic!("{e}"))
+  compiler.render_module(&entry, &modules, props, None, &runtime()).unwrap_or_else(|e| panic!("{e}"))
 }
 
 #[test]

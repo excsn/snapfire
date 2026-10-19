@@ -102,6 +102,8 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr-authoring/template", "use", Construct::Hook("use")),
   ("@snapfire/fsr-client/vue", "useStore", Construct::Hook("useStore")),
   ("@snapfire/fsr-client/vue", "useLocale", Construct::Hook("useLocale")),
+  ("@snapfire/fsr-client/svelte", "useStore", Construct::Hook("useStore")),
+  ("@snapfire/fsr-client/svelte", "useLocale", Construct::Hook("useLocale")),
   ("@snapfire/fsr-client/store", "key", Construct::StoreKey),
   ("@snapfire/fsr-client", "key", Construct::StoreKey),
   ("@snapfire/fsr-client/store", "derive", Construct::Derive),
