@@ -151,6 +151,9 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   /// Each name a prop is bound to and the prop's key, so a prop holding a
   /// snippet renders and forwards the caller's content for that slot.
   prop_keys: Vec<(String, String)>,
+  /// The names the template's `{#await}` blocks read (`awaited`) and those of them holding a promise (`promises`).
+  awaited: Vec<String>,
+  promises: Vec<String>,
 }
 
 impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
@@ -178,7 +181,7 @@ impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
 
 impl<'a, 'p> SvelteLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new() }
+    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -192,6 +195,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let fragment = template.fragment.clone();
     self.template = Some(template);
     self.lets.push(Stmt::Let { name: PROPS.to_owned(), expr: props_with_slots() });
+    awaited_names(value, &mut self.awaited);
     let reads_slots = value.to_string().contains("$$slots") || self.described.script.as_ref().is_some_and(|s| s.content.contains("$$slots"));
     if reads_slots {
       let filled = Expr::lambda(&["e@"], cmp(CompareOp::Eq, Expr::Index(Box::new(var("e@")), Box::new(int(1))), Expr::Lit(Lit::Bool(true))));
@@ -347,6 +351,30 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     }
   }
 
+  /// Whether `name`, which the template awaits, holds a promise: its value,
+  /// under `$state` when it is wrapped in one, is a call the build cannot
+  /// lower. Svelte's server writes the pending branch for it.
+  fn promised(&mut self, name: &str, init: &'p js::Expr) -> bool {
+    if !self.awaited.iter().any(|awaited| awaited == name) {
+      return false;
+    }
+    let value = match unwrap_types(init) {
+      js::Expr::Call(call) if callee_name(call).as_deref() == Some("$state") => match call.args.first() {
+        Some(arg) => &*arg.expr,
+        None => return false,
+      },
+      other => other,
+    };
+    if !matches!(unwrap_types(value), js::Expr::Call(_)) {
+      return false;
+    }
+    let before = self.lowerer.scope.len();
+    let lowered = self.lowerer.expr(value);
+    self.lowerer.scope.truncate(before);
+    self.lowerer.unbound = None;
+    lowered.is_err()
+  }
+
   /// Whether a prop's expression is a function written out, which on the
   /// server is a handler the child runs in the browser.
   fn is_function(&self, code: &Code) -> bool {
@@ -458,6 +486,22 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
 
   fn declaration(&mut self, var: &'p js::VarDecl, runes: bool) -> Lowered<()> {
     for decl in &var.decls {
+      if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
+        let name = id.id.sym.to_string();
+        if self.promised(&name, init) {
+          self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Lit(Lit::Null) });
+          self.promises.push(name.clone());
+          self.bind(name.clone(), Expr::Var(name));
+          continue;
+        }
+        if let js::Expr::Call(call) = unwrap_types(init) {
+          if subscribed(call).is_some() {
+            self.subscription(call)?;
+            self.lowerer.browser_functions.push(name);
+            continue;
+          }
+        }
+      }
       let Some(init) = decl.init.as_deref() else {
         if let js::Pat::Ident(name) = &decl.name {
           let name = name.id.sym.to_string();
@@ -856,7 +900,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// expression the build cannot lower is taken for the promise the block
   /// is written for, which Svelte's server writes as its pending branch.
   fn await_block(&mut self, expression: &Code, value: Option<&Code>, pending: Option<&Fragment>, then: Option<&Fragment>, out: &mut Vec<Tmpl>) -> Lowered<()> {
-    let awaited = match self.expr(&expression.code, expression.at) {
+    let promise = self.promises.iter().any(|name| name == expression.code.trim());
+    let lowered = if promise { Err(self.at(expression.at.0, expression.at.1, "a promise")) } else { self.expr(&expression.code, expression.at) };
+    let awaited = match lowered {
       Ok(awaited) => awaited,
       Err(_) => {
         self.lowerer.unbound = None;
@@ -2106,6 +2152,24 @@ fn kept_declarations(text: &str, reserved: &[String]) -> String {
 fn reads_props_whole(template: &serde_json::Value, script: Option<&str>) -> bool {
   let text = template.to_string();
   ["$$props", "$$restProps"].iter().any(|name| text.contains(name) || script.is_some_and(|s| s.contains(name)))
+}
+
+/// The names the template's `{#await}` blocks read whole.
+fn awaited_names(template: &serde_json::Value, out: &mut Vec<String>) {
+  match template {
+    serde_json::Value::Object(map) => {
+      if map.get("type").and_then(|t| t.as_str()) == Some("await") {
+        if let Some(code) = map.get("expression").and_then(|e| e.get("code")).and_then(|c| c.as_str()) {
+          if is_identifier(code.trim()) {
+            out.push(code.trim().to_owned());
+          }
+        }
+      }
+      map.values().for_each(|v| awaited_names(v, out));
+    }
+    serde_json::Value::Array(items) => items.iter().for_each(|v| awaited_names(v, out)),
+    _ => {}
+  }
 }
 
 /// `$inspect(…).with(…)`, which only the browser runs.

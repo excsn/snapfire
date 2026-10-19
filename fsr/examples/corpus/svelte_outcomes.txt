@@ -48,7 +48,7 @@ examples-introduction-styling	lowered
 examples-lifecycle-ondestroy	client: src/App.svelte:5:5 a statement in a Svelte script the build cannot follow
 examples-lifecycle-onmount	lowered
 examples-lifecycle-tick	lowered
-examples-logic-await-blocks	client: src/App.svelte:6:27 a call to `fetch`, which the build cannot follow
+examples-logic-await-blocks	lowered
 examples-logic-each-blocks	lowered
 examples-logic-else-blocks	lowered
 examples-logic-else-if-blocks	lowered
@@ -76,7 +76,7 @@ examples-stores-auto-subscriptions	lowered
 examples-stores-custom-stores	lowered
 examples-stores-derived-stores	client: src/App.svelte:4:23 an `Intl` formatter kept as a value
 examples-stores-readable-stores	client: src/App.svelte:4:23 an `Intl` formatter kept as a value
-examples-stores-writable-stores	client: src/App.svelte:11:9 a write to `countValue`, which this body did not declare
+examples-stores-writable-stores	lowered
 examples-svg-area-chart	client: src/App.svelte:20:27 a call to `scaleLinear`, which the build cannot follow
 examples-svg-bar-chart	client: src/App.svelte:24:27 a call to `scaleLinear`, which the build cannot follow
 examples-svg-clock	client: src/App.svelte:4:23 the current time on a render path, which the server and the browser read at different moments
@@ -142,7 +142,7 @@ tutorial-svelte-introduction-nested-components	lowered
 tutorial-svelte-introduction-styling	lowered
 tutorial-svelte-introduction-welcome-to-svelte	lowered
 tutorial-svelte-introduction-your-first-component	lowered
-tutorial-svelte-logic-await-blocks	client: src/utils.js:5:9 a call for its effect, which a straight-line body cannot hold
+tutorial-svelte-logic-await-blocks	lowered
 tutorial-svelte-logic-each-blocks	lowered
 tutorial-svelte-logic-else-blocks	lowered
 tutorial-svelte-logic-else-if-blocks	lowered
