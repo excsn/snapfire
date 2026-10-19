@@ -186,7 +186,7 @@ fn an_awaited_run_inside_expect_reads_as_its_resolved_value() {
 }
 
 #[test]
-fn a_run_inside_a_helper_function_is_refused_saying_where_a_run_goes() {
+fn a_run_inside_a_helper_function_or_an_expression_is_refused_saying_where_a_run_goes() {
   let dir = app(&[
     ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
     ("routes/page.loader.ts", "export async function load() {\n  return { n: 2 };\n}\n"),
@@ -194,7 +194,11 @@ fn a_run_inside_a_helper_function_is_refused_saying_where_a_run_goes() {
   ]);
   let refused = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).map(|summary| summary.to_string()).unwrap_or_else(|e| e.to_string());
   assert!(refused.contains("tests/page.test.ts:6:"), "{refused}");
-  assert!(refused.contains("a run of `load` inside a function the test declares"), "{refused}");
+  assert!(refused.contains("a run of `load` inside a larger expression or a function the test declares"), "{refused}");
   assert!(!refused.contains("which the build cannot follow"), "{refused}");
+  std::fs::write(dir.join("tests/page.test.ts"), "import { load } from \"@routes/page.loader\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"a field of a run\", async () => {\n  const c = ctx({});\n  expect((await load(c)).n).toEqual(2);\n});\n").unwrap();
+  let refused = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).map(|summary| summary.to_string()).unwrap_or_else(|e| e.to_string());
+  assert!(refused.contains("tests/page.test.ts:6:"), "{refused}");
+  assert!(refused.contains("a run of `load` inside a larger expression"), "{refused}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }

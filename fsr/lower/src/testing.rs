@@ -645,8 +645,8 @@ impl<'a> Reader<'a> {
       let line = self.line(stmt.span());
       let step = tl.stmt(stmt).map_err(|residue| match tl.lowerer.unbound.take() {
         Some(name) if self.imports.iter().any(|(local, _)| *local == name) => Residue {
-          message: format!("a run of `{name}` inside a function the test declares"),
-          hint: Some(format!("a body test is lowered, so a run is a statement of the test, `const data = await {name}(c)`, or the value `expect` takes")),
+          message: format!("a run of `{name}` inside a larger expression or a function the test declares"),
+          hint: Some(format!("a body test is lowered, so a run stands alone: a statement, `const data = await {name}(c)`, or the whole value `expect` takes, `expect(await {name}(c))`")),
           ..residue
         },
         _ => residue,
