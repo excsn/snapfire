@@ -1,0 +1,70 @@
+examples-attribute-bindings-composition	lowered
+examples-attribute-bindings-options	client: src/App.vue:6:9 a `<script>` without `setup`
+examples-cells-composition	client: src/store.js:6:22 a call to `reactive`, which the build cannot follow
+examples-cells-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-circle-drawer-composition	lowered
+examples-circle-drawer-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-conditionals-and-loops-composition	lowered
+examples-conditionals-and-loops-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-counter-composition	lowered
+examples-counter-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-crud-composition	lowered
+examples-crud-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-fetching-data-composition	client: src/App.vue:44:9 `v-for` over `{ html_url`, a pattern; name the item and read its fields
+examples-fetching-data-options	client: src/App.vue:6:9 a `<script>` without `setup`
+examples-flight-booker-composition	client: src/App.vue:35:5 `.getFullYear()`, which reads the viewer's time zone
+examples-flight-booker-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-form-bindings-composition	lowered
+examples-form-bindings-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-grid-composition	client: src/App.vue:12:34 `Infinity` is not bound here; an import the build cannot follow or a name from outside the body
+examples-grid-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-handling-input-composition	lowered
+examples-handling-input-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-hello-world-composition	lowered
+examples-hello-world-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-list-transition-composition	client: src/App.vue:41:3 `<TransitionGroup>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
+examples-list-transition-options	client: src/App.vue:6:9 a `<script>` without `setup`
+examples-markdown-composition	client: src/App.vue:12:31 a call to `marked`, which the build cannot follow
+examples-markdown-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-modal-composition	client: src/App.vue:15:3 `<Teleport>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
+examples-modal-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-simple-component-composition	lowered
+examples-simple-component-options	client: src/App.vue:6:9 a `<script>` without `setup`
+examples-svg-composition	client: src/App.vue:40:5 `<PolyGraph>` does not lower: src/util.js:4:19: `Math` is not bound here; an import the build cannot follow or a name from outside the body
+examples-svg-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-temperature-converter-composition	lowered
+examples-temperature-converter-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-timer-composition	client: src/App.vue:10:5 a declaration without a value
+examples-timer-options	client: src/App.vue:5:9 a `<script>` without `setup`
+examples-tree-composition	client: src/App.vue:36:5 `<TreeItem>` does not lower: src/TreeItem.vue:44:7: `<TreeItem>`, a component the script does not import from a `.vue` file; the build lowers a Vue child and the browser mounts anything else
+examples-tree-options	client: src/App.vue:6:9 a `<script>` without `setup`
+tutorial-step-1-composition	lowered
+tutorial-step-1-options	lowered
+tutorial-step-10-composition	client: src/App.vue:15:1 a statement in `<script setup>` the build cannot follow
+tutorial-step-10-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-11-composition	lowered
+tutorial-step-11-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-12-composition	lowered
+tutorial-step-12-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-13-composition	client: src/App.vue:9:3 `<ChildComp>` does not lower: src/ChildComp.vue:4:1: a statement in `<script setup>` the build cannot follow
+tutorial-step-13-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-14-composition	lowered
+tutorial-step-14-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-15-composition	client: src/App.vue:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-step-15-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-2-composition	lowered
+tutorial-step-2-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-3-composition	lowered
+tutorial-step-3-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-4-composition	lowered
+tutorial-step-4-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-5-composition	lowered
+tutorial-step-5-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-6-composition	lowered
+tutorial-step-6-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-7-composition	client: src/App.vue:9:9 `++` or `--`, which mutate
+tutorial-step-7-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-8-composition	client: src/App.vue:9:9 `++` or `--`, which mutate
+tutorial-step-8-options	client: src/App.vue:1:9 a `<script>` without `setup`
+tutorial-step-9-composition	lowered
+tutorial-step-9-options	client: src/App.vue:1:9 a `<script>` without `setup`

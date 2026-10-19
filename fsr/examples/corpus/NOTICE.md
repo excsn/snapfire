@@ -15,3 +15,9 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+## vuejs.org
+
+The components under `vuejs_org/` are the code examples of the Vue documentation, vuejs.org, built from https://github.com/vuejs/docs at commit `40aa88af0094f7bab4aaf786e55c748a6a251d88` (2026-09-15), `src/examples/src` and `src/tutorial/src`. They are licensed under the Creative Commons Attribution 4.0 International License (CC-BY-4.0), https://creativecommons.org/licenses/by/4.0/, by Evan You and the Vue documentation contributors.
+
+The documentation keeps each component as a template, a Composition API script, an Options API script and a style. Each directory here is one example or one tutorial step as the documentation shows it as single-file components: assembled by a port of `resolveSFCExample` in `src/examples/utils.ts`, once with Composition API scripts as `<script setup>` (`-composition`) and once with Options API scripts (`-options`). A tutorial step takes its `_hint` files, the step's solution, over its own. Nothing else was changed.
