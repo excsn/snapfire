@@ -60,6 +60,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Read the store as a Vue ref | `useStore` from `@snapfire/fsr-client/vue` |
 | Mount Svelte components | `svelteMounter` from `@snapfire/fsr-client/svelte` |
 | Read the store as a Svelte store | `useStore` from `@snapfire/fsr-client/svelte`, then `$count` |
+| Place another framework's island in a Svelte component | `{@attach island(module, props)}` from `@snapfire/fsr-client/svelte` |
 | Mount anything else | your own `Mounter` |
 | Take over link clicks and history | `enableNavigation` |
 | Warm a route before its link is clicked | `prefetch`, on by default for hovered, focused and touched links |

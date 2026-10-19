@@ -459,6 +459,23 @@ A patch hands the component new props without remounting it, so a `$state` the c
 ```
 
 `useStore` hands back a Svelte store, so `$count` reads the key and `$count = …` writes it, in a legacy component as in a runes one. Every other island reading the key follows, whether React, Vue or Svelte mounts it.
+
+The entry is TypeScript, so its placements are helpers rather than components. `link` is an anchor's attributes, `picture` the image's parts and `island` an attachment that places another framework's island by module id:
+
+```svelte
+<script lang="ts">
+  import { island, link, picture } from "@snapfire/fsr-client/svelte";
+
+  let { label }: { label: string } = $props();
+  const image = picture({ src: "/pictures/shelf.png", alt: "shelf", width: 320, height: 200 });
+</script>
+
+<a {...link({ href: "/next" })}>next</a>
+<img {...image.img} />
+<div {@attach island("src/ui/Chart.tsx#default", { label })}></div>
+```
+
+When `label` changes, Svelte runs the attachment again and the chart is patched in place rather than mounted again.
 ## Writing a Mounter for Another Framework
 
 A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller and handed back to the entry's `Unmounter` when a navigation takes the marker out of the document, so return whatever the framework needs for teardown:

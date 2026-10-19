@@ -1,10 +1,14 @@
 import { createRawSnippet, hydrate, mount, unmount } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
-import { islandState, scan } from "./boot.js";
+import { discard, islandState, patchIsland, scan } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { get, set, subscribe } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
+import { linkAttributes } from "./link.js";
+import { pictureParts } from "./picture.js";
+import { embedParts } from "./embed.js";
+import { encodeValue } from "./values.js";
 const RUNTIME_PROPS = [
     "$h",
     "$k",
@@ -132,6 +136,45 @@ export function useLocale() {
             run(currentLocale());
             return subscribeLocale(run);
         }
+    };
+}
+export function link(options) {
+    return linkAttributes(options);
+}
+export function picture(options) {
+    return pictureParts(options);
+}
+export function embed(options) {
+    return embedParts(options);
+}
+let placed = 0;
+export function island(module, props = {}, when) {
+    return (element)=>{
+        let region = Array.from(element.children).find((child)=>child.tagName === "SF-S" && child.hasAttribute("data-sf-island"));
+        const mounted = region?.querySelector("sf-i");
+        if (region && mounted) {
+            void patchIsland(mounted, props);
+        } else {
+            region = document.createElement("sf-s");
+            region.setAttribute("data-sf-island", "");
+            if (when) region.setAttribute("data-sf-when", when);
+            const id = `sf-svelte-m${++placed}`;
+            const marker = document.createElement("sf-i");
+            marker.id = id;
+            marker.setAttribute("data-sf-module", module);
+            const script = document.createElement("script");
+            script.type = "application/json";
+            script.setAttribute("data-sf-props", id);
+            script.textContent = JSON.stringify(encodeValue(props));
+            region.append(marker, script);
+            element.append(region);
+            scan(region);
+        }
+        return ()=>{
+            queueMicrotask(()=>{
+                if (!element.isConnected) discard(element);
+            });
+        };
     };
 }
 //# sourceMappingURL=svelte.js.map

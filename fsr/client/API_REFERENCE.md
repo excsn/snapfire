@@ -119,6 +119,8 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [svelteUnmounter](#svelteunmounter)
   * [useStore (Svelte)](#usestore-svelte)
   * [useLocale (Svelte)](#uselocale-svelte)
+  * [link, picture and embed (Svelte)](#link-picture-and-embed-svelte)
+  * [island (Svelte)](#island-svelte)
 * [13. The JSX Element Builder](#13-the-jsx-element-builder)
   * [jsx and jsxs](#jsx-and-jsxs)
   * [Placements](#placements)
@@ -168,7 +170,7 @@ Eight ES module entry points, resolved through an import map. There is no packag
 | `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale` and the placement elements | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
 | `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
-| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `useStore`, `useLocale` | `svelte`, `svelte/reactivity` |
+| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `useStore`, `useLocale`, `link`, `picture`, `embed`, `island` | `svelte`, `svelte/reactivity` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 | `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
 | `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
@@ -1048,6 +1050,20 @@ A store key as a Svelte store: `$count` reads it (`initial` while nothing has se
 * `function useLocale(): { subscribe(run: (value: string) => void): () => void }`
 
 The document's locale as a readable Svelte store, `$locale`, following every navigation that changes it.
+
+### link, picture and embed (Svelte)
+
+* `function link(options: LinkOptions): Record<string, unknown>`
+* `function picture(options: PictureOptions): { img: Record<string, unknown>; sources: Record<string, unknown>[] | null }`
+* `function embed(options: EmbedOptions): { outer; button; still; title; play }`
+
+The parts the React and Vue `Link`, `Picture` and `Embed` render from, for markup a Svelte component writes itself, since this entry is TypeScript and defines no component. `link` is an anchor's attributes, spread with `<a {...link({ href })}>`. `picture` is the `<img>`'s attributes plus one set per `<source>`, `null` when the image policy derives no variants. `embed` is the attributes of the placeholder's wrapper, button, still, title and play mark.
+
+### island (Svelte)
+
+* `function island(module: string, props?: Props, when?: MountTiming): (element: Element) => () => void`
+
+An attachment placing an island another framework mounts, by module id: `<div {@attach island("src/ui/Chart.tsx#default", { label })}></div>`. It writes the same marker as the React and Vue `Mount` inside the element and scans it, so the registry entry decides the mounter. When the props change Svelte runs the attachment again, which patches the mounted island in place. When the element leaves the document the islands inside it are discarded.
 
 ## 13. The JSX Element Builder
 

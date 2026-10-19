@@ -1,11 +1,15 @@
 import { createRawSnippet, hydrate, mount, unmount, type Component } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 
-import { islandState, scan, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
+import { discard, islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
 import { morph } from "./server.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
+import { linkAttributes, type LinkOptions } from "./link.js";
+import { pictureParts, type PictureOptions } from "./picture.js";
+import { embedParts, type EmbedOptions } from "./embed.js";
+import { encodeValue } from "./values.js";
 
 /** What the server rides on an island's props for the runtime rather than the component. */
 const RUNTIME_PROPS = ["$h", "$k", "$s", "$sv"];
@@ -147,3 +151,60 @@ export function useLocale(): { subscribe: (run: (value: string) => void) => () =
     },
   };
 }
+
+/** The attributes of an anchor the navigator reads, to spread on an `<a>`: `<a {...link({ href: "/next" })}>`. */
+export function link(options: LinkOptions): Record<string, unknown> {
+  return linkAttributes(options);
+}
+
+/** The `<img>` and, when the image policy derives variants, the `<source>`s the server writes for the same options: an `<img {...parts.img}>` inside a `<picture>` holding one `<source>` per entry of `parts.sources`, or the `<img>` alone when `sources` is null. */
+export function picture(options: PictureOptions): { img: Record<string, unknown>; sources: Record<string, unknown>[] | null } {
+  return pictureParts(options);
+}
+
+/** The attributes of the placeholder the server writes for a video hosted elsewhere: a `<div {...parts.outer}>` holding a `<button {...parts.button}>` with the still, the title and the play mark. */
+export function embed(options: EmbedOptions): ReturnType<typeof embedParts> {
+  return embedParts(options);
+}
+
+/** Ids for the markers this module writes, which no server rendered. */
+let placed = 0;
+
+/**
+ * An island another framework mounts, placed by module id as an attachment:
+ * `<div {@attach island("src/ui/Chart.tsx#default", { label })}></div>`. The
+ * registry entry decides the mounter, so this writes the marker the boot
+ * runtime reads and never renders the island itself. When the props change
+ * Svelte runs the attachment again, which patches the mounted island in place.
+ * An element taken out of the document ends the islands inside it.
+ */
+export function island(module: string, props: Props = {}, when?: MountTiming): (element: Element) => () => void {
+  return (element) => {
+    let region = Array.from(element.children).find((child) => child.tagName === "SF-S" && child.hasAttribute("data-sf-island"));
+    const mounted = region?.querySelector("sf-i");
+    if (region && mounted) {
+      void patchIsland(mounted, props);
+    } else {
+      region = document.createElement("sf-s");
+      region.setAttribute("data-sf-island", "");
+      if (when) region.setAttribute("data-sf-when", when);
+      const id = `sf-svelte-m${++placed}`;
+      const marker = document.createElement("sf-i");
+      marker.id = id;
+      marker.setAttribute("data-sf-module", module);
+      const script = document.createElement("script");
+      script.type = "application/json";
+      script.setAttribute("data-sf-props", id);
+      script.textContent = JSON.stringify(encodeValue(props as never));
+      region.append(marker, script);
+      element.append(region);
+      scan(region);
+    }
+    return () => {
+      queueMicrotask(() => {
+        if (!element.isConnected) discard(element);
+      });
+    };
+  };
+}
+
