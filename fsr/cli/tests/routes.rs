@@ -415,6 +415,27 @@ fn a_svelte_island_whose_adapter_the_import_map_does_not_name_is_refused_with_th
 }
 
 #[test]
+fn the_modules_a_svelte_island_imports_are_compiled_for_the_browser_though_it_is_not_described() {
+  let page = placing("Chart.svelte");
+  let chart = "<script lang=\"ts\">\n  import { count } from \"@src/store\";\n  import { held } from \"./held.svelte.js\";\n  let n: number = count + held.n;\n</script>\n\n<p>{n}</p>\n";
+  let dir = app(&[
+    ("routes/page.tsx", &page),
+    ("src/ui/Chart.svelte", chart),
+    ("src/ui/held.svelte.ts", "export const held = $state({ n: 1 });\n"),
+    ("src/store.ts", "export const count = 2;\n"),
+  ]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/svelte":"/s","svelte":"/s","svelte/":"/s/"}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"5.57.2"}}}"#).unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let config = built.files.iter().find(|(name, _)| name == "tsconfig.build.json").map(|(_, text)| text.clone()).unwrap();
+  assert!(config.contains("\"src/store.ts\""), "{config}");
+  assert!(config.contains("\"src/ui/held.svelte.ts\""), "{config}");
+  let why: Vec<&str> = built.report.foreign.iter().filter(|cause| cause.pages.iter().any(|(module, _)| module == "src/ui/Chart.svelte#default")).map(|cause| cause.message.as_str()).collect();
+  assert!(why.iter().any(|message| message.contains("does not describe")), "{why:?}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn an_island_no_framework_claims_is_refused() {
   let page = placing("Chart.astro");
   let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.astro", "<p>chart</p>\n")]);

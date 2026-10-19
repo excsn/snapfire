@@ -208,3 +208,42 @@ fn a_compiler_path_that_holds_nothing_is_refused_by_name() {
   let Outcome::Failed { diagnostics } = compiler.compile("src/Card.svelte", CARD, &named, &Default::default()).expect("answers") else { panic!("refused") };
   assert!(diagnostics[0].message.contains(&missing), "{diagnostics:?}");
 }
+
+fn describe(source: &str) -> Outcome {
+  let compiler = Compiler::new().expect("the compiler boots");
+  compiler.describe("src/Card.svelte", source, &Options::default()).expect("the driver answers")
+}
+
+#[test]
+fn a_description_carries_the_scripts_where_they_stand_and_the_error_that_keeps_it_foreign() {
+  let source = "<script module>\n  import { a } from \"./a.js\";\n</script>\n\n<script lang=\"ts\">\n  import { b } from \"@src/b\";\n  let n: number = a + b;\n</script>\n\n<p>{n}</p>\n";
+  let Outcome::Described(described) = describe(source) else { panic!("not described") };
+  let script = described.script.expect("a script");
+  assert_eq!(script.lang, Lang::Ts);
+  assert_eq!((script.line, script.column), (1, 1));
+  assert_eq!(script.content.len(), source.len());
+  assert_eq!(script.content.lines().nth(1), Some("  import { a } from \"./a.js\";"));
+  assert_eq!(script.content.lines().nth(5), Some("  import { b } from \"@src/b\";"));
+  assert!(!script.content.contains("<p>") && !script.content.contains("script"), "{}", script.content);
+  assert!(described.template.is_none());
+  assert_eq!(described.diagnostics.len(), 1);
+  assert_eq!(described.diagnostics[0].severity, Severity::Error);
+  assert!(described.diagnostics[0].message.contains("does not describe a component yet"));
+}
+
+#[test]
+fn a_legacy_component_is_described_as_javascript_and_one_without_a_script_carries_none() {
+  let Outcome::Described(legacy) = describe(LEGACY) else { panic!("not described") };
+  assert_eq!(legacy.script.expect("a script").lang, Lang::Js);
+  let Outcome::Described(bare) = describe("<p>hi</p>\n") else { panic!("not described") };
+  assert!(bare.script.is_none());
+  assert_eq!(bare.diagnostics[0].severity, Severity::Error);
+}
+
+#[test]
+fn a_description_of_what_does_not_parse_or_a_style_it_cannot_carry_fails_with_the_cause() {
+  let Outcome::Failed { diagnostics } = describe("<p>{</p>\n") else { panic!("described a broken component") };
+  assert_eq!(diagnostics[0].line, Some(1));
+  let Outcome::Failed { diagnostics } = describe("<p>hi</p>\n<style lang=\"scss\">\n</style>\n") else { panic!("described scss") };
+  assert!(diagnostics[0].message.contains("lang=\"scss\""), "{diagnostics:?}");
+}

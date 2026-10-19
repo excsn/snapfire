@@ -86,7 +86,7 @@ fn serve() -> ExitCode {
       .map(|unit| {
         let answered = match request.kind {
           Kind::Compile => compiler.compile(&unit.filename, &unit.source, &unit.options, &unit.files),
-          Kind::Describe => Ok(Outcome::Failed { diagnostics: vec![Diagnostic::error("snapfirec-svelte does not describe a component yet; it renders in the browser").at(unit.filename.clone(), None, None)] }),
+          Kind::Describe => compiler.describe(&unit.filename, &unit.source, &unit.options),
         };
         match answered {
           Ok(outcome) => outcome,

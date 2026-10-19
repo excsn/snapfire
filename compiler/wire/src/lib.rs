@@ -200,7 +200,9 @@ pub struct Compiled {
 
 /// A component as its framework's parser reads it, before anything is
 /// compiled: what a host needs to lower the component to markup of its own
-/// instead of mounting it empty.
+/// instead of mounting it empty. One carrying an `Error` diagnostic is the
+/// script alone: the host follows what it imports and keeps the component
+/// foreign, giving the error as the reason.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Described {
   /// The template as a tree in the plugin's own shape. The wire carries it

@@ -10,7 +10,7 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 
 use rquickjs::{Context, Function, Runtime};
-use snapfire_compiler_wire::{Compiled, Diagnostic, Lang, Options, Outcome};
+use snapfire_compiler_wire::{Compiled, Described, Diagnostic, Kind, Lang, Options, Outcome, Script};
 
 /// `svelte/compiler` 5.57.2 as published, the compiler used when the host names none. Never edited here.
 const COMPILER: &str = include_str!("../vendor/compiler.js");
@@ -31,7 +31,7 @@ pub enum SvelteError {
 
 enum Ask {
   Version(Sender<Result<String, SvelteError>>),
-  Compile { filename: String, source: String, options: Options, reply: Sender<Result<Outcome, SvelteError>> },
+  Run { kind: Kind, filename: String, source: String, options: Options, reply: Sender<Result<Outcome, SvelteError>> },
 }
 
 /// One QuickJS context holding the compiler, owned by the thread it runs on.
@@ -64,10 +64,22 @@ impl Compiler {
   /// names it, so it should be relative to the project. A Svelte component
   /// reads no other file, so `files` is never consulted.
   pub fn compile(&self, filename: &str, source: &str, options: &Options, _files: &BTreeMap<String, String>) -> Result<Outcome, SvelteError> {
+    self.run(Kind::Compile, filename, source, options)
+  }
+
+  /// One component's scripts for a host that follows their imports. The
+  /// plugin does not describe a template yet, so the answer is always
+  /// `Described` with no template and one `Error` diagnostic saying so, or
+  /// `Failed` when the component does not parse.
+  pub fn describe(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, SvelteError> {
+    self.run(Kind::Describe, filename, source, options)
+  }
+
+  fn run(&self, kind: Kind, filename: &str, source: &str, options: &Options) -> Result<Outcome, SvelteError> {
     let (reply, answer) = channel();
     self
       .asks
-      .send(Ask::Compile { filename: filename.to_owned(), source: source.to_owned(), options: options.clone(), reply })
+      .send(Ask::Run { kind, filename: filename.to_owned(), source: source.to_owned(), options: options.clone(), reply })
       .map_err(|_| gone())?;
     answer.recv().map_err(|_| gone())?
   }
@@ -104,9 +116,9 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), SvelteError>>) {
       Ask::Version(reply) => {
         let _ = reply.send(engine.version());
       }
-      Ask::Compile { filename, source, options, reply } => {
+      Ask::Run { kind, filename, source, options, reply } => {
         let answered = match &options.compiler {
-          None => engine.compile(&filename, &source, &options),
+          None => engine.run(kind, &filename, &source, &options),
           Some(path) => match std::fs::read_to_string(path) {
             Err(e) => Ok(Outcome::Failed { diagnostics: vec![Diagnostic::error(format!("the Svelte compiler `{path}` could not be read: {e}")).at(filename.clone(), None, None)] }),
             Ok(text) => {
@@ -121,7 +133,7 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), SvelteError>>) {
                 }),
               };
               match booted {
-                Ok(()) => named[&key].compile(&filename, &source, &options),
+                Ok(()) => named[&key].run(kind, &filename, &source, &options),
                 Err(e) => Ok(Outcome::Failed { diagnostics: vec![Diagnostic::error(format!("the Svelte compiler `{path}` would not boot: {e}")).at(filename.clone(), None, None)] }),
               }
             }
@@ -158,9 +170,13 @@ impl Engine {
     })
   }
 
-  fn compile(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, SvelteError> {
+  fn run(&self, kind: Kind, filename: &str, source: &str, options: &Options) -> Result<Outcome, SvelteError> {
+    let entry = match kind {
+      Kind::Compile => "__svelte_compile",
+      Kind::Describe => "__svelte_describe",
+    };
     let answer = self.context.with(|ctx| -> Result<String, SvelteError> {
-      let function: Function = ctx.globals().get("__svelte_compile").map_err(|e| threw(&ctx, e))?;
+      let function: Function = ctx.globals().get(entry).map_err(|e| threw(&ctx, e))?;
       let options = serde_json::to_string(options).map_err(|e| SvelteError::Js(e.to_string()))?;
       let options = ctx.json_parse(options).map_err(|e| threw(&ctx, e))?;
       function.call((filename, source, options)).map_err(|e| threw(&ctx, e))
@@ -182,11 +198,14 @@ fn decode(answer: &str, filename: &str) -> Result<Outcome, SvelteError> {
     #[serde(default)]
     source_map: Option<String>,
     #[serde(default)]
+    script: Option<Script>,
+    #[serde(default)]
     diagnostics: Vec<Diagnostic>,
   }
   let answer: Answer = serde_json::from_str(answer).map_err(|e| SvelteError::Js(format!("{filename}: the driver answered {e}")))?;
   match answer.status.as_str() {
     "ok" => Ok(Outcome::Ok(Compiled { js: answer.js, lang: Lang::Js, css: answer.css, source_map: answer.source_map, deps: Vec::new(), diagnostics: answer.diagnostics })),
+    "described" => Ok(Outcome::Described(Described { template: None, script: answer.script, bindings: Default::default(), scope: None, slotted: false, deps: Vec::new(), diagnostics: answer.diagnostics })),
     _ => {
       let diagnostics = match answer.diagnostics.is_empty() {
         true => vec![Diagnostic::error("the component did not compile").at(filename, None, None)],

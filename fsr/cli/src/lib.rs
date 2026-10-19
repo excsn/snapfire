@@ -3074,14 +3074,14 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report, plu
       let mut again = Vec::new();
       for (mut unit, outcome) in units.into_iter().zip(outcomes) {
         match outcome {
-          Outcome::Described(described) => set.describe(unit.filename, described),
-          Outcome::Failed { diagnostics } => {
-            let why = diagnostics.iter().map(|d| match (d.line, d.column) {
-              (Some(line), Some(column)) => format!("{line}:{column}: {}", d.message),
-              _ => d.message.clone(),
-            }).collect::<Vec<_>>().join("; ");
-            set.undescribed(unit.filename, why);
+          Outcome::Described(described) if described.diagnostics.iter().any(|d| d.severity == snapfire_compiler_wire::Severity::Error) => {
+            if let Some(script) = described.script {
+              set.script_only(unit.filename.clone(), script);
+            }
+            set.undescribed(unit.filename, refusal(described.diagnostics.iter().filter(|d| d.severity == snapfire_compiler_wire::Severity::Error)));
           }
+          Outcome::Described(described) => set.describe(unit.filename, described),
+          Outcome::Failed { diagnostics } => set.undescribed(unit.filename, refusal(&diagnostics)),
           Outcome::Needs { files } => {
             if round == 1 {
               set.undescribed(unit.filename, format!("{} asked for {} again after being given it", plugins.name(ext), files.join(", ")));
@@ -3112,6 +3112,17 @@ fn describe_foreign(app: &Path, set: &mut ComponentSet, report: &mut Report, plu
     }
   }
   Ok(())
+}
+
+fn refusal<'a>(diagnostics: impl IntoIterator<Item = &'a snapfire_compiler_wire::Diagnostic>) -> String {
+  diagnostics
+    .into_iter()
+    .map(|d| match (d.line, d.column) {
+      (Some(line), Some(column)) => format!("{line}:{column}: {}", d.message),
+      _ => d.message.clone(),
+    })
+    .collect::<Vec<_>>()
+    .join("; ")
 }
 
 fn collect_plugin_files(dir: &Path, into: &mut std::collections::BTreeMap<&'static str, Vec<PathBuf>>) {

@@ -120,7 +120,7 @@ The host reads each file relative to the unit's `path`, sends the unit again wit
 
 ## Describing a Component
 
-A request whose `kind` is `Describe` asks for the component as the framework's parser reads it, before anything is compiled, for a host that lowers the component to markup of its own rather than shipping it. The answer is `Outcome::Described`: the template as a tree in the plugin's own shape, the script block with where it starts, how the template reads each name the script binds and the scope attribute of a scoped style. The refusals are the compile's, `Failed` and `Needs`.
+A request whose `kind` is `Describe` asks for the component as the framework's parser reads it, before anything is compiled, for a host that lowers the component to markup of its own rather than shipping it. The answer is `Outcome::Described`: the template as a tree in the plugin's own shape, the script block with where it starts, how the template reads each name the script binds and the scope attribute of a scoped style. The refusals are the compile's, `Failed` and `Needs`. A plugin that can read a component's script but not its template answers `Described` with the script, no template and an `Error` diagnostic saying why: the host follows what the script imports and keeps the component foreign with that reason.
 
 ```rust
 use snapfire_compiler_wire::{Described, Lang, Outcome, Script};

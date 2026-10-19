@@ -3,7 +3,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 
-use snapfire_compiler_wire::{Hello, Options, Outcome, Request, Response, Unit, PROTOCOL};
+use snapfire_compiler_wire::{Hello, Kind, Options, Outcome, Request, Response, Severity, Unit, PROTOCOL};
 
 struct Worker {
   child: Child,
@@ -27,7 +27,11 @@ impl Worker {
   }
 
   fn ask(&mut self, id: u64, units: Vec<Unit>) -> Response {
-    let request = serde_json::to_string(&Request { id, kind: Default::default(), units }).expect("encodes");
+    self.ask_for(id, Kind::Compile, units)
+  }
+
+  fn ask_for(&mut self, id: u64, kind: Kind, units: Vec<Unit>) -> Response {
+    let request = serde_json::to_string(&Request { id, kind, units }).expect("encodes");
     let stdin = self.stdin.as_mut().expect("the pipe is open");
     writeln!(stdin, "{request}").expect("writes");
     stdin.flush().expect("flushes");
@@ -107,4 +111,14 @@ fn closing_stdin_ends_it() {
   drop(worker.stdin.take());
   let status = worker.child.wait().expect("it exits");
   assert!(status.success(), "a closed pipe is how a build ends, not a failure");
+}
+
+#[test]
+fn a_describe_request_answers_the_script_and_the_error_that_keeps_the_component_foreign() {
+  let (mut worker, _) = Worker::start();
+  let response = worker.ask_for(3, Kind::Describe, vec![unit("card.svelte", CARD)]);
+  let Outcome::Described(described) = &response.results[0] else { panic!("{:?}", response.results[0]) };
+  assert!(described.script.as_ref().is_some_and(|script| script.content.contains("$props()")));
+  assert_eq!(described.diagnostics[0].severity, Severity::Error);
+  assert_eq!(described.diagnostics[0].file.as_deref(), Some("card.svelte"));
 }

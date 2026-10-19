@@ -48,6 +48,35 @@
     return /\.svelte\.(ts|js)$/i.test(filename);
   }
 
+  const UNDESCRIBED = "snapfirec-svelte does not describe a component yet; it renders in the browser";
+
+  /**
+   * The component's scripts at their own lines and columns, everything else
+   * blanked to spaces, so the host can follow what they import. The error
+   * diagnostic keeps the component foreign.
+   */
+  globalThis.__svelte_describe = function (filename, source) {
+    const refused = unsupported(source, filename);
+    if (refused.length) return JSON.stringify({ status: "failed", diagnostics: refused });
+    let root;
+    try {
+      root = svelte.parse(source, { filename, modern: true });
+    } catch (e) {
+      return JSON.stringify({ status: "failed", diagnostics: [diagnostic(e, filename)] });
+    }
+    const blocks = [root.module, root.instance].filter(Boolean);
+    const undescribed = { severity: "error", message: UNDESCRIBED, file: filename };
+    if (!blocks.length) return JSON.stringify({ status: "described", diagnostics: [undescribed] });
+    const kept = blocks.map((block) => [block.content.start, block.content.end]);
+    let content = "";
+    for (let at = 0; at < source.length; at++) {
+      const ch = source[at];
+      content += ch === "\n" || kept.some(([start, end]) => at >= start && at < end) ? ch : " ";
+    }
+    const typed = blocks.some((block) => block.attributes.some((a) => a.name === "lang" && Array.isArray(a.value) && a.value.some((v) => v.data === "ts")));
+    return JSON.stringify({ status: "described", script: { content, lang: typed ? "ts" : "js", line: 1, column: 1 }, diagnostics: [undescribed] });
+  };
+
   globalThis.__svelte_compile = function (filename, source, options) {
     try {
       let result;

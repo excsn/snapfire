@@ -124,6 +124,9 @@ pub struct ComponentSet {
   /// Files the plugin refused to describe, with what it said, so a placement
   /// of one is foreign for that reason.
   undescribed: HashMap<String, String>,
+  /// The scripts of components the plugin would not describe, so the
+  /// modules they import still reach the browser.
+  scripts_only: HashMap<String, snapfire_compiler_wire::Script>,
   /// Set when a component was met while it was still being lowered. Every
   /// hydrate and purity verdict read across that cycle is provisional until
   /// [`Self::settle`].
@@ -190,7 +193,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
+    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -229,6 +232,12 @@ impl ComponentSet {
   /// stays foreign for that reason.
   pub fn undescribed(&mut self, file: impl Into<String>, why: impl Into<String>) {
     self.undescribed.insert(file.into(), why.into());
+  }
+
+  /// The script of `file`, which the plugin would not describe, read only
+  /// for what it imports.
+  pub fn script_only(&mut self, file: impl Into<String>, script: snapfire_compiler_wire::Script) {
+    self.scripts_only.insert(file.into(), script);
   }
 
   /// Whether `module`'s file is one the plugin described.
@@ -576,7 +585,7 @@ impl ComponentSet {
   /// component's from its script. None when it does not parse. An imported asset is not a
   /// script and is left out.
   pub fn local_imports(&mut self, file: &str) -> Vec<String> {
-    let parsed = match self.described.get(file).and_then(|described| described.script.as_ref()) {
+    let parsed = match self.described.get(file).and_then(|described| described.script.as_ref()).or_else(|| self.scripts_only.get(file)) {
       Some(script) => match parse_with(file, &script.content, false) {
         Ok(parsed) => Rc::new(parsed),
         Err(_) => return Vec::new(),

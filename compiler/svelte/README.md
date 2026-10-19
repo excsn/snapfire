@@ -33,11 +33,11 @@ No features.
 | Keep a Svelte 4 component | `export let`, `$:` and `on:` compile unchanged in legacy mode |
 | Type a component's script | `<script lang="ts">`; Svelte strips the types, so the module comes back as JavaScript |
 | Scope a component's styles | a `<style>` block; scoping is Svelte's default and the class is in the module and the sheet |
-| Read a component rather than compile it | Not available yet: a `describe` request is refused |
+| Let `fsr build` follow what a component imports | `describe`: the scripts and an error saying the template is not described yet |
 
 ## Status
 
-Compiles for the browser. Describing a component for `fsr build` to lower is not built. Neither is rendering one on the server.
+Compiles for the browser. Describing a component's template for `fsr build` to lower is not built; a describe answers its scripts only. Neither is rendering one on the server.
 
 ## License
 
