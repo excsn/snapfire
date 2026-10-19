@@ -5,11 +5,13 @@
 //! nothing, so it is evaluated as a script rather than declared as a module.
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::thread::JoinHandle;
 
-use rquickjs::{Context, Function, Runtime};
+use rquickjs::loader::{Loader, Resolver};
+use rquickjs::{Context, Ctx, Exception, Function, Module, Promise, Runtime};
 use snapfire_compiler_wire::{Compiled, Described, Diagnostic, Kind, Lang, Options, Outcome, Script};
 
 /// `svelte/compiler` 5.57.2 as published, the compiler used when the host names none. Never edited here.
@@ -23,6 +25,22 @@ const DRIVER: &str = include_str!("driver.js");
 const THREAD_STACK: usize = 64 << 20;
 const ENGINE_STACK: usize = 48 << 20;
 
+/// The bare specifiers a server-compiled component and `svelte/server` import,
+/// as paths under a runtime directory holding `svelte`, `esm-env`, `clsx` and
+/// `devalue` as published. `esm-env` answers as a production server.
+pub const SERVER_RUNTIME: &[(&str, &str)] = &[
+  ("svelte/server", "svelte/src/server/index.js"),
+  ("svelte/internal/server", "svelte/src/internal/server/index.js"),
+  ("svelte/internal/flags/legacy", "svelte/src/internal/flags/legacy.js"),
+  ("#client/constants", "svelte/src/internal/client/constants.js"),
+  ("esm-env", "esm-env/index.js"),
+  ("esm-env/browser", "esm-env/false.js"),
+  ("esm-env/development", "esm-env/false.js"),
+  ("esm-env/node", "esm-env/false.js"),
+  ("clsx", "clsx/dist/clsx.mjs"),
+  ("devalue", "devalue/index.js"),
+];
+
 #[derive(Debug, thiserror::Error)]
 pub enum SvelteError {
   #[error("the Svelte compiler: {0}")]
@@ -32,6 +50,8 @@ pub enum SvelteError {
 enum Ask {
   Version(Sender<Result<String, SvelteError>>),
   Run { kind: Kind, filename: String, source: String, options: Options, reply: Sender<Result<Outcome, SvelteError>> },
+  Ssr { filename: String, source: String, reply: Sender<Result<Outcome, SvelteError>> },
+  Render { js: String, props: String, runtime: PathBuf, reply: Sender<Result<String, SvelteError>> },
 }
 
 /// One QuickJS context holding the compiler, owned by the thread it runs on.
@@ -73,6 +93,28 @@ impl Compiler {
   /// `Failed` when the component does not parse.
   pub fn describe(&self, filename: &str, source: &str, options: &Options) -> Result<Outcome, SvelteError> {
     self.run(Kind::Describe, filename, source, options)
+  }
+
+  /// One component or runes module compiled for Svelte's own server
+  /// renderer with the carried compiler, for the oracle a lowering is checked
+  /// against.
+  pub fn ssr_module(&self, filename: &str, source: &str) -> Result<Outcome, SvelteError> {
+    let (reply, answer) = channel();
+    self.asks.send(Ask::Ssr { filename: filename.to_owned(), source: source.to_owned(), reply }).map_err(|_| gone())?;
+    answer.recv().map_err(|_| gone())?
+  }
+
+  /// The body `svelte/server`'s `render` writes for `js`, a module
+  /// `ssr_module` answered, given `props` as JSON. `runtime` is a directory
+  /// laid out as [`SERVER_RUNTIME`] reads it, since the plugin carries a
+  /// compiler and no runtime.
+  pub fn render_module(&self, js: &str, props: &str, runtime: &Path) -> Result<String, SvelteError> {
+    let (reply, answer) = channel();
+    self
+      .asks
+      .send(Ask::Render { js: js.to_owned(), props: props.to_owned(), runtime: runtime.to_path_buf(), reply })
+      .map_err(|_| gone())?;
+    answer.recv().map_err(|_| gone())?
   }
 
   fn run(&self, kind: Kind, filename: &str, source: &str, options: &Options) -> Result<Outcome, SvelteError> {
@@ -141,13 +183,20 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), SvelteError>>) {
         };
         let _ = reply.send(answered);
       }
+      Ask::Ssr { filename, source, reply } => {
+        let _ = reply.send(engine.ssr_module(&filename, &source));
+      }
+      Ask::Render { js, props, runtime, reply } => {
+        let _ = reply.send(engine.render_module(&js, &props, &runtime));
+      }
     }
   }
 }
 
 struct Engine {
   context: Context,
-  _runtime: Runtime,
+  runtime: Runtime,
+  rendered: std::cell::Cell<u32>,
 }
 
 impl Engine {
@@ -160,13 +209,34 @@ impl Engine {
       ctx.eval::<(), _>(DRIVER).map_err(|e| threw(&ctx, e))?;
       Ok(())
     })?;
-    Ok(Self { context, _runtime: runtime })
+    Ok(Self { context, runtime, rendered: std::cell::Cell::new(0) })
   }
 
   fn version(&self) -> Result<String, SvelteError> {
     self.context.with(|ctx| {
       let version: Function = ctx.globals().get("__svelte_version").map_err(|e| threw(&ctx, e))?;
       version.call(()).map_err(|e| threw(&ctx, e))
+    })
+  }
+
+  fn ssr_module(&self, filename: &str, source: &str) -> Result<Outcome, SvelteError> {
+    let answer = self.context.with(|ctx| -> Result<String, SvelteError> {
+      let function: Function = ctx.globals().get("__svelte_ssr_module").map_err(|e| threw(&ctx, e))?;
+      function.call((filename, source)).map_err(|e| threw(&ctx, e))
+    })?;
+    decode(&answer, filename)
+  }
+
+  fn render_module(&self, js: &str, props: &str, runtime: &Path) -> Result<String, SvelteError> {
+    let n = self.rendered.get() + 1;
+    self.rendered.set(n);
+    let component = format!("/component-{n}.js");
+    self.runtime.set_loader(RuntimeResolver { root: runtime.to_path_buf() }, RuntimeLoader { component: (component.clone(), js.to_owned()) });
+    self.context.with(|ctx| -> Result<String, SvelteError> {
+      let render: Function = ctx.globals().get("__svelte_render").map_err(|e| threw(&ctx, e))?;
+      let props = ctx.json_parse(props).map_err(|e| threw(&ctx, e))?;
+      let promise: Promise = render.call((component.as_str(), props)).map_err(|e| threw(&ctx, e))?;
+      promise.finish::<String>().map_err(|e| threw(&ctx, e))
     })
   }
 
@@ -182,6 +252,57 @@ impl Engine {
       function.call((filename, source, options)).map_err(|e| threw(&ctx, e))
     })?;
     decode(&answer, filename)
+  }
+}
+
+/// A bare specifier through [`SERVER_RUNTIME`] under `root`, a relative one
+/// against the importing file.
+struct RuntimeResolver {
+  root: PathBuf,
+}
+
+impl Resolver for RuntimeResolver {
+  fn resolve<'js>(&mut self, ctx: &Ctx<'js>, base: &str, name: &str, _attributes: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<String> {
+    if name.starts_with("./") || name.starts_with("../") {
+      let dir = Path::new(base).parent().unwrap_or_else(|| Path::new("/"));
+      return Ok(normalise(&dir.join(name)));
+    }
+    if name.starts_with('/') {
+      return Ok(name.to_owned());
+    }
+    match SERVER_RUNTIME.iter().find(|(specifier, _)| *specifier == name) {
+      Some((_, rel)) => Ok(normalise(&self.root.join(rel))),
+      None => Err(Exception::throw_message(ctx, &format!("cannot resolve `{name}` from `{base}`: not in the server runtime"))),
+    }
+  }
+}
+
+fn normalise(path: &Path) -> String {
+  let mut out = PathBuf::new();
+  for part in path.components() {
+    match part {
+      std::path::Component::ParentDir => {
+        out.pop();
+      }
+      std::path::Component::CurDir => {}
+      other => out.push(other),
+    }
+  }
+  out.to_string_lossy().into_owned()
+}
+
+/// The component under its own name, every other module from disk.
+struct RuntimeLoader {
+  component: (String, String),
+}
+
+impl Loader for RuntimeLoader {
+  fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _attributes: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<Module<'js>> {
+    let source = match name == self.component.0 {
+      true => self.component.1.clone(),
+      false => std::fs::read_to_string(name).map_err(|e| Exception::throw_message(ctx, &format!("{name}: {e}")))?,
+    };
+    Module::declare(ctx.clone(), name, source)
   }
 }
 

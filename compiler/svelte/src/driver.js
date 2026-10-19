@@ -85,6 +85,24 @@
     return JSON.stringify({ status: "described", script: { content, lang: typed ? "ts" : "js", line: 1, column: 1 }, diagnostics: [undescribed] });
   };
 
+  /** A component or runes module compiled for Svelte's own server renderer, for the oracle. */
+  globalThis.__svelte_ssr_module = function (filename, source) {
+    try {
+      const settings = { filename, generate: "server", dev: false };
+      const result = isModule(filename) ? svelte.compileModule(source, settings) : svelte.compile(source, settings);
+      return JSON.stringify({ status: "ok", js: result.js.code, lang: "js", css: null, deps: [], diagnostics: result.warnings.map((w) => diagnostic(w, filename, "warning")) });
+    } catch (e) {
+      return JSON.stringify({ status: "failed", diagnostics: [diagnostic(e, filename)] });
+    }
+  };
+
+  /** The body `svelte/server`'s `render` writes for the component module `name` given `props`. */
+  globalThis.__svelte_render = async function (name, props) {
+    const { render } = await import("svelte/server");
+    const component = (await import(name)).default;
+    return render(component, { props }).body;
+  };
+
   globalThis.__svelte_compile = function (filename, source, options) {
     try {
       let result;
