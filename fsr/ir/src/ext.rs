@@ -33,6 +33,7 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("intl", "currency", Reach::Render),
   ("intl", "date", Reach::Render),
   ("intl", "plural", Reach::Render),
+  ("intl", "list", Reach::Render),
   ("text", "slug", Reach::Render),
   ("text", "truncate", Reach::Render),
   ("time", "format", Reach::Render),

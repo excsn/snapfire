@@ -21,6 +21,12 @@ export interface DateOptions {
 	day?: "numeric";
 	locale?: string;
 }
+/** How `intl.list` joins: `type` `conjunction` by default, `disjunction` or `unit`, at a `style` width, `long` by default. */
+export interface ListOptions {
+	type?: "conjunction" | "disjunction" | "unit";
+	style?: TextWidth;
+	locale?: string;
+}
 export declare const intl: {
 	/** `n` grouped for the locale, rounded half away from zero to at most three fraction digits unless `options` say otherwise, trailing zeros dropped past the minimum. */
 	number(n: number | bigint, options?: NumberOptions): string;
@@ -30,6 +36,8 @@ export declare const intl: {
 	date(when: number | string, style?: DateStyle | DateOptions): string;
 	/** The cardinal plural category of `n`: `zero`, `one`, `two`, `few`, `many` or `other`. */
 	plural(n: number | bigint): string;
+	/** `items` joined as the locale joins a list, `a, b and c` in British English. */
+	list(items: string[], options?: ListOptions): string;
 };
 export declare const text: {
 	/** Decomposed, marks dropped, lowercased, every run outside `a-z0-9` one hyphen and no hyphen at either end. */

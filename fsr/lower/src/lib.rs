@@ -2794,6 +2794,16 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Expr::Ext { module: "intl".to_owned(), name: "number".to_owned(), args: vec![value, Expr::Object(entries)] })
       }
+      "ListFormat" => {
+        let mut entries: Vec<Entry> = locale_entry.into_iter().collect();
+        for (key, v) in &options {
+          if !matches!(key.as_str(), "type" | "style") {
+            return Err(self.residue(span, format!("the list formatting option `{key}`; `type` and `style` are read")));
+          }
+          entries.push(Entry::Field(key.clone(), self.expr(v)?));
+        }
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "list".to_owned(), args: vec![value, Expr::Object(entries)] })
+      }
       _ => {
         let utc = |options: &[(String, js::Expr)]| options.iter().all(|(k, _)| k != "timeZone") || literal(options, "timeZone").as_deref() == Some("UTC");
         if !utc(&options) {
@@ -3007,7 +3017,7 @@ fn strip_parens(e: &js::Expr) -> &js::Expr {
   }
 }
 
-/// `new Intl.NumberFormat(...)` or `new Intl.DateTimeFormat(...)`: which one.
+/// `new Intl.NumberFormat(...)`, `new Intl.DateTimeFormat(...)` or `new Intl.ListFormat(...)`: which one.
 pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
   let js::Expr::Member(m) = &*n.callee else { return None };
   let (js::Expr::Ident(ns), js::MemberProp::Ident(name)) = (&*m.obj, &m.prop) else { return None };
@@ -3017,6 +3027,7 @@ pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
   match name.sym.as_ref() {
     "NumberFormat" => Some("NumberFormat"),
     "DateTimeFormat" => Some("DateTimeFormat"),
+    "ListFormat" => Some("ListFormat"),
     _ => None,
   }
 }

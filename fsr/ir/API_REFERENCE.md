@@ -311,6 +311,7 @@ Every member takes its arguments positionally and answers a `Value`; `std::regis
 
 Every `locale` is a BCP 47 tag written in the code, formatted the same everywhere; without one the ambient locale, the request's, formats.
 | `intl.plural` | render | `n` | the cardinal category, `zero`, `one`, `two`, `few`, `many` or `other` |
+| `intl.list` | render | `items, { type?, style?, locale? }` | the strings joined as `Intl.ListFormat` joins them: `type` `conjunction` (the default), `disjunction` or `unit`, `style` `long` (the default), `short` or `narrow` |
 | `text.slug` | render | `s` | NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end |
 | `text.truncate` | render | `s`, `max`, `ellipsis?` (`…`) | the first `max` code points and the ellipsis when longer, else `s` |
 | `time.format` | render | `when`, `pattern` | `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced in UTC, every other character kept |

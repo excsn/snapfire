@@ -1132,6 +1132,7 @@ On `htmx:before:history:restore` on `document`, while `enableNavigation` has wir
 * `intl.currency(n: number | bigint, code: string, options?: CurrencyOptions): string`; `interface CurrencyOptions extends NumberOptions { display?: "code" | "symbol" | "narrowSymbol" }`: `style: "currency"` with `currencyDisplay` from `display`, `code` by default, `USD 1,234.50`, `$1,234.50` for `symbol`.
 * `intl.date(when: number | string, style?: DateStyle | DateOptions): string`; `type DateStyle = "short" | "medium" | "long" | "full"`, `medium` by default; `interface DateOptions { style?: DateStyle; weekday?: TextWidth; year?: "numeric"; month?: TextWidth; day?: "numeric"; locale?: string }` with `type TextWidth = "long" | "short" | "narrow"`. A `dateStyle` with `timeZone: "UTC"` or the parts given with it. A string goes through `time.parse` and throws when it is not the ISO subset.
 * `intl.plural(n: number | bigint): string`: `Intl.PluralRules(localeTag()).select`.
+* `intl.list(items: string[], options?: ListOptions): string`: `Intl.ListFormat(options.locale ?? localeTag(), { type, style }).format(items)`. `ListOptions` is `{ type?: "conjunction" | "disjunction" | "unit"; style?: TextWidth; locale?: string }`.
 
 ### text
 

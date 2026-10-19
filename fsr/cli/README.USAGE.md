@@ -1526,7 +1526,7 @@ export async function load({ params, services }: Ctx<"/order/{id}">) {
 }
 ```
 
-`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` may sit anywhere. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random` and `id.new` are the server's: a loader, an action, middleware or an event handler may call them and a component's render path may not, which is a build error naming the line rather than a client row, since the browser would run that component too:
+`intl.number(n, { maximumFractionDigits })`, `intl.currency(n, "EUR")`, `intl.date(when, style)`, `intl.plural(n)`, `intl.list(items)`, `text.slug`, `text.truncate`, `time.format`, `time.add`, `time.diff`, `time.parse`, `crypto.hash` and `crypto.verify` may sit anywhere. Dates and times are UTC on both sides and `intl.currency` spells the code, `EUR 12.00`, since that is what both halves can agree on. `time.now`, `crypto.random` and `id.new` are the server's: a loader, an action, middleware or an event handler may call them and a component's render path may not, which is a build error naming the line rather than a client row, since the browser would run that component too:
 
 ```
 routes/page.tsx:3:14: `id.new` on a render path; it runs on the server only, and a component's render path runs in the browser too

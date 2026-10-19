@@ -385,6 +385,37 @@ fn patterns_built_at_run_time_and_code_points_render_what_javascript_computes() 
   check("patterns", source, &props(&[("data", Value::seq(vec![s("Banana"), s("ANT"), s("cat")])), ("search", s("an")), ("flags", s("i")), ("word", s("a😀"))]));
 }
 
+/// What FSR renders for `source` alone, for what the oracle cannot run: QuickJS has no `Intl`.
+fn ours(tag: &str, source: &str, props: &ValueMap) -> String {
+  let dir = app(tag, &[("src/C.svelte", source)]);
+  let mut set = ComponentSet::new(&dir);
+  COMPILER.with(|compiler| match compiler.describe("src/C.svelte", source, &Options::default()).expect("the driver answers") {
+    Outcome::Described(described) => set.describe("src/C.svelte", described),
+    other => panic!("not described: {other:?}"),
+  });
+  let module = "src/C.svelte#default";
+  if let Err(e) = set.lower(module) {
+    panic!("{tag}: does not lower: {e}");
+  }
+  let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let rendered = interpreter.render(&host(module, Vec::new()), props, &library).expect("renders");
+  let _ = std::fs::remove_dir_all(&dir);
+  rendered.islands[0].body.html.clone()
+}
+
+#[test]
+fn an_intl_formatter_kept_in_a_name_formats_where_the_template_calls_it() {
+  let source = "<script>let { n } = $props(); const formatter = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });</script><p>{formatter.format(n)}</p>";
+  assert_eq!(ours("formatter", source, &props(&[("n", Value::F64(1234.56))])), "<!--[--><p>1,234.6</p><!--]-->");
+}
+
+#[test]
+fn a_list_formatter_joins_as_the_locale_joins() {
+  let source = "<script>let { flavours } = $props(); const formatter = new Intl.ListFormat('en-GB', { style: 'long', type: 'conjunction' });</script><p>{formatter.format(flavours)}</p><p>{new Intl.ListFormat('en', { type: 'disjunction' }).format(flavours.slice(0, 2))}</p>";
+  assert_eq!(ours("list-formatter", source, &props(&[("flavours", Value::seq(vec![s("Mint"), s("Fudge"), s("Ripple")]))])), "<!--[--><p>Mint, Fudge and Ripple</p><p>Mint or Fudge</p><!--]-->");
+}
+
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);

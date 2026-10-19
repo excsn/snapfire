@@ -47,6 +47,13 @@ export interface DateOptions {
   locale?: string;
 }
 
+/** How `intl.list` joins: `type` `conjunction` by default, `disjunction` or `unit`, at a `style` width, `long` by default. */
+export interface ListOptions {
+  type?: "conjunction" | "disjunction" | "unit";
+  style?: TextWidth;
+  locale?: string;
+}
+
 export const intl = {
   /** `n` grouped for the locale, rounded half away from zero to at most three fraction digits unless `options` say otherwise, trailing zeros dropped past the minimum. */
   number(n: number | bigint, options?: NumberOptions): string {
@@ -73,6 +80,11 @@ export const intl = {
   /** The cardinal plural category of `n`: `zero`, `one`, `two`, `few`, `many` or `other`. */
   plural(n: number | bigint): string {
     return bridged<string>("intl.plural", [n]) ?? new Intl.PluralRules(localeTag()).select(Number(n));
+  },
+  /** `items` joined as the locale joins a list, `a, b and c` in British English. */
+  list(items: string[], options?: ListOptions): string {
+    const { locale, ...rest } = options ?? {};
+    return bridged<string>("intl.list", [items, options ?? null]) ?? new Intl.ListFormat(locale ?? localeTag(), rest).format(items);
   },
 };
 

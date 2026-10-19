@@ -86,6 +86,22 @@ fn plural_categories_follow_the_locale() {
 }
 
 #[test]
+fn lists_join_as_the_locale_joins_them() {
+  let items = |xs: &[&str]| Value::seq(xs.iter().map(|x| s(x)).collect::<Vec<_>>());
+  let options = |pairs: &[(&str, &str)]| Value::Map(pairs.iter().map(|(k, v)| ((*k).to_owned(), s(v))).collect());
+  assert_eq!(call("en_GB", "intl.list", vec![items(&["a", "b", "c"])]), Ok(s("a, b and c")));
+  assert_eq!(call("en_US", "intl.list", vec![items(&["a", "b"])]), Ok(s("a and b")));
+  assert_eq!(call("en_US", "intl.list", vec![items(&["a", "b"]), options(&[("type", "disjunction")])]), Ok(s("a or b")));
+  assert_eq!(call("en_US", "intl.list", vec![items(&["a"])]), Ok(s("a")));
+  assert_eq!(call("en_US", "intl.list", vec![items(&[])]), Ok(s("")));
+  assert_eq!(call("en_US", "intl.list", vec![items(&["3 ft", "7 in"]), options(&[("type", "unit"), ("style", "narrow")])]), Ok(s("3 ft 7 in")));
+  assert_eq!(call("fr_FR", "intl.list", vec![items(&["a", "b", "c"])]), Ok(s("a, b et c")));
+  assert_eq!(call("fr_FR", "intl.list", vec![items(&["a", "b", "c"]), options(&[("locale", "en-GB")])]), Ok(s("a, b and c")));
+  assert!(call("en_US", "intl.list", vec![Value::seq(vec![n(1.0)])]).unwrap_err().contains("string"));
+  assert!(call("en_US", "intl.list", vec![items(&["a"]), options(&[("type", "both")])]).unwrap_err().contains("type"));
+}
+
+#[test]
 fn text_slugs_and_truncates_by_code_point() {
   assert_eq!(call("", "text.slug", vec![s("  Crème Brûlée & Café! ")]), Ok(s("creme-brulee-cafe")));
   assert_eq!(call("", "text.slug", vec![s("Ünïcödé--stuff__2026")]), Ok(s("unicode-stuff-2026")));

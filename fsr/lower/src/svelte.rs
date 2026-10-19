@@ -510,6 +510,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
             continue;
           }
         }
+        if self.lowerer.bind_formatter(&name, init) {
+          continue;
+        }
       }
       let Some(init) = decl.init.as_deref() else {
         if let js::Pat::Ident(name) = &decl.name {

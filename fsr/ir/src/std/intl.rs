@@ -1,4 +1,4 @@
-//! `intl`: number, currency, date and plural formatting through ICU4X, under
+//! `intl`: number, currency, date, plural and list formatting through ICU4X, under
 //! the ambient locale. The browser half is `Intl` with the same options, so
 //! the outputs agree wherever the two CLDR snapshots do.
 
@@ -9,6 +9,8 @@ use icu_datetime::DateTimeFormatter;
 use icu_decimal::DecimalFormatter;
 use icu_experimental::dimension::currency::formatter::CurrencyFormatter;
 use icu_experimental::dimension::currency::CurrencyType;
+use icu_list::options::{ListFormatterOptions, ListLength};
+use icu_list::ListFormatter;
 use icu_locale_core::{locale, Locale};
 use icu_plurals::{PluralOperands, PluralRules};
 use snapfire_fsr_core::Value;
@@ -21,6 +23,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.currency", Reach::Render, currency);
   extensions.register("intl.date", Reach::Render, date);
   extensions.register("intl.plural", Reach::Render, plural);
+  extensions.register("intl.list", Reach::Render, list);
 }
 
 fn locale_of(ambient: &Ambient) -> Locale {
@@ -254,4 +257,42 @@ pub fn category(ambient: &Ambient, n: &Value) -> Result<String, Fail> {
     Err(_) => return Ok("other".to_owned()),
   };
   Ok(format!("{:?}", rules.category_for(operands)).to_ascii_lowercase())
+}
+
+/// `intl.list(items, { type, style, locale })`: the strings joined as `Intl.ListFormat` joins them, `type` `conjunction` (the default), `disjunction` or `unit` and `style` `long` (the default), `short` or `narrow`.
+fn list(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "intl.list";
+  let items = match args.first() {
+    Some(Value::Seq(items)) => items.iter().map(|item| match item {
+      Value::Str(s) => Ok(s.to_string()),
+      other => Err(Fail::internal(format!("{what}: each item wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+    }).collect::<Result<Vec<_>, _>>()?,
+    Some(other) => return Err(Fail::internal(format!("{what}: wants an array of strings, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+    None => Vec::new(),
+  };
+  let options = args.get(1);
+  let read = |key: &str| match options {
+    Some(Value::Map(map)) => match map.get(key) {
+      Some(Value::Str(s)) => Ok(Some(s.to_string())),
+      Some(Value::Null) | None => Ok(None),
+      Some(other) => Err(Fail::internal(format!("{what}: `{key}` wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
+    },
+    _ => Ok(None),
+  };
+  let length = match read("style")?.as_deref() {
+    None | Some("long") => ListLength::Wide,
+    Some("short") => ListLength::Short,
+    Some("narrow") => ListLength::Narrow,
+    Some(other) => return Err(Fail::internal(format!("{what}: `style` is long, short or narrow, got `{other}`"))),
+  };
+  let locale = locale_for(what, ambient, options)?;
+  let made = ListFormatterOptions::default().with_length(length);
+  let formatter = match read("type")?.as_deref() {
+    None | Some("conjunction") => ListFormatter::try_new_and(locale.into(), made),
+    Some("disjunction") => ListFormatter::try_new_or(locale.into(), made),
+    Some("unit") => ListFormatter::try_new_unit(locale.into(), made),
+    Some(other) => return Err(Fail::internal(format!("{what}: `type` is conjunction, disjunction or unit, got `{other}`"))),
+  }
+  .map_err(|e| data(what, e))?;
+  Ok(Value::str(formatter.format(items.iter().map(String::as_str)).to_string()))
 }

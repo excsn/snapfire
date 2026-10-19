@@ -74,8 +74,8 @@ examples-special-elements-svelte-window	lowered
 examples-special-elements-svelte-window-bindings	lowered
 examples-stores-auto-subscriptions	lowered
 examples-stores-custom-stores	lowered
-examples-stores-derived-stores	client: src/App.svelte:4:23 an `Intl` formatter kept as a value
-examples-stores-readable-stores	client: src/App.svelte:4:23 an `Intl` formatter kept as a value
+examples-stores-derived-stores	client: src/stores.js:3:21 a `readable` store with a start function, which sets its value when it is subscribed
+examples-stores-readable-stores	client: src/stores.js:3:21 a `readable` store with a start function, which sets its value when it is subscribed
 examples-stores-writable-stores	lowered
 examples-svg-area-chart	client: src/App.svelte:20:27 a call to `scaleLinear`, which the build cannot follow
 examples-svg-bar-chart	client: src/App.svelte:24:27 a call to `scaleLinear`, which the build cannot follow
@@ -123,8 +123,8 @@ tutorial-advanced-svelte-xx-currently-unused-debug	lowered
 tutorial-advanced-svelte-xx-currently-unused-svelte-self	lowered
 tutorial-svelte-attachments-attach	lowered
 tutorial-svelte-bindings-checkbox-inputs	lowered
-tutorial-svelte-bindings-group-inputs	client: src/App.svelte:5:27 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
-tutorial-svelte-bindings-multiple-select-bindings	client: src/App.svelte:5:27 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-svelte-bindings-group-inputs	lowered
+tutorial-svelte-bindings-multiple-select-bindings	lowered
 tutorial-svelte-bindings-numeric-inputs	lowered
 tutorial-svelte-bindings-select-bindings	lowered
 tutorial-svelte-bindings-text-inputs	lowered

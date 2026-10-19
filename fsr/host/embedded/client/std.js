@@ -55,6 +55,13 @@ export const intl = {
         return bridged("intl.plural", [
             n
         ]) ?? new Intl.PluralRules(localeTag()).select(Number(n));
+    },
+    list (items, options) {
+        const { locale, ...rest } = options ?? {};
+        return bridged("intl.list", [
+            items,
+            options ?? null
+        ]) ?? new Intl.ListFormat(locale ?? localeTag(), rest).format(items);
     }
 };
 export const text = {
