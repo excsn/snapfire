@@ -304,15 +304,79 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   fn statement(&mut self, stmt: &'p js::Stmt, runes: bool) -> Lowered<()> {
     match stmt {
       js::Stmt::Decl(js::Decl::Var(var)) => self.declaration(var, runes),
-      js::Stmt::Decl(js::Decl::Fn(_) | js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
+      js::Stmt::Decl(js::Decl::Fn(f)) => {
+        self.function(f);
+        Ok(())
+      }
+      js::Stmt::Decl(js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
       js::Stmt::Expr(e) => match &*e.expr {
-        js::Expr::Call(call) if callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) => Ok(()),
+        js::Expr::Call(call) if callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call) => Ok(()),
+        js::Expr::Call(call) if subscribed(call).is_some() => self.subscription(call),
         _ => Err(self.statement_residue(e.span)),
       },
       js::Stmt::Labeled(labeled) if !runes && labeled.label.sym == "$" => self.reactive(labeled),
       js::Stmt::Empty(_) => Ok(()),
       other => Err(self.statement_residue(other.span())),
     }
+  }
+
+  /// A function the script declares, as a function value the template and
+  /// the script call in the component's scope. One whose body the build
+  /// cannot lower (or that is `async` and so answers a promise) is the
+  /// browser's: read as a value it is a function that renders nothing, which
+  /// is all a handler passed to a child is on the server.
+  fn function(&mut self, f: &'p js::FnDecl) {
+    let name = f.ident.sym.to_string();
+    if f.function.is_async || f.function.is_generator {
+      self.lowerer.browser_functions.push(name);
+      return;
+    }
+    let value = js::Expr::Fn(js::FnExpr { ident: None, function: f.function.clone() });
+    let before = self.lowerer.scope.len();
+    let lowered = self.lowerer.expr(&value);
+    self.lowerer.scope.truncate(before);
+    match lowered {
+      Ok(lambda) => {
+        self.lets.push(Stmt::Let { name: name.clone(), expr: lambda });
+        self.bind(name.clone(), Expr::Var(name));
+      }
+      Err(_) => {
+        self.lowerer.unbound = None;
+        self.lowerer.browser_functions.push(name);
+      }
+    }
+  }
+
+  /// Whether a prop's expression is a function written out, which on the
+  /// server is a handler the child runs in the browser.
+  fn is_function(&self, code: &Code) -> bool {
+    self.lowerer.parsed.parse_expr_at(&code.code, code.at.0, code.at.1).is_ok_and(|e| matches!(unwrap_types(&e), js::Expr::Arrow(_) | js::Expr::Fn(_)))
+  }
+
+  /// `store.subscribe(fn)` at the top of a script: Svelte's server calls `fn`
+  /// with the store's value as it subscribes, so its writes hold for the render.
+  fn subscription(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
+    let (store, callback) = subscribed(call).expect("checked by the caller");
+    let value = self.lowerer.expr(store)?;
+    let (params, body): (Vec<&js::Pat>, Vec<js::Stmt>) = match unwrap_types(callback) {
+      js::Expr::Arrow(arrow) => (arrow.params.iter().collect(), match &*arrow.body {
+        js::ArrowFunctionBody::FunctionBody(block) => block.stmts.clone(),
+        js::ArrowFunctionBody::Expr(e) => vec![js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })],
+      }),
+      js::Expr::Fn(f) => (f.function.params.iter().map(|p| &p.pat).collect(), f.function.body.as_ref().map(|b| b.stmts.clone()).unwrap_or_default()),
+      _ => return Err(self.lowerer.residue(call.span, "a `subscribe` callback that is not a function written out")),
+    };
+    let scope_before = self.lowerer.scope.len();
+    if let Some(js::Pat::Ident(param)) = params.first() {
+      let name = param.id.sym.to_string();
+      self.lets.push(Stmt::Let { name: name.clone(), expr: value });
+      self.bind(name.clone(), Expr::Var(name));
+    }
+    let lowered = self.lowerer.block(&body);
+    self.lowerer.scope.truncate(scope_before);
+    let ran = self.lowerer.temp();
+    self.lets.push(Stmt::Let { name: ran, expr: Expr::Block(lowered?) });
+    Ok(())
   }
 
   fn statement_residue(&self, span: swc_core::common::Span) -> Residue {
@@ -656,7 +720,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         out.extend(self.fragment(fragment)?);
         out.push(Tmpl::Marker(EMPTY.to_owned()));
       }
-      Node::Await { expression, value, then, .. } => self.await_block(expression, value.as_ref(), then.as_ref(), out)?,
+      Node::Await { expression, value, pending, then, .. } => self.await_block(expression, value.as_ref(), pending.as_ref(), then.as_ref(), out)?,
     }
     Ok(())
   }
@@ -788,9 +852,22 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 
   /// `{#await}`, `$.await`: a value the render holds is never a promise, so
-  /// the `then` branch with the value bound, after the else marker.
-  fn await_block(&mut self, expression: &Code, value: Option<&Code>, then: Option<&Fragment>, out: &mut Vec<Tmpl>) -> Lowered<()> {
-    let awaited = self.expr(&expression.code, expression.at)?;
+  /// the `then` branch with the value bound, after the else marker. An
+  /// expression the build cannot lower is taken for the promise the block
+  /// is written for, which Svelte's server writes as its pending branch.
+  fn await_block(&mut self, expression: &Code, value: Option<&Code>, pending: Option<&Fragment>, then: Option<&Fragment>, out: &mut Vec<Tmpl>) -> Lowered<()> {
+    let awaited = match self.expr(&expression.code, expression.at) {
+      Ok(awaited) => awaited,
+      Err(_) => {
+        self.lowerer.unbound = None;
+        out.push(Tmpl::Marker(BLOCK_OPEN.to_owned()));
+        if let Some(pending) = pending {
+          out.extend(self.fragment(pending)?);
+        }
+        out.push(Tmpl::Marker(BLOCK_CLOSE.to_owned()));
+        return Ok(());
+      }
+    };
     out.push(Tmpl::Marker(BLOCK_OPEN_ELSE.to_owned()));
     if let Some(then) = then {
       let scope_before = self.lowerer.scope.len();
@@ -1055,7 +1132,16 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
               }
             }
           }
-          let value = self.attr_value(value, false)?;
+          let value = match self.attr_value(value, false) {
+            Ok(lowered) => lowered,
+            Err(residue) => match value {
+              AttrValue::Parts(parts) if matches!(parts.as_slice(), [Part::Code(code)] if self.is_function(code)) => {
+                self.lowerer.unbound = None;
+                Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)
+              }
+              _ => return Err(residue),
+            },
+          };
           props.push(Entry::Field(prop.clone(), value));
         }
         Attr::Attr { name: prop, value, .. } => css.push((prop.clone(), self.attr_value(value, false)?)),
@@ -2020,6 +2106,24 @@ fn kept_declarations(text: &str, reserved: &[String]) -> String {
 fn reads_props_whole(template: &serde_json::Value, script: Option<&str>) -> bool {
   let text = template.to_string();
   ["$$props", "$$restProps"].iter().any(|name| text.contains(name) || script.is_some_and(|s| s.contains(name)))
+}
+
+/// `$inspect(…).with(…)`, which only the browser runs.
+fn inspects(call: &js::CallExpr) -> bool {
+  let js::Callee::Expr(callee) = &call.callee else { return false };
+  let js::Expr::Member(member) = &**callee else { return false };
+  matches!(&*member.obj, js::Expr::Call(inner) if callee_name(inner).as_deref() == Some("$inspect"))
+}
+
+/// `name.subscribe(fn)`: the store and the function.
+fn subscribed(call: &js::CallExpr) -> Option<(&js::Expr, &js::Expr)> {
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Member(member) = &**callee else { return None };
+  let js::MemberProp::Ident(prop) = &member.prop else { return None };
+  if prop.sym != "subscribe" || call.args.len() != 1 || !matches!(&*member.obj, js::Expr::Ident(_)) {
+    return None;
+  }
+  Some((&member.obj, &call.args[0].expr))
 }
 
 /// Each name an assignment in `stmt` writes, its patterns included.

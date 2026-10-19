@@ -35,10 +35,10 @@ examples-easing-easing	client: src/App.svelte:15:23 a call to `tweened`, which t
 examples-embeds-blog-svelte-css-in-js	client: src/styles.js:13:26 a tagged template
 examples-embeds-blog-write-less-code	lowered
 examples-embeds-untitled	lowered
-examples-events-component-events	client: src/App.svelte:5:9 a call for its effect, which a straight-line body cannot hold
-examples-events-dom-event-forwarding	client: src/App.svelte:5:9 a call for its effect, which a straight-line body cannot hold
+examples-events-component-events	lowered
+examples-events-dom-event-forwarding	lowered
 examples-events-dom-events	lowered
-examples-events-event-forwarding	client: src/App.svelte:5:9 a call for its effect, which a straight-line body cannot hold
+examples-events-event-forwarding	lowered
 examples-events-inline-handlers	lowered
 examples-introduction-dynamic-attributes	lowered
 examples-introduction-hello-world	lowered
@@ -55,7 +55,7 @@ examples-logic-else-if-blocks	lowered
 examples-logic-if-blocks	lowered
 examples-logic-keyed-each-blocks	lowered
 examples-miscellaneous-dynamic-components	lowered
-examples-miscellaneous-hacker-news	client: src/App.svelte:35:3 `<List>` does not lower: src/List.svelte:25:3: `<Summary>` does not lower: src/Summary.svelte:5:19: `item` is not bound here; an import the build cannot follow or a name from outside the body
+examples-miscellaneous-hacker-news	lowered
 examples-miscellaneous-recursive-components	client: src/App.svelte:39:1 `<Folder>` does not lower: src/Folder.svelte:22:6: `<File>` does not lower: src/File.svelte:3:36: `.lastIndexOf()`, which is not a builtin
 examples-module-context-module-exports	lowered
 examples-motion-spring	client: src/App.svelte:4:18 a call to `spring`, which the build cannot follow
@@ -101,8 +101,8 @@ tutorial-advanced-svelte-advanced-reactivity-raw-state	client: src/data.js:16:12
 tutorial-advanced-svelte-advanced-reactivity-reactive-builtins	client: src/App.svelte:4:20 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 tutorial-advanced-svelte-advanced-reactivity-reactive-classes	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
 tutorial-advanced-svelte-advanced-reactivity-stores	lowered
-tutorial-advanced-svelte-advanced-transitions-animations	client: src/App.svelte:4:19 a call to `$state`, which the build cannot follow
-tutorial-advanced-svelte-advanced-transitions-deferred-transitions	client: src/App.svelte:4:19 a call to `$state`, which the build cannot follow
+tutorial-advanced-svelte-advanced-transitions-animations	lowered
+tutorial-advanced-svelte-advanced-transitions-deferred-transitions	lowered
 tutorial-advanced-svelte-context-context-api	client: src/App.svelte:21:10 a call to `Array`, which the build cannot follow
 tutorial-advanced-svelte-motion-springs	client: src/App.svelte:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 tutorial-advanced-svelte-motion-tweens	client: src/App.svelte:5:24 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
@@ -132,7 +132,7 @@ tutorial-svelte-classes-and-styles-classes	lowered
 tutorial-svelte-classes-and-styles-component-styles	lowered
 tutorial-svelte-classes-and-styles-styles	lowered
 tutorial-svelte-events-capturing	lowered
-tutorial-svelte-events-component-events	client: src/App.svelte:10:19 an assignment inside an expression
+tutorial-svelte-events-component-events	lowered
 tutorial-svelte-events-dom-events	lowered
 tutorial-svelte-events-inline-handlers	lowered
 tutorial-svelte-events-spreading-events	client: src/App.svelte:5:19 `new Audio`
@@ -154,7 +154,7 @@ tutorial-svelte-props-spread-props	lowered
 tutorial-svelte-reactivity-deep-state	lowered
 tutorial-svelte-reactivity-derived-state	lowered
 tutorial-svelte-reactivity-effects	lowered
-tutorial-svelte-reactivity-inspecting-state	client: src/App.svelte:9:5 a statement in a Svelte script the build cannot follow
+tutorial-svelte-reactivity-inspecting-state	lowered
 tutorial-svelte-reactivity-state	lowered
 tutorial-svelte-reactivity-universal-reactivity	lowered
 tutorial-svelte-transitions-adding-parameters-to-transitions	lowered

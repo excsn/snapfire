@@ -346,6 +346,14 @@ fn props_id_is_refused_until_the_render_counts_in_order() {
   assert!(refusal.contains("$props.id()"), "{refusal}");
 }
 
+#[test]
+fn script_functions_handlers_and_promises_render_as_svelte_runs_them() {
+  let parent = "<script>import C from './C.svelte'; import { writable } from 'svelte/store'; let { item } = $props(); let count = 0; const total = writable(4); let seen = 0; total.subscribe((value) => { seen = value; }); function label(n) { const c = item.count + n; return `${c} ${c === 1 ? 'comment' : 'comments'}`; } function bump() { count += 1; alert(count); } async function later() { return 1; } $inspect(count).with(console.trace);</script><p>{label(0)} {label(1)} {seen}</p><C onclick={bump} increment={() => count += 1} />{#await later()}<i>waiting</i>{:then v}<b>{v}</b>{/await}{#await item.count}w{:then n}<b>{n}</b>{/await}";
+  let child = "<script>let { onclick, increment } = $props();</script><button {onclick}>go</button><button onclick={increment}>up</button>";
+  let (rust, svelte) = both("functions", &[("src/P.svelte", parent), ("src/C.svelte", child)], &props(&[("item", Value::Map(props(&[("count", Value::int(0i64))])))]), None);
+  assert_eq!(rust, svelte);
+}
+
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);
