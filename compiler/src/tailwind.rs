@@ -429,7 +429,7 @@ impl Classes<'_> {
           let value = &rest[at + 7..];
           let end = value.find('"').unwrap_or(value.len());
           if attribute {
-            self.words(&value[..end]);
+            self.words(&unescape(&value[..end]));
           }
           rest = &value[end..];
         }
@@ -437,6 +437,47 @@ impl Classes<'_> {
       _ => {}
     }
   }
+}
+
+/// An attribute value as the browser reads it. Svelte's compiled markup writes
+/// `&` as `&amp;` and `"` as `&quot;`; a numeric reference stands for its character.
+fn unescape(value: &str) -> std::borrow::Cow<'_, str> {
+  if !value.contains('&') {
+    return std::borrow::Cow::Borrowed(value);
+  }
+  let mut out = String::with_capacity(value.len());
+  let mut rest = value;
+  while let Some(at) = rest.find('&') {
+    out.push_str(&rest[..at]);
+    rest = &rest[at..];
+    let decoded = rest.find(';').filter(|end| *end <= 10).and_then(|end| {
+      let name = &rest[1..end];
+      let ch = match name {
+        "amp" => Some('&'),
+        "quot" => Some('"'),
+        "apos" => Some('\''),
+        "lt" => Some('<'),
+        "gt" => Some('>'),
+        _ => match name.strip_prefix("#x").or_else(|| name.strip_prefix("#X")) {
+          Some(hex) => u32::from_str_radix(hex, 16).ok().and_then(char::from_u32),
+          None => name.strip_prefix('#').and_then(|dec| dec.parse::<u32>().ok()).and_then(char::from_u32),
+        },
+      };
+      ch.map(|ch| (ch, end))
+    });
+    match decoded {
+      Some((ch, end)) => {
+        out.push(ch);
+        rest = &rest[end + 1..];
+      }
+      None => {
+        out.push('&');
+        rest = &rest[1..];
+      }
+    }
+  }
+  out.push_str(rest);
+  std::borrow::Cow::Owned(out)
 }
 
 impl<'a> oxc_ast_visit::Visit<'a> for Classes<'_> {
@@ -579,6 +620,9 @@ impl Vendor<'_> {
     out
   }
 }
+
+#[cfg(test)]
+mod svelte_properties;
 
 #[cfg(test)]
 mod tests {

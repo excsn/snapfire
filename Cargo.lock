@@ -3966,6 +3966,7 @@ dependencies = [
  "anyhow",
  "assert_cmd",
  "base64 0.23.1",
+ "bolero",
  "browserslist-rs 0.20.0",
  "clap",
  "fibre",
@@ -3983,11 +3984,13 @@ dependencies = [
  "oxc_span",
  "parcel_sourcemap",
  "predicates",
+ "proptest",
  "rayon",
  "serde",
  "serde_json",
  "snapfire_compiler_wire",
  "snapfire_media",
+ "snapfire_svelte",
  "snapfire_tailwind",
  "swc_core",
  "tempfile",
@@ -4027,6 +4030,8 @@ dependencies = [
 name = "snapfire_svelte"
 version = "0.1.0"
 dependencies = [
+ "bolero",
+ "proptest",
  "rquickjs",
  "serde",
  "serde_json",

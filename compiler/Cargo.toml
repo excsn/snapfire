@@ -67,6 +67,9 @@ features = [
 minify = ["swc_core/ecma_minifier"]
 
 [dev-dependencies]
+bolero = "0.13"
+proptest = "1"
+snapfire_svelte = { path = "svelte" }
 tempfile = "3.8"
 assert_cmd = "2.0"
 predicates = "3.0"
