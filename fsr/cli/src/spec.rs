@@ -408,6 +408,17 @@ fn browser_half(name: String) -> impl Fn(&snapfire_fsr_ir::Ambient, &[Value]) ->
   }
 }
 
+/// The spec patterns that match a file under `tests/`, so the compiler is not handed one that matches nothing.
+fn spec_patterns(app: &Path) -> Result<Vec<&'static str>, BuildError> {
+  let tests = app.join("tests");
+  let mut files = Vec::new();
+  if tests.is_dir() {
+    discover(app, &tests, &mut files)?;
+  }
+  let holds = |suffix: &str| files.iter().any(|file| file.to_string_lossy().ends_with(suffix));
+  Ok([(".spec.tsx", "tests/**/*.spec.tsx"), (".spec.ts", "tests/**/*.spec.ts")].into_iter().filter(|(suffix, _)| holds(suffix)).map(|(_, pattern)| pattern).collect())
+}
+
 fn indent(text: &str) -> String {
   text.lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")
 }
@@ -578,7 +589,7 @@ fn write_config(app: &Path, layout: &Layout, test_dir: &Path, roots: &[String], 
     tsconfig.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i + 1 == aliases.len() { "" } else { "," }));
   }
   let mut include: Vec<String> = roots.iter().filter(|root| !generated.contains(root)).map(|file| format!("{up}/{file}")).collect();
-  include.extend(["generated/islands.ts", "generated/client.ts", "tests/**/*.spec.tsx", "tests/**/*.spec.ts"].map(|file| format!("{up}/{file}")));
+  include.extend(["generated/islands.ts", "generated/client.ts"].into_iter().chain(spec_patterns(app)?).map(|file| format!("{up}/{file}")));
   let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
   tsconfig.push_str(&format!("    }}\n  }},\n  \"include\": [{}]", include.join(", ")));
   if !generated.is_empty() {
@@ -1215,6 +1226,19 @@ impl FetchHooks {
 #[cfg(test)]
 mod dev_build_tests {
   use super::*;
+
+  #[test]
+  fn the_spec_config_names_only_the_spec_patterns_a_file_under_tests_matches() {
+    let app = std::env::temp_dir().join(format!("fsr-spec-patterns-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(app.join("tests/book")).unwrap();
+    assert!(spec_patterns(&app).unwrap().is_empty());
+    std::fs::write(app.join("tests/book/page.spec.tsx"), "").unwrap();
+    assert_eq!(spec_patterns(&app).unwrap(), ["tests/**/*.spec.tsx"]);
+    std::fs::write(app.join("tests/plain.spec.ts"), "").unwrap();
+    assert_eq!(spec_patterns(&app).unwrap(), ["tests/**/*.spec.tsx", "tests/**/*.spec.ts"]);
+    std::fs::remove_dir_all(&app).unwrap();
+  }
 
   /// Answers `/pkg@<v>` with an esm.sh stub and the module it names with `export const version = "<v>";`, from a thread, at the address it returns.
   fn registry() -> String {
