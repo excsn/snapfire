@@ -67,6 +67,10 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net"] }
 toml = "0.8"
 
+[dependencies.swc_core]
+version = "77"
+features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
+
 [dev-dependencies]
 bolero = "0.13"
 bytes = "1"

@@ -239,24 +239,37 @@ fn fetch(client: &reqwest::blocking::Client, registry: &str, name: &str, version
     Some(_) => return Err(BuildError::Http(doc.dist.tarball.clone(), format!("{name}@{version}: the tarball does not match the integrity the registry published"))),
     None => return Err(BuildError::Http(doc.dist.tarball.clone(), format!("{name}@{version}: the registry published no sha512 integrity to check the tarball against"))),
   }
+  let files = unpack(&tarball).map_err(|e| BuildError::Io(Path::new(&doc.dist.tarball).to_path_buf(), e))?;
+  Ok(Package { doc, files, kept: BTreeMap::new() })
+}
+
+/// The regular files of a gzipped npm tarball by their path under its one top
+/// directory. An entry is left out when its path climbs out or holds a `\`
+/// or a `:`, which another platform reads as a separator or a drive.
+fn unpack(tarball: &[u8]) -> std::io::Result<BTreeMap<String, Vec<u8>>> {
   let mut files = BTreeMap::new();
-  let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tarball.as_slice()));
-  let unpacking = Path::new(&doc.dist.tarball).to_path_buf();
-  for entry in archive.entries().map_err(|e| BuildError::Io(unpacking.clone(), e))? {
-    let mut entry = entry.map_err(|e| BuildError::Io(unpacking.clone(), e))?;
+  let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(tarball));
+  for entry in archive.entries()? {
+    let mut entry = entry?;
     if !entry.header().entry_type().is_file() {
       continue;
     }
-    let path = entry.path().map_err(|e| BuildError::Io(unpacking.clone(), e))?.into_owned();
-    let rel: Vec<String> = path.components().skip(1).map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-    if rel.is_empty() || rel.iter().any(|part| part == "..") {
+    let path = entry.path()?.into_owned();
+    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+      continue;
+    }
+    let rel: Vec<String> = path.components().filter_map(|c| match c {
+      std::path::Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+      _ => None,
+    }).skip(1).collect();
+    if rel.is_empty() || rel.iter().any(|part| part.contains(['\\', ':'])) {
       continue;
     }
     let mut content = Vec::new();
-    entry.read_to_end(&mut content).map_err(|e| BuildError::Io(unpacking.clone(), e))?;
+    entry.read_to_end(&mut content)?;
     files.insert(rel.join("/"), content);
   }
-  Ok(Package { doc, files, kept: BTreeMap::new() })
+  Ok(files)
 }
 
 /// The file a subpath names, through `exports` under [`CONDITIONS`], else `module` or `main` for the root.
@@ -310,7 +323,8 @@ fn crawl(name: &str, package: &mut Package, rel: &str, bare: &mut Vec<String>) -
     let bytes = package.files.get(&rel).ok_or_else(|| BuildError::Http(format!("{name}/{rel}"), format!("{name} {} has no file `{rel}`", package.doc.version)))?;
     let text = String::from_utf8_lossy(bytes).into_owned();
     let mut rewrites: Vec<(std::ops::Range<usize>, String)> = Vec::new();
-    for (span, specifier) in imports_of(&text) {
+    let imports = imports_of(&text).map_err(|why| BuildError::Http(format!("{name}/{rel}"), format!("{name} {} does not parse as a module: {why}", package.doc.version)))?;
+    for (span, specifier) in imports {
       if specifier.starts_with("./") || specifier.starts_with("../") {
         let resolved = resolve(&rel, &specifier, &package.files).ok_or_else(|| BuildError::Http(format!("{name}/{rel}"), format!("imports `{specifier}`, which the package does not hold")))?;
         queue.push(resolved);
@@ -335,32 +349,61 @@ fn crawl(name: &str, package: &mut Package, rel: &str, bare: &mut Vec<String>) -
   Ok(())
 }
 
-/// Each static or dynamic import's specifier with the byte range it occupies,
-/// read with comments blanked so a JSDoc `@import` is not taken for one.
-fn imports_of(text: &str) -> Vec<(std::ops::Range<usize>, String)> {
-  use std::sync::OnceLock;
-  static COMMENTS: OnceLock<regex::Regex> = OnceLock::new();
-  static FORMS: OnceLock<[regex::Regex; 3]> = OnceLock::new();
-  let comments = COMMENTS.get_or_init(|| regex::Regex::new(r"(?s)/\*.*?\*/|(?m)^\s*//[^\n]*").expect("a pattern"));
-  let forms = FORMS.get_or_init(|| {
-    [
-      regex::Regex::new(r#"\b(?:import|export)\b[^'";]*?\bfrom\s*['"]([^'"\n]+)['"]"#).expect("a pattern"),
-      regex::Regex::new(r#"\bimport\s*['"]([^'"\n]+)['"]"#).expect("a pattern"),
-      regex::Regex::new(r#"\bimport\s*\(\s*['"]([^'"\n]+)['"]\s*\)"#).expect("a pattern"),
-    ]
-  });
-  let blanked = comments.replace_all(text, |caught: &regex::Captures| caught[0].chars().map(|c| if c == '\n' { "\n".to_owned() } else { " ".repeat(c.len_utf8()) }).collect::<String>());
-  let mut found: Vec<(std::ops::Range<usize>, String)> = Vec::new();
-  for form in forms {
-    for caught in form.captures_iter(&blanked) {
-      let group = caught.get(1).expect("one group");
-      if !found.iter().any(|(span, _)| span.start == group.start()) {
-        found.push((group.range(), group.as_str().to_owned()));
-      }
+/// Each static or dynamic import's and each re-export's specifier with the
+/// byte range between its quotes, in source order, as SWC's parser reads the
+/// module. A file that does not parse as a module is refused with the reason.
+fn imports_of(text: &str) -> Result<Vec<(std::ops::Range<usize>, String)>, String> {
+  use swc_core::common::{sync::Lrc, FileName, SourceMap, Spanned};
+  use swc_core::ecma::ast::{CallExpr, Callee, ExportAll, Expr, ImportDecl, Lit, NamedExport, Str};
+  use swc_core::ecma::parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax};
+  use swc_core::ecma::visit::{Visit, VisitWith};
+
+  struct Found<'t> {
+    start: u32,
+    text: &'t str,
+    out: Vec<(std::ops::Range<usize>, String)>,
+  }
+  impl Found<'_> {
+    fn add(&mut self, src: &Str) {
+      let span = src.span();
+      let range = (span.lo.0 - self.start) as usize + 1..(span.hi.0 - self.start) as usize - 1;
+      self.out.push((range.clone(), self.text[range].to_owned()));
     }
   }
-  found.sort_by_key(|(span, _)| span.start);
-  found
+  impl Visit for Found<'_> {
+    fn visit_import_decl(&mut self, n: &ImportDecl) {
+      self.add(&n.src);
+    }
+    fn visit_export_all(&mut self, n: &ExportAll) {
+      self.add(&n.src);
+    }
+    fn visit_named_export(&mut self, n: &NamedExport) {
+      if let Some(src) = &n.src {
+        self.add(src);
+      }
+    }
+    fn visit_call_expr(&mut self, n: &CallExpr) {
+      if let (Callee::Import(_), Some(arg)) = (&n.callee, n.args.first()) {
+        if let (None, Expr::Lit(Lit::Str(src))) = (arg.spread, &*arg.expr) {
+          self.add(src);
+        }
+      }
+      n.visit_children_with(self);
+    }
+  }
+
+  let cm: Lrc<SourceMap> = Default::default();
+  let fm = cm.new_source_file(Lrc::new(FileName::Anon), text.to_owned());
+  let lexer = Lexer::new(Syntax::Es(EsSyntax::default()), Default::default(), StringInput::from(&*fm), None);
+  let mut parser = Parser::new_from(lexer);
+  let module = parser.parse_module().map_err(|e| e.kind().msg().into_owned())?;
+  if let Some(error) = parser.take_errors().first() {
+    return Err(error.kind().msg().into_owned());
+  }
+  let mut found = Found { start: fm.start_pos.0, text, out: Vec::new() };
+  module.visit_with(&mut found);
+  found.out.sort_by_key(|(span, _)| span.start);
+  Ok(found.out)
 }
 
 /// The package file a relative specifier in `from` names, as written or with `.js` or `/index.js` added.
@@ -395,6 +438,9 @@ fn relative(from: &str, to: &str) -> String {
     n => format!("{}{rest}", "../".repeat(n)),
   }
 }
+
+#[cfg(test)]
+mod properties;
 
 #[cfg(test)]
 mod tests {
@@ -593,7 +639,7 @@ mod tests {
     walk(&vendor.join("svelte"), &mut all);
     for file in &all {
       let text = std::fs::read_to_string(file).unwrap_or_default();
-      assert!(!imports_of(&text).iter().any(|(_, s)| s.starts_with('#')), "{} still imports an alias", file.display());
+      assert!(!imports_of(&text).unwrap().iter().any(|(_, s)| s.starts_with('#')), "{} still imports an alias", file.display());
       if text.contains("internal/client/runtime.js'") || text.contains("/runtime.js'") {
         readers.push(file.clone());
       }
