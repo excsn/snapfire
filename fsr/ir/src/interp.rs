@@ -2856,6 +2856,14 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       other => return Err(type_error(&format!("{name:?}"), "an array or a string", other)),
     },
+    Builtin::CharAt => {
+      let units: Vec<u16> = text(name, arg(0)?)?.encode_utf16().collect();
+      let at = integer(name, args.get(1))?;
+      if at < 0.0 || at >= units.len() as f64 {
+        return Ok(Value::str(""));
+      }
+      Value::str(from_units(name, &units[at as usize..at as usize + 1])?)
+    }
     Builtin::CharCodeAt => {
       let units: Vec<u16> = text(name, arg(0)?)?.encode_utf16().collect();
       let at = integer(name, args.get(1))?;

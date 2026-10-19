@@ -365,6 +365,7 @@ fn number_and_string_builtins_render_what_javascript_computes() {
 <p>{isNaN(n)} {isNaN(word)} {isNaN('12')} {isNaN(0 / 0)} {isNaN(null)} {isNaN(true)} {isNaN(' ')} {isNaN('0x1g')} {isNaN(half)}</p>
 <p>{parseInt(hex.slice(1, 3), 16)} {parseInt('  -42px')} {parseInt('0x1f')} {parseInt('0x1f', 16)} {parseInt('0x1f', 10)} {parseInt('z', 36)} {parseInt('abc')} {parseInt('12.9e3')} {parseInt('101', 2)} {parseInt('9', 8)} {parseInt('', 10)} {parseInt('+7')} {parseInt('-0')} {parseInt('1e21')} {parseInt(half)} {parseInt('7', 1)} {parseInt('7', 37)} {parseInt('7', 0)} {parseInt('ffffffffffffffffffff', 16)} {parseInt(null)} {parseInt(n, 36)}</p>
 <p>{word.lastIndexOf('l')} {word.lastIndexOf('l', 2)} {word.lastIndexOf('')} {word.lastIndexOf('', 2)} {word.lastIndexOf('z')} {word.lastIndexOf('lo', -5)} {nums.lastIndexOf(3)} {nums.lastIndexOf(3, -2)} {nums.lastIndexOf(9)} {nums.lastIndexOf(1, -99)}</p>
+<p>[{word.charAt(0)}] [{word.charAt(4)}] [{word.charAt(99)}] [{word.charAt(-1)}] [{word.charAt()}] [{word.charAt(1.9)}] {word.charAt(0).toUpperCase() + word.slice(1)}</p>
 <p>{word.charCodeAt(0)} {word.charCodeAt(99)} {'😀'.charCodeAt(1)} {word.charCodeAt()} {word.charCodeAt(-1)} {word.charCodeAt(1.7)}</p>
 <p>{(255).toString(16)} {(255).toString(2)} {(-255).toString(36)} {n.toString(16)} {'😀'.charCodeAt(0).toString(16)} {(0).toString(7)} {(1e21).toString(16)} {n.toString(10)}</p>
 <p>{n * 1e20} {n * 1e19} {n / 1e8} {half * 1e-7} {half / 1e6} {-n * 1e30} {String(2 ** 70)} {1 / 3} {n * 1e300 * 1e10} {n * 0 - 121353887610955.125}</p>
@@ -488,6 +489,29 @@ fn every_math_function_prints_what_v8_prints() {
     ours("math", source, &props(&[("h", Value::F64(0.5)), ("two", Value::F64(2.0))])),
     "<!--[--><p>0.5463024898437905 0.5235987755982989 1.0471975511965979 1.1071487177940904 0.4636476090008061 0.5210953054937474 1.1276259652063807 0.48121182505960347 1.3169578969248166 0.5493061443340549</p><p>1.6487212707001282 0.6487212707001282 -0.6931471805599453 1.584962500721156 3 0.4054651081081644 1.2599210498948732</p><!--]-->"
   );
+}
+
+#[test]
+fn a_reduce_that_writes_its_fresh_accumulator_renders_what_javascript_computes() {
+  let source = r#"<script>let { cols, words } = $props();
+const orders = cols.reduce((o, key) => ((o[key] = 1), o), {});
+const counts = words.reduce((o, w) => { o[w] = (o[w] || 0) + 1; return o; }, {});
+const lengths = words.reduce((o, w) => ((o.total = (o.total || 0) + w.length), o), {});
+const both = cols.reduce((o, k) => ((o[k] = k.length), (o.last = k), o), {});</script>
+<p>{JSON.stringify(orders)} {JSON.stringify(counts)} {JSON.stringify(lengths)} {JSON.stringify(both)}</p>"#;
+  check("reduce", source, &props(&[("cols", Value::seq(vec![s("name"), s("power"), s("name")])), ("words", Value::seq(vec![s("a"), s("bb"), s("a")]))]));
+  let sorted = r#"<script>let { rows, key } = $props();
+const sorted = rows.slice().sort((a, b) => {
+  a = a[key];
+  b = b[key];
+  return a === b ? 0 : a > b ? 1 : -1;
+});</script>
+<p>{sorted.map((r) => r.name).join()}</p>"#;
+  check("param-writes", sorted, &props(&[("key", s("n")), ("rows", Value::seq(vec![Value::Map(props(&[("name", s("b")), ("n", Value::int(2i64))])), Value::Map(props(&[("name", s("a")), ("n", Value::int(1i64))]))]))]));
+  let mutates = refused("param-member", "<script>let { rows } = $props(); const out = rows.map((r) => { r.seen = 1; return r; });</script><p>{out.length}</p>");
+  assert!(mutates.contains("which this body did not declare"), "{mutates}");
+  let refusal = refused("reduce-outer", "<script>let { cols } = $props(); const seen = {}; const out = cols.reduce((o, k) => ((o[k] = 1), o), seen);</script><p>{JSON.stringify(out)}</p>");
+  assert!(refusal.contains("comma") || refusal.contains("assignment"), "{refusal}");
 }
 
 #[test]

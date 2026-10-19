@@ -16,8 +16,8 @@ examples-flight-booker-composition	client: src/App.vue:35:5 `.getFullYear()`, wh
 examples-flight-booker-options	client: src/App.vue:13:5 `.getFullYear()`, which reads the viewer's time zone
 examples-form-bindings-composition	lowered
 examples-form-bindings-options	lowered
-examples-grid-composition	client: src/App.vue:23:3 `<DemoGrid>` does not lower: src/Grid.vue:12:37: a comma expression
-examples-grid-options	client: src/App.vue:29:3 `<DemoGrid>` does not lower: src/Grid.vue:11:52: a comma expression
+examples-grid-composition	lowered
+examples-grid-options	lowered
 examples-handling-input-composition	lowered
 examples-handling-input-options	lowered
 examples-hello-world-composition	lowered

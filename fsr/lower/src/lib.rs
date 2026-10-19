@@ -2503,12 +2503,13 @@ impl<'a> Lowerer<'a> {
         };
         Ok(Expr::Sort(target, f))
       }
-      "slice" | "at" | "indexOf" | "lastIndexOf" | "charCodeAt" | "codePointAt" | "concat" | "padStart" | "padEnd" | "substring" => {
+      "slice" | "at" | "indexOf" | "lastIndexOf" | "charAt" | "charCodeAt" | "codePointAt" | "concat" | "padStart" | "padEnd" | "substring" => {
         let name = match method.as_str() {
           "slice" => Builtin::Slice,
           "at" => Builtin::At,
           "indexOf" => Builtin::IndexOf,
           "lastIndexOf" => Builtin::LastIndexOf,
+          "charAt" => Builtin::CharAt,
           "charCodeAt" => Builtin::CharCodeAt,
           "codePointAt" => Builtin::CodePointAt,
           "concat" => Builtin::Concat,
@@ -2526,7 +2527,14 @@ impl<'a> Lowerer<'a> {
         Ok(Expr::Builtin { name, args })
       }
       "reduce" => {
-        let f = lambda(self, 0)?;
+        let rewritten = match (call.args.first().map(|a| strip_parens(&a.expr)), call.args.get(1).map(|a| strip_parens(&a.expr))) {
+          (Some(js::Expr::Arrow(arrow)), Some(js::Expr::Object(_))) => fresh_accumulator(arrow),
+          _ => None,
+        };
+        let f = match rewritten {
+          Some(arrow) => Box::new(self.lambda(&arrow)?),
+          None => lambda(self, 0)?,
+        };
         let init = call.args.get(1).ok_or_else(|| self.residue(call.span, "`reduce` needs an initial value"))?;
         let init = Box::new(self.expr(&init.expr)?);
         Ok(Expr::Reduce(target, init, f))
@@ -2636,7 +2644,7 @@ impl<'a> Lowerer<'a> {
       other => Err(self.residue_with(
         member.span,
         format!("`.{other}()`, which is not a builtin"),
-        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace` and `toLocaleString`; anything else goes in a module-level helper the build can read",
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test` and `toLocaleString`; anything else goes in a module-level helper the build can read",
       )),
     }
   }
@@ -2938,6 +2946,7 @@ impl<'a> Lowerer<'a> {
     };
     let body = match &*arrow.body {
       js::ArrowFunctionBody::Expr(e) => self.expr(e),
+      js::ArrowFunctionBody::FunctionBody(b) if !writes_a_member_of(&b.stmts, &params) => crate::component::block_to_expr_from(self, &b.stmts, depth),
       js::ArrowFunctionBody::FunctionBody(b) => crate::component::block_to_expr(self, &b.stmts),
     };
     self.scope.truncate(depth);
@@ -3106,6 +3115,97 @@ fn root_named(name: &str) -> Option<Root> {
 
 /// The `Math` functions `Builtin::Math` computes as V8 does.
 pub(crate) const JS_MATH: [&str; 19] = ["sin", "cos", "tan", "asin", "acos", "atan", "atan2", "sinh", "cosh", "asinh", "acosh", "atanh", "exp", "expm1", "log", "log2", "log10", "log1p", "cbrt"];
+
+/// Whether `stmts` write a field of one of `params`, an object the caller holds too, so the parameters stay unwritable; rebinding a parameter itself is a local write.
+fn writes_a_member_of(stmts: &[js::Stmt], params: &[String]) -> bool {
+  use swc_core::ecma::visit::{Visit, VisitWith};
+  struct Writes<'a>(&'a [String], bool);
+  impl Visit for Writes<'_> {
+    fn visit_simple_assign_target(&mut self, target: &js::SimpleAssignTarget) {
+      if let js::SimpleAssignTarget::Member(member) = target {
+        let mut root = &*member.obj;
+        while let js::Expr::Member(inner) = root {
+          root = &inner.obj;
+        }
+        if matches!(root, js::Expr::Ident(id) if self.0.iter().any(|p| *p == *id.sym)) {
+          self.1 = true;
+        }
+      }
+      target.visit_children_with(self);
+    }
+  }
+  let mut writes = Writes(params, false);
+  stmts.iter().for_each(|stmt| stmt.visit_with(&mut writes));
+  writes.1
+}
+
+/// A `reduce` callback that writes its accumulator and answers it, `(acc[k] = v, acc)` or `{ acc.k = v; return acc; }`, as one that answers `({ ...acc, [k]: v })`. Only for an accumulator that starts as an object literal, which nothing else holds, so a fresh object answers what the writes would; only the first write may read the accumulator, since a later one would see the earlier write.
+fn fresh_accumulator(arrow: &js::ArrowExpr) -> Option<js::ArrowExpr> {
+  use swc_core::ecma::visit::{Visit, VisitWith};
+  let js::Pat::Ident(acc) = arrow.params.first()? else { return None };
+  let acc = acc.id.sym.clone();
+  let mut writes: Vec<&js::AssignExpr> = Vec::new();
+  let answers_acc = |e: &js::Expr| matches!(strip_parens(e), js::Expr::Ident(id) if id.sym == acc);
+  match &*arrow.body {
+    js::ArrowFunctionBody::Expr(e) => {
+      let js::Expr::Seq(seq) = strip_parens(e) else { return None };
+      let (last, rest) = seq.exprs.split_last()?;
+      if !answers_acc(last) {
+        return None;
+      }
+      for e in rest {
+        let js::Expr::Assign(assign) = strip_parens(e) else { return None };
+        writes.push(assign);
+      }
+    }
+    js::ArrowFunctionBody::FunctionBody(block) => {
+      let (last, rest) = block.stmts.split_last()?;
+      let js::Stmt::Return(js::ReturnStmt { arg: Some(arg), .. }) = last else { return None };
+      if !answers_acc(&**arg) {
+        return None;
+      }
+      for stmt in rest {
+        let js::Stmt::Expr(js::ExprStmt { expr, .. }) = stmt else { return None };
+        let js::Expr::Assign(assign) = strip_parens(&**expr) else { return None };
+        writes.push(assign);
+      }
+    }
+  }
+  struct Reads<'a>(&'a swc_core::atoms::Atom, bool);
+  impl Visit for Reads<'_> {
+    fn visit_ident(&mut self, id: &js::Ident) {
+      if id.sym == *self.0 {
+        self.1 = true;
+      }
+    }
+  }
+  let mut props = vec![js::PropOrSpread::Spread(js::SpreadElement { dot3_token: arrow.span, expr: Box::new(js::Expr::Ident(js::Ident::new_no_ctxt(acc.clone(), arrow.span))) })];
+  for (i, assign) in writes.iter().enumerate() {
+    if assign.op != js::AssignOp::Assign {
+      return None;
+    }
+    let js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) = &assign.left else { return None };
+    if !matches!(&*member.obj, js::Expr::Ident(id) if id.sym == acc) {
+      return None;
+    }
+    let key = match &member.prop {
+      js::MemberProp::Ident(name) => js::PropName::Ident(name.clone()),
+      js::MemberProp::Computed(computed) => js::PropName::Computed(computed.clone()),
+      js::MemberProp::PrivateName(_) => return None,
+    };
+    if i > 0 {
+      let mut reads = Reads(&acc, false);
+      assign.right.visit_with(&mut reads);
+      member.prop.visit_with(&mut reads);
+      if reads.1 {
+        return None;
+      }
+    }
+    props.push(js::PropOrSpread::Prop(Box::new(js::Prop::KeyValue(js::KeyValueProp { key, value: assign.right.clone() }))));
+  }
+  let object = js::Expr::Object(js::ObjectLit { span: arrow.span, props });
+  Some(js::ArrowExpr { body: Box::new(js::ArrowFunctionBody::Expr(Box::new(js::Expr::Paren(js::ParenExpr { span: arrow.span, expr: Box::new(object) })))), ..arrow.clone() })
+}
 
 pub(crate) fn prop_name(name: &js::PropName) -> Option<String> {
   match name {

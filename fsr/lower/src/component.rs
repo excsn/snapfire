@@ -4251,8 +4251,14 @@ pub(crate) fn holds_act(stmts: &[Stmt]) -> bool {
 
 pub(crate) fn block_to_expr(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt]) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
+  block_to_expr_from(lowerer, stmts, depth)
+}
+
+/// `block_to_expr` with the names bound at or above `floor` writable, a function's parameters among them.
+pub(crate) fn block_to_expr_from(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt], floor: usize) -> Lowered<Expr> {
+  let depth = lowerer.scope.len();
   let refs: Vec<&js::Stmt> = stmts.iter().collect();
-  let result = block_to_expr_inner(lowerer, &refs, depth);
+  let result = block_to_expr_inner(lowerer, &refs, floor);
   lowerer.scope.truncate(depth);
   result
 }

@@ -259,6 +259,8 @@ pub enum Builtin {
   ParseInt,
   /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.
   LastIndexOf,
+  /// `s.charAt(i)`: the UTF-16 code unit at `i` as a string, empty past either end.
+  CharAt,
   /// `s.charCodeAt(i)`: the UTF-16 code unit at `i`, NaN past either end.
   CharCodeAt,
   /// A `Math` function V8 computes in its own code: the first argument names it (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `asinh`, `acosh`, `atanh`, `exp`, `expm1`, `log`, `log2`, `log10`, `log1p` or `cbrt`) and the rest are its arguments, computed as `jsmath` does.
