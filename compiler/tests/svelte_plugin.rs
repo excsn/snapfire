@@ -76,3 +76,33 @@ fn the_build_labels_a_component_with_the_language_it_was_written_in() {
   assert!(said.contains("Compiling SVELTE: \"src/Card.svelte\""), "{said}");
   assert!(!said.contains("VUE"), "no other plugin's name: {said}");
 }
+
+fn stand_in_compiler(version: &str) -> String {
+  format!(
+    r#"(function () {{
+  globalThis.svelte = {{
+    VERSION: "{version}",
+    parse: function () {{ return {{}}; }},
+    compile: function () {{ return {{ js: {{ code: "export const compiledBy = \"{version}\";\nexport default function Card() {{}}\n", map: null }}, css: null, warnings: [] }}; }},
+    compileModule: function () {{ return {{ js: {{ code: "// module by {version}\nexport const counter = {{}};\nexport function bump() {{}}\n", map: null }}, css: null, warnings: [] }}; }}
+  }};
+}})();
+"#
+  )
+}
+
+#[test]
+fn the_applications_own_compiler_compiles_and_a_new_one_under_the_same_path_compiles_again() {
+  let fixture = Fixture::new("svelte-plugin");
+  let compiler = fixture.root().join("vendor-compiler.js");
+  fs::write(&compiler, stand_in_compiler("9.9.9")).unwrap();
+  let run = || {
+    let mut cmd = get_snapfirec_cmd();
+    with_plugin_on_path(&mut cmd);
+    cmd.arg("--root").arg(fixture.root()).arg("--plugin-compiler").arg(format!("svelte={}", compiler.display())).assert().success();
+    fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module")
+  };
+  assert!(run().contains("\"9.9.9\""), "the named compiler answered");
+  fs::write(&compiler, stand_in_compiler("9.9.10")).unwrap();
+  assert!(run().contains("\"9.9.10\""), "a new compiler under the same path is not answered from the cache");
+}

@@ -36,8 +36,9 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 
 ### PROTOCOL
 
-* `pub const PROTOCOL: u32 = 3`
-* The version both sides speak. A `Hello` naming another is refused by the host.
+* `pub const PROTOCOL: u32 = 4`
+* The version both sides speak. A `Hello` naming another is refused by the host. 2 added a unit's sibling files and `needs`; 3 added `describe`; 4 added `Options::compiler` and the `SUFFIXES` a plugin claims. A plugin speaking 3 would ignore the compiler it is handed, so a host speaking 4 refuses it.
+* The number moves at most once between publishes: a protocol change since the last published release belongs to the number that release already raised to.
 
 ### EXTENSIONS
 
@@ -70,8 +71,9 @@ The wire contract between `snapfirec` and a framework compiler plugin, one JSON 
 
 ### Options
 
-* `pub struct Options { pub production: bool, pub source_map: bool, pub minify: bool }`
-* What the build asked for, in terms every plugin can honour. Every field defaults to false when absent from the JSON. `Default` is all false.
+* `pub struct Options { pub production: bool, pub source_map: bool, pub minify: bool, pub compiler: Option<String> }`
+* What the build asked for, in terms every plugin can honour. Every flag defaults to false when absent from the JSON. `Default` is all false with no compiler.
+* `compiler` is a framework compiler file the plugin boots in place of the one it carries: the application's own, so what it compiles calls the runtime the application vendors. Left out of the JSON when `None`.
 
 ### Kind
 

@@ -53,6 +53,8 @@ pub struct Options {
   /// The vendor tree a stylesheet using Tailwind reads classes from, relative to the root, with
   /// the URL prefix the import map names it under.
   pub tailwind_vendor: Option<(PathBuf, String)>,
+  /// Per extension, the compiler file the plugin boots in place of the one it carries.
+  pub plugin_compilers: BTreeMap<String, PathBuf>,
   /// Writes the classes the sources name to `tailwind.classes` in the output directory, so a
   /// package carries its class list to the applications that vendor it.
   pub emit_tailwind_classes: bool,
@@ -751,12 +753,17 @@ fn run_plugins_for(opts: &Options, build: &mut Build, paths: &[PathBuf]) {
         continue;
       }
     };
+    let compiler = opts.plugin_compilers.get(ext).map(|path| path.to_string_lossy().into_owned());
     let options = snapfire_compiler_wire::Options {
       production: opts.minify.is_some(),
       source_map: build.map_options.mode != MapMode::Off,
       minify: opts.minify.is_some(),
+      compiler: compiler.clone(),
     };
-    let options_json = serde_json::to_string(&options).unwrap_or_default();
+    // The compiler's content keys the cache as well as its path, so a new
+    // version vendored under the same path compiles everything again.
+    let compiler_text = compiler.as_deref().and_then(|path| std::fs::read_to_string(path).ok()).unwrap_or_default();
+    let options_json = format!("{}{compiler_text}", serde_json::to_string(&options).unwrap_or_default());
 
     let mut pending: Vec<Pending> = Vec::new();
     for path in &paths {

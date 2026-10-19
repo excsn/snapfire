@@ -206,6 +206,7 @@ snapfirec
 | `--tailwind-classes <path>` | Classes a Tailwind stylesheet generates utilities for, one per line, beside those the sources name | off |
 | `--tailwind-vendor <dir>` | The vendor tree a Tailwind stylesheet reads the imported packages' classes from; needs `--tailwind-vendor-base` and `--import-map` | off |
 | `--tailwind-vendor-base <url>` | The URL prefix the import map names the vendor tree under | none |
+| `--plugin-compiler <ext>=<path>` | A plugin's compiler: the application's own, booted in place of the one the plugin carries; its content is part of the plugin cache key, so a new version under the same path compiles everything again. Repeatable | the plugin's own |
 | `--emit-tailwind-classes` | Write the classes the sources name to `tailwind.classes` in the output directory | off |
 | `--source-map` | Emit a `.map` beside each output | `sourceMap` |
 | `--inline-source-map` | Embed each map as a data URI | `inlineSourceMap` |

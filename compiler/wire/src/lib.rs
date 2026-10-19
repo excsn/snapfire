@@ -15,7 +15,21 @@ pub mod host;
 
 /// The wire version. A plugin announcing another number is refused by name
 /// rather than failing later on a field that moved.
-pub const PROTOCOL: u32 = 3;
+///
+/// Protocol 2 adds a unit's sibling files and the `needs` answer that asks for
+/// them. Protocol 3 adds the `describe` request and its `described` answer.
+/// Protocol 4 adds `Options::compiler`, the application's own compiler, and
+/// the `.svelte.ts` and `.svelte.js` suffixes a plugin claims. A plugin
+/// speaking 3 would ignore the compiler it was handed and compile with the one
+/// it carries, so a host refuses it rather than mix two versions of a
+/// framework.
+///
+/// Raise this only for a change to a protocol a published release of this
+/// crate already speaks. A change to the protocol since the last publish is
+/// part of the protocol this number already names: add it to that number's
+/// line above. Check the number in the last published release before raising
+/// it.
+pub const PROTOCOL: u32 = 4;
 
 /// The extensions a plugin compiles, one framework each. `<ext>` is compiled
 /// by `snapfirec-<ext>`, which `cargo install snapfire_<ext>` puts on PATH.
@@ -130,6 +144,11 @@ pub struct Options {
   /// Minify the emitted code and styles.
   #[serde(default)]
   pub minify: bool,
+  /// A framework compiler file the plugin boots in place of the one it
+  /// carries: the application's own, so what it compiles calls the runtime
+  /// the application vendors.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub compiler: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

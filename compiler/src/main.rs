@@ -103,6 +103,11 @@ struct Args {
   #[arg(long, requires = "tailwind_vendor")]
   tailwind_vendor_base: Option<String>,
 
+  /// A framework plugin's compiler as `<ext>=<path>`: the application's own, which the plugin
+  /// boots in place of the one it carries, so the output matches the runtime the application vendors
+  #[arg(long, value_parser = plugin_compiler)]
+  plugin_compiler: Vec<(String, PathBuf)>,
+
   /// Writes the classes the sources name to `tailwind.classes` in the output directory, the
   /// class list a package carries to the applications that vendor it
   #[arg(long)]
@@ -152,6 +157,7 @@ fn main() -> Result<()> {
     asset_map: args.asset_map,
     tailwind_classes: args.tailwind_classes,
     tailwind_vendor: args.tailwind_vendor.zip(args.tailwind_vendor_base),
+    plugin_compilers: args.plugin_compiler.into_iter().collect(),
     emit_tailwind_classes: args.emit_tailwind_classes,
     driven: args.driven,
   };
@@ -193,4 +199,12 @@ fn main() -> Result<()> {
   }
 
   Ok(())
+}
+
+fn plugin_compiler(raw: &str) -> Result<(String, PathBuf), String> {
+  let (ext, path) = raw.split_once('=').ok_or_else(|| format!("`{raw}` is not `<ext>=<path>`"))?;
+  match snapfire_compiler_wire::claimed(ext) {
+    Some(ext) => Ok((ext.to_owned(), PathBuf::from(path))),
+    None => Err(format!("`{ext}` is not an extension a plugin compiles")),
+  }
 }
