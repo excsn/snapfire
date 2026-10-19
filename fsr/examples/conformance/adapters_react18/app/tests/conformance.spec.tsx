@@ -15,8 +15,8 @@ const REACT = "src/ui/ReactProbe.tsx#default";
 const VUE = "src/ui/VueProbe.vue#default";
 
 const FRAMEWORKS = [
-  { owner: "react", module: REACT, other: VUE, Probe: ReactProbe, Held: HeldProbe, Lazy: LazyProbe },
-  { owner: "vue", module: VUE, other: REACT, Probe: VueProbe, Held: HeldVueProbe, Lazy: LazyVueProbe },
+  { owner: "react", module: REACT, other: VUE, Probe: ReactProbe, Held: HeldProbe, Lazy: LazyProbe, placed: 3 },
+  { owner: "vue", module: VUE, other: REACT, Probe: VueProbe, Held: HeldVueProbe, Lazy: LazyVueProbe, placed: 2 },
 ] as const;
 
 const page = async (path = "/", locale?: string) => {
@@ -44,7 +44,7 @@ async function hydrationWarnings(body: () => Promise<unknown>): Promise<string[]
   }
 }
 
-describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, Held, Lazy }) => {
+describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, Held, Lazy, placed }) => {
   test("mounts the island and hydrates over the server's markup", async () => {
     const before = tally().renders[owner] ?? 0;
     const r = await render(<Probe label="alone" nest={[]} />);
@@ -90,7 +90,7 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, 
     expect(counts().every((count) => count === "0"), counts().join()).toEqual(true);
     await fireEvent.click(probe(owner).querySelector(".add")!);
     await settle();
-    expect(counts().length, "both probes, both nested probes, the svelte probe and both server islands").toEqual(7);
+    expect(counts().length, "both probes, the svelte probe, the three nested probes and both server islands").toEqual(8);
     expect(counts().every((count) => count === "1"), counts().join()).toEqual(true);
   });
 
@@ -179,7 +179,7 @@ describe.each(FRAMEWORKS)("the $owner adapter", ({ owner, module, other, Probe, 
     expect(location.pathname).toEqual("/next");
     expect(document.querySelector(".next-page")).toBeTruthy();
     expect(document.querySelector(".probe"), "no probe is left").toBeNull();
-    expect(tally().unmounts[owner], "the island and the one nested in the other probe").toEqual(before + 2);
+    expect(tally().unmounts[owner], "the island and every one another probe placed").toEqual(before + placed);
   });
 });
 
@@ -202,7 +202,7 @@ describe.each(SERVER)("the $owner island", ({ owner, written }) => {
     await fireEvent.click(probe(owner).querySelector(".add")!);
     await settle();
     await waitFor(() => expect(counts().every((count) => count === "1"), counts().join()).toEqual(true));
-    expect(counts().length).toEqual(7);
+    expect(counts().length).toEqual(8);
   });
 });
 
@@ -226,6 +226,56 @@ describe("the svelte adapter", () => {
     await fireEvent.click(probe("react").querySelector(".add")!);
     await settle();
     await waitFor(() => expect(probe("svelte").querySelector(".count")?.textContent).toEqual("2"));
+  });
+
+  test("places an island of another framework through the island attachment", async () => {
+    await page();
+    const nested = probe("svelte").querySelector(`sf-i[data-sf-module="${REACT}"]`);
+    expect(nested?.hasAttribute("data-sf-mounted"), "the nested island mounted through its own adapter").toEqual(true);
+    expect(nested?.querySelector(".label")?.textContent).toEqual("svelte nested");
+  });
+
+  test("patches the nested island when its props change rather than mounting it again", async () => {
+    const r = await render(<SvelteProbe label="first" nest={[REACT]} />);
+    const nested = r.container.querySelector(`sf-i[data-sf-module="${REACT}"]`);
+    await r.rerender(<SvelteProbe label="second" nest={[REACT]} />);
+    await settle();
+    expect(r.container.querySelector(`sf-i[data-sf-module="${REACT}"]`), "the same marker").toBe(nested);
+    expect(nested?.querySelector(".label")?.textContent).toEqual("second nested");
+  });
+
+  test("binds the locale the request chose", async () => {
+    await page();
+    expect(probe("svelte").querySelector(".locale")?.textContent).toEqual("en");
+    await page("/fr/");
+    expect(probe("svelte").querySelector(".locale")?.textContent).toEqual("fr");
+  });
+
+  test("writes a link the navigator reads", async () => {
+    await page();
+    const link = probe("svelte").querySelector("a.next");
+    expect(link?.getAttribute("href")).toEqual("/next");
+    expect(link?.hasAttribute("data-sf-link"), link?.outerHTML).toEqual(true);
+  });
+
+  test("writes a picture", async () => {
+    await page();
+    const img = probe("svelte").querySelector("img");
+    expect(img?.getAttribute("src")).toEqual("/pictures/probe.png");
+    expect(img?.getAttribute("alt")).toEqual("probe");
+    expect(img?.getAttribute("width")).toEqual("4");
+  });
+
+  test("is discarded with the island it placed when a navigation replaces its page", async () => {
+    await page();
+    const before = tally().unmounts.svelte ?? 0;
+    const reactBefore = tally().unmounts.react ?? 0;
+    await fireEvent.click(probe("svelte").querySelector("a.next")!);
+    await settle();
+    expect(location.pathname).toEqual("/next");
+    expect(document.querySelector(".probe"), "no probe is left").toBeNull();
+    expect(tally().unmounts.svelte).toEqual(before + 1);
+    expect(tally().unmounts.react, "the React probe, the one nested in the Vue probe and the one the svelte probe placed").toEqual(reactBefore + 3);
   });
 
   test("patches the island in place", async () => {

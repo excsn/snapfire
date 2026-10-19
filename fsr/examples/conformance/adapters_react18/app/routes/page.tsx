@@ -23,7 +23,7 @@ export default function Probes() {
         </VueProbe>
       </Island>
       <Island>
-        <SvelteProbe label="svelte">
+        <SvelteProbe label="svelte" nest={[REACT]}>
           <em>svelte children</em>
         </SvelteProbe>
       </Island>
