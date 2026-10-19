@@ -51,7 +51,7 @@ enum Ask {
   Version(Sender<Result<String, SvelteError>>),
   Run { kind: Kind, filename: String, source: String, options: Options, reply: Sender<Result<Outcome, SvelteError>> },
   Ssr { filename: String, source: String, reply: Sender<Result<Outcome, SvelteError>> },
-  Render { js: String, props: String, runtime: PathBuf, reply: Sender<Result<String, SvelteError>> },
+  Render { entry: String, modules: BTreeMap<String, String>, props: String, runtime: PathBuf, reply: Sender<Result<String, SvelteError>> },
 }
 
 /// One QuickJS context holding the compiler, owned by the thread it runs on.
@@ -104,15 +104,17 @@ impl Compiler {
     answer.recv().map_err(|_| gone())?
   }
 
-  /// The body `svelte/server`'s `render` writes for `js`, a module
-  /// `ssr_module` answered, given `props` as JSON. `runtime` is a directory
-  /// laid out as [`SERVER_RUNTIME`] reads it, since the plugin carries a
-  /// compiler and no runtime.
-  pub fn render_module(&self, js: &str, props: &str, runtime: &Path) -> Result<String, SvelteError> {
+  /// The body `svelte/server`'s `render` writes for the component `entry`
+  /// names, given `props` as JSON. `modules` holds what `ssr_module` answered
+  /// for it and for each component it imports, by an absolute path such as
+  /// `/src/ui/Card.svelte`, which a relative import between them resolves
+  /// against. `runtime` is a directory laid out as [`SERVER_RUNTIME`] reads
+  /// it, since the plugin carries a compiler and no runtime.
+  pub fn render_module(&self, entry: &str, modules: &BTreeMap<String, String>, props: &str, runtime: &Path) -> Result<String, SvelteError> {
     let (reply, answer) = channel();
     self
       .asks
-      .send(Ask::Render { js: js.to_owned(), props: props.to_owned(), runtime: runtime.to_path_buf(), reply })
+      .send(Ask::Render { entry: entry.to_owned(), modules: modules.clone(), props: props.to_owned(), runtime: runtime.to_path_buf(), reply })
       .map_err(|_| gone())?;
     answer.recv().map_err(|_| gone())?
   }
@@ -186,8 +188,8 @@ fn serve(inbox: Receiver<Ask>, booted: Sender<Result<(), SvelteError>>) {
       Ask::Ssr { filename, source, reply } => {
         let _ = reply.send(engine.ssr_module(&filename, &source));
       }
-      Ask::Render { js, props, runtime, reply } => {
-        let _ = reply.send(engine.render_module(&js, &props, &runtime));
+      Ask::Render { entry, modules, props, runtime, reply } => {
+        let _ = reply.send(engine.render_module(&entry, modules, &props, &runtime));
       }
     }
   }
@@ -227,11 +229,15 @@ impl Engine {
     decode(&answer, filename)
   }
 
-  fn render_module(&self, js: &str, props: &str, runtime: &Path) -> Result<String, SvelteError> {
+  /// Each render names its modules under a prefix of its own, since QuickJS
+  /// keeps a module it loaded for the rest of the runtime's life.
+  fn render_module(&self, entry: &str, modules: BTreeMap<String, String>, props: &str, runtime: &Path) -> Result<String, SvelteError> {
     let n = self.rendered.get() + 1;
     self.rendered.set(n);
-    let component = format!("/component-{n}.js");
-    self.runtime.set_loader(RuntimeResolver { root: runtime.to_path_buf() }, RuntimeLoader { component: (component.clone(), js.to_owned()) });
+    let prefix = format!("/render-{n}");
+    let component = format!("{prefix}{entry}");
+    let modules = modules.into_iter().map(|(path, js)| (format!("{prefix}{path}"), js)).collect();
+    self.runtime.set_loader(RuntimeResolver { root: runtime.to_path_buf() }, RuntimeLoader { modules });
     self.context.with(|ctx| -> Result<String, SvelteError> {
       let render: Function = ctx.globals().get("__svelte_render").map_err(|e| threw(&ctx, e))?;
       let props = ctx.json_parse(props).map_err(|e| threw(&ctx, e))?;
@@ -291,16 +297,16 @@ fn normalise(path: &Path) -> String {
   out.to_string_lossy().into_owned()
 }
 
-/// The component under its own name, every other module from disk.
+/// The components under their own names, every other module from disk.
 struct RuntimeLoader {
-  component: (String, String),
+  modules: BTreeMap<String, String>,
 }
 
 impl Loader for RuntimeLoader {
   fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _attributes: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<Module<'js>> {
-    let source = match name == self.component.0 {
-      true => self.component.1.clone(),
-      false => std::fs::read_to_string(name).map_err(|e| Exception::throw_message(ctx, &format!("{name}: {e}")))?,
+    let source = match self.modules.get(name) {
+      Some(js) => js.clone(),
+      None => std::fs::read_to_string(name).map_err(|e| Exception::throw_message(ctx, &format!("{name}: {e}")))?,
     };
     Module::declare(ctx.clone(), name, source)
   }
