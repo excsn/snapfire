@@ -153,6 +153,8 @@ fabric.properties
 **/.nyc_output
 **/coverage
 **/dist
+# A package vendored as published keeps its own layout, `dist/` included.
+!**/app/vendor/**/dist
 **/npm-*
 **/package-lock.json
 
