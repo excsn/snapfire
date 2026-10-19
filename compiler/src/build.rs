@@ -1146,13 +1146,14 @@ fn run_job(compiler: &Compiler, opts: &Options, map_options: MapOptions, job: &J
     Emit::Declaration => " (dts)",
   };
 
+  let plugin_label = job.source.extension().map(|ext| ext.to_string_lossy().to_uppercase()).unwrap_or_default();
   let (label, compiled) = match (job.emit, job.asset) {
     (Emit::Declaration, _) => ("TS", crate::declarations::declare(&job.source, compiler.aliases(), &compiler.read_source(&job.source)).map(Output::text)),
     // A plugin's answer is compiled from memory. The path still names the
     // original, so its imports resolve where the author wrote them.
     (emit, _) if !matches!(job.supplied, Supplied::File) => match &job.supplied {
       Supplied::Module { source, dialect } => (
-        "VUE",
+        plugin_label.as_str(),
         compiler.compile_source(
           &job.source,
           source.clone(),
