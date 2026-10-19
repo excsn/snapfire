@@ -28,6 +28,12 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | --- | --- | --- |
 | [recipes_vue_ts](recipes_vue_ts/README.md) | A household recipe box | A second framework on the same seam: every interactive piece a `.vue` file compiled by `snapfirec-vue` and mounted by Vue, the pages static templates that load no framework, no React anywhere in the application |
 
+### Svelte
+
+| | What it is | Read it for |
+| --- | --- | --- |
+| [shelf_svelte_ts](shelf_svelte_ts/README.md) | A reading shelf | Svelte 5 on the same seam: runes and legacy components side by side, a `.svelte.ts` module two islands share and a store key read as `$count`, with no React in the application |
+
 ### No framework
 
 | | What it is | Read it for |
@@ -66,7 +72,7 @@ cargo install snapfire_compiler snapfire_fsr_cli
 cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
-After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `blog_site_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` needs `snapfirec-svelte` as well, from `cargo install snapfire_svelte`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
+After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `blog_site_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `shelf_svelte_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` and `shelf_svelte_ts` need `snapfirec-svelte`, from `cargo install snapfire_svelte`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
 
 ```sh
 cd shopping_react_ts && fsr dev app
@@ -96,6 +102,7 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8140 | `wave_react_ts` |
 | 8150 | `conference_react_ts`, which has no binary of its own |
 | 8160 | `recipes_vue_ts`, which has no binary of its own |
+| 8165 | `shelf_svelte_ts`, which has no binary of its own |
 | 8170 | `toolshed_web_ts`, which has no binary of its own |
 | 8180 | `uni` |
 | 8190 | `noticeboard_tera`, which has no binary of its own |
