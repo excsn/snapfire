@@ -1,0 +1,9 @@
+[server]
+listen = "127.0.0.1:0"
+
+[document]
+title = "corpus"
+
+[session]
+key = "corpus"
+ttl = "1h"

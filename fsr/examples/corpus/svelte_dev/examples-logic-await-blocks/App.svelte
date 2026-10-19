@@ -1,0 +1,29 @@
+<script>
+	let promise = $state(getRandomNumber());
+
+	async function getRandomNumber() {
+		// endpoint has a 1s delay and ~33% chance of failure
+		const res = await fetch(`/tutorial/random-number?min=0&max=100`);
+		const text = await res.text();
+
+		if (res.ok) {
+			return text;
+		} else {
+			throw new Error(text);
+		}
+	}
+
+	function handleClick() {
+		promise = getRandomNumber();
+	}
+</script>
+
+<button onclick={handleClick}> generate random number </button>
+
+{#await promise}
+	<p>...waiting</p>
+{:then number}
+	<p>The number is {number}</p>
+{:catch error}
+	<p style="color: red">{error.message}</p>
+{/await}

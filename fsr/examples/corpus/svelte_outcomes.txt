@@ -1,0 +1,166 @@
+examples-7guis-7guis-circles	lowered
+examples-7guis-7guis-counter	lowered
+examples-7guis-7guis-crud	lowered
+examples-7guis-7guis-flight-booker	client: src/App.svelte:3:31 the current time on a render path, which the server and the browser read at different moments
+examples-7guis-7guis-temperature	lowered
+examples-7guis-7guis-timer	lowered
+examples-actions-actions	lowered
+examples-actions-actions-pannable	client: src/App.svelte:5:20 a call to `spring`, which the build cannot follow
+examples-actions-adding-parameters-to-actions	lowered
+examples-animations-animate	client: src/App.svelte:6:29 a call to `crossfade`, which the build cannot follow
+examples-bindings-bind-this	lowered
+examples-bindings-checkbox-inputs	lowered
+examples-bindings-component-bindings	client: src/App.svelte:5:43 a regular expression with a lookahead
+examples-bindings-dimensions	lowered
+examples-bindings-each-block-bindings	lowered
+examples-bindings-file-inputs	lowered
+examples-bindings-group-inputs	lowered
+examples-bindings-media-elements	client: src/App.svelte:42:13 a call to `isNaN`, which the build cannot follow
+examples-bindings-multiple-select-bindings	lowered
+examples-bindings-numeric-inputs	lowered
+examples-bindings-select-bindings	lowered
+examples-bindings-text-inputs	lowered
+examples-bindings-textarea-inputs	client: src/App.svelte:8:8 a call to `marked`, which the build cannot follow
+examples-classes-class-shorthand	lowered
+examples-classes-classes	lowered
+examples-composition-conditional-render-props	lowered
+examples-composition-modal	lowered
+examples-composition-named-render-props	lowered
+examples-composition-render-prop-fallbacks	lowered
+examples-composition-render-prop-props	lowered
+examples-composition-render-props	lowered
+examples-context-context-api	client: src/App.svelte:7:2 `<MapMarker>` does not lower: src/MapMarker.svelte:5:24: a call to `getContext`, which the build cannot follow
+examples-debugging-debug	lowered
+examples-easing-easing	client: src/App.svelte:15:23 a call to `tweened`, which the build cannot follow
+examples-embeds-blog-svelte-css-in-js	client: src/styles.js:13:26 a tagged template
+examples-embeds-blog-write-less-code	lowered
+examples-embeds-untitled	lowered
+examples-events-component-events	client: src/App.svelte:5:9 a call for its effect, which a straight-line body cannot hold
+examples-events-dom-event-forwarding	client: src/App.svelte:5:9 a call for its effect, which a straight-line body cannot hold
+examples-events-dom-events	lowered
+examples-events-event-forwarding	client: src/App.svelte:5:9 a call for its effect, which a straight-line body cannot hold
+examples-events-inline-handlers	lowered
+examples-introduction-dynamic-attributes	lowered
+examples-introduction-hello-world	lowered
+examples-introduction-html-tags	lowered
+examples-introduction-nested-components	lowered
+examples-introduction-styling	lowered
+examples-lifecycle-ondestroy	client: src/App.svelte:5:5 a statement in a Svelte script the build cannot follow
+examples-lifecycle-onmount	lowered
+examples-lifecycle-tick	lowered
+examples-logic-await-blocks	client: src/App.svelte:6:27 a call to `fetch`, which the build cannot follow
+examples-logic-each-blocks	lowered
+examples-logic-else-blocks	lowered
+examples-logic-else-if-blocks	lowered
+examples-logic-if-blocks	lowered
+examples-logic-keyed-each-blocks	lowered
+examples-miscellaneous-dynamic-components	lowered
+examples-miscellaneous-hacker-news	client: src/App.svelte:35:3 `<List>` does not lower: src/List.svelte:25:3: `<Summary>` does not lower: src/Summary.svelte:5:19: `item` is not bound here; an import the build cannot follow or a name from outside the body
+examples-miscellaneous-recursive-components	client: src/App.svelte:39:1 `<Folder>` does not lower: src/Folder.svelte:22:6: `<File>` does not lower: src/File.svelte:3:36: `.lastIndexOf()`, which is not a builtin
+examples-module-context-module-exports	lowered
+examples-motion-spring	client: src/App.svelte:4:18 a call to `spring`, which the build cannot follow
+examples-motion-tweened	client: src/App.svelte:5:22 a call to `tweened`, which the build cannot follow
+examples-props-declaring-props	lowered
+examples-props-default-values	lowered
+examples-props-spread-props	lowered
+examples-reactivity-reactive-assignments	lowered
+examples-reactivity-reactive-declarations	lowered
+examples-reactivity-reactive-statements	lowered
+examples-special-elements-svelte-body	lowered
+examples-special-elements-svelte-document	lowered
+examples-special-elements-svelte-element	lowered
+examples-special-elements-svelte-head	client: src/App.svelte:1:1 `<svelte:head>` in markup the browser hydrates; what goes in the document head belongs in a loader's `meta` export
+examples-special-elements-svelte-window	lowered
+examples-special-elements-svelte-window-bindings	lowered
+examples-stores-auto-subscriptions	lowered
+examples-stores-custom-stores	lowered
+examples-stores-derived-stores	client: src/App.svelte:4:23 an `Intl` formatter kept as a value
+examples-stores-readable-stores	client: src/App.svelte:4:23 an `Intl` formatter kept as a value
+examples-stores-writable-stores	client: src/App.svelte:11:9 a write to `countValue`, which this body did not declare
+examples-svg-area-chart	client: src/App.svelte:20:27 a call to `scaleLinear`, which the build cannot follow
+examples-svg-bar-chart	client: src/App.svelte:24:27 a call to `scaleLinear`, which the build cannot follow
+examples-svg-clock	client: src/App.svelte:4:23 the current time on a render path, which the server and the browser read at different moments
+examples-svg-scatterplot	client: src/App.svelte:9:2 `<Scatterplot>` does not lower: src/Scatterplot.svelte:13:27: a call to `scaleLinear`, which the build cannot follow
+examples-svg-svg-transitions	lowered
+examples-transitions-adding-parameters-to-transitions	lowered
+examples-transitions-custom-css-transitions	lowered
+examples-transitions-custom-js-transitions	lowered
+examples-transitions-deferred-transitions	client: src/App.svelte:5:29 a call to `crossfade`, which the build cannot follow
+examples-transitions-in-and-out	lowered
+examples-transitions-transition	lowered
+examples-transitions-transition-events	lowered
+tutorial-advanced-svelte-advanced-bindings-bind-this	lowered
+tutorial-advanced-svelte-advanced-bindings-component-bindings	client: src/App.svelte:7:23 a regular expression with a lookahead
+tutorial-advanced-svelte-advanced-bindings-component-this	lowered
+tutorial-advanced-svelte-advanced-bindings-contenteditable-bindings	lowered
+tutorial-advanced-svelte-advanced-bindings-dimensions	lowered
+tutorial-advanced-svelte-advanced-bindings-each-block-bindings	lowered
+tutorial-advanced-svelte-advanced-bindings-media-elements	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:9:13: a call to `isNaN`, which the build cannot follow
+tutorial-advanced-svelte-advanced-reactivity-getters-and-setters	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
+tutorial-advanced-svelte-advanced-reactivity-raw-state	client: src/data.js:16:12 an assignment inside an expression
+tutorial-advanced-svelte-advanced-reactivity-reactive-builtins	client: src/App.svelte:4:20 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-advanced-svelte-advanced-reactivity-reactive-classes	client: src/App.svelte:4:5 a statement in a Svelte script the build cannot follow
+tutorial-advanced-svelte-advanced-reactivity-stores	lowered
+tutorial-advanced-svelte-advanced-transitions-deferred-transitions	client: src/App.svelte:4:19 a call to `$state`, which the build cannot follow
+tutorial-advanced-svelte-context-context-api	client: src/App.svelte:21:10 a call to `Array`, which the build cannot follow
+tutorial-advanced-svelte-motion-springs	client: src/App.svelte:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-advanced-svelte-motion-tweens	client: src/App.svelte:5:24 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:20 `Math.random`
+tutorial-advanced-svelte-script-module-module-exports	client: src/App.svelte:7:9 `tracks` comes from `./tracks.js`, which the build cannot follow
+tutorial-advanced-svelte-script-module-sharing-code	client: src/App.svelte:8:3 `<AudioPlayer>` does not lower: src/AudioPlayer.svelte:13:13: a call to `isNaN`, which the build cannot follow
+tutorial-advanced-svelte-snippets-implicit-snippet-props	client: src/App.svelte:6:21 `colors` comes from `./data.js`, which the build cannot follow
+tutorial-advanced-svelte-snippets-passing-snippets	client: src/data.js:154:13 a call to `parseInt`, which the build cannot follow
+tutorial-advanced-svelte-snippets-snippets-and-render-tags	client: src/App.svelte:16:12 `.charCodeAt()`, which is not a builtin
+tutorial-advanced-svelte-special-elements-svelte-body	lowered
+tutorial-advanced-svelte-special-elements-svelte-boundary	lowered
+tutorial-advanced-svelte-special-elements-svelte-document	lowered
+tutorial-advanced-svelte-special-elements-svelte-element	lowered
+tutorial-advanced-svelte-special-elements-svelte-head	client: src/App.svelte:6:1 `<svelte:head>` in markup the browser hydrates; what goes in the document head belongs in a loader's `meta` export
+tutorial-advanced-svelte-special-elements-svelte-window	lowered
+tutorial-advanced-svelte-special-elements-svelte-window-bindings	lowered
+tutorial-advanced-svelte-xx-currently-unused-debug	lowered
+tutorial-advanced-svelte-xx-currently-unused-svelte-self	client: src/App.svelte:6:1 `<Folder>` does not lower: src/Folder.svelte:21:6: `<File>` does not lower: src/File.svelte:4:36: `.lastIndexOf()`, which is not a builtin
+tutorial-svelte-attachments-attach	lowered
+tutorial-svelte-bindings-checkbox-inputs	lowered
+tutorial-svelte-bindings-group-inputs	client: src/App.svelte:5:27 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-svelte-bindings-multiple-select-bindings	client: src/App.svelte:5:27 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-svelte-bindings-numeric-inputs	lowered
+tutorial-svelte-bindings-select-bindings	lowered
+tutorial-svelte-bindings-text-inputs	lowered
+tutorial-svelte-classes-and-styles-classes	lowered
+tutorial-svelte-classes-and-styles-component-styles	lowered
+tutorial-svelte-classes-and-styles-styles	lowered
+tutorial-svelte-events-capturing	lowered
+tutorial-svelte-events-component-events	client: src/App.svelte:10:19 an assignment inside an expression
+tutorial-svelte-events-dom-events	lowered
+tutorial-svelte-events-inline-handlers	lowered
+tutorial-svelte-events-spreading-events	client: src/App.svelte:5:19 `new Audio`
+tutorial-svelte-introduction-dynamic-attributes	lowered
+tutorial-svelte-introduction-html-tags	lowered
+tutorial-svelte-introduction-nested-components	lowered
+tutorial-svelte-introduction-styling	lowered
+tutorial-svelte-introduction-welcome-to-svelte	lowered
+tutorial-svelte-introduction-your-first-component	lowered
+tutorial-svelte-logic-await-blocks	client: src/utils.js:5:9 a call for its effect, which a straight-line body cannot hold
+tutorial-svelte-logic-each-blocks	lowered
+tutorial-svelte-logic-else-blocks	lowered
+tutorial-svelte-logic-else-if-blocks	lowered
+tutorial-svelte-logic-if-blocks	lowered
+tutorial-svelte-logic-keyed-each-blocks	lowered
+tutorial-svelte-props-declaring-props	lowered
+tutorial-svelte-props-default-values	lowered
+tutorial-svelte-props-spread-props	lowered
+tutorial-svelte-reactivity-deep-state	lowered
+tutorial-svelte-reactivity-derived-state	lowered
+tutorial-svelte-reactivity-effects	lowered
+tutorial-svelte-reactivity-inspecting-state	client: src/App.svelte:9:5 a statement in a Svelte script the build cannot follow
+tutorial-svelte-reactivity-state	lowered
+tutorial-svelte-reactivity-universal-reactivity	lowered
+tutorial-svelte-transitions-adding-parameters-to-transitions	lowered
+tutorial-svelte-transitions-custom-css-transitions	lowered
+tutorial-svelte-transitions-custom-js-transitions	lowered
+tutorial-svelte-transitions-global-transitions	lowered
+tutorial-svelte-transitions-in-and-out	lowered
+tutorial-svelte-transitions-key-blocks	lowered
+tutorial-svelte-transitions-transition	lowered
+tutorial-svelte-transitions-transition-events	lowered
