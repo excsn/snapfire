@@ -1,4 +1,7 @@
-use snapfire_fsr_core::Value;
+use snapfire_fsr_core::{Value, ValueMap};
+use snapfire_fsr_ir::ast::{Component, Tmpl};
+use snapfire_fsr_ir::render::Components;
+use snapfire_fsr_ir::Owner;
 use snapfire_fsr_ir::ast::{Builtin, CompareOp, Entry, Lit};
 use snapfire_fsr_ir::{Expr, Interpreter};
 
@@ -207,4 +210,33 @@ async fn a_bigint_division_truncates_toward_zero() {
   assert_eq!(interp.evaluate(&quot(7, 2), Vec::new()).await.unwrap(), Value::Int(3));
   assert_eq!(interp.evaluate(&quot(-7, 2), Vec::new()).await.unwrap(), Value::Int(-3));
   assert!(interp.evaluate(&quot(1, 0), Vec::new()).await.is_err());
+}
+
+#[tokio::test]
+async fn a_strings_length_counts_utf16_code_units() {
+  let interp = Interpreter::default();
+  for (text, units) in [("", 0.0), ("Zoë", 3.0), ("🙂", 2.0), ("a🙂b", 4.0)] {
+    let length = Expr::Length(Box::new(str(text)));
+    assert_eq!(interp.evaluate(&length, Vec::new()).await.unwrap(), Value::F64(units), "{text}");
+    let component = Component::new(Owner::React, Vec::new(), Tmpl::Expr(length));
+    let html = interp.render(&component, &ValueMap::default(), &Components::new()).unwrap().html;
+    assert_eq!(html, units.to_string(), "{text}");
+  }
+}
+
+#[tokio::test]
+async fn trim_strips_what_javascript_strips() {
+  let interp = Interpreter::default();
+  for (text, trimmed) in [(" a ", "a"), ("\u{feff}a\u{feff}", "a"), ("\u{85}a\u{85}", "\u{85}a\u{85}"), ("\u{2028}\u{3000}a\t\n", "a")] {
+    assert_eq!(interp.evaluate(&call(Builtin::Trim, &[text]), Vec::new()).await.unwrap(), Value::str(trimmed), "{text:?}");
+  }
+}
+
+#[tokio::test]
+async fn starts_with_takes_a_position_in_utf16_code_units() {
+  let interp = Interpreter::default();
+  let at = |s: &str, search: &str, position: i128| Expr::Builtin { name: Builtin::StartsWith, args: vec![str(s), str(search), int(position)] };
+  for (s, search, position, holds) in [("abc", "b", 1, true), ("abc", "a", 1, false), ("🙂;", ";", 2, true), ("🙂;", ";", 1, false), ("abc", "", 9, true), ("abc", "a", -4, true)] {
+    assert_eq!(interp.evaluate(&at(s, search, position), Vec::new()).await.unwrap(), Value::Bool(holds), "{s} {search} {position}");
+  }
 }

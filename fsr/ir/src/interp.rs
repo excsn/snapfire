@@ -1232,7 +1232,7 @@ impl Env {
       },
       Expr::Length(e) => match self.eval_sync(e)? {
         Value::Seq(items) => Ok(Value::F64(items.len() as f64)),
-        Value::Str(s) => Ok(Value::F64(s.chars().count() as f64)),
+        Value::Str(s) => Ok(Value::F64(s.encode_utf16().count() as f64)),
         Value::Map(map) => Ok(Value::F64(map.len() as f64)),
         other => Err(type_error("length", "an array, a string or an object", &other)),
       },
@@ -1643,7 +1643,7 @@ impl Env {
         },
         Expr::Length(e) => match self.eval(e).await? {
           Value::Seq(items) => Ok(Value::F64(items.len() as f64)),
-          Value::Str(s) => Ok(Value::F64(s.chars().count() as f64)),
+          Value::Str(s) => Ok(Value::F64(s.encode_utf16().count() as f64)),
           Value::Map(map) => Ok(Value::F64(map.len() as f64)),
           other => Err(type_error("length", "an array, a string or an object", &other)),
         },
@@ -2252,7 +2252,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let parts: Result<Vec<String>, Fail> = items.iter().map(|v| if matches!(v, Value::Null) { Ok(String::new()) } else { stringify(v) }).collect();
       Value::str(parts?.join(&sep))
     }
-    Builtin::Trim => Value::str(text(name, arg(0)?)?.trim().to_owned()),
+    Builtin::Trim => Value::str(text(name, arg(0)?)?.trim_matches(js_whitespace).to_owned()),
     Builtin::Upper => Value::str(text(name, arg(0)?)?.to_uppercase()),
     Builtin::Lower => Value::str(text(name, arg(0)?)?.to_lowercase()),
     Builtin::Includes => match arg(0)? {
@@ -2260,7 +2260,18 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::Seq(items) => Value::Bool(items.contains(arg(1)?)),
       other => return Err(type_error(&format!("{name:?}"), "a string or an array", other)),
     },
-    Builtin::StartsWith => Value::Bool(text(name, arg(0)?)?.starts_with(text(name, arg(1)?)?)),
+    Builtin::StartsWith => {
+      let s = text(name, arg(0)?)?;
+      let search = text(name, arg(1)?)?;
+      match args.get(2) {
+        None | Some(Value::Null) => Value::Bool(s.starts_with(search)),
+        Some(position) => {
+          let units: Vec<u16> = s.encode_utf16().collect();
+          let from = (integer(name, Some(position))?.max(0.0) as usize).min(units.len());
+          Value::Bool(units[from..].starts_with(&search.encode_utf16().collect::<Vec<u16>>()))
+        }
+      }
+    }
     Builtin::EndsWith => Value::Bool(text(name, arg(0)?)?.ends_with(text(name, arg(1)?)?)),
     Builtin::Split if crate::jsregex::of(arg(1)?).is_none() => {
       let s = text(name, arg(0)?)?;
@@ -2887,4 +2898,9 @@ mod held_tests {
     assert!(interpreter.held.get("a#LATER").is_none());
     assert!(interpreter.held.get("a#LOCALE").is_none());
   }
+}
+
+/// JavaScript's `WhiteSpace` and `LineTerminator`, what `String.prototype.trim` strips.
+fn js_whitespace(c: char) -> bool {
+  matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
 }
