@@ -26,8 +26,8 @@ pub mod sexpr;
 /// lowered `theme.ts` and a `theme-of` row per layout or page that sets a theme.
 ///
 /// Format 7 adds the `marker` template node (markup a framework's hydration
-/// reads, placed by the lowerer) and the `svelte` owner and framework. A
-/// format 6 reader refuses both by name.
+/// reads, placed by the lowerer), the `svelte` owner and framework and the
+/// `quot` operator, a `bigint` division. A format 6 reader refuses each by name.
 ///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of

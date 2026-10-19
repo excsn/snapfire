@@ -26,9 +26,10 @@ fn runtime() -> PathBuf {
 /// What the components a fixture imports by bare specifier stand for in the oracle.
 fn stubs() -> BTreeMap<String, String> {
   BTreeMap::from([
-    ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\n".to_owned()),
-    ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\n".to_owned()),
+    ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned()),
+    ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\nexport function key(name) { return name; }\n".to_owned()),
     ("@snapfire/fsr-client/store".to_owned(), "export function key(name) { return name; }\n".to_owned()),
+    ("svelte".to_owned(), "export function onMount() {}\nexport function onDestroy() {}\nexport function tick() { return Promise.resolve(); }\n".to_owned()),
   ])
 }
 
@@ -153,6 +154,9 @@ fn attributes_print_as_svelte_server_prints_them() {
   check("svg", "<svg viewBox=\"0 0 1 1\"><path d=\"M0\"/></svg>", &props(&[]));
   check("textarea", "<script>let { v } = $props();</script><textarea value={v}></textarea>", &props(&[("v", s("a<b"))]));
   check("handler", "<script>let n = $state(0);</script><button onclick={() => n++}>{n}</button>", &props(&[]));
+  let styled = "<script>let { c, w } = $props();</script><p style=\"margin: 0; color: blue; /* x */ background: url('a;b')\" style:color={c}>x</p><p style:color={c} style:width=\"{w}%\">y</p><p style:color={c}>z</p>";
+  check("style", styled, &props(&[("c", s("red")), ("w", Value::int(40i64))]));
+  check("style-null", styled, &props(&[("c", Value::Null), ("w", Value::int(0i64))]));
 }
 
 #[test]
@@ -193,4 +197,60 @@ fn an_islands_children_render_where_the_component_renders_its_children() {
   let source = "<script>let { label, children } = $props();</script><section><h2>{label}</h2>{@render children?.()}</section>";
   let (rust, svelte) = both("children", &[("src/C.svelte", source)], &props(&[("label", s("l"))]), Some("kids"));
   assert_eq!(rust, svelte);
+}
+
+/// A component of an example application lowered where it lives, its imports
+/// followed by the build, against Svelte's render with each import stubbed.
+fn repo(app: &str, file: &str, stubbed: &[(&str, &str)], props: &ValueMap) -> (String, String) {
+  let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples").join(app);
+  let source = std::fs::read_to_string(dir.join(file)).unwrap();
+  let mut set = ComponentSet::new(&dir);
+  let mut modules = stubs();
+  for (specifier, js) in stubbed {
+    modules.insert((*specifier).to_owned(), (*js).to_owned());
+  }
+  COMPILER.with(|compiler| {
+    match compiler.describe(file, &source, &Options::default()).expect("the driver answers") {
+      Outcome::Described(described) => set.describe(file, described),
+      other => panic!("{file}: not described: {other:?}"),
+    }
+    match compiler.ssr_module(file, &source).expect("the driver answers") {
+      Outcome::Ok(compiled) => modules.insert(format!("/{file}"), compiled.js),
+      other => panic!("{file}: no server module: {other:?}"),
+    };
+  });
+  let module = format!("{file}#default");
+  if let Err(e) = set.lower(&module) {
+    panic!("{file}: does not lower: {e}");
+  }
+  let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let rendered = interpreter.render(&host(&module, Vec::new()), props, &library).expect("renders");
+  let rust = rendered.islands[0].body.html.clone();
+  let svelte = COMPILER.with(|compiler| compiler.render_module(&format!("/{file}"), &modules, &value_json(&Value::Map(props.clone())), None, &runtime())).expect("Svelte renders");
+  (rust, svelte)
+}
+
+#[test]
+fn the_examples_svelte_components_render_as_svelte_server_writes_them() {
+  let store = ("@src/store", "export const doneCount = \"shelf/done\";\n");
+  let visits = ("/src/ui/visits.svelte.js", "export const recent = { ids: [] };\nexport function visit() {}\n");
+  let client = ("@generated/client", "export const actions = {};\n");
+  let recent = ("/src/ui/recent.svelte.js", "export const recent = { ids: [] };\nexport function visit() {}\n");
+  let tally = repo("shelf_svelte_ts/app", "src/ui/Tally.svelte", &[store], &props(&[("done", Value::int(2i64)), ("total", Value::int(6i64))]));
+  assert_eq!(tally.0, tally.1, "Tally");
+  for (read, done) in [(0i64, false), (120, false), (272, true)] {
+    let given = props(&[("id", s("piranesi")), ("pages", Value::int(272i64)), ("read", Value::int(read)), ("done", Value::Bool(done)), ("current", Value::Bool(read > 0))]);
+    let progress = repo("shelf_svelte_ts/app", "src/ui/Progress.svelte", &[store, client, recent, visits], &given);
+    assert_eq!(progress.0, progress.1, "Progress at {read}");
+  }
+  let titles = Value::seq(vec![Value::Map(props(&[("id", s("stoner")), ("title", s("Stoner"))]))]);
+  let shown = repo("shelf_svelte_ts/app", "src/ui/Recent.svelte", &[recent, visits], &props(&[("titles", titles)]));
+  assert_eq!(shown.0, shown.1, "Recent");
+  let holding = |symbol: &str, price: f64| Value::Map(props(&[("symbol", s(symbol)), ("name", s("Name & co")), ("shares", Value::int(3i64)), ("price", Value::F64(price)), ("change", Value::F64(0.5))]));
+  let holdings = Value::seq(vec![holding("ACME", 12.5), holding("INIT", 3.0)]);
+  for watched in ["ACME", "INIT", "NONE"] {
+    let focus = repo("uni/js", "src/ui/Focus.svelte", &[], &props(&[("holdings", holdings.clone()), ("watched", s(watched))]));
+    assert_eq!(focus.0, focus.1, "Focus watching {watched}");
+  }
 }

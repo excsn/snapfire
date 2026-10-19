@@ -36,6 +36,7 @@ pub(super) fn arith_sym(op: ArithOp) -> &'static str {
     ArithOp::Div => "/",
     ArithOp::Rem => "%",
     ArithOp::Pow => "**",
+    ArithOp::Quot => "quot",
   }
 }
 
@@ -47,6 +48,7 @@ pub(super) fn arith_of(s: &str) -> Option<ArithOp> {
     "/" => ArithOp::Div,
     "%" => ArithOp::Rem,
     "**" => ArithOp::Pow,
+    "quot" => ArithOp::Quot,
     _ => return None,
   })
 }

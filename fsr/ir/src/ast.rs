@@ -710,10 +710,13 @@ pub enum ArithOp {
   Add,
   Sub,
   Mul,
+  /// `/` between numbers: an integer that divides evenly stays one, anything else is a fraction.
   Div,
   Rem,
   /// `**`.
   Pow,
+  /// `/` between `bigint`s, which truncates toward zero and refuses zero.
+  Quot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

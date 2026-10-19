@@ -19,6 +19,7 @@ use swc_core::ecma::ast as js;
 
 use crate::assets::AssetResolver;
 use crate::component::{bind_object, block_to_expr, HeadRow};
+use crate::placements::{self, At, Placer};
 use crate::vue::ChildRef;
 use crate::{Lowered, Lowerer, Residue};
 
@@ -119,9 +120,31 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   /// Snippets being rendered, so one that renders itself is refused.
   rendering: Vec<String>,
   pub(crate) child_refs: Vec<ChildRef>,
-  #[allow(dead_code)]
   assets: Rc<dyn AssetResolver>,
   pub(crate) heads: Vec<HeadRow>,
+}
+
+impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
+  fn lowerer(&mut self) -> &mut Lowerer<'p> {
+    &mut self.lowerer
+  }
+
+  fn residue_at(&self, at: At, message: String) -> Residue {
+    match at {
+      At::Span(span) => self.lowerer.residue(span, message),
+      At::Line(line, column) => self.at(line, column, message),
+    }
+  }
+
+  fn assets(&self) -> Rc<dyn AssetResolver> {
+    self.assets.clone()
+  }
+
+  fn head(&mut self, row: HeadRow) {
+    if !self.heads.contains(&row) {
+      self.heads.push(row);
+    }
+  }
 }
 
 impl<'a, 'p> SvelteLowerer<'a, 'p> {
@@ -592,8 +615,68 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     }
   }
 
+  /// The adapter placement a spread calls, `link({ href })`, with its options object.
+  fn placement_spread(&mut self, code: &str, at: (usize, usize)) -> Lowered<Option<(&'static str, Box<js::Expr>)>> {
+    let parsed = self.lowerer.parsed.parse_expr_at(code, at.0, at.1).map_err(|message| self.at(at.0, at.1, format!("`{}`: {message}", code.trim())))?;
+    let js::Expr::Call(call) = &*parsed else { return Ok(None) };
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    let js::Expr::Ident(id) = &**callee else { return Ok(None) };
+    let meaning = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(id.sym.as_ref())).and_then(|meant| meant.placement());
+    let Some(placement) = meaning else { return Ok(None) };
+    match call.args.first() {
+      Some(arg) => Ok(Some((placement, arg.expr.clone()))),
+      None => Err(self.at(at.0, at.1, format!("`{placement}()` without its options"))),
+    }
+  }
+
+  /// `<a {...link({ href })} class="x">`: the options and the element's own
+  /// attributes as one `Link` placement, which writes the marks the
+  /// navigator reads the way the adapter's `link` does in the browser.
+  fn link_element(&mut self, options: &js::Expr, attrs: &[Attr], fragment: &Fragment, at: (usize, usize)) -> Lowered<Tmpl> {
+    let js::Expr::Object(object) = options else { return Err(self.at(at.0, at.1, "`link()` options that are not an object literal")) };
+    let mut placed: Vec<placements::Attr<'static>> = Vec::new();
+    for prop in &object.props {
+      let js::PropOrSpread::Prop(prop) = prop else { return Err(self.at(at.0, at.1, "a spread in `link()` options")) };
+      let (name, value) = match &**prop {
+        js::Prop::KeyValue(kv) => (crate::prop_name(&kv.key).ok_or_else(|| self.at(at.0, at.1, "a computed key in `link()` options"))?, kv.value.clone()),
+        js::Prop::Shorthand(id) => (id.sym.to_string(), Box::new(js::Expr::Ident(id.clone()))),
+        _ => return Err(self.at(at.0, at.1, "a `link()` option that is not `key: value`")),
+      };
+      placed.push(placements::Attr { name, value: placements::Value::Script(std::borrow::Cow::Owned(*value)), at: At::Line(at.0, at.1) });
+    }
+    let mut extra: Vec<Entry> = Vec::new();
+    for attr in attrs {
+      match attr {
+        Attr::Spread { .. } | Attr::Attach { .. } => {}
+        Attr::Attr { name, value, at } => {
+          if name.starts_with("on") && matches!(value, AttrValue::Parts(parts) if matches!(parts.as_slice(), [Part::Code(_)])) {
+            continue;
+          }
+          let _ = at;
+          let expr = self.attr_value(value, true)?;
+          extra.push(Entry::Field(name.clone(), expr));
+        }
+        Attr::Directive { kind, at, .. } if !matches!(kind.as_str(), "on" | "use" | "transition" | "in" | "out" | "animate") => return Err(self.at(at.0, at.1, format!("`{kind}:` beside a `link()` spread"))),
+        Attr::Directive { .. } => {}
+      }
+    }
+    let children = self.fragment(fragment)?;
+    let Tmpl::Element { tag, mut attrs, children } = placements::link(self, &placed, children)? else { unreachable!("a link is an element") };
+    attrs.extend(extra);
+    Ok(Tmpl::Element { tag, attrs, children })
+  }
+
   fn element(&mut self, node: &Node) -> Lowered<Tmpl> {
     let Node::Element { name, attrs, fragment, at, .. } = node else { unreachable!("an element") };
+    for attr in attrs {
+      if let Attr::Spread { code, at: spread_at } = attr {
+        match self.placement_spread(code, *spread_at)? {
+          Some(("link", options)) if name == "a" => return self.link_element(&options, attrs, fragment, *at),
+          Some((placement, _)) => return Err(self.at(spread_at.0, spread_at.1, format!("a `{placement}()` spread on `<{name}>`"))),
+          None => {}
+        }
+      }
+    }
     if name == "select" && attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "value") || matches!(a, Attr::Directive { kind, name, .. } if kind == "bind" && name == "value")) {
       return Err(self.at(at.0, at.1, "a `<select>` with a `value`, whose options Svelte marks selected"));
     }
@@ -611,8 +694,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
             continue;
           }
           match attr_name.as_str() {
-            "class" => class = Some(self.class_value(value)?),
-            "style" => style = Some(self.attr_value(value, true)?),
+            "class" => {
+              class = Some(self.class_value(value)?);
+              entries.push(Entry::Field("class".to_owned(), Expr::Lit(Lit::Null)));
+            }
+            "style" => {
+              style = Some(self.attr_value(value, true)?);
+              entries.push(Entry::Field("style".to_owned(), Expr::Lit(Lit::Null)));
+            }
             "value" if name == "textarea" => body = Some(self.attr_value(value, false)?),
             "is" => return Err(self.at(at.0, at.1, "`is`, which picks a customized built-in element")),
             _ => {
@@ -656,11 +745,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         },
       }
     }
-    if let Some(class) = self.class_attr(class, class_directives, *at)? {
-      entries.push(Entry::Field("class".to_owned(), class));
-    }
-    if let Some(style) = self.style_attr(style, style_directives, *at)? {
-      entries.push(Entry::Field("style".to_owned(), style));
+    for (name, value) in [("class", self.class_attr(class, class_directives, *at)?), ("style", self.style_attr(style, style_directives, *at)?)] {
+      let Some(value) = value else { continue };
+      match entries.iter_mut().find(|e| matches!(e, Entry::Field(n, _) if n == name)) {
+        Some(slot) => *slot = Entry::Field(name.to_owned(), value),
+        None => entries.push(Entry::Field(name.to_owned(), value)),
+      }
     }
     let children = match (&body, fragment.nodes.as_slice()) {
       (Some(_), _) if !fragment.nodes.is_empty() => return Err(self.at(at.0, at.1, "a `<textarea>` with both a `value` and content")),
@@ -713,13 +803,86 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     Ok(Some(Expr::Builtin { name: Builtin::ClassNames, args: vec![Expr::Array(parts)] }))
   }
 
-  /// `style:` directives are not lowered yet beyond the plain attribute.
+  /// `to_style(value, directives)`: the attribute's declarations less those
+  /// a directive names, then each directive whose value is neither `null`
+  /// nor empty, trimmed. A `style` the render computes beside a directive is
+  /// not read yet.
   fn style_attr(&mut self, style: Option<Expr>, directives: Vec<(String, Expr)>, at: (usize, usize)) -> Lowered<Option<Expr>> {
     if directives.is_empty() {
       return Ok(style);
     }
-    Err(self.at(at.0, at.1, "`style:` directives, which the build does not write on the server yet"))
+    let reserved: Vec<String> = directives.iter().map(|(name, _)| css_name(name)).collect();
+    let kept = match &style {
+      None => String::new(),
+      Some(Expr::Lit(Lit::Str(text))) => kept_declarations(text, &reserved),
+      Some(_) => return Err(self.at(at.0, at.1, "`style:` directives beside a `style` the render computes")),
+    };
+    let mut parts = vec![Expr::lit_str(kept)];
+    for (name, value) in directives {
+      let written = Expr::Logic(snapfire_fsr_ir::ast::LogicOp::And, Box::new(Expr::Compare(CompareOp::Ne, Box::new(value.clone()), Box::new(Expr::Lit(Lit::Null)))), Box::new(Expr::Compare(CompareOp::Ne, Box::new(value.clone()), Box::new(Expr::lit_str(String::new())))));
+      let declaration = Expr::Template(vec![Expr::lit_str(format!(" {name}: ")), value, Expr::lit_str(";")]);
+      parts.push(Expr::Ternary(Box::new(written), Box::new(declaration), Box::new(Expr::lit_str(String::new()))));
+    }
+    Ok(Some(Expr::Builtin { name: Builtin::Trim, args: vec![Expr::Template(parts)] }))
   }
+}
+
+/// `to_css_name`: a property lowercased unless it is a custom property.
+fn css_name(name: &str) -> String {
+  match name.starts_with("--") {
+    true => name.to_owned(),
+    false => name.to_lowercase(),
+  }
+}
+
+/// The declarations of a literal `style` that `to_style` keeps: comments
+/// stripped, each `name: value` whose name no directive reserves, each
+/// written with a leading space and a closing `;`.
+fn kept_declarations(value: &str, reserved: &[String]) -> String {
+  let mut text = String::new();
+  let mut rest = value;
+  while let Some(open) = rest.find("/*") {
+    text.push_str(&rest[..open]);
+    match rest[open + 2..].find("*/") {
+      Some(close) => rest = &rest[open + 2 + close + 2..],
+      None => {
+        rest = "";
+      }
+    }
+  }
+  text.push_str(rest);
+  let chars: Vec<char> = text.trim().chars().collect();
+  let mut out = String::new();
+  let (mut in_str, mut depth, mut start, mut name_at) = (None::<char>, 0i32, 0usize, None::<usize>);
+  for i in 0..chars.len() {
+    let c = chars[i];
+    match in_str {
+      Some(q) if q == c => in_str = None,
+      Some(_) => {}
+      None if c == '"' || c == '\'' => in_str = Some(c),
+      None if c == '(' => depth += 1,
+      None if c == ')' => depth -= 1,
+      None => {}
+    }
+    if in_str.is_none() && depth == 0 {
+      if c == ':' && name_at.is_none() {
+        name_at = Some(i);
+      } else if c == ';' || i == chars.len() - 1 {
+        if let Some(n) = name_at {
+          let name = css_name(chars[start..n].iter().collect::<String>().trim());
+          if !reserved.contains(&name) {
+            let end = if c == ';' { i } else { i + 1 };
+            out.push(' ');
+            out.push_str(chars[start..end].iter().collect::<String>().trim());
+            out.push(';');
+          }
+        }
+        start = i + 1;
+        name_at = None;
+      }
+    }
+  }
+  out
 }
 
 fn callee_name(call: &js::CallExpr) -> Option<String> {

@@ -178,3 +178,33 @@ async fn nan_is_falsy() {
   assert_eq!(interp.evaluate(&Expr::Not(Box::new(Expr::Lit(Lit::Float(f64::NAN)))), Vec::new()).await.unwrap(), Value::Bool(true));
   assert_eq!(interp.evaluate(&Expr::Not(Box::new(not("wide"))), scope).await.unwrap(), Value::Bool(false));
 }
+
+fn int(n: i128) -> Expr {
+  Expr::Lit(Lit::Int(n))
+}
+
+fn divide(a: i128, b: i128) -> Expr {
+  Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Div, Box::new(int(a)), Box::new(int(b)))
+}
+
+/// `/` divides as JavaScript numbers do: an integer that divides evenly stays one and anything else is a fraction.
+#[tokio::test]
+async fn dividing_two_integers_follows_javascript_numbers() {
+  let interp = Interpreter::default();
+  assert_eq!(interp.evaluate(&divide(120, 272), Vec::new()).await.unwrap(), Value::F64(120.0 / 272.0));
+  assert_eq!(interp.evaluate(&divide(10, 2), Vec::new()).await.unwrap(), Value::Int(5));
+  assert_eq!(interp.evaluate(&divide(-7, 2), Vec::new()).await.unwrap(), Value::F64(-3.5));
+  assert_eq!(interp.evaluate(&divide(1, 0), Vec::new()).await.unwrap(), Value::F64(f64::INFINITY));
+  let nan = interp.evaluate(&divide(0, 0), Vec::new()).await.unwrap();
+  assert!(matches!(nan, Value::F64(n) if n.is_nan()), "{nan:?}");
+}
+
+/// A `bigint` division truncates toward zero and refuses zero, as JavaScript's does.
+#[tokio::test]
+async fn a_bigint_division_truncates_toward_zero() {
+  let interp = Interpreter::default();
+  let quot = |a, b| Expr::Arith(snapfire_fsr_ir::ast::ArithOp::Quot, Box::new(int(a)), Box::new(int(b)));
+  assert_eq!(interp.evaluate(&quot(7, 2), Vec::new()).await.unwrap(), Value::Int(3));
+  assert_eq!(interp.evaluate(&quot(-7, 2), Vec::new()).await.unwrap(), Value::Int(-3));
+  assert!(interp.evaluate(&quot(1, 0), Vec::new()).await.is_err());
+}

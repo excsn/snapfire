@@ -1772,16 +1772,21 @@ fn float(op: ArithOp, a: f64, b: f64) -> f64 {
     ArithOp::Div => a / b,
     ArithOp::Rem => a % b,
     ArithOp::Pow => js_pow(a, b),
+    ArithOp::Quot => (a / b).trunc(),
   }
 }
 
 fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
   match (l, r) {
+    (Value::Int(a), Value::Int(b)) if op == ArithOp::Div => Ok(match a.checked_rem(b).filter(|rem| *rem == 0).and_then(|_| a.checked_div(b)) {
+      Some(quotient) => Value::Int(quotient),
+      None => Value::F64(a as f64 / b as f64),
+    }),
     (Value::Int(a), Value::Int(b)) => Ok(Value::Int(match op {
       ArithOp::Add => a.checked_add(b).ok_or_else(|| Fail::internal("integer overflow"))?,
       ArithOp::Sub => a.checked_sub(b).ok_or_else(|| Fail::internal("integer overflow"))?,
       ArithOp::Mul => a.checked_mul(b).ok_or_else(|| Fail::internal("integer overflow"))?,
-      ArithOp::Div => a.checked_div(b).ok_or_else(|| Fail::internal("division by zero"))?,
+      ArithOp::Div | ArithOp::Quot => a.checked_div(b).ok_or_else(|| Fail::internal("a bigint divided by zero"))?,
       ArithOp::Rem => a.checked_rem(b).ok_or_else(|| Fail::internal("division by zero"))?,
       ArithOp::Pow => u32::try_from(b).ok().and_then(|b| a.checked_pow(b)).ok_or_else(|| Fail::internal("integer power out of range"))?,
     })),

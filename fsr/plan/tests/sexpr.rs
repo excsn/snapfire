@@ -312,7 +312,7 @@ fn every_manifest() -> Manifest {
       },
       ComponentEntry {
         module: "src/ui/Card.svelte#default".to_owned(),
-        body: Component::new(snapfire_fsr_ir::Owner::Svelte, Vec::new(), Tmpl::Fragment(vec![Tmpl::Marker("<!--[-->".to_owned()), Tmpl::Text("card".to_owned()), Tmpl::Marker("<!--]-->".to_owned())])),
+        body: Component::new(snapfire_fsr_ir::Owner::Svelte, vec![Stmt::Let { name: "half".to_owned(), expr: Expr::Arith(ArithOp::Quot, Box::new(Expr::var("$props").field("n")), Box::new(Expr::Lit(Lit::Int(2)))) }], Tmpl::Fragment(vec![Tmpl::Marker("<!--[-->".to_owned()), Tmpl::Text("card".to_owned()), Tmpl::Marker("<!--]-->".to_owned())])),
         head: Vec::new(),
       },
     ],

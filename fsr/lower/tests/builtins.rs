@@ -369,3 +369,18 @@ fn boolean_lowers_as_a_double_negation() {
   assert_eq!(lowered("boolean", "Boolean(session.watching[params.id])"), lowered("bangs", "!!session.watching[params.id]"));
 }
 
+
+fn division_of(body: &[Stmt]) -> snapfire_fsr_ir::ast::ArithOp {
+  match &body[0] {
+    Stmt::Let { expr: Expr::Arith(op, ..), .. } => *op,
+    other => panic!("not a division: {other:?}"),
+  }
+}
+
+#[test]
+fn a_division_with_a_bigint_side_truncates_and_any_other_divides_as_numbers() {
+  use snapfire_fsr_ir::ast::ArithOp;
+  assert_eq!(division_of(&lowered("divide-number", "Number(params.a) / 2").unwrap()), ArithOp::Div);
+  assert_eq!(division_of(&lowered("divide-bigint", "7n / 2n").unwrap()), ArithOp::Quot);
+  assert_eq!(division_of(&lowered("divide-bigint-call", "BigInt(params.a) / 2n").unwrap()), ArithOp::Quot);
+}

@@ -185,7 +185,8 @@ One member of an object or array literal.
 
 ### ArithOp
 
-* `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Pow`.
+* `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Pow`, `Quot`.
+* `Div` divides as JavaScript numbers do: two `Int`s give an `Int` when the division is exact and an `F64` otherwise. Dividing by zero gives an infinity or `NaN`. `Quot` is a `bigint` division, which truncates toward zero and fails on zero; the lowerer writes it for `/` when either side is a `bigint`. The plan spells it `quot`.
 
 ### CompareOp
 

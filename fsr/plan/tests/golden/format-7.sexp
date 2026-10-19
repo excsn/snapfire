@@ -329,6 +329,7 @@
     "100vw"))
 (component src/ui/Card.svelte#default
   (owner svelte)
+  (body (let half (quot (. $props n) 2)))
   (render (<> (marker "<!--[-->") "card" (marker "<!--]-->"))))
 (derive "order/total"
   (sources "order/price" "order/qty")

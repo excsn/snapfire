@@ -1793,6 +1793,7 @@ impl<'a> Lowerer<'a> {
           js::BinaryOp::Add => Expr::Arith(ArithOp::Add, l, r),
           js::BinaryOp::Sub => Expr::Arith(ArithOp::Sub, l, r),
           js::BinaryOp::Mul => Expr::Arith(ArithOp::Mul, l, r),
+          js::BinaryOp::Div if self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt) => Expr::Arith(ArithOp::Quot, l, r),
           js::BinaryOp::Div => Expr::Arith(ArithOp::Div, l, r),
           js::BinaryOp::Mod => Expr::Arith(ArithOp::Rem, l, r),
           js::BinaryOp::Exp => Expr::Arith(ArithOp::Pow, l, r),
@@ -2166,6 +2167,10 @@ impl<'a> Lowerer<'a> {
           "Boolean" => Ok(Expr::Not(Box::new(Expr::Not(one(self)?)))),
           "encodeURIComponent" => Ok(Expr::Builtin { name: Builtin::EncodeUriComponent, args: vec![*one(self)?] }),
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
+          "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.args.first() {
+            Some(_) => Ok(*one(self)?),
+            None => Ok(Expr::Lit(Lit::Null)),
+          },
           _ => {
             self.unbound = Some(name.to_owned());
             Err(self.residue_with(
