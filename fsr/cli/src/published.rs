@@ -53,20 +53,43 @@ struct Package {
   kept: BTreeMap<String, String>,
 }
 
-/// Vendors `specs` as published, keeping each `(package, file)` in `keeps` beside the modules as well.
-pub fn add_published(app: &Path, specs: &[Spec], keeps: &[(String, String)]) -> Result<AddReport, BuildError> {
-  add_published_from(app, specs, keeps, crate::types::NPM_REGISTRY)
+/// Where a build keeps the framework compilers it fetched, under the application. Gitignored with the rest of `.fsr/`.
+pub const COMPILERS: &str = ".fsr/compilers";
+
+/// `file` of `name@version` under `<app>/.fsr/compilers/<name>/<version>/`,
+/// fetched from the registry and checked against its integrity the first time
+/// and read from there after. A build tool, so never vendored or shipped.
+pub fn compiler(app: &Path, name: &str, version: &str, file: &str) -> Result<std::path::PathBuf, BuildError> {
+  compiler_from(app, name, version, file, crate::types::NPM_REGISTRY)
+}
+
+fn compiler_from(app: &Path, name: &str, version: &str, file: &str, registry: &str) -> Result<std::path::PathBuf, BuildError> {
+  let base = Path::new(file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| file.to_owned());
+  let path = app.join(COMPILERS).join(name).join(version).join(base);
+  if path.is_file() {
+    return Ok(path);
+  }
+  let package = fetch(&vendor::client()?, registry, name, version)?;
+  let bytes = package.files.get(file).ok_or_else(|| BuildError::Http(format!("{name}/{file}"), format!("{name} {version} has no file `{file}`")))?;
+  if let Some(parent) = path.parent() {
+    std::fs::create_dir_all(parent).map_err(|e| BuildError::Io(parent.to_path_buf(), e))?;
+  }
+  std::fs::write(&path, bytes).map_err(|e| BuildError::Io(path.clone(), e))?;
+  Ok(path)
+}
+
+pub fn add_published(app: &Path, specs: &[Spec]) -> Result<AddReport, BuildError> {
+  add_published_from(app, specs, crate::types::NPM_REGISTRY)
 }
 
 /// `specs` widened to what `.fsr-vendor.json` records for each package it
-/// already holds as published, every recorded specifier and kept file at the
-/// version asked for, so `svelte@5.60.0` alone updates the whole runtime.
-/// `None` when no package `specs` names was vendored as published.
-pub fn recorded(app: &Path, specs: &[Spec]) -> Result<Option<(Vec<Spec>, Vec<(String, String)>)>, BuildError> {
+/// already holds as published, every recorded specifier at the version asked
+/// for, so `svelte@5.60.0` alone updates the whole runtime. `None` when no
+/// package `specs` names was vendored as published.
+pub fn recorded(app: &Path, specs: &[Spec]) -> Result<Option<Vec<Spec>>, BuildError> {
   let layout = Layout::of(app)?;
   let manifest = VendorManifest::read(app, &layout)?;
   let mut widened: Vec<Spec> = Vec::new();
-  let mut keeps: Vec<(String, String)> = Vec::new();
   let mut any = false;
   for spec in specs {
     match manifest.packages.get(&spec.package).filter(|record| record.published) {
@@ -76,17 +99,16 @@ pub fn recorded(app: &Path, specs: &[Spec]) -> Result<Option<(Vec<Spec>, Vec<(St
           let subpath = specifier[spec.package.len()..].trim_start_matches('/');
           widened.push(Spec { package: spec.package.clone(), version: spec.version.clone(), subpath: (!subpath.is_empty()).then(|| subpath.to_owned()) });
         }
-        keeps.extend(record.files.iter().map(|file| (spec.package.clone(), file.clone())));
       }
       None => widened.push(spec.clone()),
     }
   }
   widened.sort_by_key(Spec::specifier);
   widened.dedup_by_key(|s| s.specifier());
-  Ok(any.then_some((widened, keeps)))
+  Ok(any.then_some(widened))
 }
 
-fn add_published_from(app: &Path, specs: &[Spec], keeps: &[(String, String)], registry: &str) -> Result<AddReport, BuildError> {
+fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddReport, BuildError> {
   let layout = Layout::of(app)?;
   if layout.xwpm {
     let mut delegated = Vec::new();
@@ -135,27 +157,17 @@ fn add_published_from(app: &Path, specs: &[Spec], keeps: &[(String, String)], re
     }
   }
 
-  let mut keeps = keeps.to_vec();
-  for name in packages.keys() {
-    for keep in crate::direction::keeps_for(name) {
-      if !keeps.contains(&keep) {
-        keeps.push(keep);
-      }
-    }
-  }
-  for (name, file) in &keeps {
-    let package = packages.get_mut(name).ok_or_else(|| BuildError::Spec(format!("{name} (kept file `{file}` of a package not vendored here)")))?;
-    let bytes = package.files.get(file).ok_or_else(|| BuildError::Http(format!("{name}/{file}"), format!("{name} {} has no file `{file}`", package.doc.version)))?;
-    let text = String::from_utf8_lossy(bytes).into_owned();
-    package.kept.insert(file.clone(), text);
-  }
-
   let mut manifest = VendorManifest::read(app, &layout)?;
   let mut map = vendor::read_import_map(app, &layout)?;
   let mut imports = map.get("imports").and_then(|v| v.as_object()).cloned().unwrap_or_default();
   let base = layout.base.trim_end_matches('/').to_owned();
   for (name, package) in &packages {
+    // The tree is the package as published: a file an earlier vendoring wrote
+    // that this one did not is not part of it any more.
     let dir = app.join(&layout.vendor).join(name);
+    if dir.is_dir() {
+      std::fs::remove_dir_all(&dir).map_err(|e| BuildError::Io(dir.clone(), e))?;
+    }
     for (rel, text) in &package.kept {
       let file = dir.join(rel);
       if let Some(parent) = file.parent() {
@@ -167,7 +179,6 @@ fn add_published_from(app: &Path, specs: &[Spec], keeps: &[(String, String)], re
     record.version = package.doc.version.clone();
     record.entries.clear();
     record.published = true;
-    record.files = keeps.iter().filter(|(owner, _)| owner == name).map(|(_, file)| file.clone()).collect();
   }
   let mut added = Vec::new();
   for (specifier, (name, rel)) in &entries {
@@ -388,6 +399,7 @@ mod tests {
     ("src/shared/state.js", "/** @import { X } from '#nowhere' */\nexport const state = {};\n"),
     ("src/shared/constants.js", "export const K = 1;\n"),
     ("src/unused.js", "export const u = 1;\n"),
+    ("compiler/index.js", "globalThis.pkg = { VERSION: \"1.0.0\" };\n"),
   ];
 
   const DEP_FILES: &[(&str, &str)] = &[("package.json", "{}"), ("false.js", "export const DEV = false;\n"), ("true.js", "export const DEV = true;\n"), ("fallback.js", "export const DEV = false;\n")];
@@ -474,7 +486,7 @@ mod tests {
   #[test]
   fn two_subpaths_import_one_shared_module_from_the_tree_as_published() {
     let app = app("tree");
-    add_published_from(&app, &specs(), &[], &registry(false)).unwrap();
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
     let layout = Layout::of(&app).unwrap();
     let vendor = app.join(&layout.vendor).join("pkg");
     for kept in ["src/index-client.js", "src/store/index.js", "src/shared/state.js", "src/shared/constants.js"] {
@@ -493,7 +505,7 @@ mod tests {
   #[test]
   fn a_package_alias_is_rewritten_to_the_file_it_names() {
     let app = app("alias");
-    add_published_from(&app, &specs(), &[], &registry(false)).unwrap();
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
     let store = std::fs::read_to_string(app.join(Layout::of(&app).unwrap().vendor).join("pkg/src/store/index.js")).unwrap();
     assert!(store.contains("from '../shared/constants.js'"), "{store}");
     assert!(!store.contains('#'), "{store}");
@@ -503,7 +515,7 @@ mod tests {
   #[test]
   fn a_dependency_is_vendored_at_the_highest_version_its_range_accepts_under_production_conditions() {
     let app = app("dep");
-    add_published_from(&app, &specs(), &[], &registry(false)).unwrap();
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
     let layout = Layout::of(&app).unwrap();
     let dep = app.join(&layout.vendor).join("dep");
     assert!(dep.join("false.js").is_file());
@@ -523,11 +535,12 @@ mod tests {
     let app = app("svelte");
     let subpaths = ["", "/internal/client", "/internal/disclose-version", "/internal/flags/legacy", "/store", "/reactivity", "/legacy", "/transition", "/motion", "/events"];
     let specs: Vec<Spec> = subpaths.iter().map(|sub| Spec::parse(&format!("svelte@5.57.2{sub}")).unwrap()).collect();
-    let report = add_published(&app, &specs, &[]).unwrap();
+    let report = add_published(&app, &specs).unwrap();
     let layout = Layout::of(&app).unwrap();
     let vendor = app.join(&layout.vendor);
     let runtime = vendor.join("svelte/src/internal/client/runtime.js");
     assert!(runtime.is_file(), "the runtime is vendored once, where it was published");
+    assert!(!vendor.join("svelte/compiler").exists(), "the compiler is a build tool, never vendored");
     let mut readers = Vec::new();
     fn walk(dir: &Path, into: &mut Vec<std::path::PathBuf>) {
       for entry in std::fs::read_dir(dir).unwrap().flatten() {
@@ -561,33 +574,54 @@ mod tests {
   }
 
   #[test]
-  fn a_file_no_import_reaches_is_kept_when_asked_and_the_record_says_how_the_package_was_vendored() {
-    let app = app("keep");
-    add_published_from(&app, &specs(), &[("pkg".to_owned(), "src/index-server.js".to_owned())], &registry(false)).unwrap();
-    let layout = Layout::of(&app).unwrap();
-    assert!(app.join(&layout.vendor).join("pkg/src/index-server.js").is_file());
-    let manifest = crate::vendor::VendorManifest::read(&app, &layout).unwrap();
-    assert!(manifest.packages["pkg"].published, "{:?}", manifest.packages["pkg"]);
-    assert_eq!(manifest.packages["pkg"].files, ["src/index-server.js"]);
+  fn a_new_version_of_a_package_vendored_as_published_names_every_recorded_specifier() {
+    let app = app("recorded");
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
+    let specs = recorded(&app, &[Spec::parse("pkg@1.1.0").unwrap()]).unwrap().expect("pkg was vendored as published");
+    let named: Vec<String> = specs.iter().map(|s| format!("{}@{}", s.specifier(), s.version)).collect();
+    assert_eq!(named, ["pkg@1.1.0", "pkg/store@1.1.0"]);
+    assert!(recorded(&app, &[Spec::parse("other@1.0.0").unwrap()]).unwrap().is_none(), "a package never vendored as published is not widened");
     std::fs::remove_dir_all(&app).unwrap();
   }
 
   #[test]
-  fn a_new_version_of_a_package_vendored_as_published_names_every_recorded_specifier_and_file() {
-    let app = app("recorded");
-    add_published_from(&app, &specs(), &[("pkg".to_owned(), "src/index-server.js".to_owned())], &registry(false)).unwrap();
-    let (specs, keeps) = recorded(&app, &[Spec::parse("pkg@1.1.0").unwrap()]).unwrap().expect("pkg was vendored as published");
-    let named: Vec<String> = specs.iter().map(|s| format!("{}@{}", s.specifier(), s.version)).collect();
-    assert_eq!(named, ["pkg@1.1.0", "pkg/store@1.1.0"]);
-    assert_eq!(keeps, [("pkg".to_owned(), "src/index-server.js".to_owned())]);
-    assert!(recorded(&app, &[Spec::parse("other@1.0.0").unwrap()]).unwrap().is_none(), "a package never vendored as published is not widened");
+  fn a_compiler_is_fetched_into_the_build_directory_once_and_read_from_there_after() {
+    let app = app("compiler");
+    let path = compiler_from(&app, "pkg", "1.0.0", "compiler/index.js", &registry(false)).unwrap();
+    assert_eq!(path, app.join(".fsr/compilers/pkg/1.0.0/index.js"));
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "globalThis.pkg = { VERSION: \"1.0.0\" };\n");
+    assert!(!app.join(Layout::of(&app).unwrap().vendor).exists(), "nothing is vendored for a compiler");
+    let again = compiler_from(&app, "pkg", "1.0.0", "compiler/index.js", "http://127.0.0.1:9").unwrap();
+    assert_eq!(again, path, "the second build reads what the first fetched, with no registry");
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_compiler_whose_tarball_does_not_match_its_integrity_is_refused_and_nothing_is_written() {
+    let app = app("compiler-corrupt");
+    let refused = compiler_from(&app, "pkg", "1.0.0", "compiler/index.js", &registry(true)).err().expect("refused");
+    assert!(refused.to_string().contains("integrity"), "{refused}");
+    assert!(!app.join(".fsr/compilers").exists());
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn vendoring_again_replaces_the_package_tree_so_nothing_from_before_is_left() {
+    let app = app("again");
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
+    let dir = app.join(Layout::of(&app).unwrap().vendor).join("pkg");
+    std::fs::create_dir_all(dir.join("compiler")).unwrap();
+    std::fs::write(dir.join("compiler/index.js"), "left by an earlier vendoring\n").unwrap();
+    add_published_from(&app, &specs(), &registry(false)).unwrap();
+    assert!(!dir.join("compiler").exists(), "a file the new vendoring did not write is gone");
+    assert!(dir.join("src/store/index.js").is_file());
     std::fs::remove_dir_all(&app).unwrap();
   }
 
   #[test]
   fn a_tarball_whose_integrity_does_not_match_is_refused_and_nothing_is_written() {
     let app = app("corrupt");
-    let refused = add_published_from(&app, &specs(), &[], &registry(true)).err().expect("refused");
+    let refused = add_published_from(&app, &specs(), &registry(true)).err().expect("refused");
     assert!(refused.to_string().contains("integrity"), "{refused}");
     assert!(!app.join(Layout::of(&app).unwrap().vendor).join("pkg").exists());
     std::fs::remove_dir_all(&app).unwrap();

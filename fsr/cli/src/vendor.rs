@@ -67,9 +67,6 @@ pub struct VendoredPackage {
   /// Vendored as published, its module tree kept, so `fsr add` takes a new version the same way.
   #[serde(default, skip_serializing_if = "std::ops::Not::not")]
   pub published: bool,
-  /// Files kept beside the modules that no import reaches, relative to the package, such as Svelte's `compiler/index.js`.
-  #[serde(default, skip_serializing_if = "Vec::is_empty")]
-  pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

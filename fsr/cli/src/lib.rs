@@ -112,8 +112,6 @@ pub enum BuildError {
   VueMajor { version: String, supported: String },
   #[error("svelte {version} is vendored, but this fsr mounts Svelte {supported} only")]
   SvelteMajor { version: String, supported: String },
-  #[error("svelte@{version} is vendored without `{file}`, and a Svelte component compiles with the application's own compiler so it calls the runtime the application serves; `fsr add <app dir> svelte@{version}` vendors it")]
-  PluginCompilerMissing { version: String, file: String },
   /// A framework plugin that started and then failed to answer.
   #[error("{0}")]
   Plugin(String),
@@ -1956,7 +1954,7 @@ fn clear_overlay(app: &Path) -> Result<(), BuildError> {
 }
 
 /// Writes only the bundle overlay of `built`: the sources the build rewrote
-/// for the browser, under `.fsr-bundle`. `write` includes them; this is for a
+/// for the browser, under `.fsr/bundle`. `write` includes them; this is for a
 /// caller that compiles without writing the rest.
 pub fn write_overlay(app: &Path, built: &Built) -> Result<(), BuildError> {
   clear_overlay(app)?;
@@ -2933,23 +2931,19 @@ fn svelte_major_supported(version: &str) -> bool {
   types::range::Version::parse(version).is_some_and(|v| SVELTE_MAJORS.contains(&v.major))
 }
 
-/// Svelte's compiler inside the vendored package, relative to the package.
-pub(crate) const SVELTE_COMPILER: &str = "compiler/index.js";
+/// Svelte's compiler inside its package.
+const SVELTE_COMPILER: &str = "compiler/index.js";
 
-/// Per plugin extension, the compiler the application vendors, which the
-/// plugin boots in place of the one it carries so the output calls the
-/// runtime the application serves. A vendored Svelte without its compiler is
-/// refused rather than compiled by another version.
+/// Per plugin extension, the compiler of the version the application vendors,
+/// which the plugin boots in place of the one it carries so the output calls
+/// the runtime the application serves. Fetched into `.fsr/compilers` the first
+/// time and read from there after; the compiler is never vendored or shipped.
 pub(crate) fn plugin_compilers(app: &Path, layout: &crate::xwpm::Layout) -> Result<Vec<(&'static str, PathBuf)>, BuildError> {
   let manifest = crate::vendor::VendorManifest::read(app, layout)?;
   let Some(record) = manifest.packages.get("svelte") else {
     return Ok(Vec::new());
   };
-  let compiler = app.join(&layout.vendor).join("svelte").join(SVELTE_COMPILER);
-  if !compiler.is_file() {
-    return Err(BuildError::PluginCompilerMissing { version: record.version.clone(), file: format!("{}/svelte/{SVELTE_COMPILER}", layout.vendor.trim_end_matches('/')) });
-  }
-  Ok(vec![("svelte", compiler)])
+  Ok(vec![("svelte", crate::published::compiler(app, "svelte", &record.version, SVELTE_COMPILER)?)])
 }
 
 fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<std::collections::BTreeMap<String, String>, BuildError> {

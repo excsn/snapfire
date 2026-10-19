@@ -28,8 +28,6 @@ pub struct Direction {
   /// Vendors the package as published, its module tree kept, rather than one
   /// bundle per subpath: Svelte's subpaths share one runtime by relative path.
   pub published: bool,
-  /// Files of a vendored package kept beside its modules that no import reaches, as package and path.
-  pub keeps: &'static [(&'static str, &'static str)],
   /// File and line an existing application edits by hand, printed rather
   /// than written: the file is the application's and its structure is not
   /// the command's to guess. The scaffold writes them into its own files.
@@ -43,10 +41,10 @@ pub const DIRECTIONS: &[Direction] = &[
     adapter: Some(&crate::REACT),
     vendors: &[("react", REACT, None), ("react", REACT, Some("jsx-runtime")), ("react-dom", REACT, Some("client"))],
     published: false,
-    keeps: &[],
+   
     edits: &[],
   },
-  Direction { name: "vue", maps: &[("@snapfire/fsr-client/vue", "vue.js")], adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], published: false, keeps: &[], edits: &[] },
+  Direction { name: "vue", maps: &[("@snapfire/fsr-client/vue", "vue.js")], adapter: Some(&crate::VUE), vendors: &[("vue", VUE, None)], published: false, edits: &[] },
   Direction {
     name: "svelte",
     maps: &[("@snapfire/fsr-client/svelte", "svelte.js")],
@@ -67,24 +65,23 @@ pub const DIRECTIONS: &[Direction] = &[
       ("svelte", SVELTE, Some("attachments")),
     ],
     published: true,
-    keeps: &[("svelte", "compiler/index.js")],
     edits: &[],
   },
-  Direction { name: "elements", maps: &[("@snapfire/fsr-client/elements", "elements.js")], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
+  Direction { name: "elements", maps: &[("@snapfire/fsr-client/elements", "elements.js")], adapter: None, vendors: &[], published: false, edits: &[] },
   Direction {
     name: "htmx",
     maps: &[("@snapfire/fsr-client/htmx", "htmx.js")],
     adapter: None,
     vendors: &[("htmx.org", HTMX, None)],
     published: false,
-    keeps: &[],
+   
     edits: &[("src/main.ts", "import htmx from \"htmx.org\";"), ("src/main.ts", "import { bindHtmx } from \"@snapfire/fsr-client/htmx\";"), ("src/main.ts", "bindHtmx(htmx); after enableNavigation()")],
   },
-  Direction { name: "tailwind", maps: &[], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
+  Direction { name: "tailwind", maps: &[], adapter: None, vendors: &[], published: false, edits: &[] },
   #[cfg(feature = "tera")]
-  Direction { name: "tera", maps: &[], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
+  Direction { name: "tera", maps: &[], adapter: None, vendors: &[], published: false, edits: &[] },
   #[cfg(feature = "mdx")]
-  Direction { name: "mdx", maps: &[], adapter: None, vendors: &[], published: false, keeps: &[], edits: &[] },
+  Direction { name: "mdx", maps: &[], adapter: None, vendors: &[], published: false, edits: &[] },
 ];
 
 /// The stylesheet `fsr use <app> mdx` writes for highlighted code.
@@ -133,11 +130,6 @@ impl Direction {
       _ => (Vec::new(), Vec::new()),
     }
   }
-}
-
-/// The files every direction keeps for `package` beside its modules.
-pub fn keeps_for(package: &str) -> Vec<(String, String)> {
-  DIRECTIONS.iter().flat_map(|d| d.keeps.iter()).filter(|(owner, _)| *owner == package).map(|(owner, file)| ((*owner).to_owned(), (*file).to_owned())).collect()
 }
 
 pub fn find(name: &str) -> Result<&'static Direction, BuildError> {
@@ -296,7 +288,7 @@ pub fn adopt(app: &Path, names: &[String], options: UseOptions) -> Result<Adopte
       }
     }
     if !published.is_empty() {
-      match crate::published::add_published(app, &published, &[]) {
+      match crate::published::add_published(app, &published) {
         Ok(report) => {
           adopted.vendored.extend(report.added);
           adopted.delegated.extend(report.delegated);

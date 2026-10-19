@@ -200,14 +200,9 @@ fn a_bare_application_given_svelte_builds_a_svelte_island() {
   map["imports"]["svelte/internal/client"] = serde_json::Value::String("/static/js/vendor/svelte/src/internal/client/index.js".to_owned());
   std::fs::write(dir.join("importmap.json"), map.to_string()).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"svelte":{{"version":"{svelte}","published":true,"files":["compiler/index.js"],"entries":{{"svelte":"svelte/src/index-client.js","svelte/internal/client":"svelte/src/internal/client/index.js"}}}}}}}}"#)).unwrap();
-  let refused = match build(&dir, &Options::default()) {
-    Ok(_) => panic!("built"),
-    Err(e) => e.to_string(),
-  };
-  assert!(refused.contains("svelte/compiler/index.js") && refused.contains(&format!("fsr add <app dir> svelte@{svelte}")), "a vendored Svelte compiles with its own compiler, so one without it is refused: {refused}");
-  std::fs::create_dir_all(dir.join("vendor/svelte/compiler")).unwrap();
-  std::fs::write(dir.join("vendor/svelte/compiler/index.js"), "globalThis.svelte = {};\n").unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), format!(r#"{{"packages":{{"svelte":{{"version":"{svelte}","published":true,"entries":{{"svelte":"svelte/src/index-client.js","svelte/internal/client":"svelte/src/internal/client/index.js"}}}}}}}}"#)).unwrap();
+  std::fs::create_dir_all(dir.join(format!(".fsr/compilers/svelte/{svelte}"))).unwrap();
+  std::fs::write(dir.join(format!(".fsr/compilers/svelte/{svelte}/index.js")), "globalThis.svelte = {};\n").unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(islands.contains("registerIsland(\"src/ui/Counter.svelte#default\""), "{islands}");
@@ -222,9 +217,8 @@ fn a_svelte_major_the_adapter_does_not_mount_is_refused_naming_the_ones_it_does(
   let page = "import { Island } from \"@snapfire/fsr-authoring/template\";\nimport Counter from \"../src/ui/Counter.svelte\";\nexport default function Page() {\n  return <Island><Counter /></Island>;\n}\n";
   let dir = bare(&[("routes/page.tsx", page), ("src/ui/Counter.svelte", "<p>x</p>\n")]);
   adopt(&dir, &["svelte".to_owned()], offline()).unwrap();
-  std::fs::create_dir_all(dir.join("vendor/svelte/compiler")).unwrap();
-  std::fs::write(dir.join("vendor/svelte/compiler/index.js"), "globalThis.svelte = {};\n").unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"6.0.0","published":true,"files":["compiler/index.js"],"entries":{"svelte":"svelte/src/index-client.js"}}}}"#).unwrap();
+  std::fs::create_dir_all(dir.join("vendor")).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"svelte":{"version":"6.0.0","published":true,"entries":{"svelte":"svelte/src/index-client.js"}}}}"#).unwrap();
   let refused = match build(&dir, &Options::default()) {
     Ok(_) => panic!("built"),
     Err(e) => e.to_string(),

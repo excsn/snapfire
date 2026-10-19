@@ -811,14 +811,14 @@ fn run_add(args: Add) -> ExitCode {
     .filter(|s| !s.is_empty())
     .collect();
   // A package vendored as published before takes its new version the same way,
-  // every specifier and file it recorded, so `svelte@5.60.0` alone is enough.
+  // every specifier it recorded, so `svelte@5.60.0` alone is enough.
   let recorded = match snapfire_fsr_cli::published::recorded(&args.app_dir, &specs) {
     Ok(recorded) => recorded,
     Err(e) => return failed(e),
   };
   let added = match (recorded, args.published) {
-    (Some((specs, keeps)), _) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs, &keeps),
-    (None, true) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs, &[]),
+    (Some(specs), _) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs),
+    (None, true) => snapfire_fsr_cli::published::add_published(&args.app_dir, &specs),
     (None, false) => vendor::add(&args.app_dir, &specs, &externals),
   };
   match added {
