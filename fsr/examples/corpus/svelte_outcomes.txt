@@ -10,7 +10,7 @@ examples-actions-adding-parameters-to-actions	lowered
 examples-animations-animate	lowered
 examples-bindings-bind-this	lowered
 examples-bindings-checkbox-inputs	lowered
-examples-bindings-component-bindings	client: src/App.svelte:5:43 a regular expression with a lookahead
+examples-bindings-component-bindings	lowered
 examples-bindings-dimensions	lowered
 examples-bindings-each-block-bindings	lowered
 examples-bindings-file-inputs	lowered
@@ -90,7 +90,7 @@ examples-transitions-in-and-out	lowered
 examples-transitions-transition	lowered
 examples-transitions-transition-events	lowered
 tutorial-advanced-svelte-advanced-bindings-bind-this	lowered
-tutorial-advanced-svelte-advanced-bindings-component-bindings	client: src/App.svelte:7:23 a regular expression with a lookahead
+tutorial-advanced-svelte-advanced-bindings-component-bindings	lowered
 tutorial-advanced-svelte-advanced-bindings-component-this	lowered
 tutorial-advanced-svelte-advanced-bindings-contenteditable-bindings	lowered
 tutorial-advanced-svelte-advanced-bindings-dimensions	lowered

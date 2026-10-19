@@ -141,11 +141,12 @@ fn split_on_an_empty_separator_is_residue() {
 }
 
 #[test]
-fn a_regular_expression_lowers_and_one_the_server_cannot_match_alike_is_residue() {
+fn a_regular_expression_lowers_and_one_past_the_caps_is_residue() {
   assert_eq!(builtin_of(&lowered("replace_regex", "params.slug.replace(/ /g, \"-\")").unwrap()), snapfire_fsr_ir::ast::Builtin::Replace);
+  assert_eq!(builtin_of(&lowered("backref", "/(a)\\1/.test(params.slug)").unwrap()), snapfire_fsr_ir::ast::Builtin::RegexTest);
+  assert_eq!(builtin_of(&lowered("lookahead", "params.slug.replace(/a(?=b)/, \"\")").unwrap()), snapfire_fsr_ir::ast::Builtin::Replace);
   for (tag, expr, says) in [
-    ("backref", "/(a)\\1/.test(params.slug)", "a backreference"),
-    ("lookahead", "params.slug.replace(/a(?=b)/, \"\")", "a lookahead"),
+    ("nested", "/(a+)+$/.test(params.slug)", "a nested quantifier"),
     ("sticky", "/a/y.test(params.slug)", "the sticky flag"),
     ("all_without_g", "params.slug.replaceAll(/a/, \"b\")", "without `g`"),
   ] {

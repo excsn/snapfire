@@ -2957,7 +2957,7 @@ impl<'a> Lowerer<'a> {
 /// A regular expression literal as the value the regex builtins read, refused here when the interpreter could not match it as JavaScript does.
 fn regex_value(lowerer: &Lowerer<'_>, pattern: &str, flags: &str, span: Span) -> Lowered<Expr> {
   if let Err(why) = snapfire_fsr_ir::jsregex::compiled(pattern, flags) {
-    return Err(lowerer.residue_with(span, format!("a regular expression with {why}"), "write it without that construct; the server matches it with a different engine than the browser's, so only the shared part is lowered"));
+    return Err(lowerer.residue_with(span, format!("a regular expression with {why}"), "write it without that construct; the server refuses a pattern that can backtrack without bound and a flag its engine lacks"));
   }
   Ok(Expr::Object(vec![
     Entry::Field(snapfire_fsr_ir::jsregex::PATTERN.to_owned(), Expr::lit_str(pattern)),
