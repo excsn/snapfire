@@ -341,3 +341,32 @@ export default function Page(props: { file: string }) {
   assert!(render("logo.svg").starts_with("<img src=\"/static/js/app/src/img/logo.9f9f9f9f.svg\""), "{}", render("logo.svg"));
   assert_eq!(render("absent.png"), "", "a key no entry has renders nothing");
 }
+
+/// `picture()` in a Svelte component answers what the client's
+/// `pictureParts` answers for the same facts: the `<img>`'s attributes in
+/// its order and a `{ key, type, srcSet, sizes }` row per format.
+#[test]
+fn a_svelte_picture_call_answers_the_parts_the_client_builds() {
+  let source = "<script>import { picture } from '@snapfire/fsr-client/svelte'; import hero from '../img/hero.png'; const image = picture({ src: hero, alt: 'h' }); const logo = picture({ src: '/x.svg', alt: '', width: 3 });</script><picture>{#each image.sources as s}<source {...s} />{/each}<img {...image.img} /></picture><p>{image.sources === null} {logo.sources === null}</p><img {...logo.img} />";
+  let dir = app(&[("src/ui/P.svelte", source)]);
+  let fake = Rc::new(Fake::default());
+  let mut set = ComponentSet::new(&dir).with_assets(fake, false);
+  let compiler = snapfire_svelte::Compiler::new().unwrap();
+  match compiler.describe("src/ui/P.svelte", source, &snapfire_compiler_wire::Options::default()).unwrap() {
+    snapfire_compiler_wire::Outcome::Described(described) => set.describe("src/ui/P.svelte", described),
+    other => panic!("{other:?}"),
+  }
+  set.lower("src/ui/P.svelte#default").unwrap();
+  let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let interpreter = Interpreter::default().with_frameworks(snapfire_fsr_ir::Frameworks::default().svelte(Some(snapfire_fsr_ir::SvelteMajor::V5)));
+  let html = interpreter.render_module("src/ui/P.svelte#default", &library["src/ui/P.svelte#default"], &ValueMap::default(), &library).unwrap().html;
+  let srcset = |ext: &str| format!("/static/js/app/src/img/hero.0a1b2c3d.640.{ext} 640w, /static/js/app/src/img/hero.0a1b2c3d.960.{ext} 960w, /static/js/app/src/img/hero.0a1b2c3d.1280.{ext} 1280w, /static/js/app/src/img/hero.0a1b2c3d.1600.{ext} 1600w");
+  let sizes = "(max-width: 1600px) 100vw, 1600px";
+  for (key, mime) in [("avif", "image/avif"), ("webp", "image/webp")] {
+    let row = format!("<source key=\"{key}\" type=\"{mime}\" srcset=\"{}\" sizes=\"{sizes}\"/>", srcset(key));
+    assert!(html.contains(&row), "{row}\n{html}");
+  }
+  assert!(html.contains(&format!("<img alt=\"h\" loading=\"lazy\" decoding=\"async\" src=\"{HERO}\" width=\"1600\" height=\"900\" onload=\"this.__e=event\" onerror=\"this.__e=event\"/>")), "{html}");
+  assert!(html.contains("<p>false true</p>"), "{html}");
+  assert!(html.contains("<img alt=\"\" width=\"3\" loading=\"lazy\" decoding=\"async\" src=\"/x.svg\" onload=\"this.__e=event\" onerror=\"this.__e=event\"/>"), "{html}");
+}

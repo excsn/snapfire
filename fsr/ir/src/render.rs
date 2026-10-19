@@ -969,15 +969,27 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
     Some(((_, module), _)) => Some((stringify(module)?, evaluated.iter().filter(|(name, _)| !name.starts_with('$')).map(|(name, value)| (name.to_string(), value.clone())).collect::<ValueMap>())),
     None => None,
   };
+  let spread = match markup.is_svelte() && from_data.iter().any(|data| *data) {
+    true => {
+      let flags = evaluated.iter().zip(&from_data).find(|((name, _), data)| !**data && name.as_ref() == SVELTE_FLAGS).map_or(0, |((_, v), _)| match v {
+        Value::Int(n) => *n as u32,
+        _ => 0,
+      });
+      let names: Vec<String> = evaluated.iter().zip(&from_data).filter(|(_, data)| **data).map(|((name, _), _)| name.to_string()).collect();
+      Some((flags, names))
+    }
+    false => None,
+  };
   for ((name, value), data) in evaluated.into_iter().zip(from_data) {
     if name.starts_with(' ') || name.is_empty() {
       open.push_str(&name);
       continue;
     }
+    if let (true, Some((flags, names))) = (data, &spread) {
+      svelte::spread_attribute(&name, &value, *flags, names, &mut open)?;
+      continue;
+    }
     if data && name.starts_with('$') {
-      if !skipped_attr(&name) {
-        attribute(markup, tag, &name, &value, &mut open)?;
-      }
       continue;
     }
     if shadow.is_some() && !is_scalar(&value) {
@@ -1009,6 +1021,12 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
         Value::Null => String::new(),
         value => stringify(&value)?,
       });
+      continue;
+    }
+    if markup.is_svelte() {
+      if !name.starts_with('$') {
+        attribute(markup, tag, &name, &value, &mut open)?;
+      }
       continue;
     }
     if skipped_attr(&name) {
@@ -2435,6 +2453,11 @@ pub const UNTAKEN_ATTR: &str = "$untaken";
 /// Its string is written to the document as it stands, so whoever produced it
 /// answers for it; the element's children never render.
 pub const RAW_ATTR: &str = "$html";
+
+/// On a Svelte element whose attributes come from a spread: the flags of
+/// Svelte's `$.attributes`, 1 for an SVG or MathML element, 2 to keep the
+/// names' case and 4 for an `<input>`.
+pub const SVELTE_FLAGS: &str = "$svelte";
 
 /// A placement of a custom element whose shadow template sits under
 /// `elements/`, holding the template's module. The server writes the

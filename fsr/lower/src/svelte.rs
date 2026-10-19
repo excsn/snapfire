@@ -12,7 +12,7 @@ use std::rc::Rc;
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{ArithOp, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl};
-use snapfire_fsr_ir::render::RAW_ATTR;
+use snapfire_fsr_ir::render::{RAW_ATTR, SVELTE_FLAGS};
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
@@ -69,7 +69,7 @@ pub enum Node {
   Html { code: String, at: (usize, usize) },
   Const { id: Code, init: Code, at: (usize, usize) },
   Render { callee: Code, args: Vec<Code>, optional: bool, dynamic: bool, at: (usize, usize) },
-  Element { name: String, svg: bool, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
+  Element { name: String, svg: bool, #[serde(default)] mathml: bool, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
   Component { name: String, dynamic: bool, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
   Slot { attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
   If { elseif: bool, test: Code, consequent: Fragment, alternate: Option<Fragment>, at: (usize, usize) },
@@ -178,7 +178,35 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
 
   fn expr(&mut self, code: &str, (line, column): (usize, usize)) -> Lowered<Expr> {
     let parsed = self.lowerer.parsed.parse_expr_at(code, line, column).map_err(|message| self.at(line, column, format!("`{}`: {message}", code.trim())))?;
+    if let Some(picture) = self.picture_call(&parsed, At::Line(line, column))? {
+      return Ok(picture);
+    }
     self.lowerer.expr(&parsed)
+  }
+
+  /// `picture({ … })`, the adapter's `picture` as the value it answers.
+  fn picture_call(&mut self, expr: &js::Expr, at: At) -> Lowered<Option<Expr>> {
+    let js::Expr::Call(call) = unwrap_types(expr) else { return Ok(None) };
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    let js::Expr::Ident(id) = &**callee else { return Ok(None) };
+    let meaning = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(id.sym.as_ref())).and_then(|meant| meant.placement());
+    if meaning != Some("picture") {
+      return Ok(None);
+    }
+    let Some(js::Expr::Object(object)) = call.args.first().map(|a| unwrap_types(&a.expr)) else {
+      return Err(self.residue_at(at, "`picture()` options that are not an object literal".to_owned()));
+    };
+    let mut placed: Vec<placements::Attr<'static>> = Vec::new();
+    for prop in &object.props {
+      let js::PropOrSpread::Prop(prop) = prop else { return Err(self.residue_at(at, "a spread in `picture()` options".to_owned())) };
+      let (name, value) = match &**prop {
+        js::Prop::KeyValue(kv) => (crate::prop_name(&kv.key).ok_or_else(|| self.residue_at(at, "a computed key in `picture()` options".to_owned()))?, kv.value.clone()),
+        js::Prop::Shorthand(id) => (id.sym.to_string(), Box::new(js::Expr::Ident(id.clone()))),
+        _ => return Err(self.residue_at(at, "a `picture()` option that is not `key: value`".to_owned())),
+      };
+      placed.push(placements::Attr { name, value: placements::Value::Script(std::borrow::Cow::Owned(*value)), at });
+    }
+    placements::picture_data(self, &placed, at).map(Some)
   }
 
   // ---- the scripts -------------------------------------------------------
@@ -352,6 +380,11 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       }
     }
     if matches!(unwrap_types(init), js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+      return Ok(());
+    }
+    if let Some(picture) = self.picture_call(init, At::Span(init.span()))? {
+      self.lets.push(Stmt::Let { name: name.clone(), expr: picture });
+      self.bind(name.clone(), Expr::Var(name));
       return Ok(());
     }
     let expr = self.lowerer.expr(init).map_err(|residue| match residue.line {
@@ -666,8 +699,11 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     Ok(Tmpl::Element { tag, attrs, children })
   }
 
+  /// `build_element_attributes`: each attribute, binding and spread in order,
+  /// through `$.attributes` when a spread or an input's `defaultValue` is
+  /// among them and one by one otherwise.
   fn element(&mut self, node: &Node) -> Lowered<Tmpl> {
-    let Node::Element { name, attrs, fragment, at, .. } = node else { unreachable!("an element") };
+    let Node::Element { name, svg, mathml, attrs, fragment, at } = node else { unreachable!("an element") };
     for attr in attrs {
       if let Attr::Spread { code, at: spread_at } = attr {
         match self.placement_spread(code, *spread_at)? {
@@ -680,43 +716,76 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     if name == "select" && attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "value") || matches!(a, Attr::Directive { kind, name, .. } if kind == "bind" && name == "value")) {
       return Err(self.at(at.0, at.1, "a `<select>` with a `value`, whose options Svelte marks selected"));
     }
-    let mut entries: Vec<Entry> = Vec::new();
-    let mut class: Option<Expr> = None;
+    let namespaced = *svg || *mathml;
+    let attr_name = |n: &str| if namespaced { n.to_owned() } else { n.to_lowercase() };
+    let load_error = LOAD_ERROR.contains(&name.as_str());
+    let whole = attrs.iter().any(|a| matches!(a, Attr::Spread { .. }) || (name == "input" && matches!(a, Attr::Attr { name, .. } if name == "defaultValue" || name == "defaultChecked")));
+    let mut items: Vec<Item> = Vec::new();
+    let mut body: Option<Body> = None;
+    let mut captures: Vec<&'static str> = Vec::new();
+    let capture = |captures: &mut Vec<&'static str>, names: &[&'static str]| {
+      for n in names {
+        if !captures.contains(n) {
+          captures.push(n);
+        }
+      }
+    };
     let mut class_directives: Vec<(String, Expr)> = Vec::new();
-    let mut style: Option<Expr> = None;
-    let mut style_directives: Vec<(String, Expr)> = Vec::new();
-    let mut body: Option<Expr> = None;
+    let mut style_directives: Vec<StyleDirective> = Vec::new();
     for attr in attrs {
       match attr {
-        Attr::Attr { name: attr_name, value, at } => {
-          let event = attr_name.starts_with("on") && matches!(value, AttrValue::Parts(parts) if matches!(parts.as_slice(), [Part::Code(_)]));
-          if event {
-            continue;
-          }
-          match attr_name.as_str() {
-            "class" => {
-              class = Some(self.class_value(&collapsed(value))?);
-              entries.push(Entry::Field("class".to_owned(), Expr::Lit(Lit::Null)));
+        Attr::Attr { name: a, value, .. } => {
+          if a == "value" && name == "textarea" {
+            body = Some(Body::Text(self.textarea_value(value)?));
+          } else if a == "value" && name == "select" {
+          } else if is_event(a, value) {
+            if load_error && (a == "onload" || a == "onerror") {
+              capture(&mut captures, &[if a == "onload" { "onload" } else { "onerror" }]);
             }
-            "style" => {
-              style = Some(self.attr_value(&collapsed(value), true)?);
-              entries.push(Entry::Field("style".to_owned(), Expr::Lit(Lit::Null)));
+          } else if a == "defaultValue" || a == "defaultChecked" {
+            if name == "input" {
+              items.push(Item::Attr { name: a.clone(), value: value.clone() });
             }
-            "value" if name == "textarea" => body = Some(self.attr_value(value, false)?),
-            "is" => return Err(self.at(at.0, at.1, "`is`, which picks a customized built-in element")),
-            _ => {
-              let expr = self.attr_value(value, true)?;
-              let expr = match value {
-                AttrValue::Parts(parts) if matches!(parts.as_slice(), [Part::Code(_)]) => self.attr_value(value, false)?,
-                _ => expr,
-              };
-              entries.push(Entry::Field(attr_name.clone(), expr));
-            }
+          } else {
+            items.push(Item::Attr { name: a.clone(), value: value.clone() });
           }
         }
-        Attr::Spread { at, .. } => return Err(self.at(at.0, at.1, "a spread of attributes onto an element")),
+        Attr::Spread { code, at } => {
+          items.push(Item::Spread(self.expr(code, *at)?));
+          if load_error {
+            capture(&mut captures, &["onload", "onerror"]);
+          }
+        }
         Attr::Attach { .. } => {}
-        Attr::Directive { kind, name: directive, expression, value, at, .. } => match kind.as_str() {
+        Attr::Directive { kind, name: directive, expression, value, modifiers, at } => match kind.as_str() {
+          "bind" => {
+            let file = items.iter().any(|item| matches!(item, Item::Attr { name, value } if name == "type" && static_text(value) == Some("file")));
+            if (directive == "value" && (name == "select" || file)) || directive == "this" || OMIT_IN_SSR.contains(&directive.as_str()) {
+              continue;
+            }
+            let (value, sequence) = self.bound(expression, directive, *at)?;
+            if directive == "innerHTML" {
+              body = Some(Body::Raw(value));
+            } else if matches!(directive.as_str(), "textContent" | "innerText") || (directive == "value" && name == "textarea") {
+              body = Some(Body::Text(value));
+            } else if directive == "group" && !sequence {
+              let Some(Attr::Attr { value: given, .. }) = attrs.iter().find(|a| matches!(a, Attr::Attr { name, .. } if name == "value")) else { continue };
+              let checkbox = attrs.iter().any(|a| matches!(a, Attr::Attr { name, value, .. } if name == "type" && static_text(value) == Some("checkbox")));
+              let given = self.ss(given, false)?;
+              let checked = match checkbox {
+                true => call(Builtin::Includes, vec![value, given]),
+                false => cmp(CompareOp::Eq, value, given),
+              };
+              items.push(Item::Bound { name: "checked".to_owned(), value: checked });
+            } else {
+              items.push(Item::Bound { name: attr_name(directive), value });
+            }
+          }
+          "use" => {
+            if load_error {
+              capture(&mut captures, &["onload", "onerror"]);
+            }
+          }
           "class" => {
             let cond = match expression {
               Some(code) => self.expr(&code.code, code.at)?,
@@ -726,35 +795,99 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           }
           "style" => {
             let value = match value {
-              Some(value) => self.attr_value(&collapsed(value), true)?,
+              Some(value) => self.ss(value, true)?,
               None => self.expr(directive, *at)?,
             };
-            style_directives.push((directive.clone(), value));
+            style_directives.push(match whole {
+              true => StyleDirective { name: directive.clone(), value, important: false },
+              false => StyleDirective { name: css_name(directive), value, important: modifiers.iter().any(|m| m == "important") },
+            });
           }
-          "bind" => match directive.as_str() {
-            "this" => {}
-            "value" if name == "textarea" => body = Some(self.bound(expression, directive, *at)?),
-            "value" | "checked" | "open" | "indeterminate" => {
-              let value = self.bound(expression, directive, *at)?;
-              entries.push(Entry::Field(directive.clone(), value));
-            }
-            other => return Err(self.at(at.0, at.1, format!("`bind:{other}`, a binding the build does not write on the server"))),
-          },
-          "on" | "use" | "transition" | "in" | "out" | "animate" | "let" => {}
+          "on" | "transition" | "in" | "out" | "animate" | "let" => {}
           other => return Err(self.at(at.0, at.1, format!("`{other}:`, a directive the build does not read"))),
         },
       }
     }
-    for (name, value) in [("class", self.class_attr(class, class_directives)?), ("style", self.style_attr(style, style_directives)?)] {
-      let Some(value) = value else { continue };
-      match entries.iter_mut().find(|e| matches!(e, Entry::Field(n, _) if n == name)) {
-        Some(slot) => *slot = Entry::Field(name.to_owned(), value),
-        None => entries.push(Entry::Field(name.to_owned(), value)),
+    let mut entries: Vec<Entry> = Vec::new();
+    if whole {
+      let mut fields: Vec<Entry> = Vec::new();
+      for item in items {
+        match item {
+          Item::Attr { name: a, value } => {
+            let n = attr_name(&a);
+            let value = match n.as_str() {
+              "class" => self.class_value(&value)?,
+              "style" => self.ss(&value, true)?,
+              _ => self.ss(&value, false)?,
+            };
+            fields.push(Entry::Field(n, value));
+          }
+          Item::Bound { name, value } => fields.push(Entry::Field(name, value)),
+          Item::Spread(e) => fields.push(Entry::Spread(e)),
+        }
+      }
+      entries.push(Entry::Spread(merged_attributes(fields, class_directives, style_directives)));
+      let flags = if namespaced { 1 | 2 } else if name.contains('-') || attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "is")) { 2 } else if name == "input" { 4 } else { 0 };
+      if flags != 0 {
+        entries.push(Entry::Field(SVELTE_FLAGS.to_owned(), int(flags)));
+      }
+    } else {
+      for item in items {
+        match item {
+          Item::Bound { name, value } => entries.push(Entry::Field(name, value)),
+          Item::Spread(_) => unreachable!("a spread takes the other path"),
+          Item::Attr { name: a, value } => {
+            let n = attr_name(&a);
+            let directed = (n == "class" && !class_directives.is_empty()) || (n == "style" && !style_directives.is_empty());
+            let trim = n == "class" || n == "style";
+            if !directed && (matches!(value, AttrValue::Present(true)) || static_text(&value).is_some()) {
+              let written = match &value {
+                AttrValue::Present(_) => String::new(),
+                _ => match self.ss(&value, trim)? {
+                  Expr::Lit(Lit::Str(text)) => text.to_string(),
+                  _ => unreachable!("static text is a literal"),
+                },
+              };
+              if n != "class" || !written.is_empty() || matches!(value, AttrValue::Present(_)) {
+                entries.push(Entry::Baked(format!(" {n}=\"{written}\"")));
+              }
+              continue;
+            }
+            match n.as_str() {
+              "class" => {
+                let class = self.class_value(&value)?;
+                let directives = std::mem::take(&mut class_directives);
+                entries.push(Entry::Field(n, self.class_attr(Some(class), directives)?.expect("a class")));
+              }
+              "style" => {
+                let style = self.ss(&value, true)?;
+                let directives = std::mem::take(&mut style_directives);
+                entries.push(Entry::Field(n, self.style_attr(Some(style), directives)?.expect("a style")));
+              }
+              _ => {
+                let value = self.ss(&value, false)?;
+                entries.push(Entry::Field(n, value));
+              }
+            }
+          }
+        }
+      }
+      if !class_directives.is_empty() {
+        entries.push(Entry::Field("class".to_owned(), self.class_attr(None, class_directives)?.expect("a class")));
+      }
+      if !style_directives.is_empty() {
+        entries.push(Entry::Field("style".to_owned(), self.style_attr(None, style_directives)?.expect("a style")));
       }
     }
-    let children = match (&body, fragment.nodes.as_slice()) {
-      (Some(_), _) if !fragment.nodes.is_empty() => return Err(self.at(at.0, at.1, "a `<textarea>` with both a `value` and content")),
-      (Some(value), _) => vec![Tmpl::Expr(value.clone())],
+    for name in captures {
+      entries.push(Entry::Baked(format!(" {name}=\"this.__e=event\"")));
+    }
+    let children = match (body, fragment.nodes.as_slice()) {
+      (Some(Body::Text(value)), _) => vec![Tmpl::Expr(value)],
+      (Some(Body::Raw(value)), _) => {
+        entries.push(Entry::Field(RAW_ATTR.to_owned(), Expr::Coalesce(Box::new(value), Box::new(text("")))));
+        Vec::new()
+      }
       (None, [Node::Html { code, at }]) if fragment.hoisted.is_empty() => {
         let value = Expr::Coalesce(Box::new(self.expr(code, *at)?), Box::new(Expr::lit_str(String::new())));
         entries.push(Entry::Field(RAW_ATTR.to_owned(), Expr::Template(vec![Expr::lit_str(EMPTY.to_owned()), value, Expr::lit_str(EMPTY.to_owned())])));
@@ -765,21 +898,72 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     Ok(Tmpl::Element { tag: name.clone(), attrs: entries, children })
   }
 
-  fn bound(&mut self, expression: &Option<Code>, name: &str, at: (usize, usize)) -> Lowered<Expr> {
-    match expression {
-      Some(code) => self.expr(&code.code, code.at),
-      None => self.expr(name, at),
+  /// A binding's value, the getter's result for `bind:x={get, set}`, and
+  /// whether it was that pair.
+  fn bound(&mut self, expression: &Option<Code>, name: &str, at: (usize, usize)) -> Lowered<(Expr, bool)> {
+    let (code, at) = match expression {
+      Some(code) => (code.code.as_str(), code.at),
+      None => (name, at),
+    };
+    let parsed = self.lowerer.parsed.parse_expr_at(code, at.0, at.1).map_err(|message| self.at(at.0, at.1, format!("`{}`: {message}", code.trim())))?;
+    match unwrap_types(&parsed) {
+      js::Expr::Seq(seq) if !seq.exprs.is_empty() => {
+        let call = js::Expr::Call(js::CallExpr { callee: js::Callee::Expr(seq.exprs[0].clone()), ..Default::default() });
+        Ok((self.lowerer.expr(&call)?, true))
+      }
+      _ => Ok((self.lowerer.expr(&parsed)?, false)),
     }
   }
 
-  /// `class={value}`: a string as it is, anything else through `clsx`.
+  /// `build_attribute_value`: `true` as it is; a value that is text alone a
+  /// literal escaped for an attribute; an expression alone as it is; text and
+  /// expressions a template of the text and each expression stringified.
+  /// With `trim` each run of `[ \t\n\r\f]` in the text is one space and text
+  /// alone is trimmed.
+  fn ss(&mut self, value: &AttrValue, trim: bool) -> Lowered<Expr> {
+    let value = if trim { collapsed(value) } else { value.clone() };
+    match &value {
+      AttrValue::Present(_) => Ok(Expr::Lit(Lit::Bool(true))),
+      AttrValue::Parts(parts) => match parts.as_slice() {
+        [Part::Text { text }] => Ok(Expr::lit_str(escape_attr(text))),
+        [Part::Code(code)] => self.expr(&code.code, code.at),
+        parts => {
+          let mut pieces = Vec::new();
+          for part in parts {
+            pieces.push(match part {
+              Part::Text { text } => Expr::lit_str(text.clone()),
+              Part::Code(code) => Expr::Coalesce(Box::new(self.expr(&code.code, code.at)?), Box::new(Expr::lit_str(String::new()))),
+            });
+          }
+          Ok(Expr::Template(pieces))
+        }
+      },
+    }
+  }
+
+  /// A `<textarea>`'s `value` attribute as its content, a leading line break
+  /// doubled as the parser would otherwise drop it.
+  fn textarea_value(&mut self, value: &AttrValue) -> Lowered<Expr> {
+    match value {
+      AttrValue::Parts(parts) if matches!(parts.first(), Some(Part::Text { text }) if text.starts_with('\n') || text.starts_with("\r\n")) => {
+        let mut parts = parts.clone();
+        if let Some(Part::Text { text }) = parts.first_mut() {
+          text.insert(0, '\n');
+        }
+        self.ss(&AttrValue::Parts(parts), false)
+      }
+      other => self.ss(other, false),
+    }
+  }
+
+  /// `class={value}`: an expression alone through `clsx`, else as `build_attribute_value` gives it.
   fn class_value(&mut self, value: &AttrValue) -> Lowered<Expr> {
     match value {
       AttrValue::Parts(parts) if matches!(parts.as_slice(), [Part::Code(_)]) => {
-        let expr = self.attr_value(value, false)?;
-        Ok(Expr::Builtin { name: Builtin::ClassNames, args: vec![expr] })
+        let expr = self.ss(value, true)?;
+        Ok(svelte_clsx(expr))
       }
-      other => self.attr_value(other, true),
+      other => self.ss(other, true),
     }
   }
 
@@ -809,11 +993,11 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// a directive names, then each directive whose value is neither `null`
   /// nor empty, trimmed. A `style` the render computes beside a directive is
   /// not read yet.
-  fn style_attr(&mut self, style: Option<Expr>, directives: Vec<(String, Expr)>) -> Lowered<Option<Expr>> {
+  fn style_attr(&mut self, style: Option<Expr>, directives: Vec<StyleDirective>) -> Lowered<Option<Expr>> {
     if directives.is_empty() {
       return Ok(style);
     }
-    let reserved: Vec<String> = directives.iter().map(|(name, _)| css_name(name)).collect();
+    let reserved: Vec<String> = directives.iter().map(|d| d.name.clone()).collect();
     let kept = match &style {
       None => String::new(),
       Some(Expr::Lit(Lit::Str(text))) if !text.contains("/*") => kept_declarations(text, &reserved),
@@ -825,16 +1009,98 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   }
 }
 
-/// `append_styles`: each directive whose value is neither `null` nor `''` as ` name: value;`.
-fn appended_styles(directives: Vec<(String, Expr)>) -> Vec<Expr> {
-  directives
+/// One entry of the list `build_element_attributes` builds.
+enum Item {
+  Attr { name: String, value: AttrValue },
+  Bound { name: String, value: Expr },
+  Spread(Expr),
+}
+
+/// What a binding or a `<textarea>`'s value writes in place of the element's content.
+enum Body {
+  Text(Expr),
+  Raw(Expr),
+}
+
+/// A `style:` directive. Through `$.attributes` its name is the one written
+/// and `important` is dropped, as `build_spread_object` builds one object.
+struct StyleDirective {
+  name: String,
+  value: Expr,
+  important: bool,
+}
+
+/// The elements whose `onload` and `onerror` Svelte captures before hydration, `is_load_error_element`.
+const LOAD_ERROR: &[&str] = &["body", "embed", "iframe", "img", "link", "object", "script", "style", "track"];
+
+/// The bindings Svelte's binding table marks `omit_in_ssr`.
+const OMIT_IN_SSR: &[&str] = &["currentTime", "duration", "focused", "paused", "buffered", "seekable", "played", "volume", "muted", "playbackRate", "seeking", "ended", "readyState", "videoHeight", "videoWidth", "naturalWidth", "naturalHeight", "activeElement", "fullscreenElement", "pointerLockElement", "visibilityState", "innerWidth", "innerHeight", "outerWidth", "outerHeight", "scrollX", "scrollY", "online", "devicePixelRatio", "clientWidth", "clientHeight", "offsetWidth", "offsetHeight", "contentRect", "contentBoxSize", "borderBoxSize", "devicePixelContentBoxSize", "indeterminate", "this", "files"];
+
+/// `is_event_attribute`: an `on` name whose value is one expression.
+fn is_event(name: &str, value: &AttrValue) -> bool {
+  name.starts_with("on") && matches!(value, AttrValue::Parts(parts) if matches!(parts.as_slice(), [Part::Code(_)]))
+}
+
+fn static_text(value: &AttrValue) -> Option<&str> {
+  match value {
+    AttrValue::Parts(parts) => match parts.as_slice() {
+      [Part::Text { text }] => Some(text),
+      _ => None,
+    },
+    AttrValue::Present(_) => None,
+  }
+}
+
+/// `escape_html(value, true)`.
+fn escape_attr(text: &str) -> String {
+  text.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;")
+}
+
+/// `append_styles` for each directive whose value is neither `null` nor `''`:
+/// ` name: value;`, the `important` ones after the rest with ` !important;`.
+fn appended_styles(directives: Vec<StyleDirective>) -> Vec<Expr> {
+  let (important, normal): (Vec<_>, Vec<_>) = directives.into_iter().partition(|d| d.important);
+  normal
     .into_iter()
-    .map(|(name, value)| {
+    .chain(important)
+    .map(|StyleDirective { name, value, important }| {
       let written = logic(LogicOp::And, cmp(CompareOp::Ne, value.clone(), Expr::Lit(Lit::Null)), cmp(CompareOp::Ne, value.clone(), Expr::lit_str(String::new())));
-      let declaration = Expr::Template(vec![Expr::lit_str(format!(" {name}: ")), value, Expr::lit_str(";")]);
+      let close = if important { " !important;" } else { ";" };
+      let declaration = Expr::Template(vec![Expr::lit_str(format!(" {name}: ")), value, Expr::lit_str(close)]);
       Expr::Ternary(Box::new(written), Box::new(declaration), Box::new(Expr::lit_str(String::new())))
     })
     .collect()
+}
+
+const ATTRS: &str = "attrs@";
+const CLSX: &str = "clsx@";
+
+/// Svelte's `clsx`: an object through `clsx`, anything else as it is with `null` as `''`.
+fn svelte_clsx(value: Expr) -> Expr {
+  let object = cmp(CompareOp::Eq, call(Builtin::TypeOf, vec![var(CLSX)]), text("object"));
+  Expr::Block(vec![
+    bind(CLSX, value),
+    Stmt::Return(Expr::Ternary(Box::new(object), Box::new(call(Builtin::ClassNames, vec![var(CLSX)])), Box::new(Expr::Coalesce(Box::new(var(CLSX)), Box::new(text("")))))),
+  ])
+}
+
+/// The object `$.attributes` receives, its `style` through `to_style` when a
+/// `style:` directive is present, its `class` through `clsx` when it holds
+/// anything and then through `to_class` when a `class:` directive is present.
+fn merged_attributes(fields: Vec<Entry>, class_directives: Vec<(String, Expr)>, style_directives: Vec<StyleDirective>) -> Expr {
+  let with = |name: &str, value: Expr| Expr::Object(vec![Entry::Spread(var(ATTRS)), Entry::Field(name.to_owned(), value)]);
+  let field = |name: &str| var(ATTRS).field(name);
+  let mut body = vec![bind(ATTRS, Expr::Object(fields))];
+  if !style_directives.is_empty() {
+    let reserved: Vec<String> = style_directives.iter().map(|d| css_name(&d.name)).collect();
+    body.push(set(ATTRS, with("style", to_style(field("style"), &reserved, style_directives))));
+  }
+  body.push(when(field("class"), vec![set(ATTRS, with("class", svelte_clsx(field("class"))))], Vec::new()));
+  if !class_directives.is_empty() {
+    body.push(set(ATTRS, with("class", to_class(Some(field("class")), class_directives))));
+  }
+  body.push(Stmt::Return(var(ATTRS)));
+  Expr::Block(body)
 }
 
 /// A `class`, `style` or `style:` value as `build_attribute_value` hands it
@@ -1092,7 +1358,7 @@ fn to_class(class: Option<Expr>, directives: Vec<(String, Expr)>) -> Expr {
     let passes = plus(arith(ArithOp::Mul, Expr::Length(Box::new(var(CLASS))), int(2)), 1);
     body.push(when(cond, vec![append], vec![bind(AT, int(0)), repeat("_", passes, vec![step])]));
   }
-  body.push(Stmt::Return(var(CLASS)));
+  body.push(Stmt::Return(Expr::Ternary(Box::new(eq(var(CLASS), text(""))), Box::new(Expr::Lit(Lit::Null)), Box::new(var(CLASS)))));
   Expr::Block(body)
 }
 
@@ -1115,7 +1381,7 @@ const START: &str = "start@";
 /// `to_style` written out in the IR for a `style` the render computes: the
 /// value with `/\/\*.*?\*\//g` removed and trimmed, then each declaration
 /// whose name no directive reserves, then the directives.
-fn to_style(style: Expr, reserved: &[String], directives: Vec<(String, Expr)>) -> Expr {
+fn to_style(style: Expr, reserved: &[String], directives: Vec<StyleDirective>) -> Expr {
   let eq = |a: Expr, b: Expr| cmp(CompareOp::Eq, a, b);
   let at = |c: &str| holds_at(STYLE, text(c), var(I));
   let reserved = Expr::Array(reserved.iter().map(|name| Entry::Item(text(name))).collect());

@@ -90,12 +90,17 @@ pub(super) fn display(value: &Value) -> Result<String, Fail> {
 /// `class` and `style` are written by `attr_class` and `attr_style`, which
 /// omit an empty value.
 pub(super) fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {
-  let boolean = is_boolean(name) || (name == "hidden" && !matches!(value, Value::Str(s) if s.as_ref() == "until-found"));
-  let empty = matches!(value, Value::Str(s) if s.is_empty());
-  if matches!(value, Value::Null) || (boolean && !truthy(value) && !empty) {
+  if (name == "class" || name == "style") && matches!(value, Value::Str(s) if s.is_empty()) {
     return Ok(());
   }
-  if (name == "class" || name == "style") && empty {
+  attr(name, value, is_boolean(name), out)
+}
+
+/// `attr(name, value, is_boolean)`.
+fn attr(name: &str, value: &Value, boolean: bool, out: &mut String) -> Result<(), Fail> {
+  let boolean = boolean || (name == "hidden" && !matches!(value, Value::Str(s) if s.as_ref() == "until-found"));
+  let empty = matches!(value, Value::Str(s) if s.is_empty());
+  if matches!(value, Value::Null) || (boolean && !truthy(value) && !empty) {
     return Ok(());
   }
   out.push(' ');
@@ -113,4 +118,36 @@ pub(super) fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(
   escape_attr(&text, out);
   out.push('"');
   Ok(())
+}
+
+/// One name of the object `$.attributes` writes: a `$$` name, one Svelte
+/// counts invalid and an `on` handler are left out; an `<input>`'s
+/// `defaultValue` and `defaultChecked` stand for `value` and `checked` unless
+/// the object holds those. `names` is every name the object holds.
+pub(super) fn spread_attribute(name: &str, value: &Value, flags: u32, names: &[String], out: &mut String) -> Result<(), Fail> {
+  if name.starts_with("$$") || name.is_empty() || name.chars().any(invalid_name_char) {
+    return Ok(());
+  }
+  let lower = name.to_lowercase();
+  let mut name = if flags & PRESERVE_CASE == 0 { lower.clone() } else { name.to_owned() };
+  if lower.encode_utf16().count() > 2 && lower.starts_with("on") {
+    return Ok(());
+  }
+  if flags & IS_INPUT != 0 && (name == "defaultvalue" || name == "defaultchecked") {
+    name = if name == "defaultvalue" { "value" } else { "checked" }.to_owned();
+    if names.iter().any(|n| n.to_lowercase() == name) {
+      return Ok(());
+    }
+  }
+  attr(&name, value, flags & NAMESPACED == 0 && is_boolean(&name), out)
+}
+
+const NAMESPACED: u32 = 1;
+const PRESERVE_CASE: u32 = 2;
+const IS_INPUT: u32 = 4;
+
+/// `INVALID_ATTR_NAME_CHAR_REGEX`: whitespace, `'`, `"`, `>`, `/`, `=` and the noncharacters.
+fn invalid_name_char(c: char) -> bool {
+  let code = c as u32;
+  matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}') || matches!(c, '\'' | '"' | '>' | '/' | '=') || (0xfdd0..=0xfdef).contains(&code) || (code & 0xfffe) == 0xfffe
 }

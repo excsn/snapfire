@@ -319,7 +319,7 @@
         case "RegularElement": {
           const ns = n.name === "foreignObject" ? "html" : n.__svg ? "svg" : n.__mathml ? "mathml" : "html";
           const keep = preserve || n.name === "pre" || n.name === "textarea";
-          return { type: "element", name: namespace === "html" ? n.name.toLowerCase() : n.name, svg: n.__svg, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, ns, keep), at: where };
+          return { type: "element", name: namespace === "html" ? n.name.toLowerCase() : n.name, svg: n.__svg, mathml: n.__mathml, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, ns, keep), at: where };
         }
         case "Component":
           return { type: "component", name: n.name, dynamic: n.__dynamic, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), at: where };

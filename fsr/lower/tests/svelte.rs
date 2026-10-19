@@ -26,12 +26,15 @@ fn runtime() -> PathBuf {
 /// What the components a fixture imports by bare specifier stand for in the oracle.
 fn stubs() -> BTreeMap<String, String> {
   BTreeMap::from([
-    ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned()),
+    ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
     ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\nexport function key(name) { return name; }\n".to_owned()),
     ("@snapfire/fsr-client/store".to_owned(), "export function key(name) { return name; }\n".to_owned()),
     ("svelte".to_owned(), "export function onMount() {}\nexport function onDestroy() {}\nexport function tick() { return Promise.resolve(); }\n".to_owned()),
   ])
 }
+
+/// The client's `pictureParts` for a string `src`, under the default policy.
+const PICTURE_PARTS: &str = "export function picture(props) {\n  const { src, source, priority: high, widths, quality, sizes, loading, decoding, ...rest } = props;\n  const img = { ...rest, loading: loading ?? (high ? 'eager' : 'lazy'), decoding: decoding ?? 'async' };\n  if (high) img.fetchpriority = 'high';\n  img.src = src;\n  return { img, sources: null };\n}\n";
 
 fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
   let dir = std::env::temp_dir().join(format!("fsr_svelte_{}_{tag}", std::process::id()));
@@ -184,6 +187,53 @@ fn style_directives_apply_to_any_style_value() {
 fn class_and_style_text_collapses_whitespace_as_svelte_does() {
   let source = "<script>let { c } = $props();</script><p class=\"\n x\n\t y \" style=\" a:\n b \" title=\"t\n u\">a</p><p class=\"x\n {c}\n\" style=\"a:\n {c}\n\" style:width=\" {c}\n px\">b</p><p style=\"/* a\nb */ color: red\" style:width={c}>c</p>";
   check("collapse", source, &props(&[("c", s("1"))]));
+}
+
+#[test]
+fn element_attributes_follow_svelte_server() {
+  let o = |pairs: &[(&str, Value)]| Value::Map(props(pairs));
+  let spreads = [
+    o(&[]),
+    o(&[("title", s("o")), ("Data-Up", s("k")), ("$$x", s("1")), ("a b", s("1")), ("hidden", Value::Bool(false)), ("disabled", s("")), ("data-x", Value::Null), ("style", s("")), ("class", s("")), ("onclick", s("x")), ("$y", s("<b>"))]),
+    o(&[("class", Value::seq(vec![s("q"), s("z")])), ("style", s("color: blue; width: 1px")), ("value", s("v")), ("defaultValue", s("d")), ("translate", Value::Bool(false))]),
+    o(&[("class", Value::Map(props(&[("m", Value::Bool(true))]))), ("viewBox", s("0 0 1 1")), ("checked", Value::Bool(true))]),
+  ];
+  let source = "<script>let { o, on, c } = $props(); const f = () => {};</script>\
+    <p title=\"t\" {...o} class=\"c\">a</p>\
+    <p class=\"a\" {...o} class:z={on} style:color={c} style:width|important=\"2px\">b</p>\
+    <input {...o} defaultValue=\"d\" defaultChecked={on}>\
+    <img {...o} alt=\"a\">\
+    <img src=\"x.png\" alt=\"\" onload={f} onerror={f}>\
+    <link rel=\"icon\" onload={f}>\
+    <input disabled=\"false\" value=\"v\"><p style=\"\" class=\"\" key=\"k\" ref=\"r\" children=\"c\">c</p>\
+    <textarea value=\"\nx\"></textarea><textarea defaultValue=\"x\"></textarea>\
+    <p style:color|important={c} style=\"color: red\">d</p>\
+    <my-el Foo=\"1\" {...o}></my-el><button is=\"my-b\" {...o}>e</button>\
+    <svg><rect {...o}/></svg><p title=\"a&amp;b\" {...o}>f</p><p class=\"a&amp;b\" class:z={on} style=\"content: '&amp;'\" style:color={c}>g</p><p class={on}>h</p><p class={c}>i</p>";
+  for spread in &spreads {
+    for (on, c) in [(true, s("red")), (false, Value::Null)] {
+      check("element-attributes", source, &props(&[("o", spread.clone()), ("on", Value::Bool(on)), ("c", c.clone())]));
+    }
+  }
+}
+
+#[test]
+fn picture_answers_what_the_client_answers() {
+  let source = "<script>import { picture } from '@snapfire/fsr-client/svelte'; let { p, n } = $props(); const image = picture({ src: '/pictures/probe.png', alt: 'probe', width: 4, height: 4 }); const hero = picture({ src: p, alt: n, priority: true, loading: 'auto', 'data-x': 1 });</script>\
+    {#if image.sources}<picture>{#each image.sources as source, i (i)}<source {...source} />{/each}<img {...image.img} /></picture>{:else}<img {...image.img} />{/if}\
+    <img {...hero.img}>{#if n}{@const low = picture({ src: n, alt: '' })}<img {...low.img}>{/if}";
+  check("picture", source, &props(&[("p", s("/a.png")), ("n", s("b"))]));
+}
+
+#[test]
+fn bindings_write_what_svelte_server_writes() {
+  let source = "<script>let { g, gs, h, t, v } = $props();</script>\
+    <input type=\"radio\" value=\"a\" bind:group={g}><input type=\"radio\" value=\"b\" bind:group={g}>\
+    <input type=\"checkbox\" value=\"a\" bind:group={gs}><input type=\"checkbox\" value=\"b\" bind:group={gs}>\
+    <div contenteditable bind:innerHTML={h}></div><div contenteditable bind:textContent={t}></div>\
+    <input type=\"file\" bind:value={v}><input bind:value={v}><textarea bind:value={v}></textarea>\
+    <details bind:open={g}></details><div bind:clientWidth={v}></div>";
+  check("bindings", source, &props(&[("g", s("a")), ("gs", Value::seq(vec![s("b")])), ("h", s("<b>h</b>")), ("t", s("<i>")), ("v", s("x"))]));
 }
 
 #[test]
@@ -351,7 +401,8 @@ impl Scope {
 
   fn attr(&self, k: usize) -> (&'static str, String) {
     let (s, n) = (self.s(k), self.n(k));
-    match k % 16 {
+    match k % 17 {
+      16 => ("{...sp}", "{...sp}".to_owned()),
       11 => ("class", format!("class=\"x\n {{{s}}} \"")),
       12 => ("class", format!("class={{{s}}}")),
       13 => ("style", format!("style={{{s}}}")),
@@ -467,7 +518,7 @@ fn source(nodes: &[Node], legacy: bool) -> String {
   let scope = Scope { strs: vec!["a".to_owned()], nums: vec!["n".to_owned()], depth: 0 };
   let mut printer = Printer { out: String::new(), row: false };
   printer.nodes(nodes, &scope);
-  let script = if legacy { "<script>export let a; export let n; export let on; export let xs; export let h;</script>\n" } else { "<script>let { a, n, on, xs, h } = $props();</script>\n" };
+  let script = if legacy { "<script>export let a; export let n; export let on; export let xs; export let h; export let sp;</script>\n" } else { "<script>let { a, n, on, xs, h, sp } = $props();</script>\n" };
   let row = if printer.row { "{#snippet row(v)}<i>{v}</i>{/snippet}\n" } else { "" };
   format!("{script}{row}{}", printer.out)
 }
@@ -501,7 +552,9 @@ mod generated {
 
   fn given() -> impl Strategy<Value = ValueMap> {
     let html = prop::sample::select(vec!["", "<b>x</b>", "a &amp; b"]).prop_map(Value::str);
-    (word(), -3i64..12, any::<bool>(), prop::collection::vec(word(), 0..3), html).prop_map(|(a, n, on, xs, h)| props(&[("a", a), ("n", Value::int(n)), ("on", Value::Bool(on)), ("xs", Value::seq(xs)), ("h", h)]))
+    let key = prop::sample::select(vec!["title", "class", "style", "hidden", "Data-Up", "$$x", "a b", "onclick", "value", "defaultValue", "translate", "id", "disabled"]);
+    let spread = prop::collection::vec((key, prop_oneof![word(), any::<bool>().prop_map(Value::Bool), Just(Value::Null), (-2i64..3).prop_map(Value::int)]), 0..4).prop_map(|pairs| Value::Map(pairs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()));
+    (word(), -3i64..12, any::<bool>(), prop::collection::vec(word(), 0..3), html, spread).prop_map(|(a, n, on, xs, h, sp)| props(&[("a", a), ("n", Value::int(n)), ("on", Value::Bool(on)), ("xs", Value::seq(xs)), ("h", h), ("sp", sp)]))
   }
 
   proptest! {

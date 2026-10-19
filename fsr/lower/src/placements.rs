@@ -671,3 +671,140 @@ fn picture_markup<'p>(cx: &mut impl Placer<'p>, facts: &ImageFacts, rest: &[Entr
   children.push(Tmpl::Element { tag: "img".to_owned(), attrs: img, children: Vec::new() });
   Tmpl::Element { tag: "picture".to_owned(), attrs: Vec::new(), children }
 }
+
+/// `picture({ src, alt, … })` as a value, what the client's `pictureParts`
+/// answers for the same options under the policy the server renders with:
+/// `{ img, sources }`, `img` holding the other options, `loading`,
+/// `decoding`, `fetchpriority` for a priority image, then `src` and the
+/// image's `width` and `height` where the options give none; `sources` one
+/// `{ key, type, srcSet, sizes }` per format (`null` for an `<img>` alone).
+pub(crate) fn picture_data<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At) -> Lowered<Expr> {
+  let mut src: Option<PictureSrc> = None;
+  let mut sizes: Option<Expr> = None;
+  let mut priority: Option<Expr> = None;
+  let mut request = ImageRequest::default();
+  let mut source_name: Option<String> = None;
+  let mut rest: Vec<Entry> = Vec::new();
+  let mut loading = None;
+  let mut decoding = None;
+  let mut wrote_width = false;
+  let mut wrote_height = false;
+  for attr in attrs {
+    if let Value::Spread(expr) = &attr.value {
+      let _ = expr;
+      return Err(refuse(cx, attr.at, "a spread in `picture()` options"));
+    }
+    match attr.name.as_str() {
+      "src" => src = Some(picture_src(cx, attr)?),
+      "source" => match value(cx, attr)? {
+        Expr::Lit(Lit::Str(name)) => source_name = Some(name),
+        _ => return Err(refuse(cx, attr.at, "a `picture()` `source` is a name written out")),
+      },
+      "priority" => priority = Some(value(cx, attr)?),
+      "widths" => request.widths = Some(picture_widths(cx, attr)?),
+      "quality" => request.quality = Some(picture_quality(cx, attr)?),
+      "sizes" => sizes = Some(value(cx, attr)?),
+      "loading" => loading = Some(value(cx, attr)?),
+      "decoding" => decoding = Some(value(cx, attr)?),
+      other => {
+        wrote_width |= other == "width";
+        wrote_height |= other == "height";
+        let lowered = value(cx, attr)?;
+        rest.push(Entry::Field(other.to_owned(), lowered));
+      }
+    }
+  }
+  let Some(src) = src else {
+    return Err(refuse(cx, at, "`picture()` needs a `src`"));
+  };
+  let high = priority.unwrap_or(Expr::Lit(Lit::Bool(false)));
+  let pick = |set: Option<Expr>, high_value: &str, low_value: &str| {
+    set.map(|given| Expr::Coalesce(Box::new(given), Box::new(Expr::Ternary(Box::new(high.clone()), Box::new(Expr::lit_str(high_value)), Box::new(Expr::lit_str(low_value))))))
+      .unwrap_or_else(|| Expr::Ternary(Box::new(high.clone()), Box::new(Expr::lit_str(high_value)), Box::new(Expr::lit_str(low_value))))
+  };
+  let mut head = rest;
+  head.push(Entry::Field("loading".to_owned(), pick(loading, "eager", "lazy")));
+  head.push(Entry::Field("decoding".to_owned(), decoding.map(|d| Expr::Coalesce(Box::new(d), Box::new(Expr::lit_str("async")))).unwrap_or_else(|| Expr::lit_str("async"))));
+  let img = |tail: Vec<Entry>| {
+    let first = Expr::Object(head.clone());
+    let with_priority = Expr::Ternary(Box::new(high.clone()), Box::new(Expr::Object(vec![Entry::Spread(first.clone()), Entry::Field("fetchpriority".to_owned(), Expr::lit_str("high"))])), Box::new(first));
+    Expr::Object(std::iter::once(Entry::Spread(with_priority)).chain(tail).collect())
+  };
+  let parts = |img: Expr, sources: Expr| Expr::Object(vec![Entry::Field("img".to_owned(), img), Entry::Field("sources".to_owned(), sources)]);
+  let local = |facts: &ImageFacts| {
+    let mut tail = vec![Entry::Field("src".to_owned(), Expr::lit_str(facts.src.clone()))];
+    if !wrote_width {
+      tail.push(Entry::Field("width".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.width)))));
+    }
+    if !wrote_height {
+      tail.push(Entry::Field("height".to_owned(), Expr::Lit(Lit::Int(i128::from(facts.height)))));
+    }
+    let sources = match facts.sources.is_empty() {
+      true => Expr::Lit(Lit::Null),
+      false => {
+        let sizes = sizes.clone().unwrap_or_else(|| Expr::lit_str(assets::default_sizes(facts.width)));
+        Expr::Array(
+          facts
+            .sources
+            .iter()
+            .map(|(mime, srcset)| {
+              let key = mime.strip_prefix("image/").unwrap_or(mime);
+              Entry::Item(Expr::Object(vec![
+                Entry::Field("key".to_owned(), Expr::lit_str(key)),
+                Entry::Field("type".to_owned(), Expr::lit_str(mime.clone())),
+                Entry::Field("srcSet".to_owned(), Expr::lit_str(srcset.clone())),
+                Entry::Field("sizes".to_owned(), sizes.clone()),
+              ]))
+            })
+            .collect(),
+        )
+      }
+    };
+    parts(img(tail), sources)
+  };
+  let resolver = cx.assets();
+  match src {
+    PictureSrc::Local(path) => match resolver.image(&path, &request) {
+      Some(facts) => Ok(local(&facts)),
+      None => Err(refuse(cx, at, format!("`{path}` is not an image under the app"))),
+    },
+    PictureSrc::Keyed(key, entries) => {
+      let mut chain = Expr::Lit(Lit::Null);
+      for (entry_key, facts) in entries.into_iter().rev() {
+        let cond = Expr::Compare(CompareOp::Eq, Box::new(key.clone()), Box::new(Expr::lit_str(entry_key)));
+        chain = Expr::Ternary(Box::new(cond), Box::new(local(&facts)), Box::new(chain));
+      }
+      Ok(chain)
+    }
+    PictureSrc::Value(lowered) => {
+      let template = match &source_name {
+        Some(name) => match resolver.source(name) {
+          Some(template) => Some(template),
+          None => return Err(refuse(cx, at, format!("`{name}` is not an `[images.sources]` entry"))),
+        },
+        None => None,
+      };
+      let tail = match template {
+        Some(template) => {
+          let widths = resolver.widths();
+          let largest = widths.iter().copied().max().unwrap_or(1280);
+          let mut set: Vec<Expr> = Vec::new();
+          for (i, width) in widths.iter().enumerate() {
+            if i > 0 {
+              set.push(Expr::lit_str(", "));
+            }
+            set.push(fill_template(&template, &lowered, *width));
+            set.push(Expr::lit_str(format!(" {width}w")));
+          }
+          vec![
+            Entry::Field("src".to_owned(), fill_template(&template, &lowered, largest)),
+            Entry::Field("srcSet".to_owned(), Expr::Template(set)),
+            Entry::Field("sizes".to_owned(), sizes.unwrap_or_else(|| Expr::lit_str("100vw"))),
+          ]
+        }
+        None => vec![Entry::Field("src".to_owned(), lowered)],
+      };
+      Ok(parts(img(tail), Expr::Lit(Lit::Null)))
+    }
+  }
+}
