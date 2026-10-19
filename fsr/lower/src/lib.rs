@@ -2467,13 +2467,14 @@ impl<'a> Lowerer<'a> {
         };
         Ok(Expr::Sort(target, f))
       }
-      "slice" | "at" | "indexOf" | "lastIndexOf" | "charCodeAt" | "concat" | "padStart" | "padEnd" | "substring" => {
+      "slice" | "at" | "indexOf" | "lastIndexOf" | "charCodeAt" | "codePointAt" | "concat" | "padStart" | "padEnd" | "substring" => {
         let name = match method.as_str() {
           "slice" => Builtin::Slice,
           "at" => Builtin::At,
           "indexOf" => Builtin::IndexOf,
           "lastIndexOf" => Builtin::LastIndexOf,
           "charCodeAt" => Builtin::CharCodeAt,
+          "codePointAt" => Builtin::CodePointAt,
           "concat" => Builtin::Concat,
           "padStart" => Builtin::PadStart,
           "padEnd" => Builtin::PadEnd,
@@ -2678,12 +2679,11 @@ impl<'a> Lowerer<'a> {
       Some(meaning::Meaning::Library(meaning::Construct::SvelteClass(class))) => Some(class),
       _ => None,
     };
-    if let Some(class @ ("Spring" | "Tween")) = svelte {
+    if let Some("Spring" | "Tween") = svelte {
       let value = match args.first() {
         Some(a) => self.expr(&a.expr)?,
         None => Expr::Lit(Lit::Null),
       };
-      let _ = class;
       return Ok(Expr::Object(vec![Entry::Field("current".to_owned(), value.clone()), Entry::Field("target".to_owned(), value)]));
     }
     let global = match &*n.callee {
@@ -2706,6 +2706,28 @@ impl<'a> Lowerer<'a> {
       ("Set", Some(items)) => Ok(Expr::Builtin { name: Builtin::Unique, args: vec![items] }),
       ("URLSearchParams", None) => Ok(Expr::lit_str("")),
       ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
+      ("RegExp", Some(_)) if matches!(&*args[0].expr, js::Expr::Lit(js::Lit::Regex(_))) => Err(self.residue(n.span, "`new RegExp` of a regular expression")),
+      ("RegExp", Some(pattern)) => {
+        let flags = match args.get(1) {
+          Some(a) => Some(&*a.expr),
+          None => None,
+        };
+        if let (js::Expr::Lit(js::Lit::Str(p)), None | Some(js::Expr::Lit(js::Lit::Str(_)))) = (&*args[0].expr, flags) {
+          let flags = match flags {
+            Some(js::Expr::Lit(js::Lit::Str(f))) => f.value.to_atom_lossy().to_string(),
+            _ => String::new(),
+          };
+          return regex_value(self, p.value.to_atom_lossy().as_ref(), &flags, n.span);
+        }
+        let flags = match flags {
+          Some(f) => Expr::Str(Box::new(self.expr(f)?)),
+          None => Expr::lit_str(""),
+        };
+        Ok(Expr::Object(vec![
+          Entry::Field(snapfire_fsr_ir::jsregex::PATTERN.to_owned(), Expr::Str(Box::new(pattern))),
+          Entry::Field(snapfire_fsr_ir::jsregex::FLAGS.to_owned(), flags),
+        ]))
+      }
       (other, _) => Err(self.residue(n.span, format!("`new {other}`"))),
     }
   }

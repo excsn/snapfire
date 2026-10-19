@@ -261,6 +261,8 @@ pub enum Builtin {
   LastIndexOf,
   /// `s.charCodeAt(i)`: the UTF-16 code unit at `i`, NaN past either end.
   CharCodeAt,
+  /// `s.codePointAt(i)`: the code point starting at UTF-16 index `i`, a lone surrogate as its unit, null past either end.
+  CodePointAt,
   /// `x.toString(radix)`: a number's digits in a radix from 2 to 36, anything else as `String(x)`. In a radix other than 10 a number with a fraction is an error. So is one past 2^53 in a radix that is not a power of 2, since engines print their digits differently.
   Radix,
 }

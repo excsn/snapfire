@@ -154,6 +154,8 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   /// The names the template's `{#await}` blocks read (`awaited`) and those of them holding a promise (`promises`).
   awaited: Vec<String>,
   promises: Vec<String>,
+  /// The names the script binds at its top level, which a template expression reads there; any other name it reads that no block binds is a global.
+  module_names: Vec<String>,
 }
 
 impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
@@ -181,7 +183,7 @@ impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
 
 impl<'a, 'p> SvelteLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new() }
+    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new(), module_names: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -194,6 +196,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     }
     let fragment = template.fragment.clone();
     self.template = Some(template);
+    self.module_names = top_level_names(&self.lowerer.parsed.module, self.lowerer.parsed.top);
     self.lets.push(Stmt::Let { name: PROPS.to_owned(), expr: props_with_slots() });
     awaited_names(value, &mut self.awaited);
     let reads_slots = value.to_string().contains("$$slots") || self.described.script.as_ref().is_some_and(|s| s.content.contains("$$slots"));
@@ -229,14 +232,19 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
 
   fn expr(&mut self, code: &str, (line, column): (usize, usize)) -> Lowered<Expr> {
     let mut parsed = self.lowerer.parsed.parse_expr_at(code, line, column).map_err(|message| self.at(line, column, format!("`{}`: {message}", code.trim())))?;
-    if let Some(top) = self.lowerer.meanings.as_ref().map(|meanings| meanings.top) {
-      let local: Vec<String> = self.lowerer.scope.iter().map(|(name, _)| name.clone()).collect();
-      parsed.visit_mut_with(&mut TopLevel { top, local });
-    }
+    self.to_top_level(&mut parsed);
     if let Some(picture) = self.picture_call(&parsed, At::Line(line, column))? {
       return Ok(picture);
     }
     self.lowerer.expr(&parsed)
+  }
+
+  /// Gives each name `parsed` reads that no block binds the syntax context of where it resolves: the module's top level for a name the script binds there, the unresolved context for a global.
+  fn to_top_level(&self, parsed: &mut js::Expr) {
+    if let Some(meanings) = self.lowerer.meanings.as_ref() {
+      let local: Vec<String> = self.lowerer.scope.iter().map(|(name, _)| name.clone()).collect();
+      parsed.visit_mut_with(&mut TopLevel { top: meanings.top, unresolved: meanings.unresolved, local, module: &self.module_names });
+    }
   }
 
   /// `picture({ … })`, the adapter's `picture` as the value it answers.
@@ -849,14 +857,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// The length of `Array(n)` or `new Array(n)` when that is what `code` is: an array of `n` holes, which an each block reads as `undefined`.
   fn holes(&mut self, code: &str, (line, column): (usize, usize)) -> Lowered<Option<Expr>> {
     let mut parsed = self.lowerer.parsed.parse_expr_at(code, line, column).map_err(|message| self.at(line, column, format!("`{}`: {message}", code.trim())))?;
-    let declared = |this: &Self, name: &str| this.lowerer.scope.iter().any(|(bound, _)| bound == name) || this.lowerer.meanings.as_ref().is_some_and(|meanings| meanings.bindings.contains_key(name));
-    if declared(self, "Array") {
-      return Ok(None);
-    }
-    if let Some(top) = self.lowerer.meanings.as_ref().map(|meanings| meanings.top) {
-      let local: Vec<String> = self.lowerer.scope.iter().map(|(name, _)| name.clone()).collect();
-      parsed.visit_mut_with(&mut TopLevel { top, local });
-    }
+    self.to_top_level(&mut parsed);
     let (callee, args) = match unwrap_types(&parsed) {
       js::Expr::Call(call) => match &call.callee {
         js::Callee::Expr(callee) => (&**callee, &call.args[..]),
@@ -866,8 +867,9 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       _ => return Ok(None),
     };
     let js::Expr::Ident(id) = unwrap_types(callee) else { return Ok(None) };
+    let global = self.lowerer.meanings.as_ref().is_none_or(|meanings| id.ctxt == meanings.unresolved);
     match args {
-      [length] if id.sym.as_ref() == "Array" && length.spread.is_none() => Ok(Some(self.lowerer.expr(&length.expr)?)),
+      [length] if id.sym.as_ref() == "Array" && global && length.spread.is_none() => Ok(Some(self.lowerer.expr(&length.expr)?)),
       _ => Ok(None),
     }
   }
@@ -2250,12 +2252,29 @@ fn assigned_names(stmt: &js::Stmt, out: &mut Vec<String>) {
 /// Gives a template expression's free names the script's top-level context,
 /// which is what they name in Svelte's scope, so the library ones read by
 /// what they are bound to. A name the template binds keeps its own.
-struct TopLevel {
+struct TopLevel<'m> {
   top: swc_core::common::SyntaxContext,
+  unresolved: swc_core::common::SyntaxContext,
   local: Vec<String>,
+  module: &'m [String],
 }
 
-impl VisitMut for TopLevel {
+/// The names `module` binds at its top level: those of its identifiers swc's resolver gave the top-level context.
+fn top_level_names(module: &js::Module, top: swc_core::common::SyntaxContext) -> Vec<String> {
+  struct Names(swc_core::common::SyntaxContext, Vec<String>);
+  impl swc_core::ecma::visit::Visit for Names {
+    fn visit_ident(&mut self, id: &js::Ident) {
+      if id.ctxt == self.0 && !self.1.iter().any(|name| *name == *id.sym) {
+        self.1.push(id.sym.to_string());
+      }
+    }
+  }
+  let mut names = Names(top, Vec::new());
+  swc_core::ecma::visit::VisitWith::visit_with(module, &mut names);
+  names.1
+}
+
+impl VisitMut for TopLevel<'_> {
   /// What Svelte's server writes for a rune a template reads:
   /// `$state.snapshot(x)` is `x`, `$effect.tracking()` is `false` and
   /// `$effect.pending()` is `0`.
@@ -2276,7 +2295,7 @@ impl VisitMut for TopLevel {
 
   fn visit_mut_ident(&mut self, id: &mut js::Ident) {
     if id.ctxt == swc_core::common::SyntaxContext::empty() && !self.local.iter().any(|name| *name == *id.sym) {
-      id.ctxt = self.top;
+      id.ctxt = if self.module.iter().any(|name| *name == *id.sym) { self.top } else { self.unresolved };
     }
   }
 }

@@ -2856,6 +2856,19 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let at = integer(name, args.get(1))?;
       whole(if at < 0.0 || at >= units.len() as f64 { f64::NAN } else { f64::from(units[at as usize]) })
     }
+    Builtin::CodePointAt => {
+      let units: Vec<u16> = text(name, arg(0)?)?.encode_utf16().collect();
+      let at = integer(name, args.get(1))?;
+      if at < 0.0 || at >= units.len() as f64 {
+        return Ok(Value::Null);
+      }
+      let at = at as usize;
+      let point = match char::decode_utf16(units[at..].iter().copied()).next() {
+        Some(Ok(c)) => u32::from(c),
+        _ => u32::from(units[at]),
+      };
+      whole(f64::from(point))
+    }
     Builtin::Radix => {
       let radix = match args.get(1) {
         None | Some(Value::Null) => 10.0,

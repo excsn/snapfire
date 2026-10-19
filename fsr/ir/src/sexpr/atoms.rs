@@ -141,6 +141,7 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::ParseInt => "parse-int",
     Builtin::LastIndexOf => "last-index-of",
     Builtin::CharCodeAt => "char-code-at",
+    Builtin::CodePointAt => "code-point-at",
     Builtin::Radix => "radix",
   }
 }
@@ -210,6 +211,7 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "parse-int" => Builtin::ParseInt,
     "last-index-of" => Builtin::LastIndexOf,
     "char-code-at" => Builtin::CharCodeAt,
+    "code-point-at" => Builtin::CodePointAt,
     "radix" => Builtin::Radix,
     _ => return None,
   })

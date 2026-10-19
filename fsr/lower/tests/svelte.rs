@@ -377,6 +377,14 @@ fn number_and_string_builtins_render_what_javascript_computes() {
   );
 }
 
+#[test]
+fn patterns_built_at_run_time_and_code_points_render_what_javascript_computes() {
+  let source = r#"<script>let { data, search, flags, word } = $props(); const re = new RegExp(search, flags); const plain = new RegExp(search);</script>
+<p>{data.filter((d) => re.test(d)).join()} {data.filter((d) => plain.test(d)).join()} {new RegExp('a.c', 'i').test('ABC')} {new RegExp(search.length).test('x2')} {new Date(0).toISOString()} {[...new Set(data)].length}</p>
+<p>{word.codePointAt(0)} {word.codePointAt(1)} {word.codePointAt(2)} [{word.codePointAt(9)}] [{word.codePointAt(-1)}] {word.codePointAt()} {word.codePointAt(1.5)}</p>"#;
+  check("patterns", source, &props(&[("data", Value::seq(vec![s("Banana"), s("ANT"), s("cat")])), ("search", s("an")), ("flags", s("i")), ("word", s("a😀"))]));
+}
+
 /// What lowering `source` refuses, as `file:line:column: message`.
 fn refused(tag: &str, source: &str) -> String {
   let dir = app(tag, &[("src/C.svelte", source)]);

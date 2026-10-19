@@ -109,9 +109,9 @@ tutorial-advanced-svelte-motion-tweens	lowered
 tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:20 `Math.random`
 tutorial-advanced-svelte-script-module-module-exports	lowered
 tutorial-advanced-svelte-script-module-sharing-code	lowered
-tutorial-advanced-svelte-snippets-implicit-snippet-props	client: src/App.svelte:6:1 `<FilteredList>` does not lower: src/FilteredList.svelte:9:23: `new RegExp`
-tutorial-advanced-svelte-snippets-passing-snippets	client: src/App.svelte:6:1 `<FilteredList>` does not lower: src/FilteredList.svelte:9:23: `new RegExp`
-tutorial-advanced-svelte-snippets-snippets-and-render-tags	client: src/App.svelte:17:15 `.codePointAt()`, which is not a builtin
+tutorial-advanced-svelte-snippets-implicit-snippet-props	lowered
+tutorial-advanced-svelte-snippets-passing-snippets	lowered
+tutorial-advanced-svelte-snippets-snippets-and-render-tags	lowered
 tutorial-advanced-svelte-special-elements-svelte-body	lowered
 tutorial-advanced-svelte-special-elements-svelte-boundary	lowered
 tutorial-advanced-svelte-special-elements-svelte-document	lowered
