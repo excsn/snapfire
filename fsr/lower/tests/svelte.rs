@@ -290,6 +290,35 @@ fn components_and_elements_chosen_at_run_time_render_as_svelte_writes_them() {
 }
 
 #[test]
+fn key_await_boundary_and_window_elements_render_as_svelte_writes_them() {
+  let source = "<script>let { k, p } = $props();</script><svelte:window on:resize={() => {}}/><svelte:body onclick={() => {}}/><svelte:document />\
+    {#key k}<b>{k}</b>{/key}{#key k}text {k}{/key}{#await p}wait{:then v}<i>{v}</i>{:catch e}err{/await}{#await p then v}{v}{/await}{#await p}w{/await}{#await p catch e}{e}{/await}\
+    <svelte:boundary><p>in</p>{#snippet failed(e)}x{/snippet}</svelte:boundary><svelte:boundary>{k}<p>in</p>{#snippet pending()}wait{/snippet}</svelte:boundary><svelte:boundary>text first</svelte:boundary>";
+  for (k, p) in [(s("a"), s("v")), (Value::Null, Value::int(2i64))] {
+    check("blocks-13", source, &props(&[("k", k), ("p", p)]));
+  }
+}
+
+/// What lowering `source` refuses, as `file:line:column: message`.
+fn refused(tag: &str, source: &str) -> String {
+  let dir = app(tag, &[("src/C.svelte", source)]);
+  let mut set = ComponentSet::new(&dir);
+  COMPILER.with(|compiler| match compiler.describe("src/C.svelte", source, &Options::default()).expect("the driver answers") {
+    Outcome::Described(described) => set.describe("src/C.svelte", described),
+    other => panic!("not described: {other:?}"),
+  });
+  let refusal = set.lower("src/C.svelte#default").expect_err("refused").to_string();
+  let _ = std::fs::remove_dir_all(&dir);
+  refusal
+}
+
+#[test]
+fn head_content_is_refused_toward_a_loaders_meta() {
+  let refusal = refused("head", "<script>let { t } = $props();</script><svelte:head><title>{t}</title></svelte:head><p>body</p>");
+  assert!(refusal.contains("<svelte:head>") && refusal.contains("`meta` export"), "{refusal}");
+}
+
+#[test]
 fn bindings_write_what_svelte_server_writes() {
   let source = "<script>let { g, gs, h, t, v } = $props();</script>\
     <input type=\"radio\" value=\"a\" bind:group={g}><input type=\"radio\" value=\"b\" bind:group={g}>\

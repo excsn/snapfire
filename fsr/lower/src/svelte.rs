@@ -476,6 +476,10 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         Node::Other { kind, at } if kind == "DebugTag" => {
           let _ = at;
         }
+        Node::Special { kind, .. } if matches!(kind.as_str(), "SvelteWindow" | "SvelteBody" | "SvelteDocument") => {}
+        Node::Special { kind, at, .. } if kind == "SvelteHead" || kind == "TitleElement" => {
+          return Err(self.at(at.0, at.1, format!("`{}` in markup the browser hydrates; what goes in the document head belongs in a loader's `meta` export", kind_name(kind))));
+        }
         Node::Other { kind, at } | Node::Special { kind, at, .. } => return Err(self.at(at.0, at.1, format!("`{}`, which the build does not render on the server", kind_name(kind)))),
         _ => {}
       }
@@ -512,6 +516,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       Node::Each { .. } => self.each_block(node, out)?,
       Node::Slot { attrs, fragment, .. } => self.slot_element(attrs, fragment, out)?,
       Node::Special { kind, fragment, .. } if kind == "SvelteFragment" => out.extend(self.fragment(fragment)?),
+      Node::Special { kind, fragment, .. } if kind == "SvelteBoundary" => self.boundary(fragment, out)?,
       Node::Special { kind, attrs, this: Some(this), fragment, at, .. } if kind == "SvelteElement" => self.dynamic_element(attrs, this, fragment, *at, out)?,
       Node::Special { kind, attrs, this: Some(this), fragment, slots, .. } if kind == "SvelteComponent" => {
         let choice = self.expr(&this.code, this.at)?;
@@ -528,8 +533,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       }
       Node::Const { at, .. } | Node::Snippet { at, .. } => return Err(self.at(at.0, at.1, "a declaration among the nodes")),
       Node::Other { kind, at } | Node::Special { kind, at, .. } => return Err(self.at(at.0, at.1, format!("`{}`, which the build does not render on the server", kind_name(kind)))),
-      Node::Key { at, .. } => return Err(self.at(at.0, at.1, "`{#key}`, which the build does not render on the server")),
-      Node::Await { at, .. } => return Err(self.at(at.0, at.1, "`{#await}`, which the build does not render on the server")),
+      Node::Key { fragment, .. } => {
+        out.push(Tmpl::Marker(EMPTY.to_owned()));
+        out.extend(self.fragment(fragment)?);
+        out.push(Tmpl::Marker(EMPTY.to_owned()));
+      }
+      Node::Await { expression, value, then, .. } => self.await_block(expression, value.as_ref(), then.as_ref(), out)?,
     }
     Ok(())
   }
@@ -660,6 +669,59 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     if !standalone {
       out.push(Tmpl::Marker(EMPTY.to_owned()));
     }
+    Ok(())
+  }
+
+  /// `{#await}`, `$.await`: a value the render holds is never a promise, so
+  /// the `then` branch with the value bound, after the else marker.
+  fn await_block(&mut self, expression: &Code, value: Option<&Code>, then: Option<&Fragment>, out: &mut Vec<Tmpl>) -> Lowered<()> {
+    let awaited = self.expr(&expression.code, expression.at)?;
+    out.push(Tmpl::Marker(BLOCK_OPEN_ELSE.to_owned()));
+    if let Some(then) = then {
+      let scope_before = self.lowerer.scope.len();
+      let name = match value {
+        Some(code) => {
+          let name = code.code.trim().to_owned();
+          if !is_identifier(&name) {
+            return Err(self.at(code.at.0, code.at.1, "an `{:then}` value that destructures"));
+          }
+          self.bind(name.clone(), Expr::Var(name.clone()));
+          Some(name)
+        }
+        None => None,
+      };
+      let content = self.fragment(then);
+      self.lowerer.scope.truncate(scope_before);
+      let content = Tmpl::Fragment(content?);
+      out.push(match name {
+        Some(name) => Tmpl::Let { name, expr: awaited, then: Box::new(content) },
+        None => content,
+      });
+    }
+    out.push(Tmpl::Marker(BLOCK_CLOSE.to_owned()));
+    Ok(())
+  }
+
+  /// `<svelte:boundary>`: its `pending` snippet after the else marker when it
+  /// has one, else its content, between block markers. A `failed` snippet
+  /// renders only when the content throws, which a lowered render does not
+  /// recover from.
+  fn boundary(&mut self, fragment: &Fragment, out: &mut Vec<Tmpl>) -> Lowered<()> {
+    let pending = fragment.hoisted.iter().find_map(|node| match node {
+      Node::Snippet { name, params, body, .. } if name == "pending" => Some(Snippet { name: name.clone(), params: params.clone(), body: body.clone() }),
+      _ => None,
+    });
+    match pending {
+      Some(pending) => {
+        out.push(Tmpl::Marker(BLOCK_OPEN_ELSE.to_owned()));
+        out.push(self.snippet_content(&pending)?);
+      }
+      None => {
+        out.push(Tmpl::Marker(BLOCK_OPEN.to_owned()));
+        out.extend(self.fragment(fragment)?);
+      }
+    }
+    out.push(Tmpl::Marker(BLOCK_CLOSE.to_owned()));
     Ok(())
   }
 
