@@ -132,3 +132,17 @@ fn a_legal_name_from_a_spread_is_written() {
   .expect("renders");
   assert_eq!(html, "<div onerror=\"x\">in</div>");
 }
+
+/// A spread's names come from data, so none of them reaches the names the
+/// renderer reserves for itself.
+#[test]
+fn a_spread_name_from_data_cannot_reach_a_reserved_attribute() {
+  for name in ["$html", "$shadow", "$key", "$on:click", "$unlowered"] {
+    let spread = Value::Map(map_of(&[(name, Value::str("<script>x</script>"))]));
+    let html = render(vec![Entry::Spread(Expr::Field(Box::new(Expr::var("$props")), "p".to_owned()))], map_of(&[("p", spread)]));
+    match html {
+      Ok(html) => assert!(!html.contains("<script"), "{name} reached the markup: {html}"),
+      Err(e) => panic!("{name}: {e}"),
+    }
+  }
+}

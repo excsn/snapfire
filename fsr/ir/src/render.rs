@@ -824,9 +824,13 @@ fn props(env: &mut Env, entries: &[Entry]) -> Result<ValueMap, Fail> {
   Ok(ValueMap::from(map))
 }
 
-fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(Cow<'a, str>, Value)>, Fail> {
+/// The entries in order with a later one of a name taking its value. Beside
+/// them, whether each name came from data (a spread or a computed key); such a
+/// name never names one of the renderer's own attributes.
+fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<(Vec<(Cow<'a, str>, Value)>, Vec<bool>), Fail> {
   let mut out: Vec<(Cow<'a, str>, Value)> = Vec::with_capacity(entries.len());
-  let mut put = |name: Cow<'a, str>, value: Value| {
+  let mut from_data: Vec<bool> = Vec::with_capacity(entries.len());
+  let mut put = |name: Cow<'a, str>, value: Value, data: bool| {
     let name = match attrs {
       true => match html_attr_name(&name) {
         html if html.len() == name.len() && html == name => name,
@@ -834,21 +838,23 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
       },
       false => name,
     };
-    if let Some(slot) = out.iter_mut().find(|(n, _)| *n == name) {
-      slot.1 = value;
+    if let Some(at) = out.iter().position(|(n, _)| *n == name) {
+      out[at].1 = value;
+      from_data[at] = data;
     } else {
       out.push((name, value));
+      from_data.push(data);
     }
   };
   for entry in entries {
     match entry {
-      Entry::Baked(text) => put(Cow::Borrowed(text.as_str()), Value::Null),
-      Entry::Field(name, expr) => put(Cow::Borrowed(name.as_str()), env.eval_sync(expr)?),
+      Entry::Baked(text) => put(Cow::Borrowed(text.as_str()), Value::Null, false),
+      Entry::Field(name, expr) => put(Cow::Borrowed(name.as_str()), env.eval_sync(expr)?, false),
       Entry::Spread(expr) => match env.eval_sync(expr)? {
         Value::Map(map) => {
           for (name, value) in map {
             if !is_baked_name(&name) {
-              put(Cow::Owned(name), value);
+              put(Cow::Owned(name), value, true);
             }
           }
         }
@@ -859,13 +865,13 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<Vec<(
         let key = stringify(&env.eval_sync(key)?)?;
         let value = env.eval_sync(expr)?;
         if !is_baked_name(&key) {
-          put(Cow::Owned(key), value);
+          put(Cow::Owned(key), value, true);
         }
       }
       Entry::Item(_) => return Err(Fail::internal("an item entry among attributes")),
     }
   }
-  Ok(out)
+  Ok((out, from_data))
 }
 
 /// The larger arms are functions of their own. This recurses once per level
@@ -955,17 +961,23 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
   let mut bound = Vec::new();
   let mut raw: Option<String> = None;
   let markup = env.markup;
-  let evaluated = entries(env, attrs, !markup.is_vue() && !markup.is_svelte())?;
+  let (evaluated, from_data) = entries(env, attrs, !markup.is_vue() && !markup.is_svelte())?;
   if markup.may_hoist(tag) && !env.server_mode && !env.in_svg && !env.in_noscript && markup.hoists(tag, &evaluated) {
     return Err(hoisted_in_place(env, tag));
   }
-  let shadow = match evaluated.iter().find(|(name, _)| name.as_ref() == SHADOW_ATTR) {
-    Some((_, module)) => Some((stringify(module)?, evaluated.iter().filter(|(name, _)| !name.starts_with('$')).map(|(name, value)| (name.to_string(), value.clone())).collect::<ValueMap>())),
+  let shadow = match evaluated.iter().zip(&from_data).find(|((name, _), data)| !**data && name.as_ref() == SHADOW_ATTR) {
+    Some(((_, module), _)) => Some((stringify(module)?, evaluated.iter().filter(|(name, _)| !name.starts_with('$')).map(|(name, value)| (name.to_string(), value.clone())).collect::<ValueMap>())),
     None => None,
   };
-  for (name, value) in evaluated {
+  for ((name, value), data) in evaluated.into_iter().zip(from_data) {
     if name.starts_with(' ') || name.is_empty() {
       open.push_str(&name);
+      continue;
+    }
+    if data && name.starts_with('$') {
+      if !skipped_attr(&name) {
+        attribute(markup, tag, &name, &value, &mut open)?;
+      }
       continue;
     }
     if shadow.is_some() && !is_scalar(&value) {
