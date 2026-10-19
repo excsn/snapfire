@@ -1201,16 +1201,16 @@ impl<'a> TestLowerer<'a> {
     for prop in &obj.props {
       let (key, value) = self.key_value(prop)?;
       match key.as_str() {
-        "session" => mock.session = self.entries(value)?,
-        "params" => mock.params = self.entries(value)?,
-        "query" => mock.query = self.entries(value)?,
+        "session" => mock.session = self.entries("session", value)?,
+        "params" => mock.params = self.entries("params", value)?,
+        "query" => mock.query = self.entries("query", value)?,
         "input" | "request" => mock.input = Some(self.lowerer.expr(value)?),
         "identity" => mock.identity = Some(self.lowerer.expr(value)?),
         "locale" => mock.locale = Some(self.lowerer.expr(value)?),
         "path" => mock.path = Some(self.lowerer.expr(value)?),
         "host" => mock.host = Some(self.lowerer.expr(value)?),
         "origin" => mock.origin = Some(self.lowerer.expr(value)?),
-        "config" => mock.config = self.entries(value)?,
+        "config" => mock.config = self.entries("config", value)?,
         "services" => {
           let js::Expr::Object(services) = value else {
             return Err(self.lowerer.residue(value.span(), "`services` must be an object of services"));
@@ -1254,9 +1254,9 @@ impl<'a> TestLowerer<'a> {
     Ok(mock)
   }
 
-  fn entries(&mut self, value: &js::Expr) -> Lowered<Vec<(String, Expr)>> {
+  fn entries(&mut self, part: &str, value: &js::Expr) -> Lowered<Vec<(String, Expr)>> {
     let js::Expr::Object(obj) = value else {
-      return Err(self.lowerer.residue(value.span(), "an object literal"));
+      return Err(self.lowerer.residue(value.span(), format!("`{part}` in a mocked context is an object literal written in the test; {} is not read", found(value))));
     };
     let mut out = Vec::new();
     for prop in &obj.props {
@@ -1277,6 +1277,21 @@ impl<'a> TestLowerer<'a> {
       }
       other => Err(self.parsed.residue(other.span(), "a mock entry must be `key: value`")),
     }
+  }
+}
+
+/// What a mocked context's part was given in place of an object literal.
+fn found(expr: &js::Expr) -> &'static str {
+  match expr {
+    js::Expr::Paren(p) => found(&p.expr),
+    js::Expr::Call(_) => "a call",
+    js::Expr::Ident(_) => "a name bound elsewhere",
+    js::Expr::Member(_) => "a property read",
+    js::Expr::Cond(_) => "a conditional",
+    js::Expr::Await(_) => "an awaited value",
+    js::Expr::Array(_) => "a list",
+    js::Expr::Lit(_) | js::Expr::Tpl(_) => "a single value",
+    _ => "this expression",
   }
 }
 

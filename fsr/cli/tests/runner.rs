@@ -157,3 +157,16 @@ test("this is the current target, capture runs first and a removed listener stay
   assert_eq!(summary.passed, 1, "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_mocked_session_that_is_not_written_out_is_refused_naming_the_part_and_what_was_found() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("routes/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\n\nexport async function load({ session }: Ctx) {\n  return { n: session.n };\n}\n"),
+    ("tests/page.test.ts", "import { load } from \"@routes/page.loader\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\nconst fresh = () => ({ n: 1 });\n\ntest(\"a helper\", async () => {\n  const c = ctx({ session: fresh() });\n  expect((await load(c)).n).toEqual(1);\n});\n"),
+  ]);
+  let refused = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).map(|summary| summary.to_string()).unwrap_or_else(|e| e.to_string());
+  assert!(refused.contains("tests/page.test.ts:7:"), "{refused}");
+  assert!(refused.contains("`session` in a mocked context is an object literal written in the test; a call is not read"), "{refused}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
