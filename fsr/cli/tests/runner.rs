@@ -102,3 +102,58 @@ fn a_timer_a_finished_test_left_behind_does_not_fail_the_next_one() {
   assert_eq!((summary.failed, summary.passed), (0, 2), "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_node_getter_read_off_node_prototype_answers_for_every_node_as_in_a_browser() {
+  let spec = r#"import { expect, test } from "@snapfire/fsr-client/testing";
+
+test("the prototype's getters agree with the node's own", () => {
+  const template = document.createElement("template");
+  template.innerHTML = "<p>a</p><p>b</p>";
+  const fragment = template.content;
+  const first = fragment.firstChild!;
+  const text = first.firstChild!;
+  for (const name of ["firstChild", "lastChild", "nextSibling", "previousSibling"]) {
+    const get = Object.getOwnPropertyDescriptor(Node.prototype, name)!.get!;
+    for (const [what, node] of [["fragment", fragment], ["element", first], ["text", text]] as const) {
+      expect(get.call(node), `${name} of the ${what}`).toBe((node as unknown as Record<string, unknown>)[name] ?? null);
+    }
+  }
+  expect(Object.getOwnPropertyDescriptor(Node.prototype, "firstChild")!.get!.call(fragment)).toBe(first);
+});
+"#;
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/node.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 1, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_listener_is_called_with_the_node_it_was_added_to_as_in_a_browser() {
+  let spec = r#"import { expect, fireEvent, test } from "@snapfire/fsr-client/testing";
+
+test("this is the current target, capture runs first and a removed listener stays removed", async () => {
+  const root = document.createElement("div");
+  const button = document.createElement("button");
+  root.append(button);
+  document.body.append(root);
+  const seen: unknown[] = [];
+  function onRoot(this: unknown) { seen.push(this === root ? "root" : this); }
+  function onCapture(this: unknown) { seen.push(this === root ? "root capture" : this); }
+  root.addEventListener("click", onRoot);
+  root.addEventListener("click", onCapture, { capture: true });
+  await fireEvent.click(button);
+  expect(seen, "the capture listener first, as in a browser").toEqual(["root capture", "root"]);
+  root.removeEventListener("click", onRoot);
+  root.removeEventListener("click", onCapture, true);
+  await fireEvent.click(button);
+  expect(seen.length, "both listeners were removed").toEqual(2);
+});
+"#;
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/listener.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 1, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

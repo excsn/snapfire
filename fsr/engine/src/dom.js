@@ -12,6 +12,92 @@ for (const [key, value] of Object.entries(L)) {
   Object.defineProperty(value, "name", { configurable: true, value: key });
 }
 globalThis.document = document;
+// A browser defines `firstChild`, `lastChild`, `nextSibling` and `previousSibling` on `Node.prototype`, so a getter read off it answers for every node. linkedom's answers nothing for a node whose own class defines the property, a fragment's `firstChild` among them. Svelte's runtime walks the DOM with the getters it reads off `Node.prototype`.
+// Each of the two patches below marks the prototype it changed, so this module running again in one context patches nothing twice.
+const WALKERS = Symbol.for("sf.dom.walkers");
+const LISTENERS = Symbol.for("sf.dom.listeners");
+for (const name of Object.prototype.hasOwnProperty.call(Node.prototype, WALKERS) ? [] : ["firstChild", "lastChild", "nextSibling", "previousSibling"]) {
+  const base = Object.getOwnPropertyDescriptor(Node.prototype, name);
+  if (!base || !base.get) continue;
+  Object.defineProperty(Node.prototype, name, {
+    configurable: true,
+    enumerable: base.enumerable,
+    get() {
+      for (let proto = Object.getPrototypeOf(this); proto && proto !== Node.prototype; proto = Object.getPrototypeOf(proto)) {
+        const own = Object.getOwnPropertyDescriptor(proto, name);
+        if (own && own.get) return own.get.call(this);
+      }
+      return base.get.call(this);
+    },
+  });
+}
+if (!Object.prototype.hasOwnProperty.call(Node.prototype, WALKERS)) Object.defineProperty(Node.prototype, WALKERS, { value: true });
+// linkedom calls a listener with the event's target as `this` where a browser passes the node it was added to, and it has no capture phase, so a capture listener fires in its turn with the others. Svelte's delegated handler takes its root from `this`. Events are dispatched here instead, as a browser does: the target's path, capture from the top, the target, then bubbling, each listener called with its own node. Calling a listener directly also keeps two of linkedom's frames off every dispatch, which a deep handler chain needs.
+{
+  let owner = Node.prototype;
+  while (owner && !Object.prototype.hasOwnProperty.call(owner, "dispatchEvent")) owner = Object.getPrototypeOf(owner);
+  if (owner && !Object.prototype.hasOwnProperty.call(owner, LISTENERS)) {
+    Object.defineProperty(owner, LISTENERS, { value: true });
+    const tables = new WeakMap();
+    const captureOf = (options) => (typeof options === "boolean" ? options : !!(options && options.capture));
+    const listenersOf = (target, type, create) => {
+      let byType = tables.get(target);
+      if (!byType) {
+        if (!create) return undefined;
+        byType = new Map();
+        tables.set(target, byType);
+      }
+      if (!byType.has(type) && create) byType.set(type, []);
+      return byType.get(type);
+    };
+    owner.addEventListener = function (type, listener, options) {
+      if (!listener) return;
+      const capture = captureOf(options);
+      const list = listenersOf(this, type, true);
+      if (list.some((entry) => entry.listener === listener && entry.capture === capture)) return;
+      list.push({ listener, capture, once: !!(options && typeof options === "object" && options.once), removed: false });
+    };
+    owner.removeEventListener = function (type, listener, options) {
+      const list = listenersOf(this, type, false);
+      if (!list) return;
+      const capture = captureOf(options);
+      const at = list.findIndex((entry) => entry.listener === listener && entry.capture === capture);
+      if (at === -1) return;
+      list[at].removed = true;
+      list.splice(at, 1);
+    };
+    const invoke = (event, node, phase, wanted) => {
+      const list = listenersOf(node, event.type, false);
+      if (!list || list.length === 0) return;
+      event.currentTarget = node;
+      event.eventPhase = phase;
+      for (const entry of list.slice()) {
+        if (entry.removed || !wanted(entry)) continue;
+        if (entry.once) node.removeEventListener(event.type, entry.listener, entry.capture);
+        if (typeof entry.listener === "function") entry.listener.call(node, event);
+        else entry.listener.handleEvent(event);
+        if (event._stopImmediatePropagationFlag) return;
+      }
+    };
+    owner.dispatchEvent = function (event) {
+      const path = [];
+      for (let node = this; node; node = node._getParent ? node._getParent() : null) path.push(node);
+      event.target = this;
+      event._path = path.map((node) => ({ currentTarget: node, target: this }));
+      try {
+        for (let i = path.length - 1; i > 0 && !event.cancelBubble; i--) invoke(event, path[i], event.CAPTURING_PHASE, (entry) => entry.capture);
+        if (!event.cancelBubble) invoke(event, this, event.AT_TARGET, (entry) => entry.capture);
+        if (!event.cancelBubble && !event._stopImmediatePropagationFlag) invoke(event, this, event.AT_TARGET, (entry) => !entry.capture);
+        if (event.bubbles) for (let i = 1; i < path.length && !event.cancelBubble; i++) invoke(event, path[i], event.BUBBLING_PHASE, (entry) => !entry.capture);
+      } finally {
+        event.currentTarget = null;
+        event.eventPhase = event.NONE;
+        event._path = [];
+      }
+      return !event.defaultPrevented;
+    };
+  }
+}
 // React decides at import whether `input` events exist by asking the document for `oninput`; without it React falls back to a polyfill that only watches the focused element on keyup, so a controlled text input never sees a change.
 const documentProto = Object.getPrototypeOf(document);
 if (!("oninput" in documentProto)) documentProto.oninput = null;
