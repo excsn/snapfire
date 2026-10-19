@@ -12,7 +12,7 @@ use std::rc::Rc;
 use serde::Deserialize;
 use snapfire_compiler_wire::Described;
 use snapfire_fsr_ir::ast::{ArithOp, Builtin, CompareOp, Component, Entry, Expr, Lit, LogicOp, Stmt, Tmpl};
-use snapfire_fsr_ir::render::{RAW_ATTR, SVELTE_FLAGS};
+use snapfire_fsr_ir::render::{CHOSEN_TAG, CONTEXT_PREFIX, RAW_ATTR, SLOTS_GIVEN, SLOT_CONTENT_PREFIX, SLOT_OUT_PREFIX, SLOT_PROPS, SVELTE_FLAGS, SVELTE_SELECTED};
 use snapfire_fsr_ir::Owner;
 use swc_core::common::Spanned;
 use swc_core::ecma::ast as js;
@@ -55,6 +55,12 @@ pub struct Fragment {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct SlotGroup {
+  pub name: String,
+  pub fragment: Fragment,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct Code {
   pub code: String,
   pub at: (usize, usize),
@@ -70,11 +76,18 @@ pub enum Node {
   Const { id: Code, init: Code, at: (usize, usize) },
   Render { callee: Code, args: Vec<Code>, optional: bool, dynamic: bool, at: (usize, usize) },
   Element { name: String, svg: bool, #[serde(default)] mathml: bool, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
-  Component { name: String, dynamic: bool, attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
+  /// `slots` groups the children as `build_inline_component` does: by their
+  /// static `slot` attribute, snippets aside, each group cleaned on its own.
+  Component { name: String, dynamic: bool, attrs: Vec<Attr>, fragment: Fragment, #[serde(default)] slots: Vec<SlotGroup>, at: (usize, usize) },
   Slot { attrs: Vec<Attr>, fragment: Fragment, at: (usize, usize) },
   If { elseif: bool, test: Code, consequent: Fragment, alternate: Option<Fragment>, at: (usize, usize) },
   Each { expression: Code, context: Option<Code>, index: Option<String>, key: Option<Code>, body: Fragment, fallback: Option<Fragment>, at: (usize, usize) },
   Snippet { name: String, params: Vec<Code>, body: Fragment, at: (usize, usize) },
+  Key { expression: Code, fragment: Fragment, at: (usize, usize) },
+  Await { expression: Code, value: Option<Code>, error: Option<Code>, pending: Option<Fragment>, then: Option<Fragment>, catch: Option<Fragment>, at: (usize, usize) },
+  /// A `svelte:` element or `<title>`: `kind` is Svelte's node type and `this`
+  /// the expression `svelte:element` and `svelte:component` take.
+  Special { kind: String, name: String, attrs: Vec<Attr>, this: Option<Code>, fragment: Fragment, #[serde(default)] slots: Vec<SlotGroup>, at: (usize, usize) },
   Other { kind: String, at: (usize, usize) },
 }
 
@@ -122,6 +135,9 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   pub(crate) child_refs: Vec<ChildRef>,
   assets: Rc<dyn AssetResolver>,
   pub(crate) heads: Vec<HeadRow>,
+  /// Each name a prop is bound to and the prop's key, so a prop holding a
+  /// snippet renders and forwards the caller's content for that slot.
+  prop_keys: Vec<(String, String)>,
 }
 
 impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
@@ -149,7 +165,7 @@ impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
 
 impl<'a, 'p> SvelteLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new() }
+    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -159,6 +175,13 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let ranges = (template.module, template.instance);
     let fragment = template.fragment.clone();
     self.template = Some(template);
+    self.lets.push(Stmt::Let { name: PROPS.to_owned(), expr: props_with_slots() });
+    let reads_slots = value.to_string().contains("$$slots") || self.described.script.as_ref().is_some_and(|s| s.content.contains("$$slots"));
+    if reads_slots {
+      let filled = Expr::lambda(&["e@"], cmp(CompareOp::Eq, Expr::Index(Box::new(var("e@")), Box::new(int(1))), Expr::Lit(Lit::Bool(true))));
+      self.lets.push(Stmt::Let { name: SLOTS.to_owned(), expr: call(Builtin::FromEntries, vec![Expr::Filter(Box::new(Expr::Entries(Box::new(var(SLOTS_GIVEN)))), Box::new(filled))]) });
+      self.bind("$$slots".to_owned(), var(SLOTS));
+    }
     self.script(runes, ranges)?;
     let mut nodes = self.fragment(&fragment)?;
     let render = match nodes.len() {
@@ -227,7 +250,16 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         continue;
       }
       match item {
-        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(_)) => {}
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
+          if import.src.value.to_atom_lossy().ends_with(".svelte") {
+            for specifier in &import.specifiers {
+              if let js::ImportSpecifier::Default(default) = specifier {
+                let local = default.local.sym.to_string();
+                self.bind(local.clone(), call(Builtin::ComponentRef, vec![text(&local)]));
+              }
+            }
+          }
+        }
         js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => match &export.decl {
           js::Decl::Var(var) if !runes && in_instance => self.export_lets(var)?,
           js::Decl::Var(var) => self.declaration(var, runes)?,
@@ -279,7 +311,8 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     for decl in &var.decls {
       let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "an exported prop that is not a name")) };
       let name = name.id.sym.to_string();
-      let read = Expr::Var("$props".to_owned()).field(name.clone());
+      let read = Expr::var(PROPS).field(name.clone());
+      self.prop_keys.push((name.clone(), name.clone()));
       let expr = match &decl.init {
         Some(init) => Expr::Coalesce(Box::new(read), Box::new(self.lowerer.expr(init)?)),
         None => read,
@@ -309,7 +342,19 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       match (called.as_deref(), &decl.name) {
         (Some("$props"), js::Pat::Object(obj)) if runes => {
           let obj = without_bindable(obj);
-          bind_object(&mut self.lowerer, &obj, Expr::Var("$props".to_owned()))?;
+          let rest = obj.props.iter().any(|p| matches!(p, js::ObjectPatProp::Rest(_)));
+          for prop in &obj.props {
+            match prop {
+              js::ObjectPatProp::Assign(a) => self.prop_keys.push((a.key.id.sym.to_string(), a.key.id.sym.to_string())),
+              js::ObjectPatProp::KeyValue(kv) => {
+                if let (Some(key), js::Pat::Ident(local)) = (crate::prop_name(&kv.key), unwrap_assign(&kv.value)) {
+                  self.prop_keys.push((local.id.sym.to_string(), key));
+                }
+              }
+              js::ObjectPatProp::Rest(_) => {}
+            }
+          }
+          bind_object(&mut self.lowerer, &obj, if rest { Expr::Var("$props".to_owned()) } else { Expr::var(PROPS) })?;
         }
         (Some("$props"), js::Pat::Ident(name)) if runes => self.bind(name.id.sym.to_string(), Expr::Var("$props".to_owned())),
         (Some("$props"), other) if runes => return Err(self.lowerer.residue(other.span(), "`$props()` bound to a pattern the build does not read")),
@@ -431,7 +476,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         Node::Other { kind, at } if kind == "DebugTag" => {
           let _ = at;
         }
-        Node::Other { kind, at } => return Err(self.at(at.0, at.1, format!("`{}`, which the build does not render on the server", kind_name(kind)))),
+        Node::Other { kind, at } | Node::Special { kind, at, .. } => return Err(self.at(at.0, at.1, format!("`{}`, which the build does not render on the server", kind_name(kind)))),
         _ => {}
       }
     }
@@ -455,15 +500,36 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       Node::Text { data } => out.push(Tmpl::Text(data.clone())),
       Node::Comment { data } => out.push(Tmpl::Marker(format!("<!--{data}-->"))),
       Node::Expr { code, at } => out.push(Tmpl::Expr(self.expr(code, *at)?)),
-      Node::Html { at, .. } => return Err(self.at(at.0, at.1, "`{@html}` beside other content; the build writes it as an element's whole content")),
+      Node::Html { code, at } => {
+        out.push(Tmpl::Marker(EMPTY.to_owned()));
+        out.push(Tmpl::Html(self.expr(code, *at)?));
+        out.push(Tmpl::Marker(EMPTY.to_owned()));
+      }
       Node::Element { .. } => out.push(self.element(node)?),
       Node::Component { .. } => self.component_node(node, parent.standalone, out)?,
       Node::Render { .. } => self.render_tag(node, parent.standalone, out)?,
       Node::If { .. } => self.if_block(node, out)?,
       Node::Each { .. } => self.each_block(node, out)?,
-      Node::Slot { at, .. } => return Err(self.at(at.0, at.1, "`<slot>`, which the build does not lower yet")),
+      Node::Slot { attrs, fragment, .. } => self.slot_element(attrs, fragment, out)?,
+      Node::Special { kind, fragment, .. } if kind == "SvelteFragment" => out.extend(self.fragment(fragment)?),
+      Node::Special { kind, attrs, this: Some(this), fragment, at, .. } if kind == "SvelteElement" => self.dynamic_element(attrs, this, fragment, *at, out)?,
+      Node::Special { kind, attrs, this: Some(this), fragment, slots, .. } if kind == "SvelteComponent" => {
+        let choice = self.expr(&this.code, this.at)?;
+        let (props, children) = self.component_parts(attrs, fragment, slots)?;
+        out.push(chosen_component(choice, props, children));
+      }
+      Node::Special { kind, attrs, fragment, slots, at, .. } if kind == "SvelteSelf" => {
+        let (props, children) = self.component_parts(attrs, fragment, slots)?;
+        self.child_refs.push(ChildRef { local: SELF.to_owned(), attrs: Vec::new(), line: at.0, column: at.1 });
+        out.push(Tmpl::Component { module: SELF.to_owned(), props, children, id: 0, keyed: false });
+        if !parent.standalone {
+          out.push(Tmpl::Marker(EMPTY.to_owned()));
+        }
+      }
       Node::Const { at, .. } | Node::Snippet { at, .. } => return Err(self.at(at.0, at.1, "a declaration among the nodes")),
-      Node::Other { kind, at } => return Err(self.at(at.0, at.1, format!("`{}`, which the build does not render on the server", kind_name(kind)))),
+      Node::Other { kind, at } | Node::Special { kind, at, .. } => return Err(self.at(at.0, at.1, format!("`{}`, which the build does not render on the server", kind_name(kind)))),
+      Node::Key { at, .. } => return Err(self.at(at.0, at.1, "`{#key}`, which the build does not render on the server")),
+      Node::Await { at, .. } => return Err(self.at(at.0, at.1, "`{#await}`, which the build does not render on the server")),
     }
     Ok(())
   }
@@ -549,10 +615,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let Node::Render { callee, args, dynamic, at, .. } = node else { unreachable!("a render tag") };
     let name = callee.code.trim();
     if *dynamic {
-      if name != "children" || !args.is_empty() {
-        return Err(self.at(at.0, at.1, format!("`{{@render {name}()}}`, a snippet passed in by the caller")));
+      let Some(key) = self.prop_keys.iter().rev().find(|(local, _)| local == name).map(|(_, key)| key.clone()) else {
+        return Err(self.at(at.0, at.1, format!("`{{@render {name}()}}` of something other than a prop or a snippet the template declares")));
+      };
+      let mut given = Vec::new();
+      for arg in args {
+        given.push(Entry::Item(self.expr(&arg.code, arg.at)?));
       }
-      out.push(Tmpl::Slot("content".to_owned()));
+      out.push(Tmpl::Let { name: format!("{SLOT_OUT_PREFIX}{}", slot_name(&key)), expr: Expr::Array(given), then: Box::new(Tmpl::Fragment(Vec::new())) });
       out.push(Tmpl::Marker(EMPTY.to_owned()));
       return Ok(());
     }
@@ -593,18 +663,140 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     Ok(())
   }
 
-  /// `build_inline_component` for a component the script imports: its props
-  /// and its children as the caller's children, an anchor after it unless it
-  /// is its fragment's one node.
-  fn component_node(&mut self, node: &Node, standalone: bool, out: &mut Vec<Tmpl>) -> Lowered<()> {
-    let Node::Component { name, dynamic, attrs, fragment, at } = node else { unreachable!("a component") };
-    if *dynamic || name.contains('.') {
-      return Err(self.at(at.0, at.1, format!("`<{name}>`, a component chosen at run time")));
+  /// `<slot name="…" {props}>fallback</slot>`, `$.slot` between block
+  /// markers: the caller's content for the slot with the props as its one
+  /// argument, else the fallback. A snippet passed as an attribute is a prop
+  /// and fills no `<slot>`.
+  fn slot_element(&mut self, attrs: &[Attr], fragment: &Fragment, out: &mut Vec<Tmpl>) -> Lowered<()> {
+    let mut slot = "default".to_owned();
+    let mut given = Vec::new();
+    for attr in attrs {
+      match attr {
+        Attr::Attr { name, value, .. } if name == "name" => {
+          if let Some(text) = static_text(value) {
+            slot = text.to_owned();
+          }
+        }
+        Attr::Attr { name, value, .. } => given.push(Entry::Field(name.clone(), self.attr_value(value, false)?)),
+        Attr::Spread { code, at } => given.push(Entry::Spread(self.expr(code, *at)?)),
+        Attr::Attach { .. } | Attr::Directive { .. } => {}
+      }
     }
+    let fallback = Tmpl::Fragment(self.fragment(fragment)?);
+    let filled = Tmpl::Let { name: format!("{SLOT_OUT_PREFIX}{slot}"), expr: Expr::Array(vec![Entry::Item(Expr::Object(given))]), then: Box::new(fallback.clone()) };
+    out.push(Tmpl::Marker(BLOCK_OPEN.to_owned()));
+    out.push(Tmpl::If { cond: cmp(CompareOp::Eq, var(SLOTS_GIVEN).field(slot), text("prop")), then: Box::new(fallback), r#else: Some(Box::new(filled)) });
+    out.push(Tmpl::Marker(BLOCK_CLOSE.to_owned()));
+    Ok(())
+  }
+
+  /// A snippet as the caller's content for a slot: its parameters read from
+  /// the arguments the callee renders it with.
+  fn snippet_content(&mut self, snippet: &Snippet) -> Lowered<Tmpl> {
+    if self.rendering.contains(&snippet.name) {
+      return Err(self.at(1, 1, format!("`{}`, a snippet that renders itself", snippet.name)));
+    }
+    let scope_before = self.lowerer.scope.len();
+    let mut params = Vec::new();
+    for (i, param) in snippet.params.iter().enumerate() {
+      let name = param.code.trim().to_owned();
+      if !is_identifier(&name) {
+        return Err(self.at(param.at.0, param.at.1, "a snippet parameter that destructures or has a default"));
+      }
+      self.bind(name.clone(), Expr::Var(name.clone()));
+      params.push((name, Expr::Index(Box::new(var(SLOT_PROPS)), Box::new(int(i as i128)))));
+    }
+    self.rendering.push(snippet.name.clone());
+    let body = self.fragment(&snippet.body);
+    self.rendering.pop();
+    self.lowerer.scope.truncate(scope_before);
+    let mut tree = Tmpl::Fragment(body?);
+    for (name, expr) in params.into_iter().rev() {
+      tree = Tmpl::Let { name, expr, then: Box::new(tree) };
+    }
+    Ok(tree)
+  }
+
+  /// `let:name` and `let:name={local}`: the name bound to that field of the slot's props.
+  fn slot_lets(&mut self, attrs: &[Attr], lets: &mut Vec<(String, Expr)>) -> Lowered<()> {
+    for attr in attrs {
+      if let Attr::Directive { kind, name, expression, at, .. } = attr {
+        if kind != "let" {
+          continue;
+        }
+        let local = match expression {
+          Some(code) => code.code.trim().to_owned(),
+          None => name.clone(),
+        };
+        if !is_identifier(&local) {
+          return Err(self.at(at.0, at.1, "a `let:` directive that destructures"));
+        }
+        lets.push((local, Expr::Index(Box::new(var(SLOT_PROPS)), Box::new(int(0))).field(name.clone())));
+      }
+    }
+    Ok(())
+  }
+
+  /// One group of a component's children with the `let:` names bound around it.
+  fn slot_group(&mut self, fragment: &Fragment, lets: Vec<(String, Expr)>) -> Lowered<(Vec<Tmpl>, bool)> {
+    let scope_before = self.lowerer.scope.len();
+    for (name, _) in &lets {
+      self.bind(name.clone(), Expr::Var(name.clone()));
+    }
+    let content = self.fragment(fragment);
+    self.lowerer.scope.truncate(scope_before);
+    let content = content?;
+    let bound = !lets.is_empty();
+    let mut tree = content;
+    for (name, expr) in lets.into_iter().rev() {
+      tree = vec![Tmpl::Let { name, expr, then: Box::new(Tmpl::Fragment(tree)) }];
+    }
+    Ok((tree, bound))
+  }
+
+  /// `build_inline_component` for a component the script imports: its props;
+  /// its default children as the caller's children; every other slot group,
+  /// every snippet among its children and every snippet passed as a prop as
+  /// the caller's content for that slot; an anchor after it unless it is its
+  /// fragment's one node.
+  fn component_node(&mut self, node: &Node, standalone: bool, out: &mut Vec<Tmpl>) -> Lowered<()> {
+    let Node::Component { name, dynamic, attrs, fragment, slots, at } = node else { unreachable!("a component") };
+    let (props, children) = self.component_parts(attrs, fragment, slots)?;
+    if *dynamic || name.contains('.') {
+      let choice = self.expr(name, *at)?;
+      out.push(chosen_component(choice, props, children));
+      return Ok(());
+    }
+    self.child_refs.push(ChildRef { local: name.clone(), attrs: Vec::new(), line: at.0, column: at.1 });
+    out.push(Tmpl::Component { module: name.clone(), props, children, id: 0, keyed: false });
+    if !standalone {
+      out.push(Tmpl::Marker(EMPTY.to_owned()));
+    }
+    Ok(())
+  }
+
+  /// A component's props and its children as `build_inline_component` passes them.
+  fn component_parts(&mut self, attrs: &[Attr], fragment: &Fragment, slots: &[SlotGroup]) -> Lowered<(Vec<Entry>, Vec<Tmpl>)> {
     let mut props = Vec::new();
+    let mut wrappers = Vec::new();
+    let mut own_lets = Vec::new();
     for attr in attrs {
       match attr {
         Attr::Attr { name: prop, value, .. } if !prop.starts_with("--") => {
+          if let AttrValue::Parts(parts) = value {
+            if let [Part::Code(code)] = parts.as_slice() {
+              let ident = code.code.trim();
+              if let Some(snippet) = self.snippets.iter().rev().find(|s| s.name == ident).cloned() {
+                let content = self.snippet_content(&snippet)?;
+                wrappers.push(Tmpl::Let { name: format!("{SLOT_CONTENT_PREFIX}{}", slot_name(prop)), expr: text("prop"), then: Box::new(content) });
+                continue;
+              }
+              if let Some(key) = self.prop_keys.iter().rev().find(|(local, _)| local == ident).map(|(_, key)| key.clone()) {
+                let forwarded = Tmpl::Let { name: format!("{SLOT_OUT_PREFIX}{}", slot_name(&key)), expr: var(SLOT_PROPS), then: Box::new(Tmpl::Fragment(Vec::new())) };
+                wrappers.push(Tmpl::Let { name: format!("{SLOT_CONTENT_PREFIX}{}", slot_name(prop)), expr: var(SLOTS_GIVEN).field(slot_name(&key)), then: Box::new(forwarded) });
+              }
+            }
+          }
           let value = self.attr_value(value, false)?;
           props.push(Entry::Field(prop.clone(), value));
         }
@@ -614,15 +806,73 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         Attr::Directive { .. } | Attr::Attach { .. } => {}
       }
     }
-    if fragment.hoisted.iter().any(|n| matches!(n, Node::Snippet { .. })) {
-      return Err(self.at(at.0, at.1, format!("a snippet passed to `<{name}>`")));
-    }
-    let children = self.fragment(fragment)?;
-    self.child_refs.push(ChildRef { local: name.clone(), attrs: Vec::new(), line: at.0, column: at.1 });
-    out.push(Tmpl::Component { module: name.clone(), props, children, id: 0, keyed: false });
-    if !standalone {
-      out.push(Tmpl::Marker(EMPTY.to_owned()));
-    }
+    self.slot_lets(attrs, &mut own_lets)?;
+    let snippets_before = self.snippets.len();
+    let declared: Vec<Snippet> = fragment.hoisted.iter().filter_map(|n| match n {
+      Node::Snippet { name, params, body, .. } => Some(Snippet { name: name.clone(), params: params.clone(), body: body.clone() }),
+      _ => None,
+    }).collect();
+    self.snippets.extend(declared.iter().cloned());
+    let groups: Vec<SlotGroup> = match slots.is_empty() {
+      true => vec![SlotGroup { name: "default".to_owned(), fragment: Fragment { hoisted: fragment.hoisted.iter().filter(|n| !matches!(n, Node::Snippet { .. })).cloned().collect(), nodes: fragment.nodes.clone(), standalone: fragment.standalone, text_first: fragment.text_first } }],
+      false => slots.to_vec(),
+    };
+    let mut children = Vec::new();
+    let lowered: Lowered<()> = (|| {
+      for snippet in &declared {
+        let content = self.snippet_content(snippet)?;
+        wrappers.push(Tmpl::Let { name: format!("{SLOT_CONTENT_PREFIX}{}", slot_name(&snippet.name)), expr: Expr::Lit(Lit::Bool(true)), then: Box::new(content) });
+      }
+      for group in &groups {
+        let mut lets = if group.name == "default" { own_lets.clone() } else { Vec::new() };
+        for node in &group.fragment.nodes {
+          match node {
+            Node::Element { attrs, .. } | Node::Component { attrs, .. } | Node::Special { attrs, .. } => self.slot_lets(attrs, &mut lets)?,
+            _ => {}
+          }
+        }
+        let (content, bound) = self.slot_group(&group.fragment, lets)?;
+        if content.is_empty() {
+          continue;
+        }
+        if group.name == "default" && !bound {
+          children.extend(content);
+        } else {
+          wrappers.push(Tmpl::Let { name: format!("{SLOT_CONTENT_PREFIX}{}", group.name), expr: Expr::Lit(Lit::Bool(true)), then: Box::new(Tmpl::Fragment(content)) });
+        }
+      }
+      Ok(())
+    })();
+    self.snippets.truncate(snippets_before);
+    lowered?;
+    children.extend(wrappers);
+    Ok((props, children))
+  }
+
+  /// `<svelte:element this={tag}>`, `$.element`: its attributes as an
+  /// element's, built without the rules an element name picks, its content
+  /// then an anchor unless the tag holds raw text, `<!---->` around it all
+  /// and nothing between for a tag that is `null` or `''`.
+  fn dynamic_element(&mut self, attrs: &[Attr], this: &Code, fragment: &Fragment, at: (usize, usize), out: &mut Vec<Tmpl>) -> Lowered<()> {
+    let tag = self.expr(&this.code, this.at)?;
+    let shell = Node::Element { name: "svelte:element".to_owned(), svg: false, mathml: false, attrs: attrs.to_vec(), fragment: Fragment { hoisted: Vec::new(), nodes: Vec::new(), standalone: false, text_first: false }, at };
+    let Tmpl::Element { attrs: mut entries, .. } = self.element(&shell)? else { unreachable!("an element") };
+    let mut flags = DYNAMIC_ELEMENT;
+    entries.retain(|entry| match entry {
+      Entry::Field(name, Expr::Lit(Lit::Int(n))) if name == SVELTE_FLAGS => {
+        flags |= *n;
+        false
+      }
+      _ => true,
+    });
+    entries.insert(0, Entry::Field(CHOSEN_TAG.to_owned(), tag.clone()));
+    entries.push(Entry::Field(SVELTE_FLAGS.to_owned(), int(flags)));
+    let mut children = self.fragment(fragment)?;
+    let raw = Expr::Array(["textarea", "script", "style", "title"].iter().map(|t| Entry::Item(text(t))).collect());
+    children.push(Tmpl::If { cond: Expr::Not(Box::new(call(Builtin::Includes, vec![raw, tag.clone()]))), then: Box::new(Tmpl::Marker(EMPTY.to_owned())), r#else: None });
+    out.push(Tmpl::Marker(EMPTY.to_owned()));
+    out.push(Tmpl::If { cond: tag, then: Box::new(Tmpl::Element { tag: CHOSEN_TAG.to_owned(), attrs: entries, children }), r#else: None });
+    out.push(Tmpl::Marker(EMPTY.to_owned()));
     Ok(())
   }
 
@@ -713,8 +963,10 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         }
       }
     }
-    if name == "select" && attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "value") || matches!(a, Attr::Directive { kind, name, .. } if kind == "bind" && name == "value")) {
-      return Err(self.at(at.0, at.1, "a `<select>` with a `value`, whose options Svelte marks selected"));
+    let valued = |n: &str| n == "value" || n.to_lowercase() == "defaultvalue";
+    let valued_select = name == "select" && attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if valued(name)) || matches!(a, Attr::Directive { kind, name, .. } if kind == "bind" && valued(name)) || matches!(a, Attr::Spread { .. }));
+    if valued_select || name == "option" {
+      return self.listed(node);
     }
     let namespaced = *svg || *mathml;
     let attr_name = |n: &str| if namespaced { n.to_owned() } else { n.to_lowercase() };
@@ -883,19 +1135,151 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       entries.push(Entry::Baked(format!(" {name}=\"this.__e=event\"")));
     }
     let children = match (body, fragment.nodes.as_slice()) {
+      (None, [Node::Text { data }]) if name == "script" || name == "style" => vec![Tmpl::Marker(data.clone())],
+      (None, nodes) if name == "textarea" && (nodes.len() > 1 || !matches!(nodes.first(), Some(Node::Text { .. }) | None)) => {
+        let mut content = fragment.clone();
+        if let Some(Node::Text { data }) = content.nodes.first_mut() {
+          *data = data.strip_prefix("\r\n").or_else(|| data.strip_prefix('\n')).unwrap_or(data).to_owned();
+        }
+        self.fragment(&content)?
+      }
       (Some(Body::Text(value)), _) => vec![Tmpl::Expr(value)],
       (Some(Body::Raw(value)), _) => {
         entries.push(Entry::Field(RAW_ATTR.to_owned(), Expr::Coalesce(Box::new(value), Box::new(text("")))));
         Vec::new()
       }
-      (None, [Node::Html { code, at }]) if fragment.hoisted.is_empty() => {
-        let value = Expr::Coalesce(Box::new(self.expr(code, *at)?), Box::new(Expr::lit_str(String::new())));
-        entries.push(Entry::Field(RAW_ATTR.to_owned(), Expr::Template(vec![Expr::lit_str(EMPTY.to_owned()), value, Expr::lit_str(EMPTY.to_owned())])));
-        Vec::new()
-      }
       _ => self.fragment(fragment)?,
     };
     Ok(Tmpl::Element { tag: name.clone(), attrs: entries, children })
+  }
+
+  /// `<option>` and a `<select>` with a value as `$$renderer.option` and
+  /// `$$renderer.select` write them: the attributes through `$.attributes`; the
+  /// select's value (its `defaultValue` when it has none) in scope for every option beneath
+  /// it, components included; an option marked `selected` when its value, or
+  /// its content as written with each `<!---->` taken out, is that value or
+  /// is among them for a `multiple` select; `<!>` closing rich content.
+  fn listed(&mut self, node: &Node) -> Lowered<Tmpl> {
+    let Node::Element { name, svg, mathml, attrs, fragment, .. } = node else { unreachable!("an element") };
+    let namespaced = *svg || *mathml;
+    let mut fields: Vec<Entry> = Vec::new();
+    let mut class_directives: Vec<(String, Expr)> = Vec::new();
+    let mut style_directives: Vec<StyleDirective> = Vec::new();
+    for attr in attrs {
+      match attr {
+        Attr::Attr { name: a, value, .. } => {
+          if is_event(a, value) {
+            continue;
+          }
+          let n = if namespaced { a.clone() } else { a.to_lowercase() };
+          let n = if name == "select" && n == "defaultvalue" { "defaultValue".to_owned() } else { n };
+          let value = match n.as_str() {
+            "class" => self.class_value(value)?,
+            "style" => self.ss(value, true)?,
+            _ => self.ss(value, false)?,
+          };
+          fields.push(Entry::Field(n, value));
+        }
+        Attr::Spread { code, at } => fields.push(Entry::Spread(self.expr(code, *at)?)),
+        Attr::Attach { .. } => {}
+        Attr::Directive { kind, name: directive, expression, value, at, .. } => match kind.as_str() {
+          "bind" => {
+            let (value, _) = self.bound(expression, directive, *at)?;
+            fields.push(Entry::Field(if namespaced { directive.clone() } else { directive.to_lowercase() }, value));
+          }
+          "class" => {
+            let cond = match expression {
+              Some(code) => self.expr(&code.code, code.at)?,
+              None => self.expr(directive, *at)?,
+            };
+            class_directives.push((directive.clone(), cond));
+          }
+          "style" => {
+            let value = match value {
+              Some(value) => self.ss(value, true)?,
+              None => self.expr(directive, *at)?,
+            };
+            style_directives.push(StyleDirective { name: directive.clone(), value, important: false });
+          }
+          "on" | "use" | "transition" | "in" | "out" | "animate" | "let" => {}
+          other => return Err(self.at(at.0, at.1, format!("`{other}:`, a directive the build does not read"))),
+        },
+      }
+    }
+    let merged = merged_attributes(fields, class_directives, style_directives);
+    let flags = if namespaced { 1 | 2 } else if attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "is")) { 2 } else { 0 };
+    let rich = is_rich(name, &fragment.nodes);
+    let mut children = self.fragment(fragment)?;
+    if name == "select" {
+      if rich {
+        children.push(Tmpl::Marker(RICH.to_owned()));
+      }
+      let owned = Expr::Block(vec![
+        bind(LISTED, call(Builtin::Omit, vec![var(SELECT), text("value"), text("defaultValue")])),
+        when(cmp(CompareOp::Eq, var(LISTED).field("multiple"), text("")), vec![set(LISTED, Expr::Object(vec![Entry::Spread(var(LISTED)), Entry::Field("multiple".to_owned(), Expr::Lit(Lit::Bool(true)))]))], Vec::new()),
+        Stmt::Return(var(LISTED)),
+      ]);
+      let has = |key: &str| call(Builtin::HasKey, vec![var(SELECT), text(key)]);
+      let scope = Expr::Object(vec![
+        Entry::Field("has".to_owned(), logic(LogicOp::Or, has("value"), has("defaultValue"))),
+        Entry::Field("value".to_owned(), Expr::Ternary(Box::new(has("value")), Box::new(var(SELECT).field("value")), Box::new(var(SELECT).field("defaultValue")))),
+        Entry::Field("multiple".to_owned(), logic(LogicOp::Or, cmp(CompareOp::Eq, var(SELECT).field("multiple"), text("")), var(SELECT).field("multiple"))),
+      ]);
+      let mut entries = vec![Entry::Spread(owned)];
+      if flags != 0 {
+        entries.push(Entry::Field(SVELTE_FLAGS.to_owned(), int(flags)));
+      }
+      let element = Tmpl::Element { tag: name.clone(), attrs: entries, children };
+      let scoped = Tmpl::Let { name: format!("{CONTEXT_PREFIX}{SELECT_CONTEXT}"), expr: scope, then: Box::new(element) };
+      return Ok(Tmpl::Let { name: SELECT.to_owned(), expr: merged, then: Box::new(scoped) });
+    }
+    strip_empty_markers(&mut children);
+    if rich {
+      children.push(Tmpl::Marker(RICH.to_owned()));
+    }
+    let written_value = attrs.iter().any(|a| matches!(a, Attr::Attr { name, .. } if name == "value"));
+    let content = match (fragment.nodes.as_slice(), written_value) {
+      ([Node::Expr { code, at }], false) => Some(self.expr(code, *at)?),
+      (nodes, _) => self.option_text(nodes)?,
+    };
+    let scope = Expr::Context(SELECT_CONTEXT.to_owned());
+    let has_value = call(Builtin::HasKey, vec![var(OPTION), text("value")]);
+    let known = match content.is_some() {
+      true => Expr::Lit(Lit::Bool(true)),
+      false => has_value.clone(),
+    };
+    let value = Expr::Ternary(Box::new(has_value), Box::new(var(OPTION).field("value")), Box::new(content.unwrap_or(Expr::Lit(Lit::Null))));
+    let chosen = scope.clone().field("value");
+    let among = logic(LogicOp::And, scope.clone().field("multiple"), call(Builtin::IsArray, vec![chosen.clone()]));
+    let matched = Expr::Ternary(Box::new(among), Box::new(call(Builtin::Includes, vec![chosen.clone(), value.clone()])), Box::new(cmp(CompareOp::Eq, value, chosen)));
+    let selected = logic(LogicOp::And, cmp(CompareOp::Ne, scope.clone(), Expr::Lit(Lit::Null)), logic(LogicOp::And, scope.field("has"), logic(LogicOp::And, known, matched)));
+    let mut entries = vec![Entry::Spread(var(OPTION))];
+    if flags != 0 {
+      entries.push(Entry::Field(SVELTE_FLAGS.to_owned(), int(flags)));
+    }
+    entries.push(Entry::Field(SVELTE_SELECTED.to_owned(), selected));
+    let element = Tmpl::Element { tag: name.clone(), attrs: entries, children };
+    Ok(Tmpl::Let { name: OPTION.to_owned(), expr: merged, then: Box::new(element) })
+  }
+
+  /// An option's content as the string its body renders to with each
+  /// `<!---->` taken out: text escaped, an expression escaped, `{@html}` as it
+  /// is. `None` for content holding markup, whose string the build does not form.
+  fn option_text(&mut self, nodes: &[Node]) -> Lowered<Option<Expr>> {
+    let mut parts = Vec::new();
+    for node in nodes {
+      match node {
+        Node::Text { data } => parts.push(text(&escape_text(data))),
+        Node::Comment { .. } => {}
+        Node::Expr { code, at } => {
+          let shown = Expr::Str(Box::new(Expr::Coalesce(Box::new(self.expr(code, *at)?), Box::new(text("")))));
+          parts.push(call(Builtin::ReplaceAll, vec![call(Builtin::ReplaceAll, vec![shown, text("&"), text("&amp;")]), text("<"), text("&lt;")]));
+        }
+        Node::Html { code, at } => parts.push(Expr::Str(Box::new(Expr::Coalesce(Box::new(self.expr(code, *at)?), Box::new(text("")))))),
+        _ => return Ok(None),
+      }
+    }
+    Ok(Some(Expr::Template(parts)))
   }
 
   /// A binding's value, the getter's result for `bind:x={get, set}`, and
@@ -1051,6 +1435,11 @@ fn static_text(value: &AttrValue) -> Option<&str> {
   }
 }
 
+/// `escape_html(value)`.
+fn escape_text(text: &str) -> String {
+  text.replace('&', "&amp;").replace('<', "&lt;")
+}
+
 /// `escape_html(value, true)`.
 fn escape_attr(text: &str) -> String {
   text.replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;")
@@ -1073,6 +1462,138 @@ fn appended_styles(directives: Vec<StyleDirective>) -> Vec<Expr> {
 }
 
 const ATTRS: &str = "attrs@";
+/// The local name `<svelte:self>` is placed under until the build maps it to the component's own module.
+pub(crate) const SELF: &str = "svelte:self";
+/// The `SVELTE_FLAGS` bit of `<svelte:element>`, whose void tag `$.element` closes with `>`.
+const DYNAMIC_ELEMENT: i128 = 8;
+
+/// A component chosen at run time, Svelte's `if` block around it: the
+/// chosen-tag element the renderer places the component the value
+/// references through, the else branch's markers when it holds nothing.
+fn chosen_component(choice: Expr, props: Vec<Entry>, children: Vec<Tmpl>) -> Tmpl {
+  let mut attrs = vec![Entry::Field(CHOSEN_TAG.to_owned(), choice.clone())];
+  attrs.extend(props);
+  let chosen = Tmpl::Element { tag: CHOSEN_TAG.to_owned(), attrs, children };
+  Tmpl::If {
+    cond: choice,
+    then: Box::new(Tmpl::Fragment(vec![Tmpl::Marker(BLOCK_OPEN.to_owned()), chosen, Tmpl::Marker(BLOCK_CLOSE.to_owned())])),
+    r#else: Some(Box::new(Tmpl::Fragment(vec![Tmpl::Marker(BLOCK_OPEN_ELSE.to_owned()), Tmpl::Marker(BLOCK_CLOSE.to_owned())]))),
+  }
+}
+/// The props a Svelte component reads, a slot the caller filled standing in
+/// for a prop it did not pass, as the snippet Svelte passes would.
+const PROPS: &str = "props@";
+/// `$$slots`, `sanitize_slots`: each slot the caller filled as a slot rather than as a prop.
+const SLOTS: &str = "slots@";
+
+fn props_with_slots() -> Expr {
+  Expr::Object(vec![
+    Entry::Spread(call(Builtin::Omit, vec![var(SLOTS_GIVEN), text("default")])),
+    Entry::Field("children".to_owned(), var(SLOTS_GIVEN).field("default")),
+    Entry::Spread(Expr::Var("$props".to_owned())),
+  ])
+}
+
+/// The slot a snippet prop fills: `children` is the default slot.
+fn slot_name(prop: &str) -> &str {
+  if prop == "children" { "default" } else { prop }
+}
+
+fn unwrap_assign(pat: &js::Pat) -> &js::Pat {
+  match pat {
+    js::Pat::Assign(assign) => &assign.left,
+    other => other,
+  }
+}
+const SELECT: &str = "select@";
+const OPTION: &str = "option@";
+const LISTED: &str = "listed@";
+/// The context a `<select>` with a value provides, Svelte's `renderer.local`.
+const SELECT_CONTEXT: &str = "svelte:select";
+/// What `$$renderer.select` and `$$renderer.option` write before closing rich content.
+const RICH: &str = "<!>";
+
+/// `is_customizable_select_element`: a `<select>` holding anything but options
+/// and groups, a group holding anything but options, an option holding
+/// anything but text, looking through blocks.
+fn is_rich(name: &str, nodes: &[Node]) -> bool {
+  fn flattened<'n>(nodes: &'n [Node], out: &mut Vec<&'n Node>) {
+    for node in nodes {
+      match node {
+        Node::Snippet { .. } | Node::Const { .. } | Node::Comment { .. } | Node::Expr { .. } => {}
+        Node::Other { kind, .. } if kind == "DebugTag" => {}
+        Node::Text { data } => {
+          if !data.trim().is_empty() {
+            out.push(node);
+          }
+        }
+        Node::If { consequent, alternate, .. } => {
+          flattened(&consequent.nodes, out);
+          if let Some(alternate) = alternate {
+            flattened(&alternate.nodes, out);
+          }
+        }
+        Node::Each { body, fallback, .. } => {
+          flattened(&body.nodes, out);
+          if let Some(fallback) = fallback {
+            flattened(&fallback.nodes, out);
+          }
+        }
+        Node::Key { fragment, .. } => flattened(&fragment.nodes, out),
+        Node::Special { kind, fragment, .. } if kind == "SvelteBoundary" => flattened(&fragment.nodes, out),
+        Node::Await { pending, then, catch, .. } => {
+          for part in [pending, then, catch].into_iter().flatten() {
+            flattened(&part.nodes, out);
+          }
+        }
+        other => out.push(other),
+      }
+    }
+  }
+  if !matches!(name, "select" | "optgroup" | "option") {
+    return false;
+  }
+  let mut found = Vec::new();
+  flattened(nodes, &mut found);
+  found.iter().any(|node| match node {
+    Node::Element { name: child, .. } => match name {
+      "select" => child != "option" && child != "optgroup",
+      "optgroup" => child != "option",
+      _ => true,
+    },
+    Node::Text { .. } => name != "option",
+    _ => true,
+  })
+}
+
+/// Takes out every `<!---->` an option's content holds, as `$$renderer.option` does.
+fn strip_empty_markers(children: &mut Vec<Tmpl>) {
+  children.retain(|child| !matches!(child, Tmpl::Marker(m) if m == EMPTY));
+  for child in children.iter_mut() {
+    match child {
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) => strip_empty_markers(children),
+      Tmpl::If { then, r#else, .. } => {
+        strip_one(then);
+        if let Some(other) = r#else {
+          strip_one(other);
+        }
+      }
+      Tmpl::For { body, .. } => strip_one(body),
+      Tmpl::Let { then, .. } => strip_one(then),
+      _ => {}
+    }
+  }
+}
+
+fn strip_one(tmpl: &mut Tmpl) {
+  if matches!(tmpl, Tmpl::Marker(m) if m == EMPTY) {
+    *tmpl = Tmpl::Fragment(Vec::new());
+    return;
+  }
+  let mut held = vec![std::mem::replace(tmpl, Tmpl::Fragment(Vec::new()))];
+  strip_empty_markers(&mut held);
+  *tmpl = held.pop().unwrap_or(Tmpl::Fragment(Vec::new()));
+}
 const CLSX: &str = "clsx@";
 
 /// Svelte's `clsx`: an object through `clsx`, anything else as it is with `null` as `''`.

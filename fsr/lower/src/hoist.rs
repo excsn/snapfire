@@ -259,7 +259,7 @@ fn tmpl(t: &mut Tmpl, tainted: &mut Vec<String>, kept: &mut Vec<u32>) {
   match t {
     // `Baked` is what a loaded component becomes, so the lowerer never meets one.
     Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
-    Tmpl::Expr(e) => strip(e, tainted, kept, false, false),
+    Tmpl::Expr(e) | Tmpl::Html(e) => strip(e, tainted, kept, false, false),
     Tmpl::Element { attrs, children, .. } => {
       entries(attrs, tainted, kept);
       children.iter_mut().for_each(|c| tmpl(c, tainted, kept));
@@ -425,7 +425,7 @@ pub fn static_tree(t: &Tmpl, pure: &HashMap<String, bool>) -> bool {
 fn is_static(t: &Tmpl, tainted: &[String], pure: &HashMap<String, bool>) -> bool {
   match t {
     Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Baked { .. } => true,
-    Tmpl::Expr(e) => !reads_tainted(e, tainted),
+    Tmpl::Expr(e) | Tmpl::Html(e) => !reads_tainted(e, tainted),
     Tmpl::Element { tag, attrs, children } => {
       tag != "sf-s" && !has_attr(attrs, BOUND_ATTR) && entry_exprs(attrs).all(|e| !reads_tainted(e, tainted)) && children.iter().all(|c| is_static(c, tainted, pure))
     }
@@ -446,7 +446,7 @@ fn is_static(t: &Tmpl, tainted: &[String], pure: &HashMap<String, bool>) -> bool
 fn does_work(t: &Tmpl) -> bool {
   match t {
     Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => false,
-    Tmpl::Expr(_) | Tmpl::If { .. } | Tmpl::For { .. } | Tmpl::Let { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } => true,
+    Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::If { .. } | Tmpl::For { .. } | Tmpl::Let { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } => true,
     Tmpl::Element { attrs, children, .. } => {
       attrs.iter().any(|entry| match entry {
         Entry::Field(name, Expr::Lit(_)) => name == CHUNK_ATTR && false,
@@ -498,7 +498,7 @@ pub fn placed_with_state(component: &Component, state: &[String]) -> Vec<String>
 
 fn placements_reading(t: &Tmpl, tainted: &mut Vec<String>, out: &mut Vec<String>) {
   match t {
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
     Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } => children.iter().for_each(|c| placements_reading(c, tainted, out)),
     Tmpl::If { then, r#else, .. } => {
       placements_reading(then, tainted, out);
@@ -540,7 +540,7 @@ pub fn rechunk(component: &mut Component, state: &[String], pure: &HashMap<Strin
 
 fn clear_untaken(t: &mut Tmpl) {
   match t {
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
     Tmpl::Element { attrs, children, .. } => {
       attrs.retain(|entry| !matches!(entry, Entry::Field(n, _) if n == UNTAKEN_ATTR));
       children.iter_mut().for_each(clear_untaken);
@@ -569,7 +569,7 @@ pub fn cover(component: &mut Component, chunks: &[Chunk]) -> Vec<u32> {
 fn cover_tmpl(t: &mut Tmpl, chunks: &[Chunk], inside: bool, covered: &mut Vec<u32>) {
   match t {
     Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
-    Tmpl::Expr(e) => cover_expr(e, inside, covered),
+    Tmpl::Expr(e) | Tmpl::Html(e) => cover_expr(e, inside, covered),
     Tmpl::Element { attrs, children, .. } => {
       let proven = take_chunk(attrs).is_some_and(|id| {
         attrs.push(Entry::Field(CHUNK_ATTR.to_owned(), Expr::Lit(Lit::Int(id as i128))));
@@ -639,7 +639,7 @@ fn take_chunk(attrs: &mut Vec<Entry>) -> Option<u32> {
 
 fn choose(t: &mut Tmpl, tainted: &mut Vec<String>, pure: &HashMap<String, bool>, at: Where, kept: &mut Vec<Chunk>) {
   match t {
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
     Tmpl::Element { attrs, children, .. } => {
       let id = take_chunk(attrs);
       let whole = Tmpl::Element { tag: String::new(), attrs: attrs.clone(), children: children.clone() };
@@ -683,7 +683,7 @@ fn choose(t: &mut Tmpl, tainted: &mut Vec<String>, pure: &HashMap<String, bool>,
 /// Removes every `CHUNK_ATTR` beneath a kept chunk, since the outermost one holds the markup.
 fn clear_chunks(t: &mut Tmpl) {
   match t {
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
     Tmpl::Element { attrs, children, .. } => {
       take_chunk(attrs);
       children.iter_mut().for_each(clear_chunks);

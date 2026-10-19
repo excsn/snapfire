@@ -299,7 +299,8 @@
       (slot content)
       (baked "<p class=\"x\">" "p" "in")
       (baked "<br/>" nil)
-      (marker "<!--[0-->")))
+      (marker "<!--[0-->")
+      (html raw)))
   (on click
     (let n $props)
     (if ok ((ret "yes")))
@@ -330,7 +331,8 @@
 (component src/ui/Card.svelte#default
   (owner svelte)
   (body (let half (quot (. $props n) 2)))
-  (render (<> (marker "<!--[-->") "card" (marker "<!--]-->"))))
+  (render
+    (<> (marker "<!--[-->") "card" (el input ((! " disabled=\"false\""))) (marker "<!--]-->"))))
 (derive "order/total"
   (sources "order/price" "order/qty")
   (* (?? (store order/price) 0.0) (?? (store order/qty) 0.0)))

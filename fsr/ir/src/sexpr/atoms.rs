@@ -6,7 +6,7 @@ use super::syntax::Sx;
 use super::{Res, SexprError};
 
 /// Heads that mean something other than a field name in an entry position.
-pub(super) const ENTRY_MARKERS: [&str; 4] = ["=", ":", "...", "@"];
+pub(super) const ENTRY_MARKERS: [&str; 5] = ["=", ":", "...", "@", "!"];
 
 pub(super) fn reserved_atom(s: &str) -> bool {
   s.is_empty()

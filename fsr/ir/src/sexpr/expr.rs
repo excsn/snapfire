@@ -99,7 +99,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
 
 pub(super) fn entry_to_sx(entry: &Entry) -> Sx {
   match entry {
-    Entry::Baked(_) => unreachable!("a baked entry is never written to a plan"),
+    Entry::Baked(text) => form("!", vec![Sx::Str(text.clone())]),
     Entry::Field(name, value) => {
       if ENTRY_MARKERS.contains(&name.as_str()) {
         form("=", vec![Sx::Sym(name.clone()), expr_to_sx(value)])
@@ -313,6 +313,7 @@ pub(super) fn entry_from_sx(sx: &Sx) -> Res<Entry> {
       Entry::Field(sym_of(&a[0])?, expr_from_sx(&a[1])?)
     }
     ":" => Entry::Item(expr_from_sx(&args(items, head, 1)?[0])?),
+    "!" => Entry::Baked(str_of(&args(items, head, 1)?[0])?),
     "..." => Entry::Spread(expr_from_sx(&args(items, head, 1)?[0])?),
     "@" => {
       let a = args(items, head, 2)?;

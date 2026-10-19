@@ -144,6 +144,10 @@ fn blocks_carry_the_markers_svelte_server_writes() {
   check("snippet", "<script>let { xs } = $props();</script>{#snippet row(x)}<i>{x}</i>{/snippet}{#each xs as x}{@render row(x)}{/each}", &props(&[("xs", Value::seq(vec![Value::int(1i64)]))]));
   check("snippet-two", "{#snippet s(x)}<i>{x}</i><b>2</b>{/snippet}<p>{@render s(1)}</p>", &props(&[]));
   check("html", "<script>let { h } = $props();</script><div>{@html h}</div>", &props(&[("h", s("<b>x</b>"))]));
+  let siblings = "<script>let { h } = $props();</script><p>a {@html h} b</p>{@html h}<i>x</i>{#if h}{@html h}{/if}";
+  for h in [s("<b>x</b>"), Value::Null, Value::int(3i64), s("")] {
+    check("html-siblings", siblings, &props(&[("h", h)]));
+  }
 }
 
 #[test]
@@ -223,6 +227,66 @@ fn picture_answers_what_the_client_answers() {
     {#if image.sources}<picture>{#each image.sources as source, i (i)}<source {...source} />{/each}<img {...image.img} /></picture>{:else}<img {...image.img} />{/if}\
     <img {...hero.img}>{#if n}{@const low = picture({ src: n, alt: '' })}<img {...low.img}>{/if}";
   check("picture", source, &props(&[("p", s("/a.png")), ("n", s("b"))]));
+}
+
+#[test]
+fn select_marks_the_options_svelte_marks() {
+  let source = "<script>import C from './O.svelte'; let { v, vs, xs, o } = $props();</script>\
+    <select value={v} class=\"s\"><option value=\"a\">A</option><option>b</option>{#each xs as x}<option value={x}>{x}</option>{/each}<optgroup label=\"g\"><option value=\"c\" selected>C</option></optgroup><option>{v}</option><option>t {v} &amp;</option><C /></select>\
+    <select bind:value={vs} multiple><option value=\"a\">A</option><option value=\"b\" class=\"\">B</option></select>\
+    <select class=\"p\"><option value=\"a\" class=\"\">A</option></select><option value=\"z\">z</option>\
+    <select value={v}><option value={v}>{v} <b>r</b></option><hr></select><select {...o}><option {...o}>a</option><option value=\"b\">b</option></select>";
+  let child = "<option value=\"b\">from a child</option>";
+  for v in [s("a"), s("b"), s("c"), Value::Null] {
+    for o in [Value::Map(props(&[("value", s("b")), ("Title", s("t"))])), Value::Map(props(&[("multiple", s("")), ("value", Value::seq(vec![s("a"), s("b")]))]))] {
+      let given = props(&[("v", v.clone()), ("vs", Value::seq(vec![s("b")])), ("xs", Value::seq(vec![s("a"), s("b")])), ("o", o)]);
+      let (rust, svelte) = both("select", &[("src/C.svelte", source), ("src/O.svelte", child)], &given, None);
+      assert_eq!(rust, svelte, "{given:?}");
+    }
+  }
+}
+
+#[test]
+fn textarea_content_and_raw_text_elements_write_as_svelte_does() {
+  let source = "<script>let { x } = $props();</script><textarea>{x}</textarea><textarea>a {x} &lt;</textarea><textarea>\nfoo &amp;</textarea><textarea>\n{x}\n</textarea><div><style>p > a { color: red }</style><script>if (a < b && c) x();</script></div>";
+  for x in [s("<i>&"), Value::Null, s("\nlead")] {
+    check("textarea", source, &props(&[("x", x)]));
+  }
+}
+
+#[test]
+fn slots_and_passed_snippets_render_as_svelte_server_writes_them() {
+  let legacy = "<script>export let t;</script><div><slot>fallback {t}</slot><slot name=\"head\" item={t}>no head</slot></div>{#if $$slots.head}<b>has</b>{/if}";
+  let runes = "<script>let { row, children, n } = $props();</script>{@render row?.(n)}{#if children}{@render children()}{:else}none{/if}{#if row}<b>row</b>{/if}";
+  let forward = "<script>import R from './R.svelte'; let { row } = $props();</script><R n={4} {row}/>";
+  let parents = [
+    ("legacy-slots", "<script>import L from './L.svelte';</script><L t=\"a\">kids<span slot=\"head\" let:item>{item}</span></L><L t=\"b\" />"),
+    ("legacy-first", "<script>import L from './L.svelte';</script><L t=\"a\"><span slot=\"head\">h</span> kids</L>"),
+    ("fragment-slot", "<script>import L from './L.svelte';</script><L t=\"c\"><svelte:fragment slot=\"head\" let:item>{item}!</svelte:fragment></L>"),
+    ("runes-into-legacy", "<script>import L from './L.svelte';</script><L t=\"d\">{#snippet head(p)}<i>{p.item}</i>{/snippet}</L>"),
+    ("snippets", "<script>import R from './R.svelte';</script><R n={1}>{#snippet row(v)}<i>{v}</i>{/snippet}kids</R><R n={3}/>"),
+    ("attribute-snippet", "<script>import R from './R.svelte';</script><R n={2} row={r}/>{#snippet r(v)}{v}!{/snippet}"),
+    ("forwarded", "<script>import F from './F.svelte';</script><F>{#snippet row(v)}<u>{v}</u>{/snippet}</F><F/>"),
+  ];
+  for (tag, parent) in parents {
+    let (rust, svelte) = both(tag, &[("src/P.svelte", parent), ("src/L.svelte", legacy), ("src/R.svelte", runes), ("src/F.svelte", forward)], &props(&[]), None);
+    assert_eq!(rust, svelte, "{tag}:\n{parent}");
+  }
+}
+
+#[test]
+fn components_and_elements_chosen_at_run_time_render_as_svelte_writes_them() {
+  let runes = "<script>import A from './A.svelte'; import B from './B.svelte'; let { on, tag, n } = $props(); const C = $derived(on ? A : B);</script><C x={1}>kid</C><svelte:component this={on ? A : B} x={2}/><svelte:element this={tag} class=\"e\" {n}>in {n}</svelte:element><svelte:element this={tag}/>{#if n > 0}<svelte:self n={n - 1} tag=\"i\" on={!on}/>{/if}";
+  let legacy = "<script>import A from './A.svelte'; export let on; $: C = on ? A : null;</script><svelte:component this={C} x={3}/><svelte:component this={C}>k</svelte:component>";
+  let a = "<script>let { x, children } = $props();</script><b>A{x}</b>{@render children?.()}";
+  let b = "<script>let { x } = $props();</script><i>B{x}</i>";
+  for (on, tag, n) in [(true, s("div"), 1i64), (false, s("br"), 2), (true, Value::Null, 0), (false, s("textarea"), 1), (true, s("my-el"), 0)] {
+    let given = props(&[("on", Value::Bool(on)), ("tag", tag.clone()), ("n", Value::int(n))]);
+    let (rust, svelte) = both("dynamic", &[("src/C.svelte", runes), ("src/A.svelte", a), ("src/B.svelte", b)], &given, None);
+    assert_eq!(rust, svelte, "{given:?}");
+    let (rust, svelte) = both("dynamic-legacy", &[("src/L.svelte", legacy), ("src/A.svelte", a)], &given, None);
+    assert_eq!(rust, svelte, "legacy {given:?}");
+  }
 }
 
 #[test]
@@ -339,6 +403,7 @@ enum Node {
   Text(usize),
   Expr(usize),
   Html,
+  Select(usize),
   Void(usize),
   Render(usize),
   Elem(usize, Vec<usize>, Vec<Node>),
@@ -437,7 +502,16 @@ impl Printer {
         let e = scope.expr(*k);
         self.out.push_str(&format!("{{{e}}}"));
       }
-      Node::Html => self.out.push_str("<div>{@html h}</div>"),
+      Node::Html => self.out.push_str("{@html h}"),
+      Node::Select(k) => {
+        let s = scope.s(*k);
+        let open = match k % 3 {
+          0 => format!("<select value={{{s}}}>"),
+          1 => "<select bind:value={xs} multiple>".to_owned(),
+          _ => "<select class=\"c\">".to_owned(),
+        };
+        self.out.push_str(&format!("{open}<option value=\"x\">X</option>{{#each xs as o}}<option>{{o}}</option>{{/each}}<option value={{{s}}}>v</option><option>x y</option></select>"));
+      }
       Node::Void(k) => {
         let s = scope.s(*k);
         self.out.push_str(&match k % 5 {
@@ -533,6 +607,7 @@ mod generated {
       (0..TEXTS.len()).prop_map(Node::Text),
       (0..1000usize).prop_map(Node::Expr),
       Just(Node::Html),
+      (0..1000usize).prop_map(Node::Select),
       (0..1000usize).prop_map(Node::Void),
       (0..1000usize).prop_map(Node::Render),
     ];

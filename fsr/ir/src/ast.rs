@@ -296,6 +296,9 @@ pub enum Tmpl {
   /// renderer writes it. The markers depend on the template's structure and
   /// never on data, so a lowering bakes them in as the framework's compiler does.
   Marker(String),
+  /// `{@html value}`: the value written unescaped, `null` as nothing and
+  /// anything else as the markup's dialect writes it as text.
+  Html(Expr),
   /// An element whose open tag is entirely literal, baked into one slice when
   /// the component was prepared. The plan never carries this: it is what
   /// `snapfire_fsr_ir::render::prepare` turns an `Element` into, so the
@@ -607,7 +610,7 @@ impl Tmpl {
     };
     match self {
       Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
-      Tmpl::Expr(e) => e.visit(f),
+      Tmpl::Expr(e) | Tmpl::Html(e) => e.visit(f),
       Tmpl::Element { attrs, children, .. } => {
         entries(attrs, f);
         children.iter().for_each(|c| c.visit(f));
@@ -640,7 +643,7 @@ impl Tmpl {
   pub fn visit_mut(&mut self, f: &mut dyn FnMut(&mut Expr)) {
     match self {
       Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
-      Tmpl::Expr(e) => e.visit_mut(f),
+      Tmpl::Expr(e) | Tmpl::Html(e) => e.visit_mut(f),
       Tmpl::Element { attrs, children, .. } => {
         attrs.iter_mut().for_each(|entry| entry.visit_mut(f));
         children.iter_mut().for_each(|c| c.visit_mut(f));
@@ -686,7 +689,7 @@ impl Entry {
 #[serde(rename_all = "snake_case")]
 pub enum Entry {
   Field(String, Expr),
-  /// Attributes already printed, ` name="value"` runs a prepared element carries for the literal attributes every markup prints the same way; never in a plan.
+  /// Attributes already printed, ` name="value"` text written as it stands: what a prepared element carries for the literal attributes every markup prints the same way and what a lowerer writes for an attribute its framework prints verbatim. The plan spells it `(! "…")`.
   Baked(String),
   /// `{ [key]: value }`; the key must evaluate to a string.
   Computed(Expr, Expr),
@@ -1234,7 +1237,7 @@ fn attr_values(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> V
       }
       Tmpl::For { body, .. } => walk(body, tag_matches, name, out),
       Tmpl::Let { then, .. } => walk(then, tag_matches, name, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
     }
   }
   let mut out = Vec::new();

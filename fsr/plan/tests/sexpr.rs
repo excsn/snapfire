@@ -213,6 +213,7 @@ fn every_tmpl() -> Vec<Tmpl> {
     },
     Tmpl::Baked { open: "<br/>".to_owned(), tag: None, children: Vec::new() },
     Tmpl::Marker("<!--[0-->".to_owned()),
+    Tmpl::Html(Expr::var("raw")),
   ]
 }
 
@@ -312,7 +313,7 @@ fn every_manifest() -> Manifest {
       },
       ComponentEntry {
         module: "src/ui/Card.svelte#default".to_owned(),
-        body: Component::new(snapfire_fsr_ir::Owner::Svelte, vec![Stmt::Let { name: "half".to_owned(), expr: Expr::Arith(ArithOp::Quot, Box::new(Expr::var("$props").field("n")), Box::new(Expr::Lit(Lit::Int(2)))) }], Tmpl::Fragment(vec![Tmpl::Marker("<!--[-->".to_owned()), Tmpl::Text("card".to_owned()), Tmpl::Marker("<!--]-->".to_owned())])),
+        body: Component::new(snapfire_fsr_ir::Owner::Svelte, vec![Stmt::Let { name: "half".to_owned(), expr: Expr::Arith(ArithOp::Quot, Box::new(Expr::var("$props").field("n")), Box::new(Expr::Lit(Lit::Int(2)))) }], Tmpl::Fragment(vec![Tmpl::Marker("<!--[-->".to_owned()), Tmpl::Text("card".to_owned()), Tmpl::Element { tag: "input".to_owned(), attrs: vec![Entry::Baked(" disabled=\"false\"".to_owned())], children: Vec::new() }, Tmpl::Marker("<!--]-->".to_owned())])),
         head: Vec::new(),
       },
     ],
@@ -733,13 +734,13 @@ fn a_format_6_plan_still_reads() {
   assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
-/// Every marker node, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
+/// Every marker and html node, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
 fn forget_svelte(manifest: &mut Manifest) {
   manifest.components.retain(|entry| entry.body.owner != snapfire_fsr_ir::Owner::Svelte);
   manifest.frameworks.remove("svelte");
   for entry in &mut manifest.components {
     if let Tmpl::Fragment(children) = &mut entry.body.render {
-      children.retain(|child| !matches!(child, Tmpl::Marker(_)));
+      children.retain(|child| !matches!(child, Tmpl::Marker(_) | Tmpl::Html(_)));
     }
   }
 }

@@ -147,6 +147,7 @@ fn entry_of(e: BoxedStrategy<Expr>) -> BoxedStrategy<Entry> {
     e.clone().prop_map(Entry::Item),
     e.clone().prop_map(Entry::Spread),
     (e.clone(), e).prop_map(|(k, v)| Entry::Computed(k, v)),
+    text().prop_map(Entry::Baked),
   ]
   .boxed()
 }
@@ -193,6 +194,7 @@ fn tmpl() -> BoxedStrategy<Tmpl> {
     expr().prop_map(Tmpl::Expr),
     text().prop_map(Tmpl::Slot),
     text().prop_map(Tmpl::Marker),
+    expr().prop_map(Tmpl::Html),
   ];
   leaf.prop_recursive(4, 40, 3, |inner| {
     prop_oneof![

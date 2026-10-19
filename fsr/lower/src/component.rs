@@ -1527,9 +1527,27 @@ impl ComponentSet {
         }
       }
     };
-    let (mut component, children) = component;
+    let (mut component, mut children) = component;
+    let mut referenced: Vec<String> = Vec::new();
+    component.visit(&mut |e| {
+      if let Expr::Builtin { name: Builtin::ComponentRef, args } = e {
+        if let [Expr::Lit(Lit::Str(local))] = args.as_slice() {
+          if !referenced.contains(local) {
+            referenced.push(local.clone());
+          }
+        }
+      }
+    });
+    children.extend(referenced.into_iter().map(|local| crate::vue::ChildRef { local, attrs: Vec::new(), line: 1, column: 1 }));
     let mut modules: HashMap<String, String> = HashMap::new();
     for child in children {
+      if child.local == crate::svelte::SELF {
+        modules.insert(child.local, module.clone());
+        continue;
+      }
+      if modules.contains_key(&child.local) {
+        continue;
+      }
       let at = |message: String| LowerError::Residue(Residue { file: file.to_owned(), line: child.line, column: child.column, message, hint: None, via: Vec::new() });
       let (target, _) = self.component_module(file, &child.local).map_err(at)?;
       let child_file = target.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_else(|| target.clone());
@@ -1549,6 +1567,17 @@ impl ComponentSet {
     }
     if !modules.is_empty() {
       component.render = rewrite_modules(component.render, &modules, &HashMap::new());
+      let mut referenced = |e: &mut Expr| {
+        if let Expr::Builtin { name: Builtin::ComponentRef, args } = e {
+          if let [Expr::Lit(Lit::Str(local))] = args.as_mut_slice() {
+            if let Some(target) = modules.get(local.as_str()) {
+              *local = target.clone();
+            }
+          }
+        }
+      };
+      snapfire_fsr_ir::ast::body_visit_mut(&mut component.body, &mut referenced);
+      component.render.visit_mut(&mut referenced);
     }
     self.keys.insert(module.clone(), false);
     self.pure.insert(module.clone(), false);
@@ -1604,9 +1633,27 @@ impl ComponentSet {
         }
       }
     };
-    let (mut component, children) = component;
+    let (mut component, mut children) = component;
+    let mut referenced: Vec<String> = Vec::new();
+    component.visit(&mut |e| {
+      if let Expr::Builtin { name: Builtin::ComponentRef, args } = e {
+        if let [Expr::Lit(Lit::Str(local))] = args.as_slice() {
+          if !referenced.contains(local) {
+            referenced.push(local.clone());
+          }
+        }
+      }
+    });
+    children.extend(referenced.into_iter().map(|local| crate::vue::ChildRef { local, attrs: Vec::new(), line: 1, column: 1 }));
     let mut modules: HashMap<String, String> = HashMap::new();
     for child in children {
+      if child.local == crate::svelte::SELF {
+        modules.insert(child.local, module.clone());
+        continue;
+      }
+      if modules.contains_key(&child.local) {
+        continue;
+      }
       let at = |message: String| LowerError::Residue(Residue { file: file.to_owned(), line: child.line, column: child.column, message, hint: None, via: Vec::new() });
       let (target, _) = self.component_module(file, &child.local).map_err(at)?;
       match self.lower(&target) {
@@ -1618,6 +1665,17 @@ impl ComponentSet {
     }
     if !modules.is_empty() {
       component.render = rewrite_modules(component.render, &modules, &HashMap::new());
+      let mut referenced = |e: &mut Expr| {
+        if let Expr::Builtin { name: Builtin::ComponentRef, args } = e {
+          if let [Expr::Lit(Lit::Str(local))] = args.as_mut_slice() {
+            if let Some(target) = modules.get(local.as_str()) {
+              *local = target.clone();
+            }
+          }
+        }
+      };
+      snapfire_fsr_ir::ast::body_visit_mut(&mut component.body, &mut referenced);
+      component.render.visit_mut(&mut referenced);
     }
     self.keys.insert(module.clone(), false);
     self.pure.insert(module.clone(), false);
@@ -1638,7 +1696,7 @@ impl ComponentSet {
       Tmpl::If { then, r#else, .. } => self.inline_hydrates(then) || r#else.as_ref().is_some_and(|e| self.inline_hydrates(e)),
       Tmpl::For { body, .. } => self.inline_hydrates(body),
       Tmpl::Let { then, .. } => self.inline_hydrates(then),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => false,
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => false,
     }
   }
 
@@ -2099,7 +2157,7 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
     }
     Tmpl::For { body, .. } => island_ids(body, out),
     Tmpl::Let { then, .. } => island_ids(then, out),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -2133,7 +2191,7 @@ fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, stat
     }
     Tmpl::For { body, .. } => mark_keyed(body, placed, keys, stateful, out),
     Tmpl::Let { then, .. } => mark_keyed(then, placed, keys, stateful, out),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -2195,7 +2253,7 @@ fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
     }
     Tmpl::For { body, .. } => placed_modules(body, out),
     Tmpl::Let { then, .. } => placed_modules(then, out),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -2207,7 +2265,7 @@ fn holds_mount(tmpl: &Tmpl) -> bool {
     Tmpl::If { then, r#else, .. } => holds_mount(then) || r#else.as_ref().is_some_and(|e| holds_mount(e)),
     Tmpl::For { body, .. } => holds_mount(body),
     Tmpl::Let { then, .. } => holds_mount(then),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => false,
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => false,
   }
 }
 
@@ -2250,7 +2308,7 @@ fn inline_foreign(tmpl: &Tmpl) -> Option<String> {
     Tmpl::If { then, r#else, .. } => inline_foreign(then).or_else(|| r#else.as_ref().and_then(|e| inline_foreign(e))),
     Tmpl::For { body, .. } => inline_foreign(body),
     Tmpl::Let { then, .. } => inline_foreign(then),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
   }
 }
 
@@ -3338,7 +3396,7 @@ fn write_types(tmpl: &mut Tmpl, kinds_of: &dyn Fn(&str) -> Vec<(String, crate::K
     }
     Tmpl::For { body, .. } => write_types(body, kinds_of),
     Tmpl::Let { then, .. } => write_types(then, kinds_of),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -7679,7 +7737,7 @@ mod tests {
       }
       Tmpl::For { body, .. } => chunk_ids(body, out),
       Tmpl::Let { then, .. } => chunk_ids(then, out),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9173,7 +9231,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => choose_tags(body, lets, consts, failed),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9340,7 +9398,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => plain_reads(body),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9348,7 +9406,7 @@ mod fills {
   fn reads_slots(t: &Tmpl) -> bool {
     match t {
       Tmpl::Slot(_) => true,
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) => false,
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) => false,
       Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(reads_slots),
       Tmpl::If { then, r#else, .. } => reads_slots(then) || r#else.as_deref().is_some_and(reads_slots),
       Tmpl::For { body, .. } => reads_slots(body),
@@ -9551,7 +9609,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => place(body, held),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9576,7 +9634,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => collect(body, out),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9599,7 +9657,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => settle(body, module, filled),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9654,7 +9712,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => reference_functions(body, renders_in_browser, refs, used),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => Ok(()),
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => Ok(()),
     }
   }
 
@@ -9687,7 +9745,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => unfill(body, renders_in_browser),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 

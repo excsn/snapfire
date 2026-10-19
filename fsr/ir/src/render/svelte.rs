@@ -142,6 +142,7 @@ pub(super) fn spread_attribute(name: &str, value: &Value, flags: u32, names: &[S
   attr(&name, value, flags & NAMESPACED == 0 && is_boolean(&name), out)
 }
 
+pub(super) const DYNAMIC_ELEMENT: u32 = 8;
 const NAMESPACED: u32 = 1;
 const PRESERVE_CASE: u32 = 2;
 const IS_INPUT: u32 = 4;

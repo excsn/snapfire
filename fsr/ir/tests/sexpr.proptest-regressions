@@ -7,3 +7,7 @@
 cc cc1d7c8dcba7cf9540d9fb88288e807814770fa81e13bb6889336c81340a7c08 # shrinks to form = Interp(Sym("#"))
 cc 5d7be653a11ed53d32e71aa45879fba8877ee312b34c84127b4cd472949f0d71 # shrinks to c = '¡'
 cc a5a96d37af130d6dec633d46020251d042999600216dd0985fe83cf552e574be # shrinks to form = List([List([Str("¡")])]), bytes = [48]
+cc 772f8c58ca4e5d62b9532610d78964fc56eebccc2965aa2d93a01b17179ac13c # shrinks to t = Element { tag: "", attrs: [Baked("")], children: [] }
+cc 4191edb64c00d7b0beca4876cd0796955bdf139e18fc9c94be45a62b78c4a112 # shrinks to e = Logic(And, Ternary(Lit(Null), Not(Lit(Int(-110678288777694))), Document), Array([Baked("-#OrfAA/:C"), Spread(Now)]))
+cc 168487c5ad98081a17ab7614d5c18d2bf064dcf3ca0a7f01b3d48e762920c298 # shrinks to t = If { cond: ReplaceWith(Values(Lit(Int(152860758771833621945664903566970667))), Param("$v"), Host), then: For { over: BigInt(Field(NativeCall { module: "=", method: "Q?\t\u{82212}\r¥", args: [("$OK_z.", Param("::C"))], sync: true }, "#f")), params: [".:"], body: Let { name: ".", expr: Call { service: "¥\u{feff}%", method: "^L\u{7438d}䫢\u{7f}&Ѩ", args: [("/_Y#-RW_", Apply { f: Query(".Lx$_meU/"), args: [Origin, Template([Store(":/-"), Not(Session(""))])] }), ("TOR::Oa", Compare(Ne, Host, Locale))] }, then: Html(Object([Baked("RwG-$:d.MP"), Item(Num(Values(Identity([]))))])) } }, else: None }
+cc 86faceab9723795db1b2c590e56981037de8eedef3f75d75efa423b2e2da1634 # shrinks to e = Arith(Add, Object([Item(Index(Object([Baked("")]), Lit(Null)))]), Arith(Add, Length(Lit(Int(-7197676042336))), Lit(Float(-1.482976097661228e107))))

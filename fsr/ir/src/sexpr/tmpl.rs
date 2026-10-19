@@ -69,6 +69,7 @@ pub fn tmpl_to_sx(tmpl: &Tmpl) -> Sx {
     }
     Tmpl::Slot(name) => form("slot", vec![Sx::Sym(name.clone())]),
     Tmpl::Marker(markup) => form("marker", vec![Sx::Str(markup.clone())]),
+    Tmpl::Html(expr) => form("html", vec![expr_to_sx(expr)]),
     Tmpl::Baked { open, tag, children } => {
       let mut rest = vec![Sx::Str(open.clone()), opt_sx(tag)];
       rest.extend(children.iter().map(tmpl_to_sx));
@@ -160,6 +161,7 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
     }
     "slot" => Tmpl::Slot(sym_of(&args(items, head, 1)?[0])?),
     "marker" => Tmpl::Marker(str_of(&args(items, head, 1)?[0])?),
+    "html" => Tmpl::Html(expr_from_sx(&args(items, head, 1)?[0])?),
     "baked" => {
       let a = at_least(items, head, 2)?;
       Tmpl::Baked {

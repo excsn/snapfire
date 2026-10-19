@@ -503,7 +503,7 @@ impl Interpreter {
   }
 
   fn env_for(&self, module: &str, props: &ValueMap) -> Env {
-    let mut env = Env::detached(self, vec![("$props".to_owned(), Value::Map(props.clone()))]);
+    let mut env = Env::detached(self, component_scope(Value::Map(props.clone()), Value::Map(ValueMap::default())));
     if let Some(Value::Map(store)) = props.get("$store") {
       env.store = store.clone();
     }
@@ -563,7 +563,7 @@ impl Interpreter {
       env.state = Some(state.clone());
       let depth = env.scope.len();
       if let Some(own) = own_props {
-        env.scope.push(("$props".to_owned(), Value::Map(own)));
+        env.scope.extend(component_scope(Value::Map(own), Value::Map(ValueMap::default())));
       }
       for stmt in &target.body {
         let Stmt::Let { name, expr } = stmt else { continue };
@@ -881,6 +881,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
   match tmpl {
     Tmpl::Text(text) => out.text(text, env.markup),
     Tmpl::Marker(markup) => out.markup(markup),
+    Tmpl::Html(expr) => render_html(env, expr, out)?,
     Tmpl::Expr(expr) => render_expr(env, expr, library, out)?,
     Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
@@ -939,6 +940,15 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
   Ok(())
 }
 
+fn render_html(env: &mut Env, expr: &crate::ast::Expr, out: &mut Out) -> Result<(), Fail> {
+  match env.eval_sync(expr)? {
+    Value::Null => {}
+    value if env.markup.is_svelte() => out.markup(&svelte::display(&value)?),
+    value => out.markup(&stringify(&value)?),
+  }
+  Ok(())
+}
+
 fn render_expr(env: &mut Env, expr: &crate::ast::Expr, library: &Components, out: &mut Out) -> Result<(), Fail> {
   let markup = env.markup;
   match env.place(expr) {
@@ -969,15 +979,16 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
     Some(((_, module), _)) => Some((stringify(module)?, evaluated.iter().filter(|(name, _)| !name.starts_with('$')).map(|(name, value)| (name.to_string(), value.clone())).collect::<ValueMap>())),
     None => None,
   };
+  let mut selected = false;
+  let flags = match markup.is_svelte() {
+    true => evaluated.iter().zip(&from_data).find(|((name, _), data)| !**data && name.as_ref() == SVELTE_FLAGS).map_or(0, |((_, v), _)| match v {
+      Value::Int(n) => *n as u32,
+      _ => 0,
+    }),
+    false => 0,
+  };
   let spread = match markup.is_svelte() && from_data.iter().any(|data| *data) {
-    true => {
-      let flags = evaluated.iter().zip(&from_data).find(|((name, _), data)| !**data && name.as_ref() == SVELTE_FLAGS).map_or(0, |((_, v), _)| match v {
-        Value::Int(n) => *n as u32,
-        _ => 0,
-      });
-      let names: Vec<String> = evaluated.iter().zip(&from_data).filter(|(_, data)| **data).map(|((name, _), _)| name.to_string()).collect();
-      Some((flags, names))
-    }
+    true => Some((flags, evaluated.iter().zip(&from_data).filter(|(_, data)| **data).map(|((name, _), _)| name.to_string()).collect::<Vec<String>>())),
     false => None,
   };
   for ((name, value), data) in evaluated.into_iter().zip(from_data) {
@@ -1024,7 +1035,9 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
       continue;
     }
     if markup.is_svelte() {
-      if !name.starts_with('$') {
+      if name == SVELTE_SELECTED {
+        selected = truthy(&value);
+      } else if !name.starts_with('$') {
         attribute(markup, tag, &name, &value, &mut open)?;
       }
       continue;
@@ -1034,11 +1047,14 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
     }
     attribute(markup, tag, &name, &value, &mut open)?;
   }
+  if selected {
+    open.push_str(" selected=\"\"");
+  }
   if !bound.is_empty() {
     attribute(markup, tag, "data-sf-on", &Value::str(bound.join(" ")), &mut open)?;
   }
   if VOID.contains(&tag) {
-    open.push_str(if matches!(markup, Markup::React(_) | Markup::Svelte(_)) { "/>" } else { ">" });
+    open.push_str(if matches!(markup, Markup::React(_)) || (markup.is_svelte() && flags & svelte::DYNAMIC_ELEMENT == 0) { "/>" } else { ">" });
     out.markup(&open);
     return Ok(());
   }
@@ -1112,7 +1128,7 @@ fn hoisted_in_place(env: &Env, tag: &str) -> Fail {
 fn render_shadow<'a>(env: &mut Env, module: &str, props: ValueMap, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   let component = library.get(module).ok_or_else(|| Fail::internal(format!("`{module}` is not a lowered component")))?;
   let depth = env.scope.len();
-  let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(props))]));
+  let outer = Rc::new(std::mem::replace(&mut env.scope, component_scope(Value::Map(props), Value::Map(ValueMap::default()))));
   let hoists = env.hoists.take();
   slots.push(Slot { children: &[], scope: Rc::clone(&outer), keys: None, island: false, placed: false, framework: false, owner_path: String::new(), scoped: None });
   let markup = std::mem::replace(&mut env.markup, Markup::Plain);
@@ -1233,7 +1249,7 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
       env.scope.truncate(depth);
       result
     }
-    Tmpl::Let { .. } | Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => Ok(()),
+    Tmpl::Let { .. } | Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => Ok(()),
   }
 }
 
@@ -1246,7 +1262,7 @@ fn holds_chunk(tmpl: &Tmpl, mark: &str) -> bool {
     Tmpl::If { then, r#else, .. } => holds_chunk(then, mark) || r#else.as_ref().is_some_and(|other| holds_chunk(other, mark)),
     Tmpl::For { body, .. } => holds_chunk(body, mark),
     Tmpl::Let { then, .. } => holds_chunk(then, mark),
-    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => false,
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => false,
   }
 }
 
@@ -1259,7 +1275,7 @@ fn held_chunks<'a>(env: &mut Env, module: &str, component: &'a Component, props:
     return ValueMap::default();
   }
   let depth = env.scope.len();
-  let outer = std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(props.clone()))]);
+  let outer = std::mem::replace(&mut env.scope, component_scope(Value::Map(props.clone()), Value::Map(ValueMap::default())));
   let outer_hoists = env.hoists.replace(Hoists::new(module.to_owned()));
   let outer_framework = std::mem::replace(&mut env.in_framework, true);
   let caller = env.markup;
@@ -1314,7 +1330,8 @@ fn render_call<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [
     (None, _) => Vec::new(),
   };
   let depth = env.scope.len();
-  let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map))]));
+  let given = given_slots(env, children)?;
+  let outer = Rc::new(std::mem::replace(&mut env.scope, component_scope(Value::Map(map), given)));
   let keys = env.hoists.as_ref().map(|h| (h.module.clone(), h.path.clone()));
   slots.push(Slot { children, scope: Rc::clone(&outer), keys, island: false, placed: false, framework: env.in_framework, owner_path: env.component_path.clone(), scoped: env.scoped.clone() });
   let held = std::mem::replace(&mut env.stamp, stamp);
@@ -1359,7 +1376,7 @@ fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &
     Tmpl::Text(text) if text.is_empty() => {}
     Tmpl::Marker(_) => {}
     Tmpl::Text(text) => out.push(Value::str(text.as_str())),
-    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Fragment(_) => out.push(env.make(&Arc::new(t.clone()))?),
+    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Fragment(_) | Tmpl::Html(_) => out.push(env.make(&Arc::new(t.clone()))?),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
       Tmpl::Fragment(items) => child_values(env, items, slots, frame, out)?,
       other => child_value(env, other, slots, frame, out)?,
@@ -1517,7 +1534,7 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, emptie
   Ok(match t {
     Tmpl::Text(text) => usize::from(!text.is_empty()),
     Tmpl::Marker(_) => 0,
-    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } => 1,
+    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Html(_) => 1,
     Tmpl::Fragment(items) => usize::from(empties || !items.is_empty()),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
       Tmpl::Fragment(items) => count_children(env, items, slots, frame, empties)?,
@@ -1763,7 +1780,8 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     return Ok(());
   }
   let depth = env.scope.len();
-  let outer = Rc::new(std::mem::replace(&mut env.scope, vec![("$props".to_owned(), Value::Map(map.clone()))]));
+  let given = given_slots(env, children)?;
+  let outer = Rc::new(std::mem::replace(&mut env.scope, component_scope(Value::Map(map.clone()), given)));
   slots.push(Slot { children, scope: Rc::clone(&outer), keys: keys.clone(), island: true, placed: false, framework: false, owner_path: String::new(), scoped: None });
   let mut inner = Out::default();
   let outer_hoists = env.hoists.replace(Hoists::new(module.to_owned()));
@@ -1904,7 +1922,7 @@ pub fn store_keys(component: &Component, library: &Components) -> Vec<String> {
       }
       Tmpl::For { body, .. } => inline_modules(body, out),
       Tmpl::Let { then, .. } => inline_modules(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
     }
   }
   let mut keys = std::collections::BTreeSet::new();
@@ -1964,14 +1982,17 @@ fn slot_content<'a>(children: &'a [Tmpl], name: &str) -> Option<(Option<&'a crat
   (!plain.is_empty()).then_some((None, plain))
 }
 
-/// A Vue `<slot>` that names itself, hands props or holds a fallback: the caller's content for it with its props bound under `SLOT_PROPS`, else the fallback, both inside Vue's fragment markers. An island's children keep their region.
+/// A `<slot>` that names itself, hands props or holds a fallback: the caller's content for it with its props bound under `SLOT_PROPS`, else the fallback. Vue's fragment markers wrap it under Vue's markup. An island's children keep their region and fill its default slot (every slot under Vue's markup).
 fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fallback: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
-  if slots.last().is_some_and(|frame| frame.island) {
+  let vue = env.markup.is_vue();
+  if slots.last().is_some_and(|frame| frame.island) && (vue || name == "default") {
     return render_slot(env, "content", library, slots, out);
   }
   let given = env.eval_sync(props)?;
-  let content = slots.last().and_then(|frame| slot_content(frame.children, name));
-  out.markup(vue::FRAGMENT_OPEN);
+  let content = slots.last().filter(|frame| !frame.island).and_then(|frame| slot_content(frame.children, name));
+  if vue {
+    out.markup(vue::FRAGMENT_OPEN);
+  }
   let content = match content {
     Some((Some(when), content)) => {
       let caller = slots.last().map(|frame| (*frame.scope).clone()).unwrap_or_default();
@@ -2018,7 +2039,9 @@ fn render_vue_slot<'a>(env: &mut Env, name: &str, props: &crate::ast::Expr, fall
       render(env, fallback, library, slots, out)
     }
   };
-  out.markup(vue::FRAGMENT_CLOSE);
+  if vue {
+    out.markup(vue::FRAGMENT_CLOSE);
+  }
   result
 }
 
@@ -2206,6 +2229,7 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
       }
     }
     Tmpl::Expr(expr) => Tmpl::Expr(folded(expr)),
+    Tmpl::Html(expr) => Tmpl::Html(folded(expr)),
     Tmpl::Fragment(children) => Tmpl::Fragment(children.iter().map(prepare_tmpl).collect()),
     Tmpl::If { cond, then, r#else } => Tmpl::If { cond: folded(cond), then: Box::new(prepare_tmpl(then)), r#else: r#else.as_ref().map(|other| Box::new(prepare_tmpl(other))) },
     Tmpl::For { over, params, body } => Tmpl::For { over: folded(over), params: params.clone(), body: Box::new(prepare_tmpl(body)) },
@@ -2454,10 +2478,15 @@ pub const UNTAKEN_ATTR: &str = "$untaken";
 /// answers for it; the element's children never render.
 pub const RAW_ATTR: &str = "$html";
 
-/// On a Svelte element whose attributes come from a spread: the flags of
-/// Svelte's `$.attributes`, 1 for an SVG or MathML element, 2 to keep the
-/// names' case and 4 for an `<input>`.
+/// On a Svelte element: the flags of Svelte's `$.attributes` for one whose
+/// attributes come from a spread, 1 for an SVG or MathML element, 2 to keep
+/// the names' case and 4 for an `<input>`; 8 for `<svelte:element>`, whose
+/// void tag `$.element` closes with `>`.
 pub const SVELTE_FLAGS: &str = "$svelte";
+
+/// On a Svelte `<option>`: whether `selected=""` follows its attributes, as
+/// `$$renderer.option` writes it for an option whose value the select holds.
+pub const SVELTE_SELECTED: &str = "$selected";
 
 /// A placement of a custom element whose shadow template sits under
 /// `elements/`, holding the template's module. The server writes the
@@ -2490,6 +2519,36 @@ pub fn handler_token(value: &Value) -> Option<&str> {
     _ => None,
   }
 }
+/// Bound beside `$props` in every component's scope: an object naming each slot
+/// the placement's children fill, `default` (as `true`) for children that are
+/// not a named wrapper and each `SLOT_CONTENT_PREFIX` wrapper whose value holds,
+/// as that value.
+pub const SLOTS_GIVEN: &str = "$given";
+
+fn component_scope(props: Value, given: Value) -> Vec<(String, Value)> {
+  vec![("$props".to_owned(), props), (SLOTS_GIVEN.to_owned(), given)]
+}
+
+/// The `SLOTS_GIVEN` object for a placement's children, each wrapper's value
+/// read in the caller's scope.
+fn given_slots(env: &mut Env, children: &[Tmpl]) -> Result<Value, Fail> {
+  let mut given = snapfire_fsr_core::Fields::default();
+  for child in children {
+    match child {
+      Tmpl::Let { name, expr, .. } if name.starts_with(SLOT_CONTENT_PREFIX) => {
+        let value = env.eval_sync(expr)?;
+        if truthy(&value) {
+          given.insert(name[SLOT_CONTENT_PREFIX.len()..].to_owned(), value);
+        }
+      }
+      _ => {
+        given.insert("default".to_owned(), Value::Bool(true));
+      }
+    }
+  }
+  Ok(Value::Map(ValueMap::from(given)))
+}
+
 /// A `Tmpl::Let` among a placement's children named with this prefix and a slot is the caller's content for that slot: a Vue named slot or the markup a JSX caller passed as the prop of that name; `default` is the default slot's when it takes props.
 pub const SLOT_CONTENT_PREFIX: &str = "$slot:";
 /// A `Tmpl::Let` in a Vue template named with this prefix and a slot is that `<slot>`: its value the props it hands the caller's content, its body the fallback written when the caller gave none.

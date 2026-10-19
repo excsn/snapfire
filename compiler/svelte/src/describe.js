@@ -8,6 +8,7 @@
   const MATHML = new Set("annotation,annotation-xml,maction,math,merror,mfrac,mi,mmultiscripts,mn,mo,mover,mpadded,mphantom,mprescripts,mroot,mrow,ms,mspace,msqrt,mstyle,msub,msubsup,msup,mtable,mtd,mtext,mtr,munder,munderover,semantics".split(","));
   const HOISTED = new Set(["ConstTag", "DeclarationTag", "DebugTag", "SvelteBody", "SvelteWindow", "SvelteDocument", "SvelteHead", "TitleElement", "SnippetBlock"]);
   const TEXT_FIRST_PARENTS = new Set(["Fragment", "SnippetBlock", "EachBlock", "SvelteComponent", "SvelteBoundary", "Component", "SvelteSelf"]);
+  const SLOTTABLE = new Set(["RegularElement", "SlotElement", "SvelteBody", "SvelteComponent", "SvelteDocument", "SvelteElement", "SvelteFragment", "SvelteHead", "SvelteOptions", "SvelteSelf", "SvelteWindow", "SvelteBoundary", "Component", "TitleElement"]);
   const REMOVABLE_SPACE_PARENTS = new Set(["select", "tr", "table", "tbody", "thead", "tfoot", "colgroup", "datalist"]);
   const STARTS_WS = /^[ \t\r\n]+/;
   const ENDS_WS = /[ \t\r\n]+$/;
@@ -297,6 +298,27 @@
       });
     }
 
+    /** `determine_slot`: the static `slot` attribute of an element-like node. */
+    function slot_of(n) {
+      if (!SLOTTABLE.has(n.type)) return null;
+      for (const a of n.attributes) {
+        if (a.type === "Attribute" && a.name === "slot" && Array.isArray(a.value) && a.value.length === 1 && a.value[0].type === "Text") return a.value[0].data;
+      }
+      return null;
+    }
+
+    /** A component's children as `build_inline_component` groups them: by slot, snippets aside, each group cleaned as its own fragment. */
+    function slot_groups(n, path, namespace, preserve) {
+      const groups = new Map();
+      for (const child of n.fragment.nodes) {
+        if (child.type === "SnippetBlock") continue;
+        const name = slot_of(child) ?? "default";
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(child);
+      }
+      return with_scope(snippets(n.fragment.nodes), () => [...groups].map(([name, nodes]) => ({ name, fragment: fragment(n, nodes, path, namespace, preserve) })));
+    }
+
     function node(n, path, namespace, preserve) {
       const where = at(n.start);
       switch (n.type) {
@@ -322,7 +344,7 @@
           return { type: "element", name: namespace === "html" ? n.name.toLowerCase() : n.name, svg: n.__svg, mathml: n.__mathml, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, ns, keep), at: where };
         }
         case "Component":
-          return { type: "component", name: n.name, dynamic: n.__dynamic, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), at: where };
+          return { type: "component", name: n.name, dynamic: n.__dynamic, attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), slots: slot_groups(n, path, namespace, preserve), at: where };
         case "SlotElement":
           return { type: "slot", attrs: n.attributes.map(attribute), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), at: where };
         case "IfBlock":
@@ -338,6 +360,23 @@
           const body = with_scope(params, () => fragment(n, n.body.nodes, path, namespace, preserve));
           return { type: "snippet", name: n.expression.name, params: n.parameters.map(code), body, at: where };
         }
+        case "KeyBlock":
+          return { type: "key", expression: code(n.expression), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), at: where };
+        case "AwaitBlock": {
+          const part = (f, pattern) => (f ? with_scope(new Map(names(pattern, []).map((name) => [name, "each"])), () => fragment(n, f.nodes, path, namespace, preserve)) : null);
+          return { type: "await", expression: code(n.expression), value: code(n.value), error: code(n.error), pending: part(n.pending, null), then: part(n.then, n.value), catch: part(n.catch, n.error), at: where };
+        }
+        case "SvelteFragment":
+        case "SvelteHead":
+        case "SvelteBoundary":
+        case "SvelteBody":
+        case "SvelteWindow":
+        case "SvelteDocument":
+        case "TitleElement":
+        case "SvelteSelf":
+        case "SvelteComponent":
+        case "SvelteElement":
+          return { type: "special", kind: n.type, name: n.name, attrs: n.attributes.map(attribute), this: code(n.type === "SvelteElement" ? n.tag : n.expression), fragment: fragment(n, n.fragment.nodes, path, namespace, preserve), slots: n.type === "SvelteComponent" || n.type === "SvelteSelf" ? slot_groups(n, path, namespace, preserve) : [], at: where };
         default:
           return { type: "other", kind: n.type, at: where };
       }
