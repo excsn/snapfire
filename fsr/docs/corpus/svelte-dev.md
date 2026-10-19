@@ -35,4 +35,4 @@ The build stops a module at its first cause and a component that fails never low
 | `<svelte:head>` | 2 | What goes in the document head belongs in a loader's `meta` export |
 | `new Audio` | 1 | A browser object |
 
-After a change to the lowerer moves outcomes, bless the run with `CORPUS_BLESS=1` and bring the counts here up to that commit.
+After a change to the lowerer moves outcomes, bless the run with `CORPUS_BLESS=1` and bring the counts here and in the table in [the FSR README](../../README.md#how-much-renders-on-the-server) up to that commit.

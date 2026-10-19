@@ -36,4 +36,4 @@ The build stops a module at its first cause and a component that fails never low
 | An npm package: `marked`, `js-confetti` | 4 | The build follows the application's own files, not a package's |
 | `new Function`, which the cells example builds its formulas with | 2 | Code evaluated from text |
 
-After a change to the lowerer moves outcomes, bless the run with `CORPUS_BLESS=1` and bring the counts here up to that commit.
+After a change to the lowerer moves outcomes, bless the run with `CORPUS_BLESS=1` and bring the counts here and in the table in [the FSR README](../../README.md#how-much-renders-on-the-server) up to that commit.

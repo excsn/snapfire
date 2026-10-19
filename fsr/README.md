@@ -50,6 +50,18 @@ FSR does not make you pick a mode per route. Each route gets whatever mix the bu
 | Client-only SPA | No | Pages always render on the server; only islands render in the browser. |
 | Static export | Partly | There is no export command. The handbook example builds a static site from the prerender output, the client modules it writes and the static roots the boot report lists, then serves it from a plain file server. |
 
+## How much renders on the server
+
+Each corpus builds a framework's own published examples through FSR as one application per example and checks every component the server renders against that framework's own server renderer. A component the build cannot render yet still works: it renders in the browser and is missing from the first response.
+
+| Corpus | Examples | Rendered on the server | Left to the browser by design | Not rendered yet |
+|---|---|---|---|---|
+| [react.dev](docs/corpus/react-dev.md) | 634 | 574 (90.5%) | 59 | 1 |
+| [svelte.dev](docs/corpus/svelte-dev.md) | 167 | 148 (88.6%) | 16 | 3 |
+| [vuejs.org](docs/corpus/vuejs-org.md) | 70 | 50 (71.4%) | 12 | 8 |
+
+"By design" covers what no server renderer can write the same as the browser: the viewer's clock, `Math.random`, `fetch` during render, npm packages the build does not follow. Leaving those out, the server renders 99.8% of what it could on react.dev, 98.0% on svelte.dev and 86.2% on vuejs.org.
+
 ## Architecture
 
 FSR treats backend logic and client presentation as one set of composable blocks. 
