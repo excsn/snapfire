@@ -177,6 +177,8 @@ pub enum BuildError {
   Manifest(PathBuf, String),
   #[error("`{package}` imports `{wants}`, a package outside its bundle; vendor that package and name it with --external")]
   Dependency { package: String, wants: String },
+  #[error("`{name}` is not a package name, so nothing is vendored for it; {by}")]
+  PackageName { name: String, by: String },
   #[error("{map} maps `{specifier}` to `{found}`, but this application serves its vendor tree from `{base}`; write `{want}` or run `fsr add` on the package, which rewrites every vendored entry")]
   VendorUrl { map: String, specifier: String, found: String, base: String, want: String },
   #[error("{0}")]

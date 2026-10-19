@@ -64,6 +64,9 @@ pub fn compiler(app: &Path, name: &str, version: &str, file: &str) -> Result<std
 }
 
 fn compiler_from(app: &Path, name: &str, version: &str, file: &str, registry: &str) -> Result<std::path::PathBuf, BuildError> {
+  if range::Version::parse(version).is_none() {
+    return Err(BuildError::Http(format!("{name}@{version}"), format!("`{version}` is not a version, so no compiler is fetched for it")));
+  }
   let base = Path::new(file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| file.to_owned());
   let path = app.join(COMPILERS).join(name).join(version).join(base);
   if path.is_file() {
@@ -131,6 +134,13 @@ fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddR
       continue;
     }
     let name = vendor::package_of(&specifier);
+    if !is_package_name(&name) {
+      let by = match &wanted_by {
+        Some(by) => format!("`{by}` imports `{specifier}`"),
+        None => format!("`{specifier}` was asked for"),
+      };
+      return Err(BuildError::PackageName { name, by });
+    }
     if !packages.contains_key(&name) {
       let version = match version {
         Some(version) => version,
@@ -196,12 +206,31 @@ fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddR
   Ok(AddReport { added, remapped: Vec::new(), from_shell: Vec::new(), delegated: Vec::new() })
 }
 
+/// Whether `name` is one the npm registry accepts: an optional `@scope/` and
+/// a name of URL-safe characters that starts with neither `.` nor `_`, so it
+/// names one directory under the vendor tree. Upper case is kept for the
+/// packages published before the registry refused it.
+fn is_package_name(name: &str) -> bool {
+  let part = |part: &str| !part.is_empty() && !part.starts_with(['.', '_']) && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_' | '~'));
+  let unscoped = match name.strip_prefix('@') {
+    Some(scoped) => match scoped.split_once('/') {
+      Some((scope, rest)) if part(scope) => rest,
+      _ => return false,
+    },
+    None => name,
+  };
+  name.len() <= 214 && part(unscoped)
+}
+
 /// The version document and the tarball's files, refused when the tarball does
 /// not hash to the integrity the registry published for it.
 fn fetch(client: &reqwest::blocking::Client, registry: &str, name: &str, version: &str) -> Result<Package, BuildError> {
   let url = format!("{registry}/{}/{version}", encode(name));
   let bytes = vendor::get(client, &url)?.ok_or_else(|| BuildError::Http(url.clone(), "HTTP 404: no such package or version".to_owned()))?;
   let doc: Published = serde_json::from_slice(&bytes).map_err(|e| BuildError::Http(url.clone(), e.to_string()))?;
+  if doc.version != version {
+    return Err(BuildError::Http(url, format!("the registry answered for `{}` where `{version}` was asked for", doc.version)));
+  }
   let tarball = vendor::get(client, &doc.dist.tarball)?.ok_or_else(|| BuildError::Http(doc.dist.tarball.clone(), "HTTP 404".to_owned()))?;
   let published = doc.dist.integrity.as_deref().unwrap_or("").split_whitespace().find_map(|i| i.strip_prefix("sha512-")).map(str::to_owned);
   let actual = base64::engine::general_purpose::STANDARD.encode(sha2::Sha512::digest(&tarball));
@@ -407,9 +436,7 @@ mod tests {
   /// A registry answering `pkg@1.0.0`, which depends on `dep@^1.0.0`, plus `dep` at 1.0.0, 1.2.0 and 2.0.0.
   /// `corrupt` serves `pkg`'s tarball under an integrity that does not match it.
   fn registry(corrupt: bool) -> String {
-    use std::io::{BufRead, BufReader, Write};
-    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let host = format!("http://{}", listener.local_addr().unwrap());
+    serve(|host| {
     let pkg = tarball(PKG_FILES);
     let dep = tarball(DEP_FILES);
     let pkg_integrity = if corrupt { integrity(b"something else") } else { integrity(&pkg) };
@@ -439,6 +466,16 @@ mod tests {
       .into_bytes(),
     );
     routes.insert("/dep/-/dep-1.2.0.tgz".to_owned(), dep);
+    routes
+    })
+  }
+
+  /// An HTTP server on a free port answering each path in the table `routes` builds from the host, 404 otherwise.
+  fn serve(routes: impl FnOnce(&str) -> BTreeMap<String, Vec<u8>>) -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let routes = routes(&host);
     std::thread::spawn(move || {
       for stream in listener.incoming() {
         let Ok(mut stream) = stream else { continue };
@@ -623,6 +660,56 @@ mod tests {
     let app = app("corrupt");
     let refused = add_published_from(&app, &specs(), &registry(true)).err().expect("refused");
     assert!(refused.to_string().contains("integrity"), "{refused}");
+    assert!(!app.join(Layout::of(&app).unwrap().vendor).join("pkg").exists());
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_package_name_that_is_not_one_is_refused_before_anything_under_the_vendor_tree_is_touched() {
+    let app = app("hostile-name");
+    let vendor = app.join(Layout::of(&app).unwrap().vendor);
+    std::fs::create_dir_all(vendor.join("kept")).unwrap();
+    std::fs::write(vendor.join("kept/index.js"), "export const kept = 1;\n").unwrap();
+    let host = serve(|host| {
+      let pkg = tarball(&[("package.json", "{}"), ("index.js", "import '@x/..';\nexport const pkg = 1;\n")]);
+      let hostile = tarball(&[("package.json", "{}"), ("index.js", "export const x = 1;\n")]);
+      let mut routes = BTreeMap::new();
+      routes.insert("/pkg/1.0.0".to_owned(), serde_json::json!({ "name": "pkg", "version": "1.0.0", "main": "index.js", "dependencies": { "@x/..": "1.0.0" }, "dist": { "tarball": format!("{host}/pkg.tgz"), "integrity": integrity(&pkg) } }).to_string().into_bytes());
+      routes.insert("/pkg.tgz".to_owned(), pkg);
+      routes.insert("/@x%2f..".to_owned(), serde_json::json!({ "dist-tags": { "latest": "1.0.0" }, "versions": { "1.0.0": {} } }).to_string().into_bytes());
+      routes.insert("/@x%2f../1.0.0".to_owned(), serde_json::json!({ "name": "@x/..", "version": "1.0.0", "main": "index.js", "dist": { "tarball": format!("{host}/x.tgz"), "integrity": integrity(&hostile) } }).to_string().into_bytes());
+      routes.insert("/x.tgz".to_owned(), hostile);
+      routes
+    });
+    let refused = add_published_from(&app, &[Spec::parse("pkg@1.0.0").unwrap()], &host).err().expect("refused");
+    assert!(refused.to_string().contains("`@x/..` is not a package name"), "{refused}");
+    assert!(vendor.join("kept/index.js").is_file(), "the rest of the vendor tree is untouched");
+    assert!(!vendor.join("pkg").exists());
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_compiler_version_that_is_not_a_version_is_refused_and_nothing_is_written() {
+    let app = app("compiler-version");
+    let refused = compiler_from(&app, "pkg", "../../../escaped", "compiler/index.js", &registry(false)).err().expect("refused");
+    assert!(refused.to_string().contains("`../../../escaped` is not a version"), "{refused}");
+    assert!(!app.join(".fsr").exists());
+    assert!(!app.parent().unwrap().join("escaped").exists());
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_version_document_for_another_version_than_the_one_asked_for_is_refused() {
+    let app = app("other-version");
+    let host = serve(|host| {
+      let pkg = tarball(&[("package.json", "{}"), ("index.js", "export const pkg = 1;\n")]);
+      let mut routes = BTreeMap::new();
+      routes.insert("/pkg/1.0.0".to_owned(), serde_json::json!({ "name": "pkg", "version": "../../../escaped", "main": "index.js", "dist": { "tarball": format!("{host}/pkg.tgz"), "integrity": integrity(&pkg) } }).to_string().into_bytes());
+      routes.insert("/pkg.tgz".to_owned(), pkg);
+      routes
+    });
+    let refused = add_published_from(&app, &[Spec::parse("pkg@1.0.0").unwrap()], &host).err().expect("refused");
+    assert!(refused.to_string().contains("answered for `../../../escaped`"), "{refused}");
     assert!(!app.join(Layout::of(&app).unwrap().vendor).join("pkg").exists());
     std::fs::remove_dir_all(&app).unwrap();
   }
