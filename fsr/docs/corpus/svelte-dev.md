@@ -1,11 +1,11 @@
 # svelte.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 167 examples and tutorial solutions from svelte.dev (MIT, at `89f941caf5a2229356fc38facae6ee0dca3122e7`) through FSR as one application per example and records what the build made of each in `svelte_outcomes.txt`. A tutorial exercise starts from the files of the one before it, as the tutorial does. Run it from `fsr/examples` with `snapfirec-svelte` on `PATH`: `cargo test -p corpus --test svelte_dev`. The counts here are from `41713bb6`.
+The corpus in `fsr/examples/corpus` builds the 167 examples and tutorial solutions from svelte.dev (MIT, at `89f941caf5a2229356fc38facae6ee0dca3122e7`) through FSR as one application per example and records what the build made of each in `svelte_outcomes.txt`. A tutorial exercise starts from the files of the one before it, as the tutorial does. Run it from `fsr/examples` with `snapfirec-svelte` on `PATH`: `cargo test -p corpus --test svelte_dev`. The counts here are from `23b94318`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 148 | the server renders every component on the page as Svelte's own server renderer writes it |
-| Client side rendered, lowerable | 3 | a component renders in the browser because it uses something the build does not render on the server yet |
+| Lowered whole | 150 | the server renders every component on the page as Svelte's own server renderer writes it |
+| Client side rendered, lowerable | 1 | a component renders in the browser because it uses something the build does not render on the server yet |
 | Client side rendered by design | 16 | a component renders in the browser for a reason that holds under any server renderer |
 | Refused | 0 | the build stops |
 | Total | 167 | |
@@ -22,7 +22,6 @@ The build stops a module at its first cause and a component that fails never low
 
 | Cause | Examples | What the server does not render yet |
 | --- | --- | --- |
-| A regular expression with a lookahead | 2 | The server matches with the `regex` crate, which has no lookaround |
 | A helper that advances a module-level seed on each call, `tutorial-advanced-svelte-context-context-api` | 1 | State a call writes and a later call in the same render reads |
 
 ### By design
