@@ -3,6 +3,7 @@ import { boot, enableNavigation, live, registerIsland } from "@snapfire/fsr-clie
 import { bindHtmx } from "@snapfire/fsr-client/htmx";
 import { reactMounter, reactPatcher, reactUnmounter } from "@snapfire/fsr-client/react";
 import { vueMounter, vuePatcher, vueUnmounter } from "@snapfire/fsr-client/vue";
+import { svelteMounter, sveltePatcher, svelteUnmounter } from "@snapfire/fsr-client/svelte";
 
 registerIsland("js/src/ui/Watch.tsx#default", {
   loader: () => import("./ui/Watch.js").then((m) => m.default),
@@ -37,6 +38,13 @@ registerIsland("js/src/ui/Holdings.vue#default", {
   mount: vueMounter,
   patch: vuePatcher,
   unmount: vueUnmounter,
+});
+
+registerIsland("js/src/ui/Focus.svelte#default", {
+  loader: () => import("./ui/Focus.svelte").then((m) => m.default),
+  mount: svelteMounter,
+  patch: sveltePatcher,
+  unmount: svelteUnmounter,
 });
 
 boot();

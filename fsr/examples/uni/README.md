@@ -1,6 +1,6 @@
 # uni
 
-The mixed application: a Tera layout holding a React island, a Vue island and an htmx region, on one page, from one payload.
+The mixed application: a Tera layout holding a React island, a Vue island, a Svelte island and an htmx region, on one page, from one payload.
 
 What it shows is the seam. A placement carries a module id and nothing else, so the browser dispatches each one to whatever mounter its registry entry names: React for one island, Vue for the next, no mounter at all for a region htmx drives. The server does not know which is which. Neither does the router: it replaces a segment holding a Vue component with one holding a React component and keeps the layout, because a segment is a segment.
 
@@ -15,7 +15,7 @@ cd js && snapfirec --root . --config tsconfig.build.json --source-map --minify c
   --public-path /static/js/app --import-map importmap.json
 ```
 
-That needs `snapfirec-vue` on `PATH`, `cargo install snapfire_vue`, since one component is a single-file component. For the editor and `tsc`, `fsr types .` in `js/` fetches the declarations, writes `types/foreign.d.ts` for the `.vue` imports and the `tsconfig.json` that maps them; nothing here runs `fsr build`.
+That needs `snapfirec-vue` and `snapfirec-svelte` on `PATH`, `cargo install snapfire_vue snapfire_svelte`, since two components are single-file components. Svelte is vendored as published, `fsr add js --published svelte@<version> svelte@<version>/internal/client ...`, so its subpaths share one runtime. For the editor and `tsc`, `fsr types .` in `js/` fetches the declarations, writes `types/foreign.d.ts` for the `.vue` imports and the `tsconfig.json` that maps them; nothing here runs `fsr build`.
 
 ## The pieces
 
@@ -23,16 +23,17 @@ That needs `snapfirec-vue` on `PATH`, `cargo install snapfire_vue`, since one co
 | --- | --- |
 | `templates/document.tera` | the document: `<html>`, the head and one slot, so the layout beneath it is a region the navigator can patch |
 | `templates/layout.tera` | the layout: a masthead with the React island and the server-mode one, the book as plain markup, `content` for the page and `tape` for the region beside it |
-| `templates/board.tera` | the board page, whose one island is Vue |
+| `templates/board.tera` | the board page, a Vue table and a Svelte panel beside it |
 | `templates/news.tera` | the news page, whose one island is React |
 | `templates/tape.tera` | the region htmx polls; no island, no mounter, no framework |
 | `js/src/ui/Watch.tsx` | React, in the masthead: the symbol the desk is watching, holding a Vue sparkline |
 | `js/src/ui/Sparkline.vue` | Vue, inside that React island: the watched symbol's trail |
 | `js/src/ui/Holdings.vue` | Vue, on the board: a table whose rows each hold a React chip |
-| `js/src/ui/Chip.tsx` | React, inside each Vue row: the day's move, with a click that changes the watched symbol |
+| `js/src/ui/Chip.tsx` | React, inside each Vue row and inside the Svelte panel: the day's move, with a click that changes the watched symbol |
+| `js/src/ui/Focus.svelte` | Svelte, on the board: a button per symbol that writes the watched key and the focused holding, holding a React chip through the `island` attachment |
 | `js/src/ui/Feed.tsx` | React, on the news page: filters the headlines by the watched symbol |
 | `js/src/ui/Lot.tsx` | the one component the server renders itself: lowered by `build.rs` into the plan, placed in server mode, mounting nothing; its buttons call an action, which the host dispatches when the handler runs |
-| `js/src/main.ts` | five `registerIsland` calls, two mounters, one `bindHtmx`, one `live` |
+| `js/src/main.ts` | six `registerIsland` calls, three mounters, one `bindHtmx`, one `live` |
 | `src/routes.rs` | the plans: a document over a layout over a page, with `tape` as a second child |
 | `src/loaders.rs` | four sources in Rust, one per segment; the layout's also prints the book |
 | `src/actions.rs` | `desk.watch`, `desk.lot` and `desk.buy`, each writing the session every piece above is rendered from |

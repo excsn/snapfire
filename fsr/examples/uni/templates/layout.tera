@@ -15,5 +15,5 @@
   <main>{{ slot(name="content") }}</main>
   <aside>{{ slot(name="tape") }}</aside>
 </div>
-<footer class="colophon">One Tera layout. A React island in the masthead, a Vue island on the board, an htmx region on the right, one store between them. The book above is markup the layout printed: nothing there mounts.</footer>
+<footer class="colophon">One Tera layout. A React island in the masthead, a Vue table and a Svelte panel on the board, an htmx region on the right, one store between them. The book above is markup the layout printed: nothing there mounts.</footer>
 </div>

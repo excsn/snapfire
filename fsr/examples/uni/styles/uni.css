@@ -86,6 +86,13 @@ body {
 .chip.up { color: #15803d; }
 .chip.down { color: #b91c1c; }
 .chip.mine { outline: 2px solid #c7d7ff; }
+
+.focus { margin-top: 16px; padding: 12px 14px; background: #fff; border: 1px solid #e3e5ea; border-radius: 10px; }
+.focus .picks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.focus .pick { border: 1px solid #e3e5ea; border-radius: 6px; background: #f7f8fa; padding: 3px 8px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.focus .pick[aria-pressed="true"] { background: #e8efff; border-color: #c7d7ff; }
+.focus .focused { display: inline; margin: 0 8px 0 0; font-size: 14px; }
+.focus .price { font-variant-numeric: tabular-nums; }
 .watch .spark { margin: 0 2px; }
 
 .watch .owned { color: #15803d; font-variant-numeric: tabular-nums; font-size: 13px; }

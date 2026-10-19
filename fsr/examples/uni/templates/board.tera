@@ -1,5 +1,6 @@
 <section class="page board">
   <h1>Holdings</h1>
-  <p class="lede">The table is Vue. The masthead is React. Clicking a row writes one store key; the masthead follows it.</p>
+  <p class="lede">The table is Vue, the focus panel beside it Svelte and the masthead React. Clicking a row or a symbol writes one store key; every one of them follows it.</p>
   {{ island(module="js/src/ui/Holdings.vue#default", props=desk, key="holdings") }}
+  {{ island(module="js/src/ui/Focus.svelte#default", props=desk, key="focus") }}
 </section>

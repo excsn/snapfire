@@ -45,7 +45,7 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 
 | | What it is | Read it for |
 | --- | --- | --- |
-| [uni](uni/README.md) | A desk board under a Tera layout | Three interaction models on one page: a React island, a Vue island and an htmx region, one store between the two runtimes, one router replacing a Vue segment with a React one, plus the measured weight of all three |
+| [uni](uni/README.md) | A desk board under a Tera layout | Four interaction models on one page: a React island, a Vue island, a Svelte island and an htmx region, one store between the three runtimes, one router replacing a Vue segment with a React one, plus the measured weight of them all |
 
 ### Conformance
 
@@ -66,7 +66,7 @@ cargo install snapfire_compiler snapfire_fsr_cli
 cd fsr/client && snapfirec --source-map --public-path /static/js/fsr --import-map importmap.json
 ```
 
-After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `blog_site_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
+After that each example is `cargo run -p <name>` from this directory. Its `build.rs` emits the plan, the generated TypeScript and the browser bundle, so there is no step before or after. `conference_react_ts`, `blog_site_react_ts`, `uploads_react_ts`, `recipes_vue_ts`, `toolshed_web_ts` and `noticeboard_tera` are the exceptions: none has a cargo target, so `fsr dev app` or `fsr serve app` is the only way to run them. The recipes and `uni` need `snapfirec-vue` on `PATH`, from `cargo install snapfire_vue`. `uni` needs `snapfirec-svelte` as well, from `cargo install snapfire_svelte`. `uni` keeps its browser tree under `js/`, so its bundle is built by hand, the way the tera application's is; its README has the line. For the loop that rebuilds as files change, use `fsr dev` on the app directory anywhere:
 
 ```sh
 cd shopping_react_ts && fsr dev app

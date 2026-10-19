@@ -13,12 +13,13 @@ fn host() -> Host {
 }
 
 #[tokio::test]
-async fn one_page_carries_a_react_island_a_vue_island_and_a_region_that_is_neither() {
+async fn one_page_carries_a_react_island_a_vue_island_a_svelte_island_and_a_region_that_is_none_of_them() {
   let host = host();
   let html = body(host.handle(Request::get("/board").body(Bytes::new()).unwrap()).await).await;
 
   assert!(html.contains(r#"data-sf-module="js/src/ui/Watch.tsx#default""#), "the masthead island is React: {html}");
   assert!(html.contains(r#"data-sf-module="js/src/ui/Holdings.vue#default""#), "the page island is Vue: {html}");
+  assert!(html.contains(r#"data-sf-module="js/src/ui/Focus.svelte#default""#), "the panel beside it is Svelte: {html}");
   assert!(html.contains(r#"hx-get="?__fragment=tape""#), "the tape asks the host for itself");
   assert!(!html.contains("data-sf-module=\"tape"), "and mounts nothing");
 
@@ -31,7 +32,7 @@ async fn one_page_carries_a_react_island_a_vue_island_and_a_region_that_is_neith
   assert!(html.contains(r#"data-sf-module="js/src/ui/Lot.tsx#default"></sf-i>"#), "placed empty: {html}");
 
   let markers = html.matches("<sf-i").count();
-  assert_eq!(markers, 3, "three placements, each a different mounting model: {html}");
+  assert_eq!(markers, 4, "four placements across four mounting models: {html}");
 }
 
 #[tokio::test]
@@ -146,9 +147,10 @@ async fn the_router_swaps_a_vue_segment_for_a_react_one_under_the_same_layout() 
   let news = body(host.handle(Request::get("/news?__payload").body(Bytes::new()).unwrap()).await).await;
 
   assert!(board.contains("Holdings.vue#default"), "the board payload names the Vue module: {board}");
+  assert!(board.contains("Focus.svelte#default"), "and the Svelte one beside it");
   assert!(!board.contains("Feed.tsx#default"), "and not the React page one");
   assert!(news.contains("Feed.tsx#default"), "the news payload names the React module: {news}");
-  assert!(!news.contains("Holdings.vue#default"), "and not the Vue one");
+  assert!(!news.contains("Holdings.vue#default") && !news.contains("Focus.svelte#default"), "and neither the Vue one nor the Svelte one");
   assert!(news.contains("layout.tera"), "both carry the layout segment, which the navigator keeps");
 }
 
