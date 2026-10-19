@@ -67,8 +67,6 @@ features = [
 minify = ["swc_core/ecma_minifier"]
 
 [dev-dependencies]
-# Built so the plugin tests have a `snapfirec-vue` to put on PATH.
-snapfire_vue = { path = "vue" }
 tempfile = "3.8"
 assert_cmd = "2.0"
 predicates = "3.0"

@@ -13,6 +13,28 @@ pub fn get_snapfirec_cmd() -> Command {
   Command::new(cargo_bin!("snapfirec"))
 }
 
+/// Puts a plugin's directory first on `cmd`'s PATH, building the plugin first.
+/// A dev-dependency does not build its binaries, so without the build a
+/// plugin test passes or fails on whether another crate's tests ran before it.
+pub fn with_plugin_on_path(cmd: &mut Command, package: &str, bin: &str) {
+  static BUILT: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+  let snapfirec = std::path::PathBuf::from(cargo_bin!("snapfirec"));
+  let dir = snapfirec.parent().expect("a target directory").to_path_buf();
+  {
+    let mut built = BUILT.lock().unwrap_or_else(|e| e.into_inner());
+    if !built.iter().any(|b| b == bin) {
+      let status = Command::new(env!("CARGO")).args(["build", "-p", package, "--bin", bin]).status().expect("cargo runs");
+      assert!(status.success(), "{bin} built");
+      built.push(bin.to_owned());
+    }
+  }
+  assert!(dir.join(bin).exists(), "{bin} is beside snapfirec in {}", dir.display());
+  let path = std::env::var_os("PATH").unwrap_or_default();
+  let mut entries = vec![dir];
+  entries.extend(std::env::split_paths(&path));
+  cmd.env("PATH", std::env::join_paths(entries).expect("a PATH"));
+}
+
 pub struct Fixture {
   // We keep the TempDir object in scope so it doesn't get dropped (and deleted)
   // until the Fixture itself is dropped.

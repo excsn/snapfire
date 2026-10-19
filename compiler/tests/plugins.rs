@@ -1,18 +1,11 @@
-use assert_cmd::cargo::cargo_bin;
 use assert_cmd::prelude::*;
 use std::fs;
 
 mod common;
 use common::{get_snapfirec_cmd, Fixture};
 
-/// The directory cargo built the plugin into, which is what a build finds it by.
 fn with_plugin_on_path(cmd: &mut std::process::Command) {
-  let plugin = cargo_bin("snapfirec-vue");
-  let dir = plugin.parent().expect("a target directory").to_path_buf();
-  let path = std::env::var_os("PATH").unwrap_or_default();
-  let mut entries = vec![dir];
-  entries.extend(std::env::split_paths(&path));
-  cmd.env("PATH", std::env::join_paths(entries).expect("a PATH"));
+  common::with_plugin_on_path(cmd, "snapfire_vue", "snapfirec-vue");
 }
 
 #[test]
