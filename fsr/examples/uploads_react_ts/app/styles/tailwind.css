@@ -1,0 +1,3 @@
+/* Tailwind's theme and utilities. Its preflight reset is left out so the other stylesheets here keep their look; add `@import "tailwindcss/preflight" layer(base);` to take it. */
+@import "tailwindcss/theme" layer(theme.root);
+@import "tailwindcss/utilities" layer(utilities);
