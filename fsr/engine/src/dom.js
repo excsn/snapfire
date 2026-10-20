@@ -661,6 +661,31 @@ const selectable = (doc) => {
 if (typeof globalThis.getSelection !== "function") globalThis.getSelection = () => emptySelection;
 if (typeof documentProto.getSelection !== "function") documentProto.getSelection = () => emptySelection;
 selectable(document);
+// linkedom has no `defaultValue`. A browser's input reflects its `value`
+// attribute and a textarea's is its text. Vue's v-model reads it as it
+// creates a control.
+if (globalThis.HTMLInputElement && !("defaultValue" in globalThis.HTMLInputElement.prototype)) {
+  Object.defineProperty(globalThis.HTMLInputElement.prototype, "defaultValue", {
+    configurable: true,
+    get() {
+      return this.getAttribute("value") ?? "";
+    },
+    set(value) {
+      this.setAttribute("value", String(value));
+    },
+  });
+}
+if (globalThis.HTMLTextAreaElement && !("defaultValue" in globalThis.HTMLTextAreaElement.prototype)) {
+  Object.defineProperty(globalThis.HTMLTextAreaElement.prototype, "defaultValue", {
+    configurable: true,
+    get() {
+      return this.textContent ?? "";
+    },
+    set(value) {
+      this.textContent = String(value);
+    },
+  });
+}
 // linkedom's button has no `value`. A browser's reflects the attribute and a
 // click carries it as the target's value.
 if (globalThis.HTMLButtonElement && !Object.getOwnPropertyDescriptor(globalThis.HTMLButtonElement.prototype, "value")) {

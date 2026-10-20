@@ -214,3 +214,12 @@ fn a_cleanup_that_throws_fails_its_own_test_and_the_rest_of_the_file_still_repor
   assert!(report.contains("leaves an island whose unmount throws") && report.contains("unmount broke"), "the cleanup's error is the first test's: {report}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn an_input_and_a_textarea_answer_their_default_value_as_in_a_browser() {
+  let spec = "import { expect, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"defaultValue is the markup's\", () => {\n  document.body.innerHTML = '<input id=\"i\" value=\"start\"><input id=\"e\"><textarea id=\"t\">notes</textarea>';\n  const input = document.querySelector(\"#i\") as HTMLInputElement;\n  const textarea = document.querySelector(\"#t\") as HTMLTextAreaElement;\n  input.value = \"typed\";\n  expect([input.defaultValue, (document.querySelector(\"#e\") as HTMLInputElement).defaultValue, textarea.defaultValue]).toEqual([\"start\", \"\", \"notes\"]);\n});\n";
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/default.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
