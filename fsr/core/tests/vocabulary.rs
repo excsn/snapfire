@@ -105,3 +105,16 @@ fn seq_length_prefix_prevents_boundary_shifts() {
   let b = Value::seq(vec![Value::str("a"), Value::str("bc")]);
   assert_ne!(a.fingerprint(), b.fingerprint());
 }
+
+#[test]
+fn a_place_is_the_body_or_an_element_named_by_its_id() {
+  use snapfire_fsr_core::Place;
+  assert_eq!(Place::parse("body"), Some(Place::Body));
+  assert_eq!(Place::parse("#modals"), Some(Place::Named("modals".to_owned())));
+  for spelling in ["body", "#modals", "#a-b_c1"] {
+    assert_eq!(Place::parse(spelling).unwrap().spelling(), spelling);
+  }
+  for bad in ["", "#", "modals", "#a b", ".modals", "#a\"b"] {
+    assert_eq!(Place::parse(bad), None, "{bad:?}");
+  }
+}

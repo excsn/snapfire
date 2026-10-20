@@ -211,11 +211,15 @@ impl Fingerprint for Node {
       }
       Node::Placed { target, nodes } => {
         h.update(&[6]);
-        write_str(h, target.as_str());
+        write_str(h, &target.spelling());
         write_len(h, nodes.len());
         for node in nodes {
           node.write_canonical(h);
         }
+      }
+      Node::Outlet(name) => {
+        h.update(&[7]);
+        write_str(h, name);
       }
     }
   }

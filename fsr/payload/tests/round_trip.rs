@@ -112,7 +112,10 @@ fn node_rows_round_trip_the_walked_page() {
     },
     Node::Pending { slot: SlotId(1), fallback: Box::new(Node::raw("<div class=skl></div>")) },
     Node::Placed { target: Place::Body, nodes: vec![Node::raw("<dialog>"), Node::text("a < b"), Node::raw("</dialog>")] },
-    Node::raw("</main>"),
+    Node::Placed { target: Place::Named("modals".to_owned()), nodes: vec![Node::raw("<p>m</p>")] },
+    Node::raw("<div id=\"modals\">"),
+    Node::Outlet("modals".to_owned()),
+    Node::raw("</div></main>"),
   ]);
 
   let row = node_to_row_json(&page);

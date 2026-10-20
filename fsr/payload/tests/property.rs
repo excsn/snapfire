@@ -106,7 +106,8 @@ fn node() -> BoxedStrategy<Node> {
           slot: SlotId(slot),
           fallback: Box::new(fallback),
         }),
-        prop::collection::vec(inner, 0..3).prop_map(|nodes| Node::Placed { target: Place::Body, nodes }),
+        (prop::bool::ANY, prop::collection::vec(inner, 0..3)).prop_map(|(body, nodes)| Node::Placed { target: if body { Place::Body } else { Place::Named("modals".to_owned()) }, nodes }),
+        Just(Node::Outlet("modals".to_owned())),
       ]
     })
     .boxed()

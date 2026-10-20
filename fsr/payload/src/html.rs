@@ -1,5 +1,5 @@
 use serde_json::Value as Json;
-use snapfire_fsr_core::{ModuleId, Node, Props, Value};
+use snapfire_fsr_core::{ModuleId, Node, Place, Props, Value};
 
 use crate::json::value_to_json;
 
@@ -31,6 +31,19 @@ pub struct HtmlSession {
   placed: String,
   /// The opening delimiter of the last piece in `placed`, which the next piece joins when it opens the same way.
   last_open: String,
+  /// The content placed at each named place since the last `finish`, by name in the order the names were first placed at.
+  named: Vec<(String, Vec<Piece>)>,
+  /// Where each `Node::Outlet` was written since the last `finish`: its offset in the string the writes went to and its name.
+  outlets: Vec<(usize, String)>,
+  /// How many placed pieces are being written around the current write; an outlet inside one is not recorded.
+  placing: u32,
+}
+
+/// One `Node::Placed`'s content with the segment and island it was written in.
+struct Piece {
+  segment: String,
+  island: String,
+  content: String,
 }
 
 const PLACED_END: &str = "<template data-sf-l-end></template>";
@@ -54,10 +67,46 @@ impl HtmlSession {
     std::mem::take(&mut self.placed)
   }
 
+  /// `node` written on its own and finished: content placed at a named place whose outlet is not in it is handed on to `take_placed`.
   pub fn serialize(&mut self, node: &Node) -> String {
     let mut out = String::new();
     self.write(node, &mut out);
+    self.finish(&mut out);
     out
+  }
+
+  /// Writes `node` at the end of `out`. Every `write_into` until the next `finish` has to write to the same string, since an outlet is recorded by its offset in it.
+  pub fn write_into(&mut self, node: &Node, out: &mut String) {
+    self.write(node, out);
+  }
+
+  /// Writes the content placed at each named place into its outlet in `out`, the first outlet of that name when there are several. Content whose outlet `out` does not hold goes to `take_placed`, opened with a `data-sf-to` naming its place, for the browser to move there.
+  pub fn finish(&mut self, out: &mut String) {
+    let outlets = std::mem::take(&mut self.outlets);
+    let mut named = std::mem::take(&mut self.named);
+    let mut inserts: Vec<(usize, String)> = Vec::new();
+    for (at, name) in outlets {
+      if let Some(i) = named.iter().position(|(n, _)| *n == name) {
+        let (_, pieces) = named.remove(i);
+        inserts.push((at, runs(&pieces, None)));
+      }
+    }
+    if !inserts.is_empty() {
+      let extra: usize = inserts.iter().map(|(_, run)| run.len()).sum();
+      let mut spliced = String::with_capacity(out.len() + extra);
+      let mut from = 0;
+      for (at, run) in &inserts {
+        spliced.push_str(&out[from..*at]);
+        spliced.push_str(run);
+        from = *at;
+      }
+      spliced.push_str(&out[from..]);
+      *out = spliced;
+    }
+    for (name, pieces) in named {
+      self.last_open.clear();
+      self.placed.push_str(&runs(&pieces, Some(&name)));
+    }
   }
 
   fn write(&mut self, node: &Node, out: &mut String) {
@@ -101,16 +150,22 @@ impl HtmlSession {
         out.push_str("</div>");
       }
       Node::Slot(_) => {}
+      Node::Outlet(name) => {
+        if self.placing == 0 {
+          self.outlets.push((out.len(), name.clone()));
+        }
+      }
+      Node::Placed { target: Place::Named(name), nodes } => {
+        let content = self.placed_content(nodes);
+        let piece = Piece { segment: self.segment.clone(), island: self.island.clone(), content };
+        match self.named.iter_mut().find(|(n, _)| n == name) {
+          Some((_, pieces)) => pieces.push(piece),
+          None => self.named.push((name.clone(), vec![piece])),
+        }
+      }
       Node::Placed { nodes, .. } => {
-        let mut content = String::new();
-        for node in nodes {
-          self.write(node, &mut content);
-        }
-        let mut open = format!("<template data-sf-l=\"{}\"", self.segment.replace('&', "&amp;").replace('"', "&quot;"));
-        if !self.island.is_empty() {
-          open.push_str(&format!(" data-sf-island=\"{}\"", self.island.replace('&', "&amp;").replace('"', "&quot;")));
-        }
-        open.push_str("></template>");
+        let content = self.placed_content(nodes);
+        let open = opener(&self.segment, &self.island, None);
         if open == self.last_open && self.placed.ends_with(PLACED_END) {
           self.placed.truncate(self.placed.len() - PLACED_END.len());
         } else {
@@ -121,6 +176,16 @@ impl HtmlSession {
         self.last_open = open;
       }
     }
+  }
+
+  fn placed_content(&mut self, nodes: &[Node]) -> String {
+    self.placing += 1;
+    let mut content = String::new();
+    for node in nodes {
+      self.write(node, &mut content);
+    }
+    self.placing -= 1;
+    content
   }
 
   /// The open tag with a fresh island id and the close tag with the props
@@ -134,6 +199,40 @@ impl HtmlSession {
       format!("</sf-i><script type=\"application/json\" data-sf-props=\"sf-i{id}\">{props_json}</script>"),
     )
   }
+}
+
+fn attr(value: &str) -> String {
+  value.replace('&', "&amp;").replace('"', "&quot;")
+}
+
+fn opener(segment: &str, island: &str, to: Option<&str>) -> String {
+  let mut open = format!("<template data-sf-l=\"{}\"", attr(segment));
+  if !island.is_empty() {
+    open.push_str(&format!(" data-sf-island=\"{}\"", attr(island)));
+  }
+  if let Some(to) = to {
+    open.push_str(&format!(" data-sf-to=\"{to}\""));
+  }
+  open.push_str("></template>");
+  open
+}
+
+/// `pieces` as runs, consecutive pieces of one segment and island sharing one.
+fn runs(pieces: &[Piece], to: Option<&str>) -> String {
+  let mut out = String::new();
+  let mut last: Option<(&str, &str)> = None;
+  for piece in pieces {
+    let this = (piece.segment.as_str(), piece.island.as_str());
+    if last == Some(this) {
+      out.truncate(out.len() - PLACED_END.len());
+    } else {
+      out.push_str(&opener(&piece.segment, &piece.island, to));
+    }
+    out.push_str(&piece.content);
+    out.push_str(PLACED_END);
+    last = Some(this);
+  }
+  out
 }
 
 /// `-` and `%` are escaped so a segment key can never contain `--` and close the comment that carries it.

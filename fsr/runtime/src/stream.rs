@@ -262,7 +262,7 @@ fn write_segment(session: &mut HtmlSession, node: &Node, info: &SegmentInfo, out
 /// descending through `Seq` items and an island's children alike.
 fn write_positioned(session: &mut HtmlSession, node: &Node, positioned: &[(&[u32], &SegmentInfo)], out: &mut String) {
   if positioned.is_empty() {
-    out.push_str(&session.serialize(node));
+    session.write_into(node, out);
     return;
   }
   let write_items = |session: &mut HtmlSession, items: &[Node], out: &mut String| {
@@ -291,7 +291,7 @@ fn write_positioned(session: &mut HtmlSession, node: &Node, positioned: &[(&[u32
       write_items(session, children, out);
       out.push_str(&close);
     }
-    _ => out.push_str(&session.serialize(node)),
+    _ => session.write_into(node, out),
   }
 }
 
@@ -304,6 +304,7 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   let mut session = HtmlSession::new();
   let mut first = String::new();
   write_segment(&mut session, &assembly.tree, &assembly.segments, &mut first);
+  session.finish(&mut first);
   first.push_str(&session.take_placed());
   first.push_str(&format!(
     "<script type=\"application/json\" data-sf-segments>{}</script>",
@@ -337,6 +338,7 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     };
     let mut body = String::new();
     write_segment(&mut state.session, &resolved.node, &info, &mut body);
+    state.session.finish(&mut body);
     let nested = if info.children.is_empty() {
       String::new()
     } else {
@@ -463,6 +465,6 @@ fn fill(node: &mut Node, fills: &HashMap<u32, Node>) {
       }
     }
     Node::Placed { nodes, .. } => nodes.iter_mut().for_each(|node| fill(node, fills)),
-    Node::Text(_) | Node::Raw(_) | Node::Slot(_) => {}
+    Node::Text(_) | Node::Raw(_) | Node::Slot(_) | Node::Outlet(_) => {}
   }
 }

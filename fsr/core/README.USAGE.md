@@ -39,7 +39,7 @@ This guide covers building values in the FSR value model, assembling a payload `
 * **Typed array** - `Value::TypedArray`, a numeric series held as one Rust `Vec` rather than one `Value` per element, mirroring the JavaScript `TypedArray` element set.
 * **Variant** - `Value::Variant`, a tag plus an optional payload. A Rust enum with data arrives in TypeScript as a discriminated union because the model carries the shape, not a map-shaped convention.
 * **Ref** - `Value::Ref`, a closed pair of kind and id. `RefKind::Action` names a server action, `RefKind::Module` names a client module.
-* **`Node`** - The payload tree, what a response renders to. Its variants are `Text`, `Raw`, `Seq`, `Client`, `Pending`, `Slot` and `Placed`.
+* **`Node`** - The payload tree, what a response renders to. Its variants are `Text`, `Raw`, `Seq`, `Client`, `Pending`, `Slot`, `Placed` and `Outlet`.
 * **`Html`** - A newtype over `String` holding trusted markup. It is serialized without escaping, so nothing untrusted may be put inside it.
 * **Island** - A `Node::Client`, a hydratable component named by `ModuleId` and carrying its props. `ssr` holds the evaluator's output when one ran.
 * **Slot** - A hole in the payload. `Node::Pending` carries a `SlotId` and an inline fallback; a later stream row fills it.

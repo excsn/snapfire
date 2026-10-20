@@ -9,7 +9,7 @@ pub mod value;
 pub use duration::parse_duration;
 pub use fingerprint::Fingerprint;
 pub use module_id::ModuleId;
-pub use node::{Html, Node, Place, SlotId};
+pub use node::{is_place_name, Html, Node, Place, SlotId};
 pub use plan::{CacheKey, DataSourceId, NodeId, PlanNode, SlotName};
 pub use value::{Fields, Items, Props, RefKind, Text, TypedArray, Value, ValueHasher, ValueMap, ValueSeq, ValueStr};
 

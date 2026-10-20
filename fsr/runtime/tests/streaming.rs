@@ -353,3 +353,55 @@ fn placed_content_follows_the_tree_marked_with_its_segment_and_precedes_a_late_f
   assert!(dialog < late.find("<template data-sf-fill").expect("the fill"), "a fill's placed content precedes it, so it is in the body before the fill wakes an island: {late}");
   assert!(late.starts_with("<template data-sf-l=\"late.tera#default\">"), "{late}");
 }
+
+/// A shell holding the place `modals` before its slot.
+struct ShellWithPlace;
+
+impl Evaluator for ShellWithPlace {
+  fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
+    Box::pin(stream::iter([
+      Ok(Chunk::Node(Node::Seq(vec![Node::raw("<shell><div id=\"modals\">"), Node::Outlet("modals".into()), Node::raw("</div>")]))),
+      Ok(Chunk::Slot(SlotName("content".into()))),
+      Ok(Chunk::Node(Node::raw("</shell>"))),
+    ]))
+  }
+}
+
+/// A modal placed at `modals`, then the slot named by the second field.
+struct NamedModal(&'static str, Option<&'static str>);
+
+impl Evaluator for NamedModal {
+  fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
+    let mut chunks = vec![Ok(Chunk::Node(Node::Seq(vec![
+      Node::raw("<button>open</button>"),
+      Node::Placed { target: snapfire_fsr_core::Place::Named("modals".into()), nodes: vec![Node::raw(format!("<dialog>{}</dialog>", self.0))] },
+    ])))];
+    if let Some(slot) = self.1 {
+      chunks.push(Ok(Chunk::Slot(SlotName(slot.into()))));
+    }
+    Box::pin(stream::iter(chunks))
+  }
+}
+
+#[test]
+fn content_placed_at_a_named_place_lands_in_its_outlet_and_a_late_fill_names_the_place_for_the_browser() {
+  let mut plan = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
+  let mut eager = PlanNode::new(NodeId(1), ModuleId::new("eager.tera", "default"));
+  eager.children.push((SlotName("late".into()), deferred_child(2, "late.tera", None)));
+  plan.children.push((SlotName("content".into()), eager));
+  let runtime = runtime_with(
+    vec![
+      ("shell.tera", Arc::new(ShellWithPlace)),
+      ("eager.tera", Arc::new(NamedModal("now", Some("late")))),
+      ("late.tera", Arc::new(NamedModal("later", None))),
+      ("loading.tera", Arc::new(Skeleton)),
+    ],
+    DataSources::new(),
+  );
+  let assemble_page = || block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let wire = collect(wire_stream(assemble_page()));
+  assert!(wire[0].contains("[\"l\",\"#modals\",[[\"r\",\"<dialog>now</dialog>\"]]]") && wire[0].contains("[\"o\",\"modals\"]"), "{}", wire[0]);
+  let chunks = collect(html_stream(assemble_page()));
+  assert!(chunks[0].contains("<div id=\"modals\"><template data-sf-l=\"eager.tera#default\"></template><dialog>now</dialog><template data-sf-l-end></template></div>"), "{}", chunks[0]);
+  assert!(chunks[1].starts_with("<template data-sf-l=\"late.tera#default\" data-sf-to=\"modals\"></template><dialog>later</dialog><template data-sf-l-end></template><template data-sf-fill"), "{}", chunks[1]);
+}

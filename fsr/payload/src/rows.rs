@@ -27,7 +27,8 @@ pub fn node_to_row_json(node: &Node) -> Json {
     }
     Node::Pending { slot, fallback } => json!(["p", slot.0, node_to_row_json(fallback)]),
     Node::Slot(_) => json!(["q", []]),
-    Node::Placed { target, nodes } => json!(["l", target.as_str(), nodes.iter().map(node_to_row_json).collect::<Vec<Json>>()]),
+    Node::Placed { target, nodes } => json!(["l", target.spelling(), nodes.iter().map(node_to_row_json).collect::<Vec<Json>>()]),
+    Node::Outlet(name) => json!(["o", name]),
   }
 }
 
@@ -80,6 +81,13 @@ pub fn row_json_to_node(json: &Json) -> Result<Node, DecodeError> {
       let items = row.get(2).and_then(Json::as_array).ok_or_else(|| err("`l` row needs an array"))?;
       let nodes = items.iter().map(row_json_to_node).collect::<Result<_, _>>()?;
       Ok(Node::Placed { target, nodes })
+    }
+    "o" => {
+      let name = row.get(1).and_then(Json::as_str).ok_or_else(|| err("`o` row needs a name"))?;
+      if !snapfire_fsr_core::is_place_name(name) {
+        return Err(err(format!("`o` row names `{name}`, which is not a place name")));
+      }
+      Ok(Node::Outlet(name.to_owned()))
     }
     other => Err(err(format!("unknown node row kind `{other}`"))),
   }

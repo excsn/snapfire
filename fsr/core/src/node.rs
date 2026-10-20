@@ -37,30 +37,40 @@ pub enum Node {
     target: Place,
     nodes: Vec<Node>,
   },
+  /// Where the content placed at `Place::Named` of this name is written: inside the element whose id is the name, which the markup around it opens and closes.
+  Outlet(String),
 }
 
 /// Where a `Node::Placed` writes its content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Place {
   /// The end of the document's body.
   Body,
+  /// The element a `Node::Outlet` of this name sits in, whose id is the name.
+  Named(String),
 }
 
 impl Place {
-  /// The spelling the payload and a lowerer use.
-  pub fn as_str(self) -> &'static str {
+  /// The spelling the payload and a lowerer use: `body` for the body and `#` followed by the name for a named place.
+  pub fn spelling(&self) -> Cow<'_, str> {
     match self {
-      Place::Body => "body",
+      Place::Body => Cow::Borrowed("body"),
+      Place::Named(name) => Cow::Owned(format!("#{name}")),
     }
   }
 
   pub fn parse(target: &str) -> Option<Place> {
     match target {
       "body" => Some(Place::Body),
-      _ => None,
+      _ => target.strip_prefix('#').filter(|name| is_place_name(name)).map(|name| Place::Named(name.to_owned())),
     }
   }
+}
+
+/// One or more ASCII letters, digits, `-` and `_`, so a name is written into an attribute and a selector as it stands.
+pub fn is_place_name(name: &str) -> bool {
+  !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 impl Node {

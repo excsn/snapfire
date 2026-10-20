@@ -153,6 +153,7 @@ One node of the payload tree.
 * `Pending { slot: SlotId, fallback: Box<Node> }` - the fallback is carried inline, so the first response is complete without the resolution row.
 * `Slot(SlotName)` - where a child segment goes inside an island's own markup, a layout's `children`. The assembler replaces it with the child's node; a serializer never sees one and writes nothing for it if it does.
 * `Placed { target: Place, nodes: Vec<Node> }` - content written at `target` rather than where the node sits, such as a modal at the end of the body. Where it sits names the segment that owns it, so a navigation that replaces the segment removes it.
+* `Outlet(String)` - where the content placed at `Place::Named` of this name is written: inside the element whose id is the name, which the markup around the outlet opens and closes.
 * `pub fn text(v: impl Into<Cow<'static, str>>) -> Node`
 * `pub fn raw(v: impl Into<String>) -> Node` - wraps the string in `Html`.
 * Derives `Debug`, `Clone` and `PartialEq`. Not `Eq` or `Hash`, since props can hold floats.
@@ -162,9 +163,14 @@ One node of the payload tree.
 Where a `Node::Placed` writes its content. `#[non_exhaustive]`.
 
 * `Body` - the end of the document's body.
-* `pub fn as_str(self) -> &'static str` - the payload's spelling, `body`.
-* `pub fn parse(target: &str) -> Option<Place>`
-* Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq` and `Hash`.
+* `Named(String)` - the element a `Node::Outlet` of this name sits in, whose id is the name.
+* `pub fn spelling(&self) -> Cow<'_, str>` - the payload's spelling: `body` for the body and `#` followed by the name for a named place.
+* `pub fn parse(target: &str) -> Option<Place>` - `None` for anything but `body` or `#` and a name `is_place_name` accepts.
+* Derives `Debug`, `Clone`, `PartialEq`, `Eq` and `Hash`.
+
+### is_place_name
+
+* `pub fn is_place_name(name: &str) -> bool` - one or more ASCII letters, digits, `-` and `_`, so a name is written into an attribute and a selector as it stands.
 
 ## 4. The Render Plan
 
