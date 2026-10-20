@@ -106,6 +106,9 @@ pub struct AddReport {
   pub from_shell: Vec<(String, String)>,
   /// The `xwpm add` invocations run instead, when the application is xwpm's.
   pub delegated: Vec<String>,
+  /// `<package>/<file>` for each vendored module that named a map the tree
+  /// lacked, now beside it or, when esm.sh has none, no longer named.
+  pub repaired: Vec<String>,
 }
 
 /// The import map's `imports` table, read and written whole; other keys survive.
@@ -259,7 +262,7 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
       xwpm::run(app, &["add", &arg])?;
       delegated.push(arg);
     }
-    return Ok(AddReport { added: Vec::new(), remapped: Vec::new(), from_shell: Vec::new(), delegated });
+    return Ok(AddReport { added: Vec::new(), remapped: Vec::new(), from_shell: Vec::new(), delegated, repaired: Vec::new() });
   }
   let client = client()?;
   let mut manifest = VendorManifest::read(app, &layout)?;
@@ -315,16 +318,7 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
         external.push(package);
       }
     }
-    let mut url = format!("{host}/{}@{}", spec.package, spec.version);
-    if let Some(sub) = &spec.subpath {
-      url.push('/');
-      url.push_str(sub);
-    }
-    url.push_str("?target=es2022&bundle");
-    if !external.is_empty() {
-      url.push_str("&external=");
-      url.push_str(&external.join(","));
-    }
+    let url = bundle_url(host, spec, &external);
     let stub = get(&client, &url)?.ok_or_else(|| BuildError::Http(url.clone(), "HTTP 404: no such package or version".to_owned()))?;
     let stub = String::from_utf8_lossy(&stub).into_owned();
     let paths = stub_paths(&stub);
@@ -398,12 +392,119 @@ fn add_from(app: &Path, specs: &[Spec], externals: &[String], host: &str) -> Res
     }
   }
 
+  let fresh: Vec<&str> = wanted.iter().map(|spec| spec.package.as_str()).collect();
+  let repaired = repair_maps(app, &layout, &manifest, &client, host, &shared, &fresh)?;
+  if specs.is_empty() && remapped.is_empty() {
+    return Ok(AddReport { added, remapped, from_shell, delegated: Vec::new(), repaired });
+  }
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   write_import_map(app, &layout, &map)?;
   if !manifest.packages.is_empty() || app.join(&layout.vendor).join(VENDOR_MANIFEST).is_file() {
     manifest.write(app, &layout)?;
   }
-  Ok(AddReport { added, remapped, from_shell, delegated: Vec::new() })
+  Ok(AddReport { added, remapped, from_shell, delegated: Vec::new(), repaired })
+}
+
+/// The esm.sh URL of `spec` bundled with `external` left bare.
+fn bundle_url(host: &str, spec: &Spec, external: &[&str]) -> String {
+  let mut url = format!("{host}/{}@{}", spec.package, spec.version);
+  if let Some(sub) = &spec.subpath {
+    url.push('/');
+    url.push_str(sub);
+  }
+  url.push_str("?target=es2022&bundle");
+  if !external.is_empty() {
+    url.push_str("&external=");
+    url.push_str(&external.join(","));
+  }
+  url
+}
+
+/// Each module vendored from esm.sh that names a map its directory lacks,
+/// by package, with the name it gives the map: what vendoring left behind
+/// before it carried maps.
+fn unmapped_modules(app: &Path, layout: &Layout, manifest: &VendorManifest) -> BTreeMap<String, Vec<(String, String)>> {
+  let mut found: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
+  for package in manifest.packages.iter().filter(|(_, record)| !record.published).map(|(package, _)| package) {
+    let dir = app.join(&layout.vendor).join(package);
+    let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+    for entry in entries.flatten() {
+      let name = entry.file_name().to_string_lossy().into_owned();
+      if name.ends_with(".map") {
+        continue;
+      }
+      let Ok(text) = std::fs::read_to_string(entry.path()) else { continue };
+      if let Some((_, named)) = source_map(&text).filter(|(_, named)| !dir.join(named).is_file()) {
+        found.entry(package.clone()).or_default().push((name, named));
+      }
+    }
+  }
+  found
+}
+
+/// Drops the trailing `sourceMappingURL` comment of the module at `file`.
+fn unname_map(file: &Path) -> Result<(), BuildError> {
+  let text = std::fs::read_to_string(file).map_err(|e| BuildError::Io(file.to_path_buf(), e))?;
+  if let Some((at, _)) = source_map(&text) {
+    std::fs::write(file, format!("{}\n", text[..at].trim_end())).map_err(|e| BuildError::Io(file.to_path_buf(), e))?;
+  }
+  Ok(())
+}
+
+/// Fetches the map each module [`unmapped_modules`] finds names, walking the
+/// package's bundle on esm.sh as `add` did to learn each module's path, and
+/// leaves the module's bytes alone. A module whose map esm.sh lacks, or that
+/// esm.sh no longer serves, loses the comment. `fresh` packages were just
+/// vendored whole.
+fn repair_maps(app: &Path, layout: &Layout, manifest: &VendorManifest, client: &reqwest::blocking::Client, host: &str, shared: &[String], fresh: &[&str]) -> Result<Vec<String>, BuildError> {
+  let mut repaired = Vec::new();
+  for (package, mut broken) in unmapped_modules(app, layout, manifest) {
+    if fresh.contains(&package.as_str()) {
+      continue;
+    }
+    let Some(record) = manifest.packages.get(&package) else { continue };
+    let dir = app.join(&layout.vendor).join(&package);
+    for specifier in record.entries.keys() {
+      let subpath = specifier.strip_prefix(&format!("{package}/")).map(str::to_owned);
+      let spec = Spec { package: package.clone(), version: record.version.clone(), subpath };
+      let root = spec.subpath.is_none();
+      let mut external: Vec<&str> = record.externals.iter().map(String::as_str).filter(|bare| !(root && *bare == package)).collect();
+      for other in shared {
+        let itself = other == &package && spec.subpath.is_none();
+        if !itself && !external.contains(&other.as_str()) {
+          external.push(other);
+        }
+      }
+      let Some(stub) = get(client, &bundle_url(host, &spec, &external))? else { continue };
+      let mut queue = stub_paths(&String::from_utf8_lossy(&stub));
+      let mut seen: Vec<String> = Vec::new();
+      while let Some(path) = queue.pop() {
+        let name = file_name(&path);
+        if seen.contains(&name) {
+          continue;
+        }
+        seen.push(name.clone());
+        let Some(bytes) = get(client, &format!("{host}{path}"))? else { continue };
+        queue.extend(absolute_imports(&String::from_utf8_lossy(&bytes)).into_iter().filter(|import| import.starts_with(&format!("/{package}@"))));
+        let Some(at) = broken.iter().position(|(file, _)| *file == name) else { continue };
+        let (file, named) = broken.remove(at);
+        let map_path = format!("{}/{named}", path.rsplit_once('/').map_or("", |(parent, _)| parent));
+        match get(client, &format!("{host}{map_path}"))?.filter(|_| !named.contains('/')) {
+          Some(map) => {
+            let target = dir.join(&named);
+            std::fs::write(&target, map).map_err(|e| BuildError::Io(target, e))?;
+          }
+          None => unname_map(&dir.join(&file))?,
+        }
+        repaired.push(format!("{package}/{file}"));
+      }
+    }
+    for (file, _) in broken {
+      unname_map(&dir.join(&file))?;
+      repaired.push(format!("{package}/{file}"));
+    }
+  }
+  Ok(repaired)
 }
 
 #[cfg(test)]
@@ -494,6 +595,46 @@ mod tests {
     }
     named.sort();
     assert_eq!(named, ["shared.mjs.map", "vue.bundle.mjs.map"], "a module whose map esm.sh lacks loses the comment");
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_run_with_nothing_to_add_or_repair_writes_nothing() {
+    let app = std::env::temp_dir().join(format!("fsr-vendor-nothing-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(&app).unwrap();
+    let report = add_from(&app, &[], &[], &esm_stub()).unwrap();
+    assert!(report.added.is_empty() && report.repaired.is_empty());
+    let left: Vec<_> = std::fs::read_dir(&app).unwrap().flatten().map(|entry| entry.file_name()).collect();
+    assert!(left.is_empty(), "{left:?}");
+    std::fs::remove_dir_all(&app).unwrap();
+  }
+
+  #[test]
+  fn a_vendored_module_naming_a_map_the_tree_lacks_gets_the_map_or_loses_the_comment() {
+    let app = std::env::temp_dir().join(format!("fsr-vendor-repair-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&app);
+    std::fs::create_dir_all(&app).unwrap();
+    let host = esm_stub();
+    add_from(&app, &[Spec::parse("vue@3.5.13").unwrap()], &[], &host).unwrap();
+    let dir = app.join(Layout::of(&app).unwrap().vendor).join("vue");
+    std::fs::remove_file(dir.join("vue.bundle.mjs.map")).unwrap();
+    std::fs::remove_file(dir.join("shared.mjs.map")).unwrap();
+    std::fs::write(dir.join("unmapped.mjs"), "export const u = 1;\n//# sourceMappingURL=unmapped.mjs.map\n").unwrap();
+    let bundle = std::fs::read_to_string(dir.join("vue.bundle.mjs")).unwrap();
+    let layout = Layout::of(&app).unwrap();
+    let mut manifest = VendorManifest::read(&app, &layout).unwrap();
+    manifest.packages.get_mut("vue").unwrap().externals.push("vue".to_owned());
+    manifest.write(&app, &layout).unwrap();
+
+    let report = add_from(&app, &[], &[], &host).unwrap();
+    assert!(dir.join("vue.bundle.mjs.map").is_file() && dir.join("shared.mjs.map").is_file(), "the maps esm.sh has are vendored");
+    assert_eq!(std::fs::read_to_string(dir.join("vue.bundle.mjs")).unwrap(), bundle, "a repaired module keeps its bytes");
+    assert_eq!(std::fs::read_to_string(dir.join("unmapped.mjs")).unwrap().trim_end(), "export const u = 1;", "a map esm.sh lacks takes the comment with it");
+    let mut repaired = report.repaired.clone();
+    repaired.sort();
+    assert_eq!(repaired, ["vue/shared.mjs", "vue/unmapped.mjs", "vue/vue.bundle.mjs"]);
+    assert!(add_from(&app, &[], &[], &host).unwrap().repaired.is_empty(), "a repaired tree has nothing left to repair");
     std::fs::remove_dir_all(&app).unwrap();
   }
 }

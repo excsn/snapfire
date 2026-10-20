@@ -122,7 +122,7 @@ fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddR
         delegated.push(arg);
       }
     }
-    return Ok(AddReport { added: Vec::new(), remapped: Vec::new(), from_shell: Vec::new(), delegated });
+    return Ok(AddReport { added: Vec::new(), remapped: Vec::new(), from_shell: Vec::new(), delegated, repaired: Vec::new() });
   }
   let client = vendor::client()?;
   let mut packages: BTreeMap<String, Package> = BTreeMap::new();
@@ -203,7 +203,7 @@ fn add_published_from(app: &Path, specs: &[Spec], registry: &str) -> Result<AddR
   map.insert("imports".to_owned(), serde_json::Value::Object(imports));
   vendor::write_import_map(app, &layout, &map)?;
   manifest.write(app, &layout)?;
-  Ok(AddReport { added, remapped: Vec::new(), from_shell: Vec::new(), delegated: Vec::new() })
+  Ok(AddReport { added, remapped: Vec::new(), from_shell: Vec::new(), delegated: Vec::new(), repaired: Vec::new() })
 }
 
 /// Whether `name` is one the npm registry accepts: an optional `@scope/` and
