@@ -1321,9 +1321,35 @@ useEffect(() => {
 
 Each `setInterval` or `setTimeout` in an effect with an empty dependency list, its delay written out, steps the page when it is due, its callback lowered like a handler. An effect with dependencies is not run yet.
 
+Every component the page places runs in place with its own state, its own `useInput` and its own timers. A key reaches every `useInput`, as in Ink. `useFocus` makes a component focusable; Tab and Shift+Tab move the focus through them in the order they render and Esc clears it:
+
+```tsx
+import { Box, Text, useFocus, useFocusManager, useInput } from "ink";
+
+function Item({ label, id }: { label: string; id?: string }) {
+  const { isFocused } = useFocus({ id });
+  return <Text color={isFocused ? "green" : undefined}>{label}</Text>;
+}
+
+export default function Menu() {
+  const { focus } = useFocusManager();
+  useInput((input) => {
+    if (input === "s") focus("save");
+  });
+  return (
+    <Box flexDirection="column">
+      <Item label="Open" />
+      <Item label="Save" id="save" />
+    </Box>
+  );
+}
+```
+
+`useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch` and a write to a `useRef`'s `current` work in a handler. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do.
+
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
-Effects with dependencies, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks, percentage sizes and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
+Effects with dependencies, `Static`, `Transform`, `measureElement`, `useCursor`, `useBoxMetrics`, `Suspense`, a ref written during render, percentage sizes and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 
