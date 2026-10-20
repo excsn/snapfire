@@ -17,7 +17,7 @@ fn quote(s: &str) -> String {
 fn key(k: &PropertyKey) -> String {
   match k {
     PropertyKey::StaticIdentifier(id) => id.name.to_string(),
-    PropertyKey::StringLiteral(s) => s.value.to_string(),
+    PropertyKey::StringLiteral(s) => s.value.display().to_string(),
     PropertyKey::NumericLiteral(n) => n.raw.map(|r| r.to_string()).unwrap_or_else(|| n.value.to_string()),
     other => panic!("unsupported key {other:?}"),
   }
@@ -25,7 +25,7 @@ fn key(k: &PropertyKey) -> String {
 
 fn expr(e: &Expression) -> String {
   match e {
-    Expression::StringLiteral(s) => format!("E::Str({})", quote(&s.value)),
+    Expression::StringLiteral(s) => format!("E::Str({})", quote(&s.value.display().to_string())),
     Expression::NumericLiteral(n) => format!(
       "E::Str({})",
       quote(&n.raw.map(|r| r.to_string()).unwrap_or_else(|| n.value.to_string()))
@@ -73,7 +73,7 @@ fn expr(e: &Expression) -> String {
       };
       assert_eq!(callee.name, "theme");
       let path = match c.arguments.first().and_then(|a| a.as_expression()) {
-        Some(Expression::StringLiteral(s)) => s.value.to_string(),
+        Some(Expression::StringLiteral(s)) => s.value.display().to_string(),
         _ => panic!("theme() takes a string path"),
       };
       let fallback = c.arguments.get(1).and_then(|a| a.as_expression()).map(expr);

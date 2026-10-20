@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{Result, anyhow};
 use oxc_allocator::Allocator;
-use oxc_ast::ast::{Statement, Str, StringLiteral};
+use oxc_ast::ast::{Statement, StringLiteral};
 use oxc_codegen::Codegen;
 use oxc_isolated_declarations::{IsolatedDeclarations, IsolatedDeclarationsOptions};
 use oxc_parser::Parser;
@@ -50,7 +50,9 @@ pub fn declare(path: &Path, aliases: &Aliases, source_text: &Result<String>) -> 
       continue;
     };
 
-    let written = source.value.as_str().to_owned();
+    let Some(written) = source.value.as_str().map(str::to_owned) else {
+      continue;
+    };
     let relative = if written.starts_with('.') {
       written.clone()
     } else {
@@ -62,11 +64,11 @@ pub fn declare(path: &Path, aliases: &Aliases, source_text: &Result<String>) -> 
 
     let resolved = resolve_specifier(dir, &relative);
 
-    if resolved == source.value.as_str() {
+    if resolved == written {
       continue;
     }
 
-    source.value = Str::from(&*allocator.alloc_str(&resolved));
+    source.value = (&*allocator.alloc_str(&resolved)).into();
     source.raw = None;
   }
 

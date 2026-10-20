@@ -88,7 +88,7 @@ wry = { version = "0.57", optional = true }
 toml = "0.8"
 
 [dependencies.swc_core]
-version = "77"
+version = "82"
 features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
 
 [dev-dependencies]

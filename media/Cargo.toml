@@ -14,7 +14,7 @@ homepage = "https://github.com/excsn/snapfire/tree/main/media"
 readme = "README.md"
 
 [dependencies]
-imagesize = "0.14"
+imagesize = "0.15"
 kamadak-exif = "0.6"
 ttf-parser = "0.25"
 wuff = "0.2"

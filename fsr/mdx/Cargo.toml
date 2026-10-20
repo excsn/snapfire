@@ -30,5 +30,5 @@ yaml-rust2 = { version = "0.13", optional = true }
 toml = { version = "0.8", optional = true }
 
 [dependencies.swc_core]
-version = "77"
+version = "82"
 features = ["common", "ecma_ast", "ecma_parser"]

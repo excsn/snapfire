@@ -202,7 +202,8 @@ impl<'a> oxc_ast_visit::Visit<'a> for Consts {
         if let oxc_ast::ast::Expression::ObjectExpression(o) = init.without_parentheses() {
           for property in &o.properties {
             if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property
-              && let Some(key) = p.key.static_name()
+              && let Some(name) = p.key.static_name()
+              && let Some(key) = name.as_str()
             {
               fields.push((key.to_string(), read(&mut |c| c.expression(&p.value))));
             }
@@ -264,13 +265,13 @@ fn helper_aliases(program: &oxc_ast::ast::Program) -> std::collections::HashSet<
           let imported = match &s.imported {
             ModuleExportName::IdentifierName(n) => n.name.as_str(),
             ModuleExportName::IdentifierReference(n) => n.name.as_str(),
-            ModuleExportName::StringLiteral(n) => n.value.as_str(),
+            ModuleExportName::StringLiteral(n) => n.value.as_str().unwrap_or_default(),
           };
           if CLASS_CALLS.contains(&imported) {
             out.insert(s.local.name.to_string());
           }
         }
-        ImportDeclarationSpecifier::ImportDefaultSpecifier(s) if CLASS_PACKAGES.contains(&import.source.value.as_str()) => {
+        ImportDeclarationSpecifier::ImportDefaultSpecifier(s) if CLASS_PACKAGES.contains(&import.source.value.as_str().unwrap_or_default()) => {
           out.insert(s.local.name.to_string());
         }
         _ => {}
@@ -326,11 +327,11 @@ impl Classes<'_> {
           self.from_table(|t| t.fields.get(&key));
         }
       }
-      Expression::StringLiteral(s) => self.words(&s.value),
+      Expression::StringLiteral(s) => self.words(s.value.as_str().unwrap_or_default()),
       Expression::TemplateLiteral(t) => {
         let last = t.quasis.len().saturating_sub(1);
         for (i, quasi) in t.quasis.iter().enumerate() {
-          let text = quasi.value.cooked.as_ref().map(|c| c.as_str()).unwrap_or(quasi.value.raw.as_str());
+          let text = quasi.value.cooked.and_then(|c| c.as_str()).unwrap_or(quasi.value.raw.as_str());
           let mut tokens: Vec<&str> = text.split_whitespace().collect();
           if i > 0 && !text.starts_with(char::is_whitespace) && !tokens.is_empty() {
             tokens.remove(0);
@@ -365,7 +366,7 @@ impl Classes<'_> {
         for property in &o.properties {
           if let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(p) = property {
             match &p.key {
-              oxc_ast::ast::PropertyKey::StringLiteral(s) => self.words(&s.value),
+              oxc_ast::ast::PropertyKey::StringLiteral(s) => self.words(s.value.as_str().unwrap_or_default()),
               oxc_ast::ast::PropertyKey::StaticIdentifier(id) => self.words(&id.name),
               _ => {}
             }
@@ -418,8 +419,8 @@ impl Classes<'_> {
       }
       "from_html" | "from_svg" | "from_mathml" => {
         let markup = match argument(0) {
-          Some(oxc_ast::ast::Expression::StringLiteral(s)) => Some(s.value.to_string()),
-          Some(oxc_ast::ast::Expression::TemplateLiteral(t)) if t.expressions.is_empty() => t.quasis.first().map(|q| q.value.cooked.as_ref().map(|c| c.to_string()).unwrap_or_else(|| q.value.raw.to_string())),
+          Some(oxc_ast::ast::Expression::StringLiteral(s)) => s.value.as_str().map(str::to_owned),
+          Some(oxc_ast::ast::Expression::TemplateLiteral(t)) if t.expressions.is_empty() => t.quasis.first().map(|q| q.value.cooked.and_then(|c| c.as_str()).unwrap_or(q.value.raw.as_str()).to_owned()),
           _ => None,
         };
         let Some(markup) = markup else { return };
@@ -485,7 +486,7 @@ impl<'a> oxc_ast_visit::Visit<'a> for Classes<'_> {
     let named = matches!(&attribute.name, oxc_ast::ast::JSXAttributeName::Identifier(id) if id.name == "class" || id.name == "className");
     if named {
       match &attribute.value {
-        Some(oxc_ast::ast::JSXAttributeValue::StringLiteral(s)) => self.words(&s.value),
+        Some(oxc_ast::ast::JSXAttributeValue::StringLiteral(s)) => self.words(s.value.as_str().unwrap_or_default()),
         Some(oxc_ast::ast::JSXAttributeValue::ExpressionContainer(c)) => {
           if let Some(e) = c.expression.as_expression() {
             self.expression(e);
@@ -534,20 +535,20 @@ struct Imports {
 
 impl<'a> oxc_ast_visit::Visit<'a> for Imports {
   fn visit_import_declaration(&mut self, it: &oxc_ast::ast::ImportDeclaration<'a>) {
-    self.found.insert(it.source.value.to_string());
+    self.found.extend(it.source.value.as_str().map(str::to_owned));
   }
 
   fn visit_export_all_declaration(&mut self, it: &oxc_ast::ast::ExportAllDeclaration<'a>) {
-    self.found.insert(it.source.value.to_string());
+    self.found.extend(it.source.value.as_str().map(str::to_owned));
   }
 
   fn visit_export_from_declaration(&mut self, it: &oxc_ast::ast::ExportFromDeclaration<'a>) {
-    self.found.insert(it.source.value.to_string());
+    self.found.extend(it.source.value.as_str().map(str::to_owned));
   }
 
   fn visit_import_expression(&mut self, it: &oxc_ast::ast::ImportExpression<'a>) {
     if let oxc_ast::ast::Expression::StringLiteral(s) = &it.source {
-      self.found.insert(s.value.to_string());
+      self.found.extend(s.value.as_str().map(str::to_owned));
     }
     oxc_ast_visit::walk::walk_import_expression(self, it);
   }

@@ -206,7 +206,7 @@ fn cooked_template(t: &TemplateLiteral) -> Option<String> {
   if !t.expressions.is_empty() {
     return None;
   }
-  t.quasis.first()?.value.cooked.as_ref().map(|c| c.to_string())
+  t.quasis.first()?.value.cooked.map(|c| c.display().to_string())
 }
 
 /// Jest's `stripAddedIndentation`.
@@ -340,7 +340,7 @@ impl<'s> Extractor<'s> {
   /// variable holding one or a read of one of Tailwind's own stylesheets.
   fn string_of(&self, expr: &Expression) -> Option<String> {
     match expr {
-      Expression::StringLiteral(s) => Some(s.value.to_string()),
+      Expression::StringLiteral(s) => Some(s.value.display().to_string()),
       Expression::TemplateLiteral(t) => self.template(t, false),
       Expression::TaggedTemplateExpression(t)
         if t.quasi.expressions.is_empty()
@@ -400,7 +400,7 @@ impl<'s> Extractor<'s> {
       if raw {
         out.push_str(&quasi.value.raw);
       } else {
-        out.push_str(quasi.value.cooked.as_ref()?);
+        out.push_str(quasi.value.cooked?.as_str()?);
       }
       if let Some(expr) = t.expressions.get(i) {
         out.push_str(&self.string_of(expr)?);
@@ -520,7 +520,7 @@ impl<'s> Extractor<'s> {
             let mut inner = when.to_vec();
             if let Some(test) = &case.test {
               let Expression::StringLiteral(value) = test else { return Err("a loader case that is not a string".to_owned()) };
-              inner.push(Cond { arg, op: "eq".to_owned(), value: value.value.to_string() });
+              inner.push(Cond { arg, op: "eq".to_owned(), value: value.value.display().to_string() });
             }
             self.loader_rows(params, &case.consequent, &inner, rows)?;
           }
@@ -546,7 +546,7 @@ impl<'s> Extractor<'s> {
     let mut base = None;
     for property in &object.properties {
       let ObjectPropertyKind::ObjectProperty(p) = property else { return Err("a loader answer with a spread".to_owned()) };
-      let key = p.key.static_name().map(|k| k.to_string()).unwrap_or_default();
+      let key = p.key.static_name().map(|k| k.display().to_string()).unwrap_or_default();
       match key.as_str() {
         "content" => content = self.string_of(&p.value),
         "base" => {
@@ -765,7 +765,7 @@ impl<'s> Extractor<'s> {
           };
           let key = match &p.key {
             PropertyKey::StaticIdentifier(id) => id.name.to_string(),
-            PropertyKey::StringLiteral(s) => s.value.to_string(),
+            PropertyKey::StringLiteral(s) => s.value.display().to_string(),
             _ => return None,
           };
           map.insert(key, self.json_of(&p.value)?);
@@ -1243,7 +1243,7 @@ impl<'s> Extractor<'s> {
       }
       let snapshot = match argument {
         Some(Expression::TemplateLiteral(t)) => cooked_template(t),
-        Some(Expression::StringLiteral(s)) => Some(s.value.to_string()),
+        Some(Expression::StringLiteral(s)) => Some(s.value.display().to_string()),
         _ => {
           self.skip("a rejection without an inline snapshot");
           return;
@@ -1350,7 +1350,7 @@ impl<'a> Visit<'a> for Extractor<'_> {
     {
       let bound: Vec<(String, bool)> = match &it.id {
         oxc_ast::ast::BindingPattern::BindingIdentifier(id) => vec![(id.name.to_string(), false)],
-        oxc_ast::ast::BindingPattern::ObjectPattern(o) => o.properties.iter().filter_map(|p| p.key.static_name()).filter(|k| k == "sources").map(|k| (k.to_string(), true)).collect(),
+        oxc_ast::ast::BindingPattern::ObjectPattern(o) => o.properties.iter().filter_map(|p| p.key.static_name()).filter(|k| k == "sources").map(|k| (k.display().to_string(), true)).collect(),
         _ => Vec::new(),
       };
       if !bound.is_empty() {
@@ -1604,8 +1604,8 @@ fn loader_conditions(params: &[String], test: &Expression) -> Result<Vec<Vec<Con
   };
   let literal = |e: &Expression| -> Option<String> {
     match e {
-      Expression::StringLiteral(s) => Some(s.value.to_string()),
-      Expression::TemplateLiteral(t) if t.expressions.is_empty() => t.quasis.first().and_then(|q| q.value.cooked.as_ref()).map(|c| c.to_string()),
+      Expression::StringLiteral(s) => Some(s.value.display().to_string()),
+      Expression::TemplateLiteral(t) if t.expressions.is_empty() => t.quasis.first().and_then(|q| q.value.cooked).map(|c| c.display().to_string()),
       _ => None,
     }
   };

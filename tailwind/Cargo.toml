@@ -21,12 +21,12 @@ thiserror = "2"
 
 [dev-dependencies]
 bolero = "0.13"
-oxc_allocator = "0.148"
-oxc_ast = "0.148"
-oxc_ast_visit = "0.148"
-oxc_parser = "0.148"
-oxc_span = "0.148"
-oxc_syntax = "0.148"
+oxc_allocator = "0.155"
+oxc_ast = "0.155"
+oxc_ast_visit = "0.155"
+oxc_parser = "0.155"
+oxc_span = "0.155"
+oxc_syntax = "0.155"
 proptest = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
