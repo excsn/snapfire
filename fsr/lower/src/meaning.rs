@@ -62,6 +62,9 @@ const PLACEMENTS: [&str; 9] = ["Island", "island", "Link", "Slot", "Picture", "M
 /// FSR's own components, which an application imports in every framework; the build points the specifier at the importing file's framework.
 pub const COMPONENTS_MODULE: &str = "@snapfire/fsr/components";
 const COMPONENTS: [&str; 5] = ["Link", "Picture", "Mount", "Embed", "Place"];
+/// Ink's elements, from Ink itself or FSR's terminal module, which a terminal window draws.
+const TERMINAL_MODULES: [&str; 2] = ["ink", "@snapfire/fsr/terminal"];
+const TERMINAL_ELEMENTS: [&str; 4] = ["Box", "Text", "Newline", "Spacer"];
 
 fn rows() -> &'static [(&'static str, &'static str, Construct)] {
   static ROWS: std::sync::OnceLock<Vec<(&'static str, &'static str, Construct)>> = std::sync::OnceLock::new();
@@ -71,6 +74,10 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
       rows.extend(PLACEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
     }
     rows.extend(COMPONENTS.iter().map(|name| (COMPONENTS_MODULE, *name, Construct::Placement(name))));
+    for module in TERMINAL_MODULES {
+      rows.extend(TERMINAL_ELEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
+      rows.push((module, "useInput", Construct::Hook("useInput")));
+    }
     let react_hooks: Vec<(&'static str, Construct)> = LIBRARY.iter().filter(|(m, _, c)| *m == "react" && matches!(c, Construct::Hook(_))).map(|(_, e, c)| (*e, *c)).collect();
     for module in ["preact/hooks", "preact/compat"] {
       rows.extend(react_hooks.iter().map(|(export, construct)| (module, *export, *construct)));

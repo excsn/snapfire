@@ -150,6 +150,38 @@ fn keep_value(value: Expr) -> Expr {
   }
 }
 
+/// Ink's `Box`, `Text`, `Newline` and `Spacer`: an `ink-*` element carrying
+/// the props in kebab case, which the terminal renderer reads back.
+pub(crate) fn terminal<'p>(cx: &mut impl Placer<'p>, which: &str, attrs: &[Attr<'_>], children: Vec<Tmpl>) -> Lowered<Tmpl> {
+  let mut out = Vec::new();
+  for attr in attrs {
+    if let Value::Spread(expr) = &attr.value {
+      out.push(Entry::Spread(cx.lowerer().expr(expr)?));
+      continue;
+    }
+    if matches!(attr.name.as_str(), "key" | "ref") {
+      continue;
+    }
+    let mut name = String::new();
+    for ch in attr.name.chars() {
+      if ch.is_ascii_uppercase() {
+        name.push('-');
+        name.push(ch.to_ascii_lowercase());
+      } else {
+        name.push(ch);
+      }
+    }
+    out.push(Entry::Field(name, value(cx, attr)?));
+  }
+  let tag = match which {
+    "Box" => "ink-box",
+    "Text" => "ink-text",
+    "Newline" => "ink-newline",
+    _ => "ink-spacer",
+  };
+  Ok(Tmpl::Element { tag: tag.to_owned(), attrs: out, children })
+}
+
 /// `<Link href=… match=… current=… full into prefetch native keep>`: an
 /// `<a>` with the marks the navigator reads.
 pub(crate) fn link<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], children: Vec<Tmpl>) -> Lowered<Tmpl> {

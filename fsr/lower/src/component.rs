@@ -1172,7 +1172,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -4749,6 +4749,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           self.browser_function(bound.clone());
           renames.push((f.ident.sym.to_string(), bound));
         }
+        js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
+          let (_, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
+          self.input_hook(call)?;
+        }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
           let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
@@ -5032,6 +5036,8 @@ struct ComponentLowerer<'a, 'p> {
   handler_fns: HashMap<String, (Vec<js::Pat>, FunctionBody<'p>)>,
   /// The handlers lowered so far; an element's `$on:` marker holds an index into it.
   lowered_handlers: Vec<Handler>,
+  /// What a handler's parameters stand for in place of `$event` alone: `useInput`'s `input` and `key`.
+  event_binds: Option<Vec<Expr>>,
   /// Custom element tags with a shadow template, to the template's module.
   elements: Rc<HashMap<String, String>>,
   /// Custom hooks resolved so far: the name a call uses, the module that declares it and its export there.
@@ -5579,6 +5585,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                   lets.push(Stmt::Let { name, expr: guarded(&early, expr) });
                 }
               }
+            }
+            js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
+              let (_, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
+              self.input_hook(call)?;
             }
             js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
               let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
@@ -7056,6 +7066,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(self.lowered_handlers.len() - 1)
   }
 
+  /// Ink's `useInput((input, key) => …)`: the component's `input` handler, run
+  /// with each keypress as `$event`, `input` its text and `key` its flags.
+  fn input_hook(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
+    let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`useInput` with no handler")) };
+    let event = Expr::Var("$event".to_owned());
+    self.event_binds = Some(vec![Expr::Field(Box::new(event.clone()), "input".to_owned()), Expr::Field(Box::new(event), "key".to_owned())]);
+    let body = self.handler_body(&arg.expr);
+    self.event_binds = None;
+    self.lowered_handlers.push(Handler { event: "input".to_owned(), body: body? });
+    Ok(())
+  }
+
   fn handler_body(&mut self, e: &'p js::Expr) -> Lowered<Vec<Stmt>> {
     match e {
       js::Expr::Paren(p) => self.handler_body(&p.expr),
@@ -7097,9 +7119,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// A handler's statements into `walk`, under the reach it holds: an inlined handler runs under the branch that called it.
   fn handler_fn_into(&mut self, params: &[js::Pat], body: FunctionBody<'p>, walk: &mut HandlerWalk) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
-    if let Some(first) = params.first() {
-      let js::Pat::Ident(id) = first else { return Err(self.lowerer.residue(first.span(), "a handler's event parameter must be a name")) };
-      self.lowerer.scope.push((id.id.sym.to_string(), Expr::Var("$event".to_owned())));
+    let binds = self.event_binds.take().unwrap_or_else(|| vec![Expr::Var("$event".to_owned())]);
+    for (param, bind) in params.iter().zip(binds) {
+      let js::Pat::Ident(id) = param else { return Err(self.lowerer.residue(param.span(), "a handler's event parameter must be a name")) };
+      self.lowerer.scope.push((id.id.sym.to_string(), bind));
     }
     let result = match body {
       FunctionBody::Expr(e) => self.handler_stmt(e, walk),
@@ -7472,6 +7495,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some("Link") => return self.link_element(el),
       Some("Picture") => return self.picture_element(el, false),
       Some("Mount") => return self.mount_element(el),
+      Some(which @ ("Box" | "Text" | "Newline" | "Spacer")) => {
+        let attrs = self.jsx_attrs(el)?;
+        let children = self.children(&el.children)?;
+        return placements::terminal(self, which, &attrs, children);
+      }
       Some("Place") => {
         let attrs = self.jsx_attrs(el)?;
         let has_children = el.children.iter().any(|c| !matches!(c, js::JSXElementChild::JSXText(t) if jsx_text(&t.value.to_atom_lossy()).is_empty()));
