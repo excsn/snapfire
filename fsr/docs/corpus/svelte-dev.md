@@ -1,11 +1,11 @@
 # svelte.dev on the server
 
-The corpus in `fsr/examples/corpus` builds the 167 examples and tutorial solutions from svelte.dev (MIT, at `89f941caf5a2229356fc38facae6ee0dca3122e7`) through FSR as one application per example and records what the build made of each in `svelte_outcomes.txt`. A tutorial exercise starts from the files of the one before it, as the tutorial does. Run it from `fsr/examples` with `snapfirec-svelte` on `PATH`: `cargo test -p corpus --test svelte_dev`. The counts here are from `8a3db060`.
+The corpus in `fsr/examples/corpus` builds the 167 examples and tutorial solutions from svelte.dev (MIT, at `89f941caf5a2229356fc38facae6ee0dca3122e7`) through FSR as one application per example and records what the build made of each in `svelte_outcomes.txt`. A tutorial exercise starts from the files of the one before it, as the tutorial does. Run it from `fsr/examples` with `snapfirec-svelte` on `PATH`: `cargo test -p corpus --test svelte_dev`. The counts here are from `c87985cc`.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Rendered on the server | 150 | the server renders every component on the page the way Svelte's own server renderer does |
-| Browser rendered, SSR pending | 1 | a component renders in the browser because it uses something FSR can't render on the server yet |
+| Rendered on the server | 151 | the server renders every component on the page the way Svelte's own server renderer does |
+| Browser rendered, SSR pending | 0 | a component renders in the browser because it uses something FSR can't render on the server yet |
 | Left to the browser by design | 16 | a component uses something the server can't reproduce exactly, such as the current time or `Math.random` |
 | Refused | 0 | the build stops |
 | Total | 167 | |
@@ -17,12 +17,6 @@ A component rendered in the browser still works the way it does under Svelte. It
 The build stops a module at its first cause. A component that fails never lowers its children. An example names the first thing in each component the build could not render, so removing one cause can uncover the next. `tutorial-advanced-svelte-advanced-reactivity-raw-state` names an assignment inside an expression in `data.js`; the data it assigns comes from `Math.random`, so it is counted by design.
 
 ## What sends a component to the browser
-
-### Lowerable
-
-| Cause | Examples | What the server does not render yet |
-| --- | --- | --- |
-| A call through a context value to a function that only schedules `$effect`, `tutorial-advanced-svelte-context-context-api` | 1 | Following a function value through a context and reading a body of browser-only calls as doing nothing |
 
 ### By design
 

@@ -1253,7 +1253,7 @@ The request an action runs under when a rendered page calls it or a route loads.
 
 * `load(path: string, options?: { ctx?: TestCtx }): Promise<{ status: number; path: string }>`
 
-Fetches the document the stock host renders for `path`, following up to five redirects, ends the islands of the page showing until now, installs the new document, evaluates the application's entry module again as a browser does on every page, so what it wires is wired to this document, mounts its islands and enables navigation. Throws when the response is not a document.
+Fetches the document the stock host renders for `path`, following up to five redirects, ends the islands of the page showing until now, installs the new document, evaluates the application's entry module and its island modules again (the application's own files they import with them) as a browser does on every page, so what they wire is wired to this document and their module state starts over, mounts its islands and enables navigation. A custom element defined again replaces the earlier definition; one a package defined keeps its definition. Throws when the response is not a document.
 
 ### Queries
 
