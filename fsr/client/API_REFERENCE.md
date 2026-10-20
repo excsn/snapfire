@@ -451,7 +451,7 @@ Registers the loader of a module the browser imports a function prop from, by th
 
 * `scan(root: ParentNode): void`
 
-Mounts every unscheduled island marker under `root`. Selects `sf-i:not([data-sf-scheduled])`, skips a marker with no `data-sf-module`, stamps `data-sf-scheduled`, then schedules according to the `data-sf-when` of the `sf-s` region the marker sits in, when a page or layout placed it with one, else the entry's timing. Idempotent, so rescanning a root a scan has taken does nothing. `data-sf-mounted` is stamped separately, when the mounter has actually run, so the two say different things for an island still waiting on `visible` or `idle`.
+Mounts every unscheduled island marker under `root`. Selects `sf-i:not([data-sf-scheduled])`, skips a marker with no `data-sf-module`, stamps `data-sf-scheduled`, then schedules according to the `data-sf-when` of the `sf-s` region the marker sits in, when a page or layout placed it with one, else the entry's timing. Idempotent, so rescanning a root a scan has taken does nothing. `data-sf-mounted` is stamped separately, when the mounter has actually run, so the two say different things for an island still waiting on `visible` or `idle`. Modules load in parallel but islands mount in the order they were scheduled (document order within a scan), so module state a framework keeps advances across a page's islands in the order the server rendered them.
 
 Props are read from `script[data-sf-props="<marker id>"]`, searched inside `root` first and then across the document. A missing or empty script yields `{}`.
 

@@ -79,6 +79,7 @@ function awaitingAnAncestor(el) {
     const above = el.parentElement?.closest("sf-i");
     return above !== null && above !== undefined && !serverRendered(above);
 }
+let lastMount = Promise.resolve();
 function mountNow(entry, moduleId, el, props) {
     const hydrate = serverRendered(el);
     const island = {
@@ -92,10 +93,12 @@ function mountNow(entry, moduleId, el, props) {
         children: null,
         markup: null
     };
-    island.handle = Promise.all([
+    const ready = Promise.all([
         entry.loader(),
         resolveModuleRefs(props)
-    ]).then(([mod, resolved])=>{
+    ]);
+    const turn = lastMount.then(()=>ready);
+    island.handle = turn.then(([mod, resolved])=>{
         island.props = resolved;
         return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate);
     }).then((value)=>{
@@ -107,6 +110,7 @@ function mountNow(entry, moduleId, el, props) {
         console.warn(`sf: mounting ${moduleId} failed`, err);
         return undefined;
     });
+    lastMount = island.handle;
     mounted.set(el, island);
 }
 export function discard(root) {

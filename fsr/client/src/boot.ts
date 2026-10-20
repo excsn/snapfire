@@ -140,10 +140,15 @@ function awaitingAnAncestor(el: Element): boolean {
   return above !== null && above !== undefined && !serverRendered(above);
 }
 
+/** The mount before the next one, so islands mount in the order they were scheduled, document order for a scan, whatever order their modules land in. A framework's module state then advances across a page's islands in the order the server rendered them, as it does across the components of one app. Modules still load in parallel. */
+let lastMount: Promise<unknown> = Promise.resolve();
+
 function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {
   const hydrate = serverRendered(el);
   const island: Mounted = { entry, moduleId, handle: Promise.resolve(undefined), root: undefined, gone: false, props, regions: null, children: null, markup: null };
-  island.handle = Promise.all([entry.loader(), resolveModuleRefs(props)])
+  const ready = Promise.all([entry.loader(), resolveModuleRefs(props)]);
+  const turn = lastMount.then(() => ready);
+  island.handle = turn
     .then(([mod, resolved]) => {
       island.props = resolved;
       return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate);
@@ -158,6 +163,7 @@ function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Prop
       console.warn(`sf: mounting ${moduleId} failed`, err);
       return undefined;
     });
+  lastMount = island.handle;
   mounted.set(el, island);
 }
 
