@@ -10,19 +10,21 @@
 
 ```sh
 cargo install --path fsr/cli
-cargo install --path fsr/cli --no-default-features --features tera
+cargo install --path fsr/cli --features desktop
+cargo install --path fsr/cli --no-default-features --features terminal
 ```
 
 | Feature | Default | Adds |
 | --- | --- | --- |
+| `web` | on | The web half: `fsr test` and its QuickJS runner, `fsr prerender`, `bundle`, `sites`, `census`, `use`, `add`, `types` and `fonts`. Off, `fsr` still builds, serves and checks an app but has none of these commands |
 | `tera` | on | `page.tera` and `layout.tera` routes, rendered by the stock host |
-| `tls` | off | TLS in the stock host |
-| `terminal` | off | Experimental. `fsr dev --terminal`: the root page run in the terminal with Ink's elements and `useInput`, through `snapfire_fsr_terminal` and crossterm |
-| `client-source-maps` | off | The browser client's source maps, with its TypeScript, served beside it so devtools show the client's source; about 1.3 MB |
-| `desktop` | off | Experimental. `fsr dev --desktop` and `fsr serve --desktop`: the application in a native window over the system webview, through wry, tao and muda |
 | `mdx` | on | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
 | `mdx-highlight` | on | `mdx`, plus fenced code highlighted at build and `styles/code.css` from the direction |
 | `mdx-frontmatter` | on | `mdx`, plus YAML or TOML frontmatter as `export const meta` |
+| `tls` | off | TLS in the stock host |
+| `client-source-maps` | off | The browser client's source maps, with its TypeScript, served beside it so devtools show the client's source; about 1.3 MB |
+| `desktop` | off | Experimental. It turns `web` on. `fsr dev --desktop` and `fsr serve --desktop`: the application in a native window over the system webview, through wry, tao and muda |
+| `terminal` | off | Experimental. `fsr dev --terminal`: the root page run in the terminal with Ink's elements and `useInput`, through `snapfire_fsr_terminal` and crossterm. Needs no `web`, so `--no-default-features --features terminal` is an `fsr` without QuickJS, Tera or MDX |
 
 It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the bodies, `snapfire_fsr_plan` for the file it writes and `reqwest` with rustls for esm.sh and the npm registry.
 

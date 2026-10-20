@@ -18,7 +18,11 @@ name = "fsr"
 path = "src/main.rs"
 
 [features]
-default = ["tera", "mdx-highlight", "mdx-frontmatter"]
+default = ["web", "tera", "mdx-highlight", "mdx-frontmatter"]
+# The web half: `fsr test` and its QuickJS runner, `prerender`, `bundle`, `sites`,
+# `census`, `use`, `add`, `types` and `fonts`. Off, the CLI builds and serves an
+# app but carries none of these, which a terminal app does not need.
+web = ["dep:snapfire_fsr_engine"]
 tls = ["snapfire_fsr_host/tls"]
 # Serves the browser client's source maps, its TypeScript inlined.
 client-source-maps = ["snapfire_fsr_host/client_source_maps"]
@@ -33,7 +37,7 @@ mdx-frontmatter = ["mdx", "snapfire_fsr_mdx/frontmatter"]
 # `fsr dev --desktop` and `fsr serve --desktop`: the app in a native window over the system webview.
 # `fsr dev --terminal`: the root page drawn in the terminal with Ink's elements.
 terminal = ["dep:crossterm", "dep:snapfire_fsr_terminal"]
-desktop = ["dep:bytes", "dep:http", "dep:http-body-util", "dep:muda", "dep:open", "dep:rfd", "dep:tao", "dep:wry"]
+desktop = ["web", "dep:bytes", "dep:http", "dep:http-body-util", "dep:muda", "dep:open", "dep:rfd", "dep:tao", "dep:wry"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -52,7 +56,7 @@ serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
 snapfire_fsr.workspace = true
 snapfire_fsr_assets.workspace = true
 snapfire_fsr_core.workspace = true
-snapfire_fsr_engine.workspace = true
+snapfire_fsr_engine = { workspace = true, optional = true }
 snapfire_fsr_host.workspace = true
 
 snapfire_fsr_sites = { workspace = true, features = ["http"] }
@@ -105,3 +109,31 @@ required-features = ["desktop"]
 [[test]]
 name = "terminal"
 required-features = ["terminal"]
+
+[[test]]
+name = "bundle"
+required-features = ["web"]
+
+[[test]]
+name = "census"
+required-features = ["web"]
+
+[[test]]
+name = "examples"
+required-features = ["web"]
+
+[[test]]
+name = "public"
+required-features = ["web"]
+
+[[test]]
+name = "store_crosscheck"
+required-features = ["web"]
+
+[[test]]
+name = "runner"
+required-features = ["web"]
+
+[[test]]
+name = "sites"
+required-features = ["web"]

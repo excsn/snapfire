@@ -441,7 +441,7 @@ impl Project {
 
 fn ignored(rel: &Path) -> bool {
   let first = rel.components().next().map(|c| c.as_os_str().to_string_lossy().into_owned()).unwrap_or_default();
-  IGNORED.contains(&first.as_str()) || first == crate::spec::FSR_DIR || first.starts_with(".fsr-") || first == "tests" || rel.to_string_lossy().ends_with(".test.ts")
+  IGNORED.contains(&first.as_str()) || first == crate::FSR_DIR || first.starts_with(".fsr-") || first == "tests" || rel.to_string_lossy().ends_with(".test.ts")
 }
 
 /// The shell a site runs under, when it runs under one: `--under` as given, a

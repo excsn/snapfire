@@ -36,7 +36,7 @@ use crate::xwpm::Layout;
 use crate::{BuildError, Built, dev, serve};
 
 /// What fsr writes under an application for its own use: the test build, the overlay and the compilers. Gitignored whole.
-pub const FSR_DIR: &str = ".fsr";
+pub const FSR_DIR: &str = crate::FSR_DIR;
 pub const TEST_DIR: &str = ".fsr/test";
 const LINKEDOM: &str = "0.18.12";
 /// The framework modules a spec loads as development builds when the

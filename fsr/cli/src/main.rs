@@ -1,4 +1,6 @@
-use std::path::{Path, PathBuf};
+#[cfg(feature = "web")]
+use std::path::Path;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand};
@@ -8,9 +10,13 @@ use snapfire_fsr_cli::doctor;
 use snapfire_fsr_cli::new::{NewOptions, SiteScaffold};
 use snapfire_fsr_cli::serve::ServeOptions;
 use snapfire_fsr_cli::typecheck::{self, Typecheck};
+#[cfg(feature = "web")]
 use snapfire_fsr_cli::vendor::Spec;
+#[cfg(feature = "web")]
 use snapfire_fsr_cli::direction::{self, UseOptions};
-use snapfire_fsr_cli::{check, dev, emit, ir, new, serve, sites, test, types, vendor, Options};
+use snapfire_fsr_cli::{check, dev, emit, ir, new, serve, Options};
+#[cfg(feature = "web")]
+use snapfire_fsr_cli::{sites, test, types, vendor};
 
 #[derive(Parser)]
 #[command(
@@ -34,12 +40,15 @@ enum Command {
   New(New),
   /// Builds and serves an application, rebuilding what changed as it changes.
   Dev(Dev),
+  #[cfg(feature = "web")]
   /// Runs the application's tests.
   Test(Test),
   /// Serves an application that is already built.
   Serve(Serve),
+  #[cfg(feature = "web")]
   /// Writes the documents every prerenderable route answers with.
   Prerender(Prerender),
+  #[cfg(feature = "web")]
   /// Writes the deploy tree: everything the host reads, laid out as a server wants it.
   Bundle(Bundle),
   /// Builds an application without serving it.
@@ -48,16 +57,22 @@ enum Command {
   Doctor(Doctor),
   /// Builds and typechecks an application, writing nothing.
   Check(Check),
+  #[cfg(feature = "web")]
   /// Counts what the build refuses or leaves to the browser across applications, by cause, writing nothing.
   Census(Census),
+  #[cfg(feature = "web")]
   /// Gives an application a direction: react, vue, svelte, elements, htmx, tailwind, tera or mdx.
   Use(Use),
+  #[cfg(feature = "web")]
   /// Vendors packages into the application and names them in its import map.
   Add(Add),
+  #[cfg(feature = "web")]
   /// Writes the declarations for every package the import map names.
   Types(Types),
+  #[cfg(feature = "web")]
   /// The sites a shell mounts.
   Sites(Sites),
+  #[cfg(feature = "web")]
   /// The fonts an application serves.
   Fonts(Fonts),
   /// The lowered form the server runs, as the build wrote it.
@@ -192,6 +207,7 @@ struct TypecheckFlags {
   snapfiretc: Option<PathBuf>,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Test {
   /// The application directory.
@@ -221,6 +237,7 @@ struct Serve {
   desktop: bool,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Census {
   /// The application directories.
@@ -228,6 +245,7 @@ struct Census {
   app_dirs: Vec<PathBuf>,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Prerender {
   /// The application directory.
@@ -237,6 +255,7 @@ struct Prerender {
   out: Option<PathBuf>,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Bundle {
   /// The application directory.
@@ -261,6 +280,7 @@ struct Doctor {
   verbose: bool,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Use {
   /// The application directory.
@@ -276,6 +296,7 @@ struct Use {
   example: bool,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Add {
   /// The application directory.
@@ -290,6 +311,7 @@ struct Add {
   published: bool,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Types {
   /// The application directory.
@@ -299,18 +321,21 @@ struct Types {
   refresh: bool,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Sites {
   #[command(subcommand)]
   command: SitesCommand,
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Fonts {
   #[command(subcommand)]
   command: FontsCommand,
 }
 
+#[cfg(feature = "web")]
 #[derive(Subcommand)]
 enum FontsCommand {
   /// Downloads a provider's faces into the font directory, as `google:Inter@400,700,400i`, so the build serves them as local files.
@@ -322,6 +347,7 @@ enum FontsCommand {
   },
 }
 
+#[cfg(feature = "web")]
 #[derive(Subcommand)]
 enum SitesCommand {
   /// The sites a shell mounts, plus what every instance serves when hosts are given.
@@ -414,6 +440,7 @@ enum SitesCommand {
   },
 }
 
+#[cfg(feature = "web")]
 #[derive(Args)]
 struct Remote {
   /// An instance to ask, repeatable.
@@ -424,6 +451,7 @@ struct Remote {
   header: Vec<String>,
 }
 
+#[cfg(feature = "web")]
 impl Remote {
   /// The headers to send. `$FSR_SITES_HEADER` joins them so a token stays out
   /// of history. A malformed one is an error rather than a usage dump.
@@ -438,6 +466,7 @@ impl Remote {
   }
 }
 
+#[cfg(feature = "web")]
 impl Test {
   fn typechecked(&self) -> Typecheck {
     let mut typecheck = Typecheck::beside(&self.app_dir);
@@ -502,6 +531,7 @@ impl Build {
   }
 }
 
+#[cfg(feature = "web")]
 /// The shell's table against what every instance serves, which is what a fleet
 /// is watched with.
 fn list_against(shell: &Path, hosts: &[String], headers: &[(String, String)]) -> ExitCode {
@@ -565,6 +595,7 @@ fn main() -> ExitCode {
       Ok(()) => ExitCode::SUCCESS,
       Err(e) => failed(e),
     },
+    #[cfg(feature = "web")]
     Command::Test(args) => match test::run(&args.app_dir, &Options::beside(&args.app_dir), &args.typechecked(), args.filter.as_deref()) {
       Ok(summary) => {
         print!("{summary}");
@@ -588,10 +619,12 @@ fn main() -> ExitCode {
         Err(e) => failed(e),
       }
     }
+    #[cfg(feature = "web")]
     Command::Census(args) => {
       print!("{}", snapfire_fsr_cli::census::run(&args.app_dirs));
       ExitCode::SUCCESS
     }
+    #[cfg(feature = "web")]
     Command::Prerender(args) => match serve::prerender(&args.app_dir, args.out.as_deref()) {
       Ok(written) => {
         if written.is_empty() {
@@ -604,6 +637,7 @@ fn main() -> ExitCode {
       }
       Err(e) => failed(e),
     },
+    #[cfg(feature = "web")]
     Command::Bundle(args) => run_bundle(args),
     Command::Build(args) => {
       let mut programs = snapfire_fsr_cli::dev::programs_of(&args.app_dir);
@@ -644,8 +678,11 @@ fn main() -> ExitCode {
       }
     },
     Command::Check(args) => run_check(args),
+    #[cfg(feature = "web")]
     Command::Use(args) => run_use(args),
+    #[cfg(feature = "web")]
     Command::Add(args) => run_add(args),
+    #[cfg(feature = "web")]
     Command::Types(args) => match types::fetch(&args.app_dir, args.refresh) {
       Ok(report) => {
         for command in &report.delegated {
@@ -670,6 +707,7 @@ fn main() -> ExitCode {
       }
       Err(e) => failed(e),
     },
+    #[cfg(feature = "web")]
     Command::Sites(args) => run_sites(args.command),
     Command::Ir(args) => match args.command {
       IrCommand::View { app_dir, id, section } => match ir::view(&app_dir, &id, section.as_deref()) {
@@ -680,6 +718,7 @@ fn main() -> ExitCode {
         Err(e) => failed(e),
       },
     },
+    #[cfg(feature = "web")]
     Command::Fonts(args) => match args.command {
       FontsCommand::Add { app_dir, spec } => match snapfire_fsr_cli::assets::add(&app_dir, &spec) {
         Ok(written) => {
@@ -732,6 +771,7 @@ fn run_new(args: New) -> ExitCode {
   }
 }
 
+#[cfg(feature = "web")]
 fn run_bundle(args: Bundle) -> ExitCode {
   let out = args
     .out
@@ -774,6 +814,7 @@ fn run_check(args: Check) -> ExitCode {
   }
 }
 
+#[cfg(feature = "web")]
 fn run_use(args: Use) -> ExitCode {
   match direction::adopt(&args.app_dir, &args.directions, UseOptions::default().fetch(!args.no_fetch).example(args.example)) {
     Ok(adopted) => {
@@ -816,6 +857,7 @@ fn run_use(args: Use) -> ExitCode {
   }
 }
 
+#[cfg(feature = "web")]
 fn run_add(args: Add) -> ExitCode {
   let mut specs = Vec::new();
   for arg in &args.specs {
@@ -868,6 +910,7 @@ fn run_add(args: Add) -> ExitCode {
   }
 }
 
+#[cfg(feature = "web")]
 fn run_sites(command: SitesCommand) -> ExitCode {
   match command {
     SitesCommand::List { shell_dir, remote } => {
@@ -1068,6 +1111,7 @@ fn run_sites(command: SitesCommand) -> ExitCode {
   }
 }
 
+#[cfg(feature = "web")]
 /// A byte count for a report line, three significant figures and a unit.
 fn bytes(count: u64) -> String {
   const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB"];

@@ -186,6 +186,7 @@ pub(crate) fn stub_paths(stub: &str) -> Vec<String> {
 }
 
 /// The module an esm.sh stub stands for: the path its `export * from` names, else its first script. A stub may import a dependency first.
+#[cfg_attr(not(feature = "web"), allow(dead_code))]
 pub(crate) fn stub_entry(stub: &str) -> Option<String> {
   let paths = stub_paths(stub);
   paths

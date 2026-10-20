@@ -7,7 +7,7 @@
 The parser, the highlighter and frontmatter are Cargo features of the CLI, on by default. An install that wants none of them turns the defaults off and keeps what it needs:
 
 ```sh
-cargo install snapfire_fsr_cli --no-default-features --features tera
+cargo install snapfire_fsr_cli --no-default-features --features web,tera
 ```
 
 | Feature | Reads |

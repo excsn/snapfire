@@ -14,13 +14,17 @@ pub mod plugins;
 pub mod published;
 pub mod serve;
 pub mod sites;
+#[cfg(feature = "web")]
 pub mod spec;
 #[cfg(feature = "terminal")]
 pub mod terminal;
 pub mod infer;
 pub mod native;
+#[cfg(feature = "web")]
 pub mod test;
+#[cfg(feature = "web")]
 pub mod bundle;
+#[cfg(feature = "web")]
 pub mod census;
 pub mod install;
 pub mod ir;
@@ -498,6 +502,9 @@ pub const CONTRACTS_DIR: &str = "generated/contracts";
 /// The file under `CONTRACTS_DIR` holding every `#[service]` block's contract.
 pub const RUST_CONTRACT: &str = "rust.json";
 /// Where the build writes the plan file.
+/// The directory under an app that `fsr test` and the bundle overlay write into.
+pub const FSR_DIR: &str = ".fsr";
+
 pub const PLAN_FILE: &str = "generated/plan.sexp";
 
 #[non_exhaustive]
@@ -932,6 +939,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   let resolver = std::rc::Rc::new(assets::Resolver::new(app, &public_path, sections.clone()));
   let mut set = ComponentSet::new(app).with_defaults(defaults.clone()).provide(snapfire_fsr_lower::HEAD_MODULE, HEAD_HELPERS).with_elements(elements.iter().cloned().collect()).with_assets(resolver.clone(), sections.images.rewrite);
   let mdx_settings = mdx::settings(&config_beside(app).map(|config| config.mdx).unwrap_or_default())?;
+  #[cfg_attr(not(feature = "mdx"), allow(unused_mut))]
   let mut mdx_files: Vec<(String, String)> = Vec::new();
   #[cfg(feature = "mdx")]
   let mdx_installed = {
