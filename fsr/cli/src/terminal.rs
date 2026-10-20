@@ -201,7 +201,7 @@ impl Session {
 /// The library `module` lowers to. A component it places that does not lower
 /// refuses it, since a terminal has no browser to render that one in.
 fn lower(app: &Path, module: &str) -> Result<Components, String> {
-  let mut set = ComponentSet::new(app);
+  let mut set = ComponentSet::new(app).for_terminal();
   set.lower(module).map_err(|e| e.to_string())?;
   if let Some((placed, why)) = set.browser_only.first() {
     return Err(format!("`{placed}` does not lower, so only a browser could render it: {why}"));

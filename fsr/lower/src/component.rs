@@ -41,6 +41,8 @@ pub struct ForeignImport {
 #[non_exhaustive]
 pub struct ComponentSet {
   app: PathBuf,
+  /// Lowering for a terminal, which runs where the viewer is: the clock is read on a render path.
+  terminal: bool,
   parsed: HashMap<String, Rc<Parsed>>,
   /// Where an imported image or font is looked up.
   assets: Rc<dyn AssetResolver>,
@@ -193,11 +195,18 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
+    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
   /// `<img>` of one is rewritten.
+  /// Lowers for `fsr dev --terminal`, where the process is the viewer's: a
+  /// render may read the clock, which a web render leaves to the browser.
+  pub fn for_terminal(mut self) -> Self {
+    self.terminal = true;
+    self
+  }
+
   pub fn with_assets(mut self, resolver: Rc<dyn AssetResolver>, rewrite_images: bool) -> Self {
     self.assets = resolver;
     self.rewrite_images = rewrite_images;
@@ -1161,6 +1170,7 @@ impl ComponentSet {
           return Err(Lowerer::new(&parsed, &defaults).residue(span, ASYNC_COMPONENT).into());
         }
         let mut lowerer = Lowerer::new(&parsed, &defaults);
+        lowerer.terminal = self.terminal;
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
         lowerer.global_formatters = global_formatters.clone();
@@ -1498,6 +1508,7 @@ impl ComponentSet {
         let parsed = self.parsed[file].clone();
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
+        lowerer.terminal = self.terminal;
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
         lowerer.natives = self.natives.clone();
@@ -1655,6 +1666,7 @@ impl ComponentSet {
         let parsed = self.parsed[file].clone();
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
+        lowerer.terminal = self.terminal;
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
         lowerer.natives = self.natives.clone();
@@ -2509,6 +2521,11 @@ enum Global<'a> {
 
 pub(crate) fn patterns(function: &js::Function) -> Vec<js::Pat> {
   function.params.iter().map(|p| p.pat.clone()).collect()
+}
+
+/// `Date.now` named rather than called, as `useState(Date.now)` passes it to be called once.
+fn is_date_now(member: &js::MemberExpr) -> bool {
+  matches!((&*member.obj, &member.prop), (js::Expr::Ident(date), js::MemberProp::Ident(now)) if date.sym == "Date" && now.sym == "now")
 }
 
 pub(crate) fn arrow_body(arrow: &js::ArrowExpr) -> FunctionBody<'_> {
@@ -6215,6 +6232,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               js::ArrowFunctionBody::Expr(e) => self.lowerer.expr(e),
               js::ArrowFunctionBody::FunctionBody(b) => block_to_expr(&mut self.lowerer, &b.stmts),
             },
+            js::Expr::Member(member) if is_date_now(member) => self.lowerer.date_now(member.span),
             e => self.lowerer.expr(e),
           },
           None => Ok(Expr::Lit(Lit::Null)),

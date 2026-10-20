@@ -951,6 +951,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) global_formatters: Vec<(String, js::NewExpr)>,
   /// Why the last residue was a value only the browser knows, set by the site that refused it. A consumer that can leave the value to the browser, text under an element, a prop into a placement, a binding, takes it and lowers null in its place; anywhere else the residue stands.
   pub(crate) browser_value: Option<String>,
+  /// Lowering for a terminal, where a render may read the clock.
+  pub(crate) terminal: bool,
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
   /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
@@ -1027,7 +1029,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -2833,8 +2835,8 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `Date.now()` or `new Date()`: the request's clock in a body; on a render path the server and the browser would each read their own moment.
-  fn date_now(&mut self, span: Span) -> Lowered<Expr> {
-    if self.on_render_path() {
+  pub(crate) fn date_now(&mut self, span: Span) -> Lowered<Expr> {
+    if self.on_render_path() && !self.terminal {
       return Err(self.browser_only(span, "the current time on a render path, which the server and the browser read at different moments"));
     }
     Ok(Expr::Num(Box::new(Expr::Ext { module: "time".to_owned(), name: "now".to_owned(), args: Vec::new() })))

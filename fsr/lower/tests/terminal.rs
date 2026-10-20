@@ -24,7 +24,7 @@ fn library(source: &str) -> Components {
   let _ = std::fs::remove_dir_all(&dir);
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), source).unwrap();
-  let mut set = ComponentSet::new(&dir);
+  let mut set = ComponentSet::new(&dir).for_terminal();
   set.lower(MODULE).unwrap_or_else(|e| panic!("{e}"));
   set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect()
 }
@@ -137,4 +137,13 @@ fn an_empty_use_input_handler_is_no_handler() {
   let idle = "import { Text, useInput } from \"ink\";\n\nexport default function Idle() {\n  useInput(() => {\n    // waits for Ctrl-C\n  });\n  return <Text>idle</Text>;\n}\n";
   let library = library(idle);
   assert!(library[MODULE].handlers.is_empty());
+}
+
+#[test]
+fn a_terminal_reads_the_clock_on_its_render_path() {
+  let timed = "import { useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Timed() {\n  const [start] = useState(Date.now);\n  const now = Date.now();\n  return <Text>{now >= start && start > 1700000000000 ? \"ticking\" : \"stopped\"}</Text>;\n}\n";
+  let library = library(timed);
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>ticking</ink-text>");
+
 }
