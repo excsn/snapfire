@@ -269,3 +269,10 @@ async fn graphemes_split_as_intl_segmenter_does_with_utf16_indexes() {
   assert_eq!(interp.evaluate(&at(7.0), Vec::new()).await.unwrap(), Value::Null, "past the end is undefined");
   assert_eq!(interp.evaluate(&at(-1.0), Vec::new()).await.unwrap(), Value::Null);
 }
+
+#[tokio::test]
+async fn a_string_spreads_into_an_array_as_its_code_points() {
+  let interp = Interpreter::default();
+  let spread = Expr::Array(vec![Entry::Spread(str("a👍🏽"))]);
+  assert_eq!(interp.evaluate(&spread, Vec::new()).await.unwrap(), Value::Seq(vec![Value::str("a"), Value::str("👍"), Value::str("🏽")].into()));
+}

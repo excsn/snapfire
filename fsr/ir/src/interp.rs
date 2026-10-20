@@ -1032,6 +1032,7 @@ impl Env {
             Entry::Spread(e) => match self.eval_sync(e)? {
               Value::Seq(inner) => items.extend(inner),
               Value::Null => {}
+              Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
               other => return Err(type_error("spread into an array", "an array", &other)),
             },
             Entry::Field(..) | Entry::Computed(..) => return Err(Fail::internal("an array literal has no named entries")),
@@ -1499,6 +1500,7 @@ impl Env {
               Entry::Spread(e) => match self.eval(e).await? {
                 Value::Seq(inner) => items.extend(inner),
                 Value::Null => {}
+                Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
                 other => return Err(type_error("spread into an array", "an array", &other)),
               },
               Entry::Field(..) | Entry::Computed(..) => return Err(Fail::internal("an array literal has no named entries")),
