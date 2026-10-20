@@ -376,7 +376,7 @@ The frameworks an application vendors, each at the major whose server markup the
 ### VueMajor
 
 * `pub enum VueMajor { V3 }`; `Default` is `V3`. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`.
-* `VueMajor::of(version: &str) -> Option<VueMajor>`: the major of a version such as `3.5.13`; `None` for any other major.
+* `VueMajor::of(version: &str) -> Option<VueMajor>`: the major of a version such as `3.5.44`; `None` for any other major.
 * `VueMajor::number(self) -> u32`
 * `VueMajor::ALL: [VueMajor; 1]`
 

@@ -44,7 +44,7 @@ fn main() {
     protocol: PROTOCOL,
     name: "vue".to_owned(),
     version: env!("CARGO_PKG_VERSION").to_owned(),
-    compiler: "@vue/compiler-sfc 3.5.13".to_owned(),
+    compiler: "@vue/compiler-sfc 3.5.44".to_owned(),
     extensions: vec![".vue".to_owned()],
   };
   writeln!(out, "{}", serde_json::to_string(&hello).unwrap()).unwrap();
@@ -71,7 +71,7 @@ fn compile(unit: &snapfire_compiler_wire::Unit) -> Outcome {
 `Hello` is written once, before anything is read and after the plugin has booted its compiler, so a host that has read the greeting knows the worker is ready rather than merely running.
 
 ```rust
-let hello = Hello { protocol: PROTOCOL, name: "vue".to_owned(), version: "0.1.0".to_owned(), compiler: "@vue/compiler-sfc 3.5.13".to_owned(), extensions: vec![".vue".to_owned()] };
+let hello = Hello { protocol: PROTOCOL, name: "vue".to_owned(), version: "0.1.0".to_owned(), compiler: "@vue/compiler-sfc 3.5.44".to_owned(), extensions: vec![".vue".to_owned()] };
 ```
 
 `name` is the extension without its dot, since the binary is found as `snapfirec-<name>`. `version` and `compiler` are half of the host's cache key, so a plugin that upgrades its compiler changes `compiler` and every cached compile misses once.

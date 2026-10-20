@@ -35,7 +35,7 @@ snapfirec --root . --import-map importmap.json
 ```
 
 ```text
-   Plugin:   snapfirec-vue 0.1.0 (@vue/compiler-sfc 3.5.13)
+   Plugin:   snapfirec-vue 0.2.1 (@vue/compiler-sfc 3.5.44)
    Compiling VUE: "src/Card.vue"
    Compiling CSS: "src/Card.vue"
 ```
@@ -64,7 +64,7 @@ snapfirec-vue --version
 ```
 
 ```text
-snapfirec-vue 0.1.0 (@vue/compiler-sfc 3.5.13)
+snapfirec-vue 0.2.1 (@vue/compiler-sfc 3.5.44)
 ```
 
 The binary is not run by hand otherwise; it reads batches from stdin and an argument other than `--version` is refused.

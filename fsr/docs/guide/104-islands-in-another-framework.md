@@ -126,7 +126,7 @@ The stylesheets reach the head before the first island mounts. The compiler list
 Unchanged components are not compiled twice. The plugin's output is cached on the worker's own version, the source, the options and every sibling file the component read, in memory across a watch and on disk in the output directory. `fsr build --verbose` says how much of it the cache answered:
 
 ```text
-   Plugin:   snapfirec-vue 0.1.0 (@vue/compiler-sfc 3.5.13)
+   Plugin:   snapfirec-vue 0.2.1 (@vue/compiler-sfc 3.5.44)
    Plugin cache: 3 of 3 answered
 ```
 

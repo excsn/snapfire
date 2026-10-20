@@ -833,7 +833,7 @@ snapfirec --root . --import-map importmap.json
 ```
 
 ```text
-   Plugin:   snapfirec-vue 0.1.0 (@vue/compiler-sfc 3.5.13)
+   Plugin:   snapfirec-vue 0.2.1 (@vue/compiler-sfc 3.5.44)
    Plugin cache: 0 of 1 answered
    Compiling VUE: "src/Card.vue"
    Compiling CSS: "src/Card.vue"

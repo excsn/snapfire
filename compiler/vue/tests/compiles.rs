@@ -36,7 +36,7 @@ fn ok(outcome: Outcome) -> snapfire_compiler_wire::Compiled {
 #[test]
 fn the_carried_compiler_names_its_version() {
   let compiler = Compiler::new().expect("the compiler boots");
-  assert_eq!(compiler.version().expect("a version"), "3.5.13");
+  assert_eq!(compiler.version().expect("a version"), "3.5.44");
 }
 
 #[test]

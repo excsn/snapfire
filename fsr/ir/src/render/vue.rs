@@ -1,6 +1,6 @@
 //! How Vue's server renderer prints values, so a lowered Vue component's
 //! markup is what Vue's client hydrates over. Checked against
-//! `@vue/server-renderer` and `@vue/shared` at v3.5.13. The anchors around
+//! `@vue/server-renderer` and `@vue/shared` at v3.5.44. The anchors around
 //! fragments, lists, branches and slots are not here: the lowerer places them.
 
 use snapfire_fsr_core::{Value, ValueMap};
@@ -17,7 +17,7 @@ pub enum VueMajor {
 impl VueMajor {
   pub const ALL: [VueMajor; 1] = [Self::V3];
 
-  /// The major of a version such as `3.5.13`; `None` for one the renderer has no rules for.
+  /// The major of a version such as `3.5.44`; `None` for one the renderer has no rules for.
   pub fn of(version: &str) -> Option<Self> {
     match version.split('.').next()? {
       "3" => Some(Self::V3),
