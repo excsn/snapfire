@@ -187,3 +187,11 @@ fn a_terminal_function_returns_from_a_while_loop_drawing_random_numbers() {
     assert_eq!(step.rendered.html, "<ink-text>2</ink-text>");
   }
 }
+
+#[test]
+fn a_write_through_at_reaches_the_element_and_a_body_arrow_renders() {
+  let grouped = "import { Text } from \"ink\";\n\nexport default function Runs() {\n  const runs: Array<{ text: string; color: string }> = [];\n  for (const cell of [\"a\", \"a\", \"b\", \"a\"]) {\n    const last = runs.at(-1);\n    if (last !== undefined && last.color === cell) {\n      last.text += cell;\n    } else {\n      runs.push({ text: cell, color: cell });\n    }\n  }\n  const shout = (s: string) => s.toUpperCase();\n  return <Text>{runs.map((run) => shout(run.text)).join(\",\")}</Text>;\n}\n";
+  let library = library(grouped);
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>AA,B,A</ink-text>");
+}

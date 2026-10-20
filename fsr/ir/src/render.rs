@@ -342,6 +342,9 @@ pub const SLOT_MARK: &str = "\u{0}sf-slot:";
 /// The start of a body `let` that holds a state binding's next value: the prefix, then the binding's name. It holds `[value]` when the pass asked to render again with the binding at `value` and null when it did not. While any holds one the renderer runs the body again with each such binding at its value, as React runs again a component that set its own state while rendering.
 pub const RERUN_PREFIX: &str = "$rerun:";
 
+/// The start of a body `let` that holds a state binding's value from there on: the prefix, then the binding's name. The binding's held state after the render is that value, as a ref written while rendering keeps what was written.
+pub const HOLD_PREFIX: &str = "$hold:";
+
 /// A body `let` of this name holds a focusable a terminal can move focus to, `{ id, autoFocus, isActive }`; a step lists each one it rendered in order.
 pub const FOCUSABLE: &str = "$focusable";
 
@@ -786,6 +789,11 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
       let Stmt::Let { name, expr } = stmt else {
         return Err(Fail::internal("a component body is `let`s only"));
       };
+      if let Some(state) = name.strip_prefix(HOLD_PREFIX) {
+        let value = env.eval_sync(expr)?;
+        out.state.insert(state_key(path, state), value);
+        continue;
+      }
       if let Some(state) = name.strip_prefix(RERUN_PREFIX) {
         if let Value::Seq(value) = env.eval_sync(expr)? {
           let value = value.first().cloned().unwrap_or(Value::Null);

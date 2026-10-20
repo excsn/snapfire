@@ -20,7 +20,7 @@ suspend-terminal	refused: `src/suspend-terminal.tsx#Example` does not lower, so 
 suspense	refused: `src/suspense.tsx#Example` does not lower, so only a browser could render it: src/suspense.tsx:9:10: `promise` is not bound here; an import the build cannot follow or a name from outside the body
 table	refused: `src/table.tsx#Table` does not lower, so only a browser could render it: src/table.tsx:7:11: `faker` comes from `@faker-js/faker`, which the build cannot follow
 terminal-resize	rendered
-use-animation	refused: `src/use-animation.tsx#UseAnimationDemo` does not lower, so only a browser could render it: src/use-animation.tsx:33:9: a write to `frozenRef`, which this body did not declare
+use-animation	rendered
 use-focus	rendered
 use-focus-with-id	rendered
 use-input	rendered

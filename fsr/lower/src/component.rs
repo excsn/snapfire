@@ -3648,19 +3648,40 @@ fn alias_key(name: &str) -> String {
   format!("$alias:{name}")
 }
 
-/// Records `const name = array[index]` on a writable local array as an alias:
+/// Records `const name = array[index]` or `array.at(index)` on a writable local array as an alias:
 /// the array's name, the index as it was then and where the array was bound,
 /// so a write through `name` reaches the element JavaScript shares.
 fn note_alias(lowerer: &mut Lowerer<'_>, name: &str, init: &js::Expr, writable: &Writable<'_>) -> Lowered<()> {
-  let js::Expr::Member(member) = init else { return Ok(()) };
-  let js::MemberProp::Computed(prop) = &member.prop else { return Ok(()) };
-  let js::Expr::Ident(array) = &*member.obj else { return Ok(()) };
+  let (array, index, from_end) = match init {
+    js::Expr::Member(member) => match (&member.prop, &*member.obj) {
+      (js::MemberProp::Computed(prop), js::Expr::Ident(array)) => (array, &*prop.expr, false),
+      _ => return Ok(()),
+    },
+    js::Expr::Call(call) => match (&call.callee, call.args.as_slice()) {
+      (js::Callee::Expr(callee), [at]) if at.spread.is_none() => match &**callee {
+        js::Expr::Member(member) => match (&member.prop, &*member.obj) {
+          (js::MemberProp::Ident(method), js::Expr::Ident(array)) if method.sym.as_ref() == "at" => (array, &*at.expr, true),
+          _ => return Ok(()),
+        },
+        _ => return Ok(()),
+      },
+      _ => return Ok(()),
+    },
+    _ => return Ok(()),
+  };
   let array = array.sym.to_string();
   if !writable.local(lowerer, &array) {
     return Ok(());
   }
   let Some(at) = lowerer.scope.iter().rposition(|(n, _)| *n == array) else { return Ok(()) };
-  let index = lowerer.expr(&prop.expr)?;
+  let index = lowerer.expr(index)?;
+  let index = match from_end {
+    false => index,
+    true => {
+      let counted = Expr::Arith(ArithOp::Add, Box::new(Expr::Length(Box::new(current(lowerer, &array)))), Box::new(index.clone()));
+      Expr::Ternary(Box::new(Expr::Compare(CompareOp::Lt, Box::new(index.clone()), Box::new(Expr::Lit(Lit::Float(0.0))))), Box::new(counted), Box::new(index))
+    }
+  };
   lowerer.scope.push((alias_key(name), Expr::Array(vec![Entry::Item(Expr::lit_str(array)), Entry::Item(index), Entry::Item(Expr::Lit(Lit::Int(at as i128)))])));
   Ok(())
 }
@@ -5876,7 +5897,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A statement that writes locals, run over the scope: each name it wrote is bound to its final value by a `let` of its own.
   fn rebound(&mut self, stmt: &js::Stmt, floor: usize, early: &[(Expr, Tmpl)], lets: &mut Vec<Stmt>, guarded: &dyn Fn(&[(Expr, Tmpl)], Expr) -> Expr) -> Lowered<()> {
-    let frozen = self.state.clone();
+    let frozen: Vec<String> = self.state.iter().filter(|name| !self.held_refs.contains(name)).cloned().collect();
     let setters = self.setters.clone();
     let writable = Writable { floor, frozen: &frozen, setters: &setters };
     let mut assigned = Vec::new();
@@ -5885,6 +5906,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let value = current(&self.lowerer, &name);
       let fresh = self.lowerer.temp();
       lets.push(Stmt::Let { name: fresh.clone(), expr: guarded(early, value) });
+      if self.held_refs.contains(&name) {
+        lets.push(Stmt::Let { name: format!("{}{name}", snapfire_fsr_ir::render::HOLD_PREFIX), expr: Expr::Var(fresh.clone()) });
+      }
       self.lowerer.scope.push((name, Expr::Var(fresh)));
     }
     Ok(())
@@ -6210,6 +6234,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             match init {
               js::Expr::Arrow(arrow) => {
                 self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+                if self.lowerer.terminal {
+                  let unbound = self.lowerer.unbound.take();
+                  match self.lowerer.lambda(arrow) {
+                    Ok(f) => {
+                      self.lowerer.scope.push((local.clone(), f));
+                      return Ok(None);
+                    }
+                    Err(residue) if self.unbound_is_followable() => return Err(residue),
+                    Err(_) => self.lowerer.unbound = unbound,
+                  }
+                }
               }
               js::Expr::Fn(f) => {
                 if let Some(body) = &f.function.body {

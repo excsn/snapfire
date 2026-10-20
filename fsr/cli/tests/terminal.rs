@@ -156,3 +156,15 @@ fn a_backspace_deletes_the_last_grapheme_and_a_transition_runs_in_place() {
   assert_eq!(line(session.press(&press(KeyCode::Char('👍'))).unwrap()), "a👍|a👍|done");
   assert_eq!(line(session.press(&press(KeyCode::Backspace)).unwrap()), "a|a|done", "the emoji is one grapheme of two UTF-16 units");
 }
+
+#[test]
+fn a_ref_written_while_rendering_keeps_the_value_for_the_next_render() {
+  let page = "import { useRef, useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Even() {\n  const [n, setN] = useState(0);\n  const last = useRef(0);\n  if (n % 2 === 0) {\n    last.current = n;\n  }\n  useInput(() => setN(n + 1));\n  return <Text>{n} {last.current}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
+  let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  assert_eq!(line(session.view().unwrap()), "0 0");
+  assert_eq!(line(session.press(&key).unwrap()), "1 0");
+  assert_eq!(line(session.press(&key).unwrap()), "2 2");
+  assert_eq!(line(session.press(&key).unwrap()), "3 2");
+}
