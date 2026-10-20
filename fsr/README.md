@@ -76,7 +76,7 @@ Desktop mode is experimental. Today the window loads the host over a loopback po
 
 ## Terminal apps (experimental)
 
-FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal: Ink's `Box`, `Text`, `Spacer`, `Newline` and `useInput`, imported from `ink` itself, so an Ink file needs no changes to run. Ink is what Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with, and it runs every one of them on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the cells that changed rewritten. That is the base for high-performance terminal apps of that kind.
+FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal: Ink's `Box`, `Text`, `Spacer`, `Newline` and `useInput`, imported from `ink` itself, so an Ink file needs no changes to run. Ink is what Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with. Ink runs every one of them on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the cells that changed rewritten. That is the base for high-performance terminal apps of that kind.
 
 ```tsx
 import { useState } from "react";

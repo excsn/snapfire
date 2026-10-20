@@ -1,6 +1,6 @@
 # corpus
 
-The code examples of the React, Svelte and Vue documentation, built through FSR one at a time, and Ink's examples run through its terminal mode. Each example under `react_dev/` becomes an application whose only page renders its `App`; each under `svelte_dev/` or `vuejs_org/` one whose only page places its `App.svelte` or `App.vue` as an island. `cargo test -p corpus` holds what the build made of it against `outcomes.txt`, one of three outcomes: `lowered`; `client:` with the causes that sent a component to the browser; `refused:` with the error that stopped the build.
+The code examples of the React, Svelte and Vue documentation, built through FSR one at a time. Ink's examples run through its terminal mode as well. Each example under `react_dev/` becomes an application whose only page renders its `App`; each under `svelte_dev/` or `vuejs_org/` one whose only page places its `App.svelte` or `App.vue` as an island. `cargo test -p corpus` holds what the build made of it against `outcomes.txt`, one of three outcomes: `lowered`; `client:` with the causes that sent a component to the browser; `refused:` with the error that stopped the build.
 
 The examples were written without FSR in mind. A cause that recurs is an idiom the lowerer may be missing; once read, each one either becomes a lowering with a test of its own or is kept as a refusal that is right.
 
