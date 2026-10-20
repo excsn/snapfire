@@ -1473,8 +1473,6 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       }
     }
   }
-  let mut exported: Vec<String> = Vec::new();
-  for module in &islands {
   let react = types::serves_react(app, &crate::xwpm::Layout::of_site(app, options.site.as_ref())?)?;
   let pointed = components_rewrites(app, &mut set, &islands, &owners, react, &rewritten)?;
   let svelte_components = pointed.iter().any(|(file, _)| file.to_ascii_lowercase().ends_with(".svelte"));
@@ -1484,6 +1482,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       None => rewritten.push((file, text)),
     }
   }
+  let mut exported: Vec<String> = Vec::new();
+  for module in &islands {
     let Some((file, name)) = module.split_once('#') else { continue };
     if name == "default" || snapfire_fsr_lower::component::is_foreign(file) || snapfire_fsr_lower::component::is_transformed(file) || generated.iter().any(|(f, _)| f == file) {
       continue;
@@ -1727,11 +1727,11 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   files.extend(rewritten.into_iter().filter(|(file, _)| !snapfire_fsr_lower::component::is_transformed(file)).map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   files.extend(mdx_files);
   files.extend(written_themes.files);
-  let mut bundle_files = generated_files.clone();
-  bundle_files.extend(written_themes.added);
   if svelte_components {
     generated_files.extend(svelte_components_files().into_iter().map(|(file, _)| file));
   }
+  let mut bundle_files = generated_files.clone();
+  bundle_files.extend(written_themes.added);
   #[cfg(feature = "mdx")]
   {
     let log = mdx_installed.log.borrow().clone();
@@ -1787,11 +1787,11 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   if let Some(shim) = shim {
     files.push((format!("{}/{}", layout.types.trim_end_matches('/'), types::FOREIGN_SHIM), shim));
   }
-  files.extend(vue_declarations);
-  files.extend(shadowed_declarations);
   if svelte_components {
     files.extend(svelte_components_files());
   }
+  files.extend(vue_declarations);
+  files.extend(shadowed_declarations);
   let mut report = report;
   let declarations = types::Declarations::read(app)?;
   report.types = declarations.status();
@@ -2689,8 +2689,6 @@ fn dialect_rewrites(app: &Path, set: &mut ComponentSet, islands: &[String], stat
   Ok(out)
 }
 
-/// Every JSX file under `app` that imports a component another framework
-/// mounts, with each such import replaced by a `foreign` component of React's
 /// FSR's components as Svelte components, which the build writes under `generated/components` for an app whose `.svelte` files import them.
 const SVELTE_COMPONENT_FILES: &[(&str, &str)] = &[
   ("Link", include_str!("../embedded/components/svelte/Link.svelte")),
@@ -2760,9 +2758,31 @@ fn components_rewrites(app: &Path, set: &mut ComponentSet, islands: &[String], o
         None => "@snapfire/fsr-client/jsx-runtime",
       },
     };
+    let source = match target == SVELTE_COMPONENTS {
+      true => svelte_component_imports(&source),
+      false => source,
+    };
     out.push((file, source.replace(&specifier, &format!("\"{target}\""))));
   }
   Ok(out)
+}
+
+/// `source` with each `import { Link, Picture as Shot } from "@snapfire/fsr/components"` written as one default import per component from its own file under `generated/components`, so a `.svelte` file loads only the components it uses. A type import is left for the index, as is one naming anything else.
+fn svelte_component_imports(source: &str) -> String {
+  let pattern = regex::Regex::new(&format!(r#"import\s*\{{([^}}]*)\}}\s*from\s*["']{}["'];?"#, regex::escape(snapfire_fsr_lower::COMPONENTS_MODULE))).expect("the pattern compiles");
+  pattern
+    .replace_all(source, |caps: &regex::Captures| {
+      let mut imports = Vec::new();
+      for name in caps[1].split(',').map(str::trim).filter(|n| !n.is_empty()) {
+        let (imported, local) = name.split_once(" as ").map(|(i, l)| (i.trim(), l.trim())).unwrap_or((name, name));
+        if !SVELTE_COMPONENT_FILES.iter().any(|(component, _)| *component == imported) {
+          return caps[0].to_owned();
+        }
+        imports.push(format!("import {local} from \"{SVELTE_COMPONENTS}/{imported}.svelte\";"));
+      }
+      imports.join("\n  ")
+    })
+    .into_owned()
 }
 
 /// The script and component files under `dir`, relative to `app`.
@@ -2784,6 +2804,8 @@ fn source_files(app: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), Bui
   Ok(())
 }
 
+/// Every JSX file under `app` that imports a component another framework
+/// mounts, with each such import replaced by a `foreign` component of React's
 /// adapter, by path in the bundle overlay. React's `jsx` takes no other
 /// framework's component, so `<Chart />` from `Chart.vue` places it by id.
 fn foreign_rewrites(app: &Path, set: &mut ComponentSet, rewritten: &[(String, String)]) -> Result<Vec<(String, String)>, BuildError> {

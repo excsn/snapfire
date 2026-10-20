@@ -293,7 +293,7 @@ The server renders each one the same way whatever framework the file is in. `fsr
 | Importing file | The import becomes |
 | --- | --- |
 | `.vue` | `@snapfire/fsr-client/vue` |
-| `.svelte` | the Svelte components the build writes under `generated/components` and compiles with the application's Svelte |
+| `.svelte` | one import per component, from the Svelte component the build writes for it under `generated/components` and compiles with the application's Svelte, so a file loads only the components it names. `@generated/components` exports all five for a file that wants them together. |
 | any other, reached by an island | that island's adapter |
 | any other, in an application that serves React | `@snapfire/fsr-client/react` |
 | any other | `@snapfire/fsr-client/jsx-runtime` |

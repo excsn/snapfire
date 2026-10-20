@@ -1596,13 +1596,14 @@ fn fsr_components_point_at_the_framework_of_each_file_that_imports_them_the_over
 #[test]
 fn a_svelte_file_importing_fsr_components_gets_the_svelte_components_the_build_writes() {
   let page = placing("Chart.svelte");
-  let chart = "<script lang=\"ts\">\n  import { Link } from \"@snapfire/fsr/components\";\n</script>\n\n<Link href=\"/next\">next</Link>\n";
+  let chart = "<script lang=\"ts\">\n  import { Link, Picture as Shot } from \"@snapfire/fsr/components\";\n</script>\n\n<Link href=\"/next\">next</Link><Shot src=\"/p.png\" alt=\"p\" />\n";
   let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.svelte", chart)]);
   std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/svelte":"/s","svelte":"/s","svelte/":"/s/"}}"#).unwrap();
   std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"},"svelte":{"version":"5.57.2"}}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or_else(|| panic!("no {name}"));
-  assert!(file(".fsr/bundle/src/ui/Chart.svelte").contains("import { Link } from \"@generated/components\";"));
+  let overlay = file(".fsr/bundle/src/ui/Chart.svelte");
+  assert!(overlay.contains("import Link from \"@generated/components/Link.svelte\";\n  import Shot from \"@generated/components/Picture.svelte\";") && !overlay.contains("@snapfire/fsr/components"), "each component from its own file, so only what is used loads: {overlay}");
   assert!(file("generated/components/index.ts").contains("export { default as Link } from \"./Link.svelte\";"));
   assert!(file("generated/components/Link.svelte").contains("link(options)"));
   let config = file("tsconfig.build.json");
