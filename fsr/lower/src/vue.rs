@@ -1391,6 +1391,10 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         "TransitionGroup" | "transition-group" => self.transition_group(node),
         "Teleport" | "teleport" => {
           let disabled = node.props.iter().any(|prop| (prop.prop == "attribute" && prop.name == "disabled" && prop.value.as_deref().is_none_or(|v| v != "false")) || (prop.binds("disabled") && prop.exp.as_deref().map(str::trim) == Some("true")));
+          let deferred = node.props.iter().any(|prop| (prop.prop == "attribute" && prop.name == "defer") || (prop.binds("defer") && prop.exp.as_deref().map(str::trim) != Some("false")));
+          if deferred {
+            return Err(self.at(node.line, node.column, "`<Teleport defer>`, whose content Vue never updates once it has hydrated it"));
+          }
           let to = node.props.iter().find(|prop| prop.prop == "attribute" && prop.name == "to").and_then(|prop| prop.value.as_deref());
           if !disabled {
             if to != Some(PLACE_BODY) {

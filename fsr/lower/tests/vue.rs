@@ -300,6 +300,8 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
   };
   assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n"), "5:16: `v-model` on `<div>`", "the directive's own position, not its expression's");
   assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
+  assert_eq!(refused("Deferred", "<template><Teleport to=\"body\" defer><p>x</p></Teleport></template>\n"), "1:11: `<Teleport defer>`, whose content Vue never updates once it has hydrated it");
+  assert_eq!(refused("DeferredBound", "<template><Teleport to=\"body\" :defer=\"true\"><p>x</p></Teleport></template>\n"), "1:11: `<Teleport defer>`, whose content Vue never updates once it has hydrated it");
   assert_eq!(refused("Options", "<script>\nexport default {\n  created() {\n    fetch(\"/x\");\n  },\n};\n</script>\n<template><p /></template>\n"), "4:5: a statement in `created` other than `this.$emit`, which the build does not read");
   assert_eq!(refused("Inject", "<script setup>\nimport { inject } from \"vue\";\nconst theme = inject(\"theme\", () => \"x\", true);\n</script>\n<template><p>{{ theme }}</p></template>\n"), "3:31: `inject` with a default factory");
   let bare = refused("Bare", "<template><p>{{ nowhere }}</p></template>\n");
