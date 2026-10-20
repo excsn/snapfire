@@ -21,6 +21,7 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | [blog_site_react_ts](portal_react_ts/sites/blog/README.md) | A blog the portal mounts at `/blog`, its posts baked in at build | A static site under a shell that reads the session: the shell's `fsr prerender` renders each page ahead and splices it under the live layout, the same site prerenders its own documents when it runs alone, one per post from `paths`; a slug off the blog answers 404 and React comes from the shell contract, so nothing is vendored and there is no Rust project |
 | [status](portal_react_ts/sites/status/README.md) | A status page the portal mounts at `/status` | A site the shell fetches itself: the table names a version the cache lacks and the portal takes it from `[sites] store`, verified against its manifest |
 | [uploads_react_ts](uploads_react_ts/README.md) | A file posted to an action, with JavaScript and without | Multipart where the body never sees a parser: a part with a filename arrives as the built-in `Upload` beside the text fields, refused above `server.max_upload` before the body runs, posted both by a native form and by `upload` from the page |
+| [counter_terminal_ts](counter_terminal_ts/README.md) | An Ink component in the terminal | `fsr dev app --terminal` with an fsr built with its `terminal` feature: Ink's `Box`, `Text` and `useInput` imported from `ink`, lowered and drawn by FSR with no Node, each key stepping the state and redrawing only the cells that changed |
 
 ### Vue
 

@@ -150,6 +150,10 @@ struct Dev {
   #[cfg(feature = "desktop")]
   #[arg(long)]
   desktop: bool,
+  /// Runs the root page in this terminal, drawn with Ink's elements and stepped by its useInput handler.
+  #[cfg(feature = "terminal")]
+  #[arg(long)]
+  terminal: bool,
 }
 
 #[derive(Args)]
@@ -467,6 +471,10 @@ impl Dev {
     #[cfg(feature = "desktop")]
     {
       options.desktop = self.desktop;
+    }
+    #[cfg(feature = "terminal")]
+    {
+      options.terminal = self.terminal;
     }
     options
   }

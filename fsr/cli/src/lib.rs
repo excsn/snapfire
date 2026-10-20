@@ -15,6 +15,8 @@ pub mod published;
 pub mod serve;
 pub mod sites;
 pub mod spec;
+#[cfg(feature = "terminal")]
+pub mod terminal;
 pub mod infer;
 pub mod native;
 pub mod test;

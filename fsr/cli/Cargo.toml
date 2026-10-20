@@ -31,6 +31,8 @@ mdx-highlight = ["mdx", "snapfire_fsr_mdx/highlight"]
 # YAML or TOML frontmatter in MDX and markdown as `export const meta`.
 mdx-frontmatter = ["mdx", "snapfire_fsr_mdx/frontmatter"]
 # `fsr dev --desktop` and `fsr serve --desktop`: the app in a native window over the system webview.
+# `fsr dev --terminal`: the root page drawn in the terminal with Ink's elements.
+terminal = ["dep:crossterm", "dep:snapfire_fsr_terminal"]
 desktop = ["dep:bytes", "dep:http", "dep:http-body-util", "dep:muda", "dep:tao", "dep:wry"]
 
 [dependencies]
@@ -70,6 +72,8 @@ base64 = "0.22"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net"] }
 bytes = { version = "1", optional = true }
+crossterm = { version = "0.29", optional = true }
+snapfire_fsr_terminal = { workspace = true, optional = true }
 http = { version = "1", optional = true }
 http-body-util = { version = "0.1", optional = true }
 muda = { version = "0.21", optional = true }
@@ -95,3 +99,7 @@ required-features = ["mdx-highlight", "mdx-frontmatter"]
 [[test]]
 name = "desktop"
 required-features = ["desktop"]
+
+[[test]]
+name = "terminal"
+required-features = ["terminal"]

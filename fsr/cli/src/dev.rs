@@ -71,11 +71,14 @@ pub struct DevOptions {
   /// Opens the shell in a native window, `--desktop`.
   #[cfg(feature = "desktop")]
   pub desktop: bool,
+  /// Runs the root page in this terminal, `--terminal`.
+  #[cfg(feature = "terminal")]
+  pub terminal: bool,
 }
 
 impl Default for DevOptions {
   fn default() -> Self {
-    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false }
+    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false, #[cfg(feature = "terminal")] terminal: false }
   }
 }
 
@@ -85,7 +88,7 @@ impl DevOptions {
   pub fn beside(app: &Path) -> Self {
     let build = Options::beside(app);
     let public_path = crate::bundle_base(build.site.as_ref());
-    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false }
+    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false, #[cfg(feature = "terminal")] terminal: false }
   }
 }
 
@@ -983,6 +986,10 @@ type Window = std::convert::Infallible;
 
 /// Runs the loop until Ctrl-C or until its window closes under `--desktop`.
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
+  #[cfg(feature = "terminal")]
+  if options.terminal {
+    return crate::terminal::run(app);
+  }
   #[cfg(feature = "desktop")]
   if options.desktop {
     let app = app.to_path_buf();

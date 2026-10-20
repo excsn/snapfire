@@ -56,3 +56,4 @@ snapfire_fsr_service = { path = "service", version = "0.11.1" }
 snapfire_fsr_session = { path = "session", version = "0.11.1" }
 snapfire_fsr_sites = { path = "sites", version = "0.17.0" }
 snapfire_fsr_tera = { path = "tera", version = "0.11.0" }
+snapfire_fsr_terminal = { path = "terminal", version = "0.1.0" }
