@@ -26,6 +26,9 @@ pub const MODULE: &str = "routes/page.tsx#default";
 /// How many lines the page wrote with `useStdout` or `useStderr` stay above it.
 const WRITTEN: usize = 200;
 
+/// How many times a step runs the mount handlers of components a mount handler rendered.
+const MOUNT_PASSES: usize = 8;
+
 /// How many times a step renders again for a focus that moved while it rendered.
 const FOCUS_PASSES: usize = 3;
 
@@ -111,6 +114,8 @@ pub struct Session {
   focus: Focus,
   focusables_seen: Vec<Value>,
   focus_acts: Vec<(String, Value)>,
+  mounted: std::collections::HashSet<String>,
+  started: Vec<Timer>,
 }
 
 /// Ink's focus: the focusables the page rendered last, in order, the one
@@ -195,7 +200,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new() })
   }
 
   /// The page as it stands.
@@ -233,6 +238,8 @@ impl Session {
   /// Lowers the page again from disk, keeping the state.
   pub fn reload(&mut self) -> Result<(), String> {
     self.library = lower(&self.app, &self.module)?;
+    self.mounted.clear();
+    self.started.clear();
     Ok(())
   }
 
@@ -262,14 +269,49 @@ impl Session {
     self.state.get(snapfire_fsr_lower::EXIT_STATE) == Some(&Value::Bool(true))
   }
 
-  /// The page after `timer` fires.
+  /// The page after `timer` fires; as it stands when the component that started it is gone.
   pub fn fire(&mut self, timer: &Timer) -> Result<Node, String> {
+    if !self.holds(timer) {
+      return self.run(None, &Value::Null);
+    }
     self.run(Some(HandlerRef::at(timer.path.clone(), timer.handler)), &Value::Null)
+  }
+
+  /// Whether the component that started `timer` rendered last time, so the timer still runs.
+  pub fn holds(&self, timer: &Timer) -> bool {
+    self.components.iter().any(|(path, _)| *path == timer.path)
+  }
+
+  /// The timers started since the last call: those of each component as it first renders, and those a handler started.
+  pub fn take_started(&mut self) -> Vec<Timer> {
+    std::mem::take(&mut self.started)
   }
 
   /// Steps `handler` on `event` and renders, then renders again while that moved the focus, so `isFocused` reads where it landed.
   fn run(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<Node, String> {
     let mut html = self.render(handler, event)?;
+    for _ in 0..MOUNT_PASSES {
+      let fresh: Vec<(String, String)> = self.components.iter().filter(|(path, _)| !self.mounted.contains(path)).cloned().collect();
+      if fresh.is_empty() {
+        break;
+      }
+      for (path, module) in fresh {
+        self.mounted.insert(path.clone());
+        let Some(component) = self.library.get(&module).cloned() else { continue };
+        for (index, handler) in component.handlers.iter().enumerate() {
+          let Some((kind, ms)) = handler.event.split_once(':') else {
+            if handler.event == "mount" {
+              html = self.render(Some(HandlerRef::at(path.clone(), index)), &Value::Null)?;
+            }
+            continue;
+          };
+          let Ok(ms) = ms.parse() else { continue };
+          if let "interval" | "timeout" = kind {
+            self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: kind == "interval" });
+          }
+        }
+      }
+    }
     for _ in 0..FOCUS_PASSES {
       let before = self.focus.focused.clone();
       let found = std::mem::take(&mut self.focusables_seen);
@@ -299,10 +341,23 @@ impl Session {
     store.insert(snapfire_fsr_lower::TERMINAL_FOCUS.to_owned(), self.focus.value());
     let mut props = ValueMap::default();
     props.insert("$store".to_owned(), Value::Map(store));
+    let path = handler.as_ref().map(|handler| handler.path.clone()).unwrap_or_default();
     let stepped = Interpreter::default().island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
     for (action, value) in stepped.acts {
       match (action.as_str(), &value) {
         ("$stdout" | "$stderr", Value::Str(text)) => self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned)),
+        ("$timer", Value::Map(timer)) => {
+          let module = stepped.components.iter().find(|(at, _)| *at == path).map(|(_, module)| module.clone());
+          let component = module.and_then(|module| self.library.get(&module).cloned());
+          let (Some(component), Some(Value::Str(event))) = (component, timer.get("event")) else { continue };
+          let Some(index) = component.handlers.iter().position(|h| h.event == **event) else { continue };
+          let ms = match timer.get("ms") {
+            Some(Value::F64(ms)) => *ms as u64,
+            Some(Value::Int(ms)) => *ms as u64,
+            _ => 0,
+          };
+          self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)) });
+        }
         (focus, _) if focus.starts_with("$focus") => self.focus_acts.push((action, value)),
         _ => {}
       }
@@ -371,8 +426,8 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   let mut shown = Frame::new(0, 0);
   let mut drawn = session.view();
   draw(&drawn, &mut shown, true).map_err(fail)?;
-  let schedule = |session: &Session| -> Vec<(Timer, Instant)> { session.timers().into_iter().map(|timer| (Instant::now() + timer.every, timer)).map(|(at, timer)| (timer, at)).collect() };
-  let mut timers = schedule(&session);
+  let schedule = |session: &mut Session| -> Vec<(Timer, Instant)> { session.take_started().into_iter().map(|timer| (Instant::now() + timer.every, timer)).map(|(at, timer)| (timer, at)).collect() };
+  let mut timers = schedule(&mut session);
   loop {
     let wait = timers.iter().map(|(_, at)| at.saturating_duration_since(Instant::now())).min().unwrap_or(IDLE).min(IDLE);
     if crossterm::event::poll(wait).map_err(fail)? {
@@ -406,8 +461,9 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
       drawn = session.fire(timer);
       fired = true;
       *at = now + timer.every;
-      timer.repeats
+      timer.repeats && session.holds(timer)
     });
+    timers.extend(schedule(&mut session));
     if session.exited() {
       break;
     }
@@ -417,7 +473,7 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
     if rx.try_recv().is_ok() {
       while rx.try_recv().is_ok() {}
       drawn = session.reload().and_then(|()| session.view());
-      timers = schedule(&session);
+      timers = schedule(&mut session);
       draw(&drawn, &mut shown, false).map_err(fail)?;
     }
   }

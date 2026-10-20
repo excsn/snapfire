@@ -91,7 +91,7 @@ fn outcome(example: &Path, scratch: &Path) -> String {
       if std::env::var_os("CORPUS_FRAMES").is_some_and(|v| v == "1") {
         println!("== {}\n{}", example.file_name().unwrap().to_string_lossy(), snapfire_fsr_terminal::render(&node, 80).lines().join("\n"));
       }
-      for timer in session.timers() {
+      for timer in session.take_started() {
         if let Err(why) = session.fire(&timer) {
           return first(format!("a timer's step fails: {why}"));
         }

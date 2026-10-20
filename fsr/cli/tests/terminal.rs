@@ -168,3 +168,20 @@ fn a_ref_written_while_rendering_keeps_the_value_for_the_next_render() {
   assert_eq!(line(session.press(&key).unwrap()), "2 2");
   assert_eq!(line(session.press(&key).unwrap()), "3 2");
 }
+
+#[test]
+fn a_mount_effect_runs_once_and_a_timer_its_function_restarts_counts_with_its_own_let() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Tests() {\n  const [done, setDone] = useState(0);\n  useEffect(() => {\n    let completed = 0;\n    let timer: ReturnType<typeof setTimeout> | undefined;\n    const run = () => {\n      if (completed++ >= 3) {\n        return;\n      }\n      setDone((n) => n + 1);\n      timer = setTimeout(run, 100);\n    };\n    run();\n    return () => clearTimeout(timer);\n  }, []);\n  return <Text>done {done}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "done 1", "the effect ran its function once on mount");
+  for done in 2..=3 {
+    let started = session.take_started();
+    assert_eq!(started.len(), 1, "the function started one timeout");
+    assert_eq!(started[0].every, std::time::Duration::from_millis(100));
+    assert_eq!(line(session.fire(&started[0]).unwrap()), format!("done {done}"));
+  }
+  let last = session.take_started();
+  assert_eq!(line(session.fire(&last[0]).unwrap()), "done 3", "the fourth run returns early");
+  assert!(session.take_started().is_empty(), "and starts no timer");
+}

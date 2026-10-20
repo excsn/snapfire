@@ -1182,7 +1182,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -3648,6 +3648,42 @@ fn alias_key(name: &str) -> String {
   format!("$alias:{name}")
 }
 
+/// `test` with each `x++`, `x--`, `++x` or `--x` of a name `counted` accepts replaced by the value JavaScript reads there, and each such write in `updates`, in order.
+fn counted_test(test: &js::Expr, counted: &dyn Fn(&str) -> bool, updates: &mut Vec<(String, js::BinaryOp, Span)>) -> js::Expr {
+  match test {
+    js::Expr::Update(update) => match &*update.arg {
+      js::Expr::Ident(id) if counted(id.sym.as_ref()) => {
+        let op = if update.op == js::UpdateOp::PlusPlus { js::BinaryOp::Add } else { js::BinaryOp::Sub };
+        updates.push((id.sym.to_string(), op, update.span));
+        match update.prefix {
+          false => js::Expr::Ident(id.clone()),
+          true => js::Expr::Bin(js::BinExpr { span: update.span, op, left: Box::new(js::Expr::Ident(id.clone())), right: Box::new(js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }))) }),
+        }
+      }
+      _ => test.clone(),
+    },
+    js::Expr::Bin(bin) => js::Expr::Bin(js::BinExpr { left: Box::new(counted_test(&bin.left, counted, updates)), right: Box::new(counted_test(&bin.right, counted, updates)), ..bin.clone() }),
+    js::Expr::Unary(unary) => js::Expr::Unary(js::UnaryExpr { arg: Box::new(counted_test(&unary.arg, counted, updates)), ..unary.clone() }),
+    js::Expr::Paren(paren) => js::Expr::Paren(js::ParenExpr { expr: Box::new(counted_test(&paren.expr, counted, updates)), ..paren.clone() }),
+    other => other.clone(),
+  }
+}
+
+/// `setInterval(callback, ms)` or `setTimeout(callback, ms)` with its delay written out: the timer's kind, its callback and its delay.
+fn timer_call(e: &js::Expr) -> Option<(&'static str, &js::Expr, u64)> {
+  let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return None };
+  let kind = match id.sym.as_ref() {
+    "setInterval" => "interval",
+    "setTimeout" => "timeout",
+    _ => return None,
+  };
+  let [callback, delay] = call.args.as_slice() else { return None };
+  let js::Expr::Lit(js::Lit::Num(delay)) = &*delay.expr else { return None };
+  Some((kind, &callback.expr, delay.value.max(0.0) as u64))
+}
+
 /// Records `const name = array[index]` or `array.at(index)` on a writable local array as an alias:
 /// the array's name, the index as it was then and where the array was bound,
 /// so a write through `name` reaches the element JavaScript shares.
@@ -4842,7 +4878,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
           let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
           if hook == "useEffect" || hook == "useLayoutEffect" {
-            self.effect_timers(call);
+            self.effect_timers(call)?;
           }
         }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
@@ -5181,6 +5217,10 @@ struct ComponentLowerer<'a, 'p> {
   dispatchers: Vec<(String, String, Expr)>,
   /// A terminal's `startTransition` functions, whose callback a handler runs in place.
   transitions: Vec<String>,
+  /// While a terminal effect lowers, each `let` it declares and the hidden state that holds it.
+  effect_locals: Vec<(String, String)>,
+  /// While a terminal effect lowers, each function it declares and the event of the handler it lowered to.
+  effect_fns: Vec<(String, String)>,
 }
 
 /// Where the browser gets a function passed as a prop: the placement and prop it went to, the value the server holds and the module id `file#export` the browser imports it from or else why the browser cannot reach it. `needs` is what the rewrite and the bundle add for the id to resolve.
@@ -5713,7 +5753,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
               let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
               if hook == "useEffect" || hook == "useLayoutEffect" {
-                self.effect_timers(call);
+                self.effect_timers(call)?;
+                lets.append(&mut self.pending_lets);
               }
             }
             js::Stmt::Decl(js::Decl::Var(var)) => {
@@ -7423,9 +7464,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// terminal runtime schedules. An effect with dependencies, a timer whose
   /// delay is not written out and a callback that does not lower are dropped,
   /// as every effect is on the server.
-  fn effect_timers(&mut self, call: &'p js::CallExpr) {
-    let [effect, deps] = &call.args[..] else { return };
-    let js::Expr::Array(deps) = &*deps.expr else { return };
+  fn effect_timers(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
+    let [effect, deps] = &call.args[..] else { return Ok(()) };
+    let js::Expr::Array(deps) = &*deps.expr else { return Ok(()) };
     let stable = |elem: &Option<js::ExprOrSpread>| match elem.as_ref().map(|e| &*e.expr) {
       Some(js::Expr::Ident(id)) => {
         let name = id.sym.as_ref();
@@ -7434,13 +7475,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       _ => false,
     };
     if !deps.elems.iter().all(stable) {
-      return;
+      return Ok(());
     }
     let mut inner: &'p js::Expr = &effect.expr;
     while let js::Expr::Paren(p) = inner {
       inner = &p.expr;
     }
-    let js::Expr::Arrow(arrow) = inner else { return };
+    let js::Expr::Arrow(arrow) = inner else { return Ok(()) };
+    if self.lowerer.terminal {
+      return self.terminal_effect(arrow);
+    }
     let mut started: Vec<&'p js::Expr> = Vec::new();
     match arrow_body(arrow) {
       FunctionBody::Expr(e) => started.push(e),
@@ -7474,6 +7518,131 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(body) => self.lowered_handlers.push(Handler { event: format!("{kind}:{}", delay.value.max(0.0) as u64), body }),
         Err(_) => self.lowered_handlers.truncate(held),
       }
+    }
+    Ok(())
+  }
+
+  /// A terminal's mount effect, run as Ink runs it: each `let` it declares is
+  /// state of the component's own, each function it declares a handler named
+  /// `call:<n>`, a call to one at the top of the effect a `mount` handler, and
+  /// a `setInterval` or `setTimeout` it starts a handler named `interval:<ms>`
+  /// or `timeout:<ms>`. Inside a handler, a timer started on one of the
+  /// effect's functions is a `$timer` act the terminal schedules. The cleanup
+  /// it returns is left out, since a terminal stops every timer on exit.
+  fn terminal_effect(&mut self, arrow: &'p js::ArrowExpr) -> Lowered<()> {
+    let depth = self.lowerer.scope.len();
+    let (locals, fns) = (self.effect_locals.len(), self.effect_fns.len());
+    let result = self.terminal_effect_in(arrow);
+    self.lowerer.scope.truncate(depth);
+    self.effect_locals.truncate(locals);
+    self.effect_fns.truncate(fns);
+    result
+  }
+
+  fn terminal_effect_in(&mut self, arrow: &'p js::ArrowExpr) -> Lowered<()> {
+    let stmts: Vec<&'p js::Stmt> = match arrow_body(arrow) {
+      FunctionBody::Block(stmts) => stmts.iter().collect(),
+      FunctionBody::Expr(_) => Vec::new(),
+    };
+    if let FunctionBody::Expr(e) = arrow_body(arrow) {
+      return self.effect_start(e, arrow.span);
+    }
+    let fn_of = |init: &'p js::Expr| -> Option<(Vec<js::Pat>, FunctionBody<'p>)> {
+      match crate::meaning::bare(init) {
+        js::Expr::Arrow(f) => Some((f.params.clone(), arrow_body(f))),
+        js::Expr::Fn(f) => f.function.body.as_ref().map(|body| (patterns(&f.function), FunctionBody::Block(&body.stmts))),
+        _ => None,
+      }
+    };
+    for stmt in &stmts {
+      match stmt {
+        js::Stmt::Decl(js::Decl::Fn(f)) => {
+          let Some(body) = &f.function.body else { continue };
+          self.effect_fn(f.ident.sym.as_ref(), patterns(&f.function), FunctionBody::Block(&body.stmts));
+        }
+        js::Stmt::Decl(js::Decl::Var(var)) => {
+          for decl in &var.decls {
+            let js::Pat::Ident(id) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in an effect")) };
+            let name = id.id.sym.to_string();
+            match decl.init.as_deref() {
+              Some(init) if fn_of(init).is_some() => {
+                let (params, body) = fn_of(init).expect("checked");
+                self.effect_fn(&name, params, body);
+              }
+              Some(init) if timer_call(init).is_some() => {}
+              init => {
+                let value = match init {
+                  Some(init) => self.lowerer.expr(init)?,
+                  None => Expr::Lit(Lit::Null),
+                };
+                let hidden = format!("$fx{}:{name}", decl.span.lo.0);
+                self.state.push(hidden.clone());
+                self.state_bindings.push(hidden.clone());
+                self.pending_lets.push(Stmt::Let { name: hidden.clone(), expr: value });
+                self.lowerer.scope.push((name.clone(), Expr::Var(hidden.clone())));
+                self.effect_locals.push((name, hidden));
+              }
+            }
+          }
+        }
+        _ => {}
+      }
+    }
+    let declared: Vec<(String, String)> = self.effect_fns.clone();
+    for (name, event) in &declared {
+      let (params, body) = self.handler_fns.get(name).cloned().expect("an effect function is a handler function");
+      let lowered = self.handler_fn(&params, body, arrow.span)?;
+      self.lowered_handlers.push(Handler { event: event.clone(), body: lowered });
+    }
+    for stmt in &stmts {
+      match stmt {
+        js::Stmt::Expr(e) => self.effect_start(&e.expr, e.span)?,
+        js::Stmt::Decl(js::Decl::Var(var)) => {
+          for init in var.decls.iter().filter_map(|decl| decl.init.as_deref()) {
+            if timer_call(init).is_some() {
+              self.effect_start(init, init.span())?;
+            }
+          }
+        }
+        js::Stmt::Decl(js::Decl::Fn(_)) | js::Stmt::Return(_) | js::Stmt::Empty(_) => {}
+        other => return Err(self.lowerer.residue(other.span(), "a statement a terminal effect cannot hold; it declares `let`s and functions, calls them and starts timers")),
+      }
+    }
+    Ok(())
+  }
+
+  /// An effect's function as a handler the terminal can call, `call:<n>`, and a function the effect's other handlers inline.
+  fn effect_fn(&mut self, name: &str, params: Vec<js::Pat>, body: FunctionBody<'p>) {
+    let event = format!("call:{}", self.lowered_handlers.len() + self.effect_fns.len());
+    self.handler_fns.insert(name.to_owned(), (params, body));
+    self.effect_fns.push((name.to_owned(), event));
+  }
+
+  /// A statement at the top of a terminal effect: a timer it starts, a call to one of its functions, which runs on mount, or a call made for its effect, which the terminal cannot run.
+  fn effect_start(&mut self, e: &'p js::Expr, span: Span) -> Lowered<()> {
+    if let Some((kind, callback, delay)) = timer_call(e) {
+      let body = self.handler_body(callback)?;
+      self.lowered_handlers.push(Handler { event: format!("{kind}:{delay}"), body });
+      return Ok(());
+    }
+    if let js::Expr::Call(call) = crate::meaning::bare(e) {
+      if let js::Callee::Expr(callee) = &call.callee {
+        if let js::Expr::Ident(id) = crate::meaning::bare(callee) {
+          if self.effect_fns.iter().any(|(name, _)| *name == *id.sym) {
+            let body = self.handler_body(callee)?;
+            self.lowered_handlers.push(Handler { event: "mount".to_owned(), body });
+            return Ok(());
+          }
+        }
+      }
+    }
+    match e {
+      js::Expr::Call(_) => {
+        let body = self.handler_fn(&[], FunctionBody::Expr(e), span)?;
+        self.lowered_handlers.push(Handler { event: "mount".to_owned(), body });
+        Ok(())
+      }
+      _ => Err(self.lowerer.residue(span, "an expression a terminal effect cannot run")),
     }
   }
 
@@ -7591,17 +7760,26 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// `if`, `else` and `else if`: each branch lowers under its condition joined to the reach around it and the names it declares go out of scope with it. A branch that returns leaves the rest of the handler reachable only when the other one ran.
   fn handler_if(&mut self, branch: &'p js::IfStmt, walk: &mut HandlerWalk) -> Lowered<()> {
-    let cond = self.lowerer.expr(&branch.test)?;
+    let mut updates = Vec::new();
+    let test = counted_test(&branch.test, &|name| self.effect_locals.iter().any(|(local, _)| local == name), &mut updates);
+    let cond = self.lowerer.expr(&test)?;
+    for (name, op, span) in updates {
+      let read = js::Expr::Ident(js::Ident::new_no_ctxt(name.as_str().into(), span));
+      let value = self.lowerer.expr(&js::Expr::Bin(js::BinExpr { span, op, left: Box::new(read), right: Box::new(js::Expr::Lit(js::Lit::Num(js::Number { span, value: 1.0, raw: None }))) }))?;
+      self.effect_write(&name, value, walk);
+    }
     let outer = walk.reach.clone();
     let depth = self.lowerer.scope.len();
     walk.reach = Some(reach_under(&outer, cond.clone()));
     let then_returned = self.handler_branch(&branch.cons, walk)?;
     self.lowerer.scope.truncate(depth);
+    self.reread_effect_locals(walk);
     let mut else_returned = false;
     if let Some(alt) = &branch.alt {
       walk.reach = Some(reach_under(&outer, Expr::Not(Box::new(cond.clone()))));
       else_returned = self.handler_branch(alt, walk)?;
       self.lowerer.scope.truncate(depth);
+      self.reread_effect_locals(walk);
     }
     walk.reach = match (then_returned, else_returned) {
       (false, false) => outer,
@@ -7610,6 +7788,25 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       (true, true) => Some(Expr::Lit(Lit::Bool(false))),
     };
     Ok(())
+  }
+
+  /// Writes `value` to the effect's `let` `name`: a patch of the state that holds it, which the rest of the handler reads.
+  fn effect_write(&mut self, name: &str, value: Expr, walk: &mut HandlerWalk) {
+    let Some((_, hidden)) = self.effect_locals.iter().find(|(local, _)| local == name).cloned() else { return };
+    walk.set(hidden, value);
+    self.reread_effect_locals(walk);
+  }
+
+  /// Binds each effect `let` a handler has written to the value its patch holds, so a read after the write, or after the branch that made it, sees it.
+  fn reread_effect_locals(&mut self, walk: &HandlerWalk) {
+    for (name, hidden) in self.effect_locals.clone() {
+      if let Some(value) = walk.patch.iter().find_map(|entry| match entry {
+        Entry::Field(field, value) if *field == hidden => Some(value.clone()),
+        _ => None,
+      }) {
+        self.lowerer.scope.push((name, value));
+      }
+    }
   }
 
   fn handler_branch(&mut self, stmt: &'p js::Stmt, walk: &mut HandlerWalk) -> Lowered<bool> {
@@ -7640,6 +7837,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 None => Expr::lit_str(String::new()),
               };
               walk.act(action.to_owned(), input);
+              return Ok(());
+            }
+            if let Some((kind, callback, delay)) = timer_call(e) {
+              let js::Expr::Ident(target) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(call.span, "a timer a handler starts on something other than a function its effect declares")) };
+              let Some((_, event)) = self.effect_fns.iter().find(|(f, _)| *f == *target.sym).cloned() else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect declares", target.sym))) };
+              let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), Expr::Lit(Lit::Float(delay as f64))), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(kind == "interval")))]);
+              walk.act("$timer".to_owned(), input);
               return Ok(());
             }
             if self.transitions.contains(&name) {
@@ -7729,6 +7933,23 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
         }
       }
+      js::Expr::Assign(assign) if timer_call(&assign.right).is_none() && matches!(&assign.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) if self.effect_locals.iter().any(|(local, _)| *local == *id.id.sym)) => {
+        let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = &assign.left else { unreachable!("checked") };
+        let value = match assign.op.to_update() {
+          None => self.lowerer.expr(&assign.right)?,
+          Some(op) => self.lowerer.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(js::Expr::Ident(id.id.clone())), right: assign.right.clone() }))?,
+        };
+        self.effect_write(id.id.sym.as_ref(), value, walk);
+        Ok(())
+      }
+      js::Expr::Update(update) if matches!(&*update.arg, js::Expr::Ident(id) if self.effect_locals.iter().any(|(local, _)| *local == *id.sym)) => {
+        let js::Expr::Ident(id) = &*update.arg else { unreachable!("checked") };
+        let op = if update.op == js::UpdateOp::PlusPlus { js::BinaryOp::Add } else { js::BinaryOp::Sub };
+        let value = self.lowerer.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }))) }))?;
+        self.effect_write(id.sym.as_ref(), value, walk);
+        Ok(())
+      }
+      js::Expr::Assign(assign) if assign.op == js::AssignOp::Assign && matches!(&*assign.right, right if timer_call(right).is_some()) => self.handler_stmt(&assign.right, walk),
       js::Expr::Assign(assign) if assign.op == js::AssignOp::Assign => {
         let held = match &assign.left {
           js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match (&*m.obj, prop_name_of(m).as_deref()) {
