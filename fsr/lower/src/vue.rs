@@ -547,6 +547,10 @@ pub(crate) struct VueLowerer<'a, 'p> {
   /// How the template reads each name the script bound: a `ref` unwrapped,
   /// a store holder through `.value`.
   template_scope: Vec<(String, Expr)>,
+  /// The refs a handler on a child component writes, which the child may call while it sets up: they are held in cells.
+  component_writes: Vec<String>,
+  /// The names `defineEmits` is bound to.
+  emits: Vec<String>,
   /// The scope at the end of `<script setup>`, which a setup function's body reads.
   script_scope: Vec<(String, Expr)>,
   /// Setup functions by name, which a template handler names or calls.
@@ -590,7 +594,7 @@ impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), select_model: None, provides: Vec::new(), assets, heads: Vec::new() }
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), select_model: None, provides: Vec::new(), assets, heads: Vec::new(), component_writes: Vec::new(), emits: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -620,6 +624,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
 
   fn script(&mut self) -> Lowered<()> {
     let Some(script) = &self.described.script else { return Ok(()) };
+    if let Some(template) = self.described.template.as_ref().and_then(|value| serde_json::from_value::<Template>(value.clone()).ok()) {
+      self.component_writes = component_handler_writes(self.lowerer.parsed, &template.children);
+    }
     if script.plain && !script.setup {
       return self.options();
     }
@@ -679,7 +686,7 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       let key = key.ok_or_else(|| self.lowerer.residue(prop.span(), "an option the build does not read"))?;
       match key.as_str() {
         "name" | "components" | "emits" | "inheritAttrs" | "expose" | "watch" | "beforeMount" | "mounted" | "beforeUpdate" | "updated" | "beforeUnmount" | "unmounted" | "activated" | "deactivated" | "errorCaptured" | "renderTracked" | "renderTriggered" => {}
-        "props" | "data" | "computed" | "methods" => options.push((key, &**prop)),
+        "props" | "data" | "computed" | "methods" | "created" => options.push((key, &**prop)),
         other => return Err(self.lowerer.residue(prop.span(), format!("the `{other}` option, which the build does not read"))),
       }
     }
@@ -703,6 +710,13 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
           other => return Err(self.lowerer.residue(other.span(), "a `data` entry the build does not read")),
         };
         let expr = self.lowerer.expr(&value)?;
+        if self.component_writes.contains(&name) {
+          let read = Expr::ReadCell(Box::new(Expr::Var(name.clone())));
+          self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Cell(Box::new(expr)) });
+          self.lowerer.cells.push((name.clone(), Expr::Var(name.clone())));
+          self.bind(name.clone(), read.clone(), read);
+          continue;
+        }
         self.lets.push(Stmt::Let { name: name.clone(), expr });
         self.state.push(name.clone());
         self.bind(name.clone(), Expr::Var(name.clone()), Expr::Var(name));
@@ -761,8 +775,44 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         }
       }
     }
+    if let Some(prop) = option("created") {
+      let function = match prop {
+        js::Prop::Method(method) => &*method.function,
+        js::Prop::KeyValue(kv) => match unwrap_types(&kv.value) {
+          js::Expr::Fn(f) => &*f.function,
+          _ => return Err(self.lowerer.residue(prop.span(), "a `created` option that is not a function")),
+        },
+        _ => return Err(self.lowerer.residue(prop.span(), "a `created` option that is not a function")),
+      };
+      for stmt in function.body.as_ref().map(|b| b.stmts.as_slice()).unwrap_or_default() {
+        let emitted = match stmt {
+          js::Stmt::Expr(e) => match &*e.expr {
+            js::Expr::Call(call) => self.this_emitted(call)?,
+            _ => None,
+          },
+          _ => None,
+        };
+        let Some(emitted) = emitted else { return Err(self.lowerer.residue(stmt.span(), "a statement in `created` other than `this.$emit`, which the build does not read")) };
+        let name = self.lowerer.temp();
+        self.lets.push(Stmt::Let { name, expr: emitted });
+      }
+    }
     self.script_scope = self.lowerer.scope.clone();
     Ok(())
+  }
+
+  /// `this.$emit("event", ...args)` in an options component, read as `$emit` once `this.` is taken off, which calls the parent's listener as `emit` does in `<script setup>`.
+  fn this_emitted(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    let emits = match &**callee {
+      js::Expr::Ident(id) => id.sym == "$emit",
+      js::Expr::Member(member) => matches!(&*member.obj, js::Expr::This(_)) && matches!(&member.prop, js::MemberProp::Ident(prop) if prop.sym == "$emit"),
+      _ => false,
+    };
+    match emits {
+      true => self.emit_call(call),
+      false => Ok(None),
+    }
   }
 
   /// Binds `name` to `function` as a value the template calls when its body lowers; one that does not stays a handler the browser runs.
@@ -911,6 +961,11 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             self.provides.push((key, value));
             return Ok(());
           }
+          if let Some(emitted) = self.emitted(call)? {
+            let name = self.lowerer.temp();
+            self.lets.push(Stmt::Let { name, expr: emitted });
+            return Ok(());
+          }
           match self.callee(call) {
             Some((name, _)) if BROWSER_CALLS.contains(&name.as_str()) => return Ok(()),
             Some((name, _)) if name == "defineModel" => return Ok(()),
@@ -924,6 +979,29 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       }
       other => Err(self.setup_residue(other.span())),
     }
+  }
+
+  /// `emit("event", ...args)` through a `defineEmits` binding: a call of the handler the parent passed as `onEvent`, nothing when it passed none, as Vue's `emit` calls the listener while the child sets up.
+  fn emitted(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    let js::Expr::Ident(id) = &**callee else { return Ok(None) };
+    if !self.emits.iter().any(|name| *name == *id.sym) {
+      return Ok(None);
+    }
+    self.emit_call(call)
+  }
+
+  /// The call of the parent's listener an emit names: its first argument the event, the rest the listener's arguments.
+  fn emit_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    let Some(js::Expr::Lit(js::Lit::Str(event))) = call.args.first().map(|a| unwrap_types(&a.expr)) else {
+      return Err(self.lowerer.residue(call.span, "an `emit` whose event is not a string literal"));
+    };
+    let handler = Expr::Var("$props".to_owned()).field(handler_key(&event.value.to_atom_lossy()));
+    let mut args = Vec::new();
+    for arg in &call.args[1..] {
+      args.push(self.lowerer.expr(&arg.expr)?);
+    }
+    Ok(Some(Expr::Ternary(Box::new(handler.clone()), Box::new(Expr::Apply { f: Box::new(handler), args }), Box::new(Expr::Lit(Lit::Null)))))
   }
 
   fn setup_residue(&self, span: swc_core::common::Span) -> Residue {
@@ -1024,6 +1102,13 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
               Some(a) => self.lowerer.expr(&a.expr)?,
               None => Expr::Lit(Lit::Null),
             };
+            if self.component_writes.contains(&name) {
+              let read = Expr::ReadCell(Box::new(Expr::Var(name.clone())));
+              self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Cell(Box::new(expr)) });
+              self.lowerer.cells.push((name.clone(), Expr::Var(name.clone())));
+              self.bind(name.clone(), Expr::Object(vec![Entry::Field("value".to_owned(), read.clone())]), read);
+              return Ok(());
+            }
             self.lets.push(Stmt::Let { name: name.clone(), expr });
             self.state.push(name.clone());
             self.bind(name.clone(), Self::holder(&name), Expr::Var(name));
@@ -1073,7 +1158,10 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             self.bind(name.clone(), Self::holder(&name), Expr::Var(name));
             return Ok(());
           }
-          "defineEmits" => return Ok(()),
+          "defineEmits" => {
+            self.emits.push(name);
+            return Ok(());
+          }
           "defineModel" => {
             let (prop, options) = match call.args.first().map(|a| unwrap_types(&a.expr)) {
               Some(js::Expr::Lit(js::Lit::Str(s))) => (s.value.to_atom_lossy().to_string(), call.args.get(1).map(|a| unwrap_types(&a.expr))),
@@ -1457,7 +1545,15 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         continue;
       }
       match prop.name.as_str() {
-        "if" | "else-if" | "else" | "for" | "on" | "slot" => {}
+        "on" => {
+          if let (Some(event), true, Some(exp)) = (&prop.arg, prop.arg_static, &prop.exp) {
+            if let Ok(handler @ Expr::Lambda { .. }) = self.expr_at(exp, prop.exp_line, prop.exp_column) {
+              props.push(Entry::Field(handler_key(event), handler));
+            }
+            self.lowerer.unbound = None;
+          }
+        }
+        "if" | "else-if" | "else" | "for" | "slot" => {}
         "model" => {
           let Some(exp) = &prop.exp else { return Err(self.at(prop.line, prop.column, "`v-model` without a binding")) };
           let value = self.expr_at(exp, prop.exp_line, prop.exp_column)?;
@@ -2134,4 +2230,39 @@ fn unwrap_types(expr: &js::Expr) -> &js::Expr {
     js::Expr::Paren(p) => unwrap_types(&p.expr),
     other => other,
   }
+}
+
+/// The prop Vue passes a listener for `event` under: `on` and the event camel-cased with its first letter raised.
+fn handler_key(event: &str) -> String {
+  let camel = camel(event);
+  let mut chars = camel.chars();
+  match chars.next() {
+    Some(first) => format!("on{}{}", first.to_uppercase(), chars.as_str()),
+    None => "on".to_owned(),
+  }
+}
+
+/// The names the `@event` handlers on child components write, which a child may run while it sets up.
+fn component_handler_writes(parsed: &crate::Parsed, nodes: &[Node]) -> Vec<String> {
+  let mut out = Vec::new();
+  for node in nodes {
+    if node.kind == 1 {
+      for prop in node.props.iter().filter(|p| p.prop == "directive" && p.name == "on") {
+        let Some(exp) = &prop.exp else { continue };
+        let Ok(parsed) = parsed.parse_expr_at(exp, prop.exp_line, prop.exp_column) else { continue };
+        let stmt = js::Stmt::Expr(js::ExprStmt { span: parsed.span(), expr: parsed });
+        for name in crate::component::written_names(std::slice::from_ref(&stmt), true) {
+          if !out.contains(&name) {
+            out.push(name);
+          }
+        }
+      }
+    }
+    for name in component_handler_writes(parsed, &node.children) {
+      if !out.contains(&name) {
+        out.push(name);
+      }
+    }
+  }
+  out
 }

@@ -1858,6 +1858,10 @@ impl<'a> Lowerer<'a> {
       },
       js::Expr::New(n) => self.new_expr(n),
       js::Expr::Fn(f) => self.function_expr(&f.function),
+      js::Expr::Assign(a) if self.cell_of_target(&a.left).is_some() => match self.effect(expr)? {
+        Stmt::Expr(write) => Ok(write),
+        _ => Err(self.residue(a.span, "an assignment inside an expression")),
+      },
       js::Expr::Assign(a) => Err(self.residue(a.span, "an assignment inside an expression")),
       js::Expr::This(_) if self.scope.iter().any(|(n, _)| n == "this") => Ok(self.scope.iter().rev().find(|(n, _)| n == "this").map(|(_, e)| e.clone()).expect("checked")),
       other => {

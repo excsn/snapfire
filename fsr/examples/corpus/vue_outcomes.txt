@@ -11,7 +11,7 @@ examples-counter-options	lowered
 examples-crud-composition	lowered
 examples-crud-options	lowered
 examples-fetching-data-composition	lowered
-examples-fetching-data-options	client: src/App.vue:16:3 the `created` option, which the build does not read
+examples-fetching-data-options	client: src/App.vue:18:5 a statement in `created` other than `this.$emit`, which the build does not read
 examples-flight-booker-composition	client: src/App.vue:35:5 `.getFullYear()`, which reads the viewer's time zone
 examples-flight-booker-options	client: src/App.vue:13:5 `.getFullYear()`, which reads the viewer's time zone
 examples-form-bindings-composition	lowered
@@ -35,7 +35,7 @@ examples-svg-options	lowered
 examples-temperature-converter-composition	lowered
 examples-temperature-converter-options	lowered
 examples-timer-composition	client: src/App.vue:10:5 a declaration without a value
-examples-timer-options	client: src/App.vue:13:3 the `created` option, which the build does not read
+examples-timer-options	client: src/App.vue:14:5 a statement in `created` other than `this.$emit`, which the build does not read
 examples-tree-composition	lowered
 examples-tree-options	lowered
 tutorial-step-1-composition	lowered
@@ -46,8 +46,8 @@ tutorial-step-11-composition	lowered
 tutorial-step-11-options	lowered
 tutorial-step-12-composition	lowered
 tutorial-step-12-options	lowered
-tutorial-step-13-composition	client: src/App.vue:9:3 `<ChildComp>` does not lower: src/ChildComp.vue:4:1: a statement in `<script setup>` the build cannot follow
-tutorial-step-13-options	client: src/App.vue:17:3 `<ChildComp>` does not lower: src/ChildComp.vue:4:3: the `created` option, which the build does not read
+tutorial-step-13-composition	lowered
+tutorial-step-13-options	lowered
 tutorial-step-14-composition	lowered
 tutorial-step-14-options	lowered
 tutorial-step-15-composition	client: src/App.vue:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`

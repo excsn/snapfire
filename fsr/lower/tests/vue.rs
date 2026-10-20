@@ -300,7 +300,7 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
   };
   assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n"), "5:16: `v-model` on `<div>`", "the directive's own position, not its expression's");
   assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
-  assert_eq!(refused("Options", "<script>\nexport default {\n  created() {},\n};\n</script>\n<template><p /></template>\n"), "3:3: the `created` option, which the build does not read");
+  assert_eq!(refused("Options", "<script>\nexport default {\n  created() {\n    fetch(\"/x\");\n  },\n};\n</script>\n<template><p /></template>\n"), "4:5: a statement in `created` other than `this.$emit`, which the build does not read");
   assert_eq!(refused("Inject", "<script setup>\nimport { inject } from \"vue\";\nconst theme = inject(\"theme\", () => \"x\", true);\n</script>\n<template><p>{{ theme }}</p></template>\n"), "3:31: `inject` with a default factory");
   let bare = refused("Bare", "<template><p>{{ nowhere }}</p></template>\n");
   assert!(bare.starts_with("1:17: `nowhere` is not bound here"), "{bare}");
@@ -1417,5 +1417,82 @@ const shown = ref(true);
 "##;
   let dir = app("teleport", &[("src/ui/T.vue", source)]);
   agree(&compiler, &dir, "src/ui/T.vue", source, &ValueMap::default(), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const ASKER: &str = r#"<script setup>
+import { ref } from "vue";
+import Answerer from "./Answerer.vue";
+const childMsg = ref("No child msg yet");
+const count = ref(0);
+</script>
+
+<template>
+  <p>{{ childMsg }}</p>
+  <Answerer @response="(msg) => childMsg = msg" @counted="(n) => count = count + n" />
+  <p>{{ childMsg }} {{ count }}</p>
+  <Answerer />
+</template>
+"#;
+
+const ANSWERER: &str = r#"<script setup>
+const emit = defineEmits(["response", "counted"]);
+emit("response", "hello from child");
+emit("counted", 2);
+emit("counted", 3);
+</script>
+
+<template>
+  <h2>Child component</h2>
+</template>
+"#;
+
+#[test]
+fn a_child_that_emits_while_it_sets_up_writes_its_parents_state_before_the_rest_of_the_parent_renders() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("emits", &[("src/ui/Asker.vue", ASKER), ("src/ui/Answerer.vue", ANSWERER)]);
+  let files = [("src/ui/Asker.vue", "", ASKER), ("src/ui/Answerer.vue", "Answerer.vue", ANSWERER)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Asker.vue", &ValueMap::default());
+  assert!(html.contains("hello from child 5"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+const OPTIONS_ASKER: &str = r#"<script>
+import Answerer from "./Answerer.vue";
+export default {
+  components: { Answerer },
+  data() {
+    return { childMsg: "No child msg yet" };
+  }
+};
+</script>
+
+<template>
+  <Answerer @response="(msg) => childMsg = msg" />
+  <p>{{ childMsg }}</p>
+</template>
+"#;
+
+const OPTIONS_ANSWERER: &str = r#"<script>
+export default {
+  emits: ["response"],
+  created() {
+    this.$emit("response", "hello from child");
+  }
+};
+</script>
+
+<template>
+  <h2>Child component</h2>
+</template>
+"#;
+
+#[test]
+fn an_options_child_that_emits_from_created_writes_its_parents_data_before_the_parent_reads_it() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("options_emits", &[("src/ui/Asker.vue", OPTIONS_ASKER), ("src/ui/Answerer.vue", OPTIONS_ANSWERER)]);
+  let files = [("src/ui/Asker.vue", "", OPTIONS_ASKER), ("src/ui/Answerer.vue", "Answerer.vue", OPTIONS_ANSWERER)];
+  let html = agree_tree(&compiler, &dir, &files, "src/ui/Asker.vue", &ValueMap::default());
+  assert!(html.contains("<p>hello from child</p>"), "{html}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
