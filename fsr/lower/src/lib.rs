@@ -155,6 +155,9 @@ pub const GENERATED: &[(&str, &str)] = &[("@snapfire/fsr/head", "generated/head"
 /// rather than by reading; this file holds nothing but lowerable helpers.
 pub const HEAD_MODULE: &str = "generated/head.ts";
 
+/// The state Ink's `useApp().exit()` sets to `true`, which the terminal reads to quit.
+pub const EXIT_STATE: &str = "$exit";
+
 /// The module `fsr` writes from `[mdx.collections]`, which a body may read:
 /// every content file under each collection's directory with its `meta` and `toc`.
 pub const CONTENT_MODULE: &str = "generated/content.ts";

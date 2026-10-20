@@ -21,3 +21,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 The components under `vuejs_org/` are the code examples of the Vue documentation, vuejs.org, built from https://github.com/vuejs/docs at commit `40aa88af0094f7bab4aaf786e55c748a6a251d88` (2026-09-15), `src/examples/src` and `src/tutorial/src`. They are licensed under the Creative Commons Attribution 4.0 International License (CC-BY-4.0), https://creativecommons.org/licenses/by/4.0/, by Evan You and the Vue documentation contributors.
 
 The documentation keeps each component as a template, a Composition API script, an Options API script and a style. Each directory here is one example or one tutorial step as the documentation shows it as single-file components: assembled by a port of `resolveSFCExample` in `src/examples/utils.ts`, once with Composition API scripts as `<script setup>` (`-composition`) and once with Options API scripts (`-options`). A tutorial step takes its `_hint` files, the step's solution, over its own. Nothing else was changed.
+
+## Ink
+
+The applications under `ink_examples/` are the examples of Ink, the React renderer for the terminal, copied from https://github.com/vadimdemedes/ink at commit `26d2c3f` (2026-10-03), `examples/`. Ink is licensed under the MIT License, copyright Vadym Demedes. Each directory is one example as authored; nothing in the files was changed.

@@ -91,6 +91,7 @@ pub struct Timer {
 /// handler has stepped it to.
 pub struct Session {
   app: PathBuf,
+  module: String,
   library: Components,
   state: ValueMap,
 }
@@ -98,7 +99,12 @@ pub struct Session {
 impl Session {
   /// The page under `app` lowered; it fails to draw rather than to open when it is not Ink's.
   pub fn open(app: &Path) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), library: lower(app)?, state: ValueMap::default() })
+    Session::open_module(app, MODULE)
+  }
+
+  /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
+  pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default() })
   }
 
   /// The page as it stands.
@@ -113,13 +119,13 @@ impl Session {
 
   /// Lowers the page again from disk, keeping the state.
   pub fn reload(&mut self) -> Result<(), String> {
-    self.library = lower(&self.app)?;
+    self.library = lower(&self.app, &self.module)?;
     Ok(())
   }
 
   /// The timers the page's mount effects start, in the order it starts them.
   pub fn timers(&self) -> Vec<Timer> {
-    let Some(component) = self.library.get(MODULE) else { return Vec::new() };
+    let Some(component) = self.library.get(&self.module) else { return Vec::new() };
     component
       .handlers
       .iter()
@@ -136,6 +142,11 @@ impl Session {
       .collect()
   }
 
+  /// Whether the page has called Ink's `useApp().exit()`.
+  pub fn exited(&self) -> bool {
+    self.state.get(snapfire_fsr_lower::EXIT_STATE) == Some(&Value::Bool(true))
+  }
+
   /// The page after timer `handler` fires.
   pub fn fire(&mut self, handler: usize) -> Result<Node, String> {
     self.run(Some(HandlerRef::own(handler)), &Value::Null)
@@ -143,7 +154,7 @@ impl Session {
 
   fn step(&mut self, press: Option<&Value>) -> Result<Node, String> {
     let handler = match press {
-      Some(_) => self.library.get(MODULE).and_then(|component| component.handlers.iter().position(|handler| handler.event == "input")).map(HandlerRef::own),
+      Some(_) => self.library.get(&self.module).and_then(|component| component.handlers.iter().position(|handler| handler.event == "input")).map(HandlerRef::own),
       None => None,
     };
     let event = press.cloned().unwrap_or(Value::Null);
@@ -154,16 +165,21 @@ impl Session {
   }
 
   fn run(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<Node, String> {
-    let component = self.library.get(MODULE).ok_or_else(|| format!("{MODULE} did not lower"))?.clone();
-    let stepped = Interpreter::default().island_step(MODULE, &component, &ValueMap::default(), &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
+    let component = self.library.get(&self.module).ok_or_else(|| format!("{} did not lower", self.module))?.clone();
+    let stepped = Interpreter::default().island_step(&self.module, &component, &ValueMap::default(), &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
     self.state = stepped.state;
     from_markup(&stepped.rendered.html)
   }
 }
 
-fn lower(app: &Path) -> Result<Components, String> {
+/// The library `module` lowers to. A component it places that does not lower
+/// refuses it, since a terminal has no browser to render that one in.
+fn lower(app: &Path, module: &str) -> Result<Components, String> {
   let mut set = ComponentSet::new(app);
-  set.lower(MODULE).map_err(|e| e.to_string())?;
+  set.lower(module).map_err(|e| e.to_string())?;
+  if let Some((placed, why)) = set.browser_only.first() {
+    return Err(format!("`{placed}` does not lower, so only a browser could render it: {why}"));
+  }
   Ok(set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect())
 }
 
@@ -189,7 +205,7 @@ impl Drop for Screen {
   }
 }
 
-/// Runs the root page of `app` in this terminal until Ctrl-C.
+/// Runs the root page of `app` in this terminal until Ctrl-C or until it calls `exit`.
 pub fn run(app: &Path) -> Result<(), BuildError> {
   let fail = |e: std::io::Error| BuildError::Dev(format!("terminal: {e}"));
   let mut session = Session::open(app).map_err(BuildError::Dev)?;
@@ -219,6 +235,9 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
           Some(Press::Exit) => break,
           Some(Press::Input(press)) => {
             drawn = session.press(&press);
+            if session.exited() {
+              break;
+            }
             draw(&drawn, &mut shown, false).map_err(fail)?;
           }
           None => {}
@@ -238,6 +257,9 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
       *at = now + timer.every;
       timer.repeats
     });
+    if session.exited() {
+      break;
+    }
     if fired {
       draw(&drawn, &mut shown, false).map_err(fail)?;
     }

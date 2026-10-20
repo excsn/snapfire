@@ -72,3 +72,21 @@ fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state()
   assert_eq!(line(session.fire(0).unwrap()), "ticks 2");
   assert_eq!(line(session.fire(1).unwrap()), "ticks 100");
 }
+
+#[test]
+fn a_component_that_would_render_in_a_browser_refuses_the_page_naming_it() {
+  let page = "import { Box, Text } from \"ink\";\nimport { useFocus } from \"ink\";\n\nfunction Item() {\n  const { isFocused } = useFocus();\n  return <Text>{isFocused ? \"on\" : \"off\"}</Text>;\n}\n\nexport default function Page() {\n  return <Box><Item /></Box>;\n}\n";
+  let why = Session::open(&app(page)).err().expect("refused");
+  assert!(why.contains("Item") && why.contains("useFocus"), "{why}");
+}
+
+#[test]
+fn a_session_has_exited_once_the_page_calls_exit() {
+  let quits = "import { Text, useApp, useInput } from \"ink\";\n\nexport default function Quits() {\n  const { exit: leave } = useApp();\n  useInput((input) => {\n    if (input === \"q\") leave();\n  });\n  return <Text>press q</Text>;\n}\n";
+  let mut session = Session::open(&app(quits)).unwrap();
+  session.view().unwrap();
+  assert!(!session.exited());
+  let Some(Press::Input(q)) = key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)) else { panic!() };
+  session.press(&q).unwrap();
+  assert!(session.exited());
+}

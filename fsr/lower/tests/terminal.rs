@@ -80,3 +80,18 @@ fn a_timer_a_mount_effect_starts_lowers_to_a_handler_named_for_its_interval() {
   let shown = interpreter.island_step(MODULE, component, &ValueMap::default(), &tick.state, Some(HandlerRef::own(1)), &Value::Null, &library).unwrap();
   assert_eq!(shown.rendered.html, "<ink-text>2 shown</ink-text>");
 }
+
+#[test]
+fn use_app_exit_sets_the_state_the_terminal_reads_to_quit() {
+  let quits = "import { Text, useApp, useInput } from \"ink\";\n\nexport default function Quits() {\n  const { exit } = useApp();\n  useInput((input) => {\n    if (input === \"q\") exit();\n  });\n  return <Text>press q</Text>;\n}\n";
+  let library = library(quits);
+  let component = &library[MODULE];
+  let input = component.handlers.iter().position(|handler| handler.event == "input").unwrap();
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.state.get(snapfire_fsr_lower::EXIT_STATE), Some(&Value::Bool(false)));
+  let other = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(input)), &key("x", &[]), &library).unwrap();
+  assert_eq!(other.state.get(snapfire_fsr_lower::EXIT_STATE), Some(&Value::Bool(false)));
+  let quit = interpreter.island_step(MODULE, component, &ValueMap::default(), &other.state, Some(HandlerRef::own(input)), &key("q", &[]), &library).unwrap();
+  assert_eq!(quit.state.get(snapfire_fsr_lower::EXIT_STATE), Some(&Value::Bool(true)));
+}

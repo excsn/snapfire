@@ -6058,6 +6058,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       self.template_import(decl, call)?;
       return Ok(None);
     }
+    if hook_call(&self.meanings(), init).is_some_and(|(hook, _)| hook == "useApp") {
+      return self.app_hook(&decl.name, decl.span);
+    }
     match &decl.name {
       js::Pat::Ident(name) => {
         let local = name.id.sym.to_string();
@@ -7076,6 +7079,32 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(self.lowered_handlers.len() - 1)
   }
 
+  /// Ink's `const { exit } = useApp()`: `exit` the setter of [`crate::EXIT_STATE`],
+  /// state that starts `false` and that a call to `exit` sets to `true`.
+  fn app_hook(&mut self, pattern: &js::Pat, span: Span) -> Lowered<Option<Stmt>> {
+    let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, "`useApp` bound to one name; destructure it as `const { exit } = useApp()`")) };
+    let mut exit = None;
+    for prop in &object.props {
+      match prop {
+        js::ObjectPatProp::Assign(assign) if assign.key.sym == "exit" => exit = Some(assign.key.sym.to_string()),
+        js::ObjectPatProp::KeyValue(kv) if matches!(&kv.key, js::PropName::Ident(key) if key.sym == "exit") => {
+          let js::Pat::Ident(local) = &*kv.value else { return Err(self.lowerer.residue(span, "`exit` from `useApp` bound to a pattern")) };
+          exit = Some(local.id.sym.to_string());
+        }
+        _ => return Err(self.lowerer.residue(span, "`useApp` gives `exit` alone")),
+      }
+    }
+    let state = crate::EXIT_STATE.to_owned();
+    if let Some(exit) = exit {
+      self.setters.push((exit.clone(), state.clone()));
+      self.browser_function(exit);
+    }
+    self.state.push(state.clone());
+    self.state_bindings.push(state.clone());
+    self.lowerer.scope.push((state.clone(), Expr::Var(state.clone())));
+    Ok(Some(Stmt::Let { name: state, expr: Expr::Lit(Lit::Bool(false)) }))
+  }
+
   /// The timers a mount effect starts, `useEffect(() => { setInterval(f, ms) }, [])`,
   /// each lowered as a handler named `interval:<ms>` or `timeout:<ms>`, which a
   /// terminal runtime schedules. An effect with dependencies, a timer whose
@@ -7280,6 +7309,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           js::Expr::Ident(id) => {
             let name = id.sym.to_string();
             if let Some((_, state)) = self.setters.iter().find(|(s, _)| *s == name).cloned() {
+              if state == crate::EXIT_STATE {
+                walk.set(state, Expr::Lit(Lit::Bool(true)));
+                return Ok(());
+              }
               let arg = call.args.first().ok_or_else(|| self.lowerer.residue(call.span, format!("`{name}` without a value")))?;
               let value = match &*arg.expr {
                 js::Expr::Arrow(arrow) => {
