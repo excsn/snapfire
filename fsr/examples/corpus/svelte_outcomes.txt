@@ -103,7 +103,7 @@ tutorial-advanced-svelte-advanced-reactivity-reactive-classes	lowered
 tutorial-advanced-svelte-advanced-reactivity-stores	lowered
 tutorial-advanced-svelte-advanced-transitions-animations	lowered
 tutorial-advanced-svelte-advanced-transitions-deferred-transitions	lowered
-tutorial-advanced-svelte-context-context-api	client: src/App.svelte:23:5 `<Square>` does not lower: src/Square.svelte:6:5: a statement in a Svelte script the build cannot follow
+tutorial-advanced-svelte-context-context-api	lowered
 tutorial-advanced-svelte-motion-springs	lowered
 tutorial-advanced-svelte-motion-tweens	lowered
 tutorial-advanced-svelte-next-steps-congratulations	client: src/App.svelte:10:20 `Math.random`

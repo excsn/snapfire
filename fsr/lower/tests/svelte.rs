@@ -340,9 +340,12 @@ fn scripts_and_patterns_lower_as_svelte_runs_them() {
 }
 
 #[test]
-fn props_id_is_refused_until_the_render_counts_in_order() {
-  let refusal = refused("props-id", "<script>const id = $props.id();</script><p id={id}>x</p>");
-  assert!(refusal.contains("$props.id()"), "{refusal}");
+fn props_id_counts_in_render_order_and_marks_each_call_as_svelte_server_does() {
+  let child = "<script>const id = $props.id();</script><label for={id}>x</label><input {id} />";
+  let parent = "<script>import C from './C.svelte'; const own = $props.id();</script><p id={own}>p</p><C />{#each [1, 2] as n}<C />{/each}";
+  let (rust, svelte) = both("props-id", &[("src/P.svelte", parent), ("src/C.svelte", child)], &ValueMap::default(), None);
+  assert_eq!(rust, svelte);
+  assert!(rust.contains("<!--$s4--><label for=\"s4\">"), "{rust}");
 }
 
 #[test]
@@ -962,5 +965,14 @@ fn a_module_let_a_function_advances_is_shared_by_the_instances_of_one_render() {
   let child = "<script module>let made = 0; function next() { made += 1; return made; }</script><p>{next()}</p>";
   let parent = "<script>import C from './C.svelte';</script><C /><C /><C />";
   let (rust, svelte) = both("module-cells", &[("src/P.svelte", parent), ("src/C.svelte", child)], &ValueMap::default(), None);
+  assert_eq!(rust, svelte);
+}
+
+#[test]
+fn a_call_through_a_context_to_a_function_that_only_schedules_effects_does_nothing_on_the_server() {
+  let canvas = "<script>import { setContext } from 'svelte'; let { children } = $props(); let items = []; setContext('canvas', { addItem }); function addItem(fn) { $effect(() => { items.push(fn); return () => {}; }); }</script><canvas width=\"10\">{@render children()}</canvas>";
+  let square = "<script>import { getContext } from 'svelte'; let { x } = $props(); getContext('canvas').addItem(draw); function draw(ctx) { ctx.strokeRect(x, x, 1, 1); }</script>";
+  let page = "<script>import Canvas from './Canvas.svelte'; import Square from './Square.svelte';</script><Canvas>{#each [1, 2] as x}<Square {x} />{/each}</Canvas>";
+  let (rust, svelte) = both("context-effects", &[("src/P.svelte", page), ("src/Canvas.svelte", canvas), ("src/Square.svelte", square)], &ValueMap::default(), None);
   assert_eq!(rust, svelte);
 }

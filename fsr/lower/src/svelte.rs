@@ -33,6 +33,9 @@ const BLOCK_CLOSE: &str = "<!--]-->";
 const EMPTY: &str = "<!---->";
 
 /// Calls at the top of a script that are the browser's alone.
+/// The render cell `$props.id()` counts in: one per page render, so the ids are unique across a page's islands. Svelte's client reads each id back from the comment the server writes, not from a count of its own.
+const PROPS_ID_COUNTER: &str = "svelte:$props.id";
+
 const BROWSER_CALLS: &[&str] = &["$effect", "$effect.pre", "$effect.root", "$inspect", "onMount", "onDestroy", "beforeUpdate", "afterUpdate", "tick"];
 
 #[derive(Debug, Deserialize)]
@@ -162,6 +165,10 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   function_writes: Vec<String>,
   /// Set while the `<script module>` block is read, whose cells the instances of one render share.
   in_module: bool,
+  /// The names `$props.id()` is bound to, whose ids the component's markup opens with as `<!--$sN-->`, which Svelte's client reads back when it hydrates.
+  props_ids: Vec<String>,
+  /// The script's function declarations not yet lowered, which a call before them may name since JavaScript hoists them.
+  hoisted: Vec<&'p js::FnDecl>,
 }
 
 impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
@@ -189,7 +196,7 @@ impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
 
 impl<'a, 'p> SvelteLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new(), module_names: Vec::new(), classes: Vec::new(), function_writes: Vec::new(), in_module: false }
+    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new(), module_names: Vec::new(), classes: Vec::new(), function_writes: Vec::new(), in_module: false, hoisted: Vec::new(), props_ids: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -221,6 +228,10 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       self.bind("$$restProps".to_owned(), call(Builtin::Omit, rest));
     }
     let mut nodes = self.fragment(&fragment)?;
+    for id in self.props_ids.iter().rev() {
+      let comment = Expr::Arith(ArithOp::Add, Box::new(Expr::Arith(ArithOp::Add, Box::new(Expr::lit_str("<!--$")), Box::new(Expr::Var(id.clone())))), Box::new(Expr::lit_str("-->")));
+      nodes.insert(0, Tmpl::Html(comment));
+    }
     let mut render = match nodes.len() {
       1 => nodes.pop().expect("one node"),
       _ => Tmpl::Fragment(nodes),
@@ -449,6 +460,10 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let offset = |span: swc_core::common::Span| span.lo.0.saturating_sub(start);
     let within = |range: Option<(u32, u32)>, at: u32| range.is_some_and(|(from, to)| at >= from && at < to);
     self.function_writes = function_writes(&parsed.module.body);
+    self.hoisted = parsed.module.body.iter().filter_map(|item| match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => Some(f),
+      _ => None,
+    }).collect();
     for item in &parsed.module.body {
       let at = offset(item.span());
       let in_instance = within(instance, at);
@@ -484,13 +499,20 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     match stmt {
       js::Stmt::Decl(js::Decl::Var(var)) => self.declaration(var, runes),
       js::Stmt::Decl(js::Decl::Fn(f)) => {
-        self.function(f);
+        if let Some(at) = self.hoisted.iter().position(|h| std::ptr::eq(*h, f)) {
+          self.hoisted.remove(at);
+          self.function(f);
+        }
         Ok(())
       }
       js::Stmt::Decl(js::Decl::TsInterface(_) | js::Decl::TsTypeAlias(_)) => Ok(()),
       js::Stmt::Decl(js::Decl::Class(c)) => {
         self.classes.push((c.ident.sym.to_string(), &c.class));
         Ok(())
+      }
+      js::Stmt::Expr(_) if !self.hoisted.is_empty() => {
+        self.hoist_functions();
+        self.statement(stmt, runes)
       }
       js::Stmt::Expr(e) => match &*e.expr {
         js::Expr::Call(call) if callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call) => Ok(()),
@@ -508,6 +530,17 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
           self.lowerer.provided.push((key, value));
           Ok(())
         }
+        js::Expr::Call(_) => match self.lowerer.expr(&e.expr) {
+          Ok(call) => {
+            let name = self.lowerer.temp();
+            self.lets.push(Stmt::Let { name, expr: call });
+            Ok(())
+          }
+          Err(_) => {
+            self.lowerer.unbound = None;
+            Err(self.statement_residue(e.span))
+          }
+        },
         _ => Err(self.statement_residue(e.span)),
       },
       js::Stmt::Labeled(labeled) if !runes && labeled.label.sym == "$" => self.reactive(labeled),
@@ -527,6 +560,15 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       self.lowerer.browser_functions.push(name);
       return;
     }
+    if f.function.body.as_ref().is_some_and(|body| !body.stmts.is_empty() && body.stmts.iter().all(browser_only_call)) {
+      let params = f.function.params.iter().map(|p| match &p.pat {
+        js::Pat::Ident(id) => id.id.sym.to_string(),
+        _ => self.lowerer.temp(),
+      }).collect();
+      self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Lambda { params, body: Box::new(Expr::Lit(Lit::Null)) } });
+      self.bind(name.clone(), Expr::Var(name));
+      return;
+    }
     let value = js::Expr::Fn(js::FnExpr { ident: None, function: f.function.clone() });
     let before = self.lowerer.scope.len();
     let lowered = self.lowerer.expr(&value);
@@ -540,6 +582,13 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
         self.lowerer.unbound = None;
         self.lowerer.browser_functions.push(name);
       }
+    }
+  }
+
+  /// Lowers every function declaration not reached yet, as JavaScript hoists them above a call that runs before them.
+  fn hoist_functions(&mut self) {
+    for f in std::mem::take(&mut self.hoisted) {
+      self.function(f);
     }
   }
 
@@ -773,7 +822,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
               None => Expr::Lit(Lit::Null),
             },
             "$effect.tracking" => Expr::Lit(Lit::Bool(false)),
-            "$props.id" => return Err(self.lowerer.residue(call.span, "`$props.id()`, whose ids Svelte counts in render order, which the build does not count yet")),
+            "$props.id" => {
+              let counter = Expr::ModuleCell { key: PROPS_ID_COUNTER.to_owned(), init: Box::new(Expr::Lit(Lit::Int(0))) };
+              let next = Expr::WriteCell(Box::new(counter.clone()), Box::new(Expr::Arith(ArithOp::Add, Box::new(Expr::ReadCell(Box::new(counter))), Box::new(Expr::Lit(Lit::Int(1))))));
+              self.props_ids.push(name.clone());
+              Expr::Arith(ArithOp::Add, Box::new(Expr::lit_str("s")), Box::new(next))
+            }
             other => return Err(self.lowerer.residue(call.span, format!("`{other}`, a rune the build does not read"))),
           };
           self.lets.push(Stmt::Let { name: name.clone(), expr });
@@ -2415,6 +2469,17 @@ fn awaited_names(template: &serde_json::Value, out: &mut Vec<String>) {
 }
 
 /// `$inspect(…).with(…)`, which only the browser runs.
+/// A statement that is a call only the browser runs: an effect, a lifecycle function or `$inspect`.
+fn browser_only_call(stmt: &js::Stmt) -> bool {
+  match stmt {
+    js::Stmt::Expr(e) => match &*e.expr {
+      js::Expr::Call(call) => callee_name(call).is_some_and(|name| BROWSER_CALLS.contains(&name.as_str())) || inspects(call),
+      _ => false,
+    },
+    _ => false,
+  }
+}
+
 fn inspects(call: &js::CallExpr) -> bool {
   let js::Callee::Expr(callee) = &call.callee else { return false };
   let js::Expr::Member(member) = &**callee else { return false };
