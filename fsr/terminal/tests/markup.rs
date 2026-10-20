@@ -1,0 +1,40 @@
+//! The `ink-*` markup a lowered component renders, read back into elements and drawn.
+
+use snapfire_fsr_terminal::{from_markup, render};
+
+const COUNTER: &str = r#"<ink-box flex-direction="column" border-style="round" padding-x="1"><ink-text bold="true" color="green">Counter</ink-text><ink-box><ink-text>Count:</ink-text><ink-spacer></ink-spacer><ink-text color="cyan">0</ink-text></ink-box><ink-text dim-color="true">+ or up<ink-newline></ink-newline>- or down</ink-text></ink-box>"#;
+
+#[test]
+fn a_lowered_counter_reads_back_and_draws_in_its_border() {
+  let node = from_markup(COUNTER).unwrap();
+  let inner = |text: &str| format!("│ {text:<26} │");
+  assert_eq!(
+    render(&node, 30).lines(),
+    [
+      format!("╭{}╮", "─".repeat(28)),
+      inner("Counter"),
+      format!("│ Count:{}0 │", " ".repeat(19)),
+      inner("+ or up"),
+      inner("- or down"),
+      format!("╰{}╯", "─".repeat(28)),
+    ]
+  );
+}
+
+#[test]
+fn styles_attributes_and_entities_read_back() {
+  let node = from_markup(r#"<ink-text color="cyan" bold="true" dim-color="false">a &amp; <ink-text underline="true">b</ink-text></ink-text>"#).unwrap();
+  assert_eq!(render(&node, 10).to_ansi(), "\x1b[1;36ma & \x1b[0m\x1b[1;4;36mb\x1b[0m");
+}
+
+#[test]
+fn comments_and_markers_the_renderer_writes_are_skipped() {
+  let node = from_markup(r#"<ink-box data-sf-on="input:0"><ink-text>a<!-- -->b</ink-text></ink-box>"#).unwrap();
+  assert_eq!(render(&node, 10).lines(), ["ab"]);
+}
+
+#[test]
+fn markup_that_is_not_ink_is_refused() {
+  assert!(from_markup("<div>x</div>").unwrap_err().contains("div"));
+  assert!(from_markup("<ink-box><ink-text>x</ink-box>").is_err());
+}

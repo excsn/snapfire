@@ -7,10 +7,12 @@
 
 mod frame;
 mod layout;
+mod markup;
 mod style;
 
 pub use frame::{Cell, Frame};
 pub use layout::render;
+pub use markup::from_markup;
 pub use style::{Color, Style};
 
 #[derive(Debug, Clone)]
