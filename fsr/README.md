@@ -54,7 +54,7 @@ FSR does not make you pick a mode per route. Each route gets whatever mix the bu
 
 Each corpus builds a framework's own published examples through FSR as one application per example and checks every component the server renders against that framework's own server renderer. A component the build cannot render yet still works: it renders in the browser and is missing from the first response.
 
-| Corpus | Examples | Rendered on the server | Left to the browser by design | Not rendered yet |
+| Corpus | Examples | Rendered on the server | Left to the browser by design | Browser rendered, SSR pending |
 |---|---|---|---|---|
 | [react.dev](docs/corpus/react-dev.md) | 634 | 574 (90.5%) | 59 | 1 |
 | [svelte.dev](docs/corpus/svelte-dev.md) | 167 | 150 (89.8%) | 16 | 1 |
