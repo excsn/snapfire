@@ -202,3 +202,15 @@ fn a_run_inside_a_helper_function_or_an_expression_is_refused_saying_where_a_run
   assert!(refused.contains("a run of `load` inside a larger expression"), "{refused}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_cleanup_that_throws_fails_its_own_test_and_the_rest_of_the_file_still_reports() {
+  let spec = "import { registerIsland, scan } from \"@snapfire/fsr-client\";\nimport { expect, settle, test, waitFor } from \"@snapfire/fsr-client/testing\";\n\ntest(\"leaves an island whose unmount throws\", async () => {\n  registerIsland(\"src/Bad.tsx#default\", { loader: async () => ({}), mount: () => ({}), unmount: () => { throw new Error(\"unmount broke\"); } });\n  document.body.innerHTML = '<sf-i id=\"bad\" data-sf-module=\"src/Bad.tsx#default\"></sf-i>';\n  scan(document);\n  await settle();\n  await waitFor(() => expect(document.querySelector(\"#bad\")?.hasAttribute(\"data-sf-mounted\")).toEqual(true));\n});\n\ntest(\"runs after it\", () => {\n  expect(1 + 1).toEqual(2);\n});\n";
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/cleanup.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  let report = summary.to_string();
+  assert!(!report.contains("loading the file"), "{report}");
+  assert_eq!((summary.passed, summary.failed), (1, 1), "{report}");
+  assert!(report.contains("leaves an island whose unmount throws") && report.contains("unmount broke"), "the cleanup's error is the first test's: {report}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

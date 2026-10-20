@@ -260,7 +260,12 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
           (Err(failure), _) if log.is_empty() => Outcome::Failed(indent(&failure)),
           (Err(failure), _) => Outcome::Failed(format!("{}\nconsole during the test:\n{}", indent(&failure), indent(&log))),
         };
-        engine.eval_string("__sf.discard(document.body); document.body.innerHTML = \"\"; __sf_end_test(); \"\"").map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
+        let cleaned = engine.eval_string("try { __sf.discard(document.body); } finally { document.body.innerHTML = \"\"; __sf_end_test(); } \"\"");
+        let result = match (result, cleaned) {
+          (result, Ok(_)) => result,
+          (Outcome::Failed(failure), Err(e)) => Outcome::Failed(format!("{failure}\ncleaning up after the test:\n{}", indent(&e.to_string()))),
+          (_, Err(e)) => Outcome::Failed(format!("cleaning up after the test:\n{}", indent(&e.to_string()))),
+        };
         results.push((name.clone(), result));
       }
       if ran {
