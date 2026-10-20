@@ -1,0 +1,25 @@
+function bridge() {
+    return globalThis.__sfDesktop;
+}
+function call(method, args) {
+    const held = bridge();
+    if (!held) return Promise.reject(new Error(`desktop.${method} runs only in an fsr --desktop window`));
+    return held.call(method, args);
+}
+function isDesktop() {
+    return bridge() !== undefined;
+}
+async function openFile(options = {}) {
+    return await call("openFile", options);
+}
+async function openExternal(url) {
+    await call("openExternal", {
+        url
+    });
+}
+export const desktop = {
+    isDesktop,
+    openFile,
+    openExternal
+};
+//# sourceMappingURL=desktop.js.map

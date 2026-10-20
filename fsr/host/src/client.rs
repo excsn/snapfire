@@ -22,6 +22,7 @@ pub const MEDIA_TYPE: &str = "text/javascript; charset=utf-8";
 pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.js")),
   ("boot.js", include_str!("../embedded/client/boot.js")),
+  ("desktop.js", include_str!("../embedded/client/desktop.js")),
   ("elements.js", include_str!("../embedded/client/elements.js")),
   ("embed.js", include_str!("../embedded/client/embed.js")),
   ("events.js", include_str!("../embedded/client/events.js")),
@@ -56,6 +57,7 @@ pub const FILES: &[(&str, &str)] = &[
 pub const FILES: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.min.js")),
   ("boot.js", include_str!("../embedded/client/boot.min.js")),
+  ("desktop.js", include_str!("../embedded/client/desktop.min.js")),
   ("elements.js", include_str!("../embedded/client/elements.min.js")),
   ("embed.js", include_str!("../embedded/client/embed.min.js")),
   ("events.js", include_str!("../embedded/client/events.min.js")),
@@ -98,6 +100,7 @@ pub const HAS_READABLE: bool = cfg!(feature = "client_readable");
 pub const TYPES: &[(&str, &str)] = &[
   ("actions.d.ts", include_str!("../embedded/client/actions.d.ts")),
   ("boot.d.ts", include_str!("../embedded/client/boot.d.ts")),
+  ("desktop.d.ts", include_str!("../embedded/client/desktop.d.ts")),
   ("elements.d.ts", include_str!("../embedded/client/elements.d.ts")),
   ("embed.d.ts", include_str!("../embedded/client/embed.d.ts")),
   ("events.d.ts", include_str!("../embedded/client/events.d.ts")),
@@ -134,6 +137,7 @@ pub const TYPES: &[(&str, &str)] = &[
 pub const MINIFIED: &[(&str, &str)] = &[
   ("actions.js", include_str!("../embedded/client/actions.min.js")),
   ("boot.js", include_str!("../embedded/client/boot.min.js")),
+  ("desktop.js", include_str!("../embedded/client/desktop.min.js")),
   ("elements.js", include_str!("../embedded/client/elements.min.js")),
   ("embed.js", include_str!("../embedded/client/embed.min.js")),
   ("events.js", include_str!("../embedded/client/events.min.js")),
@@ -172,6 +176,8 @@ pub const MAPS: &[(&str, &str)] = &[
   ("actions.min.js.map", include_str!("../embedded/client/actions.min.js.map")),
   ("boot.js.map", include_str!("../embedded/client/boot.js.map")),
   ("boot.min.js.map", include_str!("../embedded/client/boot.min.js.map")),
+  ("desktop.js.map", include_str!("../embedded/client/desktop.js.map")),
+  ("desktop.min.js.map", include_str!("../embedded/client/desktop.min.js.map")),
   ("elements.js.map", include_str!("../embedded/client/elements.js.map")),
   ("elements.min.js.map", include_str!("../embedded/client/elements.min.js.map")),
   ("embed.js.map", include_str!("../embedded/client/embed.js.map")),

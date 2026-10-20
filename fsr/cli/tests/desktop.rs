@@ -168,3 +168,37 @@ fn a_stream_is_refused_with_no_content_so_the_page_stops_asking() {
   assert!(!desktop::streams(&page));
   assert!(!desktop::streams(&http::HeaderMap::new()));
 }
+
+#[test]
+fn a_bridge_call_reads_its_id_method_and_arguments() {
+  use desktop::Method;
+  let open = desktop::bridge_call(r#"{"id":3,"method":"openFile","args":{"multiple":true,"filters":[{"name":"Images","extensions":["png","jpg"]}]}}"#).unwrap();
+  assert_eq!(open.id, 3);
+  assert_eq!(open.method, Method::OpenFile { multiple: true, filters: vec![("Images".to_owned(), vec!["png".to_owned(), "jpg".to_owned()])] });
+  let plain = desktop::bridge_call(r#"{"id":4,"method":"openFile","args":{}}"#).unwrap();
+  assert_eq!(plain.method, Method::OpenFile { multiple: false, filters: Vec::new() });
+  let external = desktop::bridge_call(r#"{"id":5,"method":"openExternal","args":{"url":"https://example.com/a"}}"#).unwrap();
+  assert_eq!(external.method, Method::OpenExternal { url: "https://example.com/a".to_owned() });
+  let unknown = desktop::bridge_call(r#"{"id":6,"method":"shell","args":{}}"#).unwrap_err();
+  assert_eq!(unknown.0, Some(6), "an unknown method still answers its caller");
+  assert!(unknown.1.contains("shell"), "{}", unknown.1);
+  assert_eq!(desktop::bridge_call("not json").unwrap_err().0, None);
+}
+
+#[test]
+fn only_web_and_mail_links_open_outside_the_window() {
+  for allowed in ["https://example.com", "http://localhost:3000/x", "mailto:a@example.com"] {
+    assert!(desktop::external_allowed(allowed), "{allowed}");
+  }
+  for refused in ["file:///etc/passwd", "javascript:alert(1)", "smb://host/share", "vscode://x", "/relative", ""] {
+    assert!(!desktop::external_allowed(refused), "{refused}");
+  }
+}
+
+#[test]
+fn a_result_reaches_the_page_through_the_bridge_it_installed() {
+  assert!(desktop::BRIDGE_SCRIPT.contains("window.__sfDesktop") && desktop::BRIDGE_SCRIPT.contains("window.ipc.postMessage"));
+  assert_eq!(desktop::settle_script(3, &Ok(serde_json::json!(["/a b.png"]))), r#"window.__sfDesktop.settle(3,true,["/a b.png"])"#);
+  assert_eq!(desktop::settle_script(4, &Ok(serde_json::Value::Null)), "window.__sfDesktop.settle(4,true,null)");
+  assert_eq!(desktop::settle_script(5, &Err("no \"x\" </script>".to_owned())), r#"window.__sfDesktop.settle(5,false,"no \"x\" \u003c/script>")"#);
+}

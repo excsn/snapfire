@@ -1273,6 +1273,8 @@ cookies = "disk"
 
 `fsr serve app --desktop` prints the routes that stream and refuses `--listen` under the scheme. `fsr doctor` reports a scheme window over a route that streams as a `desktop` finding.
 
+The window installs a bridge before the page's scripts run, which `desktop` from `@snapfire/fsr-client` calls: `desktop.openFile()` opens the system file dialog on the window's thread and `desktop.openExternal(url)` hands an `http`, `https` or `mailto` link to the system. The client's guide has the calls.
+
 ## Running a Terminal App
 
 Terminal mode is experimental. With the `terminal` feature, `fsr dev --terminal` runs the app's root page in this terminal instead of serving it. The page is an Ink component: `Box`, `Text`, `Spacer`, `Newline` and `useInput` come from `ink`, or from `@snapfire/fsr/terminal`, which exports the same names. No Node runs and nothing is served.

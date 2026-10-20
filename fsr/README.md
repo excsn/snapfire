@@ -72,7 +72,7 @@ fsr dev app --desktop
 fsr serve app --desktop
 ```
 
-Desktop mode is experimental. Today the window loads the host over a loopback port. Its menu bar has back, forward, reload and the clipboard. Its title is `[desktop] name` followed by the page's title. It is tried on macOS only; the Windows and Linux code is written but has not been built or run. Packaging, signing and a native bridge for page code do not exist yet. See [Opening the App in a Window](cli/README.USAGE.md#opening-the-app-in-a-window).
+Desktop mode is experimental. Today the window loads the host over a loopback port. Its menu bar has back, forward, reload and the clipboard. Its title is `[desktop] name` followed by the page's title. It is tried on macOS only; the Windows and Linux code is written but has not been built or run. Page code reaches the process through `desktop` from `@snapfire/fsr-client`, which opens the system file dialog and hands links to the system browser. Packaging and signing do not exist yet. See [Opening the App in a Window](cli/README.USAGE.md#opening-the-app-in-a-window).
 
 ## Terminal apps (experimental)
 

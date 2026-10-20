@@ -33,7 +33,7 @@ mdx-frontmatter = ["mdx", "snapfire_fsr_mdx/frontmatter"]
 # `fsr dev --desktop` and `fsr serve --desktop`: the app in a native window over the system webview.
 # `fsr dev --terminal`: the root page drawn in the terminal with Ink's elements.
 terminal = ["dep:crossterm", "dep:snapfire_fsr_terminal"]
-desktop = ["dep:bytes", "dep:http", "dep:http-body-util", "dep:muda", "dep:tao", "dep:wry"]
+desktop = ["dep:bytes", "dep:http", "dep:http-body-util", "dep:muda", "dep:open", "dep:rfd", "dep:tao", "dep:wry"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -77,6 +77,8 @@ snapfire_fsr_terminal = { workspace = true, optional = true }
 http = { version = "1", optional = true }
 http-body-util = { version = "0.1", optional = true }
 muda = { version = "0.21", optional = true }
+open = { version = "5", optional = true }
+rfd = { version = "0.17", optional = true }
 tao = { version = "0.37", optional = true }
 wry = { version = "0.57", optional = true }
 toml = "0.8"

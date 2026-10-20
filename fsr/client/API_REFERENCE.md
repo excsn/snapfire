@@ -157,7 +157,10 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [userEvent](#userevent)
   * [settle and advance](#settle-and-advance)
   * [assert](#assert)
-* [17. Error Handling](#17-error-handling)
+* [17. The Desktop Bridge](#17-the-desktop-bridge)
+  * [desktop](#desktop)
+  * [FileFilter and OpenFileOptions](#filefilter-and-openfileoptions)
+* [18. Error Handling](#18-error-handling)
   * [ActionFailure](#actionfailure)
   * [Thrown Errors](#thrown-errors)
   * [Silent Degradations](#silent-degradations)
@@ -1322,7 +1325,25 @@ A user at the pointer and the keyboard. `click` hovers, presses and releases, mo
 
 The assertions specs used before `expect`, kept for code outside this repository. `equal` is deep with the bigint allowance. `match` takes a string to contain or a RegExp. `throws` and `rejects` match a string against the kind and message of what was thrown.
 
-## 17. Error Handling
+## 17. The Desktop Bridge
+
+What a page can ask of the process that opened its window under `fsr dev --desktop` or `fsr serve --desktop`, exported from the entry point. Experimental.
+
+### desktop
+
+* `desktop: Desktop`, an object of three functions.
+* `desktop.isDesktop(): boolean`: whether the page is in a desktop window, read from the `window.__sfDesktop` the window installs before the page's scripts run.
+* `desktop.openFile(options?: OpenFileOptions): Promise<string[] | null>`: the system's open dialog. It answers the chosen absolute paths, `null` when the user cancels.
+* `desktop.openExternal(url: string): Promise<void>`: opens the link in the system's browser or mail app. Only `http:`, `https:` and `mailto:` links with something after the scheme; anything else rejects.
+* Outside a desktop window `openFile` and `openExternal` reject with `desktop.<name> runs only in an fsr --desktop window`.
+* Each call posts `{ id, method, args }` over wry's IPC channel and the window settles it with `window.__sfDesktop.settle(id, ok, value)`. A refusal rejects with an `Error` carrying the window's message.
+
+### FileFilter and OpenFileOptions
+
+* `interface FileFilter { name: string; extensions: string[] }`: a label and its extensions without the dot.
+* `interface OpenFileOptions { multiple?: boolean; filters?: FileFilter[] }`: `multiple` lets the user pick several files, `false` by default.
+
+## 18. Error Handling
 
 ### ActionFailure
 

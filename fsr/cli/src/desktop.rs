@@ -74,6 +74,7 @@ enum Shown {
   Open(String),
   Title(String),
   Menu(muda::MenuId),
+  Bridge(String),
   Done,
 }
 
@@ -129,9 +130,16 @@ where
 
   let shown = WindowBuilder::new().with_title(name).with_inner_size(LogicalSize::new(1280.0, 800.0)).build(&event_loop).map_err(|e| BuildError::Serve(format!("desktop: window: {e}")))?;
   let titles = event_loop.create_proxy();
-  let builder = WebViewBuilder::new().with_back_forward_navigation_gestures(true).with_document_title_changed_handler(move |page| {
-    let _ = titles.send_event(Shown::Title(page));
-  });
+  let bridged = event_loop.create_proxy();
+  let builder = WebViewBuilder::new()
+    .with_back_forward_navigation_gestures(true)
+    .with_document_title_changed_handler(move |page| {
+      let _ = titles.send_event(Shown::Title(page));
+    })
+    .with_initialization_script(BRIDGE_SCRIPT)
+    .with_ipc_handler(move |message| {
+      let _ = bridged.send_event(Shown::Bridge(message.into_body()));
+    });
   let builder = match scheme {
     Some(handler) => builder
       .with_asynchronous_custom_protocol("app".to_owned(), move |_, request, responder| {
@@ -175,6 +183,15 @@ where
         }
         None => {}
       },
+      Event::UserEvent(Shown::Bridge(body)) => {
+        let (id, result) = match bridge_call(&body) {
+          Ok(call) => (Some(call.id), answer(call.method)),
+          Err((id, why)) => (id, Err(why)),
+        };
+        if let Some(id) = id {
+          let _ = webview.evaluate_script(&settle_script(id, &result));
+        }
+      }
       Event::UserEvent(Shown::Done) => *flow = ControlFlow::Exit,
       Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => {
         closed = true;
@@ -364,6 +381,94 @@ pub fn scheme(host: Arc<Host>, runtime: tokio::runtime::Handle, cookies: Option<
       respond(followable(http::Response::from_parts(parts, body), navigation));
     });
   })
+}
+
+/// `window.__sfDesktop` in a desktop window, installed before the page's own
+/// scripts: `call` posts `{ id, method, args }` over wry's IPC channel and
+/// answers with a promise that `settle` resolves when the process replies.
+pub const BRIDGE_SCRIPT: &str = r#"(()=>{if(window.__sfDesktop)return;let next=0;const waiting=new Map();window.__sfDesktop={call(method,args){const id=++next;return new Promise((resolve,reject)=>{waiting.set(id,{resolve,reject});window.ipc.postMessage(JSON.stringify({id,method,args:args??{}}));});},settle(id,ok,value){const held=waiting.get(id);if(!held)return;waiting.delete(id);ok?held.resolve(value):held.reject(new Error(value));}};})();"#;
+
+/// What the page asks the process for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Method {
+  /// The system's open dialog: one file or several, limited to the filters' extensions, by filter name.
+  OpenFile { multiple: bool, filters: Vec<(String, Vec<String>)> },
+  /// A link opened in the system's browser or mail app.
+  OpenExternal { url: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Call {
+  pub id: u64,
+  pub method: Method,
+}
+
+/// One message the page posted. A refusal carries the call's id when it had
+/// one, so the caller's promise is still settled.
+pub fn bridge_call(body: &str) -> Result<Call, (Option<u64>, String)> {
+  let message: serde_json::Value = serde_json::from_str(body).map_err(|e| (None, format!("desktop: a bridge message that is not JSON: {e}")))?;
+  let Some(id) = message.get("id").and_then(serde_json::Value::as_u64) else { return Err((None, "desktop: a bridge message with no id".to_owned())) };
+  let args = message.get("args").cloned().unwrap_or(serde_json::Value::Null);
+  let method = match message.get("method").and_then(serde_json::Value::as_str) {
+    Some("openFile") => {
+      let multiple = args.get("multiple").and_then(serde_json::Value::as_bool).unwrap_or(false);
+      let filters = args.get("filters").and_then(serde_json::Value::as_array).map_or_else(Vec::new, |filters| {
+        filters
+          .iter()
+          .filter_map(|filter| {
+            let name = filter.get("name")?.as_str()?.to_owned();
+            let extensions = filter.get("extensions")?.as_array()?.iter().filter_map(|extension| extension.as_str().map(str::to_owned)).collect();
+            Some((name, extensions))
+          })
+          .collect()
+      });
+      Method::OpenFile { multiple, filters }
+    }
+    Some("openExternal") => match args.get("url").and_then(serde_json::Value::as_str) {
+      Some(url) => Method::OpenExternal { url: url.to_owned() },
+      None => return Err((Some(id), "desktop.openExternal needs a url".to_owned())),
+    },
+    other => return Err((Some(id), format!("desktop: `{}` is not a bridge method", other.unwrap_or_default()))),
+  };
+  Ok(Call { id, method })
+}
+
+/// Whether `openExternal` hands `url` to the system: an `http`, `https` or
+/// `mailto` link with something after its scheme.
+pub fn external_allowed(url: &str) -> bool {
+  let Some((scheme, rest)) = url.split_once(':') else { return false };
+  matches!(scheme.to_ascii_lowercase().as_str(), "http" | "https" | "mailto") && !rest.trim_start_matches('/').is_empty()
+}
+
+/// The script that settles call `id` with `result` in the page.
+pub fn settle_script(id: u64, result: &Result<serde_json::Value, String>) -> String {
+  let (ok, value) = match result {
+    Ok(value) => (true, value.clone()),
+    Err(why) => (false, serde_json::Value::String(why.clone())),
+  };
+  let value = serde_json::to_string(&value).unwrap_or_else(|_| "null".to_owned()).replace('<', "\\u003c");
+  format!("window.__sfDesktop.settle({id},{ok},{value})")
+}
+
+/// Answers a call on the main thread, which the open dialog needs on macOS.
+fn answer(method: Method) -> Result<serde_json::Value, String> {
+  match method {
+    Method::OpenFile { multiple, filters } => {
+      let mut dialog = rfd::FileDialog::new();
+      for (name, extensions) in &filters {
+        dialog = dialog.add_filter(name, extensions);
+      }
+      let picked = if multiple { dialog.pick_files() } else { dialog.pick_file().map(|path| vec![path]) };
+      Ok(picked.map_or(serde_json::Value::Null, |paths| serde_json::Value::from(paths.iter().map(|path| path.display().to_string()).collect::<Vec<_>>())))
+    }
+    Method::OpenExternal { url } => {
+      if !external_allowed(&url) {
+        return Err(format!("desktop.openExternal opens http, https and mailto links, not `{url}`"));
+      }
+      open::that_detached(&url).map_err(|e| format!("desktop.openExternal: {e}"))?;
+      Ok(serde_json::Value::Null)
+    }
+  }
 }
 
 /// A menu item the window answers itself.

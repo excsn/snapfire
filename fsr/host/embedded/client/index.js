@@ -10,4 +10,5 @@ export { live } from "./live.js";
 export { socket } from "./socket.js";
 export { applyStyles, boot, defineMounter, discard, loadEntry, markerProps, patchIsland, registerIsland, registerModule, registeredIslands, scan, serverRendered } from "./boot.js";
 export { isServerIsland, morph, mountServer } from "./server.js";
+export { desktop } from "./desktop.js";
 //# sourceMappingURL=index.js.map
