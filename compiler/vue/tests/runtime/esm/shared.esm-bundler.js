@@ -1,9 +1,8 @@
 /**
-* @vue/shared v3.5.13
+* @vue/shared v3.5.44
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
-/*! #__NO_SIDE_EFFECTS__ */
 // @__NO_SIDE_EFFECTS__
 function makeMap(str) {
   const map = /* @__PURE__ */ Object.create(null);
@@ -56,15 +55,15 @@ const isBuiltInDirective = /* @__PURE__ */ makeMap(
 );
 const cacheStringFunction = (fn) => {
   const cache = /* @__PURE__ */ Object.create(null);
-  return (str) => {
+  return ((str) => {
     const hit = cache[str];
     return hit || (cache[str] = fn(str));
-  };
+  });
 };
-const camelizeRE = /-(\w)/g;
+const camelizeRE = /-\w/g;
 const camelize = cacheStringFunction(
   (str) => {
-    return str.replace(camelizeRE, (_, c) => c ? c.toUpperCase() : "");
+    return str.replace(camelizeRE, (c) => c.slice(1).toUpperCase());
   }
 );
 const hyphenateRE = /\B([A-Z])/g;
@@ -160,7 +159,7 @@ const PatchFlagNames = {
   [512]: `NEED_PATCH`,
   [1024]: `DYNAMIC_SLOTS`,
   [2048]: `DEV_ROOT_FRAGMENT`,
-  [-1]: `HOISTED`,
+  [-1]: `CACHED`,
   [-2]: `BAIL`
 };
 
@@ -268,10 +267,10 @@ function normalizeStyle(value) {
 }
 const listDelimiterRE = /;(?![^(]*\))/g;
 const propertyDelimiterRE = /:([^]+)/;
-const styleCommentRE = /\/\*[^]*?\*\//g;
+const styleCommentRE = /"(?:[^"\\]|\\[^])*"|'(?:[^'\\]|\\[^])*'|\\[^]|\/\*[^]*?\*\//g;
 function parseStringStyle(cssText) {
   const ret = {};
-  cssText.replace(styleCommentRE, "").split(listDelimiterRE).forEach((item) => {
+  cssText.replace(styleCommentRE, (match) => match.startsWith("/*") ? "" : match).split(listDelimiterRE).forEach((item) => {
     if (item) {
       const tmp = item.split(propertyDelimiterRE);
       tmp.length > 1 && (ret[tmp[0].trim()] = tmp[1].trim());
@@ -333,15 +332,15 @@ const isSVGTag = /* @__PURE__ */ makeMap(SVG_TAGS);
 const isMathMLTag = /* @__PURE__ */ makeMap(MATH_TAGS);
 const isVoidTag = /* @__PURE__ */ makeMap(VOID_TAGS);
 
-const specialBooleanAttrs = `itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,readonly`;
+const specialBooleanAttrs = `itemscope,allowfullscreen,formnovalidate,ismap,nomodule,novalidate,playsinline,readonly`;
 const isSpecialBooleanAttr = /* @__PURE__ */ makeMap(specialBooleanAttrs);
 const isBooleanAttr = /* @__PURE__ */ makeMap(
-  specialBooleanAttrs + `,async,autofocus,autoplay,controls,default,defer,disabled,hidden,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected`
+  specialBooleanAttrs + `,async,autofocus,autoplay,controls,default,defer,disabled,inert,loop,open,required,reversed,scoped,seamless,checked,muted,multiple,selected`
 );
 function includeBooleanAttr(value) {
   return !!value || value === "";
 }
-const unsafeAttrCharRE = /[>/="'\u0009\u000a\u000c\u0020]/;
+const unsafeAttrCharRE = /[>/="'\u0009\u000a\u000c\u000d\u0020]/;
 const attrValidationCache = {};
 function isSSRSafeAttrName(name) {
   if (attrValidationCache.hasOwnProperty(name)) {
@@ -415,9 +414,14 @@ function escapeHtml(string) {
   }
   return lastIndex !== index ? html + str.slice(lastIndex, index) : html;
 }
-const commentStripRE = /^-?>|<!--|-->|--!>|<!-$/g;
+const commentStripRE = /^(?:-?>)+|<!--|-->|--!>|<!-$/g;
 function escapeHtmlComment(src) {
-  return src.replace(commentStripRE, "");
+  let prev;
+  do {
+    prev = src;
+    src = src.replace(commentStripRE, "");
+  } while (src !== prev);
+  return src;
 }
 const cssVarNameEscapeSymbolsRE = /[ !"#$%&'()*+,./:;<=>?@[\\\]^`{|}~]/g;
 function getEscapedCssVarName(key, doubleEscape) {
@@ -427,15 +431,72 @@ function getEscapedCssVarName(key, doubleEscape) {
   );
 }
 
-function looseCompareArrays(a, b) {
+function looseCompareArrays(a, b, seen) {
   if (a.length !== b.length) return false;
   let equal = true;
   for (let i = 0; equal && i < a.length; i++) {
-    equal = looseEqual(a[i], b[i]);
+    equal = looseEqual(a[i], b[i], seen);
   }
   return equal;
 }
-function looseEqual(a, b) {
+function looseCompareCollections(a, b, seen) {
+  if (a.size !== b.size) return false;
+  const candidates = Array.from(b);
+  const matched = new Uint8Array(candidates.length);
+  for (const item of a) {
+    let index = -1;
+    for (let i = 0; i < candidates.length; i++) {
+      if (!matched[i] && looseEqual(item, candidates[i], seen)) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) return false;
+    matched[index] = 1;
+  }
+  return true;
+}
+function looseCompareObjects(a, b, seen) {
+  let aValidType = isMap(a);
+  let bValidType = isMap(b);
+  if (aValidType || bValidType) {
+    return aValidType && bValidType ? looseCompareCollections(a, b, seen) : false;
+  }
+  aValidType = isSet(a);
+  bValidType = isSet(b);
+  if (aValidType || bValidType) {
+    return aValidType && bValidType ? looseCompareCollections(a, b, seen) : false;
+  }
+  const aKeysCount = Object.keys(a).length;
+  const bKeysCount = Object.keys(b).length;
+  if (aKeysCount !== bKeysCount) {
+    return false;
+  }
+  for (const key in a) {
+    const aHasKey = a.hasOwnProperty(key);
+    const bHasKey = b.hasOwnProperty(key);
+    if (aHasKey && !bHasKey || !aHasKey && bHasKey || !looseEqual(a[key], b[key], seen)) {
+      return false;
+    }
+  }
+  return String(a) === String(b);
+}
+function looseCompareNested(a, b, seen, compare) {
+  if (!seen) {
+    seen = [/* @__PURE__ */ new Map(), /* @__PURE__ */ new Map()];
+  }
+  const [seenA, seenB] = seen;
+  if (seenA.has(a) || seenB.has(b)) {
+    return seenA.get(a) === b && seenB.get(b) === a;
+  }
+  seenA.set(a, b);
+  seenB.set(b, a);
+  const equal = compare(a, b, seen);
+  seenA.delete(a);
+  seenB.delete(b);
+  return equal;
+}
+function looseEqual(a, b, seen) {
   if (a === b) return true;
   let aValidType = isDate(a);
   let bValidType = isDate(b);
@@ -450,7 +511,7 @@ function looseEqual(a, b) {
   aValidType = isArray(a);
   bValidType = isArray(b);
   if (aValidType || bValidType) {
-    return aValidType && bValidType ? looseCompareArrays(a, b) : false;
+    return aValidType && bValidType ? looseCompareNested(a, b, seen, looseCompareArrays) : false;
   }
   aValidType = isObject(a);
   bValidType = isObject(b);
@@ -458,18 +519,7 @@ function looseEqual(a, b) {
     if (!aValidType || !bValidType) {
       return false;
     }
-    const aKeysCount = Object.keys(a).length;
-    const bKeysCount = Object.keys(b).length;
-    if (aKeysCount !== bKeysCount) {
-      return false;
-    }
-    for (const key in a) {
-      const aHasKey = a.hasOwnProperty(key);
-      const bHasKey = b.hasOwnProperty(key);
-      if (aHasKey && !bHasKey || !aHasKey && bHasKey || !looseEqual(a[key], b[key])) {
-        return false;
-      }
-    }
+    return looseCompareNested(a, b, seen, looseCompareObjects);
   }
   return String(a) === String(b);
 }
@@ -516,4 +566,22 @@ const stringifySymbol = (v, i = "") => {
   );
 };
 
-export { EMPTY_ARR, EMPTY_OBJ, NO, NOOP, PatchFlagNames, PatchFlags, ShapeFlags, SlotFlags, camelize, capitalize, cssVarNameEscapeSymbolsRE, def, escapeHtml, escapeHtmlComment, extend, genCacheKey, genPropsAccessExp, generateCodeFrame, getEscapedCssVarName, getGlobalThis, hasChanged, hasOwn, hyphenate, includeBooleanAttr, invokeArrayFns, isArray, isBooleanAttr, isBuiltInDirective, isDate, isFunction, isGloballyAllowed, isGloballyWhitelisted, isHTMLTag, isIntegerKey, isKnownHtmlAttr, isKnownMathMLAttr, isKnownSvgAttr, isMap, isMathMLTag, isModelListener, isObject, isOn, isPlainObject, isPromise, isRegExp, isRenderableAttrValue, isReservedProp, isSSRSafeAttrName, isSVGTag, isSet, isSpecialBooleanAttr, isString, isSymbol, isVoidTag, looseEqual, looseIndexOf, looseToNumber, makeMap, normalizeClass, normalizeProps, normalizeStyle, objectToString, parseStringStyle, propsToAttrMap, remove, slotFlagsText, stringifyStyle, toDisplayString, toHandlerKey, toNumber, toRawType, toTypeString };
+function normalizeCssVarValue(value) {
+  if (value == null) {
+    return "initial";
+  }
+  if (typeof value === "string") {
+    return value === "" ? " " : value;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    if (!!(process.env.NODE_ENV !== "production")) {
+      console.warn(
+        "[Vue warn] Invalid value used for CSS binding. Expected a string or a finite number but received:",
+        value
+      );
+    }
+  }
+  return String(value);
+}
+
+export { EMPTY_ARR, EMPTY_OBJ, NO, NOOP, PatchFlagNames, PatchFlags, ShapeFlags, SlotFlags, camelize, capitalize, cssVarNameEscapeSymbolsRE, def, escapeHtml, escapeHtmlComment, extend, genCacheKey, genPropsAccessExp, generateCodeFrame, getEscapedCssVarName, getGlobalThis, hasChanged, hasOwn, hyphenate, includeBooleanAttr, invokeArrayFns, isArray, isBooleanAttr, isBuiltInDirective, isDate, isFunction, isGloballyAllowed, isGloballyWhitelisted, isHTMLTag, isIntegerKey, isKnownHtmlAttr, isKnownMathMLAttr, isKnownSvgAttr, isMap, isMathMLTag, isModelListener, isObject, isOn, isPlainObject, isPromise, isRegExp, isRenderableAttrValue, isReservedProp, isSSRSafeAttrName, isSVGTag, isSet, isSpecialBooleanAttr, isString, isSymbol, isVoidTag, looseEqual, looseIndexOf, looseToNumber, makeMap, normalizeClass, normalizeCssVarValue, normalizeProps, normalizeStyle, objectToString, parseStringStyle, propsToAttrMap, remove, slotFlagsText, stringifyStyle, toDisplayString, toHandlerKey, toNumber, toRawType, toTypeString };

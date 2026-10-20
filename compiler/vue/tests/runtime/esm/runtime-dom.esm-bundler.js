@@ -1,11 +1,11 @@
 /**
-* @vue/runtime-dom v3.5.13
+* @vue/runtime-dom v3.5.44
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
-import { warn, h, BaseTransition, assertNumber, BaseTransitionPropsValidators, getCurrentInstance, onBeforeUpdate, queuePostFlushCb, onMounted, watch, onUnmounted, Fragment, Static, camelize, callWithAsyncErrorHandling, defineComponent, nextTick, unref, createVNode, useTransitionState, onUpdated, toRaw, getTransitionRawChildren, setTransitionHooks, resolveTransitionHooks, Text, isRuntimeOnly, createRenderer, createHydrationRenderer } from '@vue/runtime-core';
+import { warn, BaseTransitionPropsValidators, h, BaseTransition, assertNumber, getCurrentInstance, onBeforeUpdate, queuePostFlushCb, onMounted, watch, onUnmounted, Fragment, Static, camelize, callWithAsyncErrorHandling, nextTick, unref, createVNode, defineComponent, useTransitionState, onUpdated, toRaw, getTransitionRawChildren, setTransitionHooks, resolveTransitionHooks, Text, createRenderer, isRuntimeOnly, createHydrationRenderer } from '@vue/runtime-core';
 export * from '@vue/runtime-core';
-import { extend, isObject, toNumber, isArray, NOOP, isString, hyphenate, capitalize, includeBooleanAttr, isSymbol, isSpecialBooleanAttr, isFunction, isOn, isModelListener, camelize as camelize$1, isPlainObject, hasOwn, EMPTY_OBJ, looseToNumber, looseIndexOf, isSet, looseEqual, invokeArrayFns, isHTMLTag, isSVGTag, isMathMLTag } from '@vue/shared';
+import { extend, isObject, toNumber, isArray, NOOP, normalizeCssVarValue, isString, hyphenate, capitalize, includeBooleanAttr, isSymbol, isSpecialBooleanAttr, isFunction, isOn, isModelListener, camelize as camelize$1, hasOwn, isPlainObject, EMPTY_OBJ, looseIndexOf, isSet, looseEqual, looseToNumber, invokeArrayFns, isHTMLTag, isSVGTag, isMathMLTag } from '@vue/shared';
 
 let policy = void 0;
 const tt = typeof window !== "undefined" && window.trustedTypes;
@@ -90,7 +90,7 @@ const nodeOps = {
 
 const TRANSITION = "transition";
 const ANIMATION = "animation";
-const vtcKey = Symbol("_vtc");
+const vtcKey = /* @__PURE__ */ Symbol("_vtc");
 const DOMTransitionPropsValidators = {
   name: String,
   type: String,
@@ -214,11 +214,11 @@ function resolveTransitionProps(rawProps) {
       const resolve = () => finishLeave(el, done);
       addTransitionClass(el, leaveFromClass);
       if (!el._enterCancelled) {
-        forceReflow();
+        forceReflow(el);
         addTransitionClass(el, leaveActiveClass);
       } else {
         addTransitionClass(el, leaveActiveClass);
-        forceReflow();
+        forceReflow(el);
       }
       nextFrame(() => {
         if (!el._isLeaving) {
@@ -344,7 +344,7 @@ function getTransitionInfo(el, expectedType) {
     type = timeout > 0 ? transitionTimeout > animationTimeout ? TRANSITION : ANIMATION : null;
     propCount = type ? type === TRANSITION ? transitionDurations.length : animationDurations.length : 0;
   }
-  const hasTransform = type === TRANSITION && /\b(transform|all)(,|$)/.test(
+  const hasTransform = type === TRANSITION && /\b(?:transform|all)(?:,|$)/.test(
     getStyleProperties(`${TRANSITION}Property`).toString()
   );
   return {
@@ -364,8 +364,9 @@ function toMs(s) {
   if (s === "auto") return 0;
   return Number(s.slice(0, -1).replace(",", ".")) * 1e3;
 }
-function forceReflow() {
-  return document.body.offsetHeight;
+function forceReflow(el) {
+  const targetDocument = el ? el.ownerDocument : document;
+  return targetDocument.body.offsetHeight;
 }
 
 function patchClass(el, value, isSVG) {
@@ -382,9 +383,11 @@ function patchClass(el, value, isSVG) {
   }
 }
 
-const vShowOriginalDisplay = Symbol("_vod");
-const vShowHidden = Symbol("_vsh");
+const vShowOriginalDisplay = /* @__PURE__ */ Symbol("_vod");
+const vShowHidden = /* @__PURE__ */ Symbol("_vsh");
 const vShow = {
+  // used for prop mismatch check during hydration
+  name: "show",
   beforeMount(el, { value }, { transition }) {
     el[vShowOriginalDisplay] = el.style.display === "none" ? "" : el.style.display;
     if (transition && value) {
@@ -418,9 +421,6 @@ const vShow = {
     setDisplay(el, value);
   }
 };
-if (!!(process.env.NODE_ENV !== "production")) {
-  vShow.name = "show";
-}
 function setDisplay(el, value) {
   el.style.display = value ? el[vShowOriginalDisplay] : "none";
   el[vShowHidden] = !value;
@@ -433,7 +433,7 @@ function initVShowForSSR() {
   };
 }
 
-const CSS_VAR_TEXT = Symbol(!!(process.env.NODE_ENV !== "production") ? "CSS_VAR_TEXT" : "");
+const CSS_VAR_TEXT = /* @__PURE__ */ Symbol(!!(process.env.NODE_ENV !== "production") ? "CSS_VAR_TEXT" : "");
 function useCssVars(getter) {
   const instance = getCurrentInstance();
   if (!instance) {
@@ -498,14 +498,15 @@ function setVarsOnNode(el, vars) {
     const style = el.style;
     let cssText = "";
     for (const key in vars) {
-      style.setProperty(`--${key}`, vars[key]);
-      cssText += `--${key}: ${vars[key]};`;
+      const value = normalizeCssVarValue(vars[key]);
+      style.setProperty(`--${key}`, value);
+      cssText += `--${key}: ${value};`;
     }
     style[CSS_VAR_TEXT] = cssText;
   }
 }
 
-const displayRE = /(^|;)\s*display\s*:/;
+const displayRE = /(?:^|;)\s*display\s*:/;
 function patchStyle(el, prev, next) {
   const style = el.style;
   const isCssString = isString(next);
@@ -531,7 +532,19 @@ function patchStyle(el, prev, next) {
       if (key === "display") {
         hasControlledDisplay = true;
       }
-      setStyle(style, key, next[key]);
+      const value = next[key];
+      if (value != null) {
+        if (!shouldPreserveTextareaResizeStyle(
+          el,
+          key,
+          !isString(prev) && prev ? prev[key] : void 0,
+          value
+        )) {
+          setStyle(style, key, value);
+        }
+      } else {
+        setStyle(style, key, "");
+      }
     }
   } else {
     if (isCssString) {
@@ -548,7 +561,9 @@ function patchStyle(el, prev, next) {
     }
   }
   if (vShowOriginalDisplay in el) {
-    el[vShowOriginalDisplay] = hasControlledDisplay ? style.display : "";
+    if (!isCssString || prev !== next) {
+      el[vShowOriginalDisplay] = hasControlledDisplay ? style.display : "";
+    }
     if (el[vShowHidden]) {
       style.display = "none";
     }
@@ -569,7 +584,11 @@ function setStyle(style, name, val) {
       }
     }
     if (name.startsWith("--")) {
-      style.setProperty(name, val);
+      if (importantRE.test(val)) {
+        style.setProperty(name, val.replace(importantRE, ""), "important");
+      } else {
+        style.setProperty(name, val);
+      }
     } else {
       const prefixed = autoPrefix(style, name);
       if (importantRE.test(val)) {
@@ -603,6 +622,9 @@ function autoPrefix(style, rawName) {
     }
   }
   return rawName;
+}
+function shouldPreserveTextareaResizeStyle(el, key, prev, next) {
+  return el.tagName === "TEXTAREA" && (key === "width" || key === "height") && isString(next) && prev === next;
 }
 
 const xlinkNS = "http://www.w3.org/1999/xlink";
@@ -682,7 +704,7 @@ function addEventListener(el, event, handler, options) {
 function removeEventListener(el, event, handler, options) {
   el.removeEventListener(event, handler, options);
 }
-const veiKey = Symbol("_vei");
+const veiKey = /* @__PURE__ */ Symbol("_vei");
 function patchEvent(el, rawName, prevValue, nextValue, instance = null) {
   const invokers = el[veiKey] || (el[veiKey] = {});
   const existingInvoker = invokers[rawName];
@@ -702,16 +724,15 @@ function patchEvent(el, rawName, prevValue, nextValue, instance = null) {
     }
   }
 }
-const optionsModifierRE = /(?:Once|Passive|Capture)$/;
+const optionsModifierRE = /(Once|Passive|Capture)$/;
+const optionsModifierEventRE = /^on:?(?:Once|Passive|Capture)$/;
 function parseName(name) {
   let options;
-  if (optionsModifierRE.test(name)) {
-    options = {};
-    let m;
-    while (m = name.match(optionsModifierRE)) {
-      name = name.slice(0, name.length - m[0].length);
-      options[m[0].toLowerCase()] = true;
-    }
+  let m;
+  while ((m = name.match(optionsModifierRE)) && !optionsModifierEventRE.test(name)) {
+    if (!options) options = {};
+    name = name.slice(0, name.length - m[1].length);
+    options[m[1].toLowerCase()] = true;
   }
   const event = name[2] === ":" ? name.slice(3) : hyphenate(name.slice(2));
   return [event, options];
@@ -726,12 +747,37 @@ function createInvoker(initialValue, instance) {
     } else if (e._vts <= invoker.attached) {
       return;
     }
-    callWithAsyncErrorHandling(
-      patchStopImmediatePropagation(e, invoker.value),
-      instance,
-      5,
-      [e]
-    );
+    const value = invoker.value;
+    if (isArray(value)) {
+      const originalStop = e.stopImmediatePropagation;
+      e.stopImmediatePropagation = () => {
+        originalStop.call(e);
+        e._stopped = true;
+      };
+      const handlers = value.slice();
+      const args = [e];
+      for (let i = 0; i < handlers.length; i++) {
+        if (e._stopped) {
+          break;
+        }
+        const handler = handlers[i];
+        if (handler) {
+          callWithAsyncErrorHandling(
+            handler,
+            instance,
+            5,
+            args
+          );
+        }
+      }
+    } else {
+      callWithAsyncErrorHandling(
+        value,
+        instance,
+        5,
+        [e]
+      );
+    }
   };
   invoker.value = initialValue;
   invoker.attached = getNow();
@@ -746,20 +792,6 @@ function sanitizeEventValue(value, propName) {
 Expected function or array of functions, received type ${typeof value}.`
   );
   return NOOP;
-}
-function patchStopImmediatePropagation(e, value) {
-  if (isArray(value)) {
-    const originalStop = e.stopImmediatePropagation;
-    e.stopImmediatePropagation = () => {
-      originalStop.call(e);
-      e._stopped = true;
-    };
-    return value.map(
-      (fn) => (e2) => !e2._stopped && fn && fn(e2)
-    );
-  } else {
-    return value;
-  }
 }
 
 const isNativeOn = (key) => key.charCodeAt(0) === 111 && key.charCodeAt(1) === 110 && // lowercase letter
@@ -781,7 +813,9 @@ const patchProp = (el, key, prevValue, nextValue, namespace, parentComponent) =>
     }
   } else if (
     // #11081 force set props for possible async custom element
-    el._isVueCE && (/[A-Z]/.test(key) || !isString(nextValue))
+    el._isVueCE && // #12408 check if it's declared prop or it's async custom element
+    (shouldSetAsPropForVueCE(el, key) || // @ts-expect-error _def is private
+    el._def.__asyncLoader && (/[A-Z]/.test(key) || !isString(nextValue)))
   ) {
     patchDOMProp(el, camelize$1(key), nextValue, parentComponent, key);
   } else {
@@ -803,7 +837,10 @@ function shouldSetAsProp(el, key, value, isSVG) {
     }
     return false;
   }
-  if (key === "spellcheck" || key === "draggable" || key === "translate") {
+  if (key === "spellcheck" || key === "draggable" || key === "translate" || key === "autocorrect") {
+    return false;
+  }
+  if (key === "sandbox" && el.tagName === "IFRAME") {
     return false;
   }
   if (key === "form") {
@@ -826,13 +863,23 @@ function shouldSetAsProp(el, key, value, isSVG) {
   }
   return key in el;
 }
+function shouldSetAsPropForVueCE(el, key) {
+  const props = (
+    // @ts-expect-error _def is private
+    el._def.props
+  );
+  if (!props) {
+    return false;
+  }
+  const camelKey = camelize$1(key);
+  return Array.isArray(props) ? props.some((prop) => camelize$1(prop) === camelKey) : Object.keys(props).some((prop) => camelize$1(prop) === camelKey);
+}
 
 const REMOVAL = {};
-/*! #__NO_SIDE_EFFECTS__ */
 // @__NO_SIDE_EFFECTS__
 function defineCustomElement(options, extraOptions, _createApp) {
-  const Comp = defineComponent(options, extraOptions);
-  if (isPlainObject(Comp)) extend(Comp, extraOptions);
+  let Comp = defineComponent(options, extraOptions);
+  if (isPlainObject(Comp)) Comp = extend({}, Comp, extraOptions);
   class VueCustomElement extends VueElement {
     constructor(initialProps) {
       super(Comp, initialProps, _createApp);
@@ -841,10 +888,9 @@ function defineCustomElement(options, extraOptions, _createApp) {
   VueCustomElement.def = Comp;
   return VueCustomElement;
 }
-/*! #__NO_SIDE_EFFECTS__ */
-const defineSSRCustomElement = /* @__NO_SIDE_EFFECTS__ */ (options, extraOptions) => {
+const defineSSRCustomElement = (/* @__NO_SIDE_EFFECTS__ */ (options, extraOptions) => {
   return /* @__PURE__ */ defineCustomElement(options, extraOptions, createSSRApp);
-};
+});
 const BaseClass = typeof HTMLElement !== "undefined" ? HTMLElement : class {
 };
 class VueElement extends BaseClass {
@@ -868,8 +914,11 @@ class VueElement extends BaseClass {
     this._nonce = this._def.nonce;
     this._connected = false;
     this._resolved = false;
+    this._patching = false;
+    this._dirty = false;
     this._numberProps = null;
     this._styleChildren = /* @__PURE__ */ new WeakSet();
+    this._styleAnchors = /* @__PURE__ */ new WeakMap();
     this._ob = null;
     if (this.shadowRoot && _createApp !== createApp) {
       this._root = this.shadowRoot;
@@ -880,24 +929,26 @@ class VueElement extends BaseClass {
         );
       }
       if (_def.shadowRoot !== false) {
-        this.attachShadow({ mode: "open" });
+        this.attachShadow(
+          extend({}, _def.shadowRootOptions, {
+            mode: "open"
+          })
+        );
         this._root = this.shadowRoot;
       } else {
         this._root = this;
       }
     }
-    if (!this._def.__asyncLoader) {
-      this._resolveProps(this._def);
-    }
   }
   connectedCallback() {
     if (!this.isConnected) return;
-    if (!this.shadowRoot) {
+    if (!this.shadowRoot && !this._resolved) {
       this._parseSlots();
     }
     this._connected = true;
     let parent = this;
-    while (parent = parent && (parent.parentNode || parent.host)) {
+    while (parent = parent && // #12479 should check assignedSlot first to get correct parent
+    (parent.assignedSlot || parent.parentNode || parent.host)) {
       if (parent instanceof VueElement) {
         this._parent = parent;
         break;
@@ -905,13 +956,14 @@ class VueElement extends BaseClass {
     }
     if (!this._instance) {
       if (this._resolved) {
-        this._setParent();
-        this._update();
+        this._mount(this._def);
       } else {
         if (parent && parent._pendingResolve) {
           this._pendingResolve = parent._pendingResolve.then(() => {
             this._pendingResolve = void 0;
-            this._resolveDef();
+            if (this.isConnected) {
+              return this._resolveDef();
+            }
           });
         } else {
           this._resolveDef();
@@ -922,7 +974,15 @@ class VueElement extends BaseClass {
   _setParent(parent = this._parent) {
     if (parent) {
       this._instance.parent = parent._instance;
-      this._instance.provides = parent._instance.provides;
+      this._inheritParentContext(parent);
+    }
+  }
+  _inheritParentContext(parent = this._parent) {
+    if (parent && this._app) {
+      Object.setPrototypeOf(
+        this._app._context.provides,
+        parent._instance.provides
+      );
     }
   }
   disconnectedCallback() {
@@ -936,24 +996,29 @@ class VueElement extends BaseClass {
         this._app && this._app.unmount();
         if (this._instance) this._instance.ce = void 0;
         this._app = this._instance = null;
+        if (this._teleportTargets) {
+          this._teleportTargets.clear();
+          this._teleportTargets = void 0;
+        }
       }
     });
+  }
+  _processMutations(mutations) {
+    for (const m of mutations) {
+      this._setAttr(m.attributeName);
+    }
   }
   /**
    * resolve inner component definition (handle possible async component)
    */
   _resolveDef() {
     if (this._pendingResolve) {
-      return;
+      return this._pendingResolve;
     }
     for (let i = 0; i < this.attributes.length; i++) {
       this._setAttr(this.attributes[i].name);
     }
-    this._ob = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        this._setAttr(m.attributeName);
-      }
-    });
+    this._ob = new MutationObserver(this._processMutations.bind(this));
     this._ob.observe(this, { attributes: true });
     const resolve = (def, isAsync = false) => {
       this._resolved = true;
@@ -972,9 +1037,7 @@ class VueElement extends BaseClass {
         }
       }
       this._numberProps = numberProps;
-      if (isAsync) {
-        this._resolveProps(def);
-      }
+      this._resolveProps(def);
       if (this.shadowRoot) {
         this._applyStyles(styles);
       } else if (!!(process.env.NODE_ENV !== "production") && styles) {
@@ -982,13 +1045,17 @@ class VueElement extends BaseClass {
           "Custom element style injection is not supported when using shadowRoot: false"
         );
       }
-      this._mount(def);
+      if (this._connected) {
+        this._mount(def);
+      }
     };
     const asyncDef = this._def.__asyncLoader;
     if (asyncDef) {
-      this._pendingResolve = asyncDef().then(
-        (def) => resolve(this._def = def, true)
-      );
+      this._pendingResolve = asyncDef().then((def) => {
+        def.configureApp = this._def.configureApp;
+        resolve(this._def = def, true);
+      });
+      return this._pendingResolve;
     } else {
       resolve(this._def);
     }
@@ -998,6 +1065,7 @@ class VueElement extends BaseClass {
       def.name = "VueElement";
     }
     this._app = this._createApp(def);
+    this._inheritParentContext();
     if (def.configureApp) {
       def.configureApp(this._app);
     }
@@ -1025,12 +1093,17 @@ class VueElement extends BaseClass {
       }
     }
     for (const key of declaredPropKeys.map(camelize$1)) {
+      if (!!(process.env.NODE_ENV !== "production") && key in Object.getPrototypeOf(this)) {
+        warn(
+          `Custom element prop "${key}" conflicts with an existing property on the element and will overwrite it.`
+        );
+      }
       Object.defineProperty(this, key, {
         get() {
           return this._getProp(key);
         },
         set(val) {
-          this._setProp(key, val, true, true);
+          this._setProp(key, val, true, !this._patching);
         }
       });
     }
@@ -1056,6 +1129,7 @@ class VueElement extends BaseClass {
    */
   _setProp(key, val, shouldReflect = true, shouldUpdate = false) {
     if (val !== this._props[key]) {
+      this._dirty = true;
       if (val === REMOVAL) {
         delete this._props[key];
       } else {
@@ -1069,7 +1143,10 @@ class VueElement extends BaseClass {
       }
       if (shouldReflect) {
         const ob = this._ob;
-        ob && ob.disconnect();
+        if (ob) {
+          this._processMutations(ob.takeRecords());
+          ob.disconnect();
+        }
         if (val === true) {
           this.setAttribute(hyphenate(key), "");
         } else if (typeof val === "string" || typeof val === "number") {
@@ -1082,7 +1159,9 @@ class VueElement extends BaseClass {
     }
   }
   _update() {
-    render(this._createVNode(), this._root);
+    const vnode = this._createVNode();
+    if (this._app) vnode.appContext = this._app._context;
+    render(vnode, this._root);
   }
   _createVNode() {
     const baseProps = {};
@@ -1101,6 +1180,7 @@ class VueElement extends BaseClass {
               this._styles.forEach((s) => this._root.removeChild(s));
               this._styles.length = 0;
             }
+            this._styleAnchors.delete(this._def);
             this._applyStyles(newStyles);
             this._instance = null;
             this._update();
@@ -1125,7 +1205,7 @@ class VueElement extends BaseClass {
     }
     return vnode;
   }
-  _applyStyles(styles, owner) {
+  _applyStyles(styles, owner, parentComp) {
     if (!styles) return;
     if (owner) {
       if (owner === this._def || this._styleChildren.has(owner)) {
@@ -1134,11 +1214,19 @@ class VueElement extends BaseClass {
       this._styleChildren.add(owner);
     }
     const nonce = this._nonce;
+    const root = this.shadowRoot;
+    const insertionAnchor = parentComp ? this._getStyleAnchor(parentComp) || this._getStyleAnchor(this._def) : this._getRootStyleInsertionAnchor(root);
+    let last = null;
     for (let i = styles.length - 1; i >= 0; i--) {
       const s = document.createElement("style");
       if (nonce) s.setAttribute("nonce", nonce);
       s.textContent = styles[i];
-      this.shadowRoot.prepend(s);
+      root.insertBefore(s, last || insertionAnchor);
+      last = s;
+      if (i === 0) {
+        if (!parentComp) this._styleAnchors.set(this._def, s);
+        if (owner) this._styleAnchors.set(owner, s);
+      }
       if (!!(process.env.NODE_ENV !== "production")) {
         if (owner) {
           if (owner.__hmrId) {
@@ -1154,6 +1242,28 @@ class VueElement extends BaseClass {
         }
       }
     }
+  }
+  _getStyleAnchor(comp) {
+    if (!comp) {
+      return null;
+    }
+    const anchor = this._styleAnchors.get(comp);
+    if (anchor && anchor.parentNode === this.shadowRoot) {
+      return anchor;
+    }
+    if (anchor) {
+      this._styleAnchors.delete(comp);
+    }
+    return null;
+  }
+  _getRootStyleInsertionAnchor(root) {
+    for (let i = 0; i < root.childNodes.length; i++) {
+      const node = root.childNodes[i];
+      if (!(node instanceof HTMLStyleElement)) {
+        return node;
+      }
+    }
+    return null;
   }
   /**
    * Only called when shadowRoot is false
@@ -1171,7 +1281,7 @@ class VueElement extends BaseClass {
    * Only called when shadowRoot is false
    */
   _renderSlots() {
-    const outlets = (this._teleportTarget || this).querySelectorAll("slot");
+    const outlets = this._getSlots();
     const scopeId = this._instance.type.__scopeId;
     for (let i = 0; i < outlets.length; i++) {
       const o = outlets[i];
@@ -1200,8 +1310,47 @@ class VueElement extends BaseClass {
   /**
    * @internal
    */
-  _injectChildStyle(comp) {
-    this._applyStyles(comp.styles, comp);
+  _getSlots() {
+    const roots = [this];
+    if (this._teleportTargets) {
+      roots.push(...this._teleportTargets);
+    }
+    const slots = /* @__PURE__ */ new Set();
+    for (const root of roots) {
+      const found = root.querySelectorAll("slot");
+      for (let i = 0; i < found.length; i++) {
+        slots.add(found[i]);
+      }
+    }
+    return Array.from(slots);
+  }
+  /**
+   * @internal
+   */
+  _injectChildStyle(comp, parentComp) {
+    this._applyStyles(comp.styles, comp, parentComp);
+  }
+  /**
+   * @internal
+   */
+  _beginPatch() {
+    this._patching = true;
+    this._dirty = false;
+  }
+  /**
+   * @internal
+   */
+  _endPatch() {
+    this._patching = false;
+    if (this._dirty && this._instance) {
+      this._update();
+    }
+  }
+  /**
+   * @internal
+   */
+  _hasShadowRoot() {
+    return this._def.shadowRoot !== false;
   }
   /**
    * @internal
@@ -1209,6 +1358,7 @@ class VueElement extends BaseClass {
   _removeChildStyle(comp) {
     if (!!(process.env.NODE_ENV !== "production")) {
       this._styleChildren.delete(comp);
+      this._styleAnchors.delete(comp);
       if (this._childStyles && comp.__hmrId) {
         const oldStyles = this._childStyles.get(comp.__hmrId);
         if (oldStyles) {
@@ -1265,8 +1415,9 @@ function useCssModule(name = "$style") {
 
 const positionMap = /* @__PURE__ */ new WeakMap();
 const newPositionMap = /* @__PURE__ */ new WeakMap();
-const moveCbKey = Symbol("_moveCb");
-const enterCbKey = Symbol("_enterCb");
+const moveCbKey = /* @__PURE__ */ Symbol("_moveCb");
+const enterCbKey = /* @__PURE__ */ Symbol("_enterCb");
+const pendingGroups = /* @__PURE__ */ new WeakMap();
 const decorate = (t) => {
   delete t.props.mode;
   return t;
@@ -1282,22 +1433,32 @@ const TransitionGroupImpl = /* @__PURE__ */ decorate({
     const state = useTransitionState();
     let prevChildren;
     let children;
+    let origins;
+    let moves;
+    const willMove = () => {
+      if (moves === void 0) {
+        moves = prevChildren.length > 0 && hasCSSTransform(
+          prevChildren[0].el,
+          instance.vnode.el,
+          resolveMoveClass(props)
+        );
+      }
+      return moves;
+    };
     onUpdated(() => {
-      if (!prevChildren.length) {
+      pendingGroups.delete(instance);
+      if (!willMove()) {
+        prevChildren = [];
+        origins = void 0;
         return;
       }
-      const moveClass = props.moveClass || `${props.name || "v"}-move`;
-      if (!hasCSSTransform(
-        prevChildren[0].el,
-        instance.vnode.el,
-        moveClass
-      )) {
-        return;
-      }
+      const moveClass = resolveMoveClass(props);
       prevChildren.forEach(callPendingCbs);
-      prevChildren.forEach(recordPosition);
+      const shift = origins && getOriginShift(origins, instance.vnode.el);
+      origins = void 0;
+      prevChildren.forEach((c) => recordPosition(c, shift));
       const movedChildren = prevChildren.filter(applyTranslation);
-      forceReflow();
+      forceReflow(instance.vnode.el);
       movedChildren.forEach((c) => {
         const el = c.el;
         const style = el.style;
@@ -1307,7 +1468,7 @@ const TransitionGroupImpl = /* @__PURE__ */ decorate({
           if (e && e.target !== el) {
             return;
           }
-          if (!e || /transform$/.test(e.propertyName)) {
+          if (!e || e.propertyName.endsWith("transform")) {
             el.removeEventListener("transitionend", cb);
             el[moveCbKey] = null;
             removeTransitionClass(el, moveClass);
@@ -1315,16 +1476,19 @@ const TransitionGroupImpl = /* @__PURE__ */ decorate({
         };
         el.addEventListener("transitionend", cb);
       });
+      prevChildren = [];
     });
     return () => {
       const rawProps = toRaw(props);
       const cssTransitionProps = resolveTransitionProps(rawProps);
       let tag = rawProps.tag || Fragment;
       prevChildren = [];
+      moves = void 0;
       if (children) {
         for (let i = 0; i < children.length; i++) {
           const child = children[i];
-          if (child.el && child.el instanceof Element) {
+          if (child.el && child.el instanceof Element && // Hidden v-show nodes have no previous layout box to animate from.
+          !child.el[vShowHidden]) {
             prevChildren.push(child);
             setTransitionHooks(
               child,
@@ -1335,10 +1499,7 @@ const TransitionGroupImpl = /* @__PURE__ */ decorate({
                 instance
               )
             );
-            positionMap.set(
-              child,
-              child.el.getBoundingClientRect()
-            );
+            positionMap.set(child, getPosition(child.el));
           }
         }
       }
@@ -1354,6 +1515,10 @@ const TransitionGroupImpl = /* @__PURE__ */ decorate({
           warn(`<TransitionGroup> children must be keyed.`);
         }
       }
+      if (prevChildren.length) {
+        origins = getOrigins(instance);
+        pendingGroups.set(instance, willMove);
+      }
       return createVNode(tag, null, children);
     };
   }
@@ -1368,8 +1533,11 @@ function callPendingCbs(c) {
     el[enterCbKey]();
   }
 }
-function recordPosition(c) {
-  newPositionMap.set(c, c.el.getBoundingClientRect());
+function resolveMoveClass(props) {
+  return props.moveClass || `${props.name || "v"}-move`;
+}
+function recordPosition(c, shift) {
+  newPositionMap.set(c, getPosition(c.el, shift));
 }
 function applyTranslation(c) {
   const oldPos = positionMap.get(c);
@@ -1377,11 +1545,56 @@ function applyTranslation(c) {
   const dx = oldPos.left - newPos.left;
   const dy = oldPos.top - newPos.top;
   if (dx || dy) {
-    const s = c.el.style;
-    s.transform = s.webkitTransform = `translate(${dx}px,${dy}px)`;
+    const el = c.el;
+    const s = el.style;
+    const rect = el.getBoundingClientRect();
+    let scaleX = 1;
+    let scaleY = 1;
+    if (el.offsetWidth) scaleX = rect.width / el.offsetWidth;
+    if (el.offsetHeight) scaleY = rect.height / el.offsetHeight;
+    if (!Number.isFinite(scaleX) || scaleX === 0) scaleX = 1;
+    if (!Number.isFinite(scaleY) || scaleY === 0) scaleY = 1;
+    if (Math.abs(scaleX - 1) < 0.01) scaleX = 1;
+    if (Math.abs(scaleY - 1) < 0.01) scaleY = 1;
+    s.transform = s.webkitTransform = `translate(${dx / scaleX}px,${dy / scaleY}px)`;
     s.transitionDuration = "0s";
     return c;
   }
+}
+function getPosition(el, shift) {
+  const rect = el.getBoundingClientRect();
+  return {
+    left: rect.left - (shift ? shift.left : 0),
+    top: rect.top - (shift ? shift.top : 0)
+  };
+}
+function getOrigins(instance) {
+  let origins;
+  for (let group = instance.parent; group; group = group.parent) {
+    const willMove = pendingGroups.get(group);
+    if (willMove) {
+      const item = findItem(group.vnode.el, instance.vnode.el);
+      if (item) {
+        (origins || (origins = [])).push(
+          extend(getPosition(item), { item, willMove })
+        );
+      }
+    }
+  }
+  return origins;
+}
+function findItem(root, node) {
+  const container = root.nodeType === 1 ? root : root.parentNode;
+  while (node && node.parentNode !== container) {
+    node = node.parentNode;
+  }
+  if (node && node.nodeType === 1) {
+    return node;
+  }
+}
+function getOriginShift(origins, root) {
+  const origin = origins.find((o) => o.willMove() && o.item.contains(root));
+  return origin && getPosition(origin.item, origin);
 }
 function hasCSSTransform(el, root, moveClass) {
   const clone = el.cloneNode();
@@ -1414,25 +1627,31 @@ function onCompositionEnd(e) {
     target.dispatchEvent(new Event("input"));
   }
 }
-const assignKey = Symbol("_assign");
+const assignKey = /* @__PURE__ */ Symbol("_assign");
+const initialValueKey = /* @__PURE__ */ Symbol("_initialValue");
+function castValue(value, trim, number) {
+  if (trim) value = value.trim();
+  if (number) value = looseToNumber(value);
+  return value;
+}
 const vModelText = {
   created(el, { modifiers: { lazy, trim, number } }, vnode) {
+    if (el.parentNode) {
+      if (el.type === "text") {
+        el[initialValueKey] = el.defaultValue.replace(/[\r\n]/g, "");
+      } else if (el.type === "textarea") {
+        el[initialValueKey] = el.defaultValue.replace(/\r\n?/g, "\n");
+      }
+    }
     el[assignKey] = getModelAssigner(vnode);
     const castToNumber = number || vnode.props && vnode.props.type === "number";
     addEventListener(el, lazy ? "change" : "input", (e) => {
       if (e.target.composing) return;
-      let domValue = el.value;
-      if (trim) {
-        domValue = domValue.trim();
-      }
-      if (castToNumber) {
-        domValue = looseToNumber(domValue);
-      }
-      el[assignKey](domValue);
+      el[assignKey](castValue(el.value, trim, castToNumber));
     });
-    if (trim) {
+    if (trim || castToNumber) {
       addEventListener(el, "change", () => {
-        el.value = el.value.trim();
+        el.value = castValue(el.value, trim, castToNumber);
       });
     }
     if (!lazy) {
@@ -1442,8 +1661,15 @@ const vModelText = {
     }
   },
   // set value on mounted so it's after min/max for type="range"
-  mounted(el, { value }) {
-    el.value = value == null ? "" : value;
+  mounted(el, { value, modifiers: { trim, number } }) {
+    const newValue = value == null ? "" : value;
+    const initialValue = el[initialValueKey];
+    delete el[initialValueKey];
+    if (initialValue !== void 0 && (el.type === "text" || el.type === "textarea") && el.value !== initialValue) {
+      el[assignKey](castValue(el.value, trim, number));
+    } else {
+      el.value = newValue;
+    }
   },
   beforeUpdate(el, { value, oldValue, modifiers: { lazy, trim, number } }, vnode) {
     el[assignKey] = getModelAssigner(vnode);
@@ -1453,7 +1679,8 @@ const vModelText = {
     if (elValue === newValue) {
       return;
     }
-    if (document.activeElement === el && el.type !== "range") {
+    const rootNode = el.getRootNode();
+    if ((rootNode instanceof Document || rootNode instanceof ShadowRoot) && rootNode.activeElement === el && el.type !== "range") {
       if (lazy && value === oldValue) {
         return;
       }
@@ -1538,18 +1765,26 @@ const vModelSelect = {
   // <select multiple> value need to be deep traversed
   deep: true,
   created(el, { value, modifiers: { number } }, vnode) {
-    const isSetModel = isSet(value);
+    el._modelValue = value;
     addEventListener(el, "change", () => {
       const selectedVal = Array.prototype.filter.call(el.options, (o) => o.selected).map(
         (o) => number ? looseToNumber(getValue(o)) : getValue(o)
       );
-      el[assignKey](
-        el.multiple ? isSetModel ? new Set(selectedVal) : selectedVal : selectedVal[0]
-      );
-      el._assigning = true;
-      nextTick(() => {
-        el._assigning = false;
-      });
+      const multiple = el.multiple;
+      const assignedValue = multiple ? isSet(el._modelValue) ? new Set(selectedVal) : selectedVal : selectedVal[0];
+      const pending = el._pendingValue = [
+        multiple,
+        multiple ? isArray(assignedValue) ? selectedVal.slice() : selectedVal : assignedValue
+      ];
+      try {
+        el[assignKey](assignedValue);
+      } finally {
+        nextTick(() => {
+          if (el._pendingValue === pending) {
+            el._pendingValue = void 0;
+          }
+        });
+      }
     });
     el[assignKey] = getModelAssigner(vnode);
   },
@@ -1558,15 +1793,30 @@ const vModelSelect = {
   mounted(el, { value }) {
     setSelected(el, value);
   },
-  beforeUpdate(el, _binding, vnode) {
+  beforeUpdate(el, { value }, vnode) {
+    el._modelValue = value;
     el[assignKey] = getModelAssigner(vnode);
   },
   updated(el, { value }) {
-    if (!el._assigning) {
+    const pending = el._pendingValue;
+    el._pendingValue = void 0;
+    if (!pending || pending[0] !== el.multiple || !isSameSelectValue(value, pending[1], pending[0])) {
       setSelected(el, value);
     }
   }
 };
+function isSameSelectValue(value, assignedValue, multiple) {
+  if (!multiple) return looseEqual(value, assignedValue);
+  if (isArray(value)) return looseEqual(value, assignedValue);
+  if (isSet(value)) {
+    if (value.size !== assignedValue.length) return false;
+    for (const item of assignedValue) {
+      if (!value.has(item)) return false;
+    }
+    return true;
+  }
+  return false;
+}
 function setSelected(el, value) {
   const isMultiple = el.multiple;
   const isArrayValue = isArray(value);
@@ -1695,15 +1945,16 @@ const modifierGuards = {
   exact: (e, modifiers) => systemModifiers.some((m) => e[`${m}Key`] && !modifiers.includes(m))
 };
 const withModifiers = (fn, modifiers) => {
+  if (!fn) return fn;
   const cache = fn._withMods || (fn._withMods = {});
   const cacheKey = modifiers.join(".");
-  return cache[cacheKey] || (cache[cacheKey] = (event, ...args) => {
+  return cache[cacheKey] || (cache[cacheKey] = ((event, ...args) => {
     for (let i = 0; i < modifiers.length; i++) {
       const guard = modifierGuards[modifiers[i]];
       if (guard && guard(event, modifiers)) return;
     }
     return fn(event, ...args);
-  });
+  }));
 };
 const keyNames = {
   esc: "escape",
@@ -1717,7 +1968,7 @@ const keyNames = {
 const withKeys = (fn, modifiers) => {
   const cache = fn._withKeys || (fn._withKeys = {});
   const cacheKey = modifiers.join(".");
-  return cache[cacheKey] || (cache[cacheKey] = (event) => {
+  return cache[cacheKey] || (cache[cacheKey] = ((event) => {
     if (!("key" in event)) {
       return;
     }
@@ -1727,7 +1978,7 @@ const withKeys = (fn, modifiers) => {
     )) {
       return fn(event);
     }
-  });
+  }));
 };
 
 const rendererOptions = /* @__PURE__ */ extend({ patchProp }, nodeOps);
@@ -1741,13 +1992,13 @@ function ensureHydrationRenderer() {
   enabledHydration = true;
   return renderer;
 }
-const render = (...args) => {
+const render = ((...args) => {
   ensureRenderer().render(...args);
-};
-const hydrate = (...args) => {
+});
+const hydrate = ((...args) => {
   ensureHydrationRenderer().hydrate(...args);
-};
-const createApp = (...args) => {
+});
+const createApp = ((...args) => {
   const app = ensureRenderer().createApp(...args);
   if (!!(process.env.NODE_ENV !== "production")) {
     injectNativeTagCheck(app);
@@ -1772,8 +2023,8 @@ const createApp = (...args) => {
     return proxy;
   };
   return app;
-};
-const createSSRApp = (...args) => {
+});
+const createSSRApp = ((...args) => {
   const app = ensureHydrationRenderer().createApp(...args);
   if (!!(process.env.NODE_ENV !== "production")) {
     injectNativeTagCheck(app);
@@ -1787,7 +2038,7 @@ const createSSRApp = (...args) => {
     }
   };
   return app;
-};
+});
 function resolveRootNamespace(container) {
   if (container instanceof SVGElement) {
     return "svg";
@@ -1857,4 +2108,4 @@ const initDirectivesForSSR = () => {
   }
 } ;
 
-export { Transition, TransitionGroup, VueElement, createApp, createSSRApp, defineCustomElement, defineSSRCustomElement, hydrate, initDirectivesForSSR, render, useCssModule, useCssVars, useHost, useShadowRoot, vModelCheckbox, vModelDynamic, vModelRadio, vModelSelect, vModelText, vShow, withKeys, withModifiers };
+export { Transition, TransitionGroup, VueElement, createApp, createSSRApp, defineCustomElement, defineSSRCustomElement, hydrate, initDirectivesForSSR, nodeOps, patchProp, render, useCssModule, useCssVars, useHost, useShadowRoot, vModelCheckbox, vModelDynamic, vModelRadio, vModelSelect, vModelText, vShow, withKeys, withModifiers };

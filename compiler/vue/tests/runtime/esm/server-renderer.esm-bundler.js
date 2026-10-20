@@ -1,10 +1,10 @@
 /**
-* @vue/server-renderer v3.5.13
+* @vue/server-renderer v3.5.44
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
-import { createVNode, ssrUtils, ssrContextKey, warn as warn$2, Fragment, Static, Comment, Text, mergeProps, createApp, initDirectivesForSSR } from 'vue';
-import { isOn, isRenderableAttrValue, isSVGTag, propsToAttrMap, isBooleanAttr, includeBooleanAttr, isSSRSafeAttrName, escapeHtml, normalizeClass, isString, normalizeStyle, stringifyStyle, makeMap, isArray, toDisplayString, extend, isFunction, EMPTY_OBJ, getGlobalThis, NOOP, isObject, looseEqual, looseIndexOf, isPromise, escapeHtmlComment, isVoidTag } from '@vue/shared';
+import { createVNode, ssrUtils, ssrContextKey, warn, Fragment, Static, Comment, Text, mergeProps, handleError, createApp, initDirectivesForSSR } from '@vue/runtime-dom';
+import { isOn, escapeHtml, isRenderableAttrValue, isSVGTag, propsToAttrMap, isBooleanAttr, includeBooleanAttr, isSSRSafeAttrName, normalizeClass, isString, normalizeStyle, stringifyStyle, isArray, isObject, normalizeCssVarValue, makeMap, isPromise, toDisplayString, looseEqual, looseIndexOf, escapeHtmlComment, NOOP, isVoidTag, isFunction, hasOwn } from '@vue/shared';
 export { includeBooleanAttr as ssrIncludeBooleanAttr } from '@vue/shared';
 
 const shouldIgnoreProp = /* @__PURE__ */ makeMap(
@@ -12,17 +12,21 @@ const shouldIgnoreProp = /* @__PURE__ */ makeMap(
 );
 function ssrRenderAttrs(props, tag) {
   let ret = "";
-  for (const key in props) {
-    if (shouldIgnoreProp(key) || isOn(key) || tag === "textarea" && key === "value") {
+  for (let key in props) {
+    if (shouldIgnoreProp(key) || isOn(key) || tag === "textarea" && key === "value" || // force as property (not rendered in SSR)
+    key.startsWith(".")) {
       continue;
     }
     const value = props[key];
+    if (key.startsWith("^")) key = key.slice(1);
     if (key === "class") {
       ret += ` class="${ssrRenderClass(value)}"`;
     } else if (key === "style") {
       ret += ` style="${ssrRenderStyle(value)}"`;
     } else if (key === "className") {
-      ret += ` class="${String(value)}"`;
+      if (value != null) {
+        ret += ` class="${escapeHtml(String(value))}"`;
+      }
     } else {
       ret += ssrRenderDynamicAttr(key, value, tag);
     }
@@ -34,7 +38,7 @@ function ssrRenderDynamicAttr(key, value, tag) {
     return ``;
   }
   const attrKey = tag && (tag.indexOf("-") > 0 || isSVGTag(tag)) ? key : propsToAttrMap[key] || key.toLowerCase();
-  if (isBooleanAttr(attrKey)) {
+  if (isBooleanAttr(attrKey) || attrKey === "hidden" && (typeof value === "boolean" || typeof value === "number")) {
     return includeBooleanAttr(value) ? ` ${attrKey}` : ``;
   } else if (isSSRSafeAttrName(attrKey)) {
     return value === "" ? ` ${attrKey}` : ` ${attrKey}="${escapeHtml(value)}"`;
@@ -61,8 +65,22 @@ function ssrRenderStyle(raw) {
   if (isString(raw)) {
     return escapeHtml(raw);
   }
-  const styles = normalizeStyle(raw);
+  const styles = normalizeStyle(ssrResetCssVars(raw));
   return escapeHtml(stringifyStyle(styles));
+}
+function ssrResetCssVars(raw) {
+  if (!isArray(raw) && isObject(raw)) {
+    const res = {};
+    for (const key in raw) {
+      if (key.startsWith(":--")) {
+        res[key.slice(1)] = normalizeCssVarValue(raw[key]);
+      } else {
+        res[key] = raw[key];
+      }
+    }
+    return res;
+  }
+  return raw;
 }
 
 function ssrRenderComponent(comp, props = null, children = null, parentComponent = null, slotScopeId) {
@@ -95,7 +113,9 @@ function ssrRenderSlotInner(slots, slotName, slotProps, fallbackRenderFn, push, 
       slotBuffer.push(item);
     };
     const ret = slotFn(
-      slotProps,
+      // keep the slot function's contract in sync with `renderSlot`, which also
+      // normalizes nullish props before invoking the slot
+      slotProps || {},
       bufferedPush,
       parentComponent,
       slotScopeId ? " " + slotScopeId : ""
@@ -111,6 +131,8 @@ function ssrRenderSlotInner(slots, slotName, slotProps, fallbackRenderFn, push, 
         );
       } else if (fallbackRenderFn) {
         fallbackRenderFn();
+      } else if (transition) {
+        push(`<!---->`);
       }
     } else {
       let isEmptySlot = true;
@@ -135,13 +157,19 @@ function ssrRenderSlotInner(slots, slotName, slotProps, fallbackRenderFn, push, 
           start++;
           end--;
         }
-        for (let i = start; i < end; i++) {
-          push(slotBuffer[i]);
+        if (start < end) {
+          for (let i = start; i < end; i++) {
+            push(slotBuffer[i]);
+          }
+        } else if (transition) {
+          push(`<!---->`);
         }
       }
     }
   } else if (fallbackRenderFn) {
     fallbackRenderFn();
+  } else if (transition) {
+    push(`<!---->`);
   }
 }
 const commentTestRE = /^<!--[\s\S]*-->$/;
@@ -170,6 +198,9 @@ function ssrRenderTeleport(parentPush, contentRenderFn, target, disabled, parent
     teleportContent = getBuffer();
   }
   targetBuffer.splice(bufferIndex, 0, teleportContent);
+  if (isPromise(teleportContent) || isArray(teleportContent) && teleportContent.hasAsync) {
+    targetBuffer.hasAsync = true;
+  }
   parentPush("<!--teleport end-->");
 }
 
@@ -177,477 +208,18 @@ function ssrInterpolate(value) {
   return escapeHtml(toDisplayString(value));
 }
 
-let activeSub;
-let batchDepth = 0;
-let batchedSub;
-function startBatch() {
-  batchDepth++;
-}
-function endBatch() {
-  if (--batchDepth > 0) {
-    return;
-  }
-  let error;
-  while (batchedSub) {
-    let e = batchedSub;
-    batchedSub = void 0;
-    while (e) {
-      const next = e.next;
-      e.next = void 0;
-      e.flags &= ~8;
-      if (e.flags & 1) {
-        try {
-          ;
-          e.trigger();
-        } catch (err) {
-          if (!error) error = err;
-        }
-      }
-      e = next;
-    }
-  }
-  if (error) throw error;
-}
-let shouldTrack = true;
-const trackStack = [];
-function pauseTracking() {
-  trackStack.push(shouldTrack);
-  shouldTrack = false;
-}
-function resetTracking() {
-  const last = trackStack.pop();
-  shouldTrack = last === void 0 ? true : last;
-}
-
-class Dep {
-  constructor(computed) {
-    this.computed = computed;
-    this.version = 0;
-    /**
-     * Link between this dep and the current active effect
-     */
-    this.activeLink = void 0;
-    /**
-     * Doubly linked list representing the subscribing effects (tail)
-     */
-    this.subs = void 0;
-    /**
-     * For object property deps cleanup
-     */
-    this.map = void 0;
-    this.key = void 0;
-    /**
-     * Subscriber counter
-     */
-    this.sc = 0;
-    if (!!(process.env.NODE_ENV !== "production")) {
-      this.subsHead = void 0;
-    }
-  }
-  track(debugInfo) {
-    {
-      return;
-    }
-  }
-  trigger(debugInfo) {
-    this.version++;
-    this.notify(debugInfo);
-  }
-  notify(debugInfo) {
-    startBatch();
-    try {
-      if (!!(process.env.NODE_ENV !== "production")) {
-        for (let head = this.subsHead; head; head = head.nextSub) {
-          if (head.sub.onTrigger && !(head.sub.flags & 8)) {
-            head.sub.onTrigger(
-              extend(
-                {
-                  effect: head.sub
-                },
-                debugInfo
-              )
-            );
-          }
-        }
-      }
-      for (let link = this.subs; link; link = link.prevSub) {
-        if (link.sub.notify()) {
-          ;
-          link.sub.dep.notify();
-        }
-      }
-    } finally {
-      endBatch();
-    }
-  }
-}
-const targetMap = /* @__PURE__ */ new WeakMap();
-Symbol(
-  !!(process.env.NODE_ENV !== "production") ? "Object iterate" : ""
-);
-Symbol(
-  !!(process.env.NODE_ENV !== "production") ? "Map keys iterate" : ""
-);
-Symbol(
-  !!(process.env.NODE_ENV !== "production") ? "Array iterate" : ""
-);
-function track(target, type, key) {
-  if (shouldTrack && activeSub) {
-    let depsMap = targetMap.get(target);
-    if (!depsMap) {
-      targetMap.set(target, depsMap = /* @__PURE__ */ new Map());
-    }
-    let dep = depsMap.get(key);
-    if (!dep) {
-      depsMap.set(key, dep = new Dep());
-      dep.map = depsMap;
-      dep.key = key;
-    }
-    if (!!(process.env.NODE_ENV !== "production")) {
-      dep.track({
-        target,
-        type,
-        key
-      });
-    } else {
-      dep.track();
-    }
-  }
-}
-
-function isProxy(value) {
-  return value ? !!value["__v_raw"] : false;
-}
-function toRaw(observed) {
-  const raw = observed && observed["__v_raw"];
-  return raw ? toRaw(raw) : observed;
-}
-
-function isRef(r) {
-  return r ? r["__v_isRef"] === true : false;
-}
-
-const stack = [];
-function pushWarningContext$1(vnode) {
-  stack.push(vnode);
-}
-function popWarningContext$1() {
-  stack.pop();
-}
-let isWarning = false;
-function warn$1(msg, ...args) {
-  if (isWarning) return;
-  isWarning = true;
-  pauseTracking();
-  const instance = stack.length ? stack[stack.length - 1].component : null;
-  const appWarnHandler = instance && instance.appContext.config.warnHandler;
-  const trace = getComponentTrace();
-  if (appWarnHandler) {
-    callWithErrorHandling(
-      appWarnHandler,
-      instance,
-      11,
-      [
-        // eslint-disable-next-line no-restricted-syntax
-        msg + args.map((a) => {
-          var _a, _b;
-          return (_b = (_a = a.toString) == null ? void 0 : _a.call(a)) != null ? _b : JSON.stringify(a);
-        }).join(""),
-        instance && instance.proxy,
-        trace.map(
-          ({ vnode }) => `at <${formatComponentName(instance, vnode.type)}>`
-        ).join("\n"),
-        trace
-      ]
-    );
-  } else {
-    const warnArgs = [`[Vue warn]: ${msg}`, ...args];
-    if (trace.length && // avoid spamming console during tests
-    true) {
-      warnArgs.push(`
-`, ...formatTrace(trace));
-    }
-    console.warn(...warnArgs);
-  }
-  resetTracking();
-  isWarning = false;
-}
-function getComponentTrace() {
-  let currentVNode = stack[stack.length - 1];
-  if (!currentVNode) {
-    return [];
-  }
-  const normalizedStack = [];
-  while (currentVNode) {
-    const last = normalizedStack[0];
-    if (last && last.vnode === currentVNode) {
-      last.recurseCount++;
-    } else {
-      normalizedStack.push({
-        vnode: currentVNode,
-        recurseCount: 0
-      });
-    }
-    const parentInstance = currentVNode.component && currentVNode.component.parent;
-    currentVNode = parentInstance && parentInstance.vnode;
-  }
-  return normalizedStack;
-}
-function formatTrace(trace) {
-  const logs = [];
-  trace.forEach((entry, i) => {
-    logs.push(...i === 0 ? [] : [`
-`], ...formatTraceEntry(entry));
-  });
-  return logs;
-}
-function formatTraceEntry({ vnode, recurseCount }) {
-  const postfix = recurseCount > 0 ? `... (${recurseCount} recursive calls)` : ``;
-  const isRoot = vnode.component ? vnode.component.parent == null : false;
-  const open = ` at <${formatComponentName(
-    vnode.component,
-    vnode.type,
-    isRoot
-  )}`;
-  const close = `>` + postfix;
-  return vnode.props ? [open, ...formatProps(vnode.props), close] : [open + close];
-}
-function formatProps(props) {
-  const res = [];
-  const keys = Object.keys(props);
-  keys.slice(0, 3).forEach((key) => {
-    res.push(...formatProp(key, props[key]));
-  });
-  if (keys.length > 3) {
-    res.push(` ...`);
-  }
-  return res;
-}
-function formatProp(key, value, raw) {
-  if (isString(value)) {
-    value = JSON.stringify(value);
-    return raw ? value : [`${key}=${value}`];
-  } else if (typeof value === "number" || typeof value === "boolean" || value == null) {
-    return raw ? value : [`${key}=${value}`];
-  } else if (isRef(value)) {
-    value = formatProp(key, toRaw(value.value), true);
-    return raw ? value : [`${key}=Ref<`, value, `>`];
-  } else if (isFunction(value)) {
-    return [`${key}=fn${value.name ? `<${value.name}>` : ``}`];
-  } else {
-    value = toRaw(value);
-    return raw ? value : [`${key}=`, value];
-  }
-}
-
-const ErrorTypeStrings = {
-  ["sp"]: "serverPrefetch hook",
-  ["bc"]: "beforeCreate hook",
-  ["c"]: "created hook",
-  ["bm"]: "beforeMount hook",
-  ["m"]: "mounted hook",
-  ["bu"]: "beforeUpdate hook",
-  ["u"]: "updated",
-  ["bum"]: "beforeUnmount hook",
-  ["um"]: "unmounted hook",
-  ["a"]: "activated hook",
-  ["da"]: "deactivated hook",
-  ["ec"]: "errorCaptured hook",
-  ["rtc"]: "renderTracked hook",
-  ["rtg"]: "renderTriggered hook",
-  [0]: "setup function",
-  [1]: "render function",
-  [2]: "watcher getter",
-  [3]: "watcher callback",
-  [4]: "watcher cleanup function",
-  [5]: "native event handler",
-  [6]: "component event handler",
-  [7]: "vnode hook",
-  [8]: "directive hook",
-  [9]: "transition hook",
-  [10]: "app errorHandler",
-  [11]: "app warnHandler",
-  [12]: "ref function",
-  [13]: "async component loader",
-  [14]: "scheduler flush",
-  [15]: "component update",
-  [16]: "app unmount cleanup function"
-};
-function callWithErrorHandling(fn, instance, type, args) {
-  try {
-    return args ? fn(...args) : fn();
-  } catch (err) {
-    handleError(err, instance, type);
-  }
-}
-function handleError(err, instance, type, throwInDev = true) {
-  const contextVNode = instance ? instance.vnode : null;
-  const { errorHandler, throwUnhandledErrorInProduction } = instance && instance.appContext.config || EMPTY_OBJ;
-  if (instance) {
-    let cur = instance.parent;
-    const exposedInstance = instance.proxy;
-    const errorInfo = !!(process.env.NODE_ENV !== "production") ? ErrorTypeStrings[type] : `https://vuejs.org/error-reference/#runtime-${type}`;
-    while (cur) {
-      const errorCapturedHooks = cur.ec;
-      if (errorCapturedHooks) {
-        for (let i = 0; i < errorCapturedHooks.length; i++) {
-          if (errorCapturedHooks[i](err, exposedInstance, errorInfo) === false) {
-            return;
-          }
-        }
-      }
-      cur = cur.parent;
-    }
-    if (errorHandler) {
-      pauseTracking();
-      callWithErrorHandling(errorHandler, null, 10, [
-        err,
-        exposedInstance,
-        errorInfo
-      ]);
-      resetTracking();
-      return;
-    }
-  }
-  logError(err, type, contextVNode, throwInDev, throwUnhandledErrorInProduction);
-}
-function logError(err, type, contextVNode, throwInDev = true, throwInProd = false) {
-  if (!!(process.env.NODE_ENV !== "production")) {
-    const info = ErrorTypeStrings[type];
-    if (contextVNode) {
-      pushWarningContext$1(contextVNode);
-    }
-    warn$1(`Unhandled error${info ? ` during execution of ${info}` : ``}`);
-    if (contextVNode) {
-      popWarningContext$1();
-    }
-    if (throwInDev) {
-      throw err;
-    } else {
-      console.error(err);
-    }
-  } else if (throwInProd) {
-    throw err;
-  } else {
-    console.error(err);
-  }
-}
-
-let devtools;
-let buffer = [];
-function setDevtoolsHook(hook, target) {
-  var _a, _b;
-  devtools = hook;
-  if (devtools) {
-    devtools.enabled = true;
-    buffer.forEach(({ event, args }) => devtools.emit(event, ...args));
-    buffer = [];
-  } else if (
-    // handle late devtools injection - only do this if we are in an actual
-    // browser environment to avoid the timer handle stalling test runner exit
-    // (#4815)
-    typeof window !== "undefined" && // some envs mock window but not fully
-    window.HTMLElement && // also exclude jsdom
-    // eslint-disable-next-line no-restricted-syntax
-    !((_b = (_a = window.navigator) == null ? void 0 : _a.userAgent) == null ? void 0 : _b.includes("jsdom"))
-  ) {
-    const replay = target.__VUE_DEVTOOLS_HOOK_REPLAY__ = target.__VUE_DEVTOOLS_HOOK_REPLAY__ || [];
-    replay.push((newHook) => {
-      setDevtoolsHook(newHook, target);
-    });
-    setTimeout(() => {
-      if (!devtools) {
-        target.__VUE_DEVTOOLS_HOOK_REPLAY__ = null;
-        buffer = [];
-      }
-    }, 3e3);
-  } else {
-    buffer = [];
-  }
-}
-
-{
-  const g = getGlobalThis();
-  const registerGlobalSetter = (key, setter) => {
-    let setters;
-    if (!(setters = g[key])) setters = g[key] = [];
-    setters.push(setter);
-    return (v) => {
-      if (setters.length > 1) setters.forEach((set) => set(v));
-      else setters[0](v);
-    };
-  };
-  registerGlobalSetter(
-    `__VUE_INSTANCE_SETTERS__`,
-    (v) => v
-  );
-  registerGlobalSetter(
-    `__VUE_SSR_SETTERS__`,
-    (v) => v
-  );
-}
-!!(process.env.NODE_ENV !== "production") ? {
-  get(target, key) {
-    track(target, "get", "");
-    return target[key];
-  },
-  set() {
-    warn$1(`setupContext.attrs is readonly.`);
-    return false;
-  },
-  deleteProperty() {
-    warn$1(`setupContext.attrs is readonly.`);
-    return false;
-  }
-} : {
-  get(target, key) {
-    track(target, "get", "");
-    return target[key];
-  }
-};
-const classifyRE = /(?:^|[-_])(\w)/g;
-const classify = (str) => str.replace(classifyRE, (c) => c.toUpperCase()).replace(/[-_]/g, "");
-function getComponentName(Component, includeInferred = true) {
-  return isFunction(Component) ? Component.displayName || Component.name : Component.name || includeInferred && Component.__name;
-}
-function formatComponentName(instance, Component, isRoot = false) {
-  let name = getComponentName(Component);
-  if (!name && Component.__file) {
-    const match = Component.__file.match(/([^/\\]+)\.\w+$/);
-    if (match) {
-      name = match[1];
-    }
-  }
-  if (!name && instance && instance.parent) {
-    const inferFromRegistry = (registry) => {
-      for (const key in registry) {
-        if (registry[key] === Component) {
-          return key;
-        }
-      }
-    };
-    name = inferFromRegistry(
-      instance.components || instance.parent.type.components
-    ) || inferFromRegistry(instance.appContext.components);
-  }
-  return name ? classify(name) : isRoot ? `App` : `Anonymous`;
-}
-function isClassComponent(value) {
-  return isFunction(value) && "__vccOpts" in value;
-}
-
-const warn = !!(process.env.NODE_ENV !== "production") ? warn$1 : NOOP;
-!!(process.env.NODE_ENV !== "production") || true ? devtools : void 0;
-!!(process.env.NODE_ENV !== "production") || true ? setDevtoolsHook : NOOP;
-
 function ssrRenderList(source, renderItem) {
   if (isArray(source) || isString(source)) {
     for (let i = 0, l = source.length; i < l; i++) {
       renderItem(source[i], i);
     }
   } else if (typeof source === "number") {
-    if (!!(process.env.NODE_ENV !== "production") && !Number.isInteger(source)) {
-      warn(`The v-for range expect an integer value but got ${source}.`);
+    if (!Number.isInteger(source) || source < 0) {
+      if (!!(process.env.NODE_ENV !== "production")) {
+        warn(
+          `The v-for range expects a positive integer value but got ${source}.`
+        );
+      }
       return;
     }
     for (let i = 0; i < source; i++) {
@@ -655,9 +227,9 @@ function ssrRenderList(source, renderItem) {
     }
   } else if (isObject(source)) {
     if (source[Symbol.iterator]) {
-      const arr = Array.from(source);
-      for (let i = 0, l = arr.length; i < l; i++) {
-        renderItem(arr[i], i);
+      let i = 0;
+      for (const item of source) {
+        renderItem(item, i++);
       }
     } else {
       const keys = Object.keys(source);
@@ -669,7 +241,7 @@ function ssrRenderList(source, renderItem) {
   }
 }
 
-async function ssrRenderSuspense(push, { default: renderContent }) {
+function ssrRenderSuspense(push, { default: renderContent }) {
   if (renderContent) {
     renderContent();
   } else {
@@ -773,19 +345,28 @@ function renderComponentVNode(vnode, parentComponent = null, slotScopeId) {
   if (!!(process.env.NODE_ENV !== "production")) popWarningContext();
   const hasAsyncSetup = isPromise(res);
   let prefetches = instance.sp;
+  let p;
   if (hasAsyncSetup || prefetches) {
-    const p = Promise.resolve(res).then(() => {
+    p = Promise.resolve(res).then(() => {
       if (hasAsyncSetup) prefetches = instance.sp;
       if (prefetches) {
-        return Promise.all(
-          prefetches.map((prefetch) => prefetch.call(instance.proxy))
-        );
+        try {
+          return Promise.all(
+            prefetches.map((prefetch) => prefetch.call(instance.proxy))
+          ).catch(NOOP);
+        } catch {
+        }
       }
-    }).catch(NOOP);
-    return p.then(() => renderComponentSubTree(instance, slotScopeId));
+    }).then(() => renderComponentSubTree(instance, slotScopeId));
   } else {
-    return renderComponentSubTree(instance, slotScopeId);
+    try {
+      return renderComponentSubTree(instance, slotScopeId);
+    } catch (err) {
+      p = Promise.reject(err);
+    }
   }
+  p.catch(NOOP);
+  return p;
 }
 function renderComponentSubTree(instance, slotScopeId) {
   if (!!(process.env.NODE_ENV !== "production")) pushWarningContext(instance.vnode);
@@ -846,6 +427,8 @@ function renderComponentSubTree(instance, slotScopeId) {
           instance.data,
           instance.ctx
         );
+      } catch (err) {
+        handleError(err, instance, 1);
       } finally {
         setCurrentRenderingInstance(prev);
       }
@@ -858,7 +441,7 @@ function renderComponentSubTree(instance, slotScopeId) {
       );
     } else {
       const componentName = comp.name || comp.__file || `<Anonymous>`;
-      warn$2(`Component ${componentName} is missing template or render function.`);
+      warn(`Component ${componentName} is missing template or render function.`);
       push(`<!---->`);
     }
   }
@@ -905,7 +488,7 @@ function renderVNode(push, vnode, parentComponent, slotScopeId) {
       } else if (shapeFlag & 128) {
         renderVNode(push, vnode.ssContent, parentComponent, slotScopeId);
       } else {
-        warn$2(
+        warn(
           "[@vue/server-renderer] Invalid VNode type:",
           type,
           `(${typeof type})`
@@ -925,32 +508,42 @@ function renderElementVNode(push, vnode, parentComponent, slotScopeId) {
   if (props) {
     openTag += ssrRenderAttrs(props, tag);
   }
+  const renderedScopeIds = [];
+  const appendScopeId = (id) => {
+    if (id && (!props || !hasOwn(props, id)) && !renderedScopeIds.includes(id)) {
+      openTag += ` ${id}`;
+      renderedScopeIds.push(id);
+    }
+  };
   if (scopeId) {
-    openTag += ` ${scopeId}`;
+    appendScopeId(scopeId);
   }
   let curParent = parentComponent;
   let curVnode = vnode;
   while (curParent && curVnode === curParent.subTree) {
     curVnode = curParent.vnode;
     if (curVnode.scopeId) {
-      openTag += ` ${curVnode.scopeId}`;
+      appendScopeId(curVnode.scopeId);
     }
     curParent = curParent.parent;
   }
   if (slotScopeId) {
-    openTag += ` ${slotScopeId}`;
+    const slotScopeIdList = slotScopeId.trim().split(" ");
+    for (let i = 0; i < slotScopeIdList.length; i++) {
+      appendScopeId(slotScopeIdList[i]);
+    }
   }
   push(openTag + `>`);
   if (!isVoidTag(tag)) {
     let hasChildrenOverride = false;
     if (props) {
-      if (props.innerHTML) {
+      if (props.innerHTML != null) {
         hasChildrenOverride = true;
-        push(props.innerHTML);
-      } else if (props.textContent) {
+        push(String(props.innerHTML));
+      } else if (props.textContent != null) {
         hasChildrenOverride = true;
         push(escapeHtml(props.textContent));
-      } else if (tag === "textarea" && props.value) {
+      } else if (tag === "textarea" && props.value != null) {
         hasChildrenOverride = true;
         push(escapeHtml(props.value));
       }
@@ -989,12 +582,12 @@ function renderTeleportVNode(push, vnode, parentComponent, slotScopeId) {
   const disabled = vnode.props && vnode.props.disabled;
   if (!target) {
     if (!disabled) {
-      warn$2(`[@vue/server-renderer] Teleport is missing target prop.`);
+      warn(`[@vue/server-renderer] Teleport is missing target prop.`);
     }
     return [];
   }
   if (!isString(target)) {
-    warn$2(
+    warn(
       `[@vue/server-renderer] Teleport target must be a query selector string.`
     );
     return [];
@@ -1066,22 +659,57 @@ async function renderToString(input, context = {}) {
   const vnode = createVNode(input._component, input._props);
   vnode.appContext = input._context;
   input.provide(ssrContextKey, context);
-  const buffer = await renderComponentVNode(vnode);
-  const result = await unrollBuffer$1(buffer);
-  await resolveTeleports(context);
-  if (context.__watcherHandles) {
-    for (const unwatch of context.__watcherHandles) {
-      unwatch();
+  let buffer;
+  let result;
+  try {
+    buffer = await renderComponentVNode(vnode);
+    result = await unrollBuffer$1(buffer);
+    await resolveTeleports(context);
+  } catch (err) {
+    cleanupFailedRender(buffer, context);
+    throw err;
+  }
+  stopWatchers(context);
+  return result;
+}
+function stopWatchers(context, start = 0) {
+  const handles = context.__watcherHandles;
+  if (handles) {
+    for (let i = start; i < handles.length; i++) {
+      handles[i]();
     }
   }
-  return result;
+}
+function cleanupFailedRender(buffer, context) {
+  const stopped = context.__watcherHandles ? context.__watcherHandles.length : 0;
+  try {
+    stopWatchers(context);
+  } catch {
+  }
+  (async () => {
+    if (buffer) await settleBuffer(buffer);
+    for (const key in context.__teleportBuffers) {
+      await settleBuffer(context.__teleportBuffers[key]);
+    }
+    stopWatchers(context, stopped);
+  })().catch(NOOP);
+}
+async function settleBuffer(buffer) {
+  if (!buffer.hasAsync) return;
+  for (let item of buffer) {
+    try {
+      if (isPromise(item)) item = await item;
+      if (!isString(item)) await settleBuffer(item);
+    } catch {
+    }
+  }
 }
 async function resolveTeleports(context) {
   if (context.__teleportBuffers) {
     context.teleports = context.teleports || {};
     for (const key in context.__teleportBuffers) {
       context.teleports[key] = await unrollBuffer$1(
-        await Promise.all([context.__teleportBuffers[key]])
+        context.__teleportBuffers[key]
       );
     }
   }
@@ -1126,13 +754,17 @@ function renderToSimpleStream(input, context, stream) {
   const vnode = createVNode(input._component, input._props);
   vnode.appContext = input._context;
   input.provide(ssrContextKey, context);
-  Promise.resolve(renderComponentVNode(vnode)).then((buffer) => unrollBuffer(buffer, stream)).then(() => resolveTeleports(context)).then(() => {
-    if (context.__watcherHandles) {
-      for (const unwatch of context.__watcherHandles) {
-        unwatch();
-      }
+  let buffer;
+  Promise.resolve(renderComponentVNode(vnode)).then((b) => unrollBuffer(buffer = b, stream)).then(() => resolveTeleports(context)).then(
+    () => {
+      stopWatchers(context);
+      stream.push(null);
+    },
+    (error) => {
+      cleanupFailedRender(buffer, context);
+      throw error;
     }
-  }).then(() => stream.push(null)).catch((error) => {
+  ).catch((error) => {
     stream.destroy(error);
   });
   return stream;

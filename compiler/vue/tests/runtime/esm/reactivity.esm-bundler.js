@@ -1,9 +1,9 @@
 /**
-* @vue/reactivity v3.5.13
+* @vue/reactivity v3.5.44
 * (c) 2018-present Yuxi (Evan) You and Vue contributors
 * @license MIT
 **/
-import { hasChanged, extend, isArray, isIntegerKey, isSymbol, isMap, hasOwn, isObject, makeMap, toRawType, capitalize, def, isFunction, EMPTY_OBJ, isSet, isPlainObject, NOOP, remove } from '@vue/shared';
+import { extend, hasChanged, isArray, isIntegerKey, isSymbol, isMap, hasOwn, isObject, makeMap, capitalize, toRawType, def, isFunction, EMPTY_OBJ, isSet, isPlainObject, remove, NOOP } from '@vue/shared';
 
 function warn(msg, ...args) {
   console.warn(`[Vue warn] ${msg}`, ...args);
@@ -11,12 +11,17 @@ function warn(msg, ...args) {
 
 let activeEffectScope;
 class EffectScope {
+  // TODO isolatedDeclarations "__v_skip"
   constructor(detached = false) {
     this.detached = detached;
     /**
      * @internal
      */
     this._active = true;
+    /**
+     * @internal track `on` calls, allow `on` call multiple times
+     */
+    this._on = 0;
     /**
      * @internal
      */
@@ -26,11 +31,18 @@ class EffectScope {
      */
     this.cleanups = [];
     this._isPaused = false;
-    this.parent = activeEffectScope;
+    this._warnOnRun = true;
+    this.__v_skip = true;
     if (!detached && activeEffectScope) {
-      this.index = (activeEffectScope.scopes || (activeEffectScope.scopes = [])).push(
-        this
-      ) - 1;
+      if (activeEffectScope.active) {
+        this.parent = activeEffectScope;
+        this.index = (activeEffectScope.scopes || (activeEffectScope.scopes = [])).push(
+          this
+        ) - 1;
+      } else {
+        this._active = false;
+        this._warnOnRun = false;
+      }
     }
   }
   get active() {
@@ -41,8 +53,9 @@ class EffectScope {
       this._isPaused = true;
       let i, l;
       if (this.scopes) {
-        for (i = 0, l = this.scopes.length; i < l; i++) {
-          this.scopes[i].pause();
+        const scopes = this.scopes.slice();
+        for (i = 0, l = scopes.length; i < l; i++) {
+          scopes[i].pause();
         }
       }
       for (i = 0, l = this.effects.length; i < l; i++) {
@@ -59,12 +72,14 @@ class EffectScope {
         this._isPaused = false;
         let i, l;
         if (this.scopes) {
-          for (i = 0, l = this.scopes.length; i < l; i++) {
-            this.scopes[i].resume();
+          const scopes = this.scopes.slice();
+          for (i = 0, l = scopes.length; i < l; i++) {
+            scopes[i].resume();
           }
         }
-        for (i = 0, l = this.effects.length; i < l; i++) {
-          this.effects[i].resume();
+        const effects = this.effects.slice();
+        for (i = 0, l = effects.length; i < l; i++) {
+          effects[i].resume();
         }
       }
     }
@@ -78,7 +93,7 @@ class EffectScope {
       } finally {
         activeEffectScope = currentEffectScope;
       }
-    } else if (!!(process.env.NODE_ENV !== "production")) {
+    } else if (!!(process.env.NODE_ENV !== "production") && this._warnOnRun) {
       warn(`cannot run an inactive effect scope.`);
     }
   }
@@ -87,14 +102,31 @@ class EffectScope {
    * @internal
    */
   on() {
-    activeEffectScope = this;
+    if (++this._on === 1) {
+      this.prevScope = activeEffectScope;
+      activeEffectScope = this;
+    }
   }
   /**
    * This should only be called on non-detached scopes
    * @internal
    */
   off() {
-    activeEffectScope = this.parent;
+    if (this._on > 0 && --this._on === 0) {
+      if (activeEffectScope === this) {
+        activeEffectScope = this.prevScope;
+      } else {
+        let current = activeEffectScope;
+        while (current) {
+          if (current.prevScope === this) {
+            current.prevScope = this.prevScope;
+            break;
+          }
+          current = current.prevScope;
+        }
+      }
+      this.prevScope = void 0;
+    }
   }
   stop(fromParent) {
     if (this._active) {
@@ -109,8 +141,9 @@ class EffectScope {
       }
       this.cleanups.length = 0;
       if (this.scopes) {
-        for (i = 0, l = this.scopes.length; i < l; i++) {
-          this.scopes[i].stop(true);
+        const scopes = this.scopes.slice();
+        for (i = 0, l = scopes.length; i < l; i++) {
+          scopes[i].stop(true);
         }
         this.scopes.length = 0;
       }
@@ -156,7 +189,9 @@ const EffectFlags = {
   "ALLOW_RECURSE": 32,
   "32": "ALLOW_RECURSE",
   "PAUSED": 64,
-  "64": "PAUSED"
+  "64": "PAUSED",
+  "EVALUATED": 128,
+  "128": "EVALUATED"
 };
 const pausedQueueEffects = /* @__PURE__ */ new WeakSet();
 class ReactiveEffect {
@@ -183,8 +218,12 @@ class ReactiveEffect {
      */
     this.cleanup = void 0;
     this.scheduler = void 0;
-    if (activeEffectScope && activeEffectScope.active) {
-      activeEffectScope.effects.push(this);
+    if (activeEffectScope) {
+      if (activeEffectScope.active) {
+        activeEffectScope.effects.push(this);
+      } else {
+        this.flags &= -2;
+      }
     }
   }
   pause() {
@@ -192,7 +231,7 @@ class ReactiveEffect {
   }
   resume() {
     if (this.flags & 64) {
-      this.flags &= ~64;
+      this.flags &= -65;
       if (pausedQueueEffects.has(this)) {
         pausedQueueEffects.delete(this);
         this.trigger();
@@ -232,7 +271,7 @@ class ReactiveEffect {
       cleanupDeps(this);
       activeSub = prevEffect;
       shouldTrack = prevShouldTrack;
-      this.flags &= ~2;
+      this.flags &= -3;
     }
   }
   stop() {
@@ -243,7 +282,7 @@ class ReactiveEffect {
       this.deps = this.depsTail = void 0;
       cleanupEffect(this);
       this.onStop && this.onStop();
-      this.flags &= ~1;
+      this.flags &= -2;
     }
   }
   trigger() {
@@ -293,7 +332,7 @@ function endBatch() {
     while (e) {
       const next = e.next;
       e.next = void 0;
-      e.flags &= ~8;
+      e.flags &= -9;
       e = next;
     }
   }
@@ -304,7 +343,7 @@ function endBatch() {
     while (e) {
       const next = e.next;
       e.next = void 0;
-      e.flags &= ~8;
+      e.flags &= -9;
       if (e.flags & 1) {
         try {
           ;
@@ -360,17 +399,16 @@ function refreshComputed(computed) {
   if (computed.flags & 4 && !(computed.flags & 16)) {
     return;
   }
-  computed.flags &= ~16;
+  computed.flags &= -17;
   if (computed.globalVersion === globalVersion) {
     return;
   }
   computed.globalVersion = globalVersion;
-  const dep = computed.dep;
-  computed.flags |= 2;
-  if (dep.version > 0 && !computed.isSSR && computed.deps && !isDirty(computed)) {
-    computed.flags &= ~2;
+  if (!computed.isSSR && computed.flags & 128 && (!computed.deps && !computed._dirty || !isDirty(computed))) {
     return;
   }
+  computed.flags |= 2;
+  const dep = computed.dep;
   const prevSub = activeSub;
   const prevShouldTrack = shouldTrack;
   activeSub = computed;
@@ -379,6 +417,7 @@ function refreshComputed(computed) {
     prepareDeps(computed);
     const value = computed.fn(computed._value);
     if (dep.version === 0 || hasChanged(value, computed._value)) {
+      computed.flags |= 128;
       computed._value = value;
       dep.version++;
     }
@@ -389,7 +428,7 @@ function refreshComputed(computed) {
     activeSub = prevSub;
     shouldTrack = prevShouldTrack;
     cleanupDeps(computed);
-    computed.flags &= ~2;
+    computed.flags &= -3;
   }
 }
 function removeSub(link, soft = false) {
@@ -408,7 +447,7 @@ function removeSub(link, soft = false) {
   if (dep.subs === link) {
     dep.subs = prevSub;
     if (!prevSub && dep.computed) {
-      dep.computed.flags &= ~4;
+      dep.computed.flags &= -5;
       for (let l = dep.computed.deps; l; l = l.nextDep) {
         removeSub(l, true);
       }
@@ -497,6 +536,7 @@ class Link {
   }
 }
 class Dep {
+  // TODO isolatedDeclarations "__v_skip"
   constructor(computed) {
     this.computed = computed;
     this.version = 0;
@@ -517,6 +557,10 @@ class Dep {
      * Subscriber counter
      */
     this.sc = 0;
+    /**
+     * @internal
+     */
+    this.__v_skip = true;
     if (!!(process.env.NODE_ENV !== "production")) {
       this.subsHead = void 0;
     }
@@ -620,13 +664,13 @@ function addSub(link) {
   }
 }
 const targetMap = /* @__PURE__ */ new WeakMap();
-const ITERATE_KEY = Symbol(
+const ITERATE_KEY = /* @__PURE__ */ Symbol(
   !!(process.env.NODE_ENV !== "production") ? "Object iterate" : ""
 );
-const MAP_KEY_ITERATE_KEY = Symbol(
+const MAP_KEY_ITERATE_KEY = /* @__PURE__ */ Symbol(
   !!(process.env.NODE_ENV !== "production") ? "Map keys iterate" : ""
 );
-const ARRAY_ITERATE_KEY = Symbol(
+const ARRAY_ITERATE_KEY = /* @__PURE__ */ Symbol(
   !!(process.env.NODE_ENV !== "production") ? "Array iterate" : ""
 );
 function track(target, type, key) {
@@ -732,16 +776,24 @@ function reactiveReadArray(array) {
   const raw = toRaw(array);
   if (raw === array) return raw;
   track(raw, "iterate", ARRAY_ITERATE_KEY);
-  return isShallow(array) ? raw : raw.map(toReactive);
+  if (isShallow(array)) return raw;
+  if (!isReadonly(array)) return raw.map(toReactive);
+  return isReactive(array) ? raw.map((item) => toReadonly(toReactive(item))) : raw.map(toReadonly);
 }
 function shallowReadArray(arr) {
   track(arr = toRaw(arr), "iterate", ARRAY_ITERATE_KEY);
   return arr;
 }
+function toWrapped(target, item) {
+  if (isReadonly(target)) {
+    return isReactive(target) ? toReadonly(toReactive(item)) : toReadonly(item);
+  }
+  return toReactive(item);
+}
 const arrayInstrumentations = {
   __proto__: null,
   [Symbol.iterator]() {
-    return iterator(this, Symbol.iterator, toReactive);
+    return iterator(this, Symbol.iterator, (item) => toWrapped(this, item));
   },
   concat(...args) {
     return reactiveReadArray(this).concat(
@@ -750,7 +802,7 @@ const arrayInstrumentations = {
   },
   entries() {
     return iterator(this, "entries", (value) => {
-      value[1] = toReactive(value[1]);
+      value[1] = toWrapped(this, value[1]);
       return value;
     });
   },
@@ -758,16 +810,37 @@ const arrayInstrumentations = {
     return apply(this, "every", fn, thisArg, void 0, arguments);
   },
   filter(fn, thisArg) {
-    return apply(this, "filter", fn, thisArg, (v) => v.map(toReactive), arguments);
+    return apply(
+      this,
+      "filter",
+      fn,
+      thisArg,
+      (v) => v.map((item) => toWrapped(this, item)),
+      arguments
+    );
   },
   find(fn, thisArg) {
-    return apply(this, "find", fn, thisArg, toReactive, arguments);
+    return apply(
+      this,
+      "find",
+      fn,
+      thisArg,
+      (item) => toWrapped(this, item),
+      arguments
+    );
   },
   findIndex(fn, thisArg) {
     return apply(this, "findIndex", fn, thisArg, void 0, arguments);
   },
   findLast(fn, thisArg) {
-    return apply(this, "findLast", fn, thisArg, toReactive, arguments);
+    return apply(
+      this,
+      "findLast",
+      fn,
+      thisArg,
+      (item) => toWrapped(this, item),
+      arguments
+    );
   },
   findLastIndex(fn, thisArg) {
     return apply(this, "findLastIndex", fn, thisArg, void 0, arguments);
@@ -785,7 +858,7 @@ const arrayInstrumentations = {
   join(separator) {
     return reactiveReadArray(this).join(separator);
   },
-  // keys() iterator only reads `length`, no optimisation required
+  // keys() iterator only reads `length`, no optimization required
   lastIndexOf(...args) {
     return searchProxy(this, "lastIndexOf", args);
   },
@@ -827,23 +900,45 @@ const arrayInstrumentations = {
     return noTracking(this, "unshift", args);
   },
   values() {
-    return iterator(this, "values", toReactive);
+    return iterator(this, "values", (item) => toWrapped(this, item));
   }
 };
 function iterator(self, method, wrapValue) {
   const arr = shallowReadArray(self);
-  const iter = arr[method]();
+  const methodFn = arr[method];
+  const iter = methodFn.call(arr);
   if (arr !== self && !isShallow(self)) {
-    iter._next = iter.next;
-    iter.next = () => {
-      const result = iter._next();
-      if (result.value) {
-        result.value = wrapValue(result.value);
+    if (iter[Symbol.toStringTag] === "Array Iterator") {
+      const wrapped = Object.create(Object.getPrototypeOf(iter));
+      wrapped.next = () => wrapResult(iter.next(), wrapValue);
+      if (methodFn !== arrayProto[method]) {
+        Object.defineProperties(wrapped, {
+          return: {
+            get() {
+              const fn = iter.return;
+              return typeof fn === "function" ? fn.bind(iter) : fn;
+            }
+          },
+          throw: {
+            get() {
+              const fn = iter.throw;
+              return typeof fn === "function" ? fn.bind(iter) : fn;
+            }
+          }
+        });
       }
-      return result;
-    };
+      return wrapped;
+    }
+    iter._next = iter.next;
+    iter.next = () => wrapResult(iter._next(), wrapValue);
   }
   return iter;
+}
+function wrapResult(result, wrapValue) {
+  if (!result.done) {
+    result.value = wrapValue(result.value);
+  }
+  return result;
 }
 const arrayProto = Array.prototype;
 function apply(self, method, fn, thisArg, wrappedRetFn, args) {
@@ -858,7 +953,7 @@ function apply(self, method, fn, thisArg, wrappedRetFn, args) {
   if (arr !== self) {
     if (needsWrap) {
       wrappedFn = function(item, index) {
-        return fn.call(this, toReactive(item), index, self);
+        return fn.call(this, toWrapped(self, item), index, self);
       };
     } else if (fn.length > 2) {
       wrappedFn = function(item, index) {
@@ -871,11 +966,18 @@ function apply(self, method, fn, thisArg, wrappedRetFn, args) {
 }
 function reduce(self, method, fn, args) {
   const arr = shallowReadArray(self);
+  const needsWrap = arr !== self && !isShallow(self);
   let wrappedFn = fn;
+  let wrapInitialAccumulator = false;
   if (arr !== self) {
-    if (!isShallow(self)) {
+    if (needsWrap) {
+      wrapInitialAccumulator = args.length === 0;
       wrappedFn = function(acc, item, index) {
-        return fn.call(this, acc, toReactive(item), index, self);
+        if (wrapInitialAccumulator) {
+          wrapInitialAccumulator = false;
+          acc = toWrapped(self, acc);
+        }
+        return fn.call(this, acc, toWrapped(self, item), index, self);
       };
     } else if (fn.length > 3) {
       wrappedFn = function(acc, item, index) {
@@ -883,7 +985,8 @@ function reduce(self, method, fn, args) {
       };
     }
   }
-  return arr[method](wrappedFn, ...args);
+  const result = arr[method](wrappedFn, ...args);
+  return wrapInitialAccumulator ? toWrapped(self, result) : result;
 }
 function searchProxy(self, method, args) {
   const arr = toRaw(self);
@@ -964,7 +1067,8 @@ class BaseReactiveHandler {
       return res;
     }
     if (isRef(res)) {
-      return targetIsArray && isIntegerKey(key) ? res : res.value;
+      const value = targetIsArray && isIntegerKey(key) ? res : res.value;
+      return isReadonly2 && isObject(value) ? readonly(value) : value;
     }
     if (isObject(res)) {
       return isReadonly2 ? readonly(res) : reactive(res);
@@ -978,29 +1082,36 @@ class MutableReactiveHandler extends BaseReactiveHandler {
   }
   set(target, key, value, receiver) {
     let oldValue = target[key];
+    const isArrayWithIntegerKey = isArray(target) && isIntegerKey(key);
     if (!this._isShallow) {
       const isOldValueReadonly = isReadonly(oldValue);
       if (!isShallow(value) && !isReadonly(value)) {
         oldValue = toRaw(oldValue);
         value = toRaw(value);
       }
-      if (!isArray(target) && isRef(oldValue) && !isRef(value)) {
+      if (!isArrayWithIntegerKey && isRef(oldValue) && !isRef(value)) {
         if (isOldValueReadonly) {
-          return false;
+          if (!!(process.env.NODE_ENV !== "production")) {
+            warn(
+              `Set operation on key "${String(key)}" failed: target is readonly.`,
+              target[key]
+            );
+          }
+          return true;
         } else {
           oldValue.value = value;
           return true;
         }
       }
     }
-    const hadKey = isArray(target) && isIntegerKey(key) ? Number(key) < target.length : hasOwn(target, key);
+    const hadKey = isArrayWithIntegerKey ? Number(key) < target.length : hasOwn(target, key);
     const result = Reflect.set(
       target,
       key,
       value,
       isRef(target) ? target : receiver
     );
-    if (target === toRaw(receiver)) {
+    if (target === toRaw(receiver) && result) {
       if (!hadKey) {
         trigger(target, "add", key, value);
       } else if (hasChanged(value, oldValue)) {
@@ -1078,20 +1189,20 @@ function createIterableMethod(method, isReadonly2, isShallow2) {
       "iterate",
       isKeyOnly ? MAP_KEY_ITERATE_KEY : ITERATE_KEY
     );
-    return {
-      // iterator protocol
-      next() {
-        const { value, done } = innerIterator.next();
-        return done ? { value, done } : {
-          value: isPair ? [wrap(value[0]), wrap(value[1])] : wrap(value),
-          done
-        };
-      },
-      // iterable protocol
-      [Symbol.iterator]() {
-        return this;
+    return extend(
+      // inheriting all iterator properties
+      Object.create(innerIterator),
+      {
+        // iterator protocol
+        next() {
+          const { value, done } = innerIterator.next();
+          return done ? { value, done } : {
+            value: isPair ? [wrap(value[0]), wrap(value[1])] : wrap(value),
+            done
+          };
+        }
       }
-    };
+    );
   };
 }
 function createReadonlyMethod(type) {
@@ -1131,7 +1242,7 @@ function createInstrumentations(readonly, shallow) {
     get size() {
       const target = this["__v_raw"];
       !readonly && track(toRaw(target), "iterate", ITERATE_KEY);
-      return Reflect.get(target, "size", target);
+      return target.size;
     },
     has(key) {
       const target = this["__v_raw"];
@@ -1165,15 +1276,14 @@ function createInstrumentations(readonly, shallow) {
       clear: createReadonlyMethod("clear")
     } : {
       add(value) {
-        if (!shallow && !isShallow(value) && !isReadonly(value)) {
-          value = toRaw(value);
-        }
         const target = toRaw(this);
         const proto = getProto(target);
-        const hadKey = proto.has.call(target, value);
+        const rawValue = toRaw(value);
+        const valueToAdd = !shallow && !isShallow(value) && !isReadonly(value) ? rawValue : value;
+        const hadKey = proto.has.call(target, valueToAdd) || hasChanged(value, valueToAdd) && proto.has.call(target, value) || hasChanged(rawValue, valueToAdd) && proto.has.call(target, rawValue);
         if (!hadKey) {
-          target.add(value);
-          trigger(target, "add", value, value);
+          target.add(valueToAdd);
+          trigger(target, "add", valueToAdd, valueToAdd);
         }
         return this;
       },
@@ -1252,6 +1362,8 @@ function createInstrumentationGetter(isReadonly2, shallow) {
       return !isReadonly2;
     } else if (key === "__v_isReadonly") {
       return isReadonly2;
+    } else if (key === "__v_isShallow") {
+      return shallow;
     } else if (key === "__v_raw") {
       return target;
     }
@@ -1302,11 +1414,9 @@ function targetTypeMap(rawType) {
       return 0 /* INVALID */;
   }
 }
-function getTargetType(value) {
-  return value["__v_skip"] || !Object.isExtensible(value) ? 0 /* INVALID */ : targetTypeMap(toRawType(value));
-}
+// @__NO_SIDE_EFFECTS__
 function reactive(target) {
-  if (isReadonly(target)) {
+  if (/* @__PURE__ */ isReadonly(target)) {
     return target;
   }
   return createReactiveObject(
@@ -1317,6 +1427,7 @@ function reactive(target) {
     reactiveMap
   );
 }
+// @__NO_SIDE_EFFECTS__
 function shallowReactive(target) {
   return createReactiveObject(
     target,
@@ -1326,6 +1437,7 @@ function shallowReactive(target) {
     shallowReactiveMap
   );
 }
+// @__NO_SIDE_EFFECTS__
 function readonly(target) {
   return createReactiveObject(
     target,
@@ -1335,6 +1447,7 @@ function readonly(target) {
     readonlyMap
   );
 }
+// @__NO_SIDE_EFFECTS__
 function shallowReadonly(target) {
   return createReactiveObject(
     target,
@@ -1358,11 +1471,14 @@ function createReactiveObject(target, isReadonly2, baseHandlers, collectionHandl
   if (target["__v_raw"] && !(isReadonly2 && target["__v_isReactive"])) {
     return target;
   }
+  if (target["__v_skip"] || !Object.isExtensible(target)) {
+    return target;
+  }
   const existingProxy = proxyMap.get(target);
   if (existingProxy) {
     return existingProxy;
   }
-  const targetType = getTargetType(target);
+  const targetType = targetTypeMap(toRawType(target));
   if (targetType === 0 /* INVALID */) {
     return target;
   }
@@ -1373,24 +1489,29 @@ function createReactiveObject(target, isReadonly2, baseHandlers, collectionHandl
   proxyMap.set(target, proxy);
   return proxy;
 }
+// @__NO_SIDE_EFFECTS__
 function isReactive(value) {
-  if (isReadonly(value)) {
-    return isReactive(value["__v_raw"]);
+  if (/* @__PURE__ */ isReadonly(value)) {
+    return /* @__PURE__ */ isReactive(value["__v_raw"]);
   }
   return !!(value && value["__v_isReactive"]);
 }
+// @__NO_SIDE_EFFECTS__
 function isReadonly(value) {
   return !!(value && value["__v_isReadonly"]);
 }
+// @__NO_SIDE_EFFECTS__
 function isShallow(value) {
   return !!(value && value["__v_isShallow"]);
 }
+// @__NO_SIDE_EFFECTS__
 function isProxy(value) {
   return value ? !!value["__v_raw"] : false;
 }
+// @__NO_SIDE_EFFECTS__
 function toRaw(observed) {
   const raw = observed && observed["__v_raw"];
-  return raw ? toRaw(raw) : observed;
+  return raw ? /* @__PURE__ */ toRaw(raw) : observed;
 }
 function markRaw(value) {
   if (!hasOwn(value, "__v_skip") && Object.isExtensible(value)) {
@@ -1398,20 +1519,23 @@ function markRaw(value) {
   }
   return value;
 }
-const toReactive = (value) => isObject(value) ? reactive(value) : value;
-const toReadonly = (value) => isObject(value) ? readonly(value) : value;
+const toReactive = (value) => isObject(value) ? /* @__PURE__ */ reactive(value) : value;
+const toReadonly = (value) => isObject(value) ? /* @__PURE__ */ readonly(value) : value;
 
+// @__NO_SIDE_EFFECTS__
 function isRef(r) {
   return r ? r["__v_isRef"] === true : false;
 }
+// @__NO_SIDE_EFFECTS__
 function ref(value) {
   return createRef(value, false);
 }
+// @__NO_SIDE_EFFECTS__
 function shallowRef(value) {
   return createRef(value, true);
 }
 function createRef(rawValue, shallow) {
-  if (isRef(rawValue)) {
+  if (/* @__PURE__ */ isRef(rawValue)) {
     return rawValue;
   }
   return new RefImpl(rawValue, shallow);
@@ -1473,7 +1597,7 @@ function triggerRef(ref2) {
   }
 }
 function unref(ref2) {
-  return isRef(ref2) ? ref2.value : ref2;
+  return /* @__PURE__ */ isRef(ref2) ? ref2.value : ref2;
 }
 function toValue(source) {
   return isFunction(source) ? source() : unref(source);
@@ -1482,7 +1606,7 @@ const shallowUnwrapHandlers = {
   get: (target, key, receiver) => key === "__v_raw" ? target : unref(Reflect.get(target, key, receiver)),
   set: (target, key, value, receiver) => {
     const oldValue = target[key];
-    if (isRef(oldValue) && !isRef(value)) {
+    if (/* @__PURE__ */ isRef(oldValue) && !/* @__PURE__ */ isRef(value)) {
       oldValue.value = value;
       return true;
     } else {
@@ -1512,6 +1636,7 @@ class CustomRefImpl {
 function customRef(factory) {
   return new CustomRefImpl(factory);
 }
+// @__NO_SIDE_EFFECTS__
 function toRefs(object) {
   if (!!(process.env.NODE_ENV !== "production") && !isProxy(object)) {
     warn(`toRefs() expects a reactive object but received a plain one.`);
@@ -1523,22 +1648,41 @@ function toRefs(object) {
   return ret;
 }
 class ObjectRefImpl {
-  constructor(_object, _key, _defaultValue) {
+  constructor(_object, key, _defaultValue) {
     this._object = _object;
-    this._key = _key;
     this._defaultValue = _defaultValue;
     this["__v_isRef"] = true;
     this._value = void 0;
+    this._key = isSymbol(key) ? key : String(key);
+    this._raw = toRaw(_object);
+    let shallow = true;
+    let obj = _object;
+    if (!isArray(_object) || isSymbol(this._key) || !isIntegerKey(this._key)) {
+      do {
+        shallow = !isProxy(obj) || isShallow(obj);
+      } while (shallow && (obj = obj["__v_raw"]));
+    }
+    this._shallow = shallow;
   }
   get value() {
-    const val = this._object[this._key];
+    let val = this._object[this._key];
+    if (this._shallow) {
+      val = unref(val);
+    }
     return this._value = val === void 0 ? this._defaultValue : val;
   }
   set value(newVal) {
+    if (this._shallow && /* @__PURE__ */ isRef(this._raw[this._key])) {
+      const nestedRef = this._object[this._key];
+      if (/* @__PURE__ */ isRef(nestedRef)) {
+        nestedRef.value = newVal;
+        return;
+      }
+    }
     this._object[this._key] = newVal;
   }
   get dep() {
-    return getDepFromReactive(toRaw(this._object), this._key);
+    return getDepFromReactive(this._raw, this._key);
   }
 }
 class GetterRefImpl {
@@ -1552,20 +1696,20 @@ class GetterRefImpl {
     return this._value = this._getter();
   }
 }
+// @__NO_SIDE_EFFECTS__
 function toRef(source, key, defaultValue) {
-  if (isRef(source)) {
+  if (/* @__PURE__ */ isRef(source)) {
     return source;
   } else if (isFunction(source)) {
     return new GetterRefImpl(source);
   } else if (isObject(source) && arguments.length > 1) {
     return propertyToRef(source, key, defaultValue);
   } else {
-    return ref(source);
+    return /* @__PURE__ */ ref(source);
   }
 }
 function propertyToRef(source, key, defaultValue) {
-  const val = source[key];
-  return isRef(val) ? val : new ObjectRefImpl(source, key, defaultValue);
+  return new ObjectRefImpl(source, key, defaultValue);
 }
 
 class ComputedRefImpl {
@@ -1642,6 +1786,7 @@ class ComputedRefImpl {
     }
   }
 }
+// @__NO_SIDE_EFFECTS__
 function computed(getterOrOptions, debugOptions, isSSR = false) {
   let getter;
   let setter;
@@ -1786,8 +1931,11 @@ function watch(source, cb, options = EMPTY_OBJ) {
   if (once && cb) {
     const _cb = cb;
     cb = (...args) => {
-      _cb(...args);
-      watchHandle();
+      try {
+        return _cb(...args);
+      } finally {
+        watchHandle();
+      }
     };
   }
   let oldValue = isMultiSource ? new Array(source.length).fill(INITIAL_WATCHER_VALUE) : INITIAL_WATCHER_VALUE;
@@ -1797,26 +1945,28 @@ function watch(source, cb, options = EMPTY_OBJ) {
     }
     if (cb) {
       const newValue = effect.run();
-      if (deep || forceTrigger || (isMultiSource ? newValue.some((v, i) => hasChanged(v, oldValue[i])) : hasChanged(newValue, oldValue))) {
-        if (cleanup) {
-          cleanup();
-        }
+      if (immediateFirstRun || deep || forceTrigger || (isMultiSource ? newValue.some((v, i) => hasChanged(v, oldValue[i])) : hasChanged(newValue, oldValue))) {
         const currentWatcher = activeWatcher;
-        activeWatcher = effect;
+        pauseTracking();
         try {
+          if (cleanup) {
+            cleanup();
+          }
+          activeWatcher = effect;
           const args = [
             newValue,
             // pass undefined as the old value when it's changed for the first time
             oldValue === INITIAL_WATCHER_VALUE ? void 0 : isMultiSource && oldValue[0] === INITIAL_WATCHER_VALUE ? [] : oldValue,
             boundCleanup
           ];
+          oldValue = newValue;
           call ? call(cb, 3, args) : (
             // @ts-expect-error
             cb(...args)
           );
-          oldValue = newValue;
         } finally {
           activeWatcher = currentWatcher;
+          resetTracking();
         }
       }
     } else {
@@ -1864,11 +2014,11 @@ function traverse(value, depth = Infinity, seen) {
   if (depth <= 0 || !isObject(value) || value["__v_skip"]) {
     return value;
   }
-  seen = seen || /* @__PURE__ */ new Set();
-  if (seen.has(value)) {
+  seen = seen || /* @__PURE__ */ new Map();
+  if ((seen.get(value) || 0) >= depth) {
     return value;
   }
-  seen.add(value);
+  seen.set(value, depth);
   depth--;
   if (isRef(value)) {
     traverse(value.value, depth, seen);
