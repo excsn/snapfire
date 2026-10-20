@@ -232,3 +232,12 @@ fn a_dialog_and_a_details_answer_open_as_a_boolean_reflecting_the_attribute() {
   assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_textarea_keeps_what_was_typed_when_its_default_value_changes() {
+  let spec = "import { expect, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"value and defaultValue are apart once typed\", () => {\n  document.body.innerHTML = '<textarea id=\"t\">start</textarea>';\n  const area = document.querySelector(\"#t\") as HTMLTextAreaElement;\n  area.value = \"typed\";\n  area.defaultValue = \"markup\";\n  expect([area.value, area.defaultValue, area.textContent]).toEqual([\"typed\", \"markup\", \"markup\"]);\n});\n";
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/textarea.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}

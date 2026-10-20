@@ -598,6 +598,18 @@ if (inputValue?.get && inputValue.set) {
     },
   });
 }
+// A textarea holds what was typed apart from its text, which is its default.
+if (globalThis.HTMLTextAreaElement) {
+  Object.defineProperty(globalThis.HTMLTextAreaElement.prototype, "value", {
+    configurable: true,
+    get() {
+      return HELD in this ? this[HELD] : this.textContent ?? "";
+    },
+    set(value) {
+      this[HELD] = value === null || value === undefined ? "" : String(value);
+    },
+  });
+}
 // An input with no `type` or with one a browser does not know is a text
 // input. linkedom answers the attribute as it stands. React reads `type` to
 // decide whether an `input` event is a change.
