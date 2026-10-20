@@ -183,6 +183,8 @@ pub enum BuildError {
   PackageName { name: String, by: String },
   #[error("{map} maps `{specifier}` to `{found}`, but this application serves its vendor tree from `{base}`; write `{want}` or run `fsr add` on the package, which rewrites every vendored entry")]
   VendorUrl { map: String, specifier: String, found: String, base: String, want: String },
+  #[error("`{dir}/{file}` imports `{specifier}`, which {map} does not name, so the browser cannot load it; vendor the package again with `fsr add` or add `{specifier}` to the map")]
+  VendorImports { dir: String, file: String, specifier: String, map: String },
   #[error("{0}")]
   Xwpm(String),
   #[error("{0}")]
@@ -1619,6 +1621,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     None
   };
   check_vendor_urls(app, &layout)?;
+  check_vendor_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract))?;
   check_shell_urls(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
   let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
   plugin_compilers(app, &layout)?;
@@ -3095,6 +3098,58 @@ fn served_specifiers(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&Sh
 /// Whether `specifier` is a key of `served` or sits under one ending in `/`.
 fn resolves(served: &[String], specifier: &str) -> bool {
   served.iter().any(|key| key == specifier || (key.ends_with('/') && specifier.starts_with(key.as_str())))
+}
+
+/// Refuses a vendored module that imports a package the page's import map
+/// cannot supply, which the browser fails to load along with every module
+/// that imports it. Each JavaScript file of each vendored package is parsed,
+/// so an import named in a comment or a string is not one.
+fn check_vendor_imports(app: &Path, layout: &crate::xwpm::Layout, shell: Option<&ShellContract>) -> Result<(), BuildError> {
+  let manifest = crate::vendor::VendorManifest::read(app, layout)?;
+  let Some(served) = served_specifiers(app, layout, shell) else {
+    return Ok(());
+  };
+  let vendor = app.join(&layout.vendor);
+  let mut files: Vec<String> = Vec::new();
+  for package in manifest.packages.values() {
+    for file in package.entries.values() {
+      let Some(dir) = Path::new(file).parent().filter(|dir| !dir.as_os_str().is_empty()) else { continue };
+      let mut found = Vec::new();
+      vendor_scripts(&vendor, &vendor.join(dir), &mut found);
+      for file in found {
+        if !files.contains(&file) {
+          files.push(file);
+        }
+      }
+    }
+  }
+  for file in files {
+    let Ok(source) = std::fs::read_to_string(vendor.join(&file)) else { continue };
+    let Ok(imports) = crate::published::imports_of(&source) else { continue };
+    for (_, specifier) in imports {
+      if specifier.starts_with(['.', '/']) || specifier.contains(':') || resolves(&served, &specifier) {
+        continue;
+      }
+      return Err(BuildError::VendorImports { dir: layout.vendor.clone(), file, specifier, map: format!("`{}`", app.join(&layout.importmap).display()) });
+    }
+  }
+  Ok(())
+}
+
+/// The `.js` and `.mjs` files under `dir`, by path relative to `vendor`.
+fn vendor_scripts(vendor: &Path, dir: &Path, out: &mut Vec<String>) {
+  let Ok(entries) = std::fs::read_dir(dir) else { return };
+  let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+  paths.sort();
+  for path in paths {
+    if path.is_dir() {
+      vendor_scripts(vendor, &path, out);
+    } else if matches!(path.extension().and_then(|e| e.to_str()), Some("js" | "mjs")) {
+      if let Ok(relative) = path.strip_prefix(vendor) {
+        out.push(relative.to_string_lossy().replace('\\', "/"));
+      }
+    }
+  }
 }
 
 /// Refuses an import map entry for a vendored package that does not sit under

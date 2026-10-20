@@ -1613,3 +1613,24 @@ fn a_svelte_file_importing_fsr_components_gets_the_svelte_components_the_build_w
   assert!(config.contains("\"generated/components/index.ts\""), "{config}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_vendored_module_importing_a_package_the_import_map_does_not_name_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/static/js/vendor/react/react.bundle.mjs","react-dom/client":"/static/js/vendor/react-dom/client.bundle.mjs"}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1","entries":{"react":"react/react.bundle.mjs"}},"react-dom":{"version":"19.3.1","externals":["react"],"entries":{"react-dom/client":"react-dom/client.bundle.mjs"}}}}"#).unwrap();
+  std::fs::create_dir_all(dir.join("vendor/react")).unwrap();
+  std::fs::create_dir_all(dir.join("vendor/react-dom")).unwrap();
+  std::fs::write(dir.join("vendor/react/react.bundle.mjs"), "export const r = 1;\n").unwrap();
+  std::fs::write(dir.join("vendor/react-dom/client.bundle.mjs"), "import*as a from\"react\";import*as b from\"react-dom\";export const c = 1;\n").unwrap();
+  match fails(&dir) {
+    BuildError::VendorImports { file, specifier, .. } => {
+      assert_eq!(file, "react-dom/client.bundle.mjs");
+      assert_eq!(specifier, "react-dom");
+    }
+    other => panic!("{other}"),
+  }
+  std::fs::write(dir.join("vendor/react-dom/client.bundle.mjs"), "import*as a from\"react\";export const c = 1;\n").unwrap();
+  build(&dir, &Options::default()).unwrap();
+  std::fs::remove_dir_all(&dir).unwrap();
+}
