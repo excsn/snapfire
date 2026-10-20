@@ -1,7 +1,7 @@
 {
   "packages": {
     "vue": {
-      "version": "3.5.13",
+      "version": "3.5.44",
       "externals": [],
       "entries": {
         "vue": "vue/vue.bundle.mjs"
