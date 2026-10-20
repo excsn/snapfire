@@ -236,6 +236,8 @@ pub struct Stepped {
   pub store: ValueMap,
   pub rendered: Rendered,
   pub acts: Vec<(String, Value)>,
+  /// Each component the render entered, by the path a `HandlerRef` addresses it with and its module, root first.
+  pub components: Vec<(String, String)>,
 }
 
 /// The handler a step runs: an index into the handlers of the component at
@@ -251,6 +253,11 @@ pub struct HandlerRef {
 impl HandlerRef {
   pub fn own(index: usize) -> Self {
     Self { path: String::new(), index }
+  }
+
+  /// Handler `index` of the component at `path`.
+  pub fn at(path: impl Into<String>, index: usize) -> Self {
+    Self { path: path.into(), index }
   }
 
   /// A token as an element binds it: `2` for the island's own handler,
@@ -563,6 +570,7 @@ impl Interpreter {
   pub fn island_step(&self, module: &str, component: &Component, props: &ValueMap, state: &ValueMap, handler: Option<HandlerRef>, event: &Value, library: &Components) -> Result<Stepped, Fail> {
     let mut env = self.env_for(module, props);
     env.server_mode = true;
+    env.in_framework = true;
     let mut state = state.clone();
     let mut written = ValueMap::default();
     if let Some(handler) = handler {
@@ -624,10 +632,12 @@ impl Interpreter {
     }
     let mut out = Out::default();
     let mut slots = Vec::new();
+    env.entered.clear();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
-    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts })
+    let components = std::mem::take(&mut env.entered);
+    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components })
   }
 }
 
@@ -729,6 +739,10 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
   let caller = env.markup;
   env.markup = Markup::of(component.owner, env.frameworks, caller);
   let path = env.hoists.as_ref().map(|h| h.path_key()).unwrap_or_default();
+  if env.server_mode {
+    let module = env.hoists.as_ref().map(|h| h.module.clone()).unwrap_or_default();
+    env.entered.push((path.clone(), module));
+  }
   if env.probe.as_ref().is_some_and(|probe| probe.found.is_none() && probe.path == path) {
     let module = env.hoists.as_ref().map(|h| h.module.clone()).unwrap_or_default();
     let props = env.scope.iter().rev().find(|(name, _)| name == "$props").and_then(|(_, value)| match value {

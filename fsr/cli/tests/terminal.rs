@@ -68,12 +68,13 @@ fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state()
   use std::time::Duration;
   let clock = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 100);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setTicks(100), 2000);\n  }, []);\n  return <Text>ticks {ticks}</Text>;\n}\n";
   let mut session = Session::open(&app(clock)).unwrap();
-  assert_eq!(session.timers(), [Timer { handler: 0, every: Duration::from_millis(100), repeats: true }, Timer { handler: 1, every: Duration::from_millis(2000), repeats: false }]);
+  assert_eq!(session.timers(), [Timer { path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true }, Timer { path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false }]);
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
   assert_eq!(line(session.view().unwrap()), "ticks 0");
-  session.fire(0).unwrap();
-  assert_eq!(line(session.fire(0).unwrap()), "ticks 2");
-  assert_eq!(line(session.fire(1).unwrap()), "ticks 100");
+  let timers = session.timers();
+  session.fire(&timers[0]).unwrap();
+  assert_eq!(line(session.fire(&timers[0]).unwrap()), "ticks 2");
+  assert_eq!(line(session.fire(&timers[1]).unwrap()), "ticks 100");
 }
 
 #[test]
@@ -101,6 +102,23 @@ fn a_session_draws_at_the_terminal_size_and_prints_what_the_page_writes_above_it
   session.resize(120, 40);
   let lines = |node| snapfire_fsr_terminal::render(&node, 30).lines();
   assert_eq!(lines(session.view().unwrap()), ["width 120"]);
-  session.fire(0).unwrap();
-  assert_eq!(lines(session.fire(0).unwrap()), ["hello", "hello", "width 120"]);
+  let timers = session.timers();
+  session.fire(&timers[0]).unwrap();
+  assert_eq!(lines(session.fire(&timers[0]).unwrap()), ["hello", "hello", "width 120"]);
+}
+
+const NESTED: &str = "import { useEffect, useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Counter({ label }: { label: string }) {\n  const [count, setCount] = useState(0);\n  useInput((input) => {\n    if (input === \"+\") setCount(count + 1);\n  });\n  return <Text>{label}: {count}</Text>;\n}\n\nfunction Ticker() {\n  const [ticks, setTicks] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((n) => n + 1), 50);\n    return () => clearInterval(timer);\n  }, []);\n  return <Text>ticks: {ticks}</Text>;\n}\n\nexport default function Page() {\n  return (\n    <Box flexDirection=\"column\">\n      <Counter label=\"a\" />\n      <Counter label=\"b\" />\n      <Ticker />\n    </Box>\n  );\n}\n";
+
+#[test]
+fn a_stateful_component_a_page_places_draws_in_place_and_every_one_steps() {
+  let mut session = Session::open(&app(NESTED)).unwrap();
+  let lines = |session: &mut Session| snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines().iter().map(|line| line.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(lines(&mut session), ["a: 0", "b: 0", "ticks: 0"]);
+  let Some(Press::Input(plus)) = key_event(KeyEvent::new(KeyCode::Char('+'), KeyModifiers::NONE)) else { panic!("+ is input") };
+  session.press(&plus).unwrap();
+  assert_eq!(lines(&mut session), ["a: 1", "b: 1", "ticks: 0"], "every useInput hears a key, as in Ink");
+  let timers = session.timers();
+  assert_eq!(timers.len(), 1);
+  session.fire(&timers[0]).unwrap();
+  assert_eq!(lines(&mut session), ["a: 1", "b: 1", "ticks: 1"]);
 }

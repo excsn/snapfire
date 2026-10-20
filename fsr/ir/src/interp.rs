@@ -235,6 +235,7 @@ impl Interpreter {
       hoists: None,
       state: None,
       probe: None,
+      entered: Vec::new(),
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
@@ -345,6 +346,8 @@ pub(crate) struct Env {
   pub(crate) state: Option<ValueMap>,
   /// A step's search for the component a handler token addresses.
   pub(crate) probe: Option<Probe>,
+  /// A step's record of each component it rendered, by path and module, root first.
+  pub(crate) entered: Vec<(String, String)>,
   /// Rendering an island in server mode: handler markers print as attributes
   /// the browser binds, which a browser-mode render must never show React.
   pub(crate) server_mode: bool,
@@ -594,6 +597,7 @@ impl Env {
       hoists: None,
       state: None,
       probe: None,
+      entered: Vec::new(),
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
@@ -803,6 +807,7 @@ impl Env {
       hoists: None,
       state: None,
       probe: None,
+      entered: Vec::new(),
       server_mode: false,
       acts: Vec::new(),
       calls: self.calls,

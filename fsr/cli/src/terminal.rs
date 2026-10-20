@@ -81,10 +81,12 @@ pub fn key_event(event: KeyEvent) -> Option<Press> {
   Some(Press::Input(Value::Map(press)))
 }
 
-/// A timer the page's mount effects start: the handler it steps, how often
-/// and whether it fires again after the first time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A timer a component's mount effects start: the component, by its path
+/// in the page, the handler it steps, how often and whether it fires again
+/// after the first time.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Timer {
+  pub path: String,
   pub handler: usize,
   pub every: Duration,
   pub repeats: bool,
@@ -99,6 +101,7 @@ pub struct Session {
   state: ValueMap,
   size: (u16, u16),
   written: Vec<String>,
+  components: Vec<(String, String)>,
 }
 
 impl Session {
@@ -109,17 +112,31 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())] })
   }
 
   /// The page as it stands.
   pub fn view(&mut self) -> Result<Node, String> {
-    self.step(None)
+    self.run(None, &Value::Null)
   }
 
-  /// The page after its `useInput` handler runs on `press`; as it stands when it has none.
+  /// The page after every `useInput` handler it renders runs on `press`, as Ink gives a key to each; as it stands when it has none.
   pub fn press(&mut self, press: &Value) -> Result<Node, String> {
-    self.step(Some(press))
+    let heard: Vec<HandlerRef> = self.handlers().filter(|(_, _, event)| *event == "input").map(|(path, index, _)| HandlerRef::at(path, index)).collect();
+    if heard.is_empty() {
+      return self.run(None, &Value::Null);
+    }
+    let mut drawn = Err(String::new());
+    for handler in heard {
+      drawn = self.run(Some(handler), press);
+      drawn.as_ref().map_err(Clone::clone)?;
+    }
+    drawn
+  }
+
+  /// Each handler of each component the page rendered last: its path, its index and its event.
+  fn handlers(&self) -> impl Iterator<Item = (String, usize, String)> + '_ {
+    self.components.iter().filter_map(|(path, module)| Some((path, self.library.get(module)?))).flat_map(|(path, component)| component.handlers.iter().enumerate().map(move |(index, h)| (path.clone(), index, h.event.clone())))
   }
 
   /// Lowers the page again from disk, keeping the state.
@@ -128,19 +145,16 @@ impl Session {
     Ok(())
   }
 
-  /// The timers the page's mount effects start, in the order it starts them.
+  /// The timers the mount effects of the components the page rendered last start, in the order they start them.
   pub fn timers(&self) -> Vec<Timer> {
-    let Some(component) = self.library.get(&self.module) else { return Vec::new() };
-    component
-      .handlers
-      .iter()
-      .enumerate()
-      .filter_map(|(handler, h)| {
-        let (kind, ms) = h.event.split_once(':')?;
+    self
+      .handlers()
+      .filter_map(|(path, handler, event)| {
+        let (kind, ms) = event.split_once(':')?;
         let every = Duration::from_millis(ms.parse().ok()?);
         match kind {
-          "interval" => Some(Timer { handler, every, repeats: true }),
-          "timeout" => Some(Timer { handler, every, repeats: false }),
+          "interval" => Some(Timer { path, handler, every, repeats: true }),
+          "timeout" => Some(Timer { path, handler, every, repeats: false }),
           _ => None,
         }
       })
@@ -157,21 +171,9 @@ impl Session {
     self.state.get(snapfire_fsr_lower::EXIT_STATE) == Some(&Value::Bool(true))
   }
 
-  /// The page after timer `handler` fires.
-  pub fn fire(&mut self, handler: usize) -> Result<Node, String> {
-    self.run(Some(HandlerRef::own(handler)), &Value::Null)
-  }
-
-  fn step(&mut self, press: Option<&Value>) -> Result<Node, String> {
-    let handler = match press {
-      Some(_) => self.library.get(&self.module).and_then(|component| component.handlers.iter().position(|handler| handler.event == "input")).map(HandlerRef::own),
-      None => None,
-    };
-    let event = press.cloned().unwrap_or(Value::Null);
-    if press.is_some() && handler.is_none() {
-      return self.run(None, &Value::Null);
-    }
-    self.run(handler, &event)
+  /// The page after `timer` fires.
+  pub fn fire(&mut self, timer: &Timer) -> Result<Node, String> {
+    self.run(Some(HandlerRef::at(timer.path.clone(), timer.handler)), &Value::Null)
   }
 
   fn run(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<Node, String> {
@@ -190,6 +192,7 @@ impl Session {
     let excess = self.written.len().saturating_sub(WRITTEN);
     self.written.drain(..excess);
     self.state = stepped.state;
+    self.components = stepped.components;
     let page = from_markup(&stepped.rendered.html)?;
     if self.written.is_empty() {
       return Ok(page);
@@ -253,7 +256,7 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   let mut shown = Frame::new(0, 0);
   let mut drawn = session.view();
   draw(&drawn, &mut shown, true).map_err(fail)?;
-  let schedule = |session: &Session| -> Vec<(Timer, Instant)> { session.timers().into_iter().map(|timer| (timer, Instant::now() + timer.every)).collect() };
+  let schedule = |session: &Session| -> Vec<(Timer, Instant)> { session.timers().into_iter().map(|timer| (Instant::now() + timer.every, timer)).map(|(at, timer)| (timer, at)).collect() };
   let mut timers = schedule(&session);
   loop {
     let wait = timers.iter().map(|(_, at)| at.saturating_duration_since(Instant::now())).min().unwrap_or(IDLE).min(IDLE);
@@ -285,7 +288,7 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
       if *at > now {
         return true;
       }
-      drawn = session.fire(timer.handler);
+      drawn = session.fire(timer);
       fired = true;
       *at = now + timer.every;
       timer.repeats
