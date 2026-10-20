@@ -21,7 +21,7 @@
   let dots = $state(false);
   const level = writable(2);
   const heading = derived(level, (n) => `h${n}`);
-  const sorted = $derived([...rows].sort((a, b) => (order === "pages" ? b.pages - a.pages : a.title < b.title ? -1 : 1)));
+  const sorted = $derived([...rows].sort((a, b) => (order === "pages" ? b.pages - a.pages : a.title.localeCompare(b.title))));
   const View = $derived(dots ? Dots : Bars);
   const total = $derived(rows.reduce((sum, { read }) => sum + read, 0));
   const note = $derived(`<strong>${total}</strong> pages read in all`);

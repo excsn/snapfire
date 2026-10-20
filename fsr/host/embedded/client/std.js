@@ -62,6 +62,13 @@ export const intl = {
             items,
             options ?? null
         ]) ?? new Intl.ListFormat(locale ?? localeTag(), rest).format(items);
+    },
+    compare (a, b, options) {
+        return bridged("intl.compare", [
+            a,
+            b,
+            options ?? null
+        ]) ?? Math.sign(a.localeCompare(b, options?.locale ?? localeTag()));
     }
 };
 export const text = {

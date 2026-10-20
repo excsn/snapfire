@@ -38,6 +38,10 @@ export declare const intl: {
 	plural(n: number | bigint): string;
 	/** `items` joined as the locale joins a list, `a, b and c` in British English. */
 	list(items: string[], options?: ListOptions): string;
+	/** -1, 0 or 1 as `a` sorts before, with or after `b` by the locale's collation, as `a.localeCompare(b, locale)` answers. */
+	compare(a: string, b: string, options?: {
+		locale?: string;
+	}): number;
 };
 export declare const text: {
 	/** Decomposed, marks dropped, lowercased, every run outside `a-z0-9` one hyphen and no hyphen at either end. */

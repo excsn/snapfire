@@ -1,9 +1,11 @@
-//! `intl`: number, currency, date, plural and list formatting through ICU4X, under
+//! `intl`: number, currency, date, plural and list formatting and string collation through ICU4X, under
 //! the ambient locale. The browser half is `Intl` with the same options, so
 //! the outputs agree wherever the two CLDR snapshots do.
 
 use fixed_decimal::{Decimal, FloatPrecision, SignedRoundingMode, UnsignedRoundingMode};
 use icu_calendar::Date;
+use icu_collator::options::CollatorOptions;
+use icu_collator::Collator;
 use icu_datetime::fieldsets::{D, DE, E, M, MD, MDE, Y, YM, YMD, YMDE};
 use icu_datetime::DateTimeFormatter;
 use icu_decimal::DecimalFormatter;
@@ -24,6 +26,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("intl.date", Reach::Render, date);
   extensions.register("intl.plural", Reach::Render, plural);
   extensions.register("intl.list", Reach::Render, list);
+  extensions.register("intl.compare", Reach::Render, compare);
 }
 
 fn locale_of(ambient: &Ambient) -> Locale {
@@ -295,4 +298,18 @@ fn list(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   }
   .map_err(|e| data(what, e))?;
   Ok(Value::str(formatter.format(items.iter().map(String::as_str)).to_string()))
+}
+
+/// `intl.compare(a, b, { locale })`: -1, 0 or 1 as `a.localeCompare(b, locale)` answers, by the locale's collation with the default options.
+fn compare(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "intl.compare";
+  let a = text(what, args, 0)?;
+  let b = text(what, args, 1)?;
+  let locale = locale_for(what, ambient, args.get(2))?;
+  let collator = Collator::try_new(locale.into(), CollatorOptions::default()).map_err(|e| data(what, e))?;
+  Ok(Value::int(match collator.compare(&a, &b) {
+    std::cmp::Ordering::Less => -1i64,
+    std::cmp::Ordering::Equal => 0,
+    std::cmp::Ordering::Greater => 1,
+  }))
 }

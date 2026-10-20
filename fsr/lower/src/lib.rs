@@ -2516,6 +2516,22 @@ impl<'a> Lowerer<'a> {
         residue.hint = Some(format!("as text under an element the browser fills it in when the component hydrates; the server has no viewer, so `.{utc}()` and `toLocaleDateString(undefined, {{ dateStyle }})` read UTC, which both agree on"));
         Err(residue)
       }
+      "localeCompare" => {
+        let other = match call.args.first() {
+          Some(arg) => self.expr(&arg.expr)?,
+          None => return Err(self.residue(call.span, "`localeCompare` without a string to compare with")),
+        };
+        if call.args.len() > 2 {
+          return Err(self.residue(call.span, "`localeCompare` options; the build reads a locale"));
+        }
+        let mut entries = Vec::new();
+        if let Some(locale) = call.args.get(1) {
+          if !matches!(&*locale.expr, js::Expr::Ident(id) if id.sym == "undefined") {
+            entries.push(Entry::Field("locale".to_owned(), self.expr(&locale.expr)?));
+          }
+        }
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "compare".to_owned(), args: vec![*target, other, Expr::Object(entries)] })
+      }
       "toLocaleDateString" => {
         let mut made = call.args.clone();
         made.truncate(2);
@@ -2676,7 +2692,7 @@ impl<'a> Lowerer<'a> {
       other => Err(self.residue_with(
         member.span,
         format!("`.{other}()`, which is not a builtin"),
-        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test` and `toLocaleString`; anything else goes in a module-level helper the build can read",
+        "the builtins are `map`, `filter`, `find`, `findIndex`, `some`, `every`, `reduce`, `flatMap`, `flat`, `toSorted`, `toReversed`, `slice`, `at`, `indexOf`, `lastIndexOf`, `charAt`, `charCodeAt`, `codePointAt`, `concat`, `join`, `includes`, `trim`, `repeat`, `toFixed`, `toString`, `toUpperCase`, `toLowerCase`, `padStart`, `padEnd`, `substring`, `split`, `startsWith`, `endsWith`, `replace`, `replaceAll`, `match`, `matchAll`, `search`, `test`, `localeCompare` and `toLocaleString`; anything else goes in a module-level helper the build can read",
       )),
     }
   }

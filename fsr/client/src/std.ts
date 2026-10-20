@@ -86,6 +86,10 @@ export const intl = {
     const { locale, ...rest } = options ?? {};
     return bridged<string>("intl.list", [items, options ?? null]) ?? new Intl.ListFormat(locale ?? localeTag(), rest).format(items);
   },
+  /** -1, 0 or 1 as `a` sorts before, with or after `b` by the locale's collation, as `a.localeCompare(b, locale)` answers. */
+  compare(a: string, b: string, options?: { locale?: string }): number {
+    return bridged<number>("intl.compare", [a, b, options ?? null]) ?? Math.sign(a.localeCompare(b, options?.locale ?? localeTag()));
+  },
 };
 
 export const text = {

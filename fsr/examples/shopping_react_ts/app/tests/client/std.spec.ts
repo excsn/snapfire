@@ -14,6 +14,8 @@ test("the standard library answers under the document's locale, through the runn
   expect(intl.plural(1)).toEqual("one");
   expect(intl.plural(2)).toEqual("other");
   expect(intl.date("2026-09-05T23:59:00Z")).toEqual("Sep 5, 2026");
+  expect(["zebra", "Äpfel", "apple", "B"].sort(intl.compare), "the order Chrome sorts them in under English").toEqual(["Äpfel", "apple", "B", "zebra"]);
+  expect([intl.compare("a", "a"), intl.compare("ö", "z", { locale: "sv" })]).toEqual([0, 1]);
 });
 
 test("text, time and crypto compute in the browser half itself", () => {
