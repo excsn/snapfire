@@ -6136,6 +6136,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if let Some(("useAnimation", call)) = hook_call(&self.meanings(), init) {
       return self.animation_hook(call, &decl.name, decl.span).map(Some);
     }
+    if let Some((hook @ ("useFocus" | "useFocusManager"), call)) = hook_call(&self.meanings(), init) {
+      return self.focus_hook(hook, call, &decl.name, decl.span);
+    }
     if let Some((hook @ ("useWindowSize" | "useStdout" | "useStderr" | "useIsScreenReaderEnabled"), _)) = hook_call(&self.meanings(), init) {
       self.terminal_hook(hook, &decl.name, decl.span)?;
       return Ok(None);
@@ -7287,6 +7290,85 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     }
     Ok(())
+  }
+
+  /// Ink's `useFocus({ id, autoFocus, isActive })` and `useFocusManager()`:
+  /// `isFocused` compares the focused id the terminal sets in the store with
+  /// the component's, the one given or its own, and each `focus` function is
+  /// an act the terminal runs. `useFocus` binds the component's focusable, so
+  /// the terminal finds them in render order.
+  fn focus_hook(&mut self, hook: &str, call: &'p js::CallExpr, pattern: &js::Pat, span: Span) -> Lowered<Option<Stmt>> {
+    let focused = Expr::Store(crate::TERMINAL_FOCUS.to_owned());
+    let (mut id, mut auto, mut active) = (None, Expr::Lit(Lit::Bool(false)), Expr::Lit(Lit::Bool(true)));
+    if let (Some(options), "useFocus") = (call.args.first(), hook) {
+      let js::Expr::Object(object) = &*options.expr else { return Err(self.lowerer.residue(span, "`useFocus` options that are not an object written out")) };
+      for prop in &object.props {
+        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(span, "a spread in `useFocus`'s options")) };
+        let (key, value) = match &**prop {
+          js::Prop::KeyValue(kv) => match &kv.key {
+            js::PropName::Ident(key) => (key.sym.to_string(), self.lowerer.expr(&kv.value)?),
+            _ => return Err(self.lowerer.residue(span, "a `useFocus` option named by an expression")),
+          },
+          js::Prop::Shorthand(name) => (name.sym.to_string(), self.lowerer.expr(&js::Expr::Ident(name.clone()))?),
+          _ => return Err(self.lowerer.residue(span, "a `useFocus` option that is not `key: value`")),
+        };
+        match key.as_str() {
+          "id" => id = Some(value),
+          "autoFocus" => auto = value,
+          "isActive" => active = value,
+          other => return Err(self.lowerer.residue(span, format!("`{other}` in `useFocus`'s options"))),
+        }
+      }
+    }
+    let id = match hook {
+      "useFocus" => {
+        let range = self.lowerer.parsed.range(call.span);
+        let own = match &mut self.lowerer.hoisting {
+          Some(candidates) => candidates.id(range),
+          None => return Err(self.lowerer.residue_with(span, "`useFocus` inside a custom hook", "the focus id is keyed by the component that calls the hook; call `useFocus` there")),
+        };
+        match id {
+          Some(given) => Expr::Coalesce(Box::new(given), Box::new(own)),
+          None => own,
+        }
+      }
+      _ => Expr::Lit(Lit::Null),
+    };
+    let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, format!("`{hook}` bound to one name; destructure what it gives"))) };
+    for prop in &object.props {
+      let (key, local) = match prop {
+        js::ObjectPatProp::Assign(assign) => (assign.key.sym.to_string(), assign.key.sym.to_string()),
+        js::ObjectPatProp::KeyValue(kv) => {
+          let (js::PropName::Ident(key), js::Pat::Ident(local)) = (&kv.key, &*kv.value) else { return Err(self.lowerer.residue(span, format!("a pattern from `{hook}`"))) };
+          (key.sym.to_string(), local.id.sym.to_string())
+        }
+        js::ObjectPatProp::Rest(_) => return Err(self.lowerer.residue(span, format!("a rest pattern from `{hook}`"))),
+      };
+      let act = match (hook, key.as_str()) {
+        ("useFocus", "isFocused") => {
+          self.lowerer.scope.push((local, Expr::Compare(CompareOp::Eq, Box::new(focused.clone()), Box::new(id.clone()))));
+          continue;
+        }
+        ("useFocusManager", "activeId") => {
+          self.lowerer.scope.push((local, focused.clone()));
+          continue;
+        }
+        (_, "focus") => "$focus",
+        ("useFocusManager", "focusNext") => "$focusNext",
+        ("useFocusManager", "focusPrevious") => "$focusPrevious",
+        ("useFocusManager", "enableFocus") => "$focusEnable",
+        ("useFocusManager", "disableFocus") => "$focusDisable",
+        _ => return Err(self.lowerer.residue(span, format!("`{key}` from `{hook}`"))),
+      };
+      self.writers.push((local.clone(), act));
+      self.browser_function(local);
+    }
+    if hook == "useFocusManager" {
+      return Ok(None);
+    }
+    self.state.push(snapfire_fsr_ir::render::FOCUSABLE.to_owned());
+    let focusable = Expr::Object(vec![Entry::Field("id".to_owned(), id), Entry::Field("autoFocus".to_owned(), auto), Entry::Field("isActive".to_owned(), active)]);
+    Ok(Some(Stmt::Let { name: snapfire_fsr_ir::render::FOCUSABLE.to_owned(), expr: focusable }))
   }
 
   /// The timers a mount effect starts, `useEffect(() => { setInterval(f, ms) }, [])`,

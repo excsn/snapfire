@@ -238,6 +238,8 @@ pub struct Stepped {
   pub acts: Vec<(String, Value)>,
   /// Each component the render entered, by the path a `HandlerRef` addresses it with and its module, root first.
   pub components: Vec<(String, String)>,
+  /// The value of each [`FOCUSABLE`] the render bound, in render order.
+  pub focusables: Vec<Value>,
 }
 
 /// The handler a step runs: an index into the handlers of the component at
@@ -339,6 +341,9 @@ pub const SLOT_MARK: &str = "\u{0}sf-slot:";
 
 /// The start of a body `let` that holds a state binding's next value: the prefix, then the binding's name. It holds `[value]` when the pass asked to render again with the binding at `value` and null when it did not. While any holds one the renderer runs the body again with each such binding at its value, as React runs again a component that set its own state while rendering.
 pub const RERUN_PREFIX: &str = "$rerun:";
+
+/// A body `let` of this name holds a focusable a terminal can move focus to, `{ id, autoFocus, isActive }`; a step lists each one it rendered in order.
+pub const FOCUSABLE: &str = "$focusable";
 
 /// How many passes a body may take, React's limit for a component that keeps setting its own state while rendering.
 pub const RERUN_LIMIT: usize = 25;
@@ -633,11 +638,13 @@ impl Interpreter {
     let mut out = Out::default();
     let mut slots = Vec::new();
     env.entered.clear();
+    env.focusables.clear();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
     let components = std::mem::take(&mut env.entered);
-    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components })
+    let focusables = std::mem::take(&mut env.focusables);
+    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components, focusables })
   }
 }
 
@@ -771,8 +778,10 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
 /// Binds the body's `let`s, running it again while a pass asks for new state (`RERUN_PREFIX`). Its own function so the passes' locals are off the stack while the tree renders.
 fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out: &mut Out) -> Result<(), Fail> {
   let mut next: Vec<(String, Value)> = Vec::new();
+  let mut focusables = Vec::new();
   for pass in 1.. {
     let mut asked = false;
+    focusables.clear();
     for stmt in &component.body {
       let Stmt::Let { name, expr } = stmt else {
         return Err(Fail::internal("a component body is `let`s only"));
@@ -799,9 +808,13 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
       if held_here {
         out.state.insert(state_key(path, name), value.clone());
       }
+      if name == FOCUSABLE && env.server_mode {
+        focusables.push(value.clone());
+      }
       env.scope.push((name.clone(), value));
     }
     if !asked {
+      env.focusables.append(&mut focusables);
       break;
     }
     if pass == RERUN_LIMIT {

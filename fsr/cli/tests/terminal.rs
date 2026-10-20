@@ -79,9 +79,9 @@ fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state()
 
 #[test]
 fn a_component_that_would_render_in_a_browser_refuses_the_page_naming_it() {
-  let page = "import { Box, Text } from \"ink\";\nimport { useFocus } from \"ink\";\n\nfunction Item() {\n  const { isFocused } = useFocus();\n  return <Text>{isFocused ? \"on\" : \"off\"}</Text>;\n}\n\nexport default function Page() {\n  return <Box><Item /></Box>;\n}\n";
+  let page = "import { Box, Text } from \"ink\";\nimport { useBoxMetrics } from \"ink\";\n\nfunction Item() {\n  const { width } = useBoxMetrics();\n  return <Text>{width}</Text>;\n}\n\nexport default function Page() {\n  return <Box><Item /></Box>;\n}\n";
   let why = Session::open(&app(page)).err().expect("refused");
-  assert!(why.contains("Item") && why.contains("useFocus"), "{why}");
+  assert!(why.contains("Item") && why.contains("useBoxMetrics"), "{why}");
 }
 
 #[test]
@@ -121,4 +121,23 @@ fn a_stateful_component_a_page_places_draws_in_place_and_every_one_steps() {
   assert_eq!(timers.len(), 1);
   session.fire(&timers[0]).unwrap();
   assert_eq!(lines(&mut session), ["a: 1", "b: 1", "ticks: 1"]);
+}
+
+const FOCUS: &str = "import { Box, Text, useFocus, useFocusManager, useInput } from \"ink\";\n\nfunction Item({ label, id }: { label: string; id?: string }) {\n  const { isFocused } = useFocus({ id });\n  return <Text>{label}{isFocused ? \" *\" : \"\"}</Text>;\n}\n\nexport default function Page() {\n  const { focus } = useFocusManager();\n  useInput((input) => {\n    if (input === \"3\") focus(\"third\");\n  });\n  return (\n    <Box flexDirection=\"column\">\n      <Item label=\"one\" />\n      <Item label=\"two\" />\n      <Item label=\"three\" id=\"third\" />\n    </Box>\n  );\n}\n";
+
+#[test]
+fn tab_moves_the_focus_through_the_focusables_in_order_and_focus_names_one() {
+  let mut session = Session::open(&app(FOCUS)).unwrap();
+  let lines = |node| snapfire_fsr_terminal::render(&node, 20).lines().iter().map(|line| line.trim_end().to_owned()).collect::<Vec<_>>();
+  let press = |code, modifiers| match key_event(KeyEvent::new(code, modifiers)) {
+    Some(Press::Input(press)) => press,
+    _ => panic!("an input"),
+  };
+  assert_eq!(lines(session.view().unwrap()), ["one", "two", "three"]);
+  assert_eq!(lines(session.press(&press(KeyCode::Tab, KeyModifiers::NONE)).unwrap()), ["one *", "two", "three"]);
+  assert_eq!(lines(session.press(&press(KeyCode::Tab, KeyModifiers::NONE)).unwrap()), ["one", "two *", "three"]);
+  assert_eq!(lines(session.press(&press(KeyCode::BackTab, KeyModifiers::SHIFT)).unwrap()), ["one *", "two", "three"]);
+  assert_eq!(lines(session.press(&press(KeyCode::BackTab, KeyModifiers::SHIFT)).unwrap()), ["one", "two", "three *"], "Shift+Tab from the first wraps to the last");
+  assert_eq!(lines(session.press(&press(KeyCode::Esc, KeyModifiers::NONE)).unwrap()), ["one", "two", "three"]);
+  assert_eq!(lines(session.press(&press(KeyCode::Char('3'), KeyModifiers::NONE)).unwrap()), ["one", "two", "three *"]);
 }

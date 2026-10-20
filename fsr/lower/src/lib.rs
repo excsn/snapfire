@@ -162,6 +162,9 @@ pub const EXIT_STATE: &str = "$exit";
 pub const TERMINAL_COLUMNS: &str = "$terminal.columns";
 pub const TERMINAL_ROWS: &str = "$terminal.rows";
 
+/// The store key the terminal sets to the focused id, or null, which Ink's `useFocus` and `useFocusManager().activeId` read.
+pub const TERMINAL_FOCUS: &str = "$terminal.focus";
+
 /// The module `fsr` writes from `[mdx.collections]`, which a body may read:
 /// every content file under each collection's directory with its `meta` and `toc`.
 pub const CONTENT_MODULE: &str = "generated/content.ts";

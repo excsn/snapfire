@@ -4,12 +4,12 @@ The corpus in `fsr/examples/corpus` runs the 29 examples of Ink (MIT, at `26d2c3
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Runs in the terminal | 13 | the example lowers, its first frame draws and it steps on each of its timers and on a key as Ink's does |
+| Runs in the terminal | 15 | the example lowers, its first frame draws and it steps on each of its timers and on a key as Ink's does |
 | Not run by design | 4 | the example is built on an npm package the build does not follow or on `react-router`, whose routes FSR's own routes stand in for |
-| Refused | 12 | the example uses something FSR's terminal mode cannot run yet; a terminal has no browser to fall back on |
+| Refused | 10 | the example uses something FSR's terminal mode cannot run yet; a terminal has no browser to fall back on |
 | Total | 29 | |
 
-The examples that run are `alternate-screen`, `aria`, `border-backgrounds`, `borders`, `box-backgrounds`, `counter`, `justify-content`, `render-throttle`, `select-input`, `terminal-resize`, `use-input`, `use-stderr` and `use-stdout`. A frame that still holds a component the browser would render is refused, so a stateful component an example places counts only when it draws in place.
+The examples that run are `alternate-screen`, `aria`, `border-backgrounds`, `borders`, `box-backgrounds`, `counter`, `justify-content`, `render-throttle`, `select-input`, `terminal-resize`, `use-focus`, `use-focus-with-id`, `use-input`, `use-stderr` and `use-stdout`. A frame that still holds a component the browser would render is refused, so a stateful component an example places counts only when it draws in place.
 
 ## Only the first cause is listed
 
@@ -28,7 +28,6 @@ The build stops a component at its first cause, so removing one can uncover the 
 | --- | --- |
 | `Intl.Segmenter`, made at the top of the module | chat, use-transition |
 | A call made for its effect in a component body | concurrent-suspense |
-| `useFocus` and `useFocusManager` | use-focus, use-focus-with-id |
 | `useCursor`, `useBoxMetrics` and `useApp`'s `suspendTerminal` | cursor-ime, scroll, suspend-terminal |
 | `Static` | static |
 | A ref written during render | use-animation |

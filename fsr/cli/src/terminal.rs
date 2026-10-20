@@ -26,6 +26,9 @@ pub const MODULE: &str = "routes/page.tsx#default";
 /// How many lines the page wrote with `useStdout` or `useStderr` stay above it.
 const WRITTEN: usize = 200;
 
+/// How many times a step renders again for a focus that moved while it rendered.
+const FOCUS_PASSES: usize = 3;
+
 /// How long the loop waits for a key when no timer is due sooner.
 const IDLE: Duration = Duration::from_millis(100);
 
@@ -52,6 +55,9 @@ pub fn key_event(event: KeyEvent) -> Option<Press> {
   }
   if event.modifiers.contains(KeyModifiers::ALT) {
     on.push("meta");
+  }
+  if event.code == KeyCode::BackTab && !on.contains(&"shift") {
+    on.push("shift");
   }
   let input = match event.code {
     KeyCode::Char('c') if ctrl => return Some(Press::Exit),
@@ -102,6 +108,83 @@ pub struct Session {
   size: (u16, u16),
   written: Vec<String>,
   components: Vec<(String, String)>,
+  focus: Focus,
+  focusables_seen: Vec<Value>,
+  focus_acts: Vec<(String, Value)>,
+}
+
+/// Ink's focus: the focusables the page rendered last, in order, the one
+/// focused and whether Tab moves it.
+#[derive(Default)]
+struct Focus {
+  focusables: Vec<Focusable>,
+  focused: Option<String>,
+  disabled: bool,
+}
+
+struct Focusable {
+  id: String,
+  auto: bool,
+  active: bool,
+}
+
+impl Focus {
+  /// The active focusable after the focused one, or the first, as Ink's `focusNext` takes it; `back` goes the other way.
+  fn step(&mut self, back: bool) {
+    let active: Vec<&str> = self.focusables.iter().filter(|f| f.active).map(|f| f.id.as_str()).collect();
+    let at = self.focused.as_deref().and_then(|id| active.iter().position(|a| *a == id));
+    let next = match (at, back) {
+      (None, false) => active.first(),
+      (None, true) => active.last(),
+      (Some(at), false) => active.get(at + 1).or(active.first()),
+      (Some(at), true) => at.checked_sub(1).and_then(|before| active.get(before)).or(active.last()),
+    };
+    self.focused = next.map(|id| (*id).to_owned());
+  }
+
+  /// Takes the focusables a render bound: an autofocused one takes the focus when none holds it, and a focus whose focusable left or went inactive is dropped.
+  fn rendered(&mut self, found: &[Value]) {
+    self.focusables = found
+      .iter()
+      .filter_map(|value| {
+        let Value::Map(map) = value else { return None };
+        let id = match map.get("id")? {
+          Value::Str(id) => id.to_string(),
+          _ => return None,
+        };
+        Some(Focusable { id, auto: map.get("autoFocus") == Some(&Value::Bool(true)), active: map.get("isActive") != Some(&Value::Bool(false)) })
+      })
+      .collect();
+    if self.focused.as_ref().is_some_and(|id| !self.focusables.iter().any(|f| f.active && f.id == *id)) {
+      self.focused = None;
+    }
+    if self.focused.is_none() {
+      self.focused = self.focusables.iter().find(|f| f.active && f.auto).map(|f| f.id.clone());
+    }
+  }
+
+  /// Runs one of the acts `useFocus` and `useFocusManager` lower their functions to; false for any other act.
+  fn act(&mut self, action: &str, input: &Value) -> bool {
+    match action {
+      "$focus" => {
+        if let Value::Str(id) = input {
+          if self.focusables.iter().any(|f| f.id == **id) {
+            self.focused = Some(id.to_string());
+          }
+        }
+      }
+      "$focusNext" => self.step(false),
+      "$focusPrevious" => self.step(true),
+      "$focusEnable" => self.disabled = false,
+      "$focusDisable" => self.disabled = true,
+      _ => return false,
+    }
+    true
+  }
+
+  fn value(&self) -> Value {
+    self.focused.as_ref().map_or(Value::Null, |id| Value::Str(id.as_str().into()))
+  }
 }
 
 impl Session {
@@ -112,7 +195,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())] })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new() })
   }
 
   /// The page as it stands.
@@ -122,6 +205,14 @@ impl Session {
 
   /// The page after every `useInput` handler it renders runs on `press`, as Ink gives a key to each; as it stands when it has none.
   pub fn press(&mut self, press: &Value) -> Result<Node, String> {
+    let key = |name: &str| matches!(press, Value::Map(press) if matches!(press.get("key"), Some(Value::Map(key)) if key.get(name) == Some(&Value::Bool(true))));
+    if !self.focus.disabled {
+      match (key("tab"), key("shift"), key("escape")) {
+        (true, shift, _) => self.focus.step(shift),
+        (false, _, true) => self.focus.focused = None,
+        _ => {}
+      }
+    }
     let heard: Vec<HandlerRef> = self.handlers().filter(|(_, _, event)| *event == "input").map(|(path, index, _)| HandlerRef::at(path, index)).collect();
     if heard.is_empty() {
       return self.run(None, &Value::Null);
@@ -176,28 +267,52 @@ impl Session {
     self.run(Some(HandlerRef::at(timer.path.clone(), timer.handler)), &Value::Null)
   }
 
+  /// Steps `handler` on `event` and renders, then renders again while that moved the focus, so `isFocused` reads where it landed.
   fn run(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<Node, String> {
+    let mut html = self.render(handler, event)?;
+    for _ in 0..FOCUS_PASSES {
+      let before = self.focus.focused.clone();
+      let found = std::mem::take(&mut self.focusables_seen);
+      self.focus.rendered(&found);
+      let acts = std::mem::take(&mut self.focus_acts);
+      for (action, input) in &acts {
+        self.focus.act(action, input);
+      }
+      if self.focus.focused == before && acts.is_empty() {
+        break;
+      }
+      html = self.render(None, &Value::Null)?;
+    }
+    let page = from_markup(&html)?;
+    if self.written.is_empty() {
+      return Ok(page);
+    }
+    Ok(Node::Box(Boxed::new().column().child(Text::plain(&self.written.join("\n"))).child(page)))
+  }
+
+  /// One step of the page: its acts taken, its state held and its markup.
+  fn render(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<String, String> {
     let component = self.library.get(&self.module).ok_or_else(|| format!("{} did not lower", self.module))?.clone();
     let mut store = ValueMap::default();
     store.insert(snapfire_fsr_lower::TERMINAL_COLUMNS.to_owned(), Value::Int(self.size.0.into()));
     store.insert(snapfire_fsr_lower::TERMINAL_ROWS.to_owned(), Value::Int(self.size.1.into()));
+    store.insert(snapfire_fsr_lower::TERMINAL_FOCUS.to_owned(), self.focus.value());
     let mut props = ValueMap::default();
     props.insert("$store".to_owned(), Value::Map(store));
     let stepped = Interpreter::default().island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
-    for (action, value) in &stepped.acts {
-      if let ("$stdout" | "$stderr", Value::Str(text)) = (action.as_str(), value) {
-        self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned));
+    for (action, value) in stepped.acts {
+      match (action.as_str(), &value) {
+        ("$stdout" | "$stderr", Value::Str(text)) => self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned)),
+        (focus, _) if focus.starts_with("$focus") => self.focus_acts.push((action, value)),
+        _ => {}
       }
     }
     let excess = self.written.len().saturating_sub(WRITTEN);
     self.written.drain(..excess);
     self.state = stepped.state;
     self.components = stepped.components;
-    let page = from_markup(&stepped.rendered.html)?;
-    if self.written.is_empty() {
-      return Ok(page);
-    }
-    Ok(Node::Box(Boxed::new().column().child(Text::plain(&self.written.join("\n"))).child(page)))
+    self.focusables_seen = stepped.focusables;
+    Ok(stepped.rendered.html)
   }
 }
 
