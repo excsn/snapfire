@@ -74,6 +74,34 @@ fsr serve app --desktop
 
 Desktop mode is experimental. Today the window loads the host over a loopback port. Its menu bar has back, forward, reload and the clipboard. Its title is `[desktop] name` followed by the page's title. It is tried on macOS only; the Windows and Linux code is written but has not been built or run. Packaging, signing and a native bridge for page code do not exist yet. See [Opening the App in a Window](cli/README.USAGE.md#opening-the-app-in-a-window).
 
+## Terminal apps (experimental)
+
+FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal: Ink's `Box`, `Text`, `Spacer`, `Newline` and `useInput`, imported from `ink` itself, so an Ink file needs no changes to run. Ink is what Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with, and it runs every one of them on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the cells that changed rewritten. That is the base for high-performance terminal apps of that kind.
+
+```tsx
+import { useState } from "react";
+import { Box, Text, useInput } from "ink";
+
+export default function Counter() {
+  const [count, setCount] = useState(0);
+  useInput((input, key) => {
+    if (input === "+" || key.upArrow) setCount(count + 1);
+  });
+  return (
+    <Box borderStyle="round" paddingX={1}>
+      <Text>Count: {count}</Text>
+    </Box>
+  );
+}
+```
+
+```sh
+cargo install snapfire_fsr_cli --features terminal
+fsr dev app --terminal
+```
+
+Terminal mode is experimental. Today it runs the app's root page, `routes/page.tsx`, in React with `useState` and `useInput`; a handler sets state or calls an action. `useEffect` and timers, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks and percentage sizes are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
+
 ## Architecture
 
 FSR treats backend logic and client presentation as one set of composable blocks. 

@@ -40,6 +40,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
 * [Opening the App in a Window](#opening-the-app-in-a-window)
+* [Running a Terminal App](#running-a-terminal-app)
 * [Rendering a Route with Tera](#rendering-a-route-with-tera)
 * [Writing Pages in MDX](#writing-pages-in-mdx)
   * [Importing a file and picking one by its data](#importing-a-file-and-picking-one-by-its-data)
@@ -1271,6 +1272,45 @@ cookies = "disk"
 ```
 
 `fsr serve app --desktop` prints the routes that stream and refuses `--listen` under the scheme. `fsr doctor` reports a scheme window over a route that streams as a `desktop` finding.
+
+## Running a Terminal App
+
+Terminal mode is experimental. With the `terminal` feature, `fsr dev --terminal` runs the app's root page in this terminal instead of serving it. The page is an Ink component: `Box`, `Text`, `Spacer`, `Newline` and `useInput` come from `ink`, or from `@snapfire/fsr/terminal`, which exports the same names. No Node runs and nothing is served.
+
+```sh
+cargo install --path fsr/cli --features terminal
+fsr dev app --terminal
+```
+
+```tsx
+// app/routes/page.tsx
+import { useState } from "react";
+import { Box, Spacer, Text, useInput } from "ink";
+
+export default function Status() {
+  const [done, setDone] = useState(0);
+  useInput((input, key) => {
+    if (input === " " || key.return) setDone(done + 1);
+    if (input === "u" && done > 0) setDone(done - 1);
+  });
+  return (
+    <Box flexDirection="column" borderStyle="round" paddingX={1} width={30}>
+      <Box>
+        <Text bold>Tasks</Text>
+        <Spacer />
+        <Text color={done === 3 ? "green" : "yellow"}>{done}/3</Text>
+      </Box>
+      <Text dimColor>space marks one done, u undoes</Text>
+    </Box>
+  );
+}
+```
+
+Each key runs the `useInput` handler with Ink's `(input, key)`: `input` is the character typed, empty for a named key, and `key` carries `upArrow`, `downArrow`, `leftArrow`, `rightArrow`, `pageUp`, `pageDown`, `return`, `escape`, `tab`, `backspace`, `delete`, `ctrl`, `shift` and `meta`. The handler sets state or calls an action, as an `onClick` handler does; the page redraws and only the cells that changed are written. Ctrl-C quits, as Ink's does by default.
+
+A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
+
+`useEffect` and timers, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks, percentage sizes and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 

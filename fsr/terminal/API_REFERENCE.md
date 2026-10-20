@@ -1,0 +1,122 @@
+# API Reference: snapfire_fsr_terminal
+
+Ink's `Box` and `Text` laid out with flexbox and drawn to a terminal as cells.
+
+## Contents
+
+* [1. Elements](#1-elements)
+  * [Node](#node)
+  * [Boxed](#boxed)
+  * [BoxStyle](#boxstyle)
+  * [Text](#text)
+  * [Inline](#inline)
+  * [Direction, Justify, Align, Border and Wrap](#direction-justify-align-border-and-wrap)
+* [2. Styles](#2-styles)
+  * [Color](#color)
+  * [Style](#style)
+* [3. Drawing](#3-drawing)
+  * [render](#render)
+  * [Frame](#frame)
+  * [Cell](#cell)
+* [4. Markup](#4-markup)
+  * [from_markup](#from_markup)
+* [5. Error Handling](#5-error-handling)
+
+## 1. Elements
+
+### Node
+
+* `pub enum Node { Box(Boxed), Text(Text) }`, with `From<Boxed>` and `From<Text>`.
+
+### Boxed
+
+Ink's `Box`.
+
+* `pub struct Boxed { pub style: BoxStyle, pub children: Vec<Node> }`, `Default`.
+* `pub fn new() -> Self`
+* `pub fn child(self, child: impl Into<Node>) -> Self`
+* `pub fn column(self) -> Self`
+* `pub fn gap(self, cells: u16) -> Self`
+* `pub fn padding(self, cells: u16) -> Self`, `padding_x`, `padding_y`
+* `pub fn margin(self, cells: u16) -> Self`
+* `pub fn width(self, cells: u16) -> Self`, `height`
+* `pub fn grow(self, grow: f32) -> Self`
+* `pub fn justify(self, justify: Justify) -> Self`
+* `pub fn align(self, align: Align) -> Self`
+* `pub fn border(self, border: Border) -> Self`
+* `pub fn border_color(self, color: Color) -> Self`
+
+### BoxStyle
+
+* `pub struct BoxStyle { pub direction: Direction, pub gap: u16, pub padding: [u16; 4], pub margin: [u16; 4], pub width: Option<u16>, pub height: Option<u16>, pub grow: f32, pub shrink: Option<f32>, pub justify: Option<Justify>, pub align: Option<Align>, pub border: Option<Border>, pub border_color: Option<Color> }`, `Default`. `padding` and `margin` are top, right, bottom and left in cells. `shrink` is 1 when `None`. A border takes one cell on each side.
+
+### Text
+
+Ink's `Text`. A nested `Text` adds its style to the one around it.
+
+* `pub struct Text { pub style: Style, pub wrap: Wrap, pub children: Vec<Inline> }`, `Default`.
+* `pub fn new() -> Self`, `pub fn plain(text: &str) -> Self`
+* `pub fn str(self, text: &str) -> Self`, `pub fn child(self, text: Text) -> Self`
+* `pub fn color(self, color: Color) -> Self`, `background`
+* `pub fn bold(self) -> Self`, `dim`, `italic`, `underline`, `strikethrough`, `inverse`
+* `pub fn truncate(self) -> Self`: one line ending in `…` when it does not fit.
+
+### Inline
+
+* `pub enum Inline { Str(String), Text(Text) }`: what a `Text` holds. A `\n` in a string breaks the line.
+
+### Direction, Justify, Align, Border and Wrap
+
+* `pub enum Direction { Row, Column }`, `Row` by default.
+* `pub enum Justify { Start, Center, End, SpaceBetween, SpaceAround }`
+* `pub enum Align { Start, Center, End, Stretch }`
+* `pub enum Border { Single, Double, Round, Bold, Classic }`: `┌─┐`, `╔═╗`, `╭─╮`, `┏━┓` and `+-+`.
+* `pub enum Wrap { Wrap, Truncate }`, `Wrap` by default.
+
+## 2. Styles
+
+### Color
+
+* `pub enum Color { Ansi(u8), Rgb(u8, u8, u8) }`
+* `pub fn parse(text: &str) -> Option<Self>`: `black` through `white` as `Ansi(0)` to `Ansi(7)`, their `…Bright` forms as `Ansi(8)` to `Ansi(15)`, `gray` and `grey` as `Ansi(8)`, `#rrggbb` and `rgb(r, g, b)` as `Rgb`. `None` for anything else.
+
+### Style
+
+* `pub struct Style { pub color: Option<Color>, pub background: Option<Color>, pub bold: bool, pub dim: bool, pub italic: bool, pub underline: bool, pub strikethrough: bool, pub inverse: bool }`, `Copy`, `Default`.
+* `pub fn over(&self, around: &Style) -> Style`: a color this sets wins and a flag either sets is on.
+* `pub fn is_plain(&self) -> bool`
+* `pub fn sgr(&self) -> String`: `ESC[<codes>m` with the attributes first (1 bold, 2 dim, 3 italic, 4 underline, 7 inverse, 9 strikethrough), then the foreground (30 to 37, 90 to 97, `38;5;n`, `38;2;r;g;b`), then the background in the 40, 100 and 48 forms.
+
+## 3. Drawing
+
+### render
+
+* `pub fn render(node: &Node, columns: u16) -> Frame`: lays `node` out inside a root column `columns` cells wide that stretches its children as Ink's root does, then draws it. The frame is `columns` wide and as tall as the layout.
+
+### Frame
+
+* `pub struct Frame { pub width: usize, pub height: usize, … }`, `Clone`, `PartialEq`.
+* `pub fn new(width: usize, height: usize) -> Self`: blank cells.
+* `pub fn cell(&self, x: usize, y: usize) -> Cell`: a blank cell outside the frame.
+* `pub fn put(&mut self, x: usize, y: usize, ch: char, style: Style)`: a wide character takes two cells; one that would not fit is not drawn and neither is a zero-width one.
+* `pub fn lines(&self) -> Vec<String>`: each row as plain text with trailing blanks dropped.
+* `pub fn to_ansi(&self) -> String`: each row with its styles, rows joined by `\n`, trailing blanks dropped, every styled run ending in `ESC[0m`.
+* `pub fn diff(&self, previous: &Frame) -> String`: `ESC[<row>;<column>H` before each run of changed cells, then `ESC[<row>;1H ESC[2K` for each row of `previous` past this frame's height. Empty when the frames are equal. Positions are 1-based from the top left.
+
+### Cell
+
+* `pub struct Cell { pub ch: char, pub style: Style, pub tail: bool }`, `Copy`. `tail` marks the second cell of a wide character, which its first cell draws.
+
+## 4. Markup
+
+### from_markup
+
+* `pub fn from_markup(markup: &str) -> Result<Node, String>`: reads `ink-box`, `ink-text`, `ink-spacer` and `ink-newline` with their props as kebab-case attributes, the form `snapfire_fsr_lower` lowers Ink's `Box`, `Text`, `Spacer` and `Newline` to. Several top-level elements become one column.
+* `ink-box` reads `flex-direction`, `gap`, `column-gap`, `row-gap`, `padding`, `padding-x`, `padding-y`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left`, the same `margin` forms, `width`, `height` (whole cells), `flex-grow`, `flex-shrink`, `justify-content`, `align-items`, `border-style` and `border-color`. Others are ignored.
+* `ink-text` reads `color`, `background-color`, `bold`, `dim-color`, `italic`, `underline`, `strikethrough`, `inverse` and `wrap` (`truncate…` truncates). A flag is on unless its value is `false`.
+* `ink-spacer` is a box with `flex-grow` 1. `ink-newline` is a `\n`.
+* `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&#x27;` are decoded. Comments are skipped.
+
+## 5. Error Handling
+
+`render` and the `Frame` methods do not fail. `from_markup` answers `Err(String)` for a tag that is not one of the four (``"`<div>` is not an Ink element"``), an element inside an `ink-text` other than `ink-text` or `ink-newline`, an end tag that closes nothing open, an element never closed, an unquoted attribute value and a `Box` size that is not a whole number of cells.

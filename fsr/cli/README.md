@@ -17,6 +17,7 @@ cargo install --path fsr/cli --no-default-features --features tera
 | --- | --- | --- |
 | `tera` | on | `page.tera` and `layout.tera` routes, rendered by the stock host |
 | `tls` | off | TLS in the stock host |
+| `terminal` | off | Experimental. `fsr dev --terminal`: the root page run in the terminal with Ink's elements and `useInput`, through `snapfire_fsr_terminal` and crossterm |
 | `client-source-maps` | off | The browser client's source maps, with its TypeScript, served beside it so devtools show the client's source; about 1.3 MB |
 | `desktop` | off | Experimental. `fsr dev --desktop` and `fsr serve --desktop`: the application in a native window over the system webview, through wry, tao and muda |
 | `mdx` | on | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
