@@ -141,3 +141,18 @@ fn tab_moves_the_focus_through_the_focusables_in_order_and_focus_names_one() {
   assert_eq!(lines(session.press(&press(KeyCode::Esc, KeyModifiers::NONE)).unwrap()), ["one", "two", "three"]);
   assert_eq!(lines(session.press(&press(KeyCode::Char('3'), KeyModifiers::NONE)).unwrap()), ["one", "two", "three *"]);
 }
+
+const SEARCH: &str = "import { useState, useTransition } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nconst segmenter = new Intl.Segmenter(undefined, { granularity: \"grapheme\" });\n\nfunction deleteLastGrapheme(text: string): string {\n  const last = segmenter.segment(text).containing(text.length - 1);\n  return text.slice(0, last?.index ?? 0);\n}\n\nexport default function Search() {\n  const [query, setQuery] = useState(\"\");\n  const [deferred, setDeferred] = useState(\"\");\n  const [isPending, startTransition] = useTransition();\n  useInput((input, key) => {\n    if (key.backspace) {\n      setQuery(deleteLastGrapheme);\n      startTransition(() => {\n        setDeferred(deleteLastGrapheme);\n      });\n    } else if (input !== \"\") {\n      setQuery((q) => q + input);\n      startTransition(() => setDeferred((q) => q + input));\n    }\n  });\n  return <Text>{query}|{deferred}|{isPending ? \"pending\" : \"done\"}</Text>;\n}\n";
+
+#[test]
+fn a_backspace_deletes_the_last_grapheme_and_a_transition_runs_in_place() {
+  let mut session = Session::open(&app(SEARCH)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  let press = |code| match key_event(KeyEvent::new(code, KeyModifiers::NONE)) {
+    Some(Press::Input(press)) => press,
+    _ => panic!("an input"),
+  };
+  session.press(&press(KeyCode::Char('a'))).unwrap();
+  assert_eq!(line(session.press(&press(KeyCode::Char('👍'))).unwrap()), "a👍|a👍|done");
+  assert_eq!(line(session.press(&press(KeyCode::Backspace)).unwrap()), "a|a|done", "the emoji is one grapheme of two UTF-16 units");
+}

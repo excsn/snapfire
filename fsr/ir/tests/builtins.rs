@@ -249,3 +249,23 @@ async fn includes_finds_a_number_whatever_its_representation_and_finds_nan() {
   assert_eq!(interp.evaluate(&has(vec![Lit::Float(f64::NAN)], Lit::Float(f64::NAN)), Vec::new()).await.unwrap(), Value::Bool(true));
   assert_eq!(interp.evaluate(&has(vec![Lit::Int(1)], Lit::Str("1".to_owned())), Vec::new()).await.unwrap(), Value::Bool(false));
 }
+
+#[tokio::test]
+async fn graphemes_split_as_intl_segmenter_does_with_utf16_indexes() {
+  let interp = Interpreter::default();
+  let text = "a👍🏽e\u{301}";
+  let all = Expr::Builtin { name: Builtin::Graphemes, args: vec![str(text)] };
+  let segment = |s: &str, index: f64| {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("segment".to_owned(), Value::str(s));
+    map.insert("index".to_owned(), Value::F64(index));
+    map.insert("input".to_owned(), Value::str(text));
+    Value::Map(map)
+  };
+  assert_eq!(interp.evaluate(&all, Vec::new()).await.unwrap(), Value::Seq(vec![segment("a", 0.0), segment("👍🏽", 1.0), segment("e\u{301}", 5.0)].into()));
+  let at = |i: f64| Expr::Builtin { name: Builtin::Graphemes, args: vec![str(text), Expr::Lit(Lit::Float(i))] };
+  assert_eq!(interp.evaluate(&at(3.0), Vec::new()).await.unwrap(), segment("👍🏽", 1.0), "an index inside a cluster finds the cluster");
+  assert_eq!(interp.evaluate(&at(6.0), Vec::new()).await.unwrap(), segment("e\u{301}", 5.0));
+  assert_eq!(interp.evaluate(&at(7.0), Vec::new()).await.unwrap(), Value::Null, "past the end is undefined");
+  assert_eq!(interp.evaluate(&at(-1.0), Vec::new()).await.unwrap(), Value::Null);
+}

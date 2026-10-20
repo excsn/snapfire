@@ -277,6 +277,8 @@ pub enum Builtin {
   CodePointAt,
   /// `x.toString(radix)`: a number's digits in a radix from 2 to 36, anything else as `String(x)`. In a radix other than 10 a number with a fraction is an error. So is one past 2^53 in a radix that is not a power of 2, since engines print their digits differently.
   Radix,
+  /// `new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(s)`: each extended grapheme cluster of `s` as `{ segment, index, input }`, `index` a UTF-16 offset. With an index as the second argument, `.containing(i)`: the cluster holding UTF-16 index `i`, null past either end.
+  Graphemes,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is

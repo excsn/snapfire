@@ -145,6 +145,7 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::CharCodeAt => "char-code-at",
     Builtin::CodePointAt => "code-point-at",
     Builtin::Radix => "radix",
+    Builtin::Graphemes => "graphemes",
   }
 }
 
@@ -217,6 +218,7 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "char-code-at" => Builtin::CharCodeAt,
     "code-point-at" => Builtin::CodePointAt,
     "radix" => Builtin::Radix,
+    "graphemes" => Builtin::Graphemes,
     _ => return None,
   })
 }

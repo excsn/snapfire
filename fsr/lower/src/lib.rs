@@ -2453,6 +2453,29 @@ impl<'a> Lowerer<'a> {
         return Ok(Expr::Map(range, Box::new(Expr::Lambda { params: vec!["$filled".to_owned()], body: Box::new(value) })));
       }
     }
+    if method == "segment" || method == "containing" {
+      let (segmenter, text) = match (method.as_str(), strip_parens(&member.obj)) {
+        ("segment", obj) => (self.formatter_of(obj), call.args.first().map(|a| (*a.expr).clone())),
+        ("containing", js::Expr::Call(inner)) => match &inner.callee {
+          js::Callee::Expr(callee) => match strip_parens(callee) {
+            js::Expr::Member(m) if matches!(&m.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "segment") => (self.formatter_of(&m.obj), inner.args.first().map(|a| (*a.expr).clone())),
+            _ => (None, None),
+          },
+          _ => (None, None),
+        },
+        _ => (None, None),
+      };
+      if let Some(made) = segmenter.filter(|made| intl_formatter(made) == Some("Segmenter")) {
+        self.grapheme_segmenter(&made)?;
+        let text = text.ok_or_else(|| self.residue(call.span, "`segment` without a string"))?;
+        let mut args = vec![self.expr(&text)?];
+        if method == "containing" {
+          let at = call.args.first().ok_or_else(|| self.residue(call.span, "`containing` without an index"))?;
+          args.push(self.expr(&at.expr)?);
+        }
+        return Ok(Expr::Builtin { name: Builtin::Graphemes, args });
+      }
+    }
     if method == "format" {
       if let Some(made) = self.formatter_of(&member.obj) {
         if let Some(formatter) = intl_formatter(&made) {
@@ -2867,6 +2890,30 @@ impl<'a> Lowerer<'a> {
     Ok(Expr::Num(Box::new(Expr::Ext { module: "time".to_owned(), name: "now".to_owned(), args: Vec::new() })))
   }
 
+  /// Refuses an `Intl.Segmenter` the build does not split as the browser would: one outside a terminal, whose browser may hold other Unicode tables, and one whose granularity is not `"grapheme"`.
+  fn grapheme_segmenter(&mut self, made: &js::NewExpr) -> Lowered<()> {
+    if !self.terminal {
+      return Err(self.browser_only(made.span, "`Intl.Segmenter`, which splits by the browser's own Unicode tables"));
+    }
+    let granularity = made.args.as_ref().and_then(|args| args.get(1)).map(|options| match &*options.expr {
+      js::Expr::Object(obj) => obj.props.iter().find_map(|prop| match prop {
+        js::PropOrSpread::Prop(prop) => match &**prop {
+          js::Prop::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("granularity") => Some(match &*kv.value {
+            js::Expr::Lit(js::Lit::Str(s)) => s.value.to_atom_lossy().to_string(),
+            _ => String::new(),
+          }),
+          _ => None,
+        },
+        _ => None,
+      }),
+      _ => Some(String::new()),
+    });
+    match granularity.flatten().as_deref() {
+      None | Some("grapheme") => Ok(()),
+      Some(_) => Err(self.residue_with(made.span, "an `Intl.Segmenter` whose granularity is not `\"grapheme\"`", "a terminal splits text into graphemes; write `{ granularity: \"grapheme\" }`")),
+    }
+  }
+
   /// `new Intl.NumberFormat(locale, options).format(value)` and `new Intl.DateTimeFormat(locale, options).format(value)` as the `intl` member that formats the same way under the request's locale, or under the locale written there.
   fn intl_format(&mut self, formatter: &str, made: &[js::ExprOrSpread], value: Expr, span: Span) -> Lowered<Expr> {
     let locale = match made.first().map(|a| strip_parens(&a.expr)) {
@@ -3156,6 +3203,7 @@ pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
     "NumberFormat" => Some("NumberFormat"),
     "DateTimeFormat" => Some("DateTimeFormat"),
     "ListFormat" => Some("ListFormat"),
+    "Segmenter" => Some("Segmenter"),
     _ => None,
   }
 }

@@ -2981,6 +2981,36 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       };
       whole(f64::from(point))
     }
+    Builtin::Graphemes => {
+      use unicode_segmentation::UnicodeSegmentation;
+      let input = text(name, arg(0)?)?;
+      let at = match args.get(1) {
+        None => None,
+        Some(v) => Some(to_number(v).ok_or_else(|| type_error(&format!("{name:?}"), "a number", v))?),
+      };
+      let mut segments = Vec::new();
+      let mut index = 0usize;
+      for segment in input.graphemes(true) {
+        let units = segment.encode_utf16().count();
+        let made = || {
+          let mut map = ValueMap::default();
+          map.insert("segment".to_owned(), Value::str(segment));
+          map.insert("index".to_owned(), Value::F64(index as f64));
+          map.insert("input".to_owned(), Value::str(input));
+          Value::Map(map)
+        };
+        match at {
+          Some(at) if at >= index as f64 && at < (index + units) as f64 => return Ok(made()),
+          Some(_) => {}
+          None => segments.push(made()),
+        }
+        index += units;
+      }
+      match at {
+        Some(_) => Value::Null,
+        None => Value::seq(segments),
+      }
+    }
     Builtin::Radix => {
       let radix = match args.get(1) {
         None | Some(Value::Null) => 10.0,

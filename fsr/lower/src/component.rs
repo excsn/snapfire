@@ -1182,7 +1182,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -2177,6 +2177,7 @@ impl ComponentSet {
   fn lower_global(&mut self, file: &str, item: Global<'_>) -> Result<Expr, LowerError> {
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
+    let mut global_formatters = Vec::new();
     loop {
       let parsed = self.parsed[file].clone();
       let defaults = self.defaults.clone();
@@ -2186,6 +2187,7 @@ impl ComponentSet {
       lowerer.meanings = Some(meanings);
       lowerer.globals = globals.clone();
       lowerer.global_kinds = global_kinds.clone();
+      lowerer.global_formatters = global_formatters.clone();
       lowerer.natives = self.natives.clone();
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
@@ -2201,6 +2203,9 @@ impl ComponentSet {
           let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
+          }
+          if let Some(made) = self.global_formatter(file, &name)? {
+            global_formatters.push((name.clone(), made));
           }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
@@ -5153,6 +5158,8 @@ struct ComponentLowerer<'a, 'p> {
   held_refs: Vec<String>,
   /// Each terminal `useReducer` dispatcher with the state it sets and the reducer it runs.
   dispatchers: Vec<(String, String, Expr)>,
+  /// A terminal's `startTransition` functions, whose callback a handler runs in place.
+  transitions: Vec<String>,
 }
 
 /// Where the browser gets a function passed as a prop: the placement and prop it went to, the value the server holds and the module id `file#export` the browser imports it from or else why the browser cannot reach it. `needs` is what the rewrite and the bundle add for the id to resolve.
@@ -6348,7 +6355,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let name = id.id.sym.to_string();
       let state = hook == "useActionState" && at == 0;
       match part {
-        None => self.browser_function(name),
+        None => {
+          if hook == "useTransition" && self.lowerer.terminal {
+            self.transitions.push(name.clone());
+          }
+          self.browser_function(name)
+        }
         Some(lit @ Expr::Lit(_)) if !state => self.lowerer.scope.push((name, lit)),
         Some(expr) => {
           if state {
@@ -7595,6 +7607,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               walk.act(action.to_owned(), input);
               return Ok(());
             }
+            if self.transitions.contains(&name) {
+              let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.lowerer.residue(call.span, "`startTransition` of something other than an arrow")) };
+              return match &*arrow.body {
+                js::ArrowFunctionBody::FunctionBody(block) => self.handler_block(&block.stmts, walk).map(|_| ()),
+                js::ArrowFunctionBody::Expr(e) => self.handler_stmt(e, walk),
+              };
+            }
             if let Some((_, state, reducer)) = self.dispatchers.iter().find(|(d, _, _)| *d == name).cloned() {
               let action = match call.args.first() {
                 Some(arg) => self.lowerer.expr(&arg.expr)?,
@@ -7622,7 +7641,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                   self.lowerer.scope.truncate(depth);
                   value?
                 }
-                other => self.lowerer.expr(other)?,
+                other => match self.lowerer.expr(other)? {
+                  updater @ Expr::Lambda { .. } => Expr::Apply { f: Box::new(updater), args: vec![Expr::Var(state.clone())] },
+                  value => value,
+                },
               };
               walk.set(state, value);
               return Ok(());
