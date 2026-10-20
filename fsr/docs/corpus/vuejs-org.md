@@ -1,11 +1,11 @@
 # vuejs.org on the server
 
-The corpus in `fsr/examples/corpus` builds the 35 examples and tutorial steps from vuejs.org (CC BY 4.0, at `40aa88af0094f7bab4aaf786e55c748a6a251d88`), each in its Composition API and its Options API form, through FSR as one application per program and records what the build made of each in `vue_outcomes.txt`. Run it from `fsr/examples` with `snapfirec-vue` on `PATH`: `cargo test -p corpus --test vuejs_org`. The counts here are from `dfc5a867`.
+The corpus in `fsr/examples/corpus` builds the 35 examples and tutorial steps from vuejs.org (CC BY 4.0, at `40aa88af0094f7bab4aaf786e55c748a6a251d88`), each in its Composition API and its Options API form, through FSR as one application per program and records what the build made of each in `vue_outcomes.txt`. Run it from `fsr/examples` with `snapfirec-vue` on `PATH`: `cargo test -p corpus --test vuejs_org`. The counts here are from `8e5253ab`.
 
 | Outcome | Programs | Meaning |
 | --- | --- | --- |
-| Lowered whole | 56 | the server renders every component on the page as Vue's own server renderer writes it |
-| Client side rendered, lowerable | 2 | a component renders in the browser because it uses something the build does not render on the server yet |
+| Lowered whole | 58 | the server renders every component on the page as Vue's own server renderer writes it |
+| Client side rendered, lowerable | 0 | a component renders in the browser because it uses something the build does not render on the server yet |
 | Client side rendered by design | 12 | a component renders in the browser for a reason that holds under any server renderer |
 | Refused | 0 | the build stops |
 | Total | 70 | |
@@ -17,12 +17,6 @@ A component that is client side rendered still works: it renders in the browser 
 The build stops a module at its first cause and a component that fails never lowers its children. A program names the first thing in each component the build could not render, so removing one cause can uncover the next.
 
 ## What sends a component to the browser
-
-### Lowerable
-
-| Cause | Programs | What the server does not render yet |
-| --- | --- | --- |
-| A child that emits during setup, tutorial step 13 | 2 | A child's setup writing its parent's state before the rest of the parent renders |
 
 ### By design
 
