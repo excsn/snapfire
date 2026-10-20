@@ -71,6 +71,7 @@ The build lowers every component, so the server writes their markup with Svelte'
 | Optimistic store writes from Svelte | `Progress` around `optimistic(doneCount, ...)` |
 | A legacy component beside runes | `Tally` in the masthead, `Progress` on the page |
 | A shared runes module | `recent.svelte.ts`, written by one island and read by another |
+| FSR's components in a Svelte file | `Recent` writes `<Link>` from `@snapfire/fsr/components`, which the build gives as a Svelte component |
 | Islands on load and on idle | `<Island when="load">` around `Tally` and `Progress`, `<Island when="idle">` around `Recent` |
 | Svelte's template features rendered on the server | `/stats`: snippets passed to a child, slots, scoped styles, stores, a component chosen at run time, `svelte:element`, `{#key}`, `{#await}`, `{@html}` and `<svelte:boundary>` |
 | Client navigation keeping layout state | open two books: the side column keeps its list while the page region is replaced |
