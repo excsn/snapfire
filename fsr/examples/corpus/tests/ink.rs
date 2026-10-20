@@ -1,11 +1,12 @@
 //! Every example of Ink run as a terminal application of its own, its outcome
-//! held against `ink_outcomes.txt`: `rendered` when its first frame draws, or
-//! the reason it does not. `CORPUS_BLESS=1` rewrites the file from this run;
+//! held against `ink_outcomes.txt`: `rendered` when its first frame draws and
+//! it steps on each of its timers and on a key, or the reason it does not. `CORPUS_BLESS=1` rewrites the file from this run;
 //! `CORPUS_FRAMES=1` prints each first frame.
 
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_cli::terminal::Session;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use snapfire_fsr_cli::terminal::{key_event, Press, Session};
 
 const INK_SOURCE: &str = "'../../src/index.js'";
 
@@ -85,9 +86,19 @@ fn outcome(example: &Path, scratch: &Path) -> String {
     Err(why) => return first(why.replace(&app.display().to_string(), "<app>")),
   };
   match session.view() {
+    Ok(node) if snapfire_fsr_terminal::render(&node, 80).lines().iter().any(|line| line.contains("sf-island:")) => "refused: draws a component in place of a browser's island".to_owned(),
     Ok(node) if !snapfire_fsr_terminal::render(&node, 80).lines().iter().all(String::is_empty) => {
       if std::env::var_os("CORPUS_FRAMES").is_some_and(|v| v == "1") {
         println!("== {}\n{}", example.file_name().unwrap().to_string_lossy(), snapfire_fsr_terminal::render(&node, 80).lines().join("\n"));
+      }
+      for timer in session.timers() {
+        if let Err(why) = session.fire(&timer) {
+          return first(format!("a timer's step fails: {why}"));
+        }
+      }
+      let Some(Press::Input(space)) = key_event(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)) else { unreachable!("a space is input") };
+      if let Err(why) = session.press(&space) {
+        return first(format!("a key's step fails: {why}"));
       }
       "rendered".to_owned()
     }

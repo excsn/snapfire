@@ -1,29 +1,36 @@
 # Ink in the terminal
 
-The corpus in `fsr/examples/corpus` runs the 29 examples of Ink (MIT, at `26d2c3f`) through FSR's terminal mode as one application per example and records what each one does in `ink_outcomes.txt`. Each example's `render(…)` names what it draws, which the harness makes the root component; Ink's own source is imported as `ink`. Run it from `fsr/examples`: `cargo test -p corpus --test ink`. The counts here are from `6ea2c687`.
+The corpus in `fsr/examples/corpus` runs the 29 examples of Ink (MIT, at `26d2c3f`) through FSR's terminal mode as one application per example and records what each one does in `ink_outcomes.txt`. Each example's `render(…)` names what it draws, which the harness makes the root component; Ink's own source is imported as `ink`. Run it from `fsr/examples`: `cargo test -p corpus --test ink`. The counts here are from `7f54a389` and the commits after it.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Runs in the terminal | 12 | the example lowers, its first frame draws and its keys, timers and `exit` run as Ink's do |
-| Refused | 17 | the example uses something FSR's terminal mode cannot run yet; a terminal has no browser to fall back on |
+| Runs in the terminal | 13 | the example lowers, its first frame draws and it steps on each of its timers and on a key as Ink's does |
+| Not run by design | 4 | the example is built on an npm package the build does not follow or on `react-router`, whose routes FSR's own routes stand in for |
+| Refused | 12 | the example uses something FSR's terminal mode cannot run yet; a terminal has no browser to fall back on |
 | Total | 29 | |
 
-The examples that run are `aria`, `border-backgrounds`, `borders`, `box-backgrounds`, `counter`, `justify-content`, `render-throttle`, `select-input`, `terminal-resize`, `use-input`, `use-stderr` and `use-stdout`.
+The examples that run are `alternate-screen`, `aria`, `border-backgrounds`, `borders`, `box-backgrounds`, `counter`, `justify-content`, `render-throttle`, `select-input`, `terminal-resize`, `use-input`, `use-stderr` and `use-stdout`. A frame that still holds a component the browser would render is refused, so a stateful component an example places counts only when it draws in place.
 
 ## Only the first cause is listed
 
 The build stops a component at its first cause, so removing one can uncover the next. `jest` names the `ms` package; before the clock lowered in terminal mode it named `Date`.
 
+## Not run by design
+
+| Cause | Examples |
+| --- | --- |
+| An npm package: `ms`, `@faker-js/faker` and `strip-ansi` | jest, table, subprocess-output |
+| `react-router` | router |
+
 ## What refuses an example
 
 | Cause | Examples |
 | --- | --- |
-| A statement a component body cannot hold yet: a loop or a call made for its effect | alternate-screen, use-transition, concurrent-suspense |
-| An npm package: `ms`, `@faker-js/faker`, `strip-ansi` and `react-router` | jest, table, subprocess-output, router |
+| `Intl.Segmenter`, made at the top of the module | chat, use-transition |
+| A call made for its effect in a component body | concurrent-suspense |
 | `useFocus` and `useFocusManager` | use-focus, use-focus-with-id |
 | `useCursor`, `useBoxMetrics` and `useApp`'s `suspendTerminal` | cursor-ime, scroll, suspend-terminal |
 | `Static` | static |
 | A ref written during render | use-animation |
-| `new` of the example's own class | chat |
 | A promise read with `use` under `Suspense` | suspense |
 | `.toLocaleTimeString()`, local time | incremental-rendering |

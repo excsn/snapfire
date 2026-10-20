@@ -100,15 +100,15 @@ cargo install snapfire_fsr_cli --features terminal
 fsr dev app --terminal
 ```
 
-Terminal mode is experimental. Today it runs the app's root page, `routes/page.tsx`, in React with `useState`, `useInput` and the `setInterval` and `setTimeout` timers a mount effect starts; a handler or a timer sets state or calls an action. Effects with dependencies, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks and percentage sizes are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
+Terminal mode is experimental. Today it runs the app's root page `routes/page.tsx` with every component it places, each with its own state, keys and timers. It reads React's `useState`, `useReducer` and `useRef` with Ink's `useInput`, `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation`. A mount effect may start `setInterval` and `setTimeout` timers. A handler or a timer sets state, dispatches or calls an action. `useFocus`, `Static`, `Transform`, `measureElement`, `Suspense`, other effects and percentage sizes are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
 
 The corpus runs Ink's own examples through terminal mode as one application each:
 
-| Corpus | Examples | Runs in the terminal | Refused |
-|---|---|---|---|
-| [Ink](docs/corpus/ink.md) | 29 | 12 (41.4%) | 17 |
+| Corpus | Examples | Runs in the terminal | Not run by design | Refused |
+|---|---|---|---|---|
+| [Ink](docs/corpus/ink.md) | 29 | 13 (44.8%) | 4 | 12 |
 
-A refused example uses something terminal mode cannot run yet, such as `useFocus`, `Static` or an npm package the build does not follow. The corpus page lists each cause.
+The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `ms`, `@faker-js/faker` and `strip-ansi`. Not counting those, 13 of the 25 run (52.0%). A refused example uses something terminal mode cannot run yet, such as `useFocus` or `Static`. The corpus page lists each cause.
 
 ## Architecture
 

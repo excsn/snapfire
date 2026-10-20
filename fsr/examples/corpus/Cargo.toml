@@ -10,3 +10,4 @@ license = { workspace = true }
 [dev-dependencies]
 snapfire_fsr_cli = { path = "../../cli", features = ["terminal"] }
 snapfire_fsr_terminal = { path = "../../terminal" }
+crossterm = "0.29"

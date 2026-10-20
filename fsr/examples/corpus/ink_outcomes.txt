@@ -1,4 +1,4 @@
-alternate-screen	refused: `src/alternate-screen.tsx#SnakeGame` does not lower, so only a browser could render it: src/alternate-screen.tsx:83:13: `return` inside a loop
+alternate-screen	rendered
 aria	rendered
 border-backgrounds	rendered
 borders	rendered
