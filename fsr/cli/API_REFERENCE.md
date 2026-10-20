@@ -457,7 +457,7 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 | Name | Maps | Vendors | Edits |
 | --- | --- | --- | --- |
 | `react` | `@snapfire/fsr-client/react` and `@snapfire/fsr-authoring/template`, the latter at the client's `template.js`, the runtime of the dialect's placements | `react@19.1.0`, `react@19.1.0/jsx-runtime`, `react-dom@19.1.0/client` | nothing |
-| `vue` | `@snapfire/fsr-client/vue` | `vue@3.5.13` | nothing |
+| `vue` | `@snapfire/fsr-client/vue` | `vue@3.5.44` | nothing |
 | `elements` | `@snapfire/fsr-client/elements` | nothing | nothing |
 | `htmx` | `@snapfire/fsr-client/htmx` | `htmx.org@4.0.0` | `src/main.ts`: the htmx import, the `bindHtmx` import and `bindHtmx(htmx)` after `enableNavigation()` |
 | `tera` | nothing | nothing | nothing; present only under the `tera` feature |

@@ -41,7 +41,7 @@ fn a_direction_writes_the_adapters_line_and_names_what_it_would_vendor() {
   assert!(react.edits.is_empty(), "a portable layout needs no edit: {:?}", react.edits);
   assert_eq!(imports(&dir)["@snapfire/fsr-client/vue"], "/static/js/fsr/vue.js");
   assert_eq!(imports(&dir)["@snapfire/fsr-client/std"], "/static/js/fsr/std.js", "the other lines survive");
-  assert_eq!(adopted.next, vec![format!("fsr add {} vue@3.5.13", dir.display()), format!("fsr types {}", dir.display()), format!("fsr build {}", dir.display())]);
+  assert_eq!(adopted.next, vec![format!("fsr add {} vue@3.5.44", dir.display()), format!("fsr types {}", dir.display()), format!("fsr build {}", dir.display())]);
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

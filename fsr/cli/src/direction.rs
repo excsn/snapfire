@@ -12,7 +12,7 @@ use crate::{types, Adapter, BuildError};
 
 /// The React runtime a direction vendors, pinned the way the examples pin it.
 pub const REACT: &str = "19.3.1";
-pub const VUE: &str = "3.5.13";
+pub const VUE: &str = "3.5.44";
 pub const SVELTE: &str = "5.57.2";
 pub const HTMX: &str = "4.0.0";
 

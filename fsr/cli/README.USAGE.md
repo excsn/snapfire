@@ -723,8 +723,8 @@ fsr use shop/app vue --example
 
 ```
 mapped    @snapfire/fsr-client/vue     /static/js/fsr/vue.js
-added     vue                          vue/vue.bundle.mjs  117786 bytes
-types     vue                          vue 3.5.13
+added     vue                          vue/vue.bundle.mjs  128682 bytes
+types     vue                          vue 3.5.44
 wrote     shop/app/src/ui/Counter.vue
 edit      a page: import Counter from "@src/ui/Counter.vue";
 edit      a page: import { Island } from "@snapfire/fsr-authoring/template";

@@ -18,7 +18,7 @@ The editor needs declarations and the build's `tsc` step needs them too; they ar
 
 `fsr build` does the same for whatever is missing before it typechecks, the way it fetches `tsc`, so a fresh checkout builds with `types/` ignored and nothing run beforehand. A package counts as present only when the entry its manifest row records is on disk, so a directory holding `package.json` alone is fetched again. Offline with nothing to fetch from, the build stops with `no declarations for <package>; run fsr types` and the reason the fetch failed. The report's `types` section says which package's declarations came from where; `missing` names the ones it could not find with the reason.
 
-Templates are JSX and the import map decides what types that JSX. An application with `react` in it reads them as React components, since its browser mounts the stateful ones that way. One without it, the recipes example with its Vue islands, gets `"jsxImportSource": "@snapfire/fsr-authoring"` in its `tsconfig.json` and its templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, with no `@types/react` fetched. `fsr add app vue@3.5.13` is how Vue itself gets there, the same way React does.
+Templates are JSX and the import map decides what types that JSX. An application with `react` in it reads them as React components, since its browser mounts the stateful ones that way. One without it, the recipes example with its Vue islands, gets `"jsxImportSource": "@snapfire/fsr-authoring"` in its `tsconfig.json` and its templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, with no `@types/react` fetched. `fsr add app vue@3.5.44` is how Vue itself gets there, the same way React does.
 
 ## Why two directories
 
