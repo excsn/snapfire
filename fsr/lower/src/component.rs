@@ -4753,7 +4753,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           let (_, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
           self.input_hook(call)?;
         }
-        js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
+        js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
+          let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
+          if hook == "useEffect" || hook == "useLayoutEffect" {
+            self.effect_timers(call);
+          }
+        }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
           let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
           self.inline_hook(hook, call, None)?;
@@ -5609,7 +5614,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
               }
             }
-            js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {}
+            js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
+              let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
+              if hook == "useEffect" || hook == "useLayoutEffect" {
+                self.effect_timers(call);
+              }
+            }
             js::Stmt::Decl(js::Decl::Var(var)) => {
               self.premake_stmt(stmt)?;
               for decl in &var.decls {
@@ -7064,6 +7074,58 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let body = self.handler_body(e)?;
     self.lowered_handlers.push(Handler { event: attr_name(&attr.name)[2..].to_ascii_lowercase(), body });
     Ok(self.lowered_handlers.len() - 1)
+  }
+
+  /// The timers a mount effect starts, `useEffect(() => { setInterval(f, ms) }, [])`,
+  /// each lowered as a handler named `interval:<ms>` or `timeout:<ms>`, which a
+  /// terminal runtime schedules. An effect with dependencies, a timer whose
+  /// delay is not written out and a callback that does not lower are dropped,
+  /// as every effect is on the server.
+  fn effect_timers(&mut self, call: &'p js::CallExpr) {
+    let [effect, deps] = &call.args[..] else { return };
+    let js::Expr::Array(deps) = &*deps.expr else { return };
+    if !deps.elems.is_empty() {
+      return;
+    }
+    let mut inner: &'p js::Expr = &effect.expr;
+    while let js::Expr::Paren(p) = inner {
+      inner = &p.expr;
+    }
+    let js::Expr::Arrow(arrow) = inner else { return };
+    let mut started: Vec<&'p js::Expr> = Vec::new();
+    match arrow_body(arrow) {
+      FunctionBody::Expr(e) => started.push(e),
+      FunctionBody::Block(stmts) => {
+        for stmt in stmts {
+          match stmt {
+            js::Stmt::Expr(e) => started.push(&e.expr),
+            js::Stmt::Decl(js::Decl::Var(var)) => started.extend(var.decls.iter().filter_map(|decl| decl.init.as_deref())),
+            _ => {}
+          }
+        }
+      }
+    }
+    let unresolved = self.meanings().unresolved;
+    for expr in started {
+      let js::Expr::Call(timer) = expr else { continue };
+      let js::Callee::Expr(callee) = &timer.callee else { continue };
+      let js::Expr::Ident(id) = &**callee else { continue };
+      let kind = match id.sym.as_ref() {
+        "setInterval" => "interval",
+        "setTimeout" => "timeout",
+        _ => continue,
+      };
+      if id.ctxt != unresolved {
+        continue;
+      }
+      let [callback, delay] = &timer.args[..] else { continue };
+      let js::Expr::Lit(js::Lit::Num(delay)) = &*delay.expr else { continue };
+      let held = self.lowered_handlers.len();
+      match self.handler_body(&callback.expr) {
+        Ok(body) => self.lowered_handlers.push(Handler { event: format!("{kind}:{}", delay.value.max(0.0) as u64), body }),
+        Err(_) => self.lowered_handlers.truncate(held),
+      }
+    }
   }
 
   /// Ink's `useInput((input, key) => …)`: the component's `input` handler, run

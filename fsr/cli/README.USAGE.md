@@ -1310,9 +1310,20 @@ export default function Status() {
 
 Each key runs the `useInput` handler with Ink's `(input, key)`: `input` is the character typed, empty for a named key, and `key` carries `upArrow`, `downArrow`, `leftArrow`, `rightArrow`, `pageUp`, `pageDown`, `return`, `escape`, `tab`, `backspace`, `delete`, `ctrl`, `shift` and `meta`. The handler sets state or calls an action, as an `onClick` handler does; the page redraws and only the cells that changed are written. Ctrl-C quits, as Ink's does by default.
 
+A mount effect's timers run too, the way Ink's spinners and clocks start theirs:
+
+```tsx
+useEffect(() => {
+  const timer = setInterval(() => setSeconds((s) => s + 1), 1000);
+  return () => clearInterval(timer);
+}, []);
+```
+
+Each `setInterval` or `setTimeout` in an effect with an empty dependency list, its delay written out, steps the page when it is due, its callback lowered like a handler. An effect with dependencies is not run yet.
+
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
-`useEffect` and timers, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks, percentage sizes and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
+Effects with dependencies, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks, percentage sizes and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 

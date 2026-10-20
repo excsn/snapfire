@@ -62,3 +62,21 @@ fn ink_elements_lower_to_terminal_elements_and_use_input_steps_the_state() {
     assert!(other.rendered.html.contains(">2</ink-text>"), "a key the handler ignores leaves the state: {}", other.rendered.html);
   }
 }
+
+const CLOCK: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  const [shown, setShown] = useState(false);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 250);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setShown(true), 1000);\n  }, []);\n  useEffect(() => {\n    document.title = String(ticks);\n  }, [ticks]);\n  return <Text>{ticks} {shown ? \"shown\" : \"hidden\"}</Text>;\n}\n";
+
+#[test]
+fn a_timer_a_mount_effect_starts_lowers_to_a_handler_named_for_its_interval() {
+  let library = library(CLOCK);
+  let component = &library[MODULE];
+  let events: Vec<&str> = component.handlers.iter().map(|handler| handler.event.as_str()).collect();
+  assert_eq!(events, ["interval:250", "timeout:1000"], "an effect with dependencies, or one that starts no timer, is not one");
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>0 hidden</ink-text>");
+  let tick = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+  let tick = interpreter.island_step(MODULE, component, &ValueMap::default(), &tick.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+  assert_eq!(tick.rendered.html, "<ink-text>2 hidden</ink-text>");
+  let shown = interpreter.island_step(MODULE, component, &ValueMap::default(), &tick.state, Some(HandlerRef::own(1)), &Value::Null, &library).unwrap();
+  assert_eq!(shown.rendered.html, "<ink-text>2 shown</ink-text>");
+}

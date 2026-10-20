@@ -8,7 +8,7 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use notify::{RecursiveMode, Watcher};
@@ -22,6 +22,9 @@ use crate::BuildError;
 
 /// The page a terminal application draws.
 pub const MODULE: &str = "routes/page.tsx#default";
+
+/// How long the loop waits for a key when no timer is due sooner.
+const IDLE: Duration = Duration::from_millis(100);
 
 /// The flags Ink's `useInput` hands a handler beside the input text.
 const KEYS: [&str; 14] = ["upArrow", "downArrow", "leftArrow", "rightArrow", "pageUp", "pageDown", "return", "escape", "ctrl", "shift", "tab", "backspace", "delete", "meta"];
@@ -75,6 +78,15 @@ pub fn key_event(event: KeyEvent) -> Option<Press> {
   Some(Press::Input(Value::Map(press)))
 }
 
+/// A timer the page's mount effects start: the handler it steps, how often
+/// and whether it fires again after the first time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timer {
+  pub handler: usize,
+  pub every: Duration,
+  pub repeats: bool,
+}
+
 /// The root page of a terminal application: lowered, with the state its
 /// handler has stepped it to.
 pub struct Session {
@@ -105,11 +117,45 @@ impl Session {
     Ok(())
   }
 
+  /// The timers the page's mount effects start, in the order it starts them.
+  pub fn timers(&self) -> Vec<Timer> {
+    let Some(component) = self.library.get(MODULE) else { return Vec::new() };
+    component
+      .handlers
+      .iter()
+      .enumerate()
+      .filter_map(|(handler, h)| {
+        let (kind, ms) = h.event.split_once(':')?;
+        let every = Duration::from_millis(ms.parse().ok()?);
+        match kind {
+          "interval" => Some(Timer { handler, every, repeats: true }),
+          "timeout" => Some(Timer { handler, every, repeats: false }),
+          _ => None,
+        }
+      })
+      .collect()
+  }
+
+  /// The page after timer `handler` fires.
+  pub fn fire(&mut self, handler: usize) -> Result<Node, String> {
+    self.run(Some(HandlerRef::own(handler)), &Value::Null)
+  }
+
   fn step(&mut self, press: Option<&Value>) -> Result<Node, String> {
-    let component = self.library.get(MODULE).ok_or_else(|| format!("{MODULE} did not lower"))?.clone();
-    let handler = press.and_then(|_| component.handlers.iter().position(|handler| handler.event == "input")).map(HandlerRef::own);
+    let handler = match press {
+      Some(_) => self.library.get(MODULE).and_then(|component| component.handlers.iter().position(|handler| handler.event == "input")).map(HandlerRef::own),
+      None => None,
+    };
     let event = press.cloned().unwrap_or(Value::Null);
-    let stepped = Interpreter::default().island_step(MODULE, &component, &ValueMap::default(), &self.state, handler, &event, &self.library).map_err(|fail| fail.message)?;
+    if press.is_some() && handler.is_none() {
+      return self.run(None, &Value::Null);
+    }
+    self.run(handler, &event)
+  }
+
+  fn run(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<Node, String> {
+    let component = self.library.get(MODULE).ok_or_else(|| format!("{MODULE} did not lower"))?.clone();
+    let stepped = Interpreter::default().island_step(MODULE, &component, &ValueMap::default(), &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
     self.state = stepped.state;
     from_markup(&stepped.rendered.html)
   }
@@ -163,8 +209,11 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   let mut shown = Frame::new(0, 0);
   let mut drawn = session.view();
   draw(&drawn, &mut shown, true).map_err(fail)?;
+  let schedule = |session: &Session| -> Vec<(Timer, Instant)> { session.timers().into_iter().map(|timer| (timer, Instant::now() + timer.every)).collect() };
+  let mut timers = schedule(&session);
   loop {
-    if crossterm::event::poll(Duration::from_millis(100)).map_err(fail)? {
+    let wait = timers.iter().map(|(_, at)| at.saturating_duration_since(Instant::now())).min().unwrap_or(IDLE).min(IDLE);
+    if crossterm::event::poll(wait).map_err(fail)? {
       match crossterm::event::read().map_err(fail)? {
         Event::Key(key) if key.kind != KeyEventKind::Release => match key_event(key) {
           Some(Press::Exit) => break,
@@ -178,9 +227,24 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
         _ => {}
       }
     }
+    let now = Instant::now();
+    let mut fired = false;
+    timers.retain_mut(|(timer, at)| {
+      if *at > now {
+        return true;
+      }
+      drawn = session.fire(timer.handler);
+      fired = true;
+      *at = now + timer.every;
+      timer.repeats
+    });
+    if fired {
+      draw(&drawn, &mut shown, false).map_err(fail)?;
+    }
     if rx.try_recv().is_ok() {
       while rx.try_recv().is_ok() {}
       drawn = session.reload().and_then(|()| session.view());
+      timers = schedule(&session);
       draw(&drawn, &mut shown, false).map_err(fail)?;
     }
   }

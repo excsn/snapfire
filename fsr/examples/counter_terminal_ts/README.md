@@ -8,4 +8,4 @@ cd fsr/examples/counter_terminal_ts
 fsr dev app --terminal
 ```
 
-`+` and `-` or the arrow keys change the count, the right and left arrows change the step, `r` resets and Ctrl-C quits. Editing `app/routes/page.tsx` while it runs redraws it with the count kept.
+`+` and `-` or the arrow keys change the count, the right and left arrows change the step, `r` resets and Ctrl-C quits. The uptime beside the step is a `setInterval` a mount effect starts. Editing `app/routes/page.tsx` while it runs redraws it with the count kept.

@@ -100,7 +100,7 @@ cargo install snapfire_fsr_cli --features terminal
 fsr dev app --terminal
 ```
 
-Terminal mode is experimental. Today it runs the app's root page, `routes/page.tsx`, in React with `useState` and `useInput`; a handler sets state or calls an action. `useEffect` and timers, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks and percentage sizes are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
+Terminal mode is experimental. Today it runs the app's root page, `routes/page.tsx`, in React with `useState`, `useInput` and the `setInterval` and `setTimeout` timers a mount effect starts; a handler or a timer sets state or calls an action. Effects with dependencies, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks and percentage sizes are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
 
 ## Architecture
 

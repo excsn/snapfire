@@ -1,9 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Box, Newline, Spacer, Text, useInput } from "ink";
 
 export default function Counter() {
   const [count, setCount] = useState(0);
   const [step, setStep] = useState(1);
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setSeconds((s) => s + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useInput((input, key) => {
     if (input === "+" || key.upArrow) setCount(count + step);
@@ -20,7 +26,9 @@ export default function Counter() {
           Counter
         </Text>
         <Spacer />
-        <Text dimColor>step {step}</Text>
+        <Text dimColor>
+          step {step}, up {seconds}s
+        </Text>
       </Box>
       <Box marginY={1} justifyContent="center">
         <Text bold color={count < 0 ? "red" : "green"}>
