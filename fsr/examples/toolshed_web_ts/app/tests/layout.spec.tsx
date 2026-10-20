@@ -45,6 +45,6 @@ test("an element on a later page is upgraded by the definition an earlier page's
   await load("/", { ctx: stocked() });
   await load("/", { ctx: stocked() });
   const Tally = customElements.get("shed-tally");
-  expect(Tally, "defined once, by the entry module the first page imported").toBeDefined();
+  expect(Tally, "defined by the entry module this page imported, as a page load runs it again").toBeDefined();
   expect(document.querySelector("shed-tally") instanceof Tally!).toBe(true);
 });

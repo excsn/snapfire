@@ -116,7 +116,7 @@ pub fn prepare(app: &Path, browser_files: &[String], compositions: &[String], lo
     let name = file.file_name().unwrap_or_default().to_string_lossy().trim_end_matches(".ts").to_owned();
     boot_source.push_str(&format!("import \"./dist/{}/{name}.js\";\n", snapfire_fsr_lower::EXT_DIR));
   }
-  boot_source.push_str("import { discard } from \"@snapfire/fsr-client\";\nglobalThis.__sf.discard = discard;\nimport { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\n");
+  boot_source.push_str("import { discard } from \"@snapfire/fsr-client\";\nglobalThis.__sf.discard = discard;\nimport { registerIslands } from \"./dist/generated/islands.js\";\nregisterIslands();\nglobalThis.__sf.islands = (load) => import(`./dist/generated/islands.js?load=${load}`).then((m) => m.registerIslands());\n");
   for (register, modules) in [("registerComposition", compositions), ("registerLowered", lowered)] {
     if modules.is_empty() {
       continue;

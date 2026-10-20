@@ -31,3 +31,11 @@ test("figures numbered by module state count across the page's islands on the se
   const served = [...html.matchAll(/<p class="figure">([^<]*)<\/p>/g)].map((m) => m[1]);
   expect(served, "one module counter for the whole page, as the browser has").toEqual(["Figure 1: pages read per book", "Figure 2: books finished per month"]);
 });
+
+test("a later load starts the page's modules fresh, as a browser's page load does", async () => {
+  await load("/stats");
+  await load("/stats");
+  await settle();
+  const hydrated = [...document.querySelectorAll(".figure")].map((p) => p.textContent);
+  expect(hydrated, "the module counter starts again with the document").toEqual(["Figure 1: pages read per book", "Figure 2: books finished per month"]);
+});

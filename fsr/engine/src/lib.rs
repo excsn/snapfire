@@ -78,8 +78,16 @@ impl Resolver for FileResolver {
       return Ok(normalise(Path::new(name)));
     }
     if name.starts_with("./") || name.starts_with("../") {
+      let (base, query) = match base.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (base, None),
+      };
       let dir = Path::new(base).parent().unwrap_or_else(|| Path::new("/"));
-      return Ok(normalise(&dir.join(name)));
+      let resolved = normalise(&dir.join(name));
+      return Ok(match query {
+        Some(query) => format!("{resolved}?{query}"),
+        None => resolved,
+      });
     }
     match self.resolution.bare(name) {
       Some(path) => Ok(normalise(&path)),
@@ -106,7 +114,8 @@ struct FileLoader;
 
 impl Loader for FileLoader {
   /// A query on a path names another instance of the file's module, which
-  /// evaluates again: `main.js?load=2` is read from `main.js`.
+  /// evaluates again: `main.js?load=2` is read from `main.js`. A relative import
+  /// from it carries the same query, so the files it reaches evaluate again too.
   fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _attributes: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<Module<'js>> {
     let path = name.split_once('?').map(|(path, _)| path).unwrap_or(name);
     let source = std::fs::read_to_string(path).map_err(|e| Exception::throw_message(ctx, &format!("{name}: {e}")))?;

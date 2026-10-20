@@ -410,12 +410,17 @@ function matchError(e, match) {
     const hit = typeof match === "string" ? text.includes(match) : match.test(text);
     if (!hit) throw new AssertionError(`expected an error matching ${show(match instanceof RegExp ? String(match) : match)}, got ${show(text.trim())}`);
 }
+let bootIslands = null;
 async function moduleOf(type) {
     const foreign = type?.[Symbol.for("sf.foreign")];
     if (typeof foreign === "string") return foreign;
-    for (const [id, entry] of registeredIslands()){
-        const mod = await entry.loader();
-        if (mod === type) return id;
+    for (const registry of [
+        registeredIslands(),
+        bootIslands ?? new Map()
+    ]){
+        for (const [id, entry] of registry){
+            if (await entry.loader() === type) return id;
+        }
     }
     return null;
 }
@@ -690,7 +695,11 @@ export async function load(path, options = {}) {
     reset();
     adopt();
     const late = applyFills();
-    await sf().entry?.(++loads);
+    const evaluation = ++loads;
+    bootIslands ??= new Map(registeredIslands());
+    await sf().islands?.(evaluation);
+    await sf().entry?.(evaluation);
+    sf().upgrade?.();
     boot();
     enableNavigation();
     for (const run of late)run();

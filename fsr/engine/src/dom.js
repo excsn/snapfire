@@ -344,6 +344,12 @@ const registryKey = registry ? Object.getOwnPropertySymbols(document).find((key)
 // A browser reports a constructor that throws during an upgrade and goes on; linkedom lets it escape `define`, which aborts the module defining the element.
 if (registry) {
   const registryProto = Object.getPrototypeOf(registry);
+  // A load evaluates the page's own modules again, as a browser does on a new page, so a definition met again replaces the one before it where linkedom would refuse.
+  const define = registryProto.define;
+  registryProto.define = function (name, Class, options) {
+    if (this.registry instanceof Map && this.registry.has(name) && this.registry.get(name).Class !== Class) this.registry.delete(name);
+    return define.call(this, name, Class, options);
+  };
   const upgrade = registryProto.upgrade;
   registryProto.upgrade = function (element) {
     try {
@@ -371,15 +377,17 @@ globalThis.__sf.load = (html, url) => {
   if (registryKey) {
     page[registryKey] = registry;
     registry.ownerDocument = page;
-    if (registry.active) {
-      for (const el of page.querySelectorAll("*")) if (registry.get(el.localName)) registry.upgrade(el);
-    }
   }
   selectable(globalThis.document);
   const nested = globalThis.document.documentElement.querySelector("html");
   if (nested) {
     for (const name of nested.getAttributeNames()) globalThis.document.documentElement.setAttribute(name, nested.getAttribute(name));
   }
+};
+// Upgrades the elements of the page showing that a definition still names, once the page's own modules have run again and defined theirs: what is left is defined by a module that ran once, a package's.
+globalThis.__sf.upgrade = () => {
+  if (!registry || !registry.active) return;
+  for (const el of globalThis.document.querySelectorAll("*")) if (registry.get(el.localName)) registry.upgrade(el);
 };
 // linkedom binds its MutationObserver to one document and a test loads a document per page, so the global observes the one showing when it is made.
 if (typeof globalThis.MutationObserver !== "function") {

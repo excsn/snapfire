@@ -2,7 +2,7 @@ import { forgetLoadedScripts } from "./script.js";
 import type { ComponentType, ReactElement, ReactNode } from "react";
 import type { Root } from "react-dom/client";
 
-import { boot, discard, patchIsland, registeredIslands, scan, type Props } from "./boot.js";
+import { boot, discard, patchIsland, registeredIslands, scan, type IslandEntry, type Props } from "./boot.js";
 import { advance, AssertionError, settle, sf, show } from "./harness.js";
 import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, restoreAllMocks, SETTLED, spyOn, verifyAssertions } from "./expect.js";
 import { setLocale } from "./locale.js";
@@ -550,12 +550,16 @@ export interface Rendered extends BoundQueries {
   debug(element?: Element, maxLength?: number): void;
 }
 
+/** The islands as the boot registered them, whose loaders answer the modules a spec's own imports hold; a load registers them again from modules evaluated for its document. */
+let bootIslands: Map<string, IslandEntry> | null = null;
+
 async function moduleOf(type: unknown): Promise<string | null> {
   const foreign = (type as { [key: symbol]: unknown } | null)?.[Symbol.for("sf.foreign")];
   if (typeof foreign === "string") return foreign;
-  for (const [id, entry] of registeredIslands()) {
-    const mod = await entry.loader();
-    if (mod === type) return id;
+  for (const registry of [registeredIslands(), bootIslands ?? new Map<string, IslandEntry>()]) {
+    for (const [id, entry] of registry) {
+      if ((await entry.loader()) === type) return id;
+    }
   }
   return null;
 }
@@ -844,7 +848,11 @@ export async function load(path: string, options: { ctx?: TestCtx } = {}): Promi
   reset();
   adopt();
   const late = applyFills();
-  await sf().entry?.(++loads);
+  const evaluation = ++loads;
+  bootIslands ??= new Map(registeredIslands());
+  await sf().islands?.(evaluation);
+  await sf().entry?.(evaluation);
+  sf().upgrade?.();
   boot();
   enableNavigation();
   for (const run of late) run();

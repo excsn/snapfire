@@ -9,6 +9,10 @@ export interface Sf {
 	load(html: string, url: string): void;
 	/** Evaluates the application's entry module again, as a browser does on every page it loads; absent when the application has none. */
 	entry?(load: number): Promise<unknown>;
+	/** Registers the islands again from modules evaluated for this load, so a module's own state starts over with each document as it does in a browser. */
+	islands?(load: number): Promise<unknown>;
+	/** Upgrades the page's elements that a definition from an earlier evaluation still names. */
+	upgrade?(): void;
 	idle(): Promise<void>;
 	advance(ms: number): Promise<void>;
 }
