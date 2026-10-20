@@ -240,3 +240,12 @@ async fn starts_with_takes_a_position_in_utf16_code_units() {
     assert_eq!(interp.evaluate(&at(s, search, position), Vec::new()).await.unwrap(), Value::Bool(holds), "{s} {search} {position}");
   }
 }
+
+#[tokio::test]
+async fn includes_finds_a_number_whatever_its_representation_and_finds_nan() {
+  let interp = Interpreter::default();
+  let has = |items: Vec<Lit>, wanted: Lit| Expr::Builtin { name: Builtin::Includes, args: vec![Expr::Array(items.into_iter().map(|l| Entry::Item(Expr::Lit(l))).collect()), Expr::Lit(wanted)] };
+  assert_eq!(interp.evaluate(&has(vec![Lit::Int(0), Lit::Int(3)], Lit::Float(3.0)), Vec::new()).await.unwrap(), Value::Bool(true));
+  assert_eq!(interp.evaluate(&has(vec![Lit::Float(f64::NAN)], Lit::Float(f64::NAN)), Vec::new()).await.unwrap(), Value::Bool(true));
+  assert_eq!(interp.evaluate(&has(vec![Lit::Int(1)], Lit::Str("1".to_owned())), Vec::new()).await.unwrap(), Value::Bool(false));
+}

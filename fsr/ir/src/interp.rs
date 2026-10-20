@@ -2444,7 +2444,11 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::Lower => Value::str(text(name, arg(0)?)?.to_lowercase()),
     Builtin::Includes => match arg(0)? {
       Value::Str(s) => Value::Bool(s.contains(text(name, arg(1)?)?)),
-      Value::Seq(items) => Value::Bool(items.contains(arg(1)?)),
+      Value::Seq(items) => {
+        let wanted = arg(1)?;
+        let nan = |v: &Value| is_number(v) && to_number(v).is_some_and(f64::is_nan);
+        Value::Bool(items.iter().any(|item| strictly_equal(item, wanted) || (nan(item) && nan(wanted))))
+      }
       other => return Err(type_error(&format!("{name:?}"), "a string or an array", other)),
     },
     Builtin::StartsWith => {
