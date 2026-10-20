@@ -12,6 +12,20 @@ describe("the hooks page", () => {
     expect(text(".tally")).toEqual("3 ");
   });
 
+  test("renders again a component that sets its own state while rendering as React does and hydrates over it", async () => {
+    const html = await (await fetch("/hooks")).text();
+    expect(html, "the server ran the body until no setter fired").toContain('<p class="direction">The count is <!-- -->increasing</p>');
+    await load("/hooks");
+    await settle();
+    const direction = document.querySelector(".trend .direction");
+    expect(direction?.textContent).toEqual("The count is increasing");
+    await fireEvent.click(document.querySelector(".trend .less")!);
+    await settle();
+    expect(text(".trend .count")).toEqual("2");
+    expect(document.querySelector(".trend .direction"), "React hydrated the server's element and patched it").toBe(direction);
+    expect(direction?.textContent).toEqual("The count is decreasing");
+  });
+
   test("hydrates the handlers the hooks returned and the reducer's dispatch", async () => {
     await load("/hooks");
     await settle();

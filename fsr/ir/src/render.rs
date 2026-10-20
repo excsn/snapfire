@@ -327,6 +327,12 @@ impl Out {
 /// there and places the plan child of that name.
 pub const SLOT_MARK: &str = "\u{0}sf-slot:";
 
+/// The start of a body `let` that holds a state binding's next value: the prefix, then the binding's name. It holds `[value]` when the pass asked to render again with the binding at `value` and null when it did not. While any holds one the renderer runs the body again with each such binding at its value, as React runs again a component that set its own state while rendering.
+pub const RERUN_PREFIX: &str = "$rerun:";
+
+/// How many passes a body may take, React's limit for a component that keeps setting its own state while rendering.
+pub const RERUN_LIMIT: usize = 25;
+
 pub fn slot_mark(name: &str) -> String {
   format!("{SLOT_MARK}{name}\u{0}")
 }
@@ -730,21 +736,7 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
       probe.found = Some((module, props.unwrap_or_default()));
     }
   }
-  for stmt in &component.body {
-    let Stmt::Let { name, expr } = stmt else {
-      return Err(Fail::internal("a component body is `let`s only"));
-    };
-    let held_here = component.state.contains(name) && component.store_key(name).is_none();
-    let held = if held_here { env.state.as_ref().and_then(|s| s.get(&state_key(&path, name))).cloned() } else { None };
-    let value = match held {
-      Some(held) => held,
-      None => env.eval_sync(expr)?,
-    };
-    if held_here {
-      out.state.insert(state_key(&path, name), value.clone());
-    }
-    env.scope.push((name.clone(), value));
-  }
+  bind_body(env, component, &path, depth, out)?;
   // Rendering enters Svelte where Svelte's `hydrate` mounts it.
   let svelte_root = env.markup.is_svelte() && !caller.is_svelte();
   if svelte_root {
@@ -756,6 +748,50 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
   }
   env.scope.truncate(depth);
   env.markup = caller;
+  Ok(())
+}
+
+/// Binds the body's `let`s, running it again while a pass asks for new state (`RERUN_PREFIX`). Its own function so the passes' locals are off the stack while the tree renders.
+fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out: &mut Out) -> Result<(), Fail> {
+  let mut next: Vec<(String, Value)> = Vec::new();
+  for pass in 1.. {
+    let mut asked = false;
+    for stmt in &component.body {
+      let Stmt::Let { name, expr } = stmt else {
+        return Err(Fail::internal("a component body is `let`s only"));
+      };
+      if let Some(state) = name.strip_prefix(RERUN_PREFIX) {
+        if let Value::Seq(value) = env.eval_sync(expr)? {
+          let value = value.first().cloned().unwrap_or(Value::Null);
+          match next.iter_mut().find(|(n, _)| n == state) {
+            Some(held) => held.1 = value,
+            None => next.push((state.to_owned(), value)),
+          }
+          asked = true;
+        }
+        continue;
+      }
+      let held_here = component.state.contains(name) && component.store_key(name).is_none();
+      let value = match next.iter().find(|(n, _)| n == name) {
+        Some((_, value)) => value.clone(),
+        None => match if held_here { env.state.as_ref().and_then(|s| s.get(&state_key(path, name))).cloned() } else { None } {
+          Some(held) => held,
+          None => env.eval_sync(expr)?,
+        },
+      };
+      if held_here {
+        out.state.insert(state_key(path, name), value.clone());
+      }
+      env.scope.push((name.clone(), value));
+    }
+    if !asked {
+      break;
+    }
+    if pass == RERUN_LIMIT {
+      return Err(Fail::internal("Too many re-renders. React limits the number of renders to prevent an infinite loop."));
+    }
+    env.scope.truncate(depth);
+  }
   Ok(())
 }
 

@@ -621,7 +621,7 @@ reference-react-usestate-1	lowered
 reference-react-usestate-11	lowered
 reference-react-usestate-12	lowered
 reference-react-usestate-13	lowered
-reference-react-usestate-14	client: src/CountLabel.js:7:5 a call for its effect, which a straight-line body cannot hold
+reference-react-usestate-14	lowered
 reference-react-usestate-2	lowered
 reference-react-usestate-3	lowered
 reference-react-usestate-4	lowered

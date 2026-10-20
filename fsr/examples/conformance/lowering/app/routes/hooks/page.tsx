@@ -3,6 +3,7 @@ import { Island } from "@snapfire/fsr-authoring/template";
 import Counters from "@src/ui/Counters";
 import Fields from "@src/ui/Fields";
 import Themed from "@src/ui/Themed";
+import Trend from "@src/ui/Trend";
 
 export default function Hooks() {
   return (
@@ -15,6 +16,9 @@ export default function Hooks() {
       </Island>
       <Island>
         <Fields />
+      </Island>
+      <Island>
+        <Trend start={3} />
       </Island>
     </section>
   );

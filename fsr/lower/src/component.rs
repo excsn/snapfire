@@ -3574,16 +3574,47 @@ pub(crate) fn holds_return(stmt: &js::Stmt) -> bool {
   }
 }
 
-/// Where a straight-line body may write: names bound at or above `floor` in the scope, except those `frozen` (state a setter owns).
+/// Where a straight-line body may write: names bound at or above `floor` in the scope, except those `frozen` (state a setter owns). `setters` are the component's own state setters with the state each sets, which a component body may call while it renders.
 pub(crate) struct Writable<'w> {
   pub(crate) floor: usize,
   pub(crate) frozen: &'w [String],
+  pub(crate) setters: &'w [(String, String)],
 }
 
 impl Writable<'_> {
   fn local(&self, lowerer: &Lowerer<'_>, name: &str) -> bool {
     !self.frozen.iter().any(|f| f == name) && lowerer.scope.iter().rposition(|(n, _)| n == name).is_some_and(|at| at >= self.floor)
   }
+}
+
+/// The state a call to one of the component's own setters sets.
+fn setter_called(call: &js::CallExpr, writable: &Writable<'_>) -> Option<String> {
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Ident(id) = &**callee else { return None };
+  writable.setters.iter().find(|(setter, _)| *setter == id.sym.as_ref()).map(|(_, state)| state.clone())
+}
+
+/// A setter called while the component renders: `RERUN_PREFIX` and the state hold `[value]`, the next pass's state. An updater applies to what an earlier call in the pass asked for, else to the state this pass read, as React applies queued updates in order.
+fn rebind_setter(lowerer: &mut Lowerer<'_>, call: &js::CallExpr, state: &str, assigned: &mut Vec<String>) -> Lowered<()> {
+  let [arg] = call.args.as_slice() else { return Err(lowerer.residue(call.span, "a setter called while rendering with other than one argument")) };
+  let key = format!("{}{state}", snapfire_fsr_ir::render::RERUN_PREFIX);
+  let asked = current(lowerer, &key);
+  let value = match &*arg.expr {
+    js::Expr::Arrow(_) | js::Expr::Fn(_) => {
+      let base = Expr::Ternary(Box::new(asked.clone()), Box::new(Expr::Index(Box::new(asked), Box::new(Expr::Lit(Lit::Int(0))))), Box::new(current(lowerer, state)));
+      let f = match &*arg.expr {
+        js::Expr::Arrow(arrow) => lowerer.lambda(arrow)?,
+        other => lowerer.expr(other)?,
+      };
+      Expr::Apply { f: Box::new(f), args: vec![base] }
+    }
+    other => lowerer.expr(other)?,
+  };
+  lowerer.scope.push((key.clone(), Expr::Array(vec![Entry::Item(value)])));
+  if !assigned.contains(&key) {
+    assigned.push(key);
+  }
+  Ok(())
 }
 
 fn current(lowerer: &Lowerer<'_>, name: &str) -> Expr {
@@ -3740,6 +3771,9 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         }
         if let Some(looped) = for_each_loop(call, lowerer.meanings.as_deref()) {
           return rebind_stmt(lowerer, &looped, writable, assigned);
+        }
+        if let Some(state) = setter_called(call, writable) {
+          return rebind_setter(lowerer, call, &state, assigned);
         }
         if let js::Callee::Expr(callee) = &call.callee {
           if let js::Expr::Member(m) = &**callee {
@@ -4337,7 +4371,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
     }
     js::Stmt::For(_) | js::Stmt::ForOf(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
     straight => {
-      let writable = Writable { floor, frozen: &[] };
+      let writable = Writable { floor, frozen: &[], setters: &[] };
       rebind_stmt(lowerer, straight, &writable, &mut Vec::new())?;
       block_to_expr_inner(lowerer, rest, floor)
     }
@@ -5527,6 +5561,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             other => return Err(self.lowerer.residue(other.span(), "a statement a component cannot hold before its `return`")),
           }
         }
+        let mut asked: Vec<String> = Vec::new();
+        for (_, state) in &self.setters {
+          let key = format!("{}{state}", snapfire_fsr_ir::render::RERUN_PREFIX);
+          if !asked.contains(&key) && self.lowerer.scope.iter().any(|(name, _)| *name == key) {
+            lets.push(Stmt::Let { name: key.clone(), expr: current(&self.lowerer, &key) });
+            asked.push(key);
+          }
+        }
         let render = render.ok_or_else(|| self.lowerer.residue(Span::default(), "a component must return its tree"))?;
         early.into_iter().rev().fold(render, |r#else, (cond, then)| Tmpl::If { cond, then: Box::new(then), r#else: Some(Box::new(r#else)) })
       }
@@ -5550,7 +5592,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn note_alias_of(&mut self, decl: &js::VarDeclarator, floor: usize) -> Lowered<()> {
     let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) else { return Ok(()) };
     let frozen = self.state.clone();
-    note_alias(&mut self.lowerer, id.id.sym.as_ref(), init, &Writable { floor, frozen: &frozen })
+    note_alias(&mut self.lowerer, id.id.sym.as_ref(), init, &Writable { floor, frozen: &frozen, setters: &[] })
   }
 
   /// The statements from a branching `return` on, as the tree each path returns: a branch is a `Tmpl::If`, a declaration a `Tmpl::Let` over what follows it, a write to a local a `Tmpl::Let` of its new value. A path that ends without a `return` renders nothing.
@@ -5659,7 +5701,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.premake_stmt(straight)?;
         let depth = self.lowerer.scope.len();
         let frozen = self.state.clone();
-        let writable = Writable { floor, frozen: &frozen };
+        let writable = Writable { floor, frozen: &frozen, setters: &[] };
         let mut assigned = Vec::new();
         rebind_stmt(&mut self.lowerer, straight, &writable, &mut assigned)?;
         let mut lets = Vec::new();
@@ -5683,7 +5725,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// A statement that writes locals, run over the scope: each name it wrote is bound to its final value by a `let` of its own.
   fn rebound(&mut self, stmt: &js::Stmt, floor: usize, early: &[(Expr, Tmpl)], lets: &mut Vec<Stmt>, guarded: &dyn Fn(&[(Expr, Tmpl)], Expr) -> Expr) -> Lowered<()> {
     let frozen = self.state.clone();
-    let writable = Writable { floor, frozen: &frozen };
+    let setters = self.setters.clone();
+    let writable = Writable { floor, frozen: &frozen, setters: &setters };
     let mut assigned = Vec::new();
     rebind_stmt(&mut self.lowerer, stmt, &writable, &mut assigned)?;
     for name in assigned {
