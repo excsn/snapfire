@@ -113,3 +113,21 @@ fn the_terminal_size_reads_from_the_store_and_write_is_an_action_the_terminal_pr
   let tick = interpreter.island_step(MODULE, component, &props, &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
   assert_eq!(tick.acts, [("$stdout".to_owned(), Value::Str("tick\n".into()))]);
 }
+
+#[test]
+fn use_animation_counts_frames_on_its_own_interval_while_active() {
+  let animated = "import { useState } from \"react\";\nimport { Text, useAnimation, useInput } from \"ink\";\n\nexport default function Spin() {\n  const [paused, setPaused] = useState(false);\n  const { frame } = useAnimation({ interval: 80, isActive: !paused });\n  const { frame: slow, time } = useAnimation({ interval: 400 });\n  useInput((input) => {\n    if (input === \" \") setPaused(!paused);\n  });\n  return <Text>{frame} {slow} {time}</Text>;\n}\n";
+  let library = library(animated);
+  let component = &library[MODULE];
+  let events: Vec<&str> = component.handlers.iter().map(|h| h.event.as_str()).collect();
+  assert_eq!(events, ["interval:80", "interval:400", "input"]);
+  let interpreter = Interpreter::default();
+  let step = |state: &ValueMap, handler: Option<usize>, event: Value| interpreter.island_step(MODULE, component, &ValueMap::default(), state, handler.map(HandlerRef::own), &event, &library).unwrap();
+  let first = step(&ValueMap::default(), None, Value::Null);
+  assert_eq!(first.rendered.html, "<ink-text>0 0 0</ink-text>");
+  let fast = step(&step(&first.state, Some(0), Value::Null).state, Some(0), Value::Null);
+  let slow = step(&fast.state, Some(1), Value::Null);
+  assert_eq!(slow.rendered.html, "<ink-text>2 1 400</ink-text>");
+  let paused = step(&slow.state, Some(2), key(" ", &[]));
+  assert_eq!(step(&paused.state, Some(0), Value::Null).rendered.html, "<ink-text>2 1 400</ink-text>", "an inactive animation holds its frame");
+}

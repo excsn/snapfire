@@ -1172,7 +1172,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -5045,6 +5045,8 @@ struct ComponentLowerer<'a, 'p> {
   event_binds: Option<Vec<Expr>>,
   /// Ink's `write` from `useStdout` or `useStderr`, by local name, with the action a call to it is: `$stdout` or `$stderr`.
   writers: Vec<(String, &'static str)>,
+  /// How many `useAnimation` calls the component has made, which names each one's frame state.
+  animations: usize,
   /// Custom element tags with a shadow template, to the template's module.
   elements: Rc<HashMap<String, String>>,
   /// Custom hooks resolved so far: the name a call uses, the module that declares it and its export there.
@@ -6062,6 +6064,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     if hook_call(&self.meanings(), init).is_some_and(|(hook, _)| hook == "useApp") {
       return self.app_hook(&decl.name, decl.span);
+    }
+    if let Some(("useAnimation", call)) = hook_call(&self.meanings(), init) {
+      return self.animation_hook(call, &decl.name, decl.span).map(Some);
     }
     if let Some((hook @ ("useWindowSize" | "useStdout" | "useStderr" | "useIsScreenReaderEnabled"), _)) = hook_call(&self.meanings(), init) {
       self.terminal_hook(hook, &decl.name, decl.span)?;
@@ -7109,6 +7114,54 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.state_bindings.push(state.clone());
     self.lowerer.scope.push((state.clone(), Expr::Var(state.clone())));
     Ok(Some(Stmt::Let { name: state, expr: Expr::Lit(Lit::Bool(false)) }))
+  }
+
+  /// Ink's `useAnimation({ interval, isActive })`: frame state of its own that
+  /// starts at 0 and an `interval:<ms>` handler adding one to it while
+  /// `isActive` holds, 100 ms and always active unless the options say so.
+  /// `frame` reads the state and `time` the milliseconds it stands for.
+  fn animation_hook(&mut self, call: &'p js::CallExpr, pattern: &js::Pat, span: Span) -> Lowered<Stmt> {
+    let (mut interval, mut active) = (100u64, Expr::Lit(Lit::Bool(true)));
+    if let Some(options) = call.args.first() {
+      let js::Expr::Object(object) = &*options.expr else { return Err(self.lowerer.residue(span, "`useAnimation` options that are not an object written out")) };
+      for prop in &object.props {
+        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(span, "a spread in `useAnimation`'s options")) };
+        let js::Prop::KeyValue(kv) = &**prop else { return Err(self.lowerer.residue(span, "a `useAnimation` option that is not `key: value`")) };
+        let js::PropName::Ident(key) = &kv.key else { return Err(self.lowerer.residue(span, "a `useAnimation` option named by an expression")) };
+        match key.sym.as_ref() {
+          "interval" => {
+            let js::Expr::Lit(js::Lit::Num(ms)) = &*kv.value else { return Err(self.lowerer.residue(span, "`useAnimation`'s `interval` is a number written out")) };
+            interval = ms.value.max(1.0) as u64;
+          }
+          "isActive" => active = self.lowerer.expr(&kv.value)?,
+          other => return Err(self.lowerer.residue(span, format!("`{other}` in `useAnimation`'s options"))),
+        }
+      }
+    }
+    let state = format!("$frame{}", self.animations);
+    self.animations += 1;
+    let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, "`useAnimation` bound to one name; destructure `frame` and `time`")) };
+    for prop in &object.props {
+      let (key, local) = match prop {
+        js::ObjectPatProp::Assign(assign) => (assign.key.sym.to_string(), assign.key.sym.to_string()),
+        js::ObjectPatProp::KeyValue(kv) => {
+          let (js::PropName::Ident(key), js::Pat::Ident(local)) = (&kv.key, &*kv.value) else { return Err(self.lowerer.residue(span, "a pattern from `useAnimation`")) };
+          (key.sym.to_string(), local.id.sym.to_string())
+        }
+        js::ObjectPatProp::Rest(_) => return Err(self.lowerer.residue(span, "a rest pattern from `useAnimation`")),
+      };
+      let bound = match key.as_str() {
+        "frame" => Expr::Var(state.clone()),
+        "time" => Expr::Arith(ArithOp::Mul, Box::new(Expr::Var(state.clone())), Box::new(Expr::Lit(Lit::Int(interval.into())))),
+        other => return Err(self.lowerer.residue(span, format!("`{other}` from `useAnimation`"))),
+      };
+      self.lowerer.scope.push((local, bound));
+    }
+    self.state.push(state.clone());
+    self.state_bindings.push(state.clone());
+    let next = Expr::Ternary(Box::new(active), Box::new(Expr::Arith(ArithOp::Add, Box::new(Expr::Var(state.clone())), Box::new(Expr::Lit(Lit::Int(1))))), Box::new(Expr::Var(state.clone())));
+    self.lowered_handlers.push(Handler { event: format!("interval:{interval}"), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(state.clone(), next)]))] });
+    Ok(Stmt::Let { name: state, expr: Expr::Lit(Lit::Int(0)) })
   }
 
   /// Ink's hooks that read the terminal: `useWindowSize`'s `columns` and `rows`
