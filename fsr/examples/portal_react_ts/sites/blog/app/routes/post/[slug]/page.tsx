@@ -1,5 +1,5 @@
 import type { PostSlugProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 export default async function PostPage({ post }: PostSlugProps) {
   const { default: Body } = await import(`../../../content/posts/${post.file}`);

@@ -1,4 +1,5 @@
-import { Island, Link } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 import Owner from "@src/ui/Owner";
 import OwnerVue from "@src/ui/OwnerVue.vue";

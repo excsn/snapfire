@@ -122,6 +122,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [useLocale (Svelte)](#uselocale-svelte)
   * [link, picture and embed (Svelte)](#link-picture-and-embed-svelte)
   * [island (Svelte)](#island-svelte)
+  * [mount (Svelte)](#mount-svelte)
 * [13. The JSX Element Builder](#13-the-jsx-element-builder)
   * [jsx and jsxs](#jsx-and-jsxs)
   * [Placements](#placements)
@@ -1067,13 +1068,19 @@ The document's locale as a readable Svelte store, `$locale`, following every nav
 * `function picture(options: PictureOptions): { img: Record<string, unknown>; sources: Record<string, unknown>[] | null }`
 * `function embed(options: EmbedOptions): { outer; button; still; title; play }`
 
-The parts the React and Vue `Link`, `Picture` and `Embed` render from, for markup a Svelte component writes itself, since this entry is TypeScript and defines no component. `link` is an anchor's attributes, spread with `<a {...link({ href })}>`. `picture` is the `<img>`'s attributes plus one set per `<source>`, `null` when the image policy derives no variants. `embed` is the attributes of the placeholder's wrapper, button, still, title and play mark.
+The parts `Link`, `Picture` and `Embed` render from, for markup a Svelte component writes itself. A `.svelte` file imports the components themselves from `@snapfire/fsr/components`, which the build supplies as Svelte components. `link` is an anchor's attributes, spread with `<a {...link({ href })}>`. `picture` is the `<img>`'s attributes plus one set per `<source>`, `null` when the image policy derives no variants. `embed` is the attributes of the placeholder's wrapper, button, still, title and play mark.
 
 ### island (Svelte)
 
 * `function island(module: string, props?: Props, when?: MountTiming): (element: Element) => () => void`
 
 An attachment placing an island another framework mounts, by module id: `<div {@attach island("src/ui/Chart.tsx#default", { label })}></div>`. It writes the same marker as the React and Vue `Mount` inside the element and scans it, so the registry entry decides the mounter. When the props change Svelte runs the attachment again, which patches the mounted island in place. When the element leaves the document the islands inside it are discarded.
+
+### mount (Svelte)
+
+* `function mount(module: string, props?: Props, when?: MountTiming): (region: Element) => () => void`
+
+The attachment the Svelte `Mount` puts on its `<sf-s data-sf-island>` region: the marker for `module` and its props inside the region, scanned so the registry entry decides the mounter and patched in place when the props change. When the region leaves the document the island inside it is discarded.
 
 ## 13. The JSX Element Builder
 
@@ -1094,6 +1101,7 @@ An element is a description and nothing more: `render` in a spec reads its `type
 
 * `function Link(props: LinkProps & { children?: FsrNode }): FsrElement`
 * `function Picture(props: PictureProps): FsrElement`
+* `function Mount(props: { module: string; props?: Record<string, unknown>; when?: MountTiming }): FsrElement`
 * `function Island(props: { children?: FsrNode }): FsrElement`
 * `function island<P>(component: (props: P) => FsrNode): (props: P) => FsrNode`
 * `function Slot(props: { children?: FsrNode }): FsrElement`

@@ -1,4 +1,5 @@
-import { Island, Link } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 import Progress from "@src/ui/Progress.svelte";
 import type { BookIdProps } from "@generated/client";

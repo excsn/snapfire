@@ -496,6 +496,16 @@ export interface IslandProps {
 /** Places its one child component as an island of its own, mounted in the browser at the timing asked for. Lowered by the build. */
 export function Island(props: IslandProps): TemplateNode;
 
+export interface MountProps {
+  /** The island's module id, `file#export`, which the registry's entry mounts with its own framework. */
+  module: string;
+  props?: Record<string, unknown>;
+  when?: MountTiming;
+}
+
+/** An island placed by module id rather than by component, for a tree holding an island another framework mounts. The server writes its empty region and the browser mounts it. Lowered by the build. */
+export function Mount(props: MountProps): TemplateNode;
+
 /** `component` as an island with a fixed timing, for a page to place like any component: `const Seen = island(Feedback, { when: "visible" })`. */
 export function island<P extends object>(component: Component<P>, options?: { when?: MountTiming; mode?: "server" }): Component<P>;
 

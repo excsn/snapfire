@@ -1,4 +1,4 @@
-import { Link } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 export default function ToolError() {
   return (

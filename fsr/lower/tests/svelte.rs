@@ -607,6 +607,29 @@ fn an_islands_children_render_where_the_component_renders_its_children() {
   assert_eq!(rust, svelte);
 }
 
+/// The Svelte components the build writes for `@snapfire/fsr/components`, compiled beside the files of `dir` with `fsr-components.js` exporting them, over the client's own parts.
+fn fsr_components(compiler: &Compiler, modules: &mut BTreeMap<String, String>, dir: &str) {
+  let index = format!("/{dir}/fsr-components.js");
+  if modules.contains_key(&index) {
+    return;
+  }
+  let client = modules.get_mut("@snapfire/fsr-client/svelte").unwrap();
+  if !client.contains("export function mount(") {
+    *client = client.replace("export function link(options) { return { href: options.href }; }\n", "") + COMPONENT_PARTS;
+  }
+  let sources = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cli/embedded/components/svelte");
+  let mut exports = String::new();
+  for name in ["Link", "Picture", "Embed", "Mount", "Place"] {
+    let source = std::fs::read_to_string(sources.join(format!("{name}.svelte"))).unwrap();
+    match compiler.ssr_module(&format!("{dir}/fsr-components/{name}.svelte"), &source).expect("the driver answers") {
+      Outcome::Ok(compiled) => modules.insert(format!("/{dir}/fsr-components/{name}.svelte"), compiled.js),
+      other => panic!("{name}: {other:?}"),
+    };
+    exports.push_str(&format!("export {{ default as {name} }} from './fsr-components/{name}.svelte';\n"));
+  }
+  modules.insert(index, exports);
+}
+
 /// A component of an example application lowered where it lives, its imports
 /// followed by the build, against Svelte's render with each import stubbed.
 fn repo(app: &str, file: &str, stubbed: &[(&str, &str)], props: &ValueMap) -> (String, String) {
@@ -628,7 +651,14 @@ fn repo_with(app: &str, file: &str, others: &[&str], stubbed: &[(&str, &str)], p
         Outcome::Described(described) => set.describe(*each, described),
         other => panic!("{each}: not described: {other:?}"),
       }
-      match compiler.ssr_module(each, &source).expect("the driver answers") {
+      let oracle = match source.contains("@snapfire/fsr/components") {
+        true => {
+          fsr_components(compiler, &mut modules, Path::new(each).parent().and_then(Path::to_str).unwrap_or(""));
+          source.replace("\"@snapfire/fsr/components\"", "\"./fsr-components.js\"").replace("'@snapfire/fsr/components'", "'./fsr-components.js'")
+        }
+        false => source,
+      };
+      match compiler.ssr_module(each, &oracle).expect("the driver answers") {
         Outcome::Ok(compiled) => modules.insert(format!("/{each}"), compiled.js),
         other => panic!("{each}: no server module: {other:?}"),
       };
@@ -974,5 +1004,52 @@ fn a_call_through_a_context_to_a_function_that_only_schedules_effects_does_nothi
   let square = "<script>import { getContext } from 'svelte'; let { x } = $props(); getContext('canvas').addItem(draw); function draw(ctx) { ctx.strokeRect(x, x, 1, 1); }</script>";
   let page = "<script>import Canvas from './Canvas.svelte'; import Square from './Square.svelte';</script><Canvas>{#each [1, 2] as x}<Square {x} />{/each}</Canvas>";
   let (rust, svelte) = both("context-effects", &[("src/P.svelte", page), ("src/Canvas.svelte", canvas), ("src/Square.svelte", square)], &ValueMap::default(), None);
+  assert_eq!(rust, svelte);
+}
+
+/// The client's `link` and `embed` as the oracle's Svelte components call them, for a page at no address.
+const COMPONENT_PARTS: &str = "export function link({ full, into, prefetch, native, keep, match, current, ...rest }) {\n  const attrs = { ...rest };\n  if (full) attrs['data-sf-full'] = 'true';\n  if (into) attrs['data-sf-into'] = into;\n  if (prefetch) attrs['data-sf-prefetch'] = prefetch;\n  if (native) attrs['data-sf-native'] = 'true';\n  if (keep !== undefined) attrs['data-sf-keep'] = keep ? 'true' : 'false';\n  const rule = match ?? 'exact';\n  if (rule !== 'none' && typeof rest.href === 'string' && rest['aria-current'] === undefined) attrs['data-sf-link'] = rule;\n  return attrs;\n}\nconst OUTER = 'position:relative;aspect-ratio:16/9;background:#000;overflow:hidden';\nconst BUTTON = 'all:unset;cursor:pointer;position:absolute;inset:0;display:block';\nconst STILL = 'width:100%;height:100%;object-fit:cover;display:block';\nconst TITLE = 'position:absolute;left:0;right:0;top:0;padding:12px 16px;color:#fff;font:600 16px/1.3 system-ui,sans-serif;text-align:left;background:linear-gradient(rgba(0,0,0,.65),transparent)';\nconst PLAY = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:68px;height:48px;border-radius:12px;background:rgba(0,0,0,.75);color:#fff;display:flex;align-items:center;justify-content:center;font:24px/1 sans-serif';\nexport function embed(o) {\n  const outer = { 'data-sf-embed': o.provider === 'vimeo' ? `https://player.vimeo.com/video/${o.id}?autoplay=1` : `https://www.youtube-nocookie.com/embed/${o.id}?autoplay=1`, 'data-sf-embed-title': o.title, style: OUTER };\n  if (o.className) outer.class = o.className;\n  const still = o.provider === 'youtube' ? { src: `https://i.ytimg.com/vi/${o.id}/hqdefault.jpg`, alt: '', width: '480', height: '360', loading: 'lazy', decoding: 'async', style: STILL } : null;\n  return { outer, button: { type: 'button', style: BUTTON }, still, title: { style: TITLE }, play: { 'aria-hidden': 'true', style: PLAY } };\n}\nexport function mount() { return () => () => {}; }\n";
+
+/// FSR's components in a `.svelte` file against `svelte/server` rendering the Svelte components the build supplies for them.
+#[test]
+fn fsr_components_in_svelte_write_what_their_svelte_components_write() {
+  let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cli/embedded/components/svelte");
+  let parent = "<script>import { Link, Picture, Embed, Mount } from '@snapfire/fsr/components'; let { to } = $props();</script>\
+    <p>a</p><Link href=\"/a\" class=\"x\">go <b>now</b></Link>|<Link href={to} match=\"prefix\" />|<Link href=\"/c\" match=\"none\" full>c</Link>|<Picture src=\"/p.png\" alt=\"p\" />|<Picture src={to} alt=\"q\" priority />|\
+    <Embed provider=\"youtube\" id=\"i\" title=\"T\" />|<Embed provider=\"vimeo\" id=\"v\" title=\"V\" className=\"e\" />|<Mount module=\"src/M.tsx#default\" />|<Mount module=\"src/M.tsx#default\" when=\"idle\" /><p>b</p>";
+  let app = app("fsr-components", &[("src/P.svelte", parent)]);
+  let mut set = ComponentSet::new(&app);
+  let mut modules = stubs();
+  let client = modules.get_mut("@snapfire/fsr-client/svelte").unwrap();
+  *client = client.replace("export function link(options) { return { href: options.href }; }\n", "") + COMPONENT_PARTS;
+  let mut index = String::new();
+  COMPILER.with(|compiler| {
+    for name in ["Link", "Picture", "Embed", "Mount", "Place"] {
+      let source = std::fs::read_to_string(dir.join(format!("{name}.svelte"))).unwrap();
+      match compiler.ssr_module(&format!("src/{name}.svelte"), &source).expect("the driver answers") {
+        Outcome::Ok(compiled) => modules.insert(format!("/src/{name}.svelte"), compiled.js),
+        other => panic!("{name}: {other:?}"),
+      };
+      index.push_str(&format!("export {{ default as {name} }} from './{name}.svelte';\n"));
+    }
+    modules.insert("/src/components.js".to_owned(), index);
+    match compiler.describe("src/P.svelte", parent, &Options::default()).expect("the driver answers") {
+      Outcome::Described(described) => set.describe("src/P.svelte", described),
+      other => panic!("not described: {other:?}"),
+    }
+    let oracle = parent.replace("'@snapfire/fsr/components'", "'./components.js'");
+    match compiler.ssr_module("src/P.svelte", &oracle).expect("the driver answers") {
+      Outcome::Ok(compiled) => modules.insert("/src/P.svelte".to_owned(), compiled.js),
+      other => panic!("{other:?}"),
+    };
+  });
+  set.lower("src/P.svelte#default").unwrap_or_else(|e| panic!("does not lower: {e}"));
+  let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let given = props(&[("to", s("/d.png"))]);
+  let rendered = interpreter.render(&host("src/P.svelte#default", Vec::new()), &given, &library).expect("renders");
+  let rust = rendered.islands[0].body.html.clone();
+  let svelte = COMPILER.with(|compiler| compiler.render_module("/src/P.svelte", &modules, &value_json(&Value::Map(given.clone())), None, &runtime())).expect("Svelte renders");
+  let _ = std::fs::remove_dir_all(&app);
   assert_eq!(rust, svelte);
 }

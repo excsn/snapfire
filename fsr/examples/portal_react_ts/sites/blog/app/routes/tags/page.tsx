@@ -1,5 +1,5 @@
 import type { TagsProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 export default function Tags({ tags }: TagsProps) {
   return (

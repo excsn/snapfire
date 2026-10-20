@@ -15,7 +15,8 @@ An island written in Vue works the same way with a different runtime. The templa
 A template imports the component as a file and places it inside `Island`:
 
 ```tsx
-import { Island, Link, type Children } from "@snapfire/fsr-authoring/template";
+import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 import Tonight from "@src/ui/Tonight.vue";
 
 export default function BoxLayout({ children, planned }: { children: Children; planned: number }) {
@@ -58,7 +59,7 @@ A `.vue` component can be placed in server mode too, `<Island mode="server"><Ser
 
 Integers need a conversion. An integer a contract types as `bigint` reaches the server as an integer and a Vue component that multiplies it by a literal fails the render, the way chapter 100 says a loader must convert one before arithmetic. The recipe page passes `serves={Number(recipe.serves)}` for that reason: the browser handles either type, but the server render fails without the conversion.
 
-`Island`, `island`, `Link` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. An island written on the template module loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type-check. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
+`Island`, `island` and `Slot` come from `@snapfire/fsr-authoring/template` here rather than from `@snapfire/fsr-client/react`. They are the same placements and the build reads either import. `Link` comes from `@snapfire/fsr/components`, which the build points at the framework of each file that imports it. The template module is the portable form: a file written against it is valid whatever the application serves, typed by the dialect's own declarations when the import map has no React and through React's when it has, where `Children` reads as `ReactNode` and the placements as the React module's. An island written on the template module loads its placements from the client's `template.js`, which the `react` direction maps beside the React module. The React module is the React-only form, with `useStore`, `useLocale` and `useHoisted` that the template module never promises. A file importing it needs React's declarations to type-check. So a layout like this one writes `Children` and keeps working if the application gains React later; a file that wants React's hooks says so by its import.
 
 ## The component itself
 

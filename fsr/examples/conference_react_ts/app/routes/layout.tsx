@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
-import { Island, Link } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 import Saved from "@src/ui/Saved";
 import type { Conference } from "@generated/services";

@@ -1,4 +1,4 @@
-import { Embed } from "@snapfire/fsr-authoring/template";
+import { Embed } from "@snapfire/fsr/components";
 import type { TourProps } from "@generated/client";
 
 export default function Tour({ video }: TourProps) {

@@ -1,5 +1,5 @@
 import type { LayoutWavesProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 /** The inbox. It marks the wave that is open by comparing the request's path with each wave's own, which is the one thing on this pane that a slot could not do before `ctx.path`. */
 export default function Inbox({ waves, path }: LayoutWavesProps) {

@@ -127,7 +127,7 @@ The build reads the object `useMDXComponents` returns, so its entries are a comp
 A placement can replace elements for one file with a `components` prop, an object of components written out:
 
 ```tsx
-import { Link } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 <Body components={{ a: Link }} />
 ```

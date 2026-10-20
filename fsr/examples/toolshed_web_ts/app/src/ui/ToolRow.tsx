@@ -1,4 +1,5 @@
-import { Link, use } from "@snapfire/fsr-authoring/template";
+import { use } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 import type { Tool } from "@generated/client";
 import { Reserved } from "@src/reserved";

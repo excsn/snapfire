@@ -1,4 +1,4 @@
-import { Link } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 import type { TonightProps } from "@generated/client";
 

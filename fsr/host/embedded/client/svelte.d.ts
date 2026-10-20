@@ -1,7 +1,7 @@
 import { type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
-import { type StoreKey } from "./store.js";
-import { type LinkOptions } from "./link.js";
-import { type PictureOptions } from "./picture.js";
+import type { StoreKey } from "./store.js";
+import type { LinkOptions } from "./link.js";
+import type { PictureOptions } from "./picture.js";
 import { embedParts, type EmbedOptions } from "./embed.js";
 export declare const svelteMounter: Mounter;
 export declare const sveltePatcher: Patcher;
@@ -25,6 +25,8 @@ export declare function picture(options: PictureOptions): {
 };
 /** The attributes of the placeholder the server writes for a video hosted elsewhere: a `<div {...parts.outer}>` holding a `<button {...parts.button}>` with the still, the title and the play mark. */
 export declare function embed(options: EmbedOptions): ReturnType<typeof embedParts>;
+/** What the Svelte `Mount` the build supplies attaches to its `<sf-s data-sf-island>`: the marker for `module` with its props inside it, mounted by the registry's entry the way the React and Vue `Mount` do theirs and patched in place when the props change. */
+export declare function mount(module: string, props?: Props, _when?: MountTiming): (region: Element) => () => void;
 /**
 * An island another framework mounts, placed by module id as an attachment:
 * `<div {@attach island("src/ui/Chart.tsx#default", { label })}></div>`. The

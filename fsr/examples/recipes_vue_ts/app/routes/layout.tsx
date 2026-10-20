@@ -1,4 +1,5 @@
-import { Island, Link, Place, type Children } from "@snapfire/fsr-authoring/template";
+import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Link, Place } from "@snapfire/fsr/components";
 
 import Tonight from "@src/ui/Tonight.vue";
 import type { Box } from "@generated/services";

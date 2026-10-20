@@ -1,6 +1,6 @@
 <script lang="ts">
   import { recent } from "./recent.svelte.js";
-  import { link } from "@snapfire/fsr-client/svelte";
+  import { Link } from "@snapfire/fsr/components";
 
   let { titles }: { titles: { id: string; title: string }[] } = $props();
   const shown = $derived(recent.ids.map((id) => titles.find((t) => t.id === id)).filter((t) => t !== undefined));
@@ -13,7 +13,7 @@
   {:else}
     <ol>
       {#each shown as book (book.id)}
-        <li><a {...link({ href: `/book/${book.id}` })}>{book.title}</a></li>
+        <li><Link href={`/book/${book.id}`}>{book.title}</Link></li>
       {/each}
     </ol>
   {/if}

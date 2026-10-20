@@ -1,4 +1,4 @@
-import { Picture } from "@snapfire/fsr-client/react";
+import { Picture } from "@snapfire/fsr/components";
 
 import type { AboutProps } from "@generated/client";
 import badge from "../../src/img/badge.png";

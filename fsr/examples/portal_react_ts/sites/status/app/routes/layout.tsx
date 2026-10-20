@@ -1,4 +1,5 @@
-import { Link, type Children } from "@snapfire/fsr-authoring/template";
+import type { Children } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 /** The status site's frame, nested under the portal's header when mounted and the whole page when the site runs alone. */
 export default function StatusLayout({ children }: { children: Children }) {

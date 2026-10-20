@@ -1,4 +1,5 @@
-import { Link, type Children } from "@snapfire/fsr-authoring/template";
+import type { Children } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 export default function RecipeLayout({ children }: { children: Children }) {
   return (

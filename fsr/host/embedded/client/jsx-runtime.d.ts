@@ -4,9 +4,9 @@
 * dialect's placements as plain elements. An element is a description;
 * nothing here mounts or renders one, since FSR is no JSX framework.
 */
-import { type LinkOptions } from "./link.js";
-import { type PictureOptions } from "./picture.js";
-import { type EmbedOptions } from "./embed.js";
+import type { LinkOptions } from "./link.js";
+import type { PictureOptions } from "./picture.js";
+import type { EmbedOptions } from "./embed.js";
 export declare const Fragment: unique symbol;
 export type FsrComponent = (props: Record<string, unknown>) => FsrNode;
 export interface FsrElement {
@@ -42,6 +42,12 @@ export declare function Place({ name, as, ...attrs }: {
 	name: string;
 	as?: string;
 	[attribute: string]: unknown;
+}): FsrElement;
+/** The region the server writes for an island placed by module id, empty until the browser mounts the island in it. */
+export declare function Mount({ when }: {
+	module: string;
+	props?: Record<string, unknown>;
+	when?: "load" | "visible" | "idle";
 }): FsrElement;
 /** The placeholder the server writes for a video hosted elsewhere, which a click swaps for the player. */
 export declare function Embed(props: EmbedOptions): FsrElement;

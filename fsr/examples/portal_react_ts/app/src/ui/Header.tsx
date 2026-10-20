@@ -1,5 +1,6 @@
 import type { Identity } from "@snapfire/fsr-authoring";
-import { Link, useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 import { teams, who } from "@src/store";
 import { LookControls } from "@src/ui/LookControls";

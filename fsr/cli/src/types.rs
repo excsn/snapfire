@@ -1003,6 +1003,10 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool, shadowe
   if react {
     paths.push(("@snapfire/fsr-authoring/template".to_owned(), format!("./{types}/@snapfire/fsr-authoring/template.react")));
   }
+  // FSR's components type as React's in an app with React and as the
+  // dialect's otherwise; the bundle points each file at its own framework.
+  let components = if react { "@snapfire/fsr-client/react" } else { "@snapfire/fsr-authoring/template" };
+  paths.push((snapfire_fsr_lower::COMPONENTS_MODULE.to_owned(), format!("./{types}/{components}")));
   let jsx_source = match react {
     true => String::new(),
     false => "    \"jsxImportSource\": \"@snapfire/fsr-authoring\",\n".to_owned(),

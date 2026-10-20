@@ -7,7 +7,7 @@
 In a component, import the file and place it with `Picture`:
 
 ```tsx
-import { Picture } from "@snapfire/fsr-client/react";
+import { Picture } from "@snapfire/fsr/components";
 import hero from "../img/hero.png";
 
 export default function Page() {
@@ -157,7 +157,7 @@ Set `width` and `height` so the page does not move when the video loads. Set `pr
 A YouTube or Vimeo video is an `Embed`. The server renders the provider's still with the title and a play button. The player's iframe replaces it when the visitor clicks:
 
 ```tsx
-import { Embed } from "@snapfire/fsr-client/react";
+import { Embed } from "@snapfire/fsr/components";
 
 <Embed provider="youtube" id="f_WuRfuMXQw" title="Rick Astley - Never Gonna Give You Up" />
 ```

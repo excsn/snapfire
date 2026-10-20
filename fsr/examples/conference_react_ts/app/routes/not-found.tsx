@@ -1,4 +1,4 @@
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 export default function NotFound() {
   return (

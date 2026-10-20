@@ -1,5 +1,6 @@
 import { get, optimistic, set } from "@snapfire/fsr-client";
-import { Link, useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 import { t } from "@snapfire/fsr-client/std";
 
 import { queueLabel } from "@ext/fleet";

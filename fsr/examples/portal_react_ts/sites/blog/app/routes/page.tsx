@@ -1,5 +1,5 @@
 import type { RootProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 export default function Index({ posts }: RootProps) {
   return (

@@ -1,4 +1,4 @@
-import { createRawSnippet, hydrate, mount, unmount } from "svelte";
+import { createRawSnippet, hydrate, mount as mountSvelte, unmount } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 import { discard, islandState, patchIsland, scan } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
@@ -106,7 +106,7 @@ export const svelteMounter = (module, props, el, isHydrating)=>{
         return instance;
     }
     el.replaceChildren();
-    return mount(componentOf(module), options);
+    return mountSvelte(componentOf(module), options);
 };
 export const sveltePatcher = (_handle, _module, props, el)=>{
     const state = held.get(el);
@@ -155,6 +155,30 @@ export function embed(options) {
     return embedParts(options);
 }
 let placed = 0;
+export function mount(module, props = {}, _when) {
+    return (region)=>{
+        const mounted = region.querySelector("sf-i");
+        if (mounted) {
+            void patchIsland(mounted, props);
+        } else {
+            const id = `sf-svelte-m${++placed}`;
+            const marker = document.createElement("sf-i");
+            marker.id = id;
+            marker.setAttribute("data-sf-module", module);
+            const script = document.createElement("script");
+            script.type = "application/json";
+            script.setAttribute("data-sf-props", id);
+            script.textContent = JSON.stringify(encodeValue(props));
+            region.append(marker, script);
+            scan(region);
+        }
+        return ()=>{
+            queueMicrotask(()=>{
+                if (!region.isConnected) discard(region);
+            });
+        };
+    };
+}
 export function island(module, props = {}, when) {
     return (element)=>{
         let region = Array.from(element.children).find((child)=>child.tagName === "SF-S" && child.hasAttribute("data-sf-island"));

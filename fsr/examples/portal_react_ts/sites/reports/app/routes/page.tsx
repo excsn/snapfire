@@ -1,5 +1,5 @@
 import type { RootProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 const cell = "border-b border-slate-700 px-1.5 py-2";
 

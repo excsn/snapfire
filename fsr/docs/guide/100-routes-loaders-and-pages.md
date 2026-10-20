@@ -229,7 +229,7 @@ An **intercept** is a second rendering of a URL, used when it is reached by a cl
 The server decides whether to intercept. The navigator sends the document's path with every soft request as `x-sf-from`; the host matches the target's intercept and applies it when the origin's route shares the layout declaring the slot. The payload then carries the layouts down to that one with the slot filled and the page marked kept and the browser writes the region without touching anything else. Those layouts belong to the page beneath, so their loaders run under the document's request and their segment keys match what the browser holds: `ctx.query` still holds the filter the list was loaded with while a peek is open over it. A loader that wants the overlay's own request reads `ctx.address`, its `path`, `params` and `query`, which is null outside an intercept. A link opts out with `full` and names a slot outright with `into`, through `Link` from the React adapter or the `data-sf-full` and `data-sf-into` attributes on any anchor:
 
 ```tsx
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 <Link href={`/product/${id}`} full>Full details</Link>
 ```

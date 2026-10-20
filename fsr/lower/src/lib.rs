@@ -9,6 +9,7 @@ pub mod extract;
 mod methods;
 pub mod hoist;
 mod meaning;
+pub use meaning::COMPONENTS_MODULE;
 mod placements;
 pub mod schema;
 pub mod testing;

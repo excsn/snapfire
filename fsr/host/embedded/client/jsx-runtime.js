@@ -29,6 +29,14 @@ export function Place({ name, as = "div", ...attrs }) {
         id: name
     });
 }
+export function Mount({ when }) {
+    return jsx("sf-s", when ? {
+        "data-sf-island": "",
+        "data-sf-when": when
+    } : {
+        "data-sf-island": ""
+    });
+}
 export function Embed(props) {
     const parts = embedParts(props);
     const face = [

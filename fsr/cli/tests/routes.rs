@@ -1578,3 +1578,37 @@ fn a_group_needs_a_name() {
   assert!(matches!(fails(&dir), BuildError::Segment { name, .. } if name == "()"));
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn fsr_components_point_at_the_framework_of_each_file_that_imports_them_the_overlay_s_own_among_them() {
+  let layout = "import { Link } from \"@snapfire/fsr/components\";\nexport default function Layout({ children }: { children: unknown }) {\n  return <div><Link href=\"/\">home</Link>{children}</div>;\n}\n";
+  let page = "import { useState } from \"react\";\nimport { Link } from \"@snapfire/fsr/components\";\nexport default function Page() {\n  const [n, setN] = useState(0);\n  return <div><button onClick={() => setN(n + 1)}>{n}</button><Link href=\"/next\">next</Link></div>;\n}\n";
+  let dir = app(&[("routes/layout.tsx", layout), ("routes/page.tsx", page)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or_else(|| panic!("no {name}"));
+  for name in [".fsr/bundle/routes/page.island0.tsx", ".fsr/bundle/routes/layout.tsx"] {
+    let overlay = file(name);
+    assert!(overlay.contains("import { Link } from \"@snapfire/fsr-client/react\";") && !overlay.contains("@snapfire/fsr/components"), "{name}: {overlay}");
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_svelte_file_importing_fsr_components_gets_the_svelte_components_the_build_writes() {
+  let page = placing("Chart.svelte");
+  let chart = "<script lang=\"ts\">\n  import { Link } from \"@snapfire/fsr/components\";\n</script>\n\n<Link href=\"/next\">next</Link>\n";
+  let dir = app(&[("routes/page.tsx", &page), ("src/ui/Chart.svelte", chart)]);
+  std::fs::write(dir.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d","@snapfire/fsr-client/svelte":"/s","svelte":"/s","svelte/":"/s/"}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"18.3.1"},"react-dom":{"version":"18.3.1"},"svelte":{"version":"5.57.2"}}}"#).unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or_else(|| panic!("no {name}"));
+  assert!(file(".fsr/bundle/src/ui/Chart.svelte").contains("import { Link } from \"@generated/components\";"));
+  assert!(file("generated/components/index.ts").contains("export { default as Link } from \"./Link.svelte\";"));
+  assert!(file("generated/components/Link.svelte").contains("link(options)"));
+  let config = file("tsconfig.build.json");
+  for name in ["Link", "Picture", "Mount", "Embed", "Place"] {
+    assert!(config.contains(&format!("\"generated/components/{name}.svelte\"")), "{config}");
+  }
+  assert!(config.contains("\"generated/components/index.ts\""), "{config}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}

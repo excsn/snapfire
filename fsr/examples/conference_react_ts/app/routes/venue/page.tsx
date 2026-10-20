@@ -1,4 +1,5 @@
-import { Embed, Island } from "@snapfire/fsr-client/react";
+import { Island } from "@snapfire/fsr-client/react";
+import { Embed } from "@snapfire/fsr/components";
 
 import AskDesk from "@src/ui/AskDesk";
 import Checklist from "@src/ui/Checklist";

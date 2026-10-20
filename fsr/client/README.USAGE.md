@@ -14,6 +14,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Choosing When an Island Hydrates](#choosing-when-an-island-hydrates)
 * [Defining an Element When It Is Needed](#defining-an-element-when-it-is-needed)
 * [Adopting a Shadow Root the Server Wrote](#adopting-a-shadow-root-the-server-wrote)
+* [Importing FSR's Components](#importing-fsrs-components)
 * [Placing an Island of Another Framework](#placing-an-island-of-another-framework)
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
@@ -64,6 +65,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * **Island**: a `client` node. The server renders it inside an `<sf-i>` marker with its props in a sibling JSON script tag; the browser mounts a component over that markup.
 * **Module id**: the string that names a component, source path plus export, for example `components/ServerChart.tsx#default`. It is the key `registerIsland` is called with and the value of the marker's `data-sf-module`.
 * **Mounter**: the function that turns a loaded module plus props into a mounted component in an element. React has one in the `/react` entry, Vue one in the `/vue` entry and Svelte one in the `/svelte` entry; every other framework plugs in the same way.
+* **FSR's components**: `Link`, `Picture`, `Mount`, `Embed` and `Place`. Every framework imports them from `@snapfire/fsr/components` and the build points that import at the importing file's framework.
 * **Hydration timing**: per island, `"load"`, `"visible"` or `"idle"`. It decides when the loader runs, not whether the island exists.
 * **Slot**: a hole a deferred segment fills later. It renders as `<div data-sf-slot="N">` holding a fallback until its content arrives.
 * **Segment**: a region of the page with a comparable key, delimited in the HTML by `<!--sf-g:key-->` and `<!--/sf-g-->` comments. Same key across two responses means the region survives navigation.
@@ -258,12 +260,54 @@ class LoanPlanner extends HTMLElement {
 
 It returns the root the parser attached. With none, it attaches one from the template child with the mode and options that template carries, takes the template out and returns that. A closed root is reached through the element's `ElementInternals`, so pass them when the template says `shadowrootmode="closed"`. Without them `shadowOf` cannot tell a closed root from none and returns `null`. The navigator writes what it applies with `setHTMLUnsafe` where the browser has it, so a page reached by a link keeps its shadow roots without this.
 
+## Importing FSR's Components
+
+`Link`, `Picture`, `Mount`, `Embed` and `Place` are imported from `@snapfire/fsr/components` in a `.tsx`, a `.vue` or a `.svelte` file and written the same way in each:
+
+```tsx
+import type { Children } from "@snapfire/fsr-authoring/template";
+import { Link, Place } from "@snapfire/fsr/components";
+
+export default function Layout({ children }: { children: Children }) {
+  return (
+    <>
+      <Link href="/tonight">Tonight</Link>
+      <Place name="notices" className="notices" />
+      {children}
+    </>
+  );
+}
+```
+
+```svelte
+<script lang="ts">
+  import { Link, Picture } from "@snapfire/fsr/components";
+</script>
+
+<Link href="/next" class="next">next</Link>
+<Picture src="/pictures/shelf.png" alt="shelf" width={320} height={200} />
+```
+
+The server renders each one the same way whatever framework the file is in. `fsr build` rewrites the import in the browser bundle for each file that has it:
+
+| Importing file | The import becomes |
+| --- | --- |
+| `.vue` | `@snapfire/fsr-client/vue` |
+| `.svelte` | the Svelte components the build writes under `generated/components` and compiles with the application's Svelte |
+| any other, reached by an island | that island's adapter |
+| any other, in an application that serves React | `@snapfire/fsr-client/react` |
+| any other | `@snapfire/fsr-client/jsx-runtime` |
+
+`tsconfig.json` maps the specifier to React's declarations when the application serves React and to the template dialect's otherwise. The per-framework modules keep exporting the same components, so an existing import of them still works.
+
+The import has meaning only to `fsr build`. A bundle compiled with `snapfirec` directly imports the framework's own module.
+
 ## Placing an Island of Another Framework
 
 `Island` places a React child. A React tree holding an island **another** framework mounts needs the module id instead, since React cannot render a Vue component and should not try:
 
 ```tsx
-import { Mount } from "@snapfire/fsr-client/react";
+import { Mount } from "@snapfire/fsr/components";
 
 <Mount module="src/ui/Sparkline.vue#default" props={{ points, up }} when="visible" />;
 ```
@@ -329,7 +373,7 @@ Both are `<sf-s data-sf-name>` regions in the server's markup, the way `children
 The navigator sends the document's path with every soft request, which is how the server knows an intercept applies. A link says otherwise with `Link`:
 
 ```tsx
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 <Link href={`/product/${id}`} full>Full details</Link>
 <Link href={`/product/${id}`} into="modal">Quick look</Link>
@@ -461,7 +505,7 @@ When the server rendered the component, the mounter hydrates that markup rather 
 
 `useStore` hands back a Svelte store, so `$count` reads the key and `$count = …` writes it, in a legacy component as in a runes one. Every other island reading the key follows, whether React, Vue or Svelte mounts it.
 
-The entry is TypeScript, so its placements are helpers rather than components. `link` is an anchor's attributes, `picture` the image's parts and `island` an attachment that places another framework's island by module id:
+A `.svelte` file imports FSR's components from `@snapfire/fsr/components`, as [Importing FSR's Components](#importing-fsrs-components) shows. The entry also exports the helpers they are built on, for markup an author writes themselves. `link` is an anchor's attributes, `picture` the image's parts and `island` an attachment that places another framework's island by module id:
 
 ```svelte
 <script lang="ts">
@@ -558,7 +602,7 @@ It also hangs `refresh` on `window.__sf`, which is how the stock host's developm
 A `<Link>` is marked `aria-current` when it points at the page the document is showing, so a nav needs no state of its own and the styling is a selector:
 
 ```tsx
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
@@ -829,7 +873,7 @@ await refresh();
 `Embed` is a YouTube or Vimeo video as a still with a play button; a click puts the player in its place:
 
 ```tsx
-import { Embed } from "@snapfire/fsr-client/react";
+import { Embed } from "@snapfire/fsr/components";
 
 <Embed provider="youtube" id="f_WuRfuMXQw" title="Rick Astley - Never Gonna Give You Up" />
 ```
@@ -841,7 +885,8 @@ The build writes the placeholder on the server and `boot` listens for the click,
 `Place` is an element other components write into from elsewhere on the page. Declare it in the shell, a layout or a page:
 
 ```tsx
-import { Island, Place } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr-authoring/template";
+import { Place } from "@snapfire/fsr/components";
 
 <header>
   <Place name="notices" className="notices" />
@@ -863,7 +908,7 @@ The server writes the teleported content inside `<div id="notices">` wherever th
 `Picture` writes in the browser what the build wrote on the server for an imported image, so a page that mounts the component hydrates over markup that matches:
 
 ```tsx
-import { Picture } from "@snapfire/fsr-client/react";
+import { Picture } from "@snapfire/fsr/components";
 import hero from "../img/hero.png";
 
 export function Banner() {

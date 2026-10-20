@@ -1,4 +1,5 @@
-import { Island, Link } from "@snapfire/fsr-authoring/template";
+import { Island } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 import type { RecipeIdProps } from "@generated/client";
 import CookMode from "@src/ui/CookMode.vue";

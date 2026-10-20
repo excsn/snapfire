@@ -1428,6 +1428,13 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
   /// fragment's one node.
   fn component_node(&mut self, node: &Node, standalone: bool, out: &mut Vec<Tmpl>) -> Lowered<()> {
     let Node::Component { name, dynamic, svg, attrs, fragment, slots, at } = node else { unreachable!("a component") };
+    if let Some(placement) = self.component_placement(name).filter(|_| !*dynamic) {
+      out.push(self.placed_component(placement, attrs, fragment, *at)?);
+      if !standalone {
+        out.push(Tmpl::Marker(EMPTY.to_owned()));
+      }
+      return Ok(());
+    }
     let (props, children, css) = self.component_parts(attrs, fragment, slots)?;
     let dynamic = *dynamic || name.contains('.');
     let placed = match dynamic {
@@ -1449,6 +1456,67 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       out.push(Tmpl::Marker(EMPTY.to_owned()));
     }
     Ok(())
+  }
+
+  /// The FSR component a tag names when its binding is one: `Link`, `Picture`, `Mount`, `Embed` or `Place`.
+  fn component_placement(&self, name: &str) -> Option<&'static str> {
+    let meant = self.lowerer.meanings.as_ref().and_then(|meanings| meanings.bindings.get(name)).and_then(|meant| meant.placement());
+    meant.filter(|p| matches!(*p, "Link" | "Picture" | "Mount" | "Embed" | "Place"))
+  }
+
+  /// An FSR component as the shared placement writes it, with the anchors `svelte/server` writes for the Svelte component of that name the build supplies.
+  fn placed_component(&mut self, placement: &'static str, attrs: &[Attr], fragment: &Fragment, at: (usize, usize)) -> Lowered<Tmpl> {
+    let mut placed: Vec<placements::Attr<'static>> = Vec::new();
+    for attr in attrs {
+      match attr {
+        Attr::Attr { name, value, at } => {
+          let value = match value {
+            AttrValue::Present(_) => placements::Value::Present,
+            AttrValue::Parts(parts) => match parts.as_slice() {
+              [] => placements::Value::Text(String::new()),
+              [Part::Text { text }] => placements::Value::Text(text.clone()),
+              [Part::Code(code)] => {
+                let expr = self.lowerer.parsed.parse_expr_at(&code.code, code.at.0, code.at.1).map_err(|message| self.at(code.at.0, code.at.1, format!("`{}`: {message}", code.code.trim())))?;
+                placements::Value::Script(std::borrow::Cow::Owned(*expr))
+              }
+              _ => return Err(self.at(at.0, at.1, format!("an attribute of text and expressions on `<{placement}>`"))),
+            },
+          };
+          placed.push(placements::Attr { name: name.clone(), value, at: At::Line(at.0, at.1) });
+        }
+        Attr::Spread { code, at } => {
+          let expr = self.lowerer.parsed.parse_expr_at(code, at.0, at.1).map_err(|message| self.at(at.0, at.1, format!("`{}`: {message}", code.trim())))?;
+          placed.push(placements::Attr { name: String::new(), value: placements::Value::Spread(std::borrow::Cow::Owned(*expr)), at: At::Line(at.0, at.1) });
+        }
+        Attr::Attach { at, .. } | Attr::Directive { at, .. } => return Err(self.at(at.0, at.1, format!("a directive on `<{placement}>`"))),
+      }
+    }
+    let here = At::Line(at.0, at.1);
+    let has_children = fragment.nodes.iter().any(|n| !matches!(n, Node::Text { data } if data.trim().is_empty()));
+    match placement {
+      "Link" => {
+        let children = self.fragment(fragment)?;
+        let Tmpl::Element { tag, attrs, mut children } = placements::link(self, &placed, children)? else { unreachable!("a link is an element") };
+        children.push(Tmpl::Marker(EMPTY.to_owned()));
+        Ok(Tmpl::Element { tag, attrs, children })
+      }
+      _ if has_children => Err(self.at(at.0, at.1, format!("`<{placement}>` with children"))),
+      "Picture" => {
+        let parts = placements::picture_data(self, &placed, here)?;
+        let depth = self.lowerer.scope.len();
+        self.lowerer.scope.push((PICTURE_PARTS.to_owned(), Expr::Var(PICTURE_PARTS.to_owned())));
+        let lowered = self.fragment(&picture_template(at));
+        self.lowerer.scope.truncate(depth);
+        Ok(Tmpl::Let { name: PICTURE_PARTS.to_owned(), expr: parts, then: Box::new(Tmpl::Fragment(lowered?)) })
+      }
+      "Embed" => Ok(svelte_embed(placements::embed(self, &placed, here)?)),
+      "Mount" => placements::mount(self, &placed, here),
+      _ => {
+        let Tmpl::Element { tag, attrs, children } = placements::place(self, &placed, false, here)? else { unreachable!("a place is an element") };
+        let children = std::iter::once(Tmpl::Marker(EMPTY.to_owned())).chain(children).collect();
+        Ok(Tmpl::Fragment(vec![Tmpl::Marker(EMPTY.to_owned()), Tmpl::Element { tag, attrs, children }, Tmpl::Marker(EMPTY.to_owned())]))
+      }
+    }
   }
 
   /// A component's props and its children as `build_inline_component` passes them.
@@ -2212,6 +2280,53 @@ fn css_props(svg: bool, css: Vec<(String, Expr)>, placed: Tmpl, dynamic: bool) -
 /// A component chosen at run time, Svelte's `if` block around it: the
 /// chosen-tag element the renderer places the component the value
 /// references through, the else branch's markers when it holds nothing.
+/// The binding Picture.svelte's parts are held under while its template lowers.
+const PICTURE_PARTS: &str = "__sf_picture";
+
+/// Picture.svelte's template, over the parts bound as `PICTURE_PARTS`.
+fn picture_template(at: (usize, usize)) -> Fragment {
+  let code = |c: &str| Code { code: c.to_owned(), at };
+  let spread = |c: &str| Attr::Spread { code: c.to_owned(), at };
+  let fragment = |nodes: Vec<Node>| Fragment { hoisted: Vec::new(), nodes, standalone: false, text_first: false };
+  let element = |name: &str, attrs: Vec<Attr>, nodes: Vec<Node>| Node::Element { name: name.to_owned(), svg: false, mathml: false, scoped: None, attrs, fragment: fragment(nodes), at };
+  let img = || element("img", vec![spread(&format!("{PICTURE_PARTS}.img"))], Vec::new());
+  let sources = Node::Each { expression: code(&format!("{PICTURE_PARTS}.sources")), context: Some(code("source")), index: None, key: None, body: fragment(vec![element("source", vec![spread("source")], Vec::new())]), fallback: None, at };
+  let picture = element("picture", Vec::new(), vec![sources, img()]);
+  fragment(vec![Node::If { elseif: false, test: code(&format!("{PICTURE_PARTS}.sources")), consequent: fragment(vec![picture]), alternate: Some(fragment(vec![img()])), at }])
+}
+
+/// Embed.svelte's markup around what the placement writes: an `{#if}` on the still inside the button.
+fn svelte_embed(tmpl: Tmpl) -> Tmpl {
+  let Tmpl::Element { tag, attrs, mut children } = tmpl else { return tmpl };
+  if let Some(Tmpl::Element { children: inner, .. }) = children.first_mut().filter(|c| matches!(c, Tmpl::Element { tag, .. } if tag == "button")) {
+    let mut items = std::mem::take(inner);
+    let still = matches!(items.first(), Some(Tmpl::Element { tag, .. }) if tag == "img");
+    let mut out = Vec::new();
+    if still {
+      out.push(Tmpl::Marker("<!--[0-->".to_owned()));
+      out.push(replayed(items.remove(0)));
+    } else {
+      out.push(Tmpl::Marker("<!--[-1-->".to_owned()));
+    }
+    out.push(Tmpl::Marker(BLOCK_CLOSE.to_owned()));
+    out.extend(items);
+    *inner = out;
+  }
+  Tmpl::Element { tag, attrs, children }
+}
+
+/// An `<img>` with the `onload` and `onerror` Svelte writes so its client can replay an event that fired before hydration.
+fn replayed(tmpl: Tmpl) -> Tmpl {
+  match tmpl {
+    Tmpl::Element { tag, mut attrs, children } if tag == "img" => {
+      attrs.push(Entry::Baked(" onload=\"this.__e=event\"".to_owned()));
+      attrs.push(Entry::Baked(" onerror=\"this.__e=event\"".to_owned()));
+      Tmpl::Element { tag, attrs, children }
+    }
+    other => other,
+  }
+}
+
 fn chosen_component(choice: Expr, props: Vec<Entry>, children: Vec<Tmpl>) -> Tmpl {
   let mut attrs = vec![Entry::Field(CHOSEN_TAG.to_owned(), choice.clone())];
   attrs.extend(props);

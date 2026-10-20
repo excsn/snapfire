@@ -1,4 +1,5 @@
-import { Island, Link, type Children } from "@snapfire/fsr-authoring/template";
+import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 
 import Tally from "@src/ui/Tally.svelte";
 import Recent from "@src/ui/Recent.svelte";

@@ -1,5 +1,5 @@
 import type { RootProps } from "@generated/client";
-import { Link, Picture } from "@snapfire/fsr-client/react";
+import { Link, Picture } from "@snapfire/fsr/components";
 
 import ledger from "../src/img/ledger.png";
 

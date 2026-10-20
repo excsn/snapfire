@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 import { chapters } from "@src/chapters";
 
 export default function DocsLayout({ children }: { children: ReactNode }) {

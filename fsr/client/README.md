@@ -55,6 +55,7 @@ snapfirec --source-map --minify compact --public-path /static/js/fsr --import-ma
 | Re-render a mounted island with new props, keeping its DOM and state | `patchIsland`, `reactPatcher` |
 | End the islands in a subtree you are about to remove | `discard`, `reactUnmounter` |
 | Delay hydration until the island scrolls into view | `when: "visible"` |
+| Place a link, a picture, another framework's island, a video embed or a place in any framework | `Link`, `Picture`, `Mount`, `Embed`, `Place` from `@snapfire/fsr/components` |
 | Mount React components | `reactMounter` from `@snapfire/fsr-client/react` |
 | Mount Vue components | `vueMounter` from `@snapfire/fsr-client/vue` |
 | Read the store as a Vue ref | `useStore` from `@snapfire/fsr-client/vue` |

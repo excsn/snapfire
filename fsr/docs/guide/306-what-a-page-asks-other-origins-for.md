@@ -25,7 +25,7 @@ Nothing in this list happens unless the application wrote it. A card image, a si
 `<Embed provider="youtube" id="…" title="…" />` renders a still with a play button. The player's iframe loads only when the visitor clicks, which is why a page with three embeds costs three images rather than three players:
 
 ```tsx
-import { Embed } from "@snapfire/fsr-client/react";
+import { Embed } from "@snapfire/fsr/components";
 
 <Embed provider="youtube" id="f_WuRfuMXQw" title="Rick Astley - Never Gonna Give You Up" />
 ```

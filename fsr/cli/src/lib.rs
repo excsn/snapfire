@@ -1475,6 +1475,15 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   let mut exported: Vec<String> = Vec::new();
   for module in &islands {
+  let react = types::serves_react(app, &crate::xwpm::Layout::of_site(app, options.site.as_ref())?)?;
+  let pointed = components_rewrites(app, &mut set, &islands, &owners, react, &rewritten)?;
+  let svelte_components = pointed.iter().any(|(file, _)| file.to_ascii_lowercase().ends_with(".svelte"));
+  for (file, text) in pointed {
+    match rewritten.iter_mut().find(|(f, _)| *f == file) {
+      Some((_, held)) => *held = text,
+      None => rewritten.push((file, text)),
+    }
+  }
     let Some((file, name)) = module.split_once('#') else { continue };
     if name == "default" || snapfire_fsr_lower::component::is_foreign(file) || snapfire_fsr_lower::component::is_transformed(file) || generated.iter().any(|(f, _)| f == file) {
       continue;
@@ -1531,7 +1540,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   browser_route_files.sort();
   browser_route_files.dedup();
   let islands_generated: Vec<&String> = report.extracted.iter().filter_map(|(_, island, _)| island.split_once('#').map(|(file, _)| file)).map(|file| generated.iter().find(|(f, _)| f == file).map(|(f, _)| f)).flatten().collect();
-  let generated_files: Vec<String> = islands_generated.into_iter().cloned().collect();
+  let mut generated_files: Vec<String> = islands_generated.into_iter().cloned().collect();
   browser_route_files.retain(|file| !generated_files.contains(file));
   let mut roots = browser_roots(app, &islands, &static_modules, &browser_route_files, &generated_files, &public_path);
   let function_modules = set.function_modules();
@@ -1720,6 +1729,9 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   files.extend(written_themes.files);
   let mut bundle_files = generated_files.clone();
   bundle_files.extend(written_themes.added);
+  if svelte_components {
+    generated_files.extend(svelte_components_files().into_iter().map(|(file, _)| file));
+  }
   #[cfg(feature = "mdx")]
   {
     let log = mdx_installed.log.borrow().clone();
@@ -1777,6 +1789,9 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   }
   files.extend(vue_declarations);
   files.extend(shadowed_declarations);
+  if svelte_components {
+    files.extend(svelte_components_files());
+  }
   let mut report = report;
   let declarations = types::Declarations::read(app)?;
   report.types = declarations.status();
@@ -2676,6 +2691,99 @@ fn dialect_rewrites(app: &Path, set: &mut ComponentSet, islands: &[String], stat
 
 /// Every JSX file under `app` that imports a component another framework
 /// mounts, with each such import replaced by a `foreign` component of React's
+/// FSR's components as Svelte components, which the build writes under `generated/components` for an app whose `.svelte` files import them.
+const SVELTE_COMPONENT_FILES: &[(&str, &str)] = &[
+  ("Link", include_str!("../embedded/components/svelte/Link.svelte")),
+  ("Picture", include_str!("../embedded/components/svelte/Picture.svelte")),
+  ("Mount", include_str!("../embedded/components/svelte/Mount.svelte")),
+  ("Embed", include_str!("../embedded/components/svelte/Embed.svelte")),
+  ("Place", include_str!("../embedded/components/svelte/Place.svelte")),
+];
+
+/// Where the Svelte versions of FSR's components are written, for a `.svelte` file's import of them.
+pub(crate) const SVELTE_COMPONENTS: &str = "@generated/components";
+
+/// The Svelte components and the module that exports them, by path under the application.
+fn svelte_components_files() -> Vec<(String, String)> {
+  let mut files: Vec<(String, String)> = SVELTE_COMPONENT_FILES.iter().map(|(name, source)| (format!("generated/components/{name}.svelte"), (*source).to_owned())).collect();
+  files.push(("generated/components/index.ts".to_owned(), SVELTE_COMPONENT_FILES.iter().map(|(name, _)| format!("export {{ default as {name} }} from \"./{name}.svelte\";\n")).collect()));
+  files
+}
+
+/// Every source file that imports FSR's components, the overlay's own among them, with the specifier
+/// pointed at the importing file's framework, by path in the bundle overlay:
+/// a `.vue` file at Vue's adapter, a `.svelte` file at the Svelte components
+/// the build writes under `generated/components` and any other file at the
+/// adapter of the first island that reaches it, else React's when the app
+/// serves React and the JSX runtime when it does not.
+fn components_rewrites(app: &Path, set: &mut ComponentSet, islands: &[String], owners: &HashMap<String, Owner>, react: bool, rewritten: &[(String, String)]) -> Result<Vec<(String, String)>, BuildError> {
+  let specifier = format!("\"{}\"", snapfire_fsr_lower::COMPONENTS_MODULE);
+  let mut reached: HashMap<String, &'static str> = HashMap::new();
+  for module in islands {
+    let Some(file) = module.split_once('#').map(|(file, _)| file) else { continue };
+    if snapfire_fsr_lower::component::is_foreign(file) {
+      continue;
+    }
+    let adapter = adapter_for(module, owners)?;
+    for file in set.local_reach(file) {
+      reached.entry(file).or_insert(adapter.module);
+    }
+  }
+  let mut files = Vec::new();
+  for dir in types::source_dirs(app) {
+    source_files(app, &app.join(dir), &mut files)?;
+  }
+  for (file, _) in rewritten {
+    if !files.contains(file) {
+      files.push(file.clone());
+    }
+  }
+  let mut out = Vec::new();
+  for file in files {
+    let source = match rewritten.iter().find(|(f, _)| *f == file) {
+      Some((_, text)) => text.clone(),
+      None => {
+        let path = app.join(&file);
+        std::fs::read_to_string(&path).map_err(|e| BuildError::Io(path, e))?
+      }
+    };
+    if !source.contains(&specifier) {
+      continue;
+    }
+    let ext = Path::new(&file).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let target = match snapfire_compiler_wire::claimed(&ext) {
+      Some("vue") => VUE.module,
+      Some("svelte") => SVELTE_COMPONENTS,
+      _ => match reached.get(&file) {
+        Some(adapter) => adapter,
+        None if react => REACT.module,
+        None => "@snapfire/fsr-client/jsx-runtime",
+      },
+    };
+    out.push((file, source.replace(&specifier, &format!("\"{target}\""))));
+  }
+  Ok(out)
+}
+
+/// The script and component files under `dir`, relative to `app`.
+fn source_files(app: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), BuildError> {
+  let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).map_err(|e| BuildError::Io(dir.to_path_buf(), e))?.flatten().map(|e| e.path()).collect();
+  entries.sort();
+  for path in entries {
+    if path.is_dir() {
+      source_files(app, &path, out)?;
+      continue;
+    }
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    if matches!(ext.as_str(), "ts" | "tsx" | "js" | "jsx" | "mts" | "mjs") || snapfire_compiler_wire::claimed(&ext).is_some() {
+      if let Ok(relative) = path.strip_prefix(app) {
+        out.push(relative.to_string_lossy().replace('\\', "/"));
+      }
+    }
+  }
+  Ok(())
+}
+
 /// adapter, by path in the bundle overlay. React's `jsx` takes no other
 /// framework's component, so `<Chart />` from `Chart.vue` places it by id.
 fn foreign_rewrites(app: &Path, set: &mut ComponentSet, rewritten: &[(String, String)]) -> Result<Vec<(String, String)>, BuildError> {

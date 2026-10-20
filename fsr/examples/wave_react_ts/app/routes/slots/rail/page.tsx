@@ -1,5 +1,5 @@
 import type { LayoutRailProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 const views = [
   { id: "inbox", label: "Inbox" },

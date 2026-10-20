@@ -1,4 +1,4 @@
-import { createRawSnippet, hydrate, mount, unmount, type Component } from "svelte";
+import { createRawSnippet, hydrate, mount as mountSvelte, unmount, type Component } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 
 import { discard, islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
@@ -119,7 +119,7 @@ export const svelteMounter: Mounter = (module, props, el, isHydrating) => {
     return instance;
   }
   el.replaceChildren();
-  return mount(componentOf(module), options);
+  return mountSvelte(componentOf(module), options);
 };
 
 export const sveltePatcher: Patcher = (_handle, _module, props, el) => {
@@ -182,6 +182,32 @@ export function embed(options: EmbedOptions): ReturnType<typeof embedParts> {
 
 /** Ids for the markers this module writes, which no server rendered. */
 let placed = 0;
+
+/** What the Svelte `Mount` the build supplies attaches to its `<sf-s data-sf-island>`: the marker for `module` with its props inside it, mounted by the registry's entry the way the React and Vue `Mount` do theirs and patched in place when the props change. */
+export function mount(module: string, props: Props = {}, _when?: MountTiming): (region: Element) => () => void {
+  return (region) => {
+    const mounted = region.querySelector("sf-i");
+    if (mounted) {
+      void patchIsland(mounted, props);
+    } else {
+      const id = `sf-svelte-m${++placed}`;
+      const marker = document.createElement("sf-i");
+      marker.id = id;
+      marker.setAttribute("data-sf-module", module);
+      const script = document.createElement("script");
+      script.type = "application/json";
+      script.setAttribute("data-sf-props", id);
+      script.textContent = JSON.stringify(encodeValue(props as never));
+      region.append(marker, script);
+      scan(region);
+    }
+    return () => {
+      queueMicrotask(() => {
+        if (!region.isConnected) discard(region);
+      });
+    };
+  };
+}
 
 /**
  * An island another framework mounts, placed by module id as an attachment:

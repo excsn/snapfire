@@ -1,4 +1,4 @@
-import { Picture } from "@snapfire/fsr-client/react";
+import { Picture } from "@snapfire/fsr/components";
 
 import type { RootProps } from "@generated/client";
 import harbour from "../src/img/harbour.jpg";

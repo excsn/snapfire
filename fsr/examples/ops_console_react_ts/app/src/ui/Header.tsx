@@ -1,5 +1,6 @@
 import type { Identity } from "@snapfire/fsr-authoring";
-import { Link, useStore } from "@snapfire/fsr-client/react";
+import { useStore } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 import { t } from "@snapfire/fsr-client/std";
 
 import { headline, openAlerts, region, selected, watching } from "@src/store";

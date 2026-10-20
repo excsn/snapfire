@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 export default function TalkLayout({ children }: { children: ReactNode }) {
   return (

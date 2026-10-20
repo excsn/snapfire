@@ -1,5 +1,5 @@
 import { optimistic } from "@snapfire/fsr-client";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 import { t } from "@snapfire/fsr-client/std";
 
 import { actions, type LayoutAlertsProps } from "@generated/client";

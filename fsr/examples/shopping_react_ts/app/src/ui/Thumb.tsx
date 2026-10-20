@@ -1,4 +1,4 @@
-import { Picture } from "@snapfire/fsr-client/react";
+import { Picture } from "@snapfire/fsr/components";
 
 import type { Image } from "@generated/client";
 import { PHOTOS } from "./photos";

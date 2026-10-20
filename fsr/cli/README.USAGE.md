@@ -279,7 +279,7 @@ Its props type is `LayoutPromoProps` and its source id is `layout.promo`. It is 
 
 The two forms are not interchangeable. A prop is a slot only because `slots/<name>/` exists beside the layout and that directory puts a page on every plan under the layout, an intercept included, so the prop is always filled and `{promo ?? <p>…</p>}` never reaches its right-hand side. Write the prop form as placement (`{promo}`) and reach for `<Slot name>` with children when a region really can be empty, which is the intercept-only slot a `page.<slot>.tsx` fills on a navigation.
 
-`page.modal.tsx` beside a route's `page.tsx` is the rendering a soft navigation opens in that slot of the nearest layout above it declaring one, the page under the layout staying as the browser has it. It shares the route's loader and props type, streams behind a `loading.modal.tsx` of its own when there is one and is never rendered for a document load: a reload or a shared link of the same URL is the full page. The server applies it when the navigation comes from a route under the same layout; a link forces the document's rendering with `full` or names a slot with `into`, through `Link` from `@snapfire/fsr-client/react` or the `data-sf-full` and `data-sf-into` attributes on any anchor. The layouts above the slot load under the document's request, so a layout reading `ctx.query` keeps the filter the page beneath was loaded with; `ctx.address` carries the navigation's own path, params and query for a layout that wants to reflect the overlay.
+`page.modal.tsx` beside a route's `page.tsx` is the rendering a soft navigation opens in that slot of the nearest layout above it declaring one, the page under the layout staying as the browser has it. It shares the route's loader and props type, streams behind a `loading.modal.tsx` of its own when there is one and is never rendered for a document load: a reload or a shared link of the same URL is the full page. The server applies it when the navigation comes from a route under the same layout; a link forces the document's rendering with `full` or names a slot with `into`, through `Link` from `@snapfire/fsr/components` or the `data-sf-full` and `data-sf-into` attributes on any anchor. The layouts above the slot load under the document's request, so a layout reading `ctx.query` keeps the filter the page beneath was loaded with; `ctx.address` carries the navigation's own path, params and query for a layout that wants to reflect the overlay.
 
 `fsr build --verbose` lists slots by source id and intercepts as `<pattern> into <slot>`. A route may carry one variant per slot. A `slots/` directory anywhere but beside a `layout.tsx`, a slot without a `page.tsx` or with routes beneath it and a variant naming a slot no layout above declares each stop the build.
 
@@ -769,7 +769,8 @@ wrote     tsconfig.json
 Templates are JSX; what types their JSX follows the import map. With `react` in it the templates are React components, typed by `@types/react`. Without it, `tsconfig.json` gets `"jsxImportSource": "@snapfire/fsr-authoring"` and the templates are typed by the dialect's own declarations, `@snapfire/fsr-authoring/template`, which come from the binary with the rest of the authoring package; no React declarations are fetched. Those declarations type a hyphenated tag as a custom element whose attributes are its own, so `<shed-tally count={reserved}>` passes where `<divv>` does not. They also type `<template shadowrootmode="open">`, for a shadow root the server writes. Under either set of declarations an element template's tag is typed with its props by `generated/elements.d.ts`, as [Writing an Element's Shadow Template](#writing-an-elements-shadow-template) shows.
 
 ```tsx
-import { Island, Link, type Children } from "@snapfire/fsr-authoring/template";
+import { Island, type Children } from "@snapfire/fsr-authoring/template";
+import { Link } from "@snapfire/fsr/components";
 ```
 
 ## Checking a Deployment
@@ -1050,7 +1051,7 @@ export default function Image({ notice }: NoticeIdProps) {
 An image a component imports is served under a content hash with a resized variant per width and format. A font under the fonts directory is served with a fallback face sized to match it. Import the image and place it with `Picture`:
 
 ```tsx
-import { Picture } from "@snapfire/fsr-client/react";
+import { Picture } from "@snapfire/fsr/components";
 import hero from "../img/hero.png";
 
 export default function Page() {

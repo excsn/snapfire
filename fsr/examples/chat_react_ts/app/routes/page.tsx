@@ -1,5 +1,5 @@
 import type { RootProps } from "@generated/client";
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 import Name from "@src/ui/Name";
 

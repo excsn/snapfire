@@ -58,6 +58,11 @@ export function Place({ name, as = "div", ...attrs }: { name: string; as?: strin
   return jsx(as, { ...attrs, id: name });
 }
 
+/** The region the server writes for an island placed by module id, empty until the browser mounts the island in it. */
+export function Mount({ when }: { module: string; props?: Record<string, unknown>; when?: "load" | "visible" | "idle" }): FsrElement {
+  return jsx("sf-s", when ? { "data-sf-island": "", "data-sf-when": when } : { "data-sf-island": "" });
+}
+
 /** The placeholder the server writes for a video hosted elsewhere, which a click swaps for the player. */
 export function Embed(props: EmbedOptions): FsrElement {
   const parts = embedParts(props);

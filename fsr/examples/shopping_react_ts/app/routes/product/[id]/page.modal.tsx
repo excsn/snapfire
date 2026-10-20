@@ -1,4 +1,4 @@
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 
 import { actions, type ProductIdProps } from "@generated/client";
 import { addedToCart, failed } from "@src/ui/feedback";

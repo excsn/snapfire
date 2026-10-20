@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link, Picture } from "@snapfire/fsr-client/react";
+import { Link, Picture } from "@snapfire/fsr/components";
 
 import logo from "../src/img/logo.svg";
 

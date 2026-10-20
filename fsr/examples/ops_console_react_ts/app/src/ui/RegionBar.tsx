@@ -1,4 +1,4 @@
-import { Link } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
 import { t } from "@snapfire/fsr-client/std";
 
 const REGIONS = ["all", "eu", "us", "ap"];
