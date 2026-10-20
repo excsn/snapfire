@@ -1172,7 +1172,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -5043,6 +5043,8 @@ struct ComponentLowerer<'a, 'p> {
   lowered_handlers: Vec<Handler>,
   /// What a handler's parameters stand for in place of `$event` alone: `useInput`'s `input` and `key`.
   event_binds: Option<Vec<Expr>>,
+  /// Ink's `write` from `useStdout` or `useStderr`, by local name, with the action a call to it is: `$stdout` or `$stderr`.
+  writers: Vec<(String, &'static str)>,
   /// Custom element tags with a shadow template, to the template's module.
   elements: Rc<HashMap<String, String>>,
   /// Custom hooks resolved so far: the name a call uses, the module that declares it and its export there.
@@ -6060,6 +6062,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     if hook_call(&self.meanings(), init).is_some_and(|(hook, _)| hook == "useApp") {
       return self.app_hook(&decl.name, decl.span);
+    }
+    if let Some((hook @ ("useWindowSize" | "useStdout" | "useStderr" | "useIsScreenReaderEnabled"), _)) = hook_call(&self.meanings(), init) {
+      self.terminal_hook(hook, &decl.name, decl.span)?;
+      return Ok(None);
     }
     match &decl.name {
       js::Pat::Ident(name) => {
@@ -7105,6 +7111,49 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Some(Stmt::Let { name: state, expr: Expr::Lit(Lit::Bool(false)) }))
   }
 
+  /// Ink's hooks that read the terminal: `useWindowSize`'s `columns` and `rows`
+  /// and `useStdout().stdout` read the size the terminal stores; `write` from
+  /// `useStdout` or `useStderr` is an action the terminal prints;
+  /// `useIsScreenReaderEnabled` is `false`.
+  fn terminal_hook(&mut self, hook: &str, pattern: &js::Pat, span: Span) -> Lowered<()> {
+    let size = || Expr::Object(vec![Entry::Field("columns".to_owned(), Expr::Store(crate::TERMINAL_COLUMNS.to_owned())), Entry::Field("rows".to_owned(), Expr::Store(crate::TERMINAL_ROWS.to_owned()))]);
+    if hook == "useIsScreenReaderEnabled" {
+      let js::Pat::Ident(local) = pattern else { return Err(self.lowerer.residue(span, "`useIsScreenReaderEnabled` bound to a pattern")) };
+      self.lowerer.scope.push((local.id.sym.to_string(), Expr::Lit(Lit::Bool(false))));
+      return Ok(());
+    }
+    if let (js::Pat::Ident(local), "useWindowSize") = (pattern, hook) {
+      self.lowerer.scope.push((local.id.sym.to_string(), size()));
+      return Ok(());
+    }
+    let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, format!("`{hook}` bound to one name; destructure what it gives"))) };
+    for prop in &object.props {
+      let (key, local) = match prop {
+        js::ObjectPatProp::Assign(assign) => (assign.key.sym.to_string(), assign.key.sym.to_string()),
+        js::ObjectPatProp::KeyValue(kv) => {
+          let (js::PropName::Ident(key), js::Pat::Ident(local)) = (&kv.key, &*kv.value) else { return Err(self.lowerer.residue(span, format!("a pattern from `{hook}`"))) };
+          (key.sym.to_string(), local.id.sym.to_string())
+        }
+        js::ObjectPatProp::Rest(_) => return Err(self.lowerer.residue(span, format!("a rest pattern from `{hook}`"))),
+      };
+      match (hook, key.as_str()) {
+        ("useWindowSize", "columns") => self.lowerer.scope.push((local, Expr::Store(crate::TERMINAL_COLUMNS.to_owned()))),
+        ("useWindowSize", "rows") => self.lowerer.scope.push((local, Expr::Store(crate::TERMINAL_ROWS.to_owned()))),
+        ("useStdout", "stdout") | ("useStderr", "stderr") => self.lowerer.scope.push((local, size())),
+        ("useStdout", "write") => {
+          self.writers.push((local.clone(), "$stdout"));
+          self.browser_function(local);
+        }
+        ("useStderr", "write") => {
+          self.writers.push((local.clone(), "$stderr"));
+          self.browser_function(local);
+        }
+        _ => return Err(self.lowerer.residue(span, format!("`{key}` from `{hook}`"))),
+      }
+    }
+    Ok(())
+  }
+
   /// The timers a mount effect starts, `useEffect(() => { setInterval(f, ms) }, [])`,
   /// each lowered as a handler named `interval:<ms>` or `timeout:<ms>`, which a
   /// terminal runtime schedules. An effect with dependencies, a timer whose
@@ -7113,7 +7162,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn effect_timers(&mut self, call: &'p js::CallExpr) {
     let [effect, deps] = &call.args[..] else { return };
     let js::Expr::Array(deps) = &*deps.expr else { return };
-    if !deps.elems.is_empty() {
+    let stable = |elem: &Option<js::ExprOrSpread>| match elem.as_ref().map(|e| &*e.expr) {
+      Some(js::Expr::Ident(id)) => {
+        let name = id.sym.as_ref();
+        self.setters.iter().any(|(setter, _)| setter == name) || self.writers.iter().any(|(writer, _)| writer == name)
+      }
+      _ => false,
+    };
+    if !deps.elems.iter().all(stable) {
       return;
     }
     let mut inner: &'p js::Expr = &effect.expr;
@@ -7308,6 +7364,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         match &**callee {
           js::Expr::Ident(id) => {
             let name = id.sym.to_string();
+            if let Some((_, action)) = self.writers.iter().find(|(w, _)| *w == name).cloned() {
+              let input = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::lit_str(String::new()),
+              };
+              walk.act(action.to_owned(), input);
+              return Ok(());
+            }
             if let Some((_, state)) = self.setters.iter().find(|(s, _)| *s == name).cloned() {
               if state == crate::EXIT_STATE {
                 walk.set(state, Expr::Lit(Lit::Bool(true)));

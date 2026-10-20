@@ -78,6 +78,9 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
       rows.extend(TERMINAL_ELEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
       rows.push((module, "useInput", Construct::Hook("useInput")));
       rows.push((module, "useApp", Construct::Hook("useApp")));
+      for hook in ["useWindowSize", "useStdout", "useStderr", "useIsScreenReaderEnabled"] {
+        rows.push((module, hook, Construct::Hook(hook)));
+      }
     }
     let react_hooks: Vec<(&'static str, Construct)> = LIBRARY.iter().filter(|(m, _, c)| *m == "react" && matches!(c, Construct::Hook(_))).map(|(_, e, c)| (*e, *c)).collect();
     for module in ["preact/hooks", "preact/compat"] {

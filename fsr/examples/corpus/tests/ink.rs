@@ -21,27 +21,32 @@ fn copy(from: &Path, to: &Path) {
   }
 }
 
-/// The component an example's `render(<Name … />)` mounts, and where that call starts and ends.
+/// What an example's `render(element, options?)` mounts, and where the call starts and ends.
 fn rendered_root(source: &str) -> Option<(String, usize, usize)> {
-  let start = source.match_indices("render(").map(|(at, _)| at).find(|&at| at == 0 || source[..at].ends_with('\n'))?;
-  let after = source[start + "render(".len()..].trim_start().strip_prefix('<')?;
-  let name: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-  let mut depth = 0;
-  for (offset, ch) in source[start..].char_indices() {
+  let start = source.match_indices("render(").map(|(at, _)| at).find(|&at| source[..at].rsplit('\n').next().is_some_and(|line| line.trim().is_empty()))?;
+  let open = start + "render(".len();
+  let (mut depth, mut close, mut split) = (1, None, None);
+  for (offset, ch) in source[open..].char_indices() {
     match ch {
-      '(' => depth += 1,
-      ')' => {
+      '(' | '{' | '[' => depth += 1,
+      ')' | '}' | ']' => {
         depth -= 1;
         if depth == 0 {
-          let end = start + offset + 1;
-          let end = if source[end..].starts_with(';') { end + 1 } else { end };
-          return Some((name, start, end));
+          close = Some(open + offset);
+          break;
         }
       }
+      ',' if depth == 1 => split = Some(open + offset),
       _ => {}
     }
   }
-  None
+  let close = close?;
+  let element = match split {
+    Some(comma) if source[comma + 1..close].trim().is_empty() || source[comma + 1..close].trim().starts_with('{') => &source[open..comma],
+    _ => &source[open..close],
+  };
+  let end = if source[close + 1..].starts_with(';') { close + 2 } else { close + 1 };
+  Some((element.trim().to_owned(), start, end))
 }
 
 /// `example` laid out as an application, Ink's own source imported as `ink`,
@@ -57,14 +62,15 @@ fn app_of(example: &Path, scratch: &Path) -> Result<(PathBuf, String), String> {
     let Ok(mut source) = std::fs::read_to_string(&path) else { continue };
     source = source.replace(INK_SOURCE, "'ink'");
     if root.is_none() {
-      if let Some((name, start, end)) = rendered_root(&source) {
-        source.replace_range(start..end, &format!("export default {name};"));
+      if let Some((element, start, end)) = rendered_root(&source) {
+        source.replace_range(start..end, "");
+        source.push_str(&format!("\nexport default function InkExampleRoot() {{\n  return (\n    {element}\n  );\n}}\n"));
         root = Some(path.file_name().unwrap().to_string_lossy().into_owned());
       }
     }
     std::fs::write(&path, source).unwrap();
   }
-  let root = root.ok_or("no `render(<Component />)` to say what it draws")?;
+  let root = root.ok_or("no `render(…)` to say what it draws")?;
   Ok((dir, format!("src/{root}#default")))
 }
 

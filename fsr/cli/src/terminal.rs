@@ -16,12 +16,15 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::render::{prepare, Components, HandlerRef};
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_terminal::{from_markup, render, Color, Frame, Node, Text};
+use snapfire_fsr_terminal::{from_markup, render, Boxed, Color, Frame, Node, Text};
 
 use crate::BuildError;
 
 /// The page a terminal application draws.
 pub const MODULE: &str = "routes/page.tsx#default";
+
+/// How many lines the page wrote with `useStdout` or `useStderr` stay above it.
+const WRITTEN: usize = 200;
 
 /// How long the loop waits for a key when no timer is due sooner.
 const IDLE: Duration = Duration::from_millis(100);
@@ -94,6 +97,8 @@ pub struct Session {
   module: String,
   library: Components,
   state: ValueMap,
+  size: (u16, u16),
+  written: Vec<String>,
 }
 
 impl Session {
@@ -104,7 +109,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new() })
   }
 
   /// The page as it stands.
@@ -142,6 +147,11 @@ impl Session {
       .collect()
   }
 
+  /// The terminal's size, which the page reads through `useWindowSize` and `useStdout`.
+  pub fn resize(&mut self, columns: u16, rows: u16) {
+    self.size = (columns, rows);
+  }
+
   /// Whether the page has called Ink's `useApp().exit()`.
   pub fn exited(&self) -> bool {
     self.state.get(snapfire_fsr_lower::EXIT_STATE) == Some(&Value::Bool(true))
@@ -166,9 +176,25 @@ impl Session {
 
   fn run(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<Node, String> {
     let component = self.library.get(&self.module).ok_or_else(|| format!("{} did not lower", self.module))?.clone();
-    let stepped = Interpreter::default().island_step(&self.module, &component, &ValueMap::default(), &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
+    let mut store = ValueMap::default();
+    store.insert(snapfire_fsr_lower::TERMINAL_COLUMNS.to_owned(), Value::Int(self.size.0.into()));
+    store.insert(snapfire_fsr_lower::TERMINAL_ROWS.to_owned(), Value::Int(self.size.1.into()));
+    let mut props = ValueMap::default();
+    props.insert("$store".to_owned(), Value::Map(store));
+    let stepped = Interpreter::default().island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
+    for (action, value) in &stepped.acts {
+      if let ("$stdout" | "$stderr", Value::Str(text)) = (action.as_str(), value) {
+        self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned));
+      }
+    }
+    let excess = self.written.len().saturating_sub(WRITTEN);
+    self.written.drain(..excess);
     self.state = stepped.state;
-    from_markup(&stepped.rendered.html)
+    let page = from_markup(&stepped.rendered.html)?;
+    if self.written.is_empty() {
+      return Ok(page);
+    }
+    Ok(Node::Box(Boxed::new().column().child(Text::plain(&self.written.join("\n"))).child(page)))
   }
 }
 
@@ -222,6 +248,8 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   watcher.watch(app, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
 
   let screen = Screen::enter().map_err(fail)?;
+  let (columns, rows) = terminal_size();
+  session.resize(columns, rows);
   let mut shown = Frame::new(0, 0);
   let mut drawn = session.view();
   draw(&drawn, &mut shown, true).map_err(fail)?;
@@ -242,7 +270,12 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
           }
           None => {}
         },
-        Event::Resize(..) => draw(&drawn, &mut shown, true).map_err(fail)?,
+        Event::Resize(..) => {
+          let (columns, rows) = terminal_size();
+          session.resize(columns, rows);
+          drawn = session.view();
+          draw(&drawn, &mut shown, true).map_err(fail)?;
+        }
         _ => {}
       }
     }
@@ -274,10 +307,18 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   Ok(())
 }
 
+/// The terminal's columns and rows: 80 by 24 when it reports none.
+fn terminal_size() -> (u16, u16) {
+  match crossterm::terminal::size() {
+    Ok((columns, rows)) if columns > 0 && rows > 0 => (columns, rows),
+    _ => (80, 24),
+  }
+}
+
 /// Draws `node` or the error in its place, writing what changed since
 /// `shown`; `whole` clears the screen and writes every cell.
 fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool) -> std::io::Result<()> {
-  let columns = crossterm::terminal::size().ok().map(|(columns, _)| columns).filter(|columns| *columns > 0).unwrap_or(80);
+  let (columns, _) = terminal_size();
   let frame = match node {
     Ok(node) => render(node, columns),
     Err(why) => render(&Node::Text(Text::plain(&format!("fsr: {why}")).color(Color::Ansi(1))), columns),

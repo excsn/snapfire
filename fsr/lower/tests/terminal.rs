@@ -95,3 +95,21 @@ fn use_app_exit_sets_the_state_the_terminal_reads_to_quit() {
   let quit = interpreter.island_step(MODULE, component, &ValueMap::default(), &other.state, Some(HandlerRef::own(input)), &key("q", &[]), &library).unwrap();
   assert_eq!(quit.state.get(snapfire_fsr_lower::EXIT_STATE), Some(&Value::Bool(true)));
 }
+
+#[test]
+fn the_terminal_size_reads_from_the_store_and_write_is_an_action_the_terminal_prints() {
+  let sized = "import { useEffect } from \"react\";\nimport { Text, useStdout, useWindowSize, useIsScreenReaderEnabled } from \"ink\";\n\nexport default function Sized() {\n  const { write } = useStdout();\n  const { columns, rows } = useWindowSize();\n  const reader = useIsScreenReaderEnabled();\n  useEffect(() => {\n    const timer = setInterval(() => {\n      write(\"tick\\n\");\n    }, 1000);\n    return () => clearInterval(timer);\n  }, [write]);\n  return <Text>{columns}x{rows} {reader ? \"reader\" : \"screen\"}</Text>;\n}\n";
+  let library = library(sized);
+  let component = &library[MODULE];
+  assert_eq!(component.handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:1000"], "an effect depending only on write is a mount effect");
+  let mut store = ValueMap::default();
+  store.insert("$terminal.columns".to_owned(), Value::Int(100));
+  store.insert("$terminal.rows".to_owned(), Value::Int(30));
+  let mut props = ValueMap::default();
+  props.insert("$store".to_owned(), Value::Map(store));
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &props, &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>100x30 screen</ink-text>");
+  let tick = interpreter.island_step(MODULE, component, &props, &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+  assert_eq!(tick.acts, [("$stdout".to_owned(), Value::Str("tick\n".into()))]);
+}

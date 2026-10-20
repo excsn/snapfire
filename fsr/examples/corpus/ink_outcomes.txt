@@ -1,29 +1,29 @@
-alternate-screen	refused: no `render(<Component />)` to say what it draws
+alternate-screen	refused: `src/alternate-screen.tsx#SnakeGame` does not lower, so only a browser could render it: src/alternate-screen.tsx:74:5: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
 aria	refused: `aria-state` on `<ink-box>` holds a value of kind `object` and nothing hydrates this markup to set it as a property; pass a string or give the element a template under `elements/`
 border-backgrounds	rendered
 borders	rendered
-box-backgrounds	refused: no `render(<Component />)` to say what it draws
-chat	refused: src/chat.tsx:4:23: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+box-backgrounds	rendered
+chat	refused: `src/chat.tsx#ChatApp` does not lower, so only a browser could render it: src/chat.tsx:4:23: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 concurrent-suspense	refused: `src/concurrent-suspense.tsx#DataItem` does not lower, so only a browser could render it: src/concurrent-suspense.tsx:24:9: a call for its effect, which a straight-line body cannot hold
 counter	rendered
-cursor-ime	refused: src/cursor-ime.tsx:17:33: `useCursor`, a hook the build cannot follow
-incremental-rendering	refused: src/incremental-rendering.tsx:60:36: `useWindowSize`, a hook the build cannot follow
-jest	refused: src/jest.tsx:28:48: `Date` is not bound here; an import the build cannot follow or a name from outside the body
+cursor-ime	refused: `src/cursor-ime.tsx#App` does not lower, so only a browser could render it: src/cursor-ime.tsx:17:33: `useCursor`, a hook the build cannot follow
+incremental-rendering	refused: `src/incremental-rendering.tsx#IncrementalRendering` does not lower, so only a browser could render it: src/incremental-rendering.tsx:45:23: `.toLocaleTimeString()`, which reads the viewer's time zone
+jest	refused: `src/jest.tsx#Jest` does not lower, so only a browser could render it: src/jest.tsx:28:48: `Date` is not bound here; an import the build cannot follow or a name from outside the body
 justify-content	rendered
 render-throttle	rendered
-router	refused: src/router.tsx:57:17: `Route` comes from `react-router`, which the build cannot follow
+router	refused: `src/router.tsx#Home` does not lower, so only a browser could render it: src/router.tsx:7:22: `useNavigate`, a hook the build cannot follow
 scroll	refused: `src/scroll.tsx#ScrollView` does not lower, so only a browser could render it: src/scroll.tsx:20:41: `useBoxMetrics`, a hook the build cannot follow
-select-input	refused: src/select-input.tsx:14:35: `useIsScreenReaderEnabled`, a hook the build cannot follow
-static	refused: src/static.tsx:41:13: `Static` comes from `ink`, which the build cannot follow
-subprocess-output	refused: src/subprocess-output.tsx:32:24: a call to `stripAnsi`, which the build cannot follow
-suspend-terminal	refused: src/suspend-terminal.tsx:28:11: `useApp` gives `exit` alone
-suspense	refused: src/suspense.tsx: no exported `default`
-table	refused: src/table.tsx:7:11: `faker` comes from `@faker-js/faker`, which the build cannot follow
-terminal-resize	refused: src/terminal-resize.tsx:5:29: `useWindowSize`, a hook the build cannot follow
-use-animation	refused: src/use-animation.tsx:23:27: `useAnimation`, a hook the build cannot follow
+select-input	refused: `src/select-input.tsx#SelectInput` does not lower, so only a browser could render it: src/select-input.tsx:32:13: `Number` is not bound here; an import the build cannot follow or a name from outside the body
+static	refused: `src/static.tsx#Example` does not lower, so only a browser could render it: src/static.tsx:41:13: `Static` comes from `ink`, which the build cannot follow
+subprocess-output	refused: `src/subprocess-output.tsx#SubprocessOutput` does not lower, so only a browser could render it: src/subprocess-output.tsx:32:24: a call to `stripAnsi`, which the build cannot follow
+suspend-terminal	refused: `src/suspend-terminal.tsx#Example` does not lower, so only a browser could render it: src/suspend-terminal.tsx:28:11: `useApp` gives `exit` alone
+suspense	refused: `src/suspense.tsx#Example` does not lower, so only a browser could render it: src/suspense.tsx:9:10: `promise` is not bound here; an import the build cannot follow or a name from outside the body
+table	refused: `src/table.tsx#Table` does not lower, so only a browser could render it: src/table.tsx:7:11: `faker` comes from `@faker-js/faker`, which the build cannot follow
+terminal-resize	refused: `src/terminal-resize.tsx#TerminalResizeExample` does not lower, so only a browser could render it: src/terminal-resize.tsx:6:14: a handler that sets no state and calls no action
+use-animation	refused: `src/use-animation.tsx#UseAnimationDemo` does not lower, so only a browser could render it: src/use-animation.tsx:23:27: `useAnimation`, a hook the build cannot follow
 use-focus	refused: `src/use-focus.tsx#Item` does not lower, so only a browser could render it: src/use-focus.tsx:21:25: `useFocus`, a hook the build cannot follow
-use-focus-with-id	refused: src/use-focus-with-id.tsx:12:21: `useFocusManager`, a hook the build cannot follow
+use-focus-with-id	refused: `src/use-focus-with-id.tsx#Focus` does not lower, so only a browser could render it: src/use-focus-with-id.tsx:12:21: `useFocusManager`, a hook the build cannot follow
 use-input	rendered
-use-stderr	refused: src/use-stderr.tsx:5:21: `useStderr`, a hook the build cannot follow
-use-stdout	refused: src/use-stdout.tsx:5:21: `useStdout`, a hook the build cannot follow
-use-transition	refused: src/use-transition.tsx:26:5: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
+use-stderr	rendered
+use-stdout	rendered
+use-transition	refused: `src/use-transition.tsx#SearchApp` does not lower, so only a browser could render it: src/use-transition.tsx:26:5: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`

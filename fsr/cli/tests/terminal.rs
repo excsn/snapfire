@@ -6,9 +6,12 @@ use snapfire_fsr_core::Value;
 
 const COUNTER: &str = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  useInput((input, key) => {\n    if (input === \"+\" || key.upArrow) setCount(count + 1);\n  });\n  return (\n    <Box borderStyle=\"round\" paddingX={1}>\n      <Text>Count: {count}</Text>\n    </Box>\n  );\n}\n";
 
+static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
 fn app(page: &str) -> std::path::PathBuf {
-  let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-  let app = std::env::temp_dir().join(format!("fsr-terminal-{}-{nanos}", std::process::id())).join("app");
+  let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let app = std::env::temp_dir().join(format!("fsr-terminal-{}-{n}", std::process::id())).join("app");
+  let _ = std::fs::remove_dir_all(&app);
   std::fs::create_dir_all(app.join("routes")).unwrap();
   std::fs::write(app.join("routes/page.tsx"), page).unwrap();
   app
@@ -89,4 +92,15 @@ fn a_session_has_exited_once_the_page_calls_exit() {
   let Some(Press::Input(q)) = key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)) else { panic!() };
   session.press(&q).unwrap();
   assert!(session.exited());
+}
+
+#[test]
+fn a_session_draws_at_the_terminal_size_and_prints_what_the_page_writes_above_it() {
+  let page = "import { useEffect } from \"react\";\nimport { Text, useStdout, useWindowSize } from \"ink\";\n\nexport default function Sized() {\n  const { write } = useStdout();\n  const { columns } = useWindowSize();\n  useEffect(() => {\n    const timer = setInterval(() => write(\"hello\\n\"), 500);\n    return () => clearInterval(timer);\n  }, [write]);\n  return <Text>width {columns}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  session.resize(120, 40);
+  let lines = |node| snapfire_fsr_terminal::render(&node, 30).lines();
+  assert_eq!(lines(session.view().unwrap()), ["width 120"]);
+  session.fire(0).unwrap();
+  assert_eq!(lines(session.fire(0).unwrap()), ["hello", "hello", "width 120"]);
 }
