@@ -7267,9 +7267,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// Ink's `useInput((input, key) => …)`: the component's `input` handler, run
-  /// with each keypress as `$event`, `input` its text and `key` its flags.
+  /// with each keypress as `$event`, `input` its text and `key` its flags. An
+  /// empty handler, which keeps an Ink app reading keys, is no handler.
   fn input_hook(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
     let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`useInput` with no handler")) };
+    if let js::Expr::Arrow(arrow) = &*arg.expr {
+      if matches!(arrow_body(arrow), FunctionBody::Block(stmts) if stmts.is_empty()) {
+        return Ok(());
+      }
+    }
     let event = Expr::Var("$event".to_owned());
     self.event_binds = Some(vec![Expr::Field(Box::new(event.clone()), "input".to_owned()), Expr::Field(Box::new(event), "key".to_owned())]);
     let body = self.handler_body(&arg.expr);

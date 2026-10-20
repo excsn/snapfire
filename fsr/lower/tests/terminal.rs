@@ -131,3 +131,10 @@ fn use_animation_counts_frames_on_its_own_interval_while_active() {
   let paused = step(&slow.state, Some(2), key(" ", &[]));
   assert_eq!(step(&paused.state, Some(0), Value::Null).rendered.html, "<ink-text>2 1 400</ink-text>", "an inactive animation holds its frame");
 }
+
+#[test]
+fn an_empty_use_input_handler_is_no_handler() {
+  let idle = "import { Text, useInput } from \"ink\";\n\nexport default function Idle() {\n  useInput(() => {\n    // waits for Ctrl-C\n  });\n  return <Text>idle</Text>;\n}\n";
+  let library = library(idle);
+  assert!(library[MODULE].handlers.is_empty());
+}

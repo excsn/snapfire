@@ -19,7 +19,7 @@ subprocess-output	refused: `src/subprocess-output.tsx#SubprocessOutput` does not
 suspend-terminal	refused: `src/suspend-terminal.tsx#Example` does not lower, so only a browser could render it: src/suspend-terminal.tsx:28:11: `useApp` gives `exit` alone
 suspense	refused: `src/suspense.tsx#Example` does not lower, so only a browser could render it: src/suspense.tsx:9:10: `promise` is not bound here; an import the build cannot follow or a name from outside the body
 table	refused: `src/table.tsx#Table` does not lower, so only a browser could render it: src/table.tsx:7:11: `faker` comes from `@faker-js/faker`, which the build cannot follow
-terminal-resize	refused: `src/terminal-resize.tsx#TerminalResizeExample` does not lower, so only a browser could render it: src/terminal-resize.tsx:6:14: a handler that sets no state and calls no action
+terminal-resize	rendered
 use-animation	refused: `src/use-animation.tsx#UseAnimationDemo` does not lower, so only a browser could render it: src/use-animation.tsx:33:9: a write to `frozenRef`, which this body did not declare
 use-focus	refused: `src/use-focus.tsx#Item` does not lower, so only a browser could render it: src/use-focus.tsx:21:25: `useFocus`, a hook the build cannot follow
 use-focus-with-id	refused: `src/use-focus-with-id.tsx#Focus` does not lower, so only a browser could render it: src/use-focus-with-id.tsx:12:21: `useFocusManager`, a hook the build cannot follow
