@@ -2182,6 +2182,7 @@ impl ComponentSet {
       let defaults = self.defaults.clone();
       let meanings = self.meanings(file);
       let mut lowerer = Lowerer::new(&parsed, &defaults);
+      lowerer.terminal = self.terminal;
       lowerer.meanings = Some(meanings);
       lowerer.globals = globals.clone();
       lowerer.global_kinds = global_kinds.clone();
@@ -3899,6 +3900,7 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
     }
     js::Stmt::ForOf(for_of) => rebind_for_of(lowerer, for_of, writable, assigned),
     js::Stmt::For(counted) => rebind_counted(lowerer, counted, writable, assigned),
+    js::Stmt::While(looped) if lowerer.terminal => rebind_while(lowerer, looped, writable, assigned),
     js::Stmt::Empty(_) => Ok(()),
     other => Err(lowerer.residue(other.span(), "a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`")),
   }
@@ -4079,6 +4081,22 @@ fn rebind_counted(lowerer: &mut Lowerer<'_>, f: &js::ForStmt, writable: &Writabl
     lowerer.scope.push((name, counter));
     Ok(())
   }, writable, assigned)
+}
+
+/// How many times a terminal's `while` runs its body at most.
+const WHILE_CAP: f64 = 10_000.0;
+
+/// A terminal's `while (test) body` as a fold over [`WHILE_CAP`] items whose
+/// body runs under `if (test)`, so the items past the first false test change
+/// nothing. A loop with an empty body only spends time and lowers to nothing.
+fn rebind_while(lowerer: &mut Lowerer<'_>, looped: &js::WhileStmt, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
+  if matches!(&*looped.body, js::Stmt::Block(block) if block.stmts.is_empty()) || matches!(&*looped.body, js::Stmt::Empty(_)) {
+    return Ok(());
+  }
+  let guarded = js::Stmt::If(js::IfStmt { span: looped.span, test: looped.test.clone(), cons: looped.body.clone(), alt: None });
+  let names = LoopNames::over(looped.span, &looped.test, &guarded);
+  let over = Expr::Builtin { name: Builtin::Range, args: vec![Expr::Lit(Lit::Float(WHILE_CAP))] };
+  fold(lowerer, looped.span, &names, over, &guarded, |_| Ok(()), writable, assigned)
 }
 
 /// A loop as a fold: each outer local the body writes is the `reduce` over `over` of the body's writes, `bind` binding the item, starting from its value before the loop.
@@ -5651,6 +5669,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                   lets.push(stmt);
                 }
               }
+            }
+            js::Stmt::While(_) if self.lowerer.terminal => {
+              self.premake_stmt(stmt)?;
+              self.rebound(stmt, floor, &early, &mut lets, &guarded)?
             }
             other => return Err(self.lowerer.residue(other.span(), "a statement a component cannot hold before its `return`")),
           }

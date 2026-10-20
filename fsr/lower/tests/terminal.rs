@@ -169,3 +169,11 @@ fn the_screen_reader_props_are_left_out_of_a_terminal_element() {
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-box><ink-text>ok</ink-text></ink-box>");
 }
+
+#[test]
+fn a_terminal_body_runs_a_while_loop_and_skips_a_busy_wait() {
+  let looped = "import { Text } from \"ink\";\n\nexport default function Digits() {\n  let n = 12345;\n  let digits = 0;\n  while (n >= 1) {\n    n = Math.floor(n / 10);\n    digits += 1;\n  }\n  const start = Date.now();\n  while (Date.now() - start < 100) {\n  }\n  return <Text>{digits}</Text>;\n}\n";
+  let library = library(looped);
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>5</ink-text>");
+}

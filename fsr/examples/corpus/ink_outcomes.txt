@@ -1,4 +1,4 @@
-alternate-screen	refused: `src/alternate-screen.tsx#SnakeGame` does not lower, so only a browser could render it: src/alternate-screen.tsx:74:5: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
+alternate-screen	refused: `src/alternate-screen.tsx#SnakeGame` does not lower, so only a browser could render it: src/alternate-screen.tsx:83:13: `return` inside a loop
 aria	rendered
 border-backgrounds	rendered
 borders	rendered
@@ -26,4 +26,4 @@ use-focus-with-id	refused: `src/use-focus-with-id.tsx#Focus` does not lower, so 
 use-input	rendered
 use-stderr	rendered
 use-stdout	rendered
-use-transition	refused: `src/use-transition.tsx#SearchApp` does not lower, so only a browser could render it: src/use-transition.tsx:26:5: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
+use-transition	refused: `src/use-transition.tsx#SearchApp` does not lower, so only a browser could render it: src/use-transition.tsx:4:23: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
