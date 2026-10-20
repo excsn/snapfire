@@ -1,0 +1,15 @@
+[package]
+name = "snapfire_fsr_terminal"
+version = "0.1.0"
+description = "Ink's Box and Text laid out with flexbox and drawn to a terminal as cells."
+keywords = ["snapfire", "fsr", "terminal", "tui", "ink"]
+categories = ["command-line-interface"]
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[dependencies]
+taffy = { version = "0.15", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
+unicode-width = "0.2"

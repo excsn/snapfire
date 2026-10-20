@@ -20,6 +20,7 @@ members = [
   "service",
   "session",
   "tera",
+  "terminal",
 ]
 exclude = [
   # Their own workspace, so they build the way a consumer's crate would.
