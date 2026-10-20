@@ -401,9 +401,14 @@ export function Picture(props) {
 export function Place({ name, as = "div", ...attrs }) {
     return createElement(as, {
         ...attrs,
-        id: name
+        id: name,
+        dangerouslySetInnerHTML: EMPTY_HTML,
+        suppressHydrationWarning: true
     });
 }
+const EMPTY_HTML = {
+    __html: ""
+};
 export function Embed(props) {
     const parts = embedParts(props);
     const react = (attrs)=>{

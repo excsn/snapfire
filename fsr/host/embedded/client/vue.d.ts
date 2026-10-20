@@ -16,7 +16,7 @@ export interface MountProps {
 	props?: Props;
 	when?: MountTiming;
 }
-/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes falling through. Declared in the shell, a layout or a page; the server writes what is placed at it inside it. */
+/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes falling through. The server writes what is placed at it inside it. Vue leaves an element with no children of its own as it finds it, in an island as in the shell. */
 export declare const Place: Component;
 /**
 * Places an island by module id inside a Vue tree, for a component holding

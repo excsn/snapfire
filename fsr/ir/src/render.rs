@@ -960,7 +960,7 @@ fn render_aside<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slot
     Tmpl::Html(expr) => render_html(env, expr, out),
     Tmpl::Outlet { name, hydrated } => {
       if env.in_framework && !hydrated {
-        return Err(Fail::internal(format!("`<Place name=\"{name}\">` is in markup the browser hydrates; a place is declared in the shell, a layout or a page, outside any island")));
+        return Err(Fail::internal(format!("the outlet for `#{name}` is in markup the browser hydrates and nothing says that framework keeps what is written there")));
       }
       out.markup(&format!("{OUTLET_MARK}{name}\u{0}"));
       Ok(())
@@ -4012,7 +4012,7 @@ mod markup_tests {
     let rendered = Rendered { html, islands: Vec::new(), places: Vec::new(), hoisted: ValueMap::default(), whole: true };
     assert_eq!(crate::bind::rendered_nodes(&rendered), vec![snapfire_fsr_core::Node::raw("<div id=\"modals\">"), snapfire_fsr_core::Node::Outlet("modals".to_owned()), snapfire_fsr_core::Node::raw("</div>")]);
     let err = render_under(Some(ReactMajor::V19), BY_REACT, place(false), &ValueMap::default(), &Components::new()).unwrap_err();
-    assert!(format!("{err:?}").contains("modals\\\">` is in markup the browser hydrates"), "{err:?}");
+    assert!(format!("{err:?}").contains("the outlet for `#modals` is in markup the browser hydrates"), "{err:?}");
     assert!(render_under(Some(ReactMajor::V19), BY_REACT, place(true), &ValueMap::default(), &Components::new()).is_ok());
   }
 

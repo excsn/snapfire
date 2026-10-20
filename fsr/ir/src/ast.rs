@@ -334,7 +334,7 @@ pub enum Tmpl {
   /// evaluator carries them as a `Node::Placed`: a Vue `<Teleport>`. The
   /// target is a `Place` spelling, `body` for the end of the body.
   Place { target: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
-  /// Where the content a `Place` targeting `#name` holds is written: inside the element around it, whose id is `name`. Rendered in markup a framework hydrates it fails the render, unless `hydrated` says the lowerer put it there because that framework's hydration reads such content, as Vue's does for a `<Teleport>` into its own component. Never static.
+  /// Where the content a `Place` targeting `#name` holds is written: inside the element around it, whose id is `name`. Rendered in markup a framework hydrates it fails the render, unless `hydrated` says that framework's hydration keeps such content: a `<Place>` (each framework's client renders it so hydration leaves the element's children alone) or a Vue `<Teleport>` into an element of its own component. Never static.
   Outlet { name: String, #[serde(default, skip_serializing_if = "is_false")] hydrated: bool },
 }
 

@@ -495,10 +495,12 @@ export interface PlaceProps {
   [attribute: string]: unknown;
 }
 
-/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes as given. Declared in the shell, a layout or a page; the server writes what is placed at it inside it. */
+/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes as given. The server writes what is placed at it inside it. Its children are not React's: empty inner HTML React does not compare makes hydration and every render leave them where they are, in an island as in the shell. */
 export function Place({ name, as = "div", ...attrs }: PlaceProps): ReactElement {
-  return createElement(as, { ...attrs, id: name });
+  return createElement(as, { ...attrs, id: name, dangerouslySetInnerHTML: EMPTY_HTML, suppressHydrationWarning: true });
 }
+
+const EMPTY_HTML = { __html: "" };
 
 /** The placeholder the server writes for a video hosted elsewhere, for a component the browser renders. */
 export function Embed(props: EmbedOptions): ReactElement {

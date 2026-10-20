@@ -357,3 +357,21 @@ describe("a place", () => {
     expect(placed().map((p) => p.textContent), "holding the content once").toEqual(["placed by the layout"]);
   });
 });
+
+describe.each(["react", "vue", "svelte"])("a place inside a %s island", (owner) => {
+  const filled = () => [...document.querySelectorAll(`#${owner}-place .filled`)].map((p) => p.textContent);
+
+  test("holds what another island teleports into it through hydration and the island's renders", async () => {
+    const warnings = await hydrationWarnings(() => page());
+    const holder = document.querySelector(`.holds[data-holder="${owner}"]`)!;
+    expect(holder.closest("sf-i")?.hasAttribute("data-sf-mounted"), "the island holding the place hydrated").toEqual(true);
+    expect(filled(), "the server wrote the content inside the island's place and the framework left it there").toEqual([`filled in ${owner}`]);
+    const place = document.querySelector(`#${owner}-place`);
+    await fireEvent.click(holder.querySelector(".again")!);
+    await settle();
+    expect(holder.querySelector(".again")?.textContent, "the island rendered again").toEqual("1");
+    expect(document.querySelector(`#${owner}-place`), "around the same place element").toBe(place);
+    expect(filled(), "which still holds what was placed in it").toEqual([`filled in ${owner}`]);
+    expect(warnings, "no framework complained hydrating it").toEqual([]);
+  });
+});

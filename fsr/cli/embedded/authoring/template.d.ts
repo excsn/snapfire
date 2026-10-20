@@ -582,7 +582,7 @@ export interface PlaceProps {
   [attribute: string]: unknown;
 }
 
-/** `<div id="name">` (or the `as` tag) holding what is placed at `#name`, which the server writes inside it. Declared in the shell, a layout or a page, outside any island. Lowered by the build. */
+/** `<div id="name">` (or the `as` tag) holding what is placed at `#name`, which the server writes inside it. Declared in the shell, a layout, a page or a component an island renders. Lowered by the build. */
 export function Place(props: PlaceProps): TemplateNode;
 
 /** A value a template provides to every component it renders inline, read with `use`. Lowered by the build: the server resolves it whole, so nothing reads it in the browser. An island is a root of its own and reads the default. */

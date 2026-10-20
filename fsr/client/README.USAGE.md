@@ -882,7 +882,7 @@ The build writes the placeholder on the server and `boot` listens for the click,
 
 ## Declaring a Place for Teleported Content
 
-`Place` is an element other components write into from elsewhere on the page. Declare it in the shell, a layout or a page:
+`Place` is an element other components write into from elsewhere on the page. Declare it in the shell, a layout, a page or a component an island renders:
 
 ```tsx
 import { Island } from "@snapfire/fsr-authoring/template";
@@ -901,7 +901,7 @@ A Vue component anywhere on the page teleports into it by id:
 </Teleport>
 ```
 
-The server writes the teleported content inside `<div id="notices">` wherever the island that placed it sits. Vue hydrates it there. Content a streamed segment or a navigation brings later is moved into the place by `scan`. A `<Teleport defer>` is left to the browser, since Vue never updates a deferred Teleport it has hydrated.
+The server writes the teleported content inside `<div id="notices">` wherever the island that placed it sits. Vue hydrates it there. A place inside an island keeps that content through the island's hydration and renders, since each framework's `Place` leaves the element's children alone: React's is written with empty inner HTML React does not compare. An island that mounts afresh builds a new place element. The content another island placed in the old one is gone until that island mounts again. Content a streamed segment or a navigation brings later is moved into the place by `scan`. A `<Teleport defer>` is left to the browser, since Vue never updates a deferred Teleport it has hydrated.
 
 ## Placing a Picture
 

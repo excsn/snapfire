@@ -248,7 +248,7 @@ pub(crate) fn mount<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At) ->
   Ok(Tmpl::Element { tag: "sf-s".to_owned(), attrs: out, children: Vec::new() })
 }
 
-/// `<Place name=… as=…>`: the element content placed at `#name` is written into, `<div id="name">` unless `as` names another tag, with the other attributes as written. It holds only what is placed at it.
+/// `<Place name=… as=…>`: the element content placed at `#name` is written into, `<div id="name">` unless `as` names another tag, with the other attributes as written. It holds only what is placed at it. Its outlet may sit in an island, since each framework's `Place` is rendered so hydration leaves its children alone.
 pub(crate) fn place<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], has_children: bool, at: At) -> Lowered<Tmpl> {
   if has_children {
     return Err(refuse(cx, at, "a `<Place>` with children; it holds only what is placed at it"));
@@ -281,7 +281,7 @@ pub(crate) fn place<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], has_childr
   }
   let Some(name) = name else { return Err(refuse(cx, at, "a `<Place>` with no `name`")) };
   out.insert(0, Entry::Field("id".to_owned(), Expr::lit_str(name.clone())));
-  Ok(Tmpl::Element { tag, attrs: out, children: vec![Tmpl::Outlet { name, hydrated: false }] })
+  Ok(Tmpl::Element { tag, attrs: out, children: vec![Tmpl::Outlet { name, hydrated: true }] })
 }
 
 enum PictureSrc {

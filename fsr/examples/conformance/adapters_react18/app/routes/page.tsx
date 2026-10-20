@@ -6,6 +6,10 @@ import VueProbe from "@src/ui/VueProbe.vue";
 import ServerProbe from "@src/ui/ServerProbe";
 import ServerVueProbe from "@src/ui/ServerVueProbe.vue";
 import SvelteProbe from "@src/ui/SvelteProbe.svelte";
+import HoldsReact from "@src/ui/HoldsReact";
+import HoldsVue from "@src/ui/HoldsVue.vue";
+import HoldsSvelte from "@src/ui/HoldsSvelte.svelte";
+import Fills from "@src/ui/Fills.vue";
 
 const REACT = "src/ui/ReactProbe.tsx#default";
 const VUE = "src/ui/VueProbe.vue#default";
@@ -14,6 +18,18 @@ export default function Probes() {
   return (
     <section className="probes">
       <Place name="probe-place" className="home-place" />
+      <Island>
+        <HoldsReact />
+      </Island>
+      <Island>
+        <HoldsVue />
+      </Island>
+      <Island>
+        <HoldsSvelte />
+      </Island>
+      <Island>
+        <Fills label="filled" />
+      </Island>
       <Island>
         <ReactProbe label="react" nest={[VUE]}>
           <em>react children</em>

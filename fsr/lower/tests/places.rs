@@ -58,3 +58,18 @@ fn a_place_is_written_out_by_name_and_holds_nothing_of_its_own() {
   assert_eq!(refused("id", &page("<Place name=\"m\" id=\"x\" />")), "an `id` on `<Place>`; its `name` is its id");
   assert_eq!(refused("children", &page("<Place name=\"m\"><p>x</p></Place>")), "a `<Place>` with children; it holds only what is placed at it");
 }
+
+#[test]
+fn a_place_inside_an_island_holds_its_outlet_since_the_framework_leaves_its_content_alone() {
+  let panel = "import { Place } from \"@snapfire/fsr/components\";\nexport default function Panel() {\n  return <section className=\"panel\"><Place name=\"panel-notes\" /></section>;\n}\n";
+  let page = "import { Island } from \"@snapfire/fsr-client/react\";\nimport Panel from \"../src/Panel\";\nexport default function Page() {\n  return <main><Island><Panel /></Island></main>;\n}\n";
+  let dir = app("island", &[("routes/page.tsx", page), ("src/Panel.tsx", panel)]);
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/page.tsx#default").unwrap_or_else(|e| panic!("lowers: {e}"));
+  std::fs::remove_dir_all(&dir).unwrap();
+  let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let rendered = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap_or_else(|e| panic!("renders: {e:?}"));
+  let island = rendered.islands.iter().map(|island| island.body.html.clone()).collect::<String>();
+  assert!(island.contains(&format!("<div id=\"panel-notes\">{OUTLET_MARK}panel-notes\u{0}</div>")), "{island:?}");
+}
