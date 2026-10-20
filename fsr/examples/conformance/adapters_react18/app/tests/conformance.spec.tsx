@@ -1,3 +1,4 @@
+import { discard } from "@snapfire/fsr-client";
 import { clear, set } from "@snapfire/fsr-client/store";
 import { ctx, describe, expect, fireEvent, load, render, settle, spyOn, test, waitFor } from "@snapfire/fsr-client/testing";
 
@@ -318,5 +319,41 @@ describe("a custom element", () => {
     await settle();
     expect(document.querySelector("probe-element")).toBeNull();
     expect(tally().unmounts.element).toEqual(before + 1);
+  });
+});
+
+describe("a place", () => {
+  const placed = () => [...document.querySelectorAll("#probe-place .placed")];
+
+  test("declared by a page holds what a layout's Vue island teleports into it", async () => {
+    const warnings = await hydrationWarnings(() => page());
+    expect(document.querySelector("#probe-place")?.classList.contains("home-place"), "the page's own Place").toEqual(true);
+    expect(placed().map((p) => p.textContent)).toEqual(["placed by the layout"]);
+    expect(warnings, "Vue did not complain hydrating it").toEqual([]);
+  });
+
+  test("that never arrives leaves the island mounted afresh, so it ends cleanly", async () => {
+    await page("/placeless");
+    const island = document.querySelector(".place-probe")?.closest("sf-i");
+    expect(island?.hasAttribute("data-sf-mounted"), "the layout's island mounted").toEqual(true);
+    expect(document.querySelectorAll(".placed").length, "its content has nowhere to go, so none is shown").toEqual(0);
+    expect(() => discard(island!), "and Vue ends it without tripping over a teleport it never placed").not.toThrow();
+  });
+
+  test("replaced by a navigation gets the content of the island the navigation kept", async () => {
+    await page();
+    const island = document.querySelector(".place-probe")?.closest("sf-i");
+    await fireEvent.click(probe("svelte").querySelector("a.next")!);
+    await settle();
+    expect(window.location.pathname).toEqual("/next");
+    expect(document.querySelector("#probe-place")?.classList.contains("next-place"), "the next page's own Place").toEqual(true);
+    expect(placed().map((p) => p.textContent), "the layout's island placed its content in the new place").toEqual(["placed by the layout"]);
+    expect(document.querySelector(".place-probe")?.closest("sf-i"), "and the layout kept its island").toBe(island);
+
+    await fireEvent.click(document.querySelector("a.brand")!);
+    await settle();
+    expect(window.location.pathname).toEqual("/");
+    expect(document.querySelector("#probe-place")?.classList.contains("home-place"), "the home page's place again").toEqual(true);
+    expect(placed().map((p) => p.textContent), "holding the content once").toEqual(["placed by the layout"]);
   });
 });

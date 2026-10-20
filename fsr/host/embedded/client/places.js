@@ -38,4 +38,26 @@ export function unplaced() {
     }
     return out;
 }
+const filled = new Map();
+export function recordFilled(pieces) {
+    for (const piece of pieces){
+        if (piece.island === null) continue;
+        const parent = piece.nodes[0].parentElement;
+        const place = piece.to ?? (parent !== null && parent !== document.body && parent.id !== "" ? parent.id : null);
+        if (place === null) continue;
+        const places = filled.get(piece.island) ?? new Set();
+        places.add(place);
+        filled.set(piece.island, places);
+    }
+}
+export function filledPlaces() {
+    const out = new Map();
+    for (const [island, places] of filled){
+        const elements = [
+            ...places
+        ].map((name)=>document.getElementById(name)).filter((el)=>el !== null);
+        if (elements.length > 0) out.set(island, elements);
+    }
+    return out;
+}
 //# sourceMappingURL=places.js.map

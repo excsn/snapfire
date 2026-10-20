@@ -1,6 +1,6 @@
 import { loadMarkedScript } from "./script.js";
 import { addStyles, discard, loadEntry, mountedIsland, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
-import { placedPieces } from "./places.js";
+import { filledPlaces, placedPieces, recordFilled } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
@@ -104,13 +104,17 @@ function sweepPlaced() {
     settleContested();
     for (const piece of placedPieces())if (!findRegion(piece.key)) removePiece(piece);
 }
-function remountDisplaced(before) {
+function remountDisplaced(before, places) {
     const now = placedPieces();
     const islands = new Set();
     for (const piece of before){
         if (piece.island === null || piece.nodes[0].isConnected || !findRegion(piece.key)) continue;
         if (now.some((p)=>p.key === piece.key && p.island === piece.island)) continue;
         islands.add(piece.island);
+    }
+    for (const [island, elements] of places){
+        if (before.some((p)=>p.island === island)) continue;
+        if (elements.some((el)=>!el.isConnected) && mountedIsland(island)) islands.add(island);
     }
     for (const island of islands)remount(island);
 }
@@ -559,9 +563,11 @@ function applyEager(eager, force, keep) {
         for (const list of eager.seeds)contribute(list);
     });
     const before = placedPieces();
+    recordFilled(before);
+    const places = filledPlaces();
     if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
     sweepPlaced();
-    remountDisplaced(before);
+    remountDisplaced(before, places);
     current = eager.segments;
     retain(segmentKeys(current));
     documentSidecar = false;

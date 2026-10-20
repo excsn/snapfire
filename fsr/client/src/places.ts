@@ -45,3 +45,29 @@ export function unplaced(): Map<string, Piece[]> {
   }
   return out;
 }
+
+/** The places each island's runs named, by the island, kept after the runs are gone: an island mounted afresh places its content with no runs around it. */
+const filled = new Map<string, Set<string>>();
+
+/** Records the place each run in `pieces` sits in or names for the island that placed it. A run the server wrote inside its place carries no `data-sf-to`; its place is the element holding it. */
+export function recordFilled(pieces: Piece[]): void {
+  for (const piece of pieces) {
+    if (piece.island === null) continue;
+    const parent = piece.nodes[0].parentElement;
+    const place = piece.to ?? (parent !== null && parent !== document.body && parent.id !== "" ? parent.id : null);
+    if (place === null) continue;
+    const places = filled.get(piece.island) ?? new Set<string>();
+    places.add(place);
+    filled.set(piece.island, places);
+  }
+}
+
+/** The elements now in the document of the places each island has filled, by the island. */
+export function filledPlaces(): Map<string, Element[]> {
+  const out = new Map<string, Element[]>();
+  for (const [island, places] of filled) {
+    const elements = [...places].map((name) => document.getElementById(name)).filter((el): el is HTMLElement => el !== null);
+    if (elements.length > 0) out.set(island, elements);
+  }
+  return out;
+}

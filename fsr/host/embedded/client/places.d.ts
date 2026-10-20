@@ -14,3 +14,7 @@ export declare function placedPieces(): Piece[];
 export declare function settlePlaced(): void;
 /** The runs whose place is not in the document, by the island that placed them. A framework hydrating such an island looks its content up at the place. */
 export declare function unplaced(): Map<string, Piece[]>;
+/** Records the place each run in `pieces` sits in or names for the island that placed it. A run the server wrote inside its place carries no `data-sf-to`; its place is the element holding it. */
+export declare function recordFilled(pieces: Piece[]): void;
+/** The elements now in the document of the places each island has filled, by the island. */
+export declare function filledPlaces(): Map<string, Element[]>;

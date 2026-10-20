@@ -1,6 +1,6 @@
 import { loadMarkedScript } from "./script.js";
 import { addStyles, discard, loadEntry, mountedIsland, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
-import { placedPieces, type Piece } from "./places.js";
+import { filledPlaces, placedPieces, recordFilled, type Piece } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
 import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
@@ -115,14 +115,18 @@ function sweepPlaced(): void {
   for (const piece of placedPieces()) if (!findRegion(piece.key)) removePiece(piece);
 }
 
-/** Mounts again each island whose content sat in a place a navigation replaced while the segment that placed it stayed, so nothing sends that content again. The framework keeps the element it placed into, which is gone, so the island mounts afresh and places its content in the new one. */
-function remountDisplaced(before: Piece[]): void {
+/** Mounts again each island whose content sat in a place a navigation replaced while the segment that placed it stayed, so nothing sends that content again. The framework keeps the element it placed into, which is gone, so the island mounts afresh and places its content in the new one. An island already mounted afresh has no runs left, so `places`, the elements of the places it filled before the navigation, says whether its place went. */
+function remountDisplaced(before: Piece[], places: Map<string, Element[]>): void {
   const now = placedPieces();
   const islands = new Set<string>();
   for (const piece of before) {
     if (piece.island === null || piece.nodes[0].isConnected || !findRegion(piece.key)) continue;
     if (now.some((p) => p.key === piece.key && p.island === piece.island)) continue;
     islands.add(piece.island);
+  }
+  for (const [island, elements] of places) {
+    if (before.some((p) => p.island === island)) continue;
+    if (elements.some((el) => !el.isConnected) && mountedIsland(island)) islands.add(island);
   }
   for (const island of islands) remount(island);
 }
@@ -642,9 +646,11 @@ function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
     for (const list of eager.seeds) contribute(list);
   });
   const before = placedPieces();
+  recordFilled(before);
+  const places = filledPlaces();
   if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
   sweepPlaced();
-  remountDisplaced(before);
+  remountDisplaced(before, places);
   current = eager.segments;
   retain(segmentKeys(current));
   documentSidecar = false;

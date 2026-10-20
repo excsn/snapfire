@@ -1,4 +1,5 @@
 import { Island } from "@snapfire/fsr-authoring/template";
+import { Place } from "@snapfire/fsr/components";
 
 import ReactProbe from "@src/ui/ReactProbe";
 import VueProbe from "@src/ui/VueProbe.vue";
@@ -12,6 +13,7 @@ const VUE = "src/ui/VueProbe.vue#default";
 export default function Probes() {
   return (
     <section className="probes">
+      <Place name="probe-place" className="home-place" />
       <Island>
         <ReactProbe label="react" nest={[VUE]}>
           <em>react children</em>
