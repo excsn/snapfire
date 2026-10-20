@@ -963,6 +963,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) browser_effects: Vec<String>,
   /// Names held in a cell, `Expr::Cell` or `Expr::ModuleCell`, because a function writes them, each with the expression for its handle: a write in a block is a `WriteCell` through it.
   pub(crate) cells: Vec<(String, Expr)>,
+  /// One frame per open fold step or function path: the lets a declaration whose value reads the clock or randomness is bound by, so it is read once where it is declared.
+  pub(crate) held: Vec<Vec<Stmt>>,
   /// The contexts this component provides, by key, for a `getContext` of its own to read.
   pub(crate) provided: Vec<(String, Expr)>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
@@ -1029,7 +1031,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1047,7 +1049,7 @@ impl<'a> Lowerer<'a> {
 
   /// Refuses a `body` extension on a render path.
   fn check_reach(&mut self, span: Span, key: &str, reach: Reach) -> Lowered<()> {
-    if reach == Reach::Body && self.on_render_path() {
+    if reach == Reach::Body && self.on_render_path() && !self.terminal {
       self.reach_violation = true;
       return Err(self.residue(span, format!("`{key}` on a render path")));
     }
@@ -1055,7 +1057,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// The first `body` extension a lowered expression calls, by name.
-  fn body_extension_in(&self, expr: &Expr) -> Option<String> {
+  pub(crate) fn body_extension_in(&self, expr: &Expr) -> Option<String> {
     let mut found = None;
     expr.visit(&mut |e| {
       if found.is_some() {
@@ -2212,7 +2214,7 @@ impl<'a> Lowerer<'a> {
           if !matches!(*f, Expr::Lambda { .. }) {
             return Err(self.residue(id.span, format!("`{name}` is not a function")));
           }
-          if self.on_render_path() {
+          if self.on_render_path() && !self.terminal {
             if let Some(key) = self.body_extension_in(&f) {
               if self.reads_only_the_date_clock(&f) {
                 return Err(self.browser_only(call.span, format!("`{name}` reads the current time on a render path, which the server and the browser read at different moments")));
@@ -2318,6 +2320,11 @@ impl<'a> Lowerer<'a> {
               "isInteger" => both(number, both(finite, whole)),
               _ => both(number, both(finite, both(whole, compare(CompareOp::Le, Expr::Builtin { name: Builtin::Abs, args: vec![x] }, Expr::Lit(Lit::Int(9_007_199_254_740_991)))))),
             });
+          }
+          "Math" if method == "random" && self.terminal && call.args.is_empty() => {
+            let bytes = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Float(6.0))] };
+            let whole = Expr::Builtin { name: Builtin::ParseInt, args: vec![bytes, Expr::Lit(Lit::Float(16.0))] };
+            return Ok(Expr::Arith(ArithOp::Div, Box::new(whole), Box::new(Expr::Lit(Lit::Float(281_474_976_710_656.0)))));
           }
           "Math" => {
             let name = match method.as_str() {

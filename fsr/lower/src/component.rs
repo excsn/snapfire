@@ -1182,7 +1182,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -1454,7 +1454,7 @@ impl ComponentSet {
         taint.push(hoist::PROPS.to_owned());
       }
       let mut kept = hoist::decide(&mut component, &taint);
-      let pure = state.is_empty() && !leaves_to_browser && hoist::static_tree(&component.render, &self.pure);
+      let pure = state.is_empty() && component.handlers.is_empty() && !leaves_to_browser && hoist::static_tree(&component.render, &self.pure);
       let chunks = hoist::chunks(&mut component, &taint, &self.pure);
       let covered = hoist::cover(&mut component, &chunks);
       kept.retain(|id| !covered.contains(id));
@@ -3722,10 +3722,15 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
   match stmt {
     js::Stmt::Decl(js::Decl::Var(var)) => {
       for decl in &var.decls {
-        let expr = match decl.init.as_deref() {
+        let mut expr = match decl.init.as_deref() {
           Some(init) => lowerer.expr(init)?,
           None => Expr::Lit(Lit::Null),
         };
+        if !lowerer.held.is_empty() && lowerer.body_extension_in(&expr).is_some() {
+          let name = lowerer.temp();
+          lowerer.held.last_mut().expect("a frame").push(Stmt::Let { name: name.clone(), expr });
+          expr = Expr::Var(name);
+        }
         bind_pattern(lowerer, &decl.name, expr)?;
         if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
           lowerer.note_kind(id.id.sym.as_ref(), init);
@@ -4007,7 +4012,7 @@ fn rebind_for_of(lowerer: &mut Lowerer<'_>, for_of: &js::ForOfStmt, writable: &W
   let names = LoopNames::of(for_of);
   let over = lowerer.expr(&for_of.right)?;
   let item = Expr::Var(names.item.clone());
-  fold(lowerer, for_of.span, &names, over, &for_of.body, |lowerer| bind_pattern(lowerer, head, item), writable, assigned)
+  fold(lowerer, for_of.span, &names, over, &for_of.body, None, |lowerer| bind_pattern(lowerer, head, item), writable, assigned)
 }
 
 /// `for (let i = a; i < b; i++)` (also `<=`, `++i` and `i += 1`) whose body does not write `i` and whose bound reads nothing the body writes.
@@ -4077,7 +4082,7 @@ fn rebind_counted(lowerer: &mut Lowerer<'_>, f: &js::ForStmt, writable: &Writabl
   let names = LoopNames::over(f.span, &f.init, &f.body);
   let (over, counter) = counted.lowered(lowerer, &names.item)?;
   let name = counted.name.clone();
-  fold(lowerer, f.span, &names, over, &f.body, |lowerer| {
+  fold(lowerer, f.span, &names, over, &f.body, None, |lowerer| {
     lowerer.scope.push((name, counter));
     Ok(())
   }, writable, assigned)
@@ -4087,8 +4092,8 @@ fn rebind_counted(lowerer: &mut Lowerer<'_>, f: &js::ForStmt, writable: &Writabl
 const WHILE_CAP: f64 = 10_000.0;
 
 /// A terminal's `while (test) body` as a fold over [`WHILE_CAP`] items whose
-/// body runs under `if (test)`, so the items past the first false test change
-/// nothing. A loop with an empty body only spends time and lowers to nothing.
+/// step runs only while `test` holds, so an item past the first false test
+/// reads the test alone. A loop with an empty body only spends time and lowers to nothing.
 fn rebind_while(lowerer: &mut Lowerer<'_>, looped: &js::WhileStmt, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
   if matches!(&*looped.body, js::Stmt::Block(block) if block.stmts.is_empty()) || matches!(&*looped.body, js::Stmt::Empty(_)) {
     return Ok(());
@@ -4096,12 +4101,12 @@ fn rebind_while(lowerer: &mut Lowerer<'_>, looped: &js::WhileStmt, writable: &Wr
   let guarded = js::Stmt::If(js::IfStmt { span: looped.span, test: looped.test.clone(), cons: looped.body.clone(), alt: None });
   let names = LoopNames::over(looped.span, &looped.test, &guarded);
   let over = Expr::Builtin { name: Builtin::Range, args: vec![Expr::Lit(Lit::Float(WHILE_CAP))] };
-  fold(lowerer, looped.span, &names, over, &guarded, |_| Ok(()), writable, assigned)
+  fold(lowerer, looped.span, &names, over, &looped.body, Some(&looped.test), |_| Ok(()), writable, assigned)
 }
 
-/// A loop as a fold: each outer local the body writes is the `reduce` over `over` of the body's writes, `bind` binding the item, starting from its value before the loop.
+/// A loop as a fold: each outer local the body writes is the `reduce` over `over` of the body's writes, `bind` binding the item, starting from its value before the loop. A step under `gate` leaves the locals as they were once the gate is false.
 #[allow(clippy::too_many_arguments)]
-fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, body: &js::Stmt, bind: impl FnOnce(&mut Lowerer<'_>) -> Lowered<()>, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
+fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, body: &js::Stmt, gate: Option<&js::Expr>, bind: impl FnOnce(&mut Lowerer<'_>) -> Lowered<()>, writable: &Writable<'_>, assigned: &mut Vec<String>) -> Lowered<()> {
   for name in &names.written {
     if !writable.local(lowerer, name) {
       return Err(lowerer.residue_with(span, format!("a write to `{name}` inside a loop, which this body did not declare"), "declare a local with `let` before the loop and write that"));
@@ -4121,8 +4126,14 @@ fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, bo
     lowerer.scope.push((name.clone(), names.read(name)));
   }
   let mut inner = Vec::new();
-  let run = bind(lowerer).and_then(|_| body.iter().try_for_each(|s| rebind_stmt(lowerer, s, writable, &mut inner)));
+  lowerer.held.push(Vec::new());
+  let mut test = None;
+  let run = bind(lowerer).and_then(|_| {
+    test = gate.map(|g| lowerer.expr(g)).transpose()?;
+    body.iter().try_for_each(|s| rebind_stmt(lowerer, s, writable, &mut inner))
+  });
   let after: Vec<Expr> = names.written.iter().map(|n| current(lowerer, n)).collect();
+  let held = lowerer.held.pop().expect("the fold's frame");
   lowerer.scope.truncate(depth);
   run?;
   let single = names.written.len() == 1;
@@ -4130,7 +4141,12 @@ fn fold(lowerer: &mut Lowerer<'_>, span: Span, names: &LoopNames, over: Expr, bo
     true => values.into_iter().next().expect("one name"),
     false => Expr::Object(names.written.iter().cloned().zip(values).map(|(n, v)| Entry::Field(n, v)).collect()),
   };
-  let step = Expr::Lambda { params: vec![names.acc.clone(), names.item.clone()], body: Box::new(gather(after)) };
+  let stepped = sequenced(held, gather(after));
+  let stepped = match test {
+    Some(test) => Expr::Ternary(Box::new(test), Box::new(stepped), Box::new(Expr::Var(names.acc.clone()))),
+    None => stepped,
+  };
+  let step = Expr::Lambda { params: vec![names.acc.clone(), names.item.clone()], body: Box::new(stepped) };
   let folded = Expr::Reduce(Box::new(over), Box::new(gather(before)), Box::new(step));
   for name in &names.written {
     let value = match single {
@@ -4421,7 +4437,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       }
       Ok(value)
     }
-    js::Stmt::For(_) | js::Stmt::ForOf(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
+    js::Stmt::For(_) | js::Stmt::ForOf(_) | js::Stmt::While(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
     js::Stmt::Expr(stmt) if writes_a_cell(lowerer, &stmt.expr) => {
       let Stmt::Expr(effect) = lowerer.effect(&stmt.expr)? else { return Err(lowerer.residue(stmt.span, "a write to a cell the build cannot order")) };
       let held = lowerer.temp();
@@ -4430,8 +4446,12 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
     }
     straight => {
       let writable = Writable { floor, frozen: &[], setters: &[] };
-      rebind_stmt(lowerer, straight, &writable, &mut Vec::new())?;
-      block_to_expr_inner(lowerer, rest, floor)
+      lowerer.held.push(Vec::new());
+      let run = rebind_stmt(lowerer, straight, &writable, &mut Vec::new());
+      let held = lowerer.held.pop().expect("the statement's frame");
+      run?;
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(held, value))
     }
   }
 }
@@ -4578,6 +4598,7 @@ fn returns_from_loop(stmt: &js::Stmt) -> bool {
   let body = match stmt {
     js::Stmt::For(f) => &f.body,
     js::Stmt::ForOf(f) => &f.body,
+    js::Stmt::While(w) => &w.body,
     _ => return false,
   };
   match &**body {
@@ -4651,6 +4672,10 @@ fn loop_return(looped: &js::Stmt, rest: &[&js::Stmt]) -> Vec<js::Stmt> {
   let looped = match looped {
     js::Stmt::For(f) => js::Stmt::For(js::ForStmt { body: guard(&f.body), ..f.clone() }),
     js::Stmt::ForOf(f) => js::Stmt::ForOf(js::ForOfStmt { body: guard(&f.body), ..f.clone() }),
+    js::Stmt::While(w) => {
+      let test = js::Expr::Bin(js::BinExpr { span, op: js::BinaryOp::LogicalAnd, left: Box::new(js::Expr::Unary(js::UnaryExpr { span, op: js::UnaryOp::Bang, arg: read(&returned) })), right: w.test.clone() });
+      js::Stmt::While(js::WhileStmt { test: Box::new(test), body: guard(&w.body), ..w.clone() })
+    }
     other => other.clone(),
   };
   let mut out = vec![declare(&returned, *flag(false)), declare(&value, *read("undefined")), looped];
@@ -5124,6 +5149,10 @@ struct ComponentLowerer<'a, 'p> {
   module_lets: Vec<(String, String, Expr)>,
   /// Each function value passed as a prop, with where the browser gets it from.
   fn_refs: Vec<FnRef>,
+  /// The `useRef` bindings a terminal holds as state, so a handler's write to `.current` is a patch.
+  held_refs: Vec<String>,
+  /// Each terminal `useReducer` dispatcher with the state it sets and the reducer it runs.
+  dispatchers: Vec<(String, String, Expr)>,
 }
 
 /// Where the browser gets a function passed as a prop: the placement and prop it went to, the value the server holds and the module id `file#export` the browser imports it from or else why the browser cannot reach it. `needs` is what the rewrite and the bundle add for the id to resolve.
@@ -6140,6 +6169,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               None => Expr::Lit(Lit::Null),
             };
             self.state.push(local.clone());
+            if self.lowerer.terminal {
+              self.state_bindings.push(local.clone());
+              self.held_refs.push(local.clone());
+            }
             Expr::Object(vec![Entry::Field("current".to_owned(), current)])
           }
           Some(("useStore", _)) => {
@@ -6343,10 +6376,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       _ => None,
     });
     let state = names.next().flatten();
-    if let Some(dispatch) = names.next().flatten() {
-      self.browser_function(dispatch);
+    let dispatch = names.next().flatten();
+    if let Some(dispatch) = &dispatch {
+      self.browser_function(dispatch.clone());
     }
     let Some(name) = state else { return Ok(None) };
+    if let (Some(dispatch), true) = (dispatch, self.lowerer.terminal) {
+      let reducer = match call.args.first().map(|a| &*a.expr) {
+        Some(js::Expr::Arrow(arrow)) => self.lowerer.lambda(arrow)?,
+        Some(reducer) => self.lowerer.expr(reducer)?,
+        None => return Err(self.lowerer.residue(call.span, "`useReducer` without a reducer")),
+      };
+      self.dispatchers.push((dispatch, name.clone(), reducer));
+    }
     self.state.push(name.clone());
     self.state_bindings.push(name.clone());
     self.lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
@@ -7471,6 +7513,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               walk.act(action.to_owned(), input);
               return Ok(());
             }
+            if let Some((_, state, reducer)) = self.dispatchers.iter().find(|(d, _, _)| *d == name).cloned() {
+              let action = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::Lit(Lit::Null),
+              };
+              walk.set(state.clone(), Expr::Apply { f: Box::new(reducer), args: vec![Expr::Var(state), action] });
+              return Ok(());
+            }
             if let Some((_, state)) = self.setters.iter().find(|(s, _)| *s == name).cloned() {
               if state == crate::EXIT_STATE {
                 walk.set(state, Expr::Lit(Lit::Bool(true)));
@@ -7539,6 +7589,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           }
           other => Err(self.lowerer.residue(other.span(), "a call a handler cannot make")),
         }
+      }
+      js::Expr::Assign(assign) if assign.op == js::AssignOp::Assign => {
+        let held = match &assign.left {
+          js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match (&*m.obj, prop_name_of(m).as_deref()) {
+            (js::Expr::Ident(id), Some("current")) => self.held_refs.iter().find(|r| **r == *id.sym).cloned(),
+            _ => None,
+          },
+          _ => None,
+        };
+        let Some(held) = held else { return Err(self.lowerer.residue(assign.span, "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")) };
+        let value = self.lowerer.expr(&assign.right)?;
+        walk.set(held, Expr::Object(vec![Entry::Field("current".to_owned(), value)]));
+        Ok(())
       }
       other => Err(self.lowerer.residue(other.span(), "a statement a handler cannot hold; a handler is `const`s, branches, calls to state setters and calls to actions")),
     }

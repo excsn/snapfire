@@ -177,3 +177,13 @@ fn a_terminal_body_runs_a_while_loop_and_skips_a_busy_wait() {
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>5</ink-text>");
 }
+
+#[test]
+fn a_terminal_function_returns_from_a_while_loop_drawing_random_numbers() {
+  let picked = "import { Text } from \"ink\";\n\nfunction pick(taken: number[]): number {\n  while (true) {\n    const n = Math.floor(Math.random() * 4);\n    if (!taken.includes(n)) {\n      return n;\n    }\n  }\n}\n\nexport default function Free() {\n  const n = pick([0, 1, 3]);\n  return <Text>{n}</Text>;\n}\n";
+  let library = library(picked);
+  for _ in 0..20 {
+    let step = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+    assert_eq!(step.rendered.html, "<ink-text>2</ink-text>");
+  }
+}
