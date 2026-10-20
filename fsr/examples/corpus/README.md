@@ -1,6 +1,6 @@
 # corpus
 
-The code examples of the React, Svelte and Vue documentation, built through FSR one at a time. Each example under `react_dev/` becomes an application whose only page renders its `App`; each under `svelte_dev/` or `vuejs_org/` one whose only page places its `App.svelte` or `App.vue` as an island. `cargo test -p corpus` holds what the build made of it against `outcomes.txt`, one of three outcomes: `lowered`; `client:` with the causes that sent a component to the browser; `refused:` with the error that stopped the build.
+The code examples of the React, Svelte and Vue documentation, built through FSR one at a time, and Ink's examples run through its terminal mode. Each example under `react_dev/` becomes an application whose only page renders its `App`; each under `svelte_dev/` or `vuejs_org/` one whose only page places its `App.svelte` or `App.vue` as an island. `cargo test -p corpus` holds what the build made of it against `outcomes.txt`, one of three outcomes: `lowered`; `client:` with the causes that sent a component to the browser; `refused:` with the error that stopped the build.
 
 The examples were written without FSR in mind. A cause that recurs is an idiom the lowerer may be missing; once read, each one either becomes a lowering with a test of its own or is kept as a refusal that is right.
 
@@ -27,3 +27,6 @@ A change to the lowerer that moves an outcome fails the test, naming each exampl
 | `template_vue/` | the configuration and the import map every Vue example is built with, Vue vendored |
 | `vue_outcomes.txt` | one line per Vue example, the outcome it is held to |
 | `tests/vuejs_org.rs` | the build of every Vue example and the comparison |
+| `ink_examples/` | the 29 examples of Ink, run in the terminal, see [NOTICE.md](NOTICE.md) |
+| `ink_outcomes.txt` | one line per Ink example: `rendered` or `refused:` with the reason |
+| `tests/ink.rs` | the run of every Ink example and the comparison; `CORPUS_FRAMES=1` prints each first frame |

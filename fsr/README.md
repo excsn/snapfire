@@ -102,6 +102,14 @@ fsr dev app --terminal
 
 Terminal mode is experimental. Today it runs the app's root page, `routes/page.tsx`, in React with `useState`, `useInput` and the `setInterval` and `setTimeout` timers a mount effect starts; a handler or a timer sets state or calls an action. Effects with dependencies, `useApp`, `Static`, `Transform`, `measureElement`, Ink's other hooks and percentage sizes are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
 
+The corpus runs Ink's own examples through terminal mode as one application each:
+
+| Corpus | Examples | Runs in the terminal | Refused |
+|---|---|---|---|
+| [Ink](docs/corpus/ink.md) | 29 | 12 (41.4%) | 17 |
+
+A refused example uses something terminal mode cannot run yet, such as `useFocus`, `Static` or an npm package the build does not follow. The corpus page lists each cause.
+
 ## Architecture
 
 FSR treats backend logic and client presentation as one set of composable blocks. 
