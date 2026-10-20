@@ -55,7 +55,11 @@ export declare function islandState(el: Element): {
 export declare function patchIsland(el: Element, props: Props, regions?: unknown, children?: string | null, encoded?: unknown, markup?: {
 	[n: string]: string;
 } | null): Promise<boolean>;
-/** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. Idempotent. */
+/** Whether the island named `name`, by its region key or else its id, is mounted in the document. */
+export declare function mountedIsland(name: string): boolean;
+/** Ends the island named `name` (its region key or else its id) and mounts it again afresh. */
+export declare function remount(name: string): void;
+/** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. An island with placed content whose place has not arrived waits while a streamed slot is still pending, which is the only way the place can still come. Once nothing can bring it, the content is dropped and the island mounts afresh, since a framework cannot hydrate content it finds nowhere. Idempotent. */
 export declare function scan(root: ParentNode): void;
 /** Imports an entry module once and rescans, so the islands it registers mount. Call it before the scan that will miss them, so a miss is not reported while its registration is in flight. */
 export declare function loadEntry(src: string): void;

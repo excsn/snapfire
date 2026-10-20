@@ -334,6 +334,8 @@ pub enum Tmpl {
   /// evaluator carries them as a `Node::Placed`: a Vue `<Teleport>`. The
   /// target is a `Place` spelling, `body` for the end of the body.
   Place { target: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
+  /// Where the content a `Place` targeting `#name` holds is written: inside the element around it, whose id is `name`. Rendered in markup a framework hydrates it fails the render, unless `hydrated` says the lowerer put it there because that framework's hydration reads such content, as Vue's does for a `<Teleport>` into its own component. Never static.
+  Outlet { name: String, #[serde(default, skip_serializing_if = "is_false")] hydrated: bool },
 }
 
 fn is_false(b: &bool) -> bool {
@@ -637,7 +639,7 @@ impl Tmpl {
       }
     };
     match self {
-      Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
+      Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => {}
       Tmpl::Expr(e) | Tmpl::Html(e) => e.visit(f),
       Tmpl::Element { attrs, children, .. } => {
         entries(attrs, f);
@@ -670,7 +672,7 @@ impl Tmpl {
   /// `visit` with each expression open to change: `f` sees an expression before what is beneath it.
   pub fn visit_mut(&mut self, f: &mut dyn FnMut(&mut Expr)) {
     match self {
-      Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
+      Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => {}
       Tmpl::Expr(e) | Tmpl::Html(e) => e.visit_mut(f),
       Tmpl::Element { attrs, children, .. } => {
         attrs.iter_mut().for_each(|entry| entry.visit_mut(f));
@@ -1284,7 +1286,7 @@ fn attr_values(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> V
       }
       Tmpl::For { body, .. } => walk(body, tag_matches, name, out),
       Tmpl::Let { then, .. } => walk(then, tag_matches, name, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => {}
     }
   }
   let mut out = Vec::new();

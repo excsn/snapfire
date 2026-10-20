@@ -102,6 +102,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Link](#link)
   * [Picture](#picture)
   * [Embed](#embed)
+  * [Place](#place)
   * [Mount](#mount)
   * [foreign](#foreign)
   * [reactPatcher](#reactpatcher)
@@ -950,6 +951,13 @@ The policy is read once from the document's `<meta name="sf:images">`, which the
 * `function playEmbed(button: Element): void`: the swap itself, for the placeholder `button` sits in.
 
 The placeholder the build writes on the server: a `div` with `data-sf-embed` and `data-sf-embed-title` holding a `button` with the still, the title and a play mark. The build lowers `Embed` wherever it renders on the server and refuses one inside a component that hydrates. The component here is what a component the browser alone renders writes: YouTube's still from its CDN, none for Vimeo, whose still only the build looks up.
+
+### Place
+
+* `function Place({ name, as, ...attrs }: PlaceProps): ReactElement`; the Vue entry and the JSX runtime export the same component.
+* `interface PlaceProps { name: string; as?: string; [attribute: string]: unknown }`
+
+The element content placed at `#name` is written into, such as a Vue `<Teleport to="#name">`: `<div id="name">` unless `as` names another tag, with the other attributes as given. `name` is letters, digits, `-` and `_`. The build lowers it in the shell, a layout or a page and writes what is placed at it inside it; in markup a framework hydrates the render fails. Content that arrives after its place, from a streamed segment or a navigation, comes as a run naming the place (`data-sf-to`) and `scan` moves it in. An island whose content is waiting for its place is not mounted while a streamed slot is still pending. When a navigation replaces a place and keeps the segment whose island filled it, that island mounts again afresh. A navigation that keeps a mounted island keeps the content it placed and drops the server's new copy, since the framework holds those nodes. A morph of the markup around a place updates the place's attributes and leaves its content alone. An island whose place never arrives has its content dropped and mounts afresh.
 
 ### Mount
 

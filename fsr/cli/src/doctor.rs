@@ -679,7 +679,7 @@ fn hrefs_of(tmpl: &Tmpl) -> Vec<String> {
       }
     }
     Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => out.extend(hrefs_of(body)),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
   out
 }

@@ -562,6 +562,19 @@ export interface EmbedProps {
 /** A 16:9 placeholder the server renders, the provider's still or the application's own under `[media] embed_stills = "local"`, swapped for the player on a click. Lowered by the build. */
 export function Embed(props: EmbedProps): TemplateNode;
 
+/** A place content can be written to from elsewhere on the page, such as a Vue `<Teleport to="#name">`. */
+export interface PlaceProps {
+  /** The place's name and the element's id. Letters, digits, `-` and `_`. */
+  name: string;
+  /** The tag, `div` unless given. */
+  as?: string;
+  className?: string;
+  [attribute: string]: unknown;
+}
+
+/** `<div id="name">` (or the `as` tag) holding what is placed at `#name`, which the server writes inside it. Declared in the shell, a layout or a page, outside any island. Lowered by the build. */
+export function Place(props: PlaceProps): TemplateNode;
+
 /** A value a template provides to every component it renders inline, read with `use`. Lowered by the build: the server resolves it whole, so nothing reads it in the browser. An island is a root of its own and reads the default. */
 export interface Context<T> {
   /** Provides `value` to the components rendered inside it, in place of the default: `<Theme value="dark">`. */

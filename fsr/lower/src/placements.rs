@@ -1,4 +1,4 @@
-//! The placements every front end shares: `Link`, `Picture`, `Mount` and `Embed`. A
+//! The placements every front end shares: `Link`, `Picture`, `Mount`, `Embed` and `Place`. A
 //! front end recognises one by where its tag is imported from and hands over
 //! its attributes as written; what the markup is gets decided here, once, for
 //! JSX, a Vue template and any front end after them.
@@ -246,6 +246,42 @@ pub(crate) fn mount<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], at: At) ->
     }
   }
   Ok(Tmpl::Element { tag: "sf-s".to_owned(), attrs: out, children: Vec::new() })
+}
+
+/// `<Place name=… as=…>`: the element content placed at `#name` is written into, `<div id="name">` unless `as` names another tag, with the other attributes as written. It holds only what is placed at it.
+pub(crate) fn place<'p>(cx: &mut impl Placer<'p>, attrs: &[Attr<'_>], has_children: bool, at: At) -> Lowered<Tmpl> {
+  if has_children {
+    return Err(refuse(cx, at, "a `<Place>` with children; it holds only what is placed at it"));
+  }
+  let mut out = Vec::new();
+  let mut name = None;
+  let mut tag = "div".to_owned();
+  for attr in attrs {
+    if let Value::Spread(expr) = &attr.value {
+      out.push(Entry::Spread(cx.lowerer().expr(expr)?));
+      continue;
+    }
+    match attr.name.as_str() {
+      "key" | "ref" => {}
+      "style" => out.push(Entry::Field("style".to_owned(), style(cx, attr)?)),
+      "name" => match value(cx, attr)? {
+        Expr::Lit(Lit::Str(written)) if snapfire_fsr_ir::is_place_name(&written) => name = Some(written),
+        _ => return Err(refuse(cx, attr.at, "a `<Place>`'s `name` is written out, in letters, digits, `-` and `_`")),
+      },
+      "as" => match value(cx, attr)? {
+        Expr::Lit(Lit::Str(written)) if !written.is_empty() && written.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') => tag = written,
+        _ => return Err(refuse(cx, attr.at, "a `<Place>`'s `as` is a tag name, written out")),
+      },
+      "id" => return Err(refuse(cx, attr.at, "an `id` on `<Place>`; its `name` is its id")),
+      other => {
+        let lowered = value(cx, attr)?;
+        out.push(Entry::Field(html_attr_name(other).to_owned(), lowered));
+      }
+    }
+  }
+  let Some(name) = name else { return Err(refuse(cx, at, "a `<Place>` with no `name`")) };
+  out.insert(0, Entry::Field("id".to_owned(), Expr::lit_str(name.clone())));
+  Ok(Tmpl::Element { tag, attrs: out, children: vec![Tmpl::Outlet { name, hydrated: false }] })
 }
 
 enum PictureSrc {

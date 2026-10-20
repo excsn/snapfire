@@ -69,6 +69,7 @@ pub fn tmpl_to_sx(tmpl: &Tmpl) -> Sx {
     }
     Tmpl::Slot(name) => form("slot", vec![Sx::Sym(name.clone())]),
     Tmpl::Marker(markup) => form("marker", vec![Sx::Str(markup.clone())]),
+    Tmpl::Outlet { name, hydrated } => form(if *hydrated { "outlet-hydrated" } else { "outlet" }, vec![Sx::Str(name.clone())]),
     Tmpl::Place { target, children } => form("place", std::iter::once(Sx::Str(target.clone())).chain(children.iter().map(tmpl_to_sx)).collect()),
     Tmpl::Html(expr) => form("html", vec![expr_to_sx(expr)]),
     Tmpl::Baked { open, tag, children } => {
@@ -162,6 +163,13 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
     }
     "slot" => Tmpl::Slot(sym_of(&args(items, head, 1)?[0])?),
     "marker" => Tmpl::Marker(str_of(&args(items, head, 1)?[0])?),
+    "outlet" | "outlet-hydrated" => {
+      let name = str_of(&args(items, head, 1)?[0])?;
+      if !snapfire_fsr_core::is_place_name(&name) {
+        return Err(SexprError::shape(format!("`{name}` is not a place name")));
+      }
+      Tmpl::Outlet { name, hydrated: head == "outlet-hydrated" }
+    }
     "place" => {
       let a = at_least(items, head, 1)?;
       let target = str_of(&a[0])?;

@@ -1,6 +1,8 @@
 import { enableEmbeds } from "./embed.js";
 import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
+import { settlePlaced, unplaced } from "./places.js";
+import { REGION_KEY } from "./render.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef, SfValue } from "./values.js";
@@ -143,8 +145,12 @@ function awaitingAnAncestor(el: Element): boolean {
 /** The mount before the next one, so islands mount in the order they were scheduled, document order for a scan, whatever order their modules land in. A framework's module state then advances across a page's islands in the order the server rendered them, as it does across the components of one app. Modules still load in parallel. */
 let lastMount: Promise<unknown> = Promise.resolve();
 
+/** Islands `remount` asked to mount afresh rather than hydrate the markup they hold. */
+const fresh = new WeakSet<Element>();
+
 function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Props): void {
-  const hydrate = serverRendered(el);
+  const hydrate = !fresh.has(el) && serverRendered(el);
+  fresh.delete(el);
   const island: Mounted = { entry, moduleId, handle: Promise.resolve(undefined), root: undefined, gone: false, props, regions: null, children: null, markup: null };
   const ready = Promise.all([entry.loader(), resolveModuleRefs(props)]);
   const turn = lastMount.then(() => ready);
@@ -281,8 +287,35 @@ const SCHEDULED = "data-sf-scheduled";
 /** Marks a marker whose mounter has run. A `visible` or `idle` island carries [`SCHEDULED`] from the scan that took it and this one only once its timing fired, which is the difference a test reads. */
 const MOUNTED = "data-sf-mounted";
 
-/** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. Idempotent. */
+/** The name placed content gives the island that placed it: its region key, else its id. */
+function islandName(el: Element, props: Props): string {
+  const key = props[REGION_KEY];
+  return typeof key === "string" ? key : el.id;
+}
+
+/** Whether the island named `name`, by its region key or else its id, is mounted in the document. */
+export function mountedIsland(name: string): boolean {
+  return Array.from(document.querySelectorAll(`sf-i[${MOUNTED}]`)).some((el) => el.id === name || markerProps(el).props[REGION_KEY] === name);
+}
+
+/** Ends the island named `name` (its region key or else its id) and mounts it again afresh. */
+export function remount(name: string): void {
+  for (const el of Array.from(document.querySelectorAll("sf-i"))) {
+    if (el.id !== name && markerProps(el).props[REGION_KEY] !== name) continue;
+    discard(el);
+    el.removeAttribute(SCHEDULED);
+    el.removeAttribute(MOUNTED);
+    fresh.add(el);
+    if (el.parentNode) scan(el.parentNode);
+    return;
+  }
+}
+
+/** Mounts every unmounted island marker under `root`, honoring each island's timing: the `data-sf-when` of the region a page or layout placed it in, else the registry's. An island with placed content whose place has not arrived waits while a streamed slot is still pending, which is the only way the place can still come. Once nothing can bring it, the content is dropped and the island mounts afresh, since a framework cannot hydrate content it finds nowhere. Idempotent. */
 export function scan(root: ParentNode): void {
+  settlePlaced();
+  const orphans = unplaced();
+  const streaming = document.querySelector("[data-sf-slot]") !== null;
   for (const el of Array.from(root.querySelectorAll(`sf-i:not([${SCHEDULED}])`))) {
     const moduleId = el.getAttribute("data-sf-module");
     if (!moduleId) continue;
@@ -304,9 +337,15 @@ export function scan(root: ParentNode): void {
       arm();
       continue;
     }
+    const props = propsFor(root, el.id);
+    const runs = orphans.get(islandName(el, props));
+    if (runs && streaming) continue;
+    if (runs) {
+      for (const piece of runs) for (const n of piece.nodes) n.remove();
+      fresh.add(el);
+    }
     el.setAttribute(SCHEDULED, "");
     const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when") as MountTiming | null;
-    const props = propsFor(root, el.id);
     const keys = awaited(props[AWAITS]);
     delete props[AWAITS];
     afterSettled(el, keys, () => schedule(placed ? { ...entry, when: placed } : entry, moduleId, el, props));

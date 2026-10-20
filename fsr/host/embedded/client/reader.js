@@ -42,6 +42,11 @@ export function decodeNode(row) {
                 target: arr[1],
                 children: arr[2].map(decodeNode)
             };
+        case "o":
+            return {
+                kind: "outlet",
+                name: arr[1]
+            };
         default:
             throw new Error(`unknown node row kind: ${arr[0]}`);
     }

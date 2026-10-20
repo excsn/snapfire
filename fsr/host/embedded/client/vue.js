@@ -95,14 +95,14 @@ function componentOf(module) {
 }
 function startTeleports(el, props) {
     const name = typeof props[REGION_KEY] === "string" ? props[REGION_KEY] : el.id;
-    let start = null;
-    for (const child of Array.from(document.body.children)){
-        if (child.hasAttribute(PLACED_OPEN) && child.getAttribute(PLACED_ISLAND) === name) {
-            start = child.nextSibling;
-            break;
-        }
+    const set = new Set();
+    for (const open of Array.from(document.querySelectorAll(`template[${PLACED_OPEN}]`))){
+        const target = open.parentNode;
+        if (!target || set.has(target) || open.getAttribute(PLACED_ISLAND) !== name) continue;
+        target._lpa = open.nextSibling;
+        set.add(target);
     }
-    document.body._lpa = start;
+    if (!set.has(document.body)) document.body._lpa = null;
 }
 export const vueMounter = (module, props, el, hydrate)=>{
     const { root, props: state, children } = rootFor(componentOf(module), props, el);
@@ -177,6 +177,24 @@ export function useLocale() {
     return locale;
 }
 let placed = 0;
+export const Place = defineComponent({
+    name: "SfPlace",
+    props: {
+        name: {
+            type: String,
+            required: true
+        },
+        as: {
+            type: String,
+            default: "div"
+        }
+    },
+    setup (props) {
+        return ()=>h(props.as, {
+                id: props.name
+            });
+    }
+});
 export const Mount = defineComponent({
     name: "SfMount",
     props: {

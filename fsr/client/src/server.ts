@@ -1,5 +1,6 @@
 import { patchIsland, type Props } from "./boot.js";
 import { refresh } from "./navigator.js";
+import { PLACED_OPEN } from "./render.js";
 import { get, key, set, subscribe, transaction } from "./store.js";
 import { decodeValue, encodeValue, type SfValue } from "./values.js";
 
@@ -270,7 +271,16 @@ function morphNode(current: Node, next: Node, hooks: MorphHooks): void {
     return;
   }
   if (hooks.opaque?.(current)) return;
+  if (holdsPlaced(current)) {
+    morphAttributes(current, next, hooks.values === "kept");
+    return;
+  }
   morphElement(current, next, hooks);
+}
+
+/** A place holding placed runs. Its children are the content islands placed there, which those islands' frameworks own and the navigator replaces run by run, so the markup around it never morphs them. */
+function holdsPlaced(el: Element): boolean {
+  return Array.from(el.children).some((child) => child.tagName === "TEMPLATE" && child.hasAttribute(PLACED_OPEN));
 }
 
 function isPropsScript(el: Element): boolean {

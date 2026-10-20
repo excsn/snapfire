@@ -286,6 +286,9 @@ pub const ISLAND_MARK: &str = "\u{0}sf-island:";
 /// `places` in decimal, then a NUL.
 pub const PLACE_MARK: &str = "\u{0}sf-place:";
 
+/// Where a `Tmpl::Outlet` sat in the markup: `OUTLET_MARK`, the place's name, then a NUL.
+pub const OUTLET_MARK: &str = "\u{0}sf-outlet:";
+
 impl Out {
   /// Text under `markup`'s rules: React separates two adjacent runs with an
   /// empty comment and escapes three characters; Vue joins them and escapes
@@ -892,7 +895,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
   match tmpl {
     Tmpl::Text(text) => out.text(text, env.markup),
     Tmpl::Marker(markup) => out.markup(markup),
-    Tmpl::Html(_) | Tmpl::Place { .. } => render_aside(env, tmpl, library, slots, out)?,
+    Tmpl::Html(_) | Tmpl::Place { .. } | Tmpl::Outlet { .. } => render_aside(env, tmpl, library, slots, out)?,
     Tmpl::Expr(expr) => render_expr(env, expr, library, out)?,
     Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
@@ -950,12 +953,19 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
   Ok(())
 }
 
-/// `Html` and `Place`, which share one arm so `render`'s frame keeps one slot for both.
+/// `Html`, `Place` and `Outlet`, which share one arm so `render`'s frame keeps one slot for them.
 fn render_aside<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
   match tmpl {
     Tmpl::Place { target, children } => render_place(env, target, children, library, slots, out),
     Tmpl::Html(expr) => render_html(env, expr, out),
-    _ => unreachable!("render passes only `Html` and `Place`"),
+    Tmpl::Outlet { name, hydrated } => {
+      if env.in_framework && !hydrated {
+        return Err(Fail::internal(format!("`<Place name=\"{name}\">` is in markup the browser hydrates; a place is declared in the shell, a layout or a page, outside any island")));
+      }
+      out.markup(&format!("{OUTLET_MARK}{name}\u{0}"));
+      Ok(())
+    }
+    _ => unreachable!("render passes only `Html`, `Place` and `Outlet`"),
   }
 }
 
@@ -1273,7 +1283,7 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
       env.scope.truncate(depth);
       result
     }
-    Tmpl::Let { .. } | Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => Ok(()),
+    Tmpl::Let { .. } | Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => Ok(()),
   }
 }
 
@@ -1286,7 +1296,7 @@ fn holds_chunk(tmpl: &Tmpl, mark: &str) -> bool {
     Tmpl::If { then, r#else, .. } => holds_chunk(then, mark) || r#else.as_ref().is_some_and(|other| holds_chunk(other, mark)),
     Tmpl::For { body, .. } => holds_chunk(body, mark),
     Tmpl::Let { then, .. } => holds_chunk(then, mark),
-    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) => false,
+    Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => false,
   }
 }
 
@@ -1411,7 +1421,7 @@ fn child_values(env: &mut Env, children: &[Tmpl], slots: &[Slot<'_>], frame: usi
 fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &mut Vec<Value>) -> Result<(), Fail> {
   match t {
     Tmpl::Text(text) if text.is_empty() => {}
-    Tmpl::Marker(_) => {}
+    Tmpl::Marker(_) | Tmpl::Outlet { .. } => {}
     Tmpl::Text(text) => out.push(Value::str(text.as_str())),
     Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Fragment(_) | Tmpl::Html(_) | Tmpl::Place { .. } => out.push(env.make(&Arc::new(t.clone()))?),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
@@ -1570,7 +1580,7 @@ fn count_children(env: &mut Env, children: &[Tmpl], slots: &[Slot<'_>], frame: u
 fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, empties: bool) -> Result<usize, Fail> {
   Ok(match t {
     Tmpl::Text(text) => usize::from(!text.is_empty()),
-    Tmpl::Marker(_) => 0,
+    Tmpl::Marker(_) | Tmpl::Outlet { .. } => 0,
     Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Html(_) | Tmpl::Place { .. } => 1,
     Tmpl::Fragment(items) => usize::from(empties || !items.is_empty()),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
@@ -2103,7 +2113,7 @@ pub fn store_keys(component: &Component, library: &Components) -> Vec<String> {
       }
       Tmpl::For { body, .. } => inline_modules(body, out),
       Tmpl::Let { then, .. } => inline_modules(then, out),
-      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => {}
+      Tmpl::Text(_) | Tmpl::Expr(_) | Tmpl::Html(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => {}
     }
   }
   let mut keys = std::collections::BTreeSet::new();
@@ -2415,7 +2425,7 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
     }
     Tmpl::Baked { open, tag, children } => Tmpl::Baked { open: open.clone(), tag: tag.clone(), children: children.iter().map(prepare_tmpl).collect() },
     Tmpl::Place { target, children } => Tmpl::Place { target: target.clone(), children: children.iter().map(prepare_tmpl).collect() },
-    Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => tmpl.clone(),
+    Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } => tmpl.clone(),
   }
 }
 
@@ -3992,6 +4002,18 @@ mod markup_tests {
       assert!(html.contains("href=\"/javascript:ok\""), "{react:?}: {html}");
       assert!(html.contains("title=\"javascript:alert(1)\""), "{react:?}: a non-URL attribute is left alone: {html}");
     }
+  }
+
+  #[test]
+  fn an_outlet_marks_where_its_place_is_and_fails_in_markup_a_framework_hydrates_unless_the_lowerer_put_it_there() {
+    let place = |hydrated| element("div", vec![("id", Expr::lit_str("modals"))], vec![Tmpl::Outlet { name: "modals".to_owned(), hydrated }]);
+    let html = render_under(None, crate::ast::Owner::Fsr, place(false), &ValueMap::default(), &Components::new()).unwrap();
+    assert_eq!(html, format!("<div id=\"modals\">{OUTLET_MARK}modals\u{0}</div>"));
+    let rendered = Rendered { html, islands: Vec::new(), places: Vec::new(), hoisted: ValueMap::default(), whole: true };
+    assert_eq!(crate::bind::rendered_nodes(&rendered), vec![snapfire_fsr_core::Node::raw("<div id=\"modals\">"), snapfire_fsr_core::Node::Outlet("modals".to_owned()), snapfire_fsr_core::Node::raw("</div>")]);
+    let err = render_under(Some(ReactMajor::V19), BY_REACT, place(false), &ValueMap::default(), &Components::new()).unwrap_err();
+    assert!(format!("{err:?}").contains("modals\\\">` is in markup the browser hydrates"), "{err:?}");
+    assert!(render_under(Some(ReactMajor::V19), BY_REACT, place(true), &ValueMap::default(), &Components::new()).is_ok());
   }
 
   #[test]

@@ -21,3 +21,4 @@ pub use catalog::Catalogs;
 pub use ext::{standard_reach, Ambient, Extension, Extensions, Reach, STANDARD};
 pub use interp::{Clock, Derive, Fail, Interpreter, Outcome};
 pub use render::{Frameworks, HandlerRef, ReactMajor, SvelteMajor, VueMajor};
+pub use snapfire_fsr_core::{is_place_name, Place};

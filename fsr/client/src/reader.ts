@@ -15,8 +15,10 @@ export type SfNode =
       ssr: SfNode | null;
     }
   | { kind: "pending"; slot: number; fallback: SfNode }
-  /** Content written at `target` rather than in place; `body` is the end of the body. */
-  | { kind: "placed"; target: string; children: SfNode[] };
+  /** Content written at `target` rather than in place; `body` is the end of the body, `#name` the element a `Place` of that name writes. */
+  | { kind: "placed"; target: string; children: SfNode[] }
+  /** Where the content placed at `#name` goes, inside the element whose id is `name`. */
+  | { kind: "outlet"; name: string };
 
 export interface Segment {
   k: string;
@@ -102,6 +104,8 @@ export function decodeNode(row: unknown): SfNode {
       return { kind: "pending", slot: arr[1] as number, fallback: decodeNode(arr[2]) };
     case "l":
       return { kind: "placed", target: arr[1] as string, children: (arr[2] as unknown[]).map(decodeNode) };
+    case "o":
+      return { kind: "outlet", name: arr[1] as string };
     default:
       throw new Error(`unknown node row kind: ${arr[0]}`);
   }

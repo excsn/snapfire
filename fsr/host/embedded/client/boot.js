@@ -1,6 +1,8 @@
 import { enableEmbeds } from "./embed.js";
 import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
+import { settlePlaced, unplaced } from "./places.js";
+import { REGION_KEY } from "./render.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef } from "./values.js";
@@ -80,8 +82,10 @@ function awaitingAnAncestor(el) {
     return above !== null && above !== undefined && !serverRendered(above);
 }
 let lastMount = Promise.resolve();
+const fresh = new WeakSet();
 function mountNow(entry, moduleId, el, props) {
-    const hydrate = serverRendered(el);
+    const hydrate = !fresh.has(el) && serverRendered(el);
+    fresh.delete(el);
     const island = {
         entry,
         moduleId,
@@ -219,7 +223,28 @@ function schedule(entry, moduleId, el, props) {
 }
 const SCHEDULED = "data-sf-scheduled";
 const MOUNTED = "data-sf-mounted";
+function islandName(el, props) {
+    const key = props[REGION_KEY];
+    return typeof key === "string" ? key : el.id;
+}
+export function mountedIsland(name) {
+    return Array.from(document.querySelectorAll(`sf-i[${MOUNTED}]`)).some((el)=>el.id === name || markerProps(el).props[REGION_KEY] === name);
+}
+export function remount(name) {
+    for (const el of Array.from(document.querySelectorAll("sf-i"))){
+        if (el.id !== name && markerProps(el).props[REGION_KEY] !== name) continue;
+        discard(el);
+        el.removeAttribute(SCHEDULED);
+        el.removeAttribute(MOUNTED);
+        fresh.add(el);
+        if (el.parentNode) scan(el.parentNode);
+        return;
+    }
+}
 export function scan(root) {
+    settlePlaced();
+    const orphans = unplaced();
+    const streaming = document.querySelector("[data-sf-slot]") !== null;
     for (const el of Array.from(root.querySelectorAll(`sf-i:not([${SCHEDULED}])`))){
         const moduleId = el.getAttribute("data-sf-module");
         if (!moduleId) continue;
@@ -243,9 +268,15 @@ export function scan(root) {
             arm();
             continue;
         }
+        const props = propsFor(root, el.id);
+        const runs = orphans.get(islandName(el, props));
+        if (runs && streaming) continue;
+        if (runs) {
+            for (const piece of runs)for (const n of piece.nodes)n.remove();
+            fresh.add(el);
+        }
         el.setAttribute(SCHEDULED, "");
         const placed = el.parentElement?.closest("sf-s[data-sf-when]")?.getAttribute("data-sf-when");
-        const props = propsFor(root, el.id);
         const keys = awaited(props[AWAITS]);
         delete props[AWAITS];
         afterSettled(el, keys, ()=>schedule(placed ? {

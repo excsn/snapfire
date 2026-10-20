@@ -92,6 +92,15 @@ export interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, 
 }
 /** The markup the server wrote for the same props: a `<picture>` with a `<source>` per format and the hashed original as its `<img>`; an `<img>` alone for an image served as it is; for a string `src`, an `<img>` whose `srcset` a named source's template writes. */
 export declare function Picture(props: PictureProps): ReactElement;
+export interface PlaceProps {
+	/** The place's name, which is the element's id and what `<Teleport to="#name">` names. Letters, digits, `-` and `_`. */
+	name: string;
+	/** The tag, `div` unless given. */
+	as?: string;
+	[attribute: string]: unknown;
+}
+/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes as given. Declared in the shell, a layout or a page; the server writes what is placed at it inside it. */
+export declare function Place({ name, as, ...attrs }: PlaceProps): ReactElement;
 /** The placeholder the server writes for a video hosted elsewhere, for a component the browser renders. */
 export declare function Embed(props: EmbedOptions): ReactElement;
 /** The values the server computed for an island's hoisted expressions, keyed `module|id@i.j`; see `useHoisted`. */

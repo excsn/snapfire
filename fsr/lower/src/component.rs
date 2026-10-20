@@ -1761,7 +1761,7 @@ impl ComponentSet {
       Tmpl::If { then, r#else, .. } => self.inline_hydrates(then) || r#else.as_ref().is_some_and(|e| self.inline_hydrates(e)),
       Tmpl::For { body, .. } => self.inline_hydrates(body),
       Tmpl::Let { then, .. } => self.inline_hydrates(then),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => false,
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => false,
     }
   }
 
@@ -2222,7 +2222,7 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
     }
     Tmpl::For { body, .. } => island_ids(body, out),
     Tmpl::Let { then, .. } => island_ids(then, out),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -2256,7 +2256,7 @@ fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, stat
     }
     Tmpl::For { body, .. } => mark_keyed(body, placed, keys, stateful, out),
     Tmpl::Let { then, .. } => mark_keyed(then, placed, keys, stateful, out),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -2318,7 +2318,7 @@ fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
     }
     Tmpl::For { body, .. } => placed_modules(body, out),
     Tmpl::Let { then, .. } => placed_modules(then, out),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -2330,7 +2330,7 @@ fn holds_mount(tmpl: &Tmpl) -> bool {
     Tmpl::If { then, r#else, .. } => holds_mount(then) || r#else.as_ref().is_some_and(|e| holds_mount(e)),
     Tmpl::For { body, .. } => holds_mount(body),
     Tmpl::Let { then, .. } => holds_mount(then),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => false,
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => false,
   }
 }
 
@@ -2373,7 +2373,7 @@ fn inline_foreign(tmpl: &Tmpl) -> Option<String> {
     Tmpl::If { then, r#else, .. } => inline_foreign(then).or_else(|| r#else.as_ref().and_then(|e| inline_foreign(e))),
     Tmpl::For { body, .. } => inline_foreign(body),
     Tmpl::Let { then, .. } => inline_foreign(then),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => None,
   }
 }
 
@@ -3461,7 +3461,7 @@ fn write_types(tmpl: &mut Tmpl, kinds_of: &dyn Fn(&str) -> Vec<(String, crate::K
     }
     Tmpl::For { body, .. } => write_types(body, kinds_of),
     Tmpl::Let { then, .. } => write_types(then, kinds_of),
-    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+    Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
   }
 }
 
@@ -7472,6 +7472,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some("Link") => return self.link_element(el),
       Some("Picture") => return self.picture_element(el, false),
       Some("Mount") => return self.mount_element(el),
+      Some("Place") => {
+        let attrs = self.jsx_attrs(el)?;
+        let has_children = el.children.iter().any(|c| !matches!(c, js::JSXElementChild::JSXText(t) if jsx_text(&t.value.to_atom_lossy()).is_empty()));
+        return placements::place(self, &attrs, has_children, At::Span(el.span));
+      }
       Some("Embed") => {
         let attrs = self.jsx_attrs(el)?;
         return placements::embed(self, &attrs, At::Span(el.span));
@@ -7904,7 +7909,7 @@ mod tests {
       }
       Tmpl::For { body, .. } => chunk_ids(body, out),
       Tmpl::Let { then, .. } => chunk_ids(then, out),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9398,7 +9403,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => choose_tags(body, lets, consts, failed),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9565,7 +9570,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => plain_reads(body),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9573,7 +9578,7 @@ mod fills {
   fn reads_slots(t: &Tmpl) -> bool {
     match t {
       Tmpl::Slot(_) => true,
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) => false,
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) => false,
       Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(reads_slots),
       Tmpl::If { then, r#else, .. } => reads_slots(then) || r#else.as_deref().is_some_and(reads_slots),
       Tmpl::For { body, .. } => reads_slots(body),
@@ -9776,7 +9781,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => place(body, held),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9801,7 +9806,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => collect(body, out),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9824,7 +9829,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => settle(body, module, filled),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 
@@ -9879,7 +9884,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => reference_functions(body, renders_in_browser, refs, used),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => Ok(()),
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => Ok(()),
     }
   }
 
@@ -9912,7 +9917,7 @@ mod fills {
         }
       }
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => unfill(body, renders_in_browser),
-      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
+      Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
     }
   }
 

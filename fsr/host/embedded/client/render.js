@@ -12,6 +12,7 @@ export const PLACED_ATTR = "data-sf-placed";
 export const PLACED_OPEN = "data-sf-l";
 export const PLACED_END = "data-sf-l-end";
 export const PLACED_ISLAND = "data-sf-island";
+export const PLACED_TO = "data-sf-to";
 export function nodeToHtml(node, ids) {
     switch(node.kind){
         case "text":
@@ -36,8 +37,11 @@ export function nodeToHtml(node, ids) {
         case "placed":
             {
                 const island = ids.island ? ` ${PLACED_ISLAND}="${escapeAttr(ids.island)}"` : "";
-                return `<template ${PLACED_ATTR}="${escapeAttr(ids.segment ?? "")}"${island}>${node.children.map((c)=>nodeToHtml(c, ids)).join("")}</template>`;
+                const to = node.target.startsWith("#") ? ` ${PLACED_TO}="${escapeAttr(node.target.slice(1))}"` : "";
+                return `<template ${PLACED_ATTR}="${escapeAttr(ids.segment ?? "")}"${island}${to}>${node.children.map((c)=>nodeToHtml(c, ids)).join("")}</template>`;
             }
+        case "outlet":
+            return "";
     }
 }
 function escapeAttr(value) {

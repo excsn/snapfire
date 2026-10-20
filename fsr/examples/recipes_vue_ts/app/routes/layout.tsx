@@ -1,4 +1,4 @@
-import { Island, Link, type Children } from "@snapfire/fsr-authoring/template";
+import { Island, Link, Place, type Children } from "@snapfire/fsr-authoring/template";
 
 import Tonight from "@src/ui/Tonight.vue";
 import type { Box } from "@generated/services";
@@ -27,6 +27,7 @@ export default function BoxLayout({
           <Link href="/">Recipes</Link>
           <Link href="/tonight">Tonight</Link>
         </nav>
+        <Place name="notices" className="notices" />
         <Island when="load">
           <Tonight count={planned}>
             Kept in the session cookie. <a href="/tonight">See them</a>. This panel is Vue state in the root layout: move between recipes and it stays open.

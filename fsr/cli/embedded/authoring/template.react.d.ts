@@ -24,7 +24,7 @@ export type TemplateNode = ReactElement;
 export type Children = ReactNode;
 export type Component<P = {}> = (props: P) => ReactElement | null;
 
-export { Embed, Island, island, Link, Picture, Slot } from "@snapfire/fsr-client/react";
+export { Embed, Island, island, Link, Picture, Place, Slot } from "@snapfire/fsr-client/react";
 export { createContext, useContext as use } from "react";
 export type { Context } from "react";
-export type { ImageAsset, IslandProps, LinkProps, PictureProps, SlotProps } from "@snapfire/fsr-client/react";
+export type { ImageAsset, IslandProps, LinkProps, PictureProps, PlaceProps, SlotProps } from "@snapfire/fsr-client/react";

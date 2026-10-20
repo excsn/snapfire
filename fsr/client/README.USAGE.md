@@ -26,6 +26,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Enabling Navigation](#enabling-navigation)
 * [Marking the Link to the Page Being Shown](#marking-the-link-to-the-page-being-shown)
 * [Placing a Video Embed](#placing-a-video-embed)
+* [Declaring a Place for Teleported Content](#declaring-a-place-for-teleported-content)
 * [Placing a Picture](#placing-a-picture)
 * [Prefetching and the Router Cache](#prefetching-and-the-router-cache)
 * [Animating a Navigation](#animating-a-navigation)
@@ -834,6 +835,28 @@ import { Embed } from "@snapfire/fsr-client/react";
 ```
 
 The build writes the placeholder on the server and `boot` listens for the click, so the page needs no island for it. Place it where the server renders: the build refuses an `Embed` inside a component that hydrates.
+
+## Declaring a Place for Teleported Content
+
+`Place` is an element other components write into from elsewhere on the page. Declare it in the shell, a layout or a page:
+
+```tsx
+import { Island, Place } from "@snapfire/fsr-authoring/template";
+
+<header>
+  <Place name="notices" className="notices" />
+</header>
+```
+
+A Vue component anywhere on the page teleports into it by id:
+
+```vue
+<Teleport to="#notices">
+  <p v-if="held" class="notice">On tonight's list</p>
+</Teleport>
+```
+
+The server writes the teleported content inside `<div id="notices">` wherever the island that placed it sits. Vue hydrates it there. Content a streamed segment or a navigation brings later is moved into the place by `scan`. A `<Teleport defer>` is left to the browser, since Vue never updates a deferred Teleport it has hydrated.
 
 ## Placing a Picture
 

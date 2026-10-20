@@ -27,6 +27,9 @@ export type SfNode = {
 	kind: "placed";
 	target: string;
 	children: SfNode[];
+} | {
+	kind: "outlet";
+	name: string;
 };
 export interface Segment {
 	k: string;

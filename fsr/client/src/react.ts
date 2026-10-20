@@ -487,6 +487,19 @@ export function Picture(props: PictureProps): ReactElement {
   return createElement("picture", null, ...sources.map((source) => createElement("source", source)), createElement("img", img));
 }
 
+export interface PlaceProps {
+  /** The place's name, which is the element's id and what `<Teleport to="#name">` names. Letters, digits, `-` and `_`. */
+  name: string;
+  /** The tag, `div` unless given. */
+  as?: string;
+  [attribute: string]: unknown;
+}
+
+/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes as given. Declared in the shell, a layout or a page; the server writes what is placed at it inside it. */
+export function Place({ name, as = "div", ...attrs }: PlaceProps): ReactElement {
+  return createElement(as, { ...attrs, id: name });
+}
+
 /** The placeholder the server writes for a video hosted elsewhere, for a component the browser renders. */
 export function Embed(props: EmbedOptions): ReactElement {
   const parts = embedParts(props);

@@ -22,7 +22,7 @@ fsr dev app
 | `clients/kitchen.mock.json` | what those four methods answer, `listMarket` with a failure |
 | `schemas/session.ts` | the session's shape and its defaults, which is what makes `session.planned` typed |
 | `schemas/kitchen.ts` | the action's input type, named in the contract the build emits |
-| `routes/layout.tsx` | the masthead, the nav and the two panels, over `layout.loader.ts` |
+| `routes/layout.tsx` | the masthead, the nav, the `notices` place and the two panels, over `layout.loader.ts` |
 | `routes/page.tsx` | the box, filtered by `?course=` |
 | `routes/recipe/layout.tsx` | a second layout between the masthead and the recipe |
 | `routes/recipe/[id]/` | the recipe, its actions and the boundary that catches an id off the box |
@@ -30,7 +30,7 @@ fsr dev app
 | `routes/slots/notes/` | a parallel segment with its own loader and fallback |
 | `routes/slots/market/` | the same, behind a service that fails |
 | `src/ui/Tonight.vue` | the masthead island: store-backed count, Vue state for the panel |
-| `src/ui/PlanRecipe.vue` | the action call, optimistic against the store |
+| `src/ui/PlanRecipe.vue` | the action call, optimistic against the store, with a `<Teleport to="#notices">` notice the server writes inside the masthead's place |
 | `src/ui/Scaler.vue` | placed with `<Island when="visible">`, a computed over the ingredients |
 | `src/ui/CookMode.vue` | a `<Teleport to="body">` dialog: the server writes it at the end of the body and Vue hydrates it there |
 

@@ -37,6 +37,12 @@ export declare function Link(props: LinkOptions & {
 }): FsrElement;
 /** The `<picture>` the server writes for the same props. */
 export declare function Picture(props: PictureOptions): FsrElement;
+/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes as given. */
+export declare function Place({ name, as, ...attrs }: {
+	name: string;
+	as?: string;
+	[attribute: string]: unknown;
+}): FsrElement;
 /** The placeholder the server writes for a video hosted elsewhere, which a click swaps for the player. */
 export declare function Embed(props: EmbedOptions): FsrElement;
 /** A placement as an element: its child where it stands. */

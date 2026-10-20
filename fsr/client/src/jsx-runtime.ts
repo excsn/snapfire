@@ -53,6 +53,11 @@ export function Picture(props: PictureOptions): FsrElement {
   return jsx("picture", { children: [...sources.map((source) => jsx("source", source)), jsx("img", img)] });
 }
 
+/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes as given. */
+export function Place({ name, as = "div", ...attrs }: { name: string; as?: string; [attribute: string]: unknown }): FsrElement {
+  return jsx(as, { ...attrs, id: name });
+}
+
 /** The placeholder the server writes for a video hosted elsewhere, which a click swaps for the player. */
 export function Embed(props: EmbedOptions): FsrElement {
   const parts = embedParts(props);

@@ -1,5 +1,6 @@
 import { patchIsland } from "./boot.js";
 import { refresh } from "./navigator.js";
+import { PLACED_OPEN } from "./render.js";
 import { get, key, set, subscribe, transaction } from "./store.js";
 import { decodeValue, encodeValue } from "./values.js";
 const STATE_PROP = "$s";
@@ -224,7 +225,14 @@ function morphNode(current, next, hooks) {
         return;
     }
     if (hooks.opaque?.(current)) return;
+    if (holdsPlaced(current)) {
+        morphAttributes(current, next, hooks.values === "kept");
+        return;
+    }
     morphElement(current, next, hooks);
+}
+function holdsPlaced(el) {
+    return Array.from(el.children).some((child)=>child.tagName === "TEMPLATE" && child.hasAttribute(PLACED_OPEN));
 }
 function isPropsScript(el) {
     return el.tagName === "SCRIPT" && el.hasAttribute("data-sf-props");

@@ -23,6 +23,12 @@ export function Picture(props) {
         ]
     });
 }
+export function Place({ name, as = "div", ...attrs }) {
+    return jsx(as, {
+        ...attrs,
+        id: name
+    });
+}
 export function Embed(props) {
     const parts = embedParts(props);
     const face = [

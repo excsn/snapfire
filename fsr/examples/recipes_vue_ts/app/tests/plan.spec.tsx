@@ -46,3 +46,45 @@ test("the scaler multiplies every quantity from the serves it was given", async 
   expect(screen.getByText("1.5 l")).toBeTruthy();
   expect(screen.getByText("scaled from 4")).toBeTruthy();
 });
+
+test("the plan control's notice is written in the masthead's place and follows the plan", async () => {
+  const c = ctx({
+    session: { planned: { "1": true } },
+    services: { kitchen: { getBox: () => box, listRecipes: () => [soup], listNotes: () => [], listMarket: () => [] } },
+  });
+  await load("/recipe/1", { ctx: c });
+  const notice = document.querySelector("#notices .notice");
+  expect(notice?.textContent, "the server wrote it inside the layout's place").toEqual("On tonight's list");
+  expect(notice?.closest(".masthead"), "which is in the masthead, far from the page that placed it").toBeTruthy();
+
+  await fireEvent.click(screen.getByText("Planned for tonight"));
+  await settle();
+  expect(document.querySelector("#notices .notice"), "Vue hydrated the server's notice and took it away").toBeNull();
+
+  await fireEvent.click(screen.getByText("Cook this tonight"));
+  await settle();
+  expect(document.querySelectorAll("#notices .notice").length, "and put one back in the same place").toEqual(1);
+
+  await fireEvent.click(screen.getByText("Cook mode"));
+  await settle();
+  expect(document.querySelector("dialog.cook")?.hasAttribute("open"), "the body's dialog still answers after the plan revalidated the page").toEqual(true);
+});
+
+test("a navigation to another recipe hands the place to the new page's notice", async () => {
+  const two = { ...soup, id: "2", title: "Fish pie" };
+  const c = ctx({
+    session: { planned: { "1": true } },
+    services: { kitchen: { getBox: () => box, listRecipes: () => [soup, two], listNotes: () => [], listMarket: () => [] } },
+  });
+  await load("/recipe/1", { ctx: c });
+  expect(document.querySelector("#notices .notice")?.textContent).toEqual("On tonight's list");
+
+  await fireEvent.click(document.querySelector('a[href="/recipe/2"]') as Element);
+  await settle();
+  expect(window.location.pathname).toEqual("/recipe/2");
+  expect(document.querySelectorAll("#notices .notice").length, "recipe 1's notice left with its page").toEqual(0);
+
+  await fireEvent.click(screen.getByText("Cook this tonight"));
+  await settle();
+  expect(document.querySelectorAll("#notices .notice").length, "recipe 2's island hydrated its own run and fills it").toEqual(1);
+});

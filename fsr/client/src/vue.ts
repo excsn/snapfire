@@ -100,17 +100,18 @@ function componentOf(module: unknown): Component {
   return (holder && holder.default) || (module as Component);
 }
 
-/** Vue hydrates a teleport's content from its target's `_lpa`, the node after what the teleport before it hydrated, else from the target's first child. It reads a start anchor there. The content an island placed at the end of the body is one run opened by a template naming the island by its region key or else its id, so the cursor starts at the run before the island hydrates. */
+/** Vue hydrates a teleport's content from its target's `_lpa`, the node after what the teleport before it hydrated, else from the target's first child. That node has to be the content's start anchor. The content an island placed is one run per place, opened by a template naming the island by its region key or else its id, so each place's cursor starts at the island's run there before the island hydrates. The body's is cleared when the island placed nothing there. */
 function startTeleports(el: Element, props: Props): void {
   const name = typeof props[REGION_KEY] === "string" ? props[REGION_KEY] : el.id;
-  let start: ChildNode | null = null;
-  for (const child of Array.from(document.body.children)) {
-    if (child.hasAttribute(PLACED_OPEN) && child.getAttribute(PLACED_ISLAND) === name) {
-      start = child.nextSibling;
-      break;
-    }
+  type Target = Node & { _lpa?: ChildNode | null };
+  const set = new Set<Node>();
+  for (const open of Array.from(document.querySelectorAll(`template[${PLACED_OPEN}]`))) {
+    const target = open.parentNode;
+    if (!target || set.has(target) || open.getAttribute(PLACED_ISLAND) !== name) continue;
+    (target as Target)._lpa = open.nextSibling;
+    set.add(target);
   }
-  (document.body as HTMLElement & { _lpa?: ChildNode | null })._lpa = start;
+  if (!set.has(document.body)) (document.body as Target)._lpa = null;
 }
 
 export const vueMounter: Mounter = (module, props, el, hydrate) => {
@@ -196,6 +197,18 @@ export interface MountProps {
   props?: Props;
   when?: MountTiming;
 }
+
+/** The element content placed at `#name` goes in: `<div id="name">` unless `as` names another tag, with the other attributes falling through. Declared in the shell, a layout or a page; the server writes what is placed at it inside it. */
+export const Place: Component = defineComponent({
+  name: "SfPlace",
+  props: {
+    name: { type: String, required: true },
+    as: { type: String, default: "div" },
+  },
+  setup(props) {
+    return () => h(props.as, { id: props.name });
+  },
+});
 
 /**
  * Places an island by module id inside a Vue tree, for a component holding

@@ -28,6 +28,9 @@ async function toggle(): Promise<void> {
     <button class="btn" :class="{ 'btn-on': held }" @click="toggle">{{ held ? "Planned for tonight" : "Cook this tonight" }}</button>
     <span v-if="why !== ''" class="why">{{ why }}</span>
   </p>
+  <Teleport to="#notices">
+    <p v-if="held" class="notice">On tonight's list</p>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -48,6 +51,10 @@ async function toggle(): Promise<void> {
 .btn-on {
   background: #1b1d21;
   color: #fff;
+}
+.notice {
+  margin: 0;
+  font-size: 13px;
 }
 .why {
   color: #b42318;

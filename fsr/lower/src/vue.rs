@@ -182,8 +182,6 @@ const TELEPORT_OPEN: &str = "<!--teleport start-->";
 const TELEPORT_CLOSE: &str = "<!--teleport end-->";
 const TELEPORT_ANCHOR_OPEN: &str = "<!--teleport start anchor-->";
 const TELEPORT_ANCHOR: &str = "<!--teleport anchor-->";
-/// `Place::Body` as a `Tmpl::Place` spells it.
-const PLACE_BODY: &str = "body";
 /// The `Tmpl::Let` a `<TransitionGroup>` holds its children under, whose lists Vue writes without anchors.
 const GROUP: &str = "$transition-group";
 const FRAGMENT_CLOSE: &str = "<!--]-->";
@@ -195,6 +193,24 @@ const EMPTY: &str = "<!---->";
 /// than one node, at least one of them not text; around each `v-for` list and
 /// each item or branch that is not exactly one element; around slot content.
 /// `<!---->` stands where a `v-if` chain renders no branch.
+/// Puts the outlet for `name` in the element of `tree` whose id is written as `name`, when there is one: a `<Teleport>` into the component's own markup, which Vue hydrates from the run written inside it. Answers whether it found one.
+fn own_outlet(tree: &mut Tmpl, name: &str) -> bool {
+  match tree {
+    Tmpl::Element { attrs, children, .. } => {
+      if attrs.iter().any(|a| matches!(a, Entry::Field(n, Expr::Lit(Lit::Str(id))) if n == "id" && id == name)) {
+        children.push(Tmpl::Outlet { name: name.to_owned(), hydrated: true });
+        return true;
+      }
+      children.iter_mut().any(|c| own_outlet(c, name))
+    }
+    Tmpl::Fragment(children) => children.iter_mut().any(|c| own_outlet(c, name)),
+    Tmpl::If { then, r#else, .. } => own_outlet(then, name) || r#else.as_deref_mut().is_some_and(|e| own_outlet(e, name)),
+    Tmpl::For { body, .. } => own_outlet(body, name),
+    Tmpl::Let { then, .. } => own_outlet(then, name),
+    _ => false,
+  }
+}
+
 fn anchored(render: Tmpl) -> Tmpl {
   let root = root_fragment(&render);
   let placed = anchors(render);
@@ -564,6 +580,8 @@ pub(crate) struct VueLowerer<'a, 'p> {
   select_model: Option<Expr>,
   /// What `provide` calls in `<script setup>` hand down, by context, in order.
   provides: Vec<(String, Expr)>,
+  /// The names of the places this template's `<Teleport>`s write to, which may be elements of its own.
+  teleport_targets: Vec<String>,
   assets: Rc<dyn AssetResolver>,
   /// The head rows the template asks for, a priority image's preload.
   pub(crate) heads: Vec<HeadRow>,
@@ -594,7 +612,7 @@ impl<'p> Placer<'p> for VueLowerer<'_, 'p> {
 
 impl<'a, 'p> VueLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), select_model: None, provides: Vec::new(), assets, heads: Vec::new(), component_writes: Vec::new(), emits: Vec::new() }
+    Self { lowerer, described, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), template_scope: Vec::new(), script_scope: Vec::new(), handler_fns: HashMap::new(), handlers: Vec::new(), calling: Vec::new(), child_refs: Vec::new(), select_model: None, provides: Vec::new(), teleport_targets: Vec::new(), assets, heads: Vec::new(), component_writes: Vec::new(), emits: Vec::new() }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -1244,6 +1262,9 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
       1 => children.pop().expect("one child"),
       _ => Tmpl::Fragment(children),
     };
+    for name in std::mem::take(&mut self.teleport_targets) {
+      own_outlet(&mut tree, &name);
+    }
     for (key, value) in std::mem::take(&mut self.provides).into_iter().rev() {
       tree = Tmpl::Let { name: format!("{CONTEXT_PREFIX}{key}"), expr: value, then: Box::new(tree) };
     }
@@ -1376,6 +1397,10 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         let attrs = self.placement_attrs(node)?;
         placements::mount(self, &attrs, At::Line(node.line, node.column))
       }
+      Some("Place") => {
+        let attrs = self.placement_attrs(node)?;
+        placements::place(self, &attrs, !node.children.is_empty(), At::Line(node.line, node.column))
+      }
       Some("Embed") => {
         let attrs = self.placement_attrs(node)?;
         placements::embed(self, &attrs, At::Line(node.line, node.column))
@@ -1396,20 +1421,26 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             return Err(self.at(node.line, node.column, "`<Teleport defer>`, whose content Vue never updates once it has hydrated it"));
           }
           let to = node.props.iter().find(|prop| prop.prop == "attribute" && prop.name == "to").and_then(|prop| prop.value.as_deref());
-          if !disabled {
-            if to != Some(PLACE_BODY) {
-              return Err(self.at(node.line, node.column, "`<Teleport>` to a target other than `body`; the server places content only at the end of the body"));
+          let target = to.and_then(snapfire_fsr_ir::Place::parse).map(|place| place.spelling().into_owned());
+          if let Some(name) = to.and_then(|to| to.strip_prefix('#')).filter(|_| target.is_some()) {
+            if !self.teleport_targets.iter().any(|t| t == name) {
+              self.teleport_targets.push(name.to_owned());
             }
+          }
+          if !disabled {
+            let Some(target) = target else {
+              return Err(self.at(node.line, node.column, "`<Teleport>` to a target that is neither `body` nor `#` and an id; the server places content only at the end of the body or at a `<Place>`"));
+            };
             let mut placed = vec![Tmpl::Marker(TELEPORT_ANCHOR_OPEN.to_owned())];
             placed.extend(self.children(&node.children)?);
             placed.push(Tmpl::Marker(TELEPORT_ANCHOR.to_owned()));
-            return Ok(Tmpl::Fragment(vec![Tmpl::Marker(TELEPORT_OPEN.to_owned()), Tmpl::Marker(TELEPORT_CLOSE.to_owned()), Tmpl::Place { target: PLACE_BODY.to_owned(), children: placed }]));
+            return Ok(Tmpl::Fragment(vec![Tmpl::Marker(TELEPORT_OPEN.to_owned()), Tmpl::Marker(TELEPORT_CLOSE.to_owned()), Tmpl::Place { target, children: placed }]));
           }
           let mut out = vec![Tmpl::Marker(TELEPORT_OPEN.to_owned())];
           out.extend(self.children(&node.children)?);
           out.push(Tmpl::Marker(TELEPORT_CLOSE.to_owned()));
-          if to == Some(PLACE_BODY) {
-            out.push(Tmpl::Place { target: PLACE_BODY.to_owned(), children: vec![Tmpl::Marker(TELEPORT_ANCHOR_OPEN.to_owned()), Tmpl::Marker(TELEPORT_ANCHOR.to_owned())] });
+          if let Some(target) = target {
+            out.push(Tmpl::Place { target, children: vec![Tmpl::Marker(TELEPORT_ANCHOR_OPEN.to_owned()), Tmpl::Marker(TELEPORT_ANCHOR.to_owned())] });
           }
           Ok(Tmpl::Fragment(out))
         }

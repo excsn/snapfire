@@ -200,6 +200,7 @@ fn tmpl() -> BoxedStrategy<Tmpl> {
     text().prop_map(Tmpl::Slot),
     text().prop_map(Tmpl::Marker),
     expr().prop_map(Tmpl::Html),
+    ("[a-z][a-z0-9_-]{0,8}", any::<bool>()).prop_map(|(name, hydrated)| Tmpl::Outlet { name, hydrated }),
   ];
   leaf.prop_recursive(4, 40, 3, |inner| {
     prop_oneof![
@@ -219,7 +220,7 @@ fn tmpl() -> BoxedStrategy<Tmpl> {
         .prop_map(|(module, props, children, when, mode, id)| Tmpl::Island { module, props, children, when, mode, id, define: false }),
       (text(), prop::option::of(text()), prop::collection::vec(inner.clone(), 0..2))
         .prop_map(|(open, tag, children)| Tmpl::Baked { open, tag, children }),
-      prop::collection::vec(inner, 0..2).prop_map(|children| Tmpl::Place { target: "body".to_owned(), children }),
+      (prop_oneof![Just("body".to_owned()), "#[a-z][a-z0-9_-]{0,8}"], prop::collection::vec(inner, 0..2)).prop_map(|(target, children)| Tmpl::Place { target, children }),
     ]
   })
   .boxed()

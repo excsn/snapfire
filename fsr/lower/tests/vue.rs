@@ -10,7 +10,7 @@ use std::sync::Arc;
 use snapfire_compiler_wire::{Described, Lang, Options, Outcome};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::ast::{Component, Entry, Expr, Tmpl};
-use snapfire_fsr_ir::render::{Components, Rendered, PLACE_MARK};
+use snapfire_fsr_ir::render::{Components, Rendered, OUTLET_MARK, PLACE_MARK};
 use snapfire_fsr_ir::{Frameworks, Interpreter, Owner, VueMajor};
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::LowerError;
@@ -73,8 +73,12 @@ fn render_rust(set: &ComponentSet, module: &str, props: &ValueMap, children: Vec
   markup(&rendered.islands[0].body)
 }
 
-/// `body`'s markup with its places taken out and written after it the way the oracle writes Vue's teleports: one `<!--sf-placed:TARGET-->` group per target in the order the targets first appear.
+/// `body`'s markup with its places taken out and written after it the way the oracle writes Vue's teleports: one `<!--sf-placed:TARGET-->` group per target in the order the targets first appear. Outlets are FSR's own and Vue writes none, so they are left out.
 fn markup(body: &Rendered) -> String {
+  markup_with_outlets(body).split(OUTLET_MARK).enumerate().map(|(i, part)| if i == 0 { part } else { part.split_once('\u{0}').expect("an outlet is closed by a NUL").1 }).collect()
+}
+
+fn markup_with_outlets(body: &Rendered) -> String {
   let mut html = String::new();
   let mut targets: Vec<(String, String)> = Vec::new();
   let mut rest = body.html.as_str();
@@ -300,6 +304,7 @@ fn what_the_first_cut_does_not_read_is_residue_that_names_its_line() {
   };
   assert_eq!(refused("Model", "<script setup>\nimport { ref } from \"vue\";\nconst text = ref(\"\");\n</script>\n<template><div v-model=\"text\" /></template>\n"), "5:16: `v-model` on `<div>`", "the directive's own position, not its expression's");
   assert_eq!(refused("Nested", "<script setup>\nimport Row from \"./Row.vue\";\n</script>\n<template><Row /></template>\n"), "4:11: `Row` comes from `./Row.vue`, which the build cannot follow", "a child that is not there");
+  assert_eq!(refused("Selector", "<template><Teleport to=\".modals\"><p>x</p></Teleport></template>\n"), "1:11: `<Teleport>` to a target that is neither `body` nor `#` and an id; the server places content only at the end of the body or at a `<Place>`");
   assert_eq!(refused("Deferred", "<template><Teleport to=\"body\" defer><p>x</p></Teleport></template>\n"), "1:11: `<Teleport defer>`, whose content Vue never updates once it has hydrated it");
   assert_eq!(refused("DeferredBound", "<template><Teleport to=\"body\" :defer=\"true\"><p>x</p></Teleport></template>\n"), "1:11: `<Teleport defer>`, whose content Vue never updates once it has hydrated it");
   assert_eq!(refused("Options", "<script>\nexport default {\n  created() {\n    fetch(\"/x\");\n  },\n};\n</script>\n<template><p /></template>\n"), "4:5: a statement in `created` other than `this.$emit`, which the build does not read");
@@ -1419,6 +1424,46 @@ const shown = ref(true);
 "##;
   let dir = app("teleport", &[("src/ui/T.vue", source)]);
   agree(&compiler, &dir, "src/ui/T.vue", source, &ValueMap::default(), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_teleport_to_a_place_by_id_writes_its_content_for_that_target_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = r##"<script setup>
+import { ref } from "vue";
+const open = ref(false);
+</script>
+
+<template>
+  <button @click="open = true">Show</button>
+  <Teleport to="#modals"><div v-if="open" class="modal">hidden</div><p>shown</p></Teleport>
+  <Teleport to="#modals" disabled><b>in place</b></Teleport>
+  <Teleport to="body"><i>at the end</i></Teleport>
+</template>
+"##;
+  let dir = app("teleport-named", &[("src/ui/N.vue", source)]);
+  let html = agree(&compiler, &dir, "src/ui/N.vue", source, &ValueMap::default(), "");
+  assert!(html.contains("<!--sf-placed:#modals--><!--teleport start anchor--><!----><p>shown</p><!--teleport anchor--><!--teleport start anchor--><!--teleport anchor--><!--/sf-placed-->"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_teleport_into_an_element_of_its_own_writes_its_content_inside_that_element() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = r##"<template>
+  <section><div id="inner" class="x"></div></section>
+  <Teleport to="#inner"><p>inside</p></Teleport>
+</template>
+"##;
+  let dir = app("teleport-own", &[("src/ui/O.vue", source)]);
+  agree(&compiler, &dir, "src/ui/O.vue", source, &ValueMap::default(), "");
+  let set = lower(&compiler, &dir, "src/ui/O.vue", source).unwrap();
+  let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().react(None).vue(Some(VueMajor::V3)));
+  let rendered = interpreter.render(&host("src/ui/O.vue#default", Vec::new()), &ValueMap::default(), &library).expect("renders");
+  let body = markup_with_outlets(&rendered.islands[0].body);
+  assert!(body.contains(&format!("<div id=\"inner\" class=\"x\">{OUTLET_MARK}inner\u{0}</div>")), "the outlet sits inside the element the id names: {body:?}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

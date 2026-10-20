@@ -398,6 +398,12 @@ export function Picture(props) {
     if (sources === null) return createElement("img", img);
     return createElement("picture", null, ...sources.map((source)=>createElement("source", source)), createElement("img", img));
 }
+export function Place({ name, as = "div", ...attrs }) {
+    return createElement(as, {
+        ...attrs,
+        id: name
+    });
+}
 export function Embed(props) {
     const parts = embedParts(props);
     const react = (attrs)=>{

@@ -7,7 +7,7 @@ use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalEr
 
 use crate::ast::{Body, Component, Entry, Expr, Stmt};
 use crate::interp::Interpreter;
-use crate::render::{rendered_store, store_keys, Components, Rendered, AWAITS_PROP, HOISTED_PROP, ISLAND_MARK, PLACE_MARK, RENDERED_STORE_PROP, SLOT_MARK};
+use crate::render::{rendered_store, store_keys, Components, Rendered, AWAITS_PROP, HOISTED_PROP, ISLAND_MARK, OUTLET_MARK, PLACE_MARK, RENDERED_STORE_PROP, SLOT_MARK};
 use snapfire_fsr_runtime::PENDING_PROP;
 
 /// The nodes a rendered component's markup makes: raw pieces, `Node::Slot`
@@ -32,6 +32,10 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
     rest = &marked[end + 1..];
     if let Some(name) = marker.strip_prefix(SLOT_MARK) {
       out.push(Node::Slot(SlotName(name[..name.len() - 1].to_owned())));
+      continue;
+    }
+    if let Some(name) = marker.strip_prefix(OUTLET_MARK) {
+      out.push(Node::Outlet(name[..name.len() - 1].to_owned()));
       continue;
     }
     if let Some(index) = marker.strip_prefix(PLACE_MARK) {

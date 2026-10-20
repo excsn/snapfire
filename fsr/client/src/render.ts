@@ -31,6 +31,8 @@ export const PLACED_OPEN = "data-sf-l";
 export const PLACED_END = "data-sf-l-end";
 /** The attribute naming the island whose markup placed a piece, by its region key or else its id. */
 export const PLACED_ISLAND = "data-sf-island";
+/** The attribute naming the place a piece belongs in when it is not there yet: the id of the element a `Place` writes. */
+export const PLACED_TO = "data-sf-to";
 
 /** Client-side ids use the `sf-c` prefix so they can never collide with the server's `sf-i` sequence. */
 export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
@@ -58,8 +60,11 @@ export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
       return `<div data-sf-slot="${node.slot}">${nodeToHtml(node.fallback, ids)}</div>`;
     case "placed": {
       const island = ids.island ? ` ${PLACED_ISLAND}="${escapeAttr(ids.island)}"` : "";
-      return `<template ${PLACED_ATTR}="${escapeAttr(ids.segment ?? "")}"${island}>${node.children.map((c) => nodeToHtml(c, ids)).join("")}</template>`;
+      const to = node.target.startsWith("#") ? ` ${PLACED_TO}="${escapeAttr(node.target.slice(1))}"` : "";
+      return `<template ${PLACED_ATTR}="${escapeAttr(ids.segment ?? "")}"${island}${to}>${node.children.map((c) => nodeToHtml(c, ids)).join("")}</template>`;
     }
+    case "outlet":
+      return "";
   }
 }
 

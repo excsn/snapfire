@@ -1,8 +1,9 @@
 import { loadMarkedScript } from "./script.js";
-import { addStyles, discard, loadEntry, patchIsland, pruneStyles, release, resume, scan } from "./boot.js";
+import { addStyles, discard, loadEntry, mountedIsland, patchIsland, pruneStyles, release, remount, resume, scan } from "./boot.js";
+import { placedPieces } from "./places.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { linesOf, parseRow } from "./reader.js";
-import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
+import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, PLACED_TO, propsScript, regionSources, renderSegment, subtreeAt } from "./render.js";
 import { morphElement, morphNodes } from "./server.js";
 import { contribute, retain, transaction } from "./store.js";
 let current = null;
@@ -45,52 +46,37 @@ function writeMarkup(el, html) {
     else el.innerHTML = html;
     liftPlaced(el instanceof HTMLTemplateElement ? el.content : el);
 }
-function placedPieces() {
-    const out = [];
-    let open = null;
-    for (const n of Array.from(document.body.childNodes)){
-        if (n instanceof HTMLTemplateElement && n.hasAttribute(PLACED_OPEN)) {
-            open = {
-                key: n.getAttribute(PLACED_OPEN) ?? "",
-                nodes: [
-                    n
-                ]
-            };
-            continue;
-        }
-        if (!open) continue;
-        open.nodes.push(n);
-        if (n instanceof HTMLTemplateElement && n.hasAttribute(PLACED_END)) {
-            out.push(open);
-            open = null;
-        }
-    }
-    return out;
-}
 function removePiece(piece) {
     for (const n of piece.nodes){
         if (n instanceof Element) discard(n);
         n.remove();
     }
 }
+const contested = [];
 function liftPlaced(root) {
     const held = Array.from(root.querySelectorAll(`template[${PLACED_ATTR}]`));
     if (held.length === 0) return;
+    const mounted = new Set(held.map((t)=>t.getAttribute(PLACED_ISLAND)).filter((island)=>island !== null && mountedIsland(island)));
     const keys = new Set(held.map((t)=>t.getAttribute(PLACED_ATTR) ?? ""));
-    for (const piece of placedPieces())if (keys.has(piece.key)) removePiece(piece);
+    const before = placedPieces();
+    for (const piece of before)if (keys.has(piece.key) && !(piece.island !== null && mounted.has(piece.island))) removePiece(piece);
+    const placedBefore = new Set(before.flatMap((p)=>p.nodes));
     let run = "";
     let end = null;
     for (const t of held){
         const key = t.getAttribute(PLACED_ATTR) ?? "";
         const island = t.getAttribute(PLACED_ISLAND);
+        const to = t.getAttribute(PLACED_TO);
         const opens = JSON.stringify([
             key,
-            island
+            island,
+            to
         ]);
         if (end === null || opens !== run) {
             const open = document.createElement("template");
             open.setAttribute(PLACED_OPEN, key);
             if (island !== null) open.setAttribute(PLACED_ISLAND, island);
+            if (to !== null) open.setAttribute(PLACED_TO, to);
             end = document.createElement("template");
             end.setAttribute(PLACED_END, "");
             document.body.append(open, end);
@@ -99,9 +85,34 @@ function liftPlaced(root) {
         document.body.insertBefore(t.content, end);
         t.remove();
     }
+    for (const island of mounted){
+        const now = placedPieces().filter((p)=>p.island === island);
+        contested.push({
+            island,
+            fresh: now.filter((p)=>!placedBefore.has(p.nodes[0])),
+            old: now.filter((p)=>placedBefore.has(p.nodes[0]))
+        });
+    }
+}
+function settleContested() {
+    for (const { island, fresh, old } of contested.splice(0)){
+        const loser = mountedIsland(island) ? fresh : old;
+        for (const piece of loser)removePiece(piece);
+    }
 }
 function sweepPlaced() {
+    settleContested();
     for (const piece of placedPieces())if (!findRegion(piece.key)) removePiece(piece);
+}
+function remountDisplaced(before) {
+    const now = placedPieces();
+    const islands = new Set();
+    for (const piece of before){
+        if (piece.island === null || piece.nodes[0].isConnected || !findRegion(piece.key)) continue;
+        if (now.some((p)=>p.key === piece.key && p.island === piece.island)) continue;
+        islands.add(piece.island);
+    }
+    for (const island of islands)remount(island);
 }
 function replaceRegion(region, html) {
     const parent = region.start.parentNode;
@@ -547,8 +558,10 @@ function applyEager(eager, force, keep) {
     transaction(()=>{
         for (const list of eager.seeds)contribute(list);
     });
+    const before = placedPieces();
     if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
     sweepPlaced();
+    remountDisplaced(before);
     current = eager.segments;
     retain(segmentKeys(current));
     documentSidecar = false;
