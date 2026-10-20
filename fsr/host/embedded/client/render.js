@@ -8,6 +8,10 @@ function scriptSafeJson(value) {
 function propsScript(node) {
     return node.encoded === undefined ? scriptSafeJson(node.props) : JSON.stringify(node.encoded).replace(/</g, "\\u003c");
 }
+export const PLACED_ATTR = "data-sf-placed";
+export const PLACED_OPEN = "data-sf-l";
+export const PLACED_END = "data-sf-l-end";
+export const PLACED_ISLAND = "data-sf-island";
 export function nodeToHtml(node, ids) {
     switch(node.kind){
         case "text":
@@ -19,13 +23,25 @@ export function nodeToHtml(node, ids) {
         case "client":
             {
                 const id = `sf-c${ids.next++}`;
+                const outer = ids.island;
+                const key = node.props[REGION_KEY];
+                if (node.ssr) ids.island = typeof key === "string" ? key : id;
                 const inner = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
+                ids.island = outer;
                 const props = propsScript(node);
                 return `<sf-i id="${id}" data-sf-module="${node.module}">${inner}</sf-i>` + `<script type="application/json" data-sf-props="${id}">${props}</script>`;
             }
         case "pending":
             return `<div data-sf-slot="${node.slot}">${nodeToHtml(node.fallback, ids)}</div>`;
+        case "placed":
+            {
+                const island = ids.island ? ` ${PLACED_ISLAND}="${escapeAttr(ids.island)}"` : "";
+                return `<template ${PLACED_ATTR}="${escapeAttr(ids.segment ?? "")}"${island}>${node.children.map((c)=>nodeToHtml(c, ids)).join("")}</template>`;
+            }
     }
+}
+function escapeAttr(value) {
+    return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 export function escapeKey(key) {
     return key.replace(/%/g, "%25").replace(/-/g, "%2D");
@@ -39,6 +55,8 @@ function subtreeAt(node, path) {
     return current;
 }
 export function renderSegment(node, seg, ids) {
+    const outer = ids.segment;
+    ids.segment = seg.k;
     let out = `<!--sf-g:${escapeKey(seg.k)}-->`;
     const inner = seg.c.find((c)=>c.s === undefined && (c.p ?? []).length === 0);
     if (inner) {
@@ -50,6 +68,7 @@ export function renderSegment(node, seg, ids) {
             }));
         out += renderPositioned(node, positioned, ids);
     }
+    ids.segment = outer;
     return out + "<!--/sf-g-->";
 }
 function renderPositioned(node, positioned, ids) {

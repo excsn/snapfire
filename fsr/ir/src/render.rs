@@ -85,19 +85,22 @@ struct Out {
   html: String,
   text_open: bool,
   islands: Vec<RenderedIsland>,
+  places: Vec<RenderedPlace>,
   /// The values the root component's state `let`s took.
   state: ValueMap,
 }
 
 /// A component's markup with the islands placed inside it. Each island sits
 /// in `html` as `ISLAND_MARK` followed by its index in `islands` and a NUL,
-/// the way a root slot sits as a `SLOT_MARK`; the evaluator turns both into
+/// the way a root slot sits as a `SLOT_MARK` and content written elsewhere as
+/// a `PLACE_MARK` with its index in `places`; the evaluator turns each into
 /// nodes.
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Rendered {
   pub html: String,
   pub islands: Vec<RenderedIsland>,
+  pub places: Vec<RenderedPlace>,
   /// The values the markup's hoisted expressions took, keyed as `Hoists::key`
   /// does; the island's props carry them under `$h`.
   pub hoisted: ValueMap,
@@ -109,6 +112,14 @@ pub struct Rendered {
 
 /// The props key an island's hoisted values ride under.
 pub const HOISTED_PROP: &str = "$h";
+
+/// A `Tmpl::Place`'s content as rendered, for its target.
+#[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
+pub struct RenderedPlace {
+  pub target: String,
+  pub body: Rendered,
+}
 
 /// A component rendered as an island: its module, the props it was given
 /// and its own markup, which may hold islands of its own.
@@ -270,6 +281,10 @@ fn state_key(path: &str, name: &str) -> String {
 /// The start of an island's place in the markup: `ISLAND_MARK`, the island's
 /// index in decimal, then a NUL.
 pub const ISLAND_MARK: &str = "\u{0}sf-island:";
+
+/// Where a `Tmpl::Place` sat in the markup: `PLACE_MARK`, its index in
+/// `places` in decimal, then a NUL.
+pub const PLACE_MARK: &str = "\u{0}sf-place:";
 
 impl Out {
   /// Text under `markup`'s rules: React separates two adjacent runs with an
@@ -486,7 +501,7 @@ impl Interpreter {
     let mut slots = Vec::new();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
-    Ok(Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered })
+    Ok(Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered })
   }
 
   /// `render_module` for an island placed with no children, as a page
@@ -499,7 +514,7 @@ impl Interpreter {
     let mut slots = vec![Slot { children: &[], scope, keys: None, island: true, placed: false, framework: false, owner_path: String::new(), scoped: None }];
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
-    Ok(Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered })
+    Ok(Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered })
   }
 
   fn env_for(&self, module: &str, props: &ValueMap) -> Env {
@@ -603,7 +618,7 @@ impl Interpreter {
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
-    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, hoisted, whole: !env.unrendered }, acts })
+    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts })
   }
 }
 
@@ -841,7 +856,7 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
   match tmpl {
     Tmpl::Text(text) => out.text(text, env.markup),
     Tmpl::Marker(markup) => out.markup(markup),
-    Tmpl::Html(expr) => render_html(env, expr, out)?,
+    Tmpl::Html(_) | Tmpl::Place { .. } => render_aside(env, tmpl, library, slots, out)?,
     Tmpl::Expr(expr) => render_expr(env, expr, library, out)?,
     Tmpl::Element { tag, attrs, children } => render_stamped_element(env, tag, attrs, children, library, slots, out)?,
     Tmpl::Baked { open, tag, children } => {
@@ -897,6 +912,15 @@ fn render<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mu
     Tmpl::Slot(name) => render_slot(env, name, library, slots, out)?,
   }
   Ok(())
+}
+
+/// `Html` and `Place`, which share one arm so `render`'s frame keeps one slot for both.
+fn render_aside<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  match tmpl {
+    Tmpl::Place { target, children } => render_place(env, target, children, library, slots, out),
+    Tmpl::Html(expr) => render_html(env, expr, out),
+    _ => unreachable!("render passes only `Html` and `Place`"),
+  }
 }
 
 fn render_html(env: &mut Env, expr: &crate::ast::Expr, out: &mut Out) -> Result<(), Fail> {
@@ -1168,7 +1192,7 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
       }
       false => children.iter().try_for_each(|child| walk_chunks(env, child, mark, library, slots)),
     },
-    Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().try_for_each(|child| walk_chunks(env, child, mark, library, slots)),
+    Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => children.iter().try_for_each(|child| walk_chunks(env, child, mark, library, slots)),
     Tmpl::If { then, r#else, .. } => {
       walk_chunks(env, then, mark, library, slots)?;
       r#else.as_ref().map_or(Ok(()), |other| walk_chunks(env, other, mark, library, slots))
@@ -1210,7 +1234,7 @@ fn walk_chunks<'a>(env: &mut Env, tmpl: &'a Tmpl, mark: &str, library: &'a Compo
 fn holds_chunk(tmpl: &Tmpl, mark: &str) -> bool {
   match tmpl {
     Tmpl::Element { attrs, children, .. } => attrs.iter().any(|entry| matches!(entry, Entry::Field(name, _) if name == mark)) || children.iter().any(|child| holds_chunk(child, mark)),
-    Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().any(|child| holds_chunk(child, mark)),
+    Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => children.iter().any(|child| holds_chunk(child, mark)),
     Tmpl::If { then, r#else, .. } => holds_chunk(then, mark) || r#else.as_ref().is_some_and(|other| holds_chunk(other, mark)),
     Tmpl::For { body, .. } => holds_chunk(body, mark),
     Tmpl::Let { then, .. } => holds_chunk(then, mark),
@@ -1339,7 +1363,7 @@ fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &
     Tmpl::Text(text) if text.is_empty() => {}
     Tmpl::Marker(_) => {}
     Tmpl::Text(text) => out.push(Value::str(text.as_str())),
-    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Fragment(_) | Tmpl::Html(_) => out.push(env.make(&Arc::new(t.clone()))?),
+    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Fragment(_) | Tmpl::Html(_) | Tmpl::Place { .. } => out.push(env.make(&Arc::new(t.clone()))?),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
       Tmpl::Fragment(items) => child_values(env, items, slots, frame, out)?,
       other => child_value(env, other, slots, frame, out)?,
@@ -1497,7 +1521,7 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, emptie
   Ok(match t {
     Tmpl::Text(text) => usize::from(!text.is_empty()),
     Tmpl::Marker(_) => 0,
-    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Html(_) => 1,
+    Tmpl::Element { .. } | Tmpl::Component { .. } | Tmpl::Island { .. } | Tmpl::Baked { .. } | Tmpl::Html(_) | Tmpl::Place { .. } => 1,
     Tmpl::Fragment(items) => usize::from(empties || !items.is_empty()),
     Tmpl::Let { name, then, .. } if name == ARRAY_ITEMS => match &**then {
       Tmpl::Fragment(items) => count_children(env, items, slots, frame, empties)?,
@@ -1793,6 +1817,18 @@ fn render_island<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slo
   render_placed(env, module, props, children, when, mode, *id, *define, library, slots, out)
 }
 
+/// `children` rendered on their own and recorded in `places`, with a `PLACE_MARK` where they sat.
+fn render_place<'a>(env: &mut Env, target: &str, children: &'a [Tmpl], library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
+  let mut inner = Out::default();
+  for child in children {
+    render(env, child, library, slots, &mut inner)?;
+  }
+  let index = out.places.len();
+  out.places.push(RenderedPlace { target: target.to_owned(), body: Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted: ValueMap::default(), whole: true } });
+  out.markup(&format!("{PLACE_MARK}{index}\u{0}"));
+  Ok(())
+}
+
 /// An island: `<Island>` in the source, or a component a framework hydrates
 /// that composition renders, which only its framework can render again.
 /// The browser mounts an island in a root of its own, so no provider outside it reaches it; the server renders it the same way.
@@ -1834,7 +1870,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
       render(env, child, library, slots, &mut inner)?;
     }
     let index = out.islands.len();
-    let body = Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true };
+    let body = Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted: ValueMap::default(), whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key, body });
     out.markup(&format!("{ISLAND_MARK}{index}\0"));
     return Ok(());
@@ -1852,7 +1888,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     write_marked(env, &marks, &[], library, &mut inner)?;
     let index = out.islands.len();
     let awaits: Vec<String> = env.island_reads.get(module).into_iter().flatten().filter(|key| env.pending.contains(*key)).cloned().collect();
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, hoisted: ValueMap::default(), whole: true } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted: ValueMap::default(), whole: true } });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
@@ -1869,7 +1905,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     let reads = if mode.as_deref() == Some(SERVER_MODE) { with_sources((*cached_store_keys(env, component, library)).clone(), &env.derives) } else { Vec::new() };
     let index = out.islands.len();
     let hoisted = held_chunks(env, module, component, &map, library, slots);
-    let body = Rendered { html: held.html, islands: held.islands, hoisted, whole: true };
+    let body = Rendered { html: held.html, islands: held.islands, places: held.places, hoisted, whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
@@ -1918,11 +1954,11 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
       render_children(env, children, keys.as_ref(), library, slots, &mut held, CHILDREN_OPEN, "sf-s")?;
     }
     write_marked(env, &marks, &[], library, &mut held)?;
-    let body = Rendered { html: held.html, islands: held.islands, hoisted, whole: true };
+    let body = Rendered { html: held.html, islands: held.islands, places: held.places, hoisted, whole: true };
     out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, awaits: Vec::new(), key, body });
   } else {
     write_marked(env, &marks, &placed, library, &mut inner)?;
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, hoisted, whole: true } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted, whole: true } });
   }
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
   Ok(())
@@ -2008,7 +2044,7 @@ pub fn store_keys(component: &Component, library: &Components) -> Vec<String> {
         out.push(module.clone());
         children.iter().for_each(|c| inline_modules(c, out));
       }
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } => children.iter().for_each(|c| inline_modules(c, out)),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } | Tmpl::Place { children, .. } => children.iter().for_each(|c| inline_modules(c, out)),
       Tmpl::If { then, r#else, .. } => {
         inline_modules(then, out);
         if let Some(e) = r#else {
@@ -2328,6 +2364,7 @@ fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
       Tmpl::Island { module: module.clone(), props, children: children.iter().map(prepare_tmpl).collect(), when: when.clone(), mode: mode.clone(), id: *id, define: *define }
     }
     Tmpl::Baked { open, tag, children } => Tmpl::Baked { open: open.clone(), tag: tag.clone(), children: children.iter().map(prepare_tmpl).collect() },
+    Tmpl::Place { target, children } => Tmpl::Place { target: target.clone(), children: children.iter().map(prepare_tmpl).collect() },
     Tmpl::Text(_) | Tmpl::Slot(_) | Tmpl::Marker(_) => tmpl.clone(),
   }
 }
@@ -3466,7 +3503,7 @@ mod hoist_tests {
     props.insert("shape".to_owned(), Value::str("not a map"));
     props.insert("plain".to_owned(), Value::str("x"));
     props.insert(TYPES_PROP.to_owned(), Value::Map(types));
-    let island = RenderedIsland { module: "m".to_owned(), props, when: None, mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key: String::new(), body: Rendered { html: String::new(), islands: Vec::new(), hoisted: ValueMap::default(), whole: true } };
+    let island = RenderedIsland { module: "m".to_owned(), props, when: None, mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key: String::new(), body: Rendered { html: String::new(), islands: Vec::new(), places: Vec::new(), hoisted: ValueMap::default(), whole: true } };
     let mount = island.mount_props();
     let wrapped = |tag: &str, payload: Value| Value::Variant { tag: tag.to_owned(), payload: Some(Box::new(payload)) };
     assert_eq!(mount.get("m"), Some(&wrapped(typed::MAP, Value::seq(vec![Value::seq(vec![Value::str("a"), Value::int(1i64)])]))));

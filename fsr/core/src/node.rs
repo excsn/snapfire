@@ -30,6 +30,37 @@ pub enum Node {
   /// `children`. The assembler replaces it with the child's node; it never
   /// reaches a serializer.
   Slot(crate::plan::SlotName),
+  /// Content written at `target` rather than where the node sits, such as a
+  /// modal at the end of the body. Where it sits names the segment that owns
+  /// it, which is how a navigation that replaces the segment removes it.
+  Placed {
+    target: Place,
+    nodes: Vec<Node>,
+  },
+}
+
+/// Where a `Node::Placed` writes its content.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum Place {
+  /// The end of the document's body.
+  Body,
+}
+
+impl Place {
+  /// The spelling the payload and a lowerer use.
+  pub fn as_str(self) -> &'static str {
+    match self {
+      Place::Body => "body",
+    }
+  }
+
+  pub fn parse(target: &str) -> Option<Place> {
+    match target {
+      "body" => Some(Place::Body),
+      _ => None,
+    }
+  }
 }
 
 impl Node {

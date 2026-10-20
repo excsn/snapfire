@@ -1,4 +1,4 @@
-use snapfire_fsr_core::{ModuleId, Node, SlotId, TypedArray, Value, ValueMap};
+use snapfire_fsr_core::{ModuleId, Node, Place, SlotId, TypedArray, Value, ValueMap};
 use snapfire_fsr_payload::{html_serialize, serialize_page};
 
 fn walked_page() -> Node {
@@ -92,4 +92,38 @@ fn island_ids_allocate_in_tree_order() {
   let b = html.find("sf-i1").unwrap();
   assert!(a < b);
   assert!(html.contains("data-sf-module=\"components/B.tsx#default\""));
+}
+
+#[test]
+fn placed_content_follows_the_tree_where_the_parser_puts_it_at_the_end_of_the_body() {
+  let island = Node::Client { module: ModuleId::new("components/M.tsx", "default"), props: ValueMap::default(), children: Vec::new(), ssr: Some(Box::new(Node::raw("<b>m</b>"))) };
+  let node = Node::Seq(vec![
+    Node::raw("<main>"),
+    Node::Placed { target: Place::Body, nodes: vec![Node::raw("<dialog>"), island, Node::raw("</dialog>")] },
+    Node::raw("</main>"),
+    Node::Placed { target: Place::Body, nodes: vec![Node::text("a < b")] },
+  ]);
+  assert_eq!(
+    html_serialize(&node),
+    "<main></main><template data-sf-l=\"\"></template><dialog><sf-i id=\"sf-i0\" data-sf-module=\"components/M.tsx#default\"><b>m</b></sf-i><script type=\"application/json\" data-sf-props=\"sf-i0\">{}</script></dialog>a &lt; b<template data-sf-l-end></template>"
+  );
+}
+
+#[test]
+fn an_islands_placed_content_is_one_run_naming_the_island_by_its_region_key_or_else_its_id() {
+  let placed = |text: &str| Node::Placed { target: Place::Body, nodes: vec![Node::raw(format!("<!--teleport start anchor--><p>{text}</p><!--teleport anchor-->"))] };
+  let island = |key: Option<&str>, nodes: Vec<Node>| {
+    let mut props = ValueMap::default();
+    if let Some(key) = key {
+      props.insert("$k".to_owned(), Value::str(key));
+    }
+    Node::Client { module: ModuleId::new("components/V.vue", "default"), props, children: Vec::new(), ssr: Some(Box::new(Node::Seq(nodes))) }
+  };
+  let node = Node::Seq(vec![island(None, vec![Node::raw("<button>a</button>"), placed("one"), Node::raw("<hr>"), placed("two")]), island(Some("routes/page.tsx#default/2"), vec![placed("three")])]);
+  let html = html_serialize(&node);
+  let (_, placed) = html.split_once("data-sf-props=\"sf-i1\">{\"$k\":\"routes/page.tsx#default/2\"}</script>").expect("both islands are written first");
+  assert_eq!(
+    placed,
+    "<template data-sf-l=\"\" data-sf-island=\"sf-i0\"></template><!--teleport start anchor--><p>one</p><!--teleport anchor--><!--teleport start anchor--><p>two</p><!--teleport anchor--><template data-sf-l-end></template><template data-sf-l=\"\" data-sf-island=\"routes/page.tsx#default/2\"></template><!--teleport start anchor--><p>three</p><!--teleport anchor--><template data-sf-l-end></template>"
+  );
 }

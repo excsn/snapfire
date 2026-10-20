@@ -14,7 +14,9 @@ export type SfNode =
       children: SfNode[];
       ssr: SfNode | null;
     }
-  | { kind: "pending"; slot: number; fallback: SfNode };
+  | { kind: "pending"; slot: number; fallback: SfNode }
+  /** Content written at `target` rather than in place; `body` is the end of the body. */
+  | { kind: "placed"; target: string; children: SfNode[] };
 
 export interface Segment {
   k: string;
@@ -98,6 +100,8 @@ export function decodeNode(row: unknown): SfNode {
     }
     case "p":
       return { kind: "pending", slot: arr[1] as number, fallback: decodeNode(arr[2]) };
+    case "l":
+      return { kind: "placed", target: arr[1] as string, children: (arr[2] as unknown[]).map(decodeNode) };
     default:
       throw new Error(`unknown node row kind: ${arr[0]}`);
   }

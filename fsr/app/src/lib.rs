@@ -1658,7 +1658,7 @@ fn renders_path(module: &str, components: &[(String, Component)], seen: &mut Has
 fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
   match tmpl {
     Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) => {}
-    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().for_each(|c| placed_modules(c, out)),
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|c| placed_modules(c, out)),
     Tmpl::If { then, r#else, .. } => {
       placed_modules(then, out);
       if let Some(e) = r#else {

@@ -1,7 +1,7 @@
 import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref } from "vue";
 
 import { islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
-import { CHILDREN_ATTR } from "./render.js";
+import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
@@ -100,6 +100,19 @@ function componentOf(module: unknown): Component {
   return (holder && holder.default) || (module as Component);
 }
 
+/** Vue hydrates a teleport's content from its target's `_lpa`, the node after what the teleport before it hydrated, else from the target's first child. It reads a start anchor there. The content an island placed at the end of the body is one run opened by a template naming the island by its region key or else its id, so the cursor starts at the run before the island hydrates. */
+function startTeleports(el: Element, props: Props): void {
+  const name = typeof props[REGION_KEY] === "string" ? props[REGION_KEY] : el.id;
+  let start: ChildNode | null = null;
+  for (const child of Array.from(document.body.children)) {
+    if (child.hasAttribute(PLACED_OPEN) && child.getAttribute(PLACED_ISLAND) === name) {
+      start = child.nextSibling;
+      break;
+    }
+  }
+  (document.body as HTMLElement & { _lpa?: ChildNode | null })._lpa = start;
+}
+
 export const vueMounter: Mounter = (module, props, el, hydrate) => {
   const { root, props: state, children } = rootFor(componentOf(module), props, el);
   const app: App = hydrate ? createSSRApp(root) : createApp(root);
@@ -107,6 +120,7 @@ export const vueMounter: Mounter = (module, props, el, hydrate) => {
   app.provide(RENDERED_STORE, rendered);
   held.set(el, state);
   childrenHeld.set(el, children);
+  if (hydrate) startTeleports(el, props);
   app.mount(el);
   rendered.hydrating = false;
   return app;

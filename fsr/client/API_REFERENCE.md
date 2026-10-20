@@ -276,6 +276,7 @@ One node of the payload tree, discriminated by `kind`.
 * `{ kind: "seq"; children: SfNode[] }`
 * `{ kind: "client"; module: string; props: { [key: string]: SfValue }; encoded?: unknown; children: SfNode[]; ssr: SfNode | null }`, where `encoded` is the props as the payload carried them, before decoding
 * `{ kind: "pending"; slot: number; fallback: SfNode }`
+* `{ kind: "placed"; target: string; children: SfNode[] }`: content written at `target`, `body` for the end of the body, rather than in place
 
 ### Segment
 
@@ -364,7 +365,7 @@ Turning decoded nodes back into the markup the boot runtime and the navigator ex
 
 * `nodeToHtml(node: SfNode, ids: { next: number }): string`
 
-Serialises a node tree. Text has `&`, `<` and `>` escaped; `raw` is emitted verbatim; a `client` node becomes an `<sf-i>` marker plus a sibling `<script type="application/json" data-sf-props="…">`, rendering `ssr` when present and its `children` otherwise; a `pending` node becomes `<div data-sf-slot="N">` around its fallback.
+Serialises a node tree. Text has `&`, `<` and `>` escaped; `raw` is emitted verbatim; a `client` node becomes an `<sf-i>` marker plus a sibling `<script type="application/json" data-sf-props="…">`, rendering `ssr` when present and its `children` otherwise; a `pending` node becomes `<div data-sf-slot="N">` around its fallback; a `placed` node becomes `<template data-sf-placed="KEY" data-sf-island="NAME">` around its children, naming the segment and the island being rendered, which the navigator moves to the end of the body when it writes the markup.
 
 The allocator is mutated in place, one increment per island. Ids are `sf-c0`, `sf-c1` and upward, a prefix that cannot collide with the server's `sf-i` sequence, so one allocator must be shared by every call contributing to the same document. Props JSON has every `<` escaped to the JSON escape `\u003c`, so the payload can never terminate the script tag.
 
@@ -518,6 +519,7 @@ What the server writes and this package reads.
 | `data-sf-mounted` | the mount itself, once the mounter has run | tests, anything asking whether an island is live |
 | `<div data-sf-slot="N">` | HTML serialiser, `nodeToHtml` | the fill script, `refresh`, `navigate` |
 | `<template data-sf-fill="N">` | the streamed HTML response | the fill script |
+| `<template data-sf-l="KEY" data-sf-island="NAME">` … `<template data-sf-l-end>`, a run of placed content at the end of the body | the HTML serialiser, after the document; the navigator, from `<template data-sf-placed>` | `navigate`, which replaces a segment's run when it renders the segment and removes the run of a segment no longer in the document; the Vue mounter, which starts Vue's teleport hydration at the island's run |
 | `sf:fill` `CustomEvent` on `document`, `detail` is the slot id | the fill script; `navigate` and `refresh`, once per `S` row they apply | `boot`, `enableNavigation` and whatever else wires markup it did not write |
 | `sf_state` cookie, a fresh generation whenever a written session is saved or destroyed | the host, through `Sessions::state_cookie` | `navigate` and `prefetch`, which hold a payload only under the generation it was fetched in |
 | `sf:navigate` `CustomEvent` on `document`, `detail` is `{ path }` | `navigate` and `refresh`, once the eager wave is applied and before its deferred segments arrive | whatever wires markup it did not write: a library with a `process` call, htmx for one |

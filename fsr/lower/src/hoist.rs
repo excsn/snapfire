@@ -264,7 +264,7 @@ fn tmpl(t: &mut Tmpl, tainted: &mut Vec<String>, kept: &mut Vec<u32>) {
       entries(attrs, tainted, kept);
       children.iter_mut().for_each(|c| tmpl(c, tainted, kept));
     }
-    Tmpl::Fragment(children) => children.iter_mut().for_each(|c| tmpl(c, tainted, kept)),
+    Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter_mut().for_each(|c| tmpl(c, tainted, kept)),
     Tmpl::If { cond, then, r#else } => {
       strip(cond, tainted, kept, false, false);
       tmpl(then, tainted, kept);
@@ -436,7 +436,7 @@ fn is_static(t: &Tmpl, tainted: &[String], pure: &HashMap<String, bool>) -> bool
     Tmpl::Component { module, props, children, .. } => {
       pure.get(module).copied().unwrap_or(false) && entry_exprs(props).all(|e| !reads_tainted(e, tainted)) && children.iter().all(|c| is_static(c, tainted, pure))
     }
-    Tmpl::Island { .. } | Tmpl::Slot(_) => false,
+    Tmpl::Island { .. } | Tmpl::Slot(_) | Tmpl::Place { .. } => false,
   }
 }
 
@@ -455,6 +455,7 @@ fn does_work(t: &Tmpl) -> bool {
       }) || children.iter().any(does_work)
     }
     Tmpl::Fragment(children) => children.iter().any(does_work),
+    Tmpl::Place { .. } => true,
   }
 }
 
@@ -499,7 +500,7 @@ pub fn placed_with_state(component: &Component, state: &[String]) -> Vec<String>
 fn placements_reading(t: &Tmpl, tainted: &mut Vec<String>, out: &mut Vec<String>) {
   match t {
     Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) | Tmpl::Slot(_) | Tmpl::Baked { .. } => {}
-    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } => children.iter().for_each(|c| placements_reading(c, tainted, out)),
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } => children.iter().for_each(|c| placements_reading(c, tainted, out)),
     Tmpl::If { then, r#else, .. } => {
       placements_reading(then, tainted, out);
       if let Some(other) = r#else {
@@ -545,7 +546,7 @@ fn clear_untaken(t: &mut Tmpl) {
       attrs.retain(|entry| !matches!(entry, Entry::Field(n, _) if n == UNTAKEN_ATTR));
       children.iter_mut().for_each(clear_untaken);
     }
-    Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter_mut().for_each(clear_untaken),
+    Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter_mut().for_each(clear_untaken),
     Tmpl::If { then, r#else, .. } => {
       clear_untaken(then);
       if let Some(other) = r#else {
@@ -578,7 +579,7 @@ fn cover_tmpl(t: &mut Tmpl, chunks: &[Chunk], inside: bool, covered: &mut Vec<u3
       entries_mut(attrs).for_each(|e| cover_expr(e, inside, covered));
       children.iter_mut().for_each(|c| cover_tmpl(c, chunks, inside || proven, covered));
     }
-    Tmpl::Fragment(children) => children.iter_mut().for_each(|c| cover_tmpl(c, chunks, inside, covered)),
+    Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter_mut().for_each(|c| cover_tmpl(c, chunks, inside, covered)),
     Tmpl::If { cond, then, r#else } => {
       cover_expr(cond, inside, covered);
       cover_tmpl(then, chunks, inside, covered);
@@ -656,7 +657,7 @@ fn choose(t: &mut Tmpl, tainted: &mut Vec<String>, pure: &HashMap<String, bool>,
       }
       children.iter_mut().for_each(|c| choose(c, tainted, pure, at, kept));
     }
-    Tmpl::Fragment(children) => children.iter_mut().for_each(|c| choose(c, tainted, pure, at, kept)),
+    Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter_mut().for_each(|c| choose(c, tainted, pure, at, kept)),
     Tmpl::If { cond, then, r#else } => {
       let at = Where { untaken: at.untaken || reads_tainted(cond, tainted), ..at };
       choose(then, tainted, pure, at, kept);
@@ -688,7 +689,7 @@ fn clear_chunks(t: &mut Tmpl) {
       take_chunk(attrs);
       children.iter_mut().for_each(clear_chunks);
     }
-    Tmpl::Fragment(children) => children.iter_mut().for_each(clear_chunks),
+    Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter_mut().for_each(clear_chunks),
     Tmpl::If { then, r#else, .. } => {
       clear_chunks(then);
       if let Some(other) = r#else {

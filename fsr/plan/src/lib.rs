@@ -27,7 +27,8 @@ pub mod sexpr;
 ///
 /// Format 7 adds the `marker` template node (markup a framework's hydration
 /// reads, placed by the lowerer), the `html` template node (a value written
-/// unescaped), the `!` entry (attributes written as given), the `svelte`
+/// unescaped), the `place` template node (content written at the end of the
+/// body), the `!` entry (attributes written as given), the `svelte`
 /// owner and framework and the `quot` operator, a `bigint` division. A format
 /// 6 reader refuses each by name.
 ///

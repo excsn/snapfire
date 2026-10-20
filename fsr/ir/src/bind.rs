@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use futures_util::future::BoxFuture;
 use futures_util::stream;
-use snapfire_fsr_core::{Data, ModuleId, Node, Params, SlotName, Value};
+use snapfire_fsr_core::{Data, ModuleId, Node, Params, Place, SlotName, Value};
 use snapfire_fsr_runtime::{ActionError, ActionHandler, Chunk, DataSource, EvalError, Evaluator, FailureKind, HeadEl, LoadError, Meta, Metadata, NodeChunks, Paths, RequestCtx, Seeds};
 
 use crate::ast::{Body, Component, Entry, Expr, Stmt};
 use crate::interp::Interpreter;
-use crate::render::{rendered_store, store_keys, Components, Rendered, AWAITS_PROP, HOISTED_PROP, ISLAND_MARK, RENDERED_STORE_PROP, SLOT_MARK};
+use crate::render::{rendered_store, store_keys, Components, Rendered, AWAITS_PROP, HOISTED_PROP, ISLAND_MARK, PLACE_MARK, RENDERED_STORE_PROP, SLOT_MARK};
 use snapfire_fsr_runtime::PENDING_PROP;
 
 /// The nodes a rendered component's markup makes: raw pieces, `Node::Slot`
@@ -17,7 +17,8 @@ use snapfire_fsr_runtime::PENDING_PROP;
 /// markup, islands inside it included. `when` rides on the wrapper as
 /// `data-sf-when`, which the boot runtime reads over the registry's timing,
 /// and the region key as `data-sf-region`, which is how hydration pairs each
-/// region with the `Island` that claims it.
+/// region with the `Island` that claims it. Content written elsewhere is a
+/// `Node::Placed` where it sat.
 pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
   let mut out = Vec::new();
   let mut rest = rendered.html.as_str();
@@ -31,6 +32,12 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
     rest = &marked[end + 1..];
     if let Some(name) = marker.strip_prefix(SLOT_MARK) {
       out.push(Node::Slot(SlotName(name[..name.len() - 1].to_owned())));
+      continue;
+    }
+    if let Some(index) = marker.strip_prefix(PLACE_MARK) {
+      let place = &rendered.places[index[..index.len() - 1].parse::<usize>().expect("a place marker carries its index")];
+      let target = Place::parse(&place.target).expect("a lowerer places content only at a target `Place` spells");
+      out.push(Node::Placed { target, nodes: rendered_nodes(&place.body) });
       continue;
     }
     let index: usize = marker[ISLAND_MARK.len()..marker.len() - 1].parse().expect("an island marker carries its index");
@@ -58,7 +65,7 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
 }
 
 fn island_body(body: &Rendered) -> Node {
-  if body.islands.is_empty() {
+  if body.islands.is_empty() && body.places.is_empty() {
     return Node::raw(body.html.clone());
   }
   let mut nodes = rendered_nodes(body);
@@ -497,7 +504,7 @@ impl Evaluator for IrEvaluator {
         let mut nodes = rendered_nodes(&rendered);
         return Ok(Chunk::Node(if nodes.len() == 1 { nodes.pop().unwrap() } else { Node::Seq(nodes) }));
       }
-      if rendered.islands.is_empty() && !rendered.html.contains(SLOT_MARK) {
+      if rendered.islands.is_empty() && rendered.places.is_empty() && !rendered.html.contains(SLOT_MARK) {
         return Ok(Chunk::Node(Node::Client { module, props, children: Vec::new(), ssr: Some(Box::new(Node::raw(rendered.html))) }));
       }
       Ok(Chunk::Node(Node::Client { module, props, children: rendered_nodes(&rendered), ssr: None }))

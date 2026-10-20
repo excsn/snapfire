@@ -2,7 +2,7 @@ import { loadMarkedScript } from "./script.js";
 import { addStyles, discard, loadEntry, patchIsland, pruneStyles, release, resume, scan } from "./boot.js";
 import { catalog, currentLocale, setCatalog, setLocale } from "./locale.js";
 import { Head, linesOf, parseRow, Segment, SfNode } from "./reader.js";
-import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
+import { CHILDREN_ATTR, childrenOf, escapeKey, markupOf, nodeToHtml, PLACED_ATTR, PLACED_END, PLACED_ISLAND, PLACED_OPEN, propsScript, regionSources, renderSegment, subtreeAt, IdAlloc } from "./render.js";
 import { morphElement, morphNodes, type MorphHooks } from "./server.js";
 import { contribute, retain, transaction, type Contribution } from "./store.js";
 
@@ -47,11 +47,74 @@ function discardRegion(region: Region): void {
   }
 }
 
-/** Writes `html` into `el` the way the parser reads a document, declarative shadow roots included, where the browser has `setHTMLUnsafe`. Through `innerHTML` a `<template shadowrootmode>` stays a child, which the element's `shadowOf` answers. */
+/** Writes `html` into `el` the way the parser reads a document, declarative shadow roots included, where the browser has `setHTMLUnsafe`. Through `innerHTML` a `<template shadowrootmode>` stays a child, which the element's `shadowOf` answers. The placed content in it moves to the end of the body. */
 function writeMarkup(el: Element, html: string): void {
   const unsafe = (el as Element & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
   if (typeof unsafe === "function") unsafe.call(el, html);
   else el.innerHTML = html;
+  liftPlaced(el instanceof HTMLTemplateElement ? el.content : el);
+}
+
+interface Placed {
+  key: string;
+  nodes: ChildNode[];
+}
+
+/** The placed content at the end of the body, each piece with the segment that placed it. */
+function placedPieces(): Placed[] {
+  const out: Placed[] = [];
+  let open: Placed | null = null;
+  for (const n of Array.from(document.body.childNodes)) {
+    if (n instanceof HTMLTemplateElement && n.hasAttribute(PLACED_OPEN)) {
+      open = { key: n.getAttribute(PLACED_OPEN) ?? "", nodes: [n] };
+      continue;
+    }
+    if (!open) continue;
+    open.nodes.push(n);
+    if (n instanceof HTMLTemplateElement && n.hasAttribute(PLACED_END)) {
+      out.push(open);
+      open = null;
+    }
+  }
+  return out;
+}
+
+function removePiece(piece: Placed): void {
+  for (const n of piece.nodes) {
+    if (n instanceof Element) discard(n);
+    n.remove();
+  }
+}
+
+/** Moves the placed content held in `root` to the end of the body in place of what the same segments placed there before, one island's consecutive pieces as one run, as the server writes them. */
+function liftPlaced(root: ParentNode): void {
+  const held = Array.from(root.querySelectorAll<HTMLTemplateElement>(`template[${PLACED_ATTR}]`));
+  if (held.length === 0) return;
+  const keys = new Set(held.map((t) => t.getAttribute(PLACED_ATTR) ?? ""));
+  for (const piece of placedPieces()) if (keys.has(piece.key)) removePiece(piece);
+  let run = "";
+  let end: Element | null = null;
+  for (const t of held) {
+    const key = t.getAttribute(PLACED_ATTR) ?? "";
+    const island = t.getAttribute(PLACED_ISLAND);
+    const opens = JSON.stringify([key, island]);
+    if (end === null || opens !== run) {
+      const open = document.createElement("template");
+      open.setAttribute(PLACED_OPEN, key);
+      if (island !== null) open.setAttribute(PLACED_ISLAND, island);
+      end = document.createElement("template");
+      end.setAttribute(PLACED_END, "");
+      document.body.append(open, end);
+      run = opens;
+    }
+    document.body.insertBefore(t.content, end);
+    t.remove();
+  }
+}
+
+/** Removes the placed content of every segment no longer in the document. */
+function sweepPlaced(): void {
+  for (const piece of placedPieces()) if (!findRegion(piece.key)) removePiece(piece);
 }
 
 /** Fails when the region's parent cannot hold the replacement. The root segment's delimiters are children of the document, which admits no text nodes. Inserting before deleting keeps a refusal from emptying the page. */
@@ -73,6 +136,7 @@ function replaceRegion(region: Region, html: string): boolean {
 function fillSlot(slot: number, node: SfNode, seg: Segment | null): void {
   const el = document.querySelector(`[data-sf-slot="${slot}"]`);
   if (!el) return;
+  ids.segment = "";
   const template = document.createElement("template");
   writeMarkup(template, seg === null ? nodeToHtml(node, ids) : renderSegment(node, seg, ids));
   discard(el);
@@ -568,6 +632,7 @@ function applyEager(eager: Eager, force: boolean, keep: boolean): boolean {
     for (const list of eager.seeds) contribute(list);
   });
   if (!diff(current, eager.segments, eager.tree, force, keep)) return false;
+  sweepPlaced();
   current = eager.segments;
   retain(segmentKeys(current));
   documentSidecar = false;

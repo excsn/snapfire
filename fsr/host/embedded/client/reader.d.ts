@@ -23,6 +23,10 @@ export type SfNode = {
 	kind: "pending";
 	slot: number;
 	fallback: SfNode;
+} | {
+	kind: "placed";
+	target: string;
+	children: SfNode[];
 };
 export interface Segment {
 	k: string;

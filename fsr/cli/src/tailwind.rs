@@ -205,7 +205,7 @@ fn walk(tmpl: &Tmpl, scope: &mut Scope, found: &mut Found) {
         walk(child, scope, found);
       }
     }
-    Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => {
+    Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Baked { children, .. } => {
       for child in children {
         walk(child, scope, found);
       }

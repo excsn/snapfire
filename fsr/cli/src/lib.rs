@@ -2590,7 +2590,7 @@ fn inline_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
         }
         children.iter().for_each(|c| walk(c, out));
       }
-      Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);
         if let Some(e) = r#else {
@@ -2626,7 +2626,7 @@ fn island_modules(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<Placement> {
         out.push(Placement { module: module.clone(), define: *define, server: mode.as_deref() == Some(snapfire_fsr_ir::render::SERVER_MODE) });
         children.iter().for_each(|c| walk(c, out));
       }
-      Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);
         if let Some(e) = r#else {
@@ -3507,7 +3507,7 @@ fn server_islands(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
         }
         children.iter().for_each(|c| walk(c, out));
       }
-      Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);
         if let Some(e) = r#else {
@@ -3550,7 +3550,7 @@ fn unlowered_handlers(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
         }));
         children.iter().for_each(|c| walk(c, out));
       }
-      Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::Baked { children, .. } | Tmpl::Island { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);
         if let Some(e) = r#else {
@@ -3579,7 +3579,7 @@ fn nested_components(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
         }
         children.iter().for_each(|c| walk(c, out));
       }
-      Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);
         if let Some(e) = r#else {
@@ -3604,7 +3604,7 @@ fn first_slot(tmpl: &snapfire_fsr_ir::Tmpl) -> Option<String> {
   fn walk(tmpl: &Tmpl) -> Option<String> {
     match tmpl {
       Tmpl::Slot(name) => Some(name.clone()),
-      Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().find_map(walk),
+      Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().find_map(walk),
       Tmpl::If { then, r#else, .. } => walk(then).or_else(|| r#else.as_ref().and_then(|e| walk(e))),
       Tmpl::For { body, .. } => walk(body),
       Tmpl::Let { then, .. } => walk(then),
@@ -3623,7 +3623,7 @@ fn slots_placed(tmpl: &snapfire_fsr_ir::Tmpl) -> Vec<String> {
       Tmpl::Baked { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::Slot(name) if name != "content" && !out.contains(name) => out.push(name.clone()),
       Tmpl::Slot(_) | Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) => {}
-      Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| walk(c, out)),
+      Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().for_each(|c| walk(c, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, out);
         if let Some(e) = r#else {

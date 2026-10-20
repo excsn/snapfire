@@ -8,6 +8,7 @@ import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, rest
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { prettyDOM, waitFor, within, type BoundQueries, type WaitForOptions } from "./queries.js";
+import { PLACED_END, PLACED_ISLAND, PLACED_OPEN } from "./render.js";
 import type { Hoisted } from "./react.js";
 import { adopt, contribute, decodeContributions, reset } from "./store.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
@@ -587,10 +588,20 @@ async function compositionOf(type: unknown): Promise<string | null> {
   return null;
 }
 
-function writeHtml(container: HTMLElement, html: string): void {
+/** Writes the server's markup into `container`, then moves the content it placed at the end of the body there, as the document parser does with what the server writes after the document. `island` names the island a piece written by its own markup belongs to, which the server could not name since the island's wrapper is written here. */
+function writeHtml(container: HTMLElement, html: string, island?: string): void {
   const unsafe = (container as HTMLElement & { setHTMLUnsafe?: (html: string) => void }).setHTMLUnsafe;
   if (typeof unsafe === "function") unsafe.call(container, html);
   else container.innerHTML = html;
+  for (const open of Array.from(container.querySelectorAll(`template[${PLACED_OPEN}]`))) {
+    if (island !== undefined && !open.hasAttribute(PLACED_ISLAND)) open.setAttribute(PLACED_ISLAND, island);
+    const piece: ChildNode[] = [open];
+    for (let n = open.nextSibling; n; n = n.nextSibling) {
+      piece.push(n);
+      if (n instanceof HTMLTemplateElement && n.hasAttribute(PLACED_END)) break;
+    }
+    document.body.append(...piece);
+  }
 }
 
 function composedHtml(module: string, props: unknown): string {
@@ -651,7 +662,7 @@ async function renderIsland(module: string, element: Placed, container: HTMLElem
     const rendered = sf().render(module, JSON.stringify(encodeValue(props as SfValue)));
     const { html, hoisted } = rendered == null ? { html: "", hoisted: null } : (JSON.parse(rendered) as { html: string; hoisted: SfValue });
     const encoded = encodeValue({ ...props, ...(hoisted === null ? {} : { $h: decodeValue(hoisted) }) } as SfValue);
-    writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`);
+    writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`, id);
     return container.querySelector(`sf-i#${id}`) as Element;
   };
   let marker = place(element.props as Record<string, unknown>);

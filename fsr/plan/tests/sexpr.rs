@@ -214,6 +214,7 @@ fn every_tmpl() -> Vec<Tmpl> {
     Tmpl::Baked { open: "<br/>".to_owned(), tag: None, children: Vec::new() },
     Tmpl::Marker("<!--[0-->".to_owned()),
     Tmpl::Html(Expr::var("raw")),
+    Tmpl::Place { target: "body".to_owned(), children: vec![Tmpl::Text("modal".to_owned())] },
   ]
 }
 
@@ -734,13 +735,13 @@ fn a_format_6_plan_still_reads() {
   assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
-/// Every marker and html node, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
+/// Every marker, html and place node, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
 fn forget_svelte(manifest: &mut Manifest) {
   manifest.components.retain(|entry| entry.body.owner != snapfire_fsr_ir::Owner::Svelte);
   manifest.frameworks.remove("svelte");
   for entry in &mut manifest.components {
     if let Tmpl::Fragment(children) = &mut entry.body.render {
-      children.retain(|child| !matches!(child, Tmpl::Marker(_) | Tmpl::Html(_)));
+      children.retain(|child| !matches!(child, Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Place { .. }));
     }
   }
 }

@@ -5,6 +5,7 @@ import { clearAllMocks, fn, isMockFunction, resetAllMocks, resetAssertions, rest
 import { setLocale } from "./locale.js";
 import { applyHead, clearRouterCache, enableNavigation } from "./navigator.js";
 import { prettyDOM, waitFor, within } from "./queries.js";
+import { PLACED_END, PLACED_ISLAND, PLACED_OPEN } from "./render.js";
 import { adopt, contribute, decodeContributions, reset } from "./store.js";
 import { decodeValue, encodeValue } from "./values.js";
 export { f64 } from "./values.js";
@@ -438,10 +439,21 @@ async function compositionOf(type) {
     }
     return null;
 }
-function writeHtml(container, html) {
+function writeHtml(container, html, island) {
     const unsafe = container.setHTMLUnsafe;
     if (typeof unsafe === "function") unsafe.call(container, html);
     else container.innerHTML = html;
+    for (const open of Array.from(container.querySelectorAll(`template[${PLACED_OPEN}]`))){
+        if (island !== undefined && !open.hasAttribute(PLACED_ISLAND)) open.setAttribute(PLACED_ISLAND, island);
+        const piece = [
+            open
+        ];
+        for(let n = open.nextSibling; n; n = n.nextSibling){
+            piece.push(n);
+            if (n instanceof HTMLTemplateElement && n.hasAttribute(PLACED_END)) break;
+        }
+        document.body.append(...piece);
+    }
 }
 function composedHtml(module, props) {
     const rendered = sf().render(module, JSON.stringify(encodeValue(props)));
@@ -502,7 +514,7 @@ async function renderIsland(module, element, container) {
                 $h: decodeValue(hoisted)
             }
         });
-        writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`);
+        writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`, id);
         return container.querySelector(`sf-i#${id}`);
     };
     let marker = place(element.props);

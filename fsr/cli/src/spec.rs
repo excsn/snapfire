@@ -946,7 +946,7 @@ impl Hooks for SpecHooks {
     }
     .map_err(|f| format!("rendering {module}: {}", f.message))?;
     let hoisted = value_to_json(&Value::Map(rendered.hoisted.clone()));
-    let html = if rendered.islands.is_empty() { rendered.html } else { snapfire_fsr_payload::html_serialize(&snapfire_fsr_core::Node::Seq(snapfire_fsr_ir::rendered_nodes(&rendered))) };
+    let html = if rendered.islands.is_empty() && rendered.places.is_empty() { rendered.html } else { snapfire_fsr_payload::html_serialize(&snapfire_fsr_core::Node::Seq(snapfire_fsr_ir::rendered_nodes(&rendered))) };
     Ok(Some(serde_json::json!({ "html": html, "hoisted": hoisted }).to_string()))
   }
 

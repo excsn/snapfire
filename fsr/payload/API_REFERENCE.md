@@ -15,6 +15,7 @@ The encodings of SnapFire FSR: the lossless JSON pair, the HTML serializer and t
 * [3. HTML Serialization](#3-html-serialization)
   * [HtmlSession](#htmlsession)
   * [html_serialize](#html_serialize)
+  * [escape_key](#escape_key)
   * [Emitted Markup](#emitted-markup)
 * [4. Row Protocol](#4-row-protocol)
   * [node_to_row_json](#node_to_row_json)
@@ -40,7 +41,7 @@ The wire format announced in a response's `V` line.
 
 Everything public is re-exported from the crate root.
 
-* `pub use html::{html_serialize, HtmlSession};`
+* `pub use html::{escape_key, html_serialize, HtmlSession};`
 * `pub use json::{json_to_value, value_to_json, DecodeError};`
 * `pub use rows::{node_to_row_json, row_json_to_node, serialize_page};`
 
@@ -126,6 +127,8 @@ Holds the island id counter for one response, so ids stay unique across chunks t
 
 * `pub fn new() -> Self`
 * `pub fn serialize(&mut self, node: &Node) -> String`
+* `pub fn enter_segment(&mut self, key: &str) -> String`: names the segment whose markup is written next, which marks the placed content written inside it. It returns the one it replaces.
+* `pub fn take_placed(&mut self) -> String`: the placed content written since the last take, for the caller to write after the document, where the parser puts it at the end of the body.
 * `pub fn client_wrapper(&mut self, module: &ModuleId, props: &Props) -> (String, String)`: the island's open tag with a fresh id and its close tag with the props script, for a caller that writes the island's children itself, the way the segment writer does around a child segment inside a layout.
 * Also implements `Default`; `new` and `Default::default` are the same thing.
 
@@ -143,7 +146,11 @@ One-shot form for a tree with no streamed continuation.
 
 Constraints:
 
-* Equivalent to `HtmlSession::new().serialize(node)`, so island ids restart at `0` on every call.
+* `serialize` followed by `take_placed` on a fresh session, so island ids restart at `0` on every call and placed content follows the tree.
+
+### escape_key
+
+* `pub fn escape_key(key: &str) -> String`: a segment key with `%` and `-` escaped, so it can sit inside an HTML comment without closing it.
 
 ### Emitted Markup
 
@@ -156,6 +163,9 @@ What each `Node` becomes.
 | `Node::Seq` | each child in order, with nothing between them |
 | `Node::Client` | `<sf-i id="sf-i{n}" data-sf-module="{module}">` then the body then `</sf-i>`, followed by `<script type="application/json" data-sf-props="sf-i{n}">{props}</script>` |
 | `Node::Pending` | `<div data-sf-slot="{slot}">` then the fallback then `</div>` |
+| `Node::Placed` | nothing in place; its nodes join the session's placed content |
+
+Placed content is written as runs: `<template data-sf-l="{segment key}" data-sf-island="{island}"></template>`, the content, then `<template data-sf-l-end></template>`. `data-sf-island` names the island whose own markup placed it, by its `$k` region key or else its `sf-i{n}` id. It is absent outside an island. Consecutive pieces with the same segment and island share one run, so a framework hydrating them in order finds each after the one before. The delimiters are elements because the parser puts a comment written after the document at the document's level and an element in the body.
 
 Constraints on a `Node::Client`:
 
@@ -209,6 +219,7 @@ Constraints:
 | `q` | `Node::Seq` | `["q", [child rows]]` |
 | `c` | `Node::Client` | `["c", {"m": module id, "p": props, "ch": [child rows], "s": ssr row or null}]` |
 | `p` | `Node::Pending` | `["p", slot id, fallback row]` |
+| `l` | `Node::Placed` | `["l", target, [child rows]]`, the target `body` |
 
 The `p` field of a `c` row is the props map through `value_to_json`, so every form in [Tag Table](#tag-table) can appear inside it.
 
@@ -256,6 +267,6 @@ The message text a caller may see, by cause.
 | Number outside every JSON representation | ``unrepresentable number`` |
 | Row is not an array or has no kind | ``node row must be an array``, ``node row missing kind`` |
 | Row kind not in the table | ``unknown node row kind `{kind}` `` |
-| Row payload of the wrong shape | ``` `t` row needs a string ```, ``` `r` row needs a string ```, ``` `q` row needs an array ```, ``` `c` row needs an object ```, ``` `p` row needs a slot id ```, ``` `p` row needs a fallback ``` |
+| Row payload of the wrong shape | ``` `t` row needs a string ```, ``` `r` row needs a string ```, ``` `q` row needs an array ```, ``` `c` row needs an object ```, ``` `p` row needs a slot id ```, ``` `p` row needs a fallback ```, ``` `l` row needs a target ```, ``` `l` row needs an array ```, ``` `l` row names an unknown target `{target}` ``` |
 | `c` row field missing or wrong | ``` `c` row needs `m` ```, ``` `c` row needs `p` ```, ``` `c` row `p` must decode to a map ``` |
 | Module id unparseable | ``module id must be `path#export` with a non-empty path and export`` |

@@ -32,6 +32,7 @@ fsr dev app
 | `src/ui/Tonight.vue` | the masthead island: store-backed count, Vue state for the panel |
 | `src/ui/PlanRecipe.vue` | the action call, optimistic against the store |
 | `src/ui/Scaler.vue` | placed with `<Island when="visible">`, a computed over the ingredients |
+| `src/ui/CookMode.vue` | a `<Teleport to="body">` dialog: the server writes it at the end of the body and Vue hydrates it there |
 
 ## A page that mounts nothing
 

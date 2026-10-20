@@ -289,7 +289,7 @@ pub fn island_step(
 pub(crate) fn slot_in(node: &Node) -> Option<&str> {
   match node {
     Node::Slot(name) => Some(&name.0),
-    Node::Seq(items) => items.iter().find_map(slot_in),
+    Node::Seq(items) | Node::Placed { nodes: items, .. } => items.iter().find_map(slot_in),
     Node::Client { children, ssr, .. } => ssr.as_deref().and_then(slot_in).or_else(|| children.iter().find_map(slot_in)),
     Node::Pending { fallback, .. } => slot_in(fallback),
     Node::Text(_) | Node::Raw(_) => None,

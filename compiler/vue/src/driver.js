@@ -301,5 +301,8 @@ globalThis.__vue_render = async function (name, props, children) {
       return () => h(component, props, slots);
     },
   });
-  return await renderToString(createSSRApp(root));
+  const context = {};
+  const html = await renderToString(createSSRApp(root), context);
+  const placed = Object.entries(context.teleports ?? {}).map(([to, content]) => `<!--sf-placed:${to}-->${content}<!--/sf-placed-->`);
+  return html + placed.join("");
 };

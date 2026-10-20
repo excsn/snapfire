@@ -1756,7 +1756,7 @@ impl ComponentSet {
     match tmpl {
       Tmpl::Component { children, .. } => children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Element { attrs, children, .. } => attrs.iter().any(|a| matches!(a, Entry::Field(n, _) if n.starts_with(HANDLER_ATTR) || n == UNLOWERED_ATTR)) || children.iter().any(|c| self.inline_hydrates(c)),
-      Tmpl::Island { children, .. } | Tmpl::Fragment(children) => children.iter().any(|c| self.inline_hydrates(c)),
+      Tmpl::Island { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::Baked { children, .. } => children.iter().any(|c| self.inline_hydrates(c)),
       Tmpl::If { then, r#else, .. } => self.inline_hydrates(then) || r#else.as_ref().is_some_and(|e| self.inline_hydrates(e)),
       Tmpl::For { body, .. } => self.inline_hydrates(body),
@@ -2213,7 +2213,7 @@ fn island_ids(tmpl: &Tmpl, out: &mut Vec<u32>) {
       out.push(*id);
       children.iter().for_each(|c| island_ids(c, out));
     }
-    Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().for_each(|c| island_ids(c, out)),
+    Tmpl::Component { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().for_each(|c| island_ids(c, out)),
     Tmpl::If { then, r#else, .. } => {
       island_ids(then, out);
       if let Some(other) = r#else {
@@ -2247,7 +2247,7 @@ fn mark_keyed(tmpl: &mut Tmpl, placed: &[u32], keys: &dyn Fn(&str) -> bool, stat
       }
       children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, stateful, out));
     }
-    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, stateful, out)),
+    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter_mut().for_each(|c| mark_keyed(c, placed, keys, stateful, out)),
     Tmpl::If { then, r#else, .. } => {
       mark_keyed(then, placed, keys, stateful, out);
       if let Some(other) = r#else {
@@ -2309,7 +2309,7 @@ fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
       out.push(module.clone());
       children.iter().for_each(|c| placed_modules(c, out));
     }
-    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter().for_each(|c| placed_modules(c, out)),
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|c| placed_modules(c, out)),
     Tmpl::If { then, r#else, .. } => {
       placed_modules(then, out);
       if let Some(e) = r#else {
@@ -2326,7 +2326,7 @@ fn placed_modules(tmpl: &Tmpl, out: &mut Vec<String>) {
 fn holds_mount(tmpl: &Tmpl) -> bool {
   match tmpl {
     Tmpl::Element { attrs, children, .. } => attrs.iter().any(|a| matches!(a, Entry::Field(name, _) if name == placements::MOUNT_ATTR)) || children.iter().any(holds_mount),
-    Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(holds_mount),
+    Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(holds_mount),
     Tmpl::If { then, r#else, .. } => holds_mount(then) || r#else.as_ref().is_some_and(|e| holds_mount(e)),
     Tmpl::For { body, .. } => holds_mount(body),
     Tmpl::Let { then, .. } => holds_mount(then),
@@ -2368,7 +2368,7 @@ fn inline_foreign(tmpl: &Tmpl) -> Option<String> {
       }
       children.iter().find_map(inline_foreign)
     }
-    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) => children.iter().find_map(inline_foreign),
+    Tmpl::Island { children, .. } | Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } => children.iter().find_map(inline_foreign),
     Tmpl::Baked { children, .. } => children.iter().find_map(inline_foreign),
     Tmpl::If { then, r#else, .. } => inline_foreign(then).or_else(|| r#else.as_ref().and_then(|e| inline_foreign(e))),
     Tmpl::For { body, .. } => inline_foreign(body),
@@ -3452,7 +3452,7 @@ fn write_types(tmpl: &mut Tmpl, kinds_of: &dyn Fn(&str) -> Vec<(String, crate::K
       }
       children.iter_mut().for_each(|c| write_types(c, kinds_of));
     }
-    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| write_types(c, kinds_of)),
+    Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| write_types(c, kinds_of)),
     Tmpl::If { then, r#else, .. } => {
       write_types(then, kinds_of);
       if let Some(e) = r#else {
@@ -7799,7 +7799,7 @@ mod tests {
         }
         children.iter().for_each(|c| chunk_ids(c, out));
       }
-      Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().for_each(|c| chunk_ids(c, out)),
+      Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().for_each(|c| chunk_ids(c, out)),
       Tmpl::If { then, r#else, .. } => {
         chunk_ids(then, out);
         if let Some(e) = r#else {
@@ -9294,7 +9294,7 @@ mod fills {
         }
         *t = out;
       }
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(|c| choose_tags(c, lets, consts, failed)),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(|c| choose_tags(c, lets, consts, failed)),
       Tmpl::If { then, r#else, .. } => {
         choose_tags(then, lets, consts, failed);
         if let Some(e) = r#else {
@@ -9461,7 +9461,7 @@ mod fills {
       }
     }
     match t {
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(plain_reads),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(plain_reads),
       Tmpl::If { then, r#else, .. } => {
         plain_reads(then);
         if let Some(e) = r#else {
@@ -9478,7 +9478,7 @@ mod fills {
     match t {
       Tmpl::Slot(_) => true,
       Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Html(_) | Tmpl::Expr(_) => false,
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(reads_slots),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } => children.iter().any(reads_slots),
       Tmpl::If { then, r#else, .. } => reads_slots(then) || r#else.as_deref().is_some_and(reads_slots),
       Tmpl::For { body, .. } => reads_slots(body),
       Tmpl::Let { then, .. } => reads_slots(then),
@@ -9672,7 +9672,7 @@ mod fills {
         place(&mut body, &inner);
         *t = body;
       }
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| place(c, held)),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| place(c, held)),
       Tmpl::If { then, r#else, .. } => {
         place(then, held);
         if let Some(e) = r#else {
@@ -9697,7 +9697,7 @@ mod fills {
           collect(child, out);
         }
       }
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|c| collect(c, out)),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|c| collect(c, out)),
       Tmpl::If { then, r#else, .. } => {
         collect(then, out);
         if let Some(e) = r#else {
@@ -9720,7 +9720,7 @@ mod fills {
       }
     }
     match t {
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(|c| settle(c, module, filled)),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Component { children, .. } => children.iter_mut().for_each(|c| settle(c, module, filled)),
       Tmpl::If { then, r#else, .. } => {
         settle(then, module, filled);
         if let Some(e) = r#else {
@@ -9774,7 +9774,7 @@ mod fills {
         }
         children.iter_mut().try_for_each(|c| reference_functions(c, renders_in_browser, refs, used))
       }
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter_mut().try_for_each(|c| reference_functions(c, renders_in_browser, refs, used)),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().try_for_each(|c| reference_functions(c, renders_in_browser, refs, used)),
       Tmpl::If { then, r#else, .. } => {
         reference_functions(then, renders_in_browser, refs, used)?;
         match r#else.as_deref_mut() {
@@ -9808,7 +9808,7 @@ mod fills {
         }
         children.iter_mut().for_each(|c| unfill(c, renders_in_browser));
       }
-      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| unfill(c, renders_in_browser)),
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Place { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| unfill(c, renders_in_browser)),
       Tmpl::If { then, r#else, .. } => {
         unfill(then, renders_in_browser);
         if let Some(e) = r#else {

@@ -16,7 +16,21 @@ function propsScript(node: { props: { [key: string]: SfValue }; encoded?: unknow
 
 export interface IdAlloc {
   next: number;
+  /** The key of the segment being rendered, which names the placed content inside it. */
+  segment?: string;
+  /** The island whose own markup is being rendered, by its region key or else its id, which names the placed content it holds. */
+  island?: string;
 }
+
+/** The attribute of the template `nodeToHtml` holds placed content in, in place, naming the segment that placed it. Whatever writes the markup moves the content to its target. */
+export const PLACED_ATTR = "data-sf-placed";
+
+/** The attribute of the template opening a piece of placed content at the end of the body, naming the segment that placed it, as the server writes it after the document. */
+export const PLACED_OPEN = "data-sf-l";
+/** The attribute of the template closing one. */
+export const PLACED_END = "data-sf-l-end";
+/** The attribute naming the island whose markup placed a piece, by its region key or else its id. */
+export const PLACED_ISLAND = "data-sf-island";
 
 /** Client-side ids use the `sf-c` prefix so they can never collide with the server's `sf-i` sequence. */
 export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
@@ -29,7 +43,11 @@ export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
       return node.children.map((c) => nodeToHtml(c, ids)).join("");
     case "client": {
       const id = `sf-c${ids.next++}`;
+      const outer = ids.island;
+      const key = node.props[REGION_KEY];
+      if (node.ssr) ids.island = typeof key === "string" ? key : id;
       const inner = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c) => nodeToHtml(c, ids)).join("");
+      ids.island = outer;
       const props = propsScript(node);
       return (
         `<sf-i id="${id}" data-sf-module="${node.module}">${inner}</sf-i>` +
@@ -38,7 +56,15 @@ export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
     }
     case "pending":
       return `<div data-sf-slot="${node.slot}">${nodeToHtml(node.fallback, ids)}</div>`;
+    case "placed": {
+      const island = ids.island ? ` ${PLACED_ISLAND}="${escapeAttr(ids.island)}"` : "";
+      return `<template ${PLACED_ATTR}="${escapeAttr(ids.segment ?? "")}"${island}>${node.children.map((c) => nodeToHtml(c, ids)).join("")}</template>`;
+    }
   }
+}
+
+function escapeAttr(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
 export function escapeKey(key: string): string {
@@ -56,6 +82,8 @@ function subtreeAt(node: SfNode, path: number[]): SfNode {
 
 /** Mirrors the server's segment serialization: the subtree wrapped in comment delimiters, recursing into child segments, so a swapped-in region stays diffable on the next navigation. */
 export function renderSegment(node: SfNode, seg: Segment, ids: IdAlloc): string {
+  const outer = ids.segment;
+  ids.segment = seg.k;
   let out = `<!--sf-g:${escapeKey(seg.k)}-->`;
   const inner = seg.c.find((c) => c.s === undefined && (c.p ?? []).length === 0);
   if (inner) {
@@ -64,6 +92,7 @@ export function renderSegment(node: SfNode, seg: Segment, ids: IdAlloc): string 
     const positioned = seg.c.filter((c) => c.s === undefined && (c.p ?? []).length > 0).map((c) => ({ path: c.p ?? [], seg: c }));
     out += renderPositioned(node, positioned, ids);
   }
+  ids.segment = outer;
   return out + "<!--/sf-g-->";
 }
 

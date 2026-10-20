@@ -180,6 +180,10 @@ pub fn props_declaration(file: &str, described: &Described) -> Option<String> {
 const FRAGMENT_OPEN: &str = "<!--[-->";
 const TELEPORT_OPEN: &str = "<!--teleport start-->";
 const TELEPORT_CLOSE: &str = "<!--teleport end-->";
+const TELEPORT_ANCHOR_OPEN: &str = "<!--teleport start anchor-->";
+const TELEPORT_ANCHOR: &str = "<!--teleport anchor-->";
+/// `Place::Body` as a `Tmpl::Place` spells it.
+const PLACE_BODY: &str = "body";
 /// The `Tmpl::Let` a `<TransitionGroup>` holds its children under, whose lists Vue writes without anchors.
 const GROUP: &str = "$transition-group";
 const FRAGMENT_CLOSE: &str = "<!--]-->";
@@ -264,6 +268,7 @@ fn anchors(tmpl: Tmpl) -> Tmpl {
     Tmpl::Component { module, props, children, id, keyed } => Tmpl::Component { module, props, children: walk(children), id, keyed },
     Tmpl::Island { module, props, children, when, mode, id, define } => Tmpl::Island { module, props, children: walk(children), when, mode, id, define },
     Tmpl::Baked { open, tag, children } => Tmpl::Baked { open, tag, children: walk(children) },
+    Tmpl::Place { target, children } => Tmpl::Place { target, children: walk(children) },
     other => other,
   }
 }
@@ -1298,12 +1303,22 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
         "TransitionGroup" | "transition-group" => self.transition_group(node),
         "Teleport" | "teleport" => {
           let disabled = node.props.iter().any(|prop| (prop.prop == "attribute" && prop.name == "disabled" && prop.value.as_deref().is_none_or(|v| v != "false")) || (prop.binds("disabled") && prop.exp.as_deref().map(str::trim) == Some("true")));
+          let to = node.props.iter().find(|prop| prop.prop == "attribute" && prop.name == "to").and_then(|prop| prop.value.as_deref());
           if !disabled {
-            return Err(self.at(node.line, node.column, "`<Teleport>` to a target; Vue's server writes its content beside the page for the target rather than in place, which the build does not collect"));
+            if to != Some(PLACE_BODY) {
+              return Err(self.at(node.line, node.column, "`<Teleport>` to a target other than `body`; the server places content only at the end of the body"));
+            }
+            let mut placed = vec![Tmpl::Marker(TELEPORT_ANCHOR_OPEN.to_owned())];
+            placed.extend(self.children(&node.children)?);
+            placed.push(Tmpl::Marker(TELEPORT_ANCHOR.to_owned()));
+            return Ok(Tmpl::Fragment(vec![Tmpl::Marker(TELEPORT_OPEN.to_owned()), Tmpl::Marker(TELEPORT_CLOSE.to_owned()), Tmpl::Place { target: PLACE_BODY.to_owned(), children: placed }]));
           }
           let mut out = vec![Tmpl::Marker(TELEPORT_OPEN.to_owned())];
           out.extend(self.children(&node.children)?);
           out.push(Tmpl::Marker(TELEPORT_CLOSE.to_owned()));
+          if to == Some(PLACE_BODY) {
+            out.push(Tmpl::Place { target: PLACE_BODY.to_owned(), children: vec![Tmpl::Marker(TELEPORT_ANCHOR_OPEN.to_owned()), Tmpl::Marker(TELEPORT_ANCHOR.to_owned())] });
+          }
           Ok(Tmpl::Fragment(out))
         }
         _ => self.child_component(node),

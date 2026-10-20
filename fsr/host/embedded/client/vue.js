@@ -1,6 +1,6 @@
 import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch } from "vue";
 import { islandState, patchIsland, scan } from "./boot.js";
-import { CHILDREN_ATTR } from "./render.js";
+import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
 import { get, set, subscribe } from "./store.js";
@@ -93,6 +93,17 @@ function componentOf(module) {
     const holder = module;
     return holder && holder.default || module;
 }
+function startTeleports(el, props) {
+    const name = typeof props[REGION_KEY] === "string" ? props[REGION_KEY] : el.id;
+    let start = null;
+    for (const child of Array.from(document.body.children)){
+        if (child.hasAttribute(PLACED_OPEN) && child.getAttribute(PLACED_ISLAND) === name) {
+            start = child.nextSibling;
+            break;
+        }
+    }
+    document.body._lpa = start;
+}
 export const vueMounter = (module, props, el, hydrate)=>{
     const { root, props: state, children } = rootFor(componentOf(module), props, el);
     const app = hydrate ? createSSRApp(root) : createApp(root);
@@ -103,6 +114,7 @@ export const vueMounter = (module, props, el, hydrate)=>{
     app.provide(RENDERED_STORE, rendered);
     held.set(el, state);
     childrenHeld.set(el, children);
+    if (hydrate) startTeleports(el, props);
     app.mount(el);
     rendered.hydrating = false;
     return app;

@@ -5,7 +5,7 @@
 use proptest::prelude::*;
 use proptest::strategy::BoxedStrategy;
 use serde_json::json;
-use snapfire_fsr_core::{Html, ModuleId, Node, SlotId, TypedArray, Value, ValueMap, ValueSeq};
+use snapfire_fsr_core::{Html, ModuleId, Node, Place, SlotId, TypedArray, Value, ValueMap, ValueSeq};
 use snapfire_fsr_payload::{
   html_serialize, json_to_value, node_to_row_json, row_json_to_node, serialize_page, value_to_json,
 };
@@ -102,10 +102,11 @@ fn node() -> BoxedStrategy<Node> {
               ssr: ssr.map(Box::new),
             }
           }),
-        (any::<u32>(), inner).prop_map(|(slot, fallback)| Node::Pending {
+        (any::<u32>(), inner.clone()).prop_map(|(slot, fallback)| Node::Pending {
           slot: SlotId(slot),
           fallback: Box::new(fallback),
         }),
+        prop::collection::vec(inner, 0..3).prop_map(|nodes| Node::Placed { target: Place::Body, nodes }),
       ]
     })
     .boxed()

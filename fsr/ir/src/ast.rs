@@ -322,6 +322,10 @@ pub enum Tmpl {
   /// void element, whose `open` already closes itself and which has no
   /// children.
   Baked { open: String, tag: Option<String>, children: Vec<Tmpl> },
+  /// `children` written at `target` rather than in place, where the
+  /// evaluator carries them as a `Node::Placed`: a Vue `<Teleport>`. The
+  /// target is a `Place` spelling, `body` for the end of the body.
+  Place { target: String, #[serde(default, skip_serializing_if = "Vec::is_empty")] children: Vec<Tmpl> },
 }
 
 fn is_false(b: &bool) -> bool {
@@ -651,7 +655,7 @@ impl Tmpl {
         entries(props, f);
         children.iter().for_each(|c| c.visit(f));
       }
-      Tmpl::Baked { children, .. } => children.iter().for_each(|c| c.visit(f)),
+      Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => children.iter().for_each(|c| c.visit(f)),
     }
   }
 
@@ -664,7 +668,7 @@ impl Tmpl {
         attrs.iter_mut().for_each(|entry| entry.visit_mut(f));
         children.iter_mut().for_each(|c| c.visit_mut(f));
       }
-      Tmpl::Fragment(children) | Tmpl::Baked { children, .. } => children.iter_mut().for_each(|c| c.visit_mut(f)),
+      Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => children.iter_mut().for_each(|c| c.visit_mut(f)),
       Tmpl::If { cond, then, r#else } => {
         cond.visit_mut(f);
         then.visit_mut(f);
@@ -1244,7 +1248,7 @@ fn attr_values(tmpl: &Tmpl, tag_matches: &dyn Fn(&str) -> bool, name: &str) -> V
         }
         children.iter().for_each(|child| walk(child, tag_matches, name, out));
       }
-      Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } => children.iter().for_each(|child| walk(child, tag_matches, name, out)),
+      Tmpl::Fragment(children) | Tmpl::Component { children, .. } | Tmpl::Island { children, .. } | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => children.iter().for_each(|child| walk(child, tag_matches, name, out)),
       Tmpl::If { then, r#else, .. } => {
         walk(then, tag_matches, name, out);
         if let Some(other) = r#else {

@@ -36,6 +36,12 @@ export function decodeNode(row) {
                 slot: arr[1],
                 fallback: decodeNode(arr[2])
             };
+        case "l":
+            return {
+                kind: "placed",
+                target: arr[1],
+                children: arr[2].map(decodeNode)
+            };
         default:
             throw new Error(`unknown node row kind: ${arr[0]}`);
     }

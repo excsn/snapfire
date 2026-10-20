@@ -1,4 +1,4 @@
-use snapfire_fsr_core::{Fingerprint, ModuleId, Node, RefKind, SlotId, TypedArray, Value, ValueMap};
+use snapfire_fsr_core::{Fingerprint, ModuleId, Node, Place, RefKind, SlotId, TypedArray, Value, ValueMap};
 use snapfire_fsr_payload::{json_to_value, node_to_row_json, row_json_to_node, value_to_json};
 
 fn assert_value_round_trips(value: Value) {
@@ -111,6 +111,7 @@ fn node_rows_round_trip_the_walked_page() {
       ssr: Some(Box::new(Node::raw("<svg></svg>"))),
     },
     Node::Pending { slot: SlotId(1), fallback: Box::new(Node::raw("<div class=skl></div>")) },
+    Node::Placed { target: Place::Body, nodes: vec![Node::raw("<dialog>"), Node::text("a < b"), Node::raw("</dialog>")] },
     Node::raw("</main>"),
   ]);
 

@@ -209,6 +209,14 @@ impl Fingerprint for Node {
         h.update(&[5]);
         h.update(name.0.as_bytes());
       }
+      Node::Placed { target, nodes } => {
+        h.update(&[6]);
+        write_str(h, target.as_str());
+        write_len(h, nodes.len());
+        for node in nodes {
+          node.write_canonical(h);
+        }
+      }
     }
   }
 }

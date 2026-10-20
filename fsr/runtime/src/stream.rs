@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use futures_util::stream::{self, FuturesUnordered, Stream, StreamExt};
 use serde_json::{Value as Json, json};
 use snapfire_fsr_core::Node;
-use snapfire_fsr_payload::{FORMAT_VERSION, HtmlSession, node_to_row_json};
+use snapfire_fsr_payload::{FORMAT_VERSION, HtmlSession, escape_key, node_to_row_json};
 
 use crate::assembler::{Assembly, PendingResolution};
 use crate::meta::Meta;
@@ -156,12 +156,6 @@ pub fn segments_from_json(json: &Json) -> Result<SegmentInfo, snapfire_fsr_paylo
   Ok(SegmentInfo { key, digest, name, path, slot, children, keep })
 }
 
-/// `-` and `%` are escaped so a key can never contain `--` and close the
-/// HTML comment that delimits its region.
-fn escape_key(key: &str) -> String {
-  key.replace('%', "%25").replace('-', "%2D")
-}
-
 struct PendingSet {
   set: FuturesUnordered<futures_util::future::BoxFuture<'static, crate::assembler::Resolved>>,
 }
@@ -246,6 +240,7 @@ pub fn wire_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
 /// children are skipped: their DOM region is the `data-sf-slot` element.
 fn write_segment(session: &mut HtmlSession, node: &Node, info: &SegmentInfo, out: &mut String) {
   out.push_str(&format!("<!--sf-g:{}-->", escape_key(&info.key)));
+  let outer = session.enter_segment(&info.key);
 
   if let Some(inner) = info.children.iter().find(|c| c.slot.is_none() && c.path.is_empty()) {
     write_segment(session, node, inner, out);
@@ -259,6 +254,7 @@ fn write_segment(session: &mut HtmlSession, node: &Node, info: &SegmentInfo, out
     write_positioned(session, node, &positioned, out);
   }
 
+  session.enter_segment(&outer);
   out.push_str("<!--/sf-g-->");
 }
 
@@ -300,14 +296,15 @@ fn write_positioned(session: &mut HtmlSession, node: &Node, positioned: &[(&[u32
 }
 
 /// The first-response encoding of a streamed page: the tree with segment
-/// delimiters, the sidecar as an inert script for the navigator, fallbacks in
-/// place and the fill script, then one inert template plus fill call per
-/// resolution. Island ids stay unique across the whole response because one
-/// `HtmlSession` spans it.
+/// delimiters, its placed content, the sidecar as an inert script for the
+/// navigator, fallbacks in place and the fill script, then per resolution its
+/// placed content and one inert template plus fill call. Island ids stay
+/// unique across the whole response because one `HtmlSession` spans it.
 pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
   let mut session = HtmlSession::new();
   let mut first = String::new();
   write_segment(&mut session, &assembly.tree, &assembly.segments, &mut first);
+  first.push_str(&session.take_placed());
   first.push_str(&format!(
     "<script type=\"application/json\" data-sf-segments>{}</script>",
     segments_to_json(&assembly.segments).to_string().replace('<', "\\u003c")
@@ -345,7 +342,8 @@ pub fn html_stream(assembly: Assembly) -> impl Stream<Item = String> + Send {
     } else {
       format!(",{}", Json::Array(info.children.iter().map(segments_to_json).collect()).to_string().replace('<', "\\u003c"))
     };
-    let mut chunk = format!("<template data-sf-fill=\"{slot}\">{body}</template><script>");
+    let mut chunk = state.session.take_placed();
+    chunk.push_str(&format!("<template data-sf-fill=\"{slot}\">{body}</template><script>"));
     if !resolved.contributions.is_empty() {
       chunk.push_str(&format!(
         "__sfStore({});",
@@ -396,7 +394,9 @@ pub async fn fragment_html(assembly: Assembly, slot: Option<&str>) -> Option<Str
   };
   let mut target = target.clone();
   fill(&mut target, &fills);
-  let mut out = HtmlSession::new().serialize(&target);
+  let mut session = HtmlSession::new();
+  let mut out = session.serialize(&target);
+  out.push_str(&session.take_placed());
   if !contributions.is_empty() {
     out.push_str(&seed_script(&contributions));
   }
@@ -462,6 +462,7 @@ fn fill(node: &mut Node, fills: &HashMap<u32, Node>) {
         fill(ssr, fills);
       }
     }
+    Node::Placed { nodes, .. } => nodes.iter_mut().for_each(|node| fill(node, fills)),
     Node::Text(_) | Node::Raw(_) | Node::Slot(_) => {}
   }
 }

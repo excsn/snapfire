@@ -133,6 +133,9 @@ impl Compiler {
   /// specifier: `vue` and `vue/server-renderer` among them, since the plugin
   /// carries a compiler and no runtime. The component renders under the root
   /// the client's Vue mounter uses, so the children sit in the same region.
+  /// The content of each `<Teleport>` follows the markup as
+  /// `<!--sf-placed:TARGET-->CONTENT<!--/sf-placed-->`, in the order Vue
+  /// collected the targets.
   pub fn render_module(&self, js: &str, props: &str, children: Option<&str>, modules: &BTreeMap<String, String>) -> Result<String, VueError> {
     let (reply, answer) = channel();
     self

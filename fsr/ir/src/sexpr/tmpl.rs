@@ -69,6 +69,7 @@ pub fn tmpl_to_sx(tmpl: &Tmpl) -> Sx {
     }
     Tmpl::Slot(name) => form("slot", vec![Sx::Sym(name.clone())]),
     Tmpl::Marker(markup) => form("marker", vec![Sx::Str(markup.clone())]),
+    Tmpl::Place { target, children } => form("place", std::iter::once(Sx::Str(target.clone())).chain(children.iter().map(tmpl_to_sx)).collect()),
     Tmpl::Html(expr) => form("html", vec![expr_to_sx(expr)]),
     Tmpl::Baked { open, tag, children } => {
       let mut rest = vec![Sx::Str(open.clone()), opt_sx(tag)];
@@ -161,6 +162,14 @@ pub fn tmpl_from_sx(sx: &Sx) -> Res<Tmpl> {
     }
     "slot" => Tmpl::Slot(sym_of(&args(items, head, 1)?[0])?),
     "marker" => Tmpl::Marker(str_of(&args(items, head, 1)?[0])?),
+    "place" => {
+      let a = at_least(items, head, 1)?;
+      let target = str_of(&a[0])?;
+      if snapfire_fsr_core::Place::parse(&target).is_none() {
+        return Err(SexprError::shape(format!("`{target}` is not a place a `place` form can write to")));
+      }
+      Tmpl::Place { target, children: a[1..].iter().map(tmpl_from_sx).collect::<Res<_>>()? }
+    }
     "html" => Tmpl::Html(expr_from_sx(&args(items, head, 1)?[0])?),
     "baked" => {
       let a = at_least(items, head, 2)?;

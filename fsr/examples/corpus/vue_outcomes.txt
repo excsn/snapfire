@@ -26,8 +26,8 @@ examples-list-transition-composition	lowered
 examples-list-transition-options	lowered
 examples-markdown-composition	client: src/App.vue:12:31 a call to `marked`, which the build cannot follow
 examples-markdown-options	client: src/App.vue:15:14 a call to `marked`, which the build cannot follow
-examples-modal-composition	client: src/App.vue:15:3 `<Teleport>` to a target; Vue's server writes its content beside the page for the target rather than in place, which the build does not collect
-examples-modal-options	client: src/App.vue:23:3 `<Teleport>` to a target; Vue's server writes its content beside the page for the target rather than in place, which the build does not collect
+examples-modal-composition	lowered
+examples-modal-options	lowered
 examples-simple-component-composition	lowered
 examples-simple-component-options	lowered
 examples-svg-composition	lowered

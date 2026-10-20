@@ -17,6 +17,7 @@ Vocabulary types for SnapFire FSR: the value model, the payload tree, the render
    * [Html](#html)
    * [SlotId](#slotid)
    * [Node](#node)
+   * [Place](#place)
 4. [The Render Plan](#4-the-render-plan)
    * [NodeId](#nodeid)
    * [SlotName](#slotname)
@@ -151,9 +152,19 @@ One node of the payload tree.
 * `Client { module: ModuleId, props: Props, children: Vec<Node>, ssr: Option<Box<Node>> }` - `props` holds values only; content passed into the component goes in `children`. `ssr` is the evaluator's rendered output, `None` under the null evaluator.
 * `Pending { slot: SlotId, fallback: Box<Node> }` - the fallback is carried inline, so the first response is complete without the resolution row.
 * `Slot(SlotName)` - where a child segment goes inside an island's own markup, a layout's `children`. The assembler replaces it with the child's node; a serializer never sees one and writes nothing for it if it does.
+* `Placed { target: Place, nodes: Vec<Node> }` - content written at `target` rather than where the node sits, such as a modal at the end of the body. Where it sits names the segment that owns it, so a navigation that replaces the segment removes it.
 * `pub fn text(v: impl Into<Cow<'static, str>>) -> Node`
 * `pub fn raw(v: impl Into<String>) -> Node` - wraps the string in `Html`.
 * Derives `Debug`, `Clone` and `PartialEq`. Not `Eq` or `Hash`, since props can hold floats.
+
+### Place
+
+Where a `Node::Placed` writes its content. `#[non_exhaustive]`.
+
+* `Body` - the end of the document's body.
+* `pub fn as_str(self) -> &'static str` - the payload's spelling, `body`.
+* `pub fn parse(target: &str) -> Option<Place>`
+* Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq` and `Hash`.
 
 ## 4. The Render Plan
 

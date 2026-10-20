@@ -300,7 +300,8 @@
       (baked "<p class=\"x\">" "p" "in")
       (baked "<br/>" nil)
       (marker "<!--[0-->")
-      (html raw)))
+      (html raw)
+      (place "body" "modal")))
   (on click
     (let n $props)
     (if ok ((ret "yes")))

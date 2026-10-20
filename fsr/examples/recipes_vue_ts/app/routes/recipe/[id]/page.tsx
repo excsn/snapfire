@@ -1,6 +1,7 @@
 import { Island, Link } from "@snapfire/fsr-authoring/template";
 
 import type { RecipeIdProps } from "@generated/client";
+import CookMode from "@src/ui/CookMode.vue";
 import PlanRecipe from "@src/ui/PlanRecipe.vue";
 import Scaler from "@src/ui/Scaler.vue";
 
@@ -15,6 +16,9 @@ export default function RecipePage({ recipe, sameCourse, planned }: RecipeIdProp
         <PlanRecipe id={recipe.id} planned={planned} />
       </Island>
       <p className="method">{recipe.method}</p>
+      <Island when="load">
+        <CookMode title={recipe.title} method={recipe.method} />
+      </Island>
       <section className="same-course">
         <h3>Also under {recipe.course}</h3>
         {sameCourse.length === 0 ? (

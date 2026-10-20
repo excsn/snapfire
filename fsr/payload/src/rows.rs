@@ -1,5 +1,5 @@
 use serde_json::{json, Value as Json};
-use snapfire_fsr_core::{Html, ModuleId, Node, SlotId, Value};
+use snapfire_fsr_core::{Html, ModuleId, Node, Place, SlotId, Value};
 
 use crate::json::{json_to_value, value_to_json, DecodeError};
 use crate::FORMAT_VERSION;
@@ -27,6 +27,7 @@ pub fn node_to_row_json(node: &Node) -> Json {
     }
     Node::Pending { slot, fallback } => json!(["p", slot.0, node_to_row_json(fallback)]),
     Node::Slot(_) => json!(["q", []]),
+    Node::Placed { target, nodes } => json!(["l", target.as_str(), nodes.iter().map(node_to_row_json).collect::<Vec<Json>>()]),
   }
 }
 
@@ -72,6 +73,13 @@ pub fn row_json_to_node(json: &Json) -> Result<Node, DecodeError> {
       let slot = row.get(1).and_then(Json::as_u64).ok_or_else(|| err("`p` row needs a slot id"))?;
       let fallback = row_json_to_node(row.get(2).ok_or_else(|| err("`p` row needs a fallback"))?)?;
       Ok(Node::Pending { slot: SlotId(slot as u32), fallback: Box::new(fallback) })
+    }
+    "l" => {
+      let target = row.get(1).and_then(Json::as_str).ok_or_else(|| err("`l` row needs a target"))?;
+      let target = Place::parse(target).ok_or_else(|| err(format!("`l` row names an unknown target `{target}`")))?;
+      let items = row.get(2).and_then(Json::as_array).ok_or_else(|| err("`l` row needs an array"))?;
+      let nodes = items.iter().map(row_json_to_node).collect::<Result<_, _>>()?;
+      Ok(Node::Placed { target, nodes })
     }
     other => Err(err(format!("unknown node row kind `{other}`"))),
   }

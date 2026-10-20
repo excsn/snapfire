@@ -670,7 +670,8 @@ fn hrefs_of(tmpl: &Tmpl) -> Vec<String> {
     | Tmpl::Fragment(kids)
     | Tmpl::Component { children: kids, .. }
     | Tmpl::Island { children: kids, .. }
-    | Tmpl::Baked { children: kids, .. } => children(kids, &mut out),
+    | Tmpl::Baked { children: kids, .. }
+    | Tmpl::Place { children: kids, .. } => children(kids, &mut out),
     Tmpl::If { then, r#else, .. } => {
       out.extend(hrefs_of(then));
       if let Some(otherwise) = r#else {

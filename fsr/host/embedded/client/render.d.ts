@@ -10,7 +10,19 @@ declare function propsScript(node: {
 }): string;
 export interface IdAlloc {
 	next: number;
+	/** The key of the segment being rendered, which names the placed content inside it. */
+	segment?: string;
+	/** The island whose own markup is being rendered, by its region key or else its id, which names the placed content it holds. */
+	island?: string;
 }
+/** The attribute of the template `nodeToHtml` holds placed content in, in place, naming the segment that placed it. Whatever writes the markup moves the content to its target. */
+export declare const PLACED_ATTR = "data-sf-placed";
+/** The attribute of the template opening a piece of placed content at the end of the body, naming the segment that placed it, as the server writes it after the document. */
+export declare const PLACED_OPEN = "data-sf-l";
+/** The attribute of the template closing one. */
+export declare const PLACED_END = "data-sf-l-end";
+/** The attribute naming the island whose markup placed a piece, by its region key or else its id. */
+export declare const PLACED_ISLAND = "data-sf-island";
 /** Client-side ids use the `sf-c` prefix so they can never collide with the server's `sf-i` sequence. */
 export declare function nodeToHtml(node: SfNode, ids: IdAlloc): string;
 export declare function escapeKey(key: string): string;

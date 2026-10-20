@@ -306,3 +306,50 @@ fn a_deferred_resolution_carries_the_segments_inside_it() {
   assert!(outer_open < inner_open && fill.ends_with("</script>"), "the inner segment is delimited inside the outer: {fill}");
   assert!(fill.contains("__sfFill(1,[{") && fill.contains("\"n\":\"inner\""), "the fill script is handed the sidecar: {fill}");
 }
+
+/// A modal written at the end of the body, then the slot named by the second field: the node stays where the segment put it.
+struct Modal(&'static str, Option<&'static str>);
+
+impl Evaluator for Modal {
+  fn evaluate(&self, _module: &ModuleId, _props: &Data) -> NodeChunks {
+    let mut chunks = vec![Ok(Chunk::Node(Node::Seq(vec![
+      Node::raw("<button>open</button>"),
+      Node::Placed { target: snapfire_fsr_core::Place::Body, nodes: vec![Node::raw(format!("<dialog>{}</dialog>", self.0))] },
+    ])))];
+    if let Some(slot) = self.1 {
+      chunks.push(Ok(Chunk::Slot(SlotName(slot.into()))));
+    }
+    Box::pin(stream::iter(chunks))
+  }
+}
+
+#[test]
+fn placed_content_follows_the_tree_marked_with_its_segment_and_precedes_a_late_fill() {
+  let mut plan = PlanNode::new(NodeId(0), ModuleId::new("shell.tera", "default"));
+  let mut eager = PlanNode::new(NodeId(1), ModuleId::new("eager.tera", "default"));
+  eager.children.push((SlotName("late".into()), deferred_child(2, "late.tera", None)));
+  plan.children.push((SlotName("content".into()), eager));
+  let runtime = runtime_with(
+    vec![
+      ("shell.tera", Arc::new(Shell("content"))),
+      ("eager.tera", Arc::new(Modal("now", Some("late")))),
+      ("late.tera", Arc::new(Modal("later", None))),
+      ("loading.tera", Arc::new(Skeleton)),
+    ],
+    DataSources::new(),
+  );
+  let assemble_page = || block_on(assemble(&runtime, &plan, &RequestCtx::anonymous(Params::new()), &Node::raw(""))).unwrap();
+  let wire = collect(wire_stream(assemble_page()));
+  assert!(wire[0].contains("[\"l\",\"body\",[[\"r\",\"<dialog>now</dialog>\"]]]"), "the tree row keeps the node in place: {}", wire[0]);
+  let chunks = collect(html_stream(assemble_page()));
+  let first = &chunks[0];
+  let tree_end = first.find("</shell>").expect("the shell closes");
+  let placed = first.find("<dialog>now</dialog>").expect("the eager modal is written");
+  assert!(placed > tree_end, "placed content follows the tree: {first}");
+  assert!(first[..placed].ends_with("<!--/sf-g--><template data-sf-l=\"eager.tera#default\"></template>"), "it is marked with the segment that placed it: {first}");
+  assert!(!first[..tree_end].contains("<dialog>"), "nothing is written in place: {first}");
+  let late = &chunks[1];
+  let dialog = late.find("<dialog>later</dialog>").expect("the late modal is written");
+  assert!(dialog < late.find("<template data-sf-fill").expect("the fill"), "a fill's placed content precedes it, so it is in the body before the fill wakes an island: {late}");
+  assert!(late.starts_with("<template data-sf-l=\"late.tera#default\">"), "{late}");
+}

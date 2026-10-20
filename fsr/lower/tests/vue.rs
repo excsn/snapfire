@@ -10,7 +10,7 @@ use std::sync::Arc;
 use snapfire_compiler_wire::{Described, Lang, Options, Outcome};
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::ast::{Component, Entry, Expr, Tmpl};
-use snapfire_fsr_ir::render::Components;
+use snapfire_fsr_ir::render::{Components, Rendered, PLACE_MARK};
 use snapfire_fsr_ir::{Frameworks, Interpreter, Owner, VueMajor};
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_lower::LowerError;
@@ -70,7 +70,30 @@ fn render_rust(set: &ComponentSet, module: &str, props: &ValueMap, children: Vec
   let interpreter = Interpreter::default().with_frameworks(Frameworks::default().react(None).vue(Some(VueMajor::V3)));
   let rendered = interpreter.render(&host(module, children), props, &library).expect("renders");
   assert_eq!(rendered.islands.len(), 1, "{rendered:?}");
-  rendered.islands[0].body.html.clone()
+  markup(&rendered.islands[0].body)
+}
+
+/// `body`'s markup with its places taken out and written after it the way the oracle writes Vue's teleports: one `<!--sf-placed:TARGET-->` group per target in the order the targets first appear.
+fn markup(body: &Rendered) -> String {
+  let mut html = String::new();
+  let mut targets: Vec<(String, String)> = Vec::new();
+  let mut rest = body.html.as_str();
+  while let Some(at) = rest.find(PLACE_MARK) {
+    html.push_str(&rest[..at]);
+    let after = &rest[at + PLACE_MARK.len()..];
+    let end = after.find('\u{0}').expect("a place marker is closed by a NUL");
+    let place = &body.places[after[..end].parse::<usize>().expect("an index")];
+    match targets.iter_mut().find(|(target, _)| *target == place.target) {
+      Some((_, content)) => content.push_str(&place.body.html),
+      None => targets.push((place.target.clone(), place.body.html.clone())),
+    }
+    rest = &after[end + 1..];
+  }
+  html.push_str(rest);
+  for (target, content) in targets {
+    html.push_str(&format!("<!--sf-placed:{target}-->{content}<!--/sf-placed-->"));
+  }
+  html
 }
 
 fn runtime() -> BTreeMap<String, String> {
@@ -1362,11 +1385,37 @@ const rows = ref([{ id: 1, name: "a", tags: ["x"] }, { id: 2, name: "b", tags: [
   <Transition name="fade"><p v-if="open">o</p></Transition>
   <Transition><p class="own">shown</p></Transition>
   <KeepAlive><p>kept</p></KeepAlive>
-  <Teleport to="#x" disabled><b>in place</b></Teleport>
+  <Teleport to="body" disabled><b>in place</b></Teleport>
   <ol><li v-for="({ id, name, tags: [first = 'none'] }, index) in rows" :key="id">{{ index }} {{ name }} {{ first }}</li></ol>
 </template>
 "##;
   let dir = app("builtins", &[("src/ui/B.vue", source)]);
   agree(&compiler, &dir, "src/ui/B.vue", source, &ValueMap::default(), "");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_teleport_to_the_body_places_its_content_where_vue_writes_it() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let source = r##"<script setup>
+import { ref } from "vue";
+const open = ref(false);
+const shown = ref(true);
+</script>
+
+<template>
+  <button @click="open = true">Show</button>
+  <Teleport to="body"><div v-if="open" class="modal">hidden</div></Teleport>
+  <Teleport to="body"><p v-if="shown">first</p><p>second</p></Teleport>
+  <Teleport to="body">
+    <dialog class="cook" :open="open">
+      <h2>{{ shown }}</h2>
+    </dialog>
+  </Teleport>
+  <span>after</span>
+</template>
+"##;
+  let dir = app("teleport", &[("src/ui/T.vue", source)]);
+  agree(&compiler, &dir, "src/ui/T.vue", source, &ValueMap::default(), "");
   std::fs::remove_dir_all(&dir).unwrap();
 }

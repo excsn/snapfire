@@ -29,7 +29,7 @@ How to encode SnapFire FSR values and payload trees, what every tag on the wire 
 
 * **Value**: the data model from `snapfire_fsr_core`, wider than JSON: `i128` and `u128` integers, `f32` separate from `f64`, byte strings, typed arrays, variants and refs.
 * **ValueMap**: an `IndexMap<String, Value>`, so a map has an order and encoding preserves it.
-* **Node**: the payload tree, five shapes: `Text`, `Raw`, `Seq`, `Client` and `Pending`.
+* **Node**: the payload tree: `Text`, `Raw`, `Seq`, `Client`, `Pending` and `Placed`, plus `Slot`, which the assembler fills before anything is serialized.
 * **Island**: a `Node::Client`, a module the browser mounts over server-rendered markup, addressed in the DOM by an `sf-i` element.
 * **Slot**: a `Node::Pending`, a hole in the tree whose content is resolved later, identified by a `SlotId`.
 * **Tag**: an object of the form `{"$": "name", ...}` in the JSON encoding, marking a value JSON cannot carry natively.
