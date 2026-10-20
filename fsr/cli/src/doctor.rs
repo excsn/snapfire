@@ -126,6 +126,7 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("csp", csp(&config)),
     ("store", store(&config)),
     ("images", image_metadata(&config)),
+    ("desktop", desktop(&config, manifest.as_ref())),
   ] {
     if findings.is_empty() {
       report.clean.push(check);
@@ -167,6 +168,33 @@ fn image_metadata(config: &Config) -> Vec<Finding> {
 /// The plan as the host would read it or `None` when there is none to read:
 /// an application that has not been built yet is a `stale` finding rather than
 /// a failure of every check that wanted a plan.
+/// The patterns of the routes a loading boundary streams, at the route or in
+/// any slot beneath it.
+pub fn streaming_routes(manifest: &Manifest) -> Vec<String> {
+  fn deferred(node: &snapfire_fsr_plan::Node) -> bool {
+    node.deferred || node.children.iter().any(|child| deferred(&child.node))
+  }
+  manifest.routes.iter().filter(|route| deferred(&route.plan)).map(|route| route.pattern.clone()).collect()
+}
+
+/// A scheme window gets each response whole, so a route that streams waits
+/// for its slowest loader before anything shows.
+fn desktop(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
+  let scheme = config.desktop.as_ref().is_some_and(|desktop| desktop.serve == snapfire_fsr_host::config::DesktopServe::Scheme);
+  let streaming = match (scheme, manifest) {
+    (true, Some(manifest)) => streaming_routes(manifest),
+    _ => return Vec::new(),
+  };
+  if streaming.is_empty() {
+    return Vec::new();
+  }
+  vec![Finding::new(
+    "desktop",
+    format!("`[desktop] serve = \"scheme\"` with {} behind a loading boundary", streaming.iter().map(|p| format!("`{p}`")).collect::<Vec<_>>().join(", ")),
+    "a scheme response arrives whole, so the window shows nothing of these until their loaders finish, and live topics and sockets do not connect. Serve the window over loopback, the default, to keep streaming",
+  )]
+}
+
 fn read_plan(config: &Config) -> Result<Option<Manifest>, DoctorError> {
   let path = config.resolve(&config.server.plan);
   let Ok(text) = std::fs::read_to_string(&path) else { return Ok(None) };

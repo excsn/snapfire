@@ -6527,6 +6527,38 @@ fn a_trace_expose_entry_that_is_not_a_path_is_refused() {
   assert!(err.contains("trace.expose `docs` must be a path"), "{err}");
 }
 
+#[test]
+fn a_desktop_name_is_read_from_its_section_and_absent_without_one() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  assert_eq!(snapfire_fsr_host::config::Config::load(dir.join("app.toml")).unwrap().desktop, None);
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[desktop]\nname = \"Uploads\"\n")).unwrap();
+  let config = snapfire_fsr_host::config::Config::load(dir.join("app.toml")).unwrap();
+  assert_eq!(config.desktop.and_then(|d| d.name).as_deref(), Some("Uploads"));
+}
+
+#[test]
+fn a_desktop_window_serves_over_loopback_with_cookies_in_memory_unless_the_section_says_otherwise() {
+  use snapfire_fsr_host::config::{Config, DesktopCookies, DesktopServe};
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[desktop]\nname = \"Uploads\"\n")).unwrap();
+  let desktop = Config::load(dir.join("app.toml")).unwrap().desktop.unwrap();
+  assert_eq!((desktop.serve, desktop.cookies), (DesktopServe::Loopback, DesktopCookies::Memory));
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[desktop]\nserve = \"scheme\"\ncookies = \"disk\"\n")).unwrap();
+  let desktop = Config::load(dir.join("app.toml")).unwrap().desktop.unwrap();
+  assert_eq!((desktop.serve, desktop.cookies), (DesktopServe::Scheme, DesktopCookies::Disk));
+}
+
+#[test]
+fn a_desktop_serve_the_window_cannot_use_is_refused() {
+  let dir = app_dir();
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[desktop]\nserve = \"pipe\"\n")).unwrap();
+  let err = snapfire_fsr_host::config::Config::load(dir.join("app.toml")).err().expect("refused").to_string();
+  assert!(err.contains("desktop") && err.contains("pipe"), "{err}");
+}
+
 /// `preload_app` with a bundle the compiler built minified: every output has a `.min` twin but
 /// `src/ui/Late.js`. The import map names two of the bundle's modules by bare specifiers.
 fn minified_app(dev: bool, minified: bool) -> PathBuf {

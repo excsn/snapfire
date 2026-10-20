@@ -50,8 +50,23 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 18, "{out}");
+  assert_eq!(out.clean.len(), 19, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
+}
+
+#[test]
+fn a_scheme_window_over_a_route_that_streams_is_reported() {
+  let plan = snapfire_fsr_plan::Manifest::from_json(
+    r#"{ "version": 2, "routes": [ { "pattern": "/cart", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/cart/page.tsx#default", "deferred": true, "fallback": "routes/cart/loading.tsx#default" } } ] } } ] }"#,
+  )
+  .unwrap()
+  .to_sexpr();
+  let scheme = app("[desktop]\nserve = \"scheme\"\n", &[("app/generated/plan.sexp", &plan)]);
+  assert_eq!(findings(&scheme), vec!["desktop"]);
+  assert!(report(&scheme).contains("/cart"), "{}", report(&scheme));
+  let loopback = app("[desktop]\nname = \"Shop\"\n", &[("app/generated/plan.sexp", &plan)]);
+  assert!(!findings(&loopback).contains(&"desktop".to_owned()), "{}", report(&loopback));
 }
 
 #[test]
@@ -233,7 +248,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 18 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 19 checks"), "{out}");
   assert!(!out.is_clean());
 }
 

@@ -4,6 +4,8 @@
 //! whole artifact a host reads. The binary in `main.rs` is a thin front over them.
 
 pub mod assets;
+#[cfg(feature = "desktop")]
+pub mod desktop;
 pub mod dev;
 pub mod direction;
 pub mod doctor;

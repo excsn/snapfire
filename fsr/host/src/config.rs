@@ -58,6 +58,9 @@ pub struct Config {
   /// `[crawl]`: the `robots.txt` and `sitemap.xml` the host answers; absent
   /// means neither.
   pub crawl: Option<CrawlSection>,
+  /// `[desktop]`: the native window `fsr dev --desktop` and `fsr serve
+  /// --desktop` open; the host reads none of it.
+  pub desktop: Option<DesktopSection>,
   /// `[mdx]`: how `fsr` reads `.mdx` and `.md` files, defaults filled.
   pub mdx: MdxSection,
   /// The application as a site: its name and the prefix its routes sit
@@ -1142,6 +1145,42 @@ pub struct CrawlSection {
   pub disallow: Vec<String>,
 }
 
+/// `[desktop]`. `name` leads the window's title, before the page's own.
+/// `serve` is how the window reaches the host and `cookies` where a scheme
+/// window keeps the cookies the host sets.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct DesktopSection {
+  #[serde(default)]
+  pub name: Option<String>,
+  #[serde(default)]
+  pub serve: DesktopServe,
+  #[serde(default)]
+  pub cookies: DesktopCookies,
+}
+
+/// `loopback` listens on a local port the webview loads. `scheme` answers
+/// `app://localhost` in process with no port; a response arrives whole, so
+/// nothing streams.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DesktopServe {
+  #[default]
+  Loopback,
+  Scheme,
+}
+
+/// `memory` keeps a scheme window's cookies for one run; `disk` keeps them
+/// in the application's data directory across runs.
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DesktopCookies {
+  #[default]
+  Memory,
+  Disk,
+}
+
 /// `[mdx]`. The host reads none of it: `fsr` built with its `mdx` feature
 /// does, and refuses a key whose feature it was built without.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1201,6 +1240,7 @@ const SECTIONS: &[&str] = &[
   "build",
   "trace",
   "crawl",
+  "desktop",
   "mdx",
   "site",
   "sites",
@@ -1865,6 +1905,20 @@ impl Config {
       None
     };
 
+    let desktop: Option<DesktopSection> = if store.path_exists("desktop") || !store.key_paths_with_prefix(Some("desktop")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["name", "serve", "cookies"] {
+        if let Some(value) = store.get(&format!("desktop.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      let section: DesktopSection = serde_json::from_value(serde_json::Value::Object(json))
+        .map_err(|e| HostError::Config(at.clone(), format!("desktop: {e}")))?;
+      Some(section)
+    } else {
+      None
+    };
+
     let mut mdx = MdxSection::default();
     let mdx_keys: Vec<String> = store.key_paths_with_prefix(Some("mdx")).into_iter().filter_map(|k| k.strip_prefix("mdx.").map(str::to_owned)).collect();
     for key in &mdx_keys {
@@ -2369,6 +2423,7 @@ impl Config {
       build,
       trace,
       crawl,
+      desktop,
       mdx,
       site,
       sites,

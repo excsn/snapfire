@@ -68,11 +68,14 @@ pub struct DevOptions {
   pub alone: bool,
   /// Prints the report's rows for what lowered as well, `--verbose`.
   pub verbose: bool,
+  /// Opens the shell in a native window, `--desktop`.
+  #[cfg(feature = "desktop")]
+  pub desktop: bool,
 }
 
 impl Default for DevOptions {
   fn default() -> Self {
-    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false, verbose: false }
+    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false }
   }
 }
 
@@ -82,7 +85,7 @@ impl DevOptions {
   pub fn beside(app: &Path) -> Self {
     let build = Options::beside(app);
     let public_path = crate::bundle_base(build.site.as_ref());
-    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false, verbose: false }
+    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false }
   }
 }
 
@@ -973,9 +976,38 @@ pub(crate) fn emit_from(app: &Path, options: DevOptions, registry: &str) -> Resu
   }
 }
 
+#[cfg(feature = "desktop")]
+type Window = crate::desktop::Window;
+#[cfg(not(feature = "desktop"))]
+type Window = std::convert::Infallible;
+
+/// Runs the loop until Ctrl-C or until its window closes under `--desktop`.
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
+  #[cfg(feature = "desktop")]
+  if options.desktop {
+    let app = app.to_path_buf();
+    return crate::desktop::run(&crate::desktop::name(&app), None, move |window| watching(&app, options, Some(window)));
+  }
+  watching(app, options, None)
+}
+
+fn watching(app: &Path, options: DevOptions, window: Option<Window>) -> Result<(), BuildError> {
   let project = Project::open(app, options)?;
   let (tx, rx) = unbounded::<Msg>();
+  #[cfg(feature = "desktop")]
+  if let Some(window) = &window {
+    let config = Config::load(&crate::serve::project_root(&project.shell().dir)).map_err(|e| BuildError::Dev(format!("dev: {e}")))?;
+    let mut stop = tx.clone();
+    window.on_close(move || {
+      let _ = stop.send(Msg::Stop);
+    });
+    if config.desktop.as_ref().is_some_and(|desktop| desktop.serve == snapfire_fsr_host::config::DesktopServe::Scheme) {
+      println!("dev: the window loads the server over loopback, since development refresh streams; `[desktop] serve = \"scheme\"` applies to fsr serve --desktop");
+    }
+    window.open(crate::desktop::url(&config.server.listen, false)?);
+  }
+  #[cfg(not(feature = "desktop"))]
+  let _ = window;
   let mut stop: UnboundedSyncSender<Msg> = tx.clone();
   ctrlc::set_handler(move || {
     let _ = stop.send(Msg::Stop);

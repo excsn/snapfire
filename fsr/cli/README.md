@@ -17,6 +17,8 @@ cargo install --path fsr/cli --no-default-features --features tera
 | --- | --- | --- |
 | `tera` | on | `page.tera` and `layout.tera` routes, rendered by the stock host |
 | `tls` | off | TLS in the stock host |
+| `client-source-maps` | off | The browser client's source maps, with its TypeScript, served beside it so devtools show the client's source; about 1.3 MB |
+| `desktop` | off | Experimental. `fsr dev --desktop` and `fsr serve --desktop`: the application in a native window over the system webview, through wry, tao and muda |
 | `mdx` | on | `.mdx` and `.md` routes and imports, `[mdx]` and `fsr use <app> mdx` |
 | `mdx-highlight` | on | `mdx`, plus fenced code highlighted at build and `styles/code.css` from the direction |
 | `mdx-frontmatter` | on | `mdx`, plus YAML or TOML frontmatter as `export const meta` |

@@ -20,6 +20,8 @@ path = "src/main.rs"
 [features]
 default = ["tera", "mdx-highlight", "mdx-frontmatter"]
 tls = ["snapfire_fsr_host/tls"]
+# Serves the browser client's source maps, its TypeScript inlined.
+client-source-maps = ["snapfire_fsr_host/client_source_maps"]
 # A `page.tera` or `layout.tera` under `routes/`, served by the stock host.
 tera = ["snapfire_fsr_host/tera"]
 # `.mdx` and `.md` routes and imports, read at build time.
@@ -28,6 +30,8 @@ mdx = ["dep:snapfire_fsr_mdx"]
 mdx-highlight = ["mdx", "snapfire_fsr_mdx/highlight"]
 # YAML or TOML frontmatter in MDX and markdown as `export const meta`.
 mdx-frontmatter = ["mdx", "snapfire_fsr_mdx/frontmatter"]
+# `fsr dev --desktop` and `fsr serve --desktop`: the app in a native window over the system webview.
+desktop = ["dep:bytes", "dep:http", "dep:http-body-util", "dep:muda", "dep:tao", "dep:wry"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -65,6 +69,12 @@ sha2 = "0.10"
 base64 = "0.22"
 thiserror = "2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "net"] }
+bytes = { version = "1", optional = true }
+http = { version = "1", optional = true }
+http-body-util = { version = "0.1", optional = true }
+muda = { version = "0.21", optional = true }
+tao = { version = "0.37", optional = true }
+wry = { version = "0.57", optional = true }
 toml = "0.8"
 
 [dependencies.swc_core]
@@ -81,3 +91,7 @@ proptest = "1"
 [[test]]
 name = "mdx"
 required-features = ["mdx-highlight", "mdx-frontmatter"]
+
+[[test]]
+name = "desktop"
+required-features = ["desktop"]

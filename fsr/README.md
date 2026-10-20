@@ -62,6 +62,18 @@ Each corpus builds a framework's own published examples through FSR as one appli
 
 The "by design" column counts examples that use something the server can't reproduce exactly: the current time, `Math.random`, a `fetch` during render or an npm package the build doesn't follow. Not counting those, the server renders 100% of the rest on all three.
 
+## Desktop apps (experimental)
+
+The same application runs as a desktop app, a high-performance replacement for Electron. Electron ships a Chromium and a Node runtime inside every app. FSR opens the operating system's own webview (WebKit on macOS and Linux, WebView2 on Windows) and runs the Rust host in the same process, so the app carries no browser and no JavaScript runtime of its own. The pages, loaders, actions and islands are the ones the website serves.
+
+```sh
+cargo install snapfire_fsr_cli --features desktop
+fsr dev app --desktop
+fsr serve app --desktop
+```
+
+Desktop mode is experimental. Today the window loads the host over a loopback port. Its menu bar has back, forward, reload and the clipboard. Its title is `[desktop] name` followed by the page's title. It is tried on macOS only; the Windows and Linux code is written but has not been built or run. Packaging, signing and a native bridge for page code do not exist yet. See [Opening the App in a Window](cli/README.USAGE.md#opening-the-app-in-a-window).
+
 ## Architecture
 
 FSR treats backend logic and client presentation as one set of composable blocks. 

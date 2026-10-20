@@ -194,6 +194,11 @@ robots = "/robots.txt"            # served here; no key, no robots.txt
 sitemap = "/sitemap.xml"          # served here; no key, no sitemap
 disallow = ["/drafts/"]           # beside /__fsr/, /_sf/ and /auth/ when [auth] is set
 
+[desktop]                         # optional: read by an fsr built with its desktop feature, none of it by the host
+name = "Storefront"               # leads the window's title, before the page's; the project directory's name without it
+serve = "loopback"                # the default; "scheme" answers app://localhost in process, where nothing streams
+cookies = "memory"                # the default; "disk" keeps a scheme window's cookies in the application's data directory
+
 [mdx]                             # optional: read by an fsr built with its mdx features, none of it by the host
 frontmatter = false               # the default; true takes YAML or TOML frontmatter as export const meta
 

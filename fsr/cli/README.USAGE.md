@@ -39,6 +39,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * [Building a Site](#building-a-site)
 * [Building a Shell](#building-a-shell)
 * [Serving Without a Rust Project](#serving-without-a-rust-project)
+* [Opening the App in a Window](#opening-the-app-in-a-window)
 * [Rendering a Route with Tera](#rendering-a-route-with-tera)
 * [Writing Pages in MDX](#writing-pages-in-mdx)
   * [Importing a file and picking one by its data](#importing-a-file-and-picking-one-by-its-data)
@@ -813,6 +814,7 @@ Sixteen checks, each answering from something the build already computed, so non
 | `csp` | a policy names `'unsafe-inline'` in `script-src` beside the import map's hash, which makes the browser ignore it; or it names `'strict-dynamic'`, which makes it ignore `'self'` and so the entry module |
 | `store` | a site sets `[store] slot_order`, which the browser takes from the shell's document and so ignores |
 | `images` | an AVIF original carries EXIF or XMP metadata, which the build strips from a JPEG, PNG, WebP or GIF and leaves in an AVIF; quiet under `[images] strip = false` |
+| `desktop` | `[desktop] serve = "scheme"` while a route streams behind a loading boundary, which a scheme window gets whole |
 
 The `csp` check also runs on every `fsr build` and `fsr dev`, since either policy leaves the page with no working script: its findings print as `csp` rows of the build report.
 
@@ -1219,6 +1221,54 @@ To serve with no backend at all, an overlay names a client's transport as `mock`
 [clients.fleet]
 transport = "mock"
 ```
+
+## Opening the App in a Window
+
+Desktop mode is experimental and tried on macOS only. With the `desktop` feature, `--desktop` opens the application in a native window over the system webview: WebKit on macOS and Linux, WebView2 on Windows. The page and the host are the ones a browser gets; the window loads the host over loopback.
+
+```sh
+cargo install --path fsr/cli --features desktop
+```
+
+`fsr serve --desktop` binds an ephemeral port on `127.0.0.1` unless `--listen` names one, opens the window once the port answers and exits when the window closes.
+
+```sh
+fsr serve app --desktop
+fsr serve app --desktop --listen 127.0.0.1:8080
+```
+
+`fsr dev --desktop` keeps the window across rebuilds and server restarts, since the loop owns it and the server it starts does not. The window opens on the shell's `server.listen`, so that names a fixed port; development refresh reloads the page in the window as it does in a browser. Closing the window stops the loop as Ctrl-C does.
+
+```sh
+fsr dev app --desktop
+```
+
+The window's title is the application's name followed by the page's `<title>` as in `Storefront - Cart`. When the page's title is the same or empty it is the name alone. The name is `[desktop] name` from the configuration, else the project directory's name.
+
+```toml
+[desktop]
+name = "Storefront"
+```
+
+On macOS the window has a menu bar with three menus. The application's menu holds Quit (⌘Q). Edit holds undo, redo and the clipboard. History holds Back (⌘[), Forward (⌘]) and Reload (⌘R). A two-finger swipe goes back and forward. Quit stops `fsr dev` the way closing the window does. On Windows and Linux the bar sits in the window with File holding Quit, Back and Forward are Alt+← and Alt+→ and Reload is Ctrl+R; that code has not been built or run.
+
+By default the window loads the host over loopback. `[desktop] serve = "scheme"` serves `app://localhost` through the host in process instead, with no port for another program or a web page to reach and the same origin on every launch, so the page's storage survives a restart. The webview takes each scheme response whole and keeps none of its cookies, so it costs what streams:
+
+| Over the scheme | What happens |
+| --- | --- |
+| A route behind `loading.tsx` or a deferred slot | Arrives whole once its slowest loader finishes |
+| Live topics and sockets | Do not connect: a stream is answered 204 No Content, so the page stops asking |
+| Development refresh | `fsr dev --desktop` stays on loopback whatever `serve` says |
+| Cookies | FSR keeps them for the window. By default they last the run; with `cookies = "disk"` they are kept in the application's data directory (`~/Library/Application Support/<name>/cookies.json` on macOS, `%APPDATA%\<name>` on Windows, `$XDG_DATA_HOME/<name>` or `~/.local/share/<name>` on Linux), readable by its owner alone |
+
+```toml
+[desktop]
+name = "Storefront"
+serve = "scheme"
+cookies = "disk"
+```
+
+`fsr serve app --desktop` prints the routes that stream and refuses `--listen` under the scheme. `fsr doctor` reports a scheme window over a route that streams as a `desktop` finding.
 
 ## Rendering a Route with Tera
 

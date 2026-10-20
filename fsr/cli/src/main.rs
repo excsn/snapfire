@@ -146,6 +146,10 @@ struct Dev {
   /// Serves a site by itself even when `[site] shell` names a shell it could run under.
   #[arg(long)]
   alone: bool,
+  /// Opens the application in a native window over the system webview.
+  #[cfg(feature = "desktop")]
+  #[arg(long)]
+  desktop: bool,
 }
 
 #[derive(Args)]
@@ -207,6 +211,10 @@ struct Serve {
   /// Prints the whole boot report rather than only what needs attention.
   #[arg(long)]
   verbose: bool,
+  /// Opens the application in a native window over the system webview, on an ephemeral loopback port unless --listen names one.
+  #[cfg(feature = "desktop")]
+  #[arg(long)]
+  desktop: bool,
 }
 
 #[derive(Args)]
@@ -268,8 +276,7 @@ struct Use {
 struct Add {
   /// The application directory.
   app_dir: PathBuf,
-  /// Packages to vendor, as name@version[/subpath].
-  #[arg(required = true)]
+  /// Packages to vendor, as name@version[/subpath]; none repairs the vendored modules' source maps alone.
   specs: Vec<String>,
   /// Packages to leave to the importing page, comma separated.
   #[arg(long)]
@@ -457,6 +464,10 @@ impl Dev {
     let mut options = self.build.options();
     options.under = self.under.clone();
     options.alone = self.alone;
+    #[cfg(feature = "desktop")]
+    {
+      options.desktop = self.desktop;
+    }
     options
   }
 }
@@ -562,6 +573,8 @@ fn main() -> ExitCode {
         mounts.push((name.to_owned(), PathBuf::from(path)));
       }
       let options = ServeOptions::default().listen(args.listen).mounts(mounts).verbose(args.verbose);
+      #[cfg(feature = "desktop")]
+      let options = options.desktop(args.desktop);
       match serve::run(&args.app_dir, options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => failed(e),
@@ -837,6 +850,9 @@ fn run_add(args: Add) -> ExitCode {
       }
       for (specifier, url) in report.remapped {
         println!("remapped  {specifier:<28} {url}");
+      }
+      for module in &report.repaired {
+        println!("map       {module}");
       }
       ExitCode::SUCCESS
     }
