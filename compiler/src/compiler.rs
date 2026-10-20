@@ -535,11 +535,8 @@ impl Compiler {
       .map_err(|e| anyhow!("Failed to generate CSS: {}", e))?;
 
     let serialised = if map.wanted() {
-      Some(
-        built
-          .to_json(None)
-          .map_err(|e| anyhow!("Failed to serialise the source map: {}", e))?,
-      )
+      let json = built.to_json(None).map_err(|e| anyhow!("Failed to serialise the source map: {}", e))?;
+      Some(css_map(&json, map.source_name)?)
     } else {
       None
     };
@@ -708,4 +705,21 @@ fn describe(cm: &SourceMap, error: &ParserError) -> String {
     loc.col_display + 1,
     error.kind().msg()
   )
+}
+
+/// parcel_sourcemap writes `"sourceRoot": null`, an empty `sourcesContent`
+/// when no source is inlined and its one source relative to the map's root,
+/// which drops the leading slash of a public path. A browser rejects the first
+/// and resolves the last against the map's own URL.
+fn css_map(json: &str, source_name: &str) -> Result<String> {
+  let mut map: serde_json::Value = serde_json::from_str(json).map_err(|e| anyhow!("Failed to read the source map: {}", e))?;
+  let Some(fields) = map.as_object_mut() else { return Ok(json.to_owned()) };
+  if fields.get("sourceRoot").is_some_and(serde_json::Value::is_null) {
+    fields.remove("sourceRoot");
+  }
+  if fields.get("sourcesContent").and_then(serde_json::Value::as_array).is_some_and(Vec::is_empty) {
+    fields.remove("sourcesContent");
+  }
+  fields.insert("sources".to_owned(), serde_json::json!([source_name]));
+  serde_json::to_string(&map).map_err(|e| anyhow!("Failed to serialise the source map: {}", e))
 }

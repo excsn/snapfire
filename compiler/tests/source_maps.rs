@@ -80,6 +80,31 @@ fn test_css_gets_a_map_with_css_comment_syntax() {
 }
 
 #[test]
+fn test_a_css_map_names_no_null_source_root_and_no_empty_sources_content() {
+  let fixture = Fixture::new("source-maps");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()));
+
+  let map = fs::read_to_string(fixture.root().join("dist/style.css.map")).unwrap();
+  assert!(!map.contains("\"sourceRoot\":null"), "a sourceRoot is a string or absent: {map}");
+  assert!(!map.contains("\"sourcesContent\":[]"), "sourcesContent holds one entry per source or is absent: {map}");
+}
+
+#[test]
+fn test_a_css_map_under_a_public_path_names_its_source_from_the_root() {
+  let fixture = Fixture::new("source-maps");
+
+  let mut cmd = get_snapfirec_cmd();
+  run_snapfirec(cmd.arg("--root").arg(fixture.root()).arg("--public-path").arg("/static/js/app"));
+
+  let js = fs::read_to_string(fixture.root().join("dist/index.js.map")).unwrap();
+  let css = fs::read_to_string(fixture.root().join("dist/style.css.map")).unwrap();
+  assert!(field(&js, "sources").contains("\"/static/js/app/"), "{js}");
+  assert!(field(&css, "sources").contains("\"/static/js/app/"), "the CSS map names its source as the JS map does: {css}");
+}
+
+#[test]
 fn test_tsconfig_source_map_key_is_honoured() {
   let fixture = Fixture::new("source-maps");
 
