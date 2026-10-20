@@ -661,6 +661,23 @@ const selectable = (doc) => {
 if (typeof globalThis.getSelection !== "function") globalThis.getSelection = () => emptySelection;
 if (typeof documentProto.getSelection !== "function") documentProto.getSelection = () => emptySelection;
 selectable(document);
+// linkedom makes a dialog and a details plain HTMLElements, with no `open`. A
+// browser's is a boolean that reflects the attribute. Vue sets it as a
+// property for that reason. Any other element keeps the attribute as written.
+const OPENS = new Set(["dialog", "details"]);
+if (globalThis.HTMLElement && !("open" in globalThis.HTMLElement.prototype)) {
+  Object.defineProperty(globalThis.HTMLElement.prototype, "open", {
+    configurable: true,
+    get() {
+      return OPENS.has(this.localName) ? this.hasAttribute("open") : this.getAttribute("open") ?? undefined;
+    },
+    set(value) {
+      if (!OPENS.has(this.localName)) this.setAttribute("open", String(value));
+      else if (value) this.setAttribute("open", "");
+      else this.removeAttribute("open");
+    },
+  });
+}
 // linkedom has no `defaultValue`. A browser's input reflects its `value`
 // attribute and a textarea's is its text. Vue's v-model reads it as it
 // creates a control.

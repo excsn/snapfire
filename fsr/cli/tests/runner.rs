@@ -223,3 +223,12 @@ fn an_input_and_a_textarea_answer_their_default_value_as_in_a_browser() {
   assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn a_dialog_and_a_details_answer_open_as_a_boolean_reflecting_the_attribute() {
+  let spec = "import { expect, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"open reflects the attribute\", () => {\n  document.body.innerHTML = '<dialog id=\"d\"></dialog><details id=\"s\" open></details>';\n  const dialog = document.querySelector(\"#d\") as HTMLDialogElement;\n  const details = document.querySelector(\"#s\") as HTMLDetailsElement;\n  expect([dialog.open, details.open]).toEqual([false, true]);\n  dialog.open = true;\n  details.open = false;\n  expect([dialog.getAttribute(\"open\"), details.hasAttribute(\"open\")]).toEqual([\"\", false]);\n});\n";
+  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/open.spec.ts", spec)]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
