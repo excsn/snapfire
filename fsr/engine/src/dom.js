@@ -367,22 +367,10 @@ const retire = (doc) => {
   }
   for (const name of ["body", "head", "activeElement"]) Object.defineProperty(doc, name, { configurable: true, get: () => globalThis.document[name] });
 };
-// A browser's parser puts what follows </html> into the body once it meets anything but a comment or white space; the comments before that stay on the document. linkedom drops it. The server writes placed content there when the page has no place for it.
-const afterHtml = (html) => {
-  const lower = html.toLowerCase();
-  const closeHtml = lower.lastIndexOf("</html>");
-  const closeBody = lower.lastIndexOf("</body>");
-  if (closeHtml < 0 || closeBody < 0 || closeBody > closeHtml) return html;
-  const rest = html.slice(closeHtml + "</html>".length);
-  const lead = rest.match(/^(?:\s|<!--[\s\S]*?-->)*/)[0];
-  const moved = rest.slice(lead.length);
-  if (moved.trim() === "") return html;
-  return html.slice(0, closeBody) + moved + html.slice(closeBody, closeHtml + "</html>".length) + lead;
-};
 globalThis.__sf.load = (html, url) => {
   globalThis.__sf_location(url);
   globalThis.history.restart();
-  const page = L.parseHTML(afterHtml(String(html))).document;
+  const page = L.parseHTML(String(html)).document;
   declareShadowRoots(page);
   retire(globalThis.document);
   globalThis.document = page;

@@ -214,12 +214,3 @@ fn a_cleanup_that_throws_fails_its_own_test_and_the_rest_of_the_file_still_repor
   assert!(report.contains("leaves an island whose unmount throws") && report.contains("unmount broke"), "the cleanup's error is the first test's: {report}");
   std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
 }
-
-#[test]
-fn what_follows_the_closing_html_tag_lands_in_the_body_as_a_browser_parses_it() {
-  let spec = "import { expect, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"the run after </html> is in the body\", () => {\n  (globalThis as unknown as { __sf: { load(html: string, url: string): void } }).__sf.load(\"<!doctype html><html><head></head><body><p id=\\\"page\\\">page</p></body></html><!--/sf-g--><template id=\\\"run\\\"></template><p id=\\\"after\\\">after</p>\", \"/\");\n  expect([...document.body.children].map((el) => el.id)).toEqual([\"page\", \"run\", \"after\"]);\n  expect([...document.body.childNodes].some((n) => n.nodeType === 8), \"the comment straight after </html> stays outside the body\").toEqual(false);\n});\n";
-  let dir = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"), ("tests/after.spec.ts", spec)]);
-  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
-  assert_eq!((summary.passed, summary.failed), (1, 0), "{summary}");
-  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
-}
