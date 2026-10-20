@@ -22,7 +22,7 @@ The build stops a module at its first cause and a component that fails never low
 
 | Cause | Examples | What the server does not render yet |
 | --- | --- | --- |
-| A helper that advances a module-level seed on each call, `tutorial-advanced-svelte-context-context-api` | 1 | State a call writes and a later call in the same render reads |
+| A call through a context value to a function that only schedules `$effect`, `tutorial-advanced-svelte-context-context-api` | 1 | Following a function value through a context and reading a body of browser-only calls as doing nothing |
 
 ### By design
 

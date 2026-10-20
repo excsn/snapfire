@@ -948,3 +948,19 @@ mod generated {
     }
   }
 }
+
+#[test]
+fn an_instance_let_a_function_advances_holds_across_the_templates_calls_in_render_order() {
+  let child = "<script>let seed = 1; function random() { seed *= 16807; seed %= 2147483647; return (seed - 1) / 2147483646; } function jitter(amount) { return amount * (random() - 0.5); }</script>{#each [1, 2, 3] as r}<p>{jitter(r * 2)}</p>{/each}<b>{seed}</b>";
+  let parent = "<script>import C from './C.svelte';</script><C /><C />";
+  let (rust, svelte) = both("instance-cells", &[("src/P.svelte", parent), ("src/C.svelte", child)], &ValueMap::default(), None);
+  assert_eq!(rust, svelte);
+}
+
+#[test]
+fn a_module_let_a_function_advances_is_shared_by_the_instances_of_one_render() {
+  let child = "<script module>let made = 0; function next() { made += 1; return made; }</script><p>{next()}</p>";
+  let parent = "<script>import C from './C.svelte';</script><C /><C /><C />";
+  let (rust, svelte) = both("module-cells", &[("src/P.svelte", parent), ("src/C.svelte", child)], &ValueMap::default(), None);
+  assert_eq!(rust, svelte);
+}

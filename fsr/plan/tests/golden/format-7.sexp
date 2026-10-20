@@ -257,7 +257,11 @@
 (const src/x.ts#c76 (number s))
 (const src/x.ts#c77 (bigint n))
 (const src/x.ts#c78 (hoist 7 n))
+(const src/x.ts#c79 (cell n))
 (const src/x.ts#c8 (host))
+(const src/x.ts#c80 (module-cell "src/C.svelte#made" n))
+(const src/x.ts#c81 (read-cell n))
+(const src/x.ts#c82 (write-cell n n))
 (const src/x.ts#c9 (input))
 (component routes/page.tsx#default
   (owner react)

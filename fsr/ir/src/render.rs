@@ -1202,11 +1202,23 @@ fn render_for<'a>(env: &mut Env, over: &crate::ast::Expr, params: &[String], bod
 /// state the branch turned on. Loops and bindings on the way are evaluated
 /// as the render would, so the keys match. A chunk whose render fails is
 /// left unrecorded: its branch guards a read the browser cannot take either.
+/// The render's cells as they stand, for a pass beside the render that reads them as they are at its point and whose writes are dropped.
+fn hold_cells(env: &Env) -> (Option<Vec<Value>>, Vec<(String, usize)>) {
+  (env.cells.clone(), env.module_cells.clone())
+}
+
+fn restore_cells(env: &mut Env, (cells, module_cells): (Option<Vec<Value>>, Vec<(String, usize)>)) {
+  env.cells = cells;
+  env.module_cells = module_cells;
+}
+
 fn record_untaken<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slots: &mut Vec<Slot<'a>>) {
   if env.hoists.is_none() || !holds_chunk(tmpl, UNTAKEN_ATTR) {
     return;
   }
+  let held = hold_cells(env);
   let _ = walk_chunks(env, tmpl, UNTAKEN_ATTR, library, slots);
+  restore_cells(env, held);
 }
 
 /// Renders every element carrying `mark` in `tmpl` into nothing but the
@@ -1298,7 +1310,9 @@ fn held_chunks<'a>(env: &mut Env, module: &str, component: &'a Component, props:
       env.scope.push((name.clone(), value));
     }
   }
+  let held = hold_cells(env);
   let _ = walk_chunks(env, &component.render, CHUNK_ATTR, library, slots);
+  restore_cells(env, held);
   env.markup = caller;
   env.in_framework = outer_framework;
   env.scope = outer;
@@ -2489,7 +2503,11 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
         *expr = Expr::Folded(Value::str(text));
       }
     }
-    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } => fold_expr(e),
+    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } | Expr::Cell(e) | Expr::ModuleCell { init: e, .. } | Expr::ReadCell(e) => fold_expr(e),
+    Expr::WriteCell(a, b) => {
+      fold_expr(a);
+      fold_expr(b);
+    }
     Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b) | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b) | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => {
       fold_expr(a);
       fold_expr(b);

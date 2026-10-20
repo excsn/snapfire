@@ -25,3 +25,9 @@ test("ordering by length and switching to dots redraw the table in the browser",
   expect(document.querySelectorAll(".ranks .dots").length).toEqual(6);
   expect(document.querySelectorAll(".ranks .bar").length).toEqual(0);
 });
+
+test("figures numbered by module state count across the page's islands on the server", async () => {
+  const html = await (await fetch("/stats")).text();
+  const served = [...html.matchAll(/<p class="figure">([^<]*)<\/p>/g)].map((m) => m[1]);
+  expect(served, "one module counter for the whole page, as the browser has").toEqual(["Figure 1: pages read per book", "Figure 2: books finished per month"]);
+});

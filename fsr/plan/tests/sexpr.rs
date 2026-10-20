@@ -110,6 +110,10 @@ fn every_expr() -> Vec<Expr> {
     Expr::Num(v("s")),
     Expr::BigInt(v("n")),
     Expr::Hoist { id: 7, expr: v("n") },
+    Expr::Cell(v("n")),
+    Expr::ModuleCell { key: "src/C.svelte#made".to_owned(), init: v("n") },
+    Expr::ReadCell(v("n")),
+    Expr::WriteCell(v("n"), v("n")),
   ]
 }
 
@@ -735,8 +739,9 @@ fn a_format_6_plan_still_reads() {
   assert_eq!(read.to_sexpr(), expected.to_sexpr(), "and prints as format 7");
 }
 
-/// Every marker, html and place node, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
+/// Every marker, html and place node, every cell expression, the Svelte-owned component and the `svelte` framework dropped, which is what a plan written before format 7 carries.
 fn forget_svelte(manifest: &mut Manifest) {
+  manifest.consts.retain(|_, expr| !matches!(expr, Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..)));
   manifest.components.retain(|entry| entry.body.owner != snapfire_fsr_ir::Owner::Svelte);
   manifest.frameworks.remove("svelte");
   for entry in &mut manifest.components {

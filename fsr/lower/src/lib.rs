@@ -951,6 +951,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) browser_functions: Vec<String>,
   /// The application's functions whose every statement the browser alone runs, so a call to one as a statement does nothing on the server.
   pub(crate) browser_effects: Vec<String>,
+  /// Names held in a cell, `Expr::Cell` or `Expr::ModuleCell`, because a function writes them, each with the expression for its handle: a write in a block is a `WriteCell` through it.
+  pub(crate) cells: Vec<(String, Expr)>,
   /// The contexts this component provides, by key, for a `getContext` of its own to read.
   pub(crate) provided: Vec<(String, Expr)>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
@@ -1017,7 +1019,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1436,7 +1438,7 @@ impl<'a> Lowerer<'a> {
 
   /// A statement that is an expression: a session write, a delete, a bare
   /// `fail` or an awaited call for its effect.
-  fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
+  pub(crate) fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
     // A `console` call in a helper's block logs on the server as one in a component's body does.
     if let js::Expr::Call(call) = expr {
       if let Some(logged) = crate::component::console_call(self, call)? {
@@ -1444,6 +1446,26 @@ impl<'a> Lowerer<'a> {
       }
     }
     match expr {
+      js::Expr::Assign(assign) if self.cell_of_target(&assign.left).is_some() => {
+        let handle = self.cell_of_target(&assign.left).expect("checked");
+        let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = &assign.left else { unreachable!("cell_of_target answers for a name") };
+        let value = match assign.op.to_update() {
+          None => self.expr(&assign.right)?,
+          Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(js::Expr::Ident(id.id.clone())), right: assign.right.clone() }))?,
+        };
+        Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(value))))
+      }
+      js::Expr::Update(update) if matches!(&*update.arg, js::Expr::Ident(id) if self.cells.iter().any(|(name, _)| *name == *id.sym)) => {
+        let js::Expr::Ident(id) = &*update.arg else { unreachable!() };
+        let handle = self.cells.iter().find(|(name, _)| *name == *id.sym).map(|(_, handle)| handle.clone()).expect("checked");
+        let op = match update.op {
+          js::UpdateOp::PlusPlus => js::BinaryOp::Add,
+          js::UpdateOp::MinusMinus => js::BinaryOp::Sub,
+        };
+        let one = js::Expr::Lit(js::Lit::Num(js::Number { span: update.span, value: 1.0, raw: None }));
+        let value = self.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
+        Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(value))))
+      }
       js::Expr::Assign(assign) if self.local_target(&assign.left).is_some() => self.local_assign(assign),
       js::Expr::Update(update) if matches!(&*update.arg, js::Expr::Ident(id) if self.is_local(id.sym.as_ref())) => {
         let js::Expr::Ident(id) = &*update.arg else { unreachable!() };
@@ -1583,6 +1605,12 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `x = e`, `x += e` and their kin on a local; `x.field = e` rebinds `x` to a copy with that field.
+  /// The handle of the cell an assignment writes, when it writes a name held in one.
+  fn cell_of_target(&self, target: &js::AssignTarget) -> Option<Expr> {
+    let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = target else { return None };
+    self.cells.iter().rev().find(|(name, _)| *name == *id.id.sym).map(|(_, handle)| handle.clone())
+  }
+
   fn local_assign(&mut self, assign: &js::AssignExpr) -> Lowered<Stmt> {
     let name = self.local_target(&assign.left).expect("checked");
     let read = match &assign.left {

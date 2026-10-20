@@ -118,7 +118,7 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
   let mut pure = free.is_empty();
   let mut refs = Vec::new();
   expr.visit(&mut |e| match e {
-    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) => pure = false,
+    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) => pure = false,
     Expr::Const(other) => refs.push(other.clone()),
     _ => {}
   });
@@ -255,6 +255,8 @@ impl Interpreter {
       scoped: None,
       made: Some(Vec::new()),
       closures: Some(Vec::new()),
+      cells: Some(Vec::new()),
+      module_cells: Vec::new(),
       marks: Vec::new(),
       placed: Vec::new(),
       input: input.unwrap_or(Value::Null),
@@ -392,6 +394,10 @@ pub(crate) struct Env {
   pub(crate) placed: Vec<usize>,
   /// The function values this render made, which a value made here names by index. `None` in a copy for parallel evaluation.
   pub(crate) closures: Option<Vec<Closure>>,
+  /// The cells this render made, which a handle names by index. `None` in a copy for parallel evaluation.
+  pub(crate) cells: Option<Vec<Value>>,
+  /// The render's named cells, `Expr::ModuleCell`, by key with their index in `cells`.
+  pub(crate) module_cells: Vec<(String, usize)>,
 }
 
 /// A function value: its parameters, its body and the names it reads with their values where it was written.
@@ -404,6 +410,23 @@ pub(crate) struct Closure {
 
 /// The tag of a function value: its payload indexes the render's closure table.
 pub const FUNCTION_VALUE: &str = "$fn";
+
+/// The tag of a cell's handle, a `Value::Variant` whose payload is the cell's index in the render's table.
+pub const CELL_VALUE: &str = "$cell";
+
+fn cell_handle(index: usize) -> Value {
+  Value::Variant { tag: CELL_VALUE.to_owned(), payload: Some(Box::new(Value::Int(index as i128))) }
+}
+
+fn cell_index(handle: &Value) -> Option<usize> {
+  match handle {
+    Value::Variant { tag, payload: Some(index) } if tag == CELL_VALUE => match **index {
+      Value::Int(index) => usize::try_from(index).ok(),
+      _ => None,
+    },
+    _ => None,
+  }
+}
 
 fn closure_index(value: &Value) -> Option<usize> {
   match value {
@@ -591,6 +614,8 @@ impl Env {
       scoped: None,
       made: Some(Vec::new()),
       closures: Some(Vec::new()),
+      cells: Some(Vec::new()),
+      module_cells: Vec::new(),
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -798,6 +823,8 @@ impl Env {
       scoped: None,
       made: None,
       closures: None,
+      cells: None,
+      module_cells: Vec::new(),
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -897,6 +924,28 @@ impl Env {
     }
     match expr {
       Expr::Markup(tmpl) => self.make(tmpl),
+      Expr::Cell(init) => {
+        let value = self.eval_sync(init)?;
+        self.new_cell(value)
+      }
+      Expr::ModuleCell { key, init } => match self.module_cells.iter().find(|(k, _)| k == key) {
+        Some((_, index)) => Ok(cell_handle(*index)),
+        None => {
+          let value = self.eval_sync(init)?;
+          let handle = self.new_cell(value)?;
+          self.module_cells.push((key.clone(), cell_index(&handle).expect("a handle just made")));
+          Ok(handle)
+        }
+      },
+      Expr::ReadCell(handle) => {
+        let handle = self.eval_sync(handle)?;
+        self.read_cell(&handle)
+      }
+      Expr::WriteCell(handle, value) => {
+        let handle = self.eval_sync(handle)?;
+        let value = self.eval_sync(value)?;
+        self.write_cell(&handle, value)
+      }
       Expr::Const(key) => {
         if let Some(value) = self.held.get(key) {
           return Ok(value.clone());
@@ -1282,6 +1331,25 @@ impl Env {
     Ok(Value::Variant { tag: FUNCTION_VALUE.to_owned(), payload: Some(Box::new(Value::Int((table.len() - 1) as i128))) })
   }
 
+  fn new_cell(&mut self, value: Value) -> Result<Value, Fail> {
+    let Some(cells) = &mut self.cells else {
+      return Err(Fail::internal("a cell made while the body's independent lets evaluate in parallel"));
+    };
+    cells.push(value);
+    Ok(cell_handle(cells.len() - 1))
+  }
+
+  fn read_cell(&self, handle: &Value) -> Result<Value, Fail> {
+    cell_index(handle).and_then(|index| self.cells.as_ref().and_then(|cells| cells.get(index))).cloned().ok_or_else(|| type_error("a cell read", "a cell", handle))
+  }
+
+  fn write_cell(&mut self, handle: &Value, value: Value) -> Result<Value, Fail> {
+    let slot = cell_index(handle).and_then(|index| self.cells.as_mut().and_then(|cells| cells.get_mut(index)));
+    let Some(slot) = slot else { return Err(type_error("a cell write", "a cell", handle)) };
+    *slot = value.clone();
+    Ok(value)
+  }
+
   /// The function value `f` evaluates to, for a call whose target is not a lambda written in place.
   fn closure_of(&mut self, f: &Expr) -> Result<Closure, Fail> {
     let value = self.eval_sync(f)?;
@@ -1328,6 +1396,28 @@ impl Env {
     Box::pin(async move {
       match expr {
         Expr::Markup(_) => self.eval_sync(expr),
+        Expr::Cell(init) => {
+          let value = self.eval(init).await?;
+          self.new_cell(value)
+        }
+        Expr::ModuleCell { key, init } => match self.module_cells.iter().find(|(k, _)| k == key) {
+          Some((_, index)) => Ok(cell_handle(*index)),
+          None => {
+            let value = self.eval(init).await?;
+            let handle = self.new_cell(value)?;
+            self.module_cells.push((key.clone(), cell_index(&handle).expect("a handle just made")));
+            Ok(handle)
+          }
+        },
+        Expr::ReadCell(handle) => {
+          let handle = self.eval(handle).await?;
+          self.read_cell(&handle)
+        }
+        Expr::WriteCell(handle, value) => {
+          let handle = self.eval(handle).await?;
+          let value = self.eval(value).await?;
+          self.write_cell(&handle, value)
+        }
         Expr::Const(key) => {
           let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };
           let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };

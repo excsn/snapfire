@@ -135,7 +135,11 @@ fn expr() -> BoxedStrategy<Expr> {
       inner.clone().prop_map(|e| Expr::Str(Box::new(e))),
       inner.clone().prop_map(|e| Expr::Num(Box::new(e))),
       inner.clone().prop_map(|e| Expr::BigInt(Box::new(e))),
-      (any::<u32>(), inner).prop_map(|(id, e)| Expr::Hoist { id, expr: Box::new(e) }),
+      (any::<u32>(), inner.clone()).prop_map(|(id, e)| Expr::Hoist { id, expr: Box::new(e) }),
+      inner.clone().prop_map(|e| Expr::Cell(Box::new(e))),
+      (text(), inner.clone()).prop_map(|(key, e)| Expr::ModuleCell { key, init: Box::new(e) }),
+      inner.clone().prop_map(|e| Expr::ReadCell(Box::new(e))),
+      (inner.clone(), inner).prop_map(|(a, b)| Expr::WriteCell(Box::new(a), Box::new(b))),
     ]
   })
   .boxed()

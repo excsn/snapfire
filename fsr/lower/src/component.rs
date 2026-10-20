@@ -4318,6 +4318,23 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
     value
   };
   match first {
+    js::Stmt::Decl(js::Decl::Var(var)) if !lowerer.cells.is_empty() => {
+      let mut lets = Vec::new();
+      for decl in &var.decls {
+        let mut expr = match decl.init.as_deref() {
+          Some(init) => lowerer.expr(init)?,
+          None => Expr::Lit(Lit::Null),
+        };
+        if touches_cells(&expr) {
+          let held = lowerer.temp();
+          lets.push(Stmt::Let { name: held.clone(), expr });
+          expr = Expr::Var(held);
+        }
+        bind_pattern(lowerer, &decl.name, expr)?;
+      }
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(lets, value))
+    }
     js::Stmt::Decl(js::Decl::Var(var)) => {
       for decl in &var.decls {
         let expr = match decl.init.as_deref() {
@@ -4370,12 +4387,48 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       Ok(value)
     }
     js::Stmt::For(_) | js::Stmt::ForOf(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
+    js::Stmt::Expr(stmt) if writes_a_cell(lowerer, &stmt.expr) => {
+      let Stmt::Expr(effect) = lowerer.effect(&stmt.expr)? else { return Err(lowerer.residue(stmt.span, "a write to a cell the build cannot order")) };
+      let held = lowerer.temp();
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(vec![Stmt::Let { name: held, expr: effect }], value))
+    }
     straight => {
       let writable = Writable { floor, frozen: &[], setters: &[] };
       rebind_stmt(lowerer, straight, &writable, &mut Vec::new())?;
       block_to_expr_inner(lowerer, rest, floor)
     }
   }
+}
+
+/// Whether a statement's expression writes a cell or calls something that may, which it must do in order where the lowerer holds cells.
+fn writes_a_cell(lowerer: &Lowerer<'_>, expr: &js::Expr) -> bool {
+  if lowerer.cells.is_empty() {
+    return false;
+  }
+  let held = |name: &str| lowerer.cells.iter().any(|(cell, _)| cell == name);
+  match expr {
+    js::Expr::Assign(assign) => matches!(&assign.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) if held(id.id.sym.as_ref())),
+    js::Expr::Update(update) => matches!(&*update.arg, js::Expr::Ident(id) if held(id.sym.as_ref())),
+    js::Expr::Call(_) => true,
+    _ => false,
+  }
+}
+
+/// Whether an expression reads or writes a cell or calls a function, which may: a value computed from one is taken where it is declared, not where it is used.
+fn touches_cells(expr: &Expr) -> bool {
+  let mut found = false;
+  expr.visit(&mut |e| found |= matches!(e, Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::Apply { .. }));
+  found
+}
+
+/// `lets` run in order before `value` is computed.
+fn sequenced(mut lets: Vec<Stmt>, value: Expr) -> Expr {
+  if lets.is_empty() {
+    return value;
+  }
+  lets.push(Stmt::Return(value));
+  Expr::Block(lets)
 }
 
 /// `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console` as the log it writes on the server, as a server renderer running the component writes it, or as nothing when an argument is one only the browser can compute.

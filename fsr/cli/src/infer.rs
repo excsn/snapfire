@@ -344,6 +344,8 @@ impl<'a> Inferer<'a> {
       Expr::Lambda { .. } | Expr::Block(_) | Expr::Handler(_) | Expr::Markup(_) => Ts::Unknown,
       Expr::HoistId(_) => Ts::Str,
       Expr::Hoist { expr, .. } => self.expr(expr, env),
+      Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) => Ts::Unknown,
+      Expr::WriteCell(_, value) => self.expr(value, env),
       Expr::Map(over, f) => {
         let elem = element(self.expr(over, env));
         Ts::List(Box::new(self.apply(f, vec![elem], env)))

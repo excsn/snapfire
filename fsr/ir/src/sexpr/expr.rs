@@ -94,6 +94,10 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::Hoist { id, expr } => form("hoist", vec![Sx::Sym(id.to_string()), expr_to_sx(expr)]),
     Expr::HoistId(id) => form("hoist-id", vec![Sx::Sym(id.to_string())]),
     Expr::Handler(index) => form("handler", vec![Sx::Sym(index.to_string())]),
+    Expr::Cell(init) => one("cell", init),
+    Expr::ModuleCell { key, init } => form("module-cell", vec![Sx::Str(key.clone()), expr_to_sx(init)]),
+    Expr::ReadCell(handle) => one("read-cell", handle),
+    Expr::WriteCell(handle, value) => form("write-cell", vec![expr_to_sx(handle), expr_to_sx(value)]),
   }
 }
 
@@ -293,6 +297,16 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     }
     "hoist-id" => Expr::HoistId(u32_of(&args(items, head, 1)?[0])?),
     "handler" => Expr::Handler(u32_of(&args(items, head, 1)?[0])?),
+    "cell" => Expr::Cell(boxed(&args(items, head, 1)?[0])?),
+    "module-cell" => {
+      let a = args(items, head, 2)?;
+      Expr::ModuleCell { key: str_of(&a[0])?, init: boxed(&a[1])? }
+    }
+    "read-cell" => Expr::ReadCell(boxed(&args(items, head, 1)?[0])?),
+    "write-cell" => {
+      let a = args(items, head, 2)?;
+      Expr::WriteCell(boxed(&a[0])?, boxed(&a[1])?)
+    }
     "markup" => Expr::Markup(std::sync::Arc::new(super::tmpl::tmpl_from_sx(&args(items, head, 1)?[0])?)),
     other => match builtin_of(other) {
       Some(name) => Expr::Builtin {

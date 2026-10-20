@@ -158,6 +158,10 @@ pub(crate) struct SvelteLowerer<'a, 'p> {
   module_names: Vec<String>,
   /// The classes the script declares, which a `new` in a declaration builds as the object its constructor leaves.
   classes: Vec<(String, &'p js::Class)>,
+  /// The names a function in the script writes, which the script holds in cells.
+  function_writes: Vec<String>,
+  /// Set while the `<script module>` block is read, whose cells the instances of one render share.
+  in_module: bool,
 }
 
 impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
@@ -185,7 +189,7 @@ impl<'p> Placer<'p> for SvelteLowerer<'_, 'p> {
 
 impl<'a, 'p> SvelteLowerer<'a, 'p> {
   pub(crate) fn new(lowerer: Lowerer<'p>, described: &'a Described, assets: Rc<dyn AssetResolver>) -> Self {
-    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new(), module_names: Vec::new(), classes: Vec::new() }
+    Self { lowerer, described, template: None, lets: Vec::new(), state: Vec::new(), stores: Vec::new(), snippets: Vec::new(), rendering: Vec::new(), child_refs: Vec::new(), assets, heads: Vec::new(), prop_keys: Vec::new(), awaited: Vec::new(), promises: Vec::new(), module_names: Vec::new(), classes: Vec::new(), function_writes: Vec::new(), in_module: false }
   }
 
   pub(crate) fn component(&mut self) -> Lowered<Component> {
@@ -444,12 +448,14 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let start = parsed.cm.files().first().map(|f| f.start_pos.0).unwrap_or(0);
     let offset = |span: swc_core::common::Span| span.lo.0.saturating_sub(start);
     let within = |range: Option<(u32, u32)>, at: u32| range.is_some_and(|(from, to)| at >= from && at < to);
+    self.function_writes = function_writes(&parsed.module.body);
     for item in &parsed.module.body {
       let at = offset(item.span());
       let in_instance = within(instance, at);
       if !in_instance && !within(module, at) {
         continue;
       }
+      self.in_module = !in_instance;
       match item {
         js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
           if import.src.value.to_atom_lossy().ends_with(".svelte") {
@@ -844,6 +850,17 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
       0 => self.lowerer.residue(span, residue.message),
       _ => residue,
     })?;
+    if self.function_writes.contains(&name) {
+      let cell = match self.in_module {
+        true => Expr::ModuleCell { key: format!("{}#{name}", self.lowerer.parsed.file), init: Box::new(expr) },
+        false => Expr::Cell(Box::new(expr)),
+      };
+      self.lets.push(Stmt::Let { name: name.clone(), expr: cell });
+      self.lowerer.cells.push((name.clone(), Expr::Var(name.clone())));
+      self.bind(name.clone(), Expr::ReadCell(Box::new(Expr::Var(name.clone()))));
+      self.bind(format!("${name}"), Expr::ReadCell(Box::new(Expr::Var(name.clone()))));
+      return Ok(());
+    }
     self.lets.push(Stmt::Let { name: name.clone(), expr });
     if !runes {
       self.state.push(name.clone());
@@ -2601,6 +2618,53 @@ fn logic(op: LogicOp, a: Expr, b: Expr) -> Expr {
 
 fn plus(a: Expr, n: i128) -> Expr {
   arith(ArithOp::Add, a, int(n))
+}
+
+/// The names the script's functions write: every declared function's body and every function a declaration holds, nested functions included.
+fn function_writes(items: &[js::ModuleItem]) -> Vec<String> {
+  let mut bodies: Vec<&[js::Stmt]> = Vec::new();
+  for item in items {
+    let stmt = match item {
+      js::ModuleItem::Stmt(stmt) => stmt,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => match &export.decl {
+        js::Decl::Fn(f) => {
+          bodies.extend(f.function.body.as_ref().map(|b| b.stmts.as_slice()));
+          continue;
+        }
+        js::Decl::Var(var) => {
+          bodies.extend(var.decls.iter().filter_map(|d| d.init.as_deref()).filter_map(function_body));
+          continue;
+        }
+        _ => continue,
+      },
+      _ => continue,
+    };
+    match stmt {
+      js::Stmt::Decl(js::Decl::Fn(f)) => bodies.extend(f.function.body.as_ref().map(|b| b.stmts.as_slice())),
+      js::Stmt::Decl(js::Decl::Var(var)) => bodies.extend(var.decls.iter().filter_map(|d| d.init.as_deref()).filter_map(function_body)),
+      _ => {}
+    }
+  }
+  let mut names = Vec::new();
+  for body in bodies {
+    for name in crate::component::written_names(body, true) {
+      if !names.contains(&name) {
+        names.push(name);
+      }
+    }
+  }
+  names
+}
+
+fn function_body(init: &js::Expr) -> Option<&[js::Stmt]> {
+  match unwrap_types(init) {
+    js::Expr::Fn(f) => f.function.body.as_ref().map(|b| b.stmts.as_slice()),
+    js::Expr::Arrow(arrow) => match &*arrow.body {
+      js::ArrowFunctionBody::FunctionBody(b) => Some(b.stmts.as_slice()),
+      js::ArrowFunctionBody::Expr(_) => None,
+    },
+    _ => None,
+  }
 }
 
 fn bind(name: &str, expr: Expr) -> Stmt {
