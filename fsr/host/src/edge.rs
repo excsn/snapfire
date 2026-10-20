@@ -300,6 +300,11 @@ impl Host {
         if let Some(body) = client::get(name, t.client_minified) {
           return js_response(body, self.changed.is_some(), t.static_cache.as_ref());
         }
+        if let Some(body) = client::map(name) {
+          let mut response = js_response(body, self.changed.is_some(), t.static_cache.as_ref());
+          response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static("application/json"));
+          return response;
+        }
       }
     }
 

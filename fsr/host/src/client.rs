@@ -164,6 +164,83 @@ pub const MINIFIED: &[(&str, &str)] = &[
   ("vue.js", include_str!("../embedded/client/vue.min.js")),
 ];
 
+/// Each module's source map with its TypeScript inlined, by the name its
+/// module's `sourceMappingURL` gives it.
+#[cfg(feature = "client_source_maps")]
+pub const MAPS: &[(&str, &str)] = &[
+  ("actions.js.map", include_str!("../embedded/client/actions.js.map")),
+  ("actions.min.js.map", include_str!("../embedded/client/actions.min.js.map")),
+  ("boot.js.map", include_str!("../embedded/client/boot.js.map")),
+  ("boot.min.js.map", include_str!("../embedded/client/boot.min.js.map")),
+  ("elements.js.map", include_str!("../embedded/client/elements.js.map")),
+  ("elements.min.js.map", include_str!("../embedded/client/elements.min.js.map")),
+  ("embed.js.map", include_str!("../embedded/client/embed.js.map")),
+  ("embed.min.js.map", include_str!("../embedded/client/embed.min.js.map")),
+  ("events.js.map", include_str!("../embedded/client/events.js.map")),
+  ("events.min.js.map", include_str!("../embedded/client/events.min.js.map")),
+  ("expect.js.map", include_str!("../embedded/client/expect.js.map")),
+  ("expect.min.js.map", include_str!("../embedded/client/expect.min.js.map")),
+  ("harness.js.map", include_str!("../embedded/client/harness.js.map")),
+  ("harness.min.js.map", include_str!("../embedded/client/harness.min.js.map")),
+  ("htmx.js.map", include_str!("../embedded/client/htmx.js.map")),
+  ("htmx.min.js.map", include_str!("../embedded/client/htmx.min.js.map")),
+  ("index.js.map", include_str!("../embedded/client/index.js.map")),
+  ("index.min.js.map", include_str!("../embedded/client/index.min.js.map")),
+  ("jsx-runtime.js.map", include_str!("../embedded/client/jsx-runtime.js.map")),
+  ("jsx-runtime.min.js.map", include_str!("../embedded/client/jsx-runtime.min.js.map")),
+  ("live.js.map", include_str!("../embedded/client/live.js.map")),
+  ("live.min.js.map", include_str!("../embedded/client/live.min.js.map")),
+  ("link.js.map", include_str!("../embedded/client/link.js.map")),
+  ("link.min.js.map", include_str!("../embedded/client/link.min.js.map")),
+  ("locale.js.map", include_str!("../embedded/client/locale.js.map")),
+  ("locale.min.js.map", include_str!("../embedded/client/locale.min.js.map")),
+  ("navigator.js.map", include_str!("../embedded/client/navigator.js.map")),
+  ("navigator.min.js.map", include_str!("../embedded/client/navigator.min.js.map")),
+  ("picture.js.map", include_str!("../embedded/client/picture.js.map")),
+  ("picture.min.js.map", include_str!("../embedded/client/picture.min.js.map")),
+  ("places.js.map", include_str!("../embedded/client/places.js.map")),
+  ("places.min.js.map", include_str!("../embedded/client/places.min.js.map")),
+  ("queries.js.map", include_str!("../embedded/client/queries.js.map")),
+  ("queries.min.js.map", include_str!("../embedded/client/queries.min.js.map")),
+  ("react.js.map", include_str!("../embedded/client/react.js.map")),
+  ("react.min.js.map", include_str!("../embedded/client/react.min.js.map")),
+  ("reader.js.map", include_str!("../embedded/client/reader.js.map")),
+  ("reader.min.js.map", include_str!("../embedded/client/reader.min.js.map")),
+  ("render.js.map", include_str!("../embedded/client/render.js.map")),
+  ("render.min.js.map", include_str!("../embedded/client/render.min.js.map")),
+  ("script.js.map", include_str!("../embedded/client/script.js.map")),
+  ("script.min.js.map", include_str!("../embedded/client/script.min.js.map")),
+  ("server.js.map", include_str!("../embedded/client/server.js.map")),
+  ("server.min.js.map", include_str!("../embedded/client/server.min.js.map")),
+  ("socket.js.map", include_str!("../embedded/client/socket.js.map")),
+  ("socket.min.js.map", include_str!("../embedded/client/socket.min.js.map")),
+  ("std.js.map", include_str!("../embedded/client/std.js.map")),
+  ("std.min.js.map", include_str!("../embedded/client/std.min.js.map")),
+  ("store.js.map", include_str!("../embedded/client/store.js.map")),
+  ("store.min.js.map", include_str!("../embedded/client/store.min.js.map")),
+  ("svelte.js.map", include_str!("../embedded/client/svelte.js.map")),
+  ("svelte.min.js.map", include_str!("../embedded/client/svelte.min.js.map")),
+  ("template.js.map", include_str!("../embedded/client/template.js.map")),
+  ("template.min.js.map", include_str!("../embedded/client/template.min.js.map")),
+  ("testing.js.map", include_str!("../embedded/client/testing.js.map")),
+  ("testing.min.js.map", include_str!("../embedded/client/testing.min.js.map")),
+  ("values.js.map", include_str!("../embedded/client/values.js.map")),
+  ("values.min.js.map", include_str!("../embedded/client/values.min.js.map")),
+  ("vue.js.map", include_str!("../embedded/client/vue.js.map")),
+  ("vue.min.js.map", include_str!("../embedded/client/vue.min.js.map")),
+];
+
+/// The source map `name` names, carried under `client_source_maps`.
+pub fn map(name: &str) -> Option<&'static str> {
+  #[cfg(feature = "client_source_maps")]
+  return MAPS.iter().find(|(file, _)| *file == name).map(|(_, body)| *body);
+  #[cfg(not(feature = "client_source_maps"))]
+  {
+    let _ = name;
+    None
+  }
+}
+
 /// The module `name` names, from the readable build or the minified one.
 /// `None` for anything the client does not carry. A name with a path separator
 /// in it matches nothing, so the prefix is the whole of what this answers.
@@ -177,12 +254,25 @@ pub fn get(name: &str, minified: bool) -> Option<&'static str> {
   }
   if let Some(stem) = name.strip_suffix(".min.js") {
     let plain = format!("{stem}.js");
-    return MINIFIED.iter().find(|(file, _)| *file == plain).map(|(_, body)| *body);
+    return MINIFIED.iter().find(|(file, _)| *file == plain).map(|(_, body)| unmapped(body));
   }
   if minified && let Some(body) = MINIFIED.iter().find(|(file, _)| *file == name).map(|(_, body)| *body) {
-    return Some(body);
+    return Some(unmapped(body));
   }
-  FILES.iter().find(|(file, _)| *file == name).map(|(_, body)| *body)
+  FILES.iter().find(|(file, _)| *file == name).map(|(_, body)| unmapped(body))
+}
+
+/// `body` without the trailing `sourceMappingURL` comment the build wrote
+/// when the binary carries no maps; as written under `client_source_maps`.
+fn unmapped(body: &'static str) -> &'static str {
+  if cfg!(feature = "client_source_maps") {
+    return body;
+  }
+  let trimmed = body.trim_end();
+  match trimmed.rfind("//# sourceMappingURL=") {
+    Some(at) if !trimmed[at..].contains('\n') => &trimmed[..at],
+    _ => body,
+  }
 }
 
 /// What the modules come to, for a report that says how much the binary is
@@ -214,9 +304,15 @@ pub fn write_to(dir: &Path, minified: bool) -> std::io::Result<Vec<PathBuf>> {
   if minified {
     for (name, body) in MINIFIED {
       let path = dir.join(name.replace(".js", ".min.js"));
-      std::fs::write(&path, body)?;
+      std::fs::write(&path, unmapped(body))?;
       written.push(path);
     }
+  }
+  #[cfg(feature = "client_source_maps")]
+  for (name, body) in MAPS {
+    let path = dir.join(name);
+    std::fs::write(&path, body)?;
+    written.push(path);
   }
   Ok(written)
 }
@@ -249,6 +345,42 @@ pub fn imports(name: &str, minified: bool) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[cfg(feature = "client_source_maps")]
+  #[test]
+  fn with_source_maps_every_module_names_a_map_the_host_carries_holding_its_typescript() {
+    for (name, _) in MINIFIED {
+      for spelling in [name.to_string(), name.replace(".js", ".min.js")] {
+        let body = get(&spelling, false).expect("a module");
+        let named = body.trim_end().rsplit_once("//# sourceMappingURL=").map(|(_, named)| named.trim()).unwrap_or_else(|| panic!("{spelling} names no map"));
+        let map: serde_json::Value = serde_json::from_str(super::map(named).unwrap_or_else(|| panic!("{spelling} names {named}, which is not carried"))).unwrap();
+        let sources = map["sourcesContent"].as_array().unwrap_or_else(|| panic!("{named} has no sourcesContent"));
+        assert!(sources.iter().all(|source| source.as_str().is_some_and(|text| !text.is_empty())), "{named} inlines no TypeScript");
+      }
+    }
+    let dir = std::env::temp_dir().join(format!("fsr-client-with-maps-{}", std::process::id()));
+    let written = write_to(&dir, true).unwrap();
+    assert!(written.iter().any(|path| path.extension().is_some_and(|e| e == "map")), "a tree written for a web server carries the maps");
+  }
+
+  #[cfg(not(feature = "client_source_maps"))]
+  #[test]
+  fn no_module_the_host_answers_or_writes_names_a_source_map_it_does_not_carry() {
+    for (name, _) in FILES {
+      let min = name.replace(".js", ".min.js");
+      for (spelling, minified) in [(*name, false), (*name, true), (min.as_str(), false)] {
+        if let Some(body) = get(spelling, minified) {
+          assert!(!body.contains("sourceMappingURL"), "{spelling} (minified {minified}) names a map");
+        }
+      }
+    }
+    let dir = std::env::temp_dir().join(format!("fsr-client-maps-{}", std::process::id()));
+    for minified in [false, true] {
+      for path in write_to(&dir, minified).unwrap() {
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("sourceMappingURL"), "{} names a map", path.display());
+      }
+    }
+  }
 
   #[test]
   fn every_module_the_index_re_exports_is_carried() {

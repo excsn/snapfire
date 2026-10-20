@@ -382,6 +382,12 @@ impl Host {
           written.push((format!("{}/{name}", client::ROUTE), file));
         }
       }
+      #[cfg(feature = "client_source_maps")]
+      for (name, body) in client::MAPS {
+        let file = dir.join(name);
+        write_whole(&file, body.as_bytes())?;
+        written.push((format!("{}/{name}", client::ROUTE), file));
+      }
     }
     let relative = |file: &Path| file.strip_prefix(out).ok().map(|rel| rel.to_string_lossy().replace('\\', "/"));
     let mut listed: Vec<String> = written.iter().filter_map(|(_, file)| relative(file)).collect();

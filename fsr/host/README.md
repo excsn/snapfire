@@ -19,6 +19,7 @@ snapfire_fsr_host = "0"
 | `ws` | `/_sf/socket`, a WebSocket per topic: `HostBuilder::socket` answers what a page sends and the reply goes out as store rows. Adds `tokio-tungstenite` |
 | `tls` | `[server.tls]`: the hyper listener terminates TLS with rustls over ring, ALPN chooses the version and the configured signal re-reads the certificate. Adds `rustls`, `rustls-pki-types` and `tokio-rustls` |
 | `client_readable` | on by default: the readable build of the browser client, beside the minified one the binary always carries. Off, a binary is about 215 KiB smaller and `/static/js/fsr` answers minified whatever `document.client` says |
+| `client_source_maps` | off: each browser client module's source map, with its TypeScript inlined, served beside it under `/static/js/fsr` so devtools show the client's source. About 1.3 MB. Off, the modules are served without their `sourceMappingURL` comment |
 
 No feature is needed for hyper or axum. The crate depends on `c5store` with `toml` for configuration, `snapfire_fsr` for the binding rule, `snapfire_fsr_service` for clients and contracts, `snapfire_fsr_session` for sessions, `http`, `http-body`, `tower`, `tower-http` with `fs` and hyper.
 

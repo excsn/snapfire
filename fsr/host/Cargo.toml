@@ -19,6 +19,10 @@ default = ["client_readable"]
 # Off, the binary is about 215 KiB smaller and serves minified whatever
 # `document.client` says.
 client_readable = []
+# Each client module's source map, with its TypeScript inlined, served beside it
+# under `/static/js/fsr`. Off, the modules are served without their
+# `sourceMappingURL` comment.
+client_source_maps = []
 actix = ["dep:actix-web"]
 tls = ["dep:rustls", "dep:rustls-pki-types", "dep:tokio-rustls"]
 ws = ["dep:tokio-tungstenite"]
