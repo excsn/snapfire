@@ -157,7 +157,9 @@ impl Leaf {
   }
 
   /// The text broken into lines no wider than `max`: at spaces, inside a word
-  /// only when the word alone is wider and at every newline. Under
+  /// only when the word alone is wider and at every newline. Spaces are kept
+  /// as written, as Ink's `wrap-ansi` with `trim: false` keeps them, except
+  /// the run a line breaks at. Under
   /// [`Wrap::Truncate`] it is one line ending in `…`.
   fn lines(&self, max: Option<usize>) -> Vec<Cells> {
     let max = max.unwrap_or(usize::MAX).max(1);
@@ -169,27 +171,25 @@ impl Leaf {
       }
       let mut line: Cells = Vec::new();
       let mut used = 0;
-      let mut space: Option<(char, CellStyle)> = None;
-      let mut words: Vec<(Cells, Option<(char, CellStyle)>)> = Vec::new();
-      let mut word: Cells = Vec::new();
+      let mut words: Vec<(Cells, Cells)> = Vec::new();
+      let (mut spaces, mut word): (Cells, Cells) = (Vec::new(), Vec::new());
       for &cell in paragraph {
         if cell.0 == ' ' {
           if !word.is_empty() {
-            words.push((std::mem::take(&mut word), space.take()));
+            words.push((std::mem::take(&mut spaces), std::mem::take(&mut word)));
           }
-          space = Some(cell);
+          spaces.push(cell);
         } else {
           word.push(cell);
         }
       }
-      if !word.is_empty() {
-        words.push((word, space.take()));
-      }
-      for (word, before) in words {
+      words.push((spaces, word));
+      for (at, (before, word)) in words.into_iter().enumerate() {
         let wide = width(&word);
-        if !line.is_empty() && used + 1 + wide <= max {
-          line.push(before.unwrap_or((' ', CellStyle::default())));
-          used += 1;
+        if at == 0 || used + before.len() + wide <= max {
+          let room = max.saturating_sub(used);
+          used += before.len().min(room);
+          line.extend(before.into_iter().take(room));
         } else if !line.is_empty() {
           out.push(std::mem::take(&mut line));
           used = 0;

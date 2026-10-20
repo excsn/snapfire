@@ -68,3 +68,11 @@ fn a_redraw_writes_only_the_cells_that_changed_and_clears_rows_that_went_away() 
   assert_eq!(after.diff(&before), "\x1b[1;7H2\x1b[3;1H\x1b[2K");
   assert_eq!(after.diff(&after), "");
 }
+
+#[test]
+fn text_keeps_its_spaces_as_ink_does() {
+  let row = Text::plain("│  a   b  │");
+  assert_eq!(render(&row.into(), 20).lines(), ["│  a   b  │"]);
+  let indented = Boxed::new().width(6).child(Text::plain("  ab cd"));
+  assert_eq!(render(&indented.into(), 20).lines()[0], "  ab");
+}
