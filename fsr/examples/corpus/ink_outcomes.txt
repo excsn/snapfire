@@ -1,5 +1,5 @@
 alternate-screen	refused: `src/alternate-screen.tsx#SnakeGame` does not lower, so only a browser could render it: src/alternate-screen.tsx:74:5: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`
-aria	refused: `aria-state` on `<ink-box>` holds a value of kind `object` and nothing hydrates this markup to set it as a property; pass a string or give the element a template under `elements/`
+aria	rendered
 border-backgrounds	rendered
 borders	rendered
 box-backgrounds	rendered
@@ -13,7 +13,7 @@ justify-content	rendered
 render-throttle	rendered
 router	refused: `src/router.tsx#Home` does not lower, so only a browser could render it: src/router.tsx:7:22: `useNavigate`, a hook the build cannot follow
 scroll	refused: `src/scroll.tsx#ScrollView` does not lower, so only a browser could render it: src/scroll.tsx:20:41: `useBoxMetrics`, a hook the build cannot follow
-select-input	refused: `src/select-input.tsx#SelectInput` does not lower, so only a browser could render it: src/select-input.tsx:32:13: `Number` is not bound here; an import the build cannot follow or a name from outside the body
+select-input	rendered
 static	refused: `src/static.tsx#Example` does not lower, so only a browser could render it: src/static.tsx:41:13: `Static` comes from `ink`, which the build cannot follow
 subprocess-output	refused: `src/subprocess-output.tsx#SubprocessOutput` does not lower, so only a browser could render it: src/subprocess-output.tsx:32:24: a call to `stripAnsi`, which the build cannot follow
 suspend-terminal	refused: `src/suspend-terminal.tsx#Example` does not lower, so only a browser could render it: src/suspend-terminal.tsx:28:11: `useApp` gives `exit` alone

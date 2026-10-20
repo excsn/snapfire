@@ -2304,6 +2304,21 @@ impl<'a> Lowerer<'a> {
             }
             return Ok(Expr::Builtin { name: Builtin::Math, args });
           }
+          "Number" if matches!(method.as_str(), "isInteger" | "isSafeInteger" | "isFinite" | "isNaN") => {
+            let Some(arg) = call.args.first() else { return Err(self.residue(call.span, format!("`Number.{method}` takes one argument"))) };
+            let x = self.expr(&arg.expr)?;
+            let both = |a: Expr, b: Expr| Expr::Logic(LogicOp::And, Box::new(a), Box::new(b));
+            let compare = |op: CompareOp, a: Expr, b: Expr| Expr::Compare(op, Box::new(a), Box::new(b));
+            let number = compare(CompareOp::Eq, Expr::Builtin { name: Builtin::TypeOf, args: vec![x.clone()] }, Expr::lit_str("number"));
+            let finite = compare(CompareOp::Eq, Expr::Arith(ArithOp::Sub, Box::new(x.clone()), Box::new(x.clone())), Expr::Lit(Lit::Int(0)));
+            let whole = compare(CompareOp::Eq, Expr::Builtin { name: Builtin::Trunc, args: vec![x.clone()] }, x.clone());
+            return Ok(match method.as_str() {
+              "isNaN" => both(number, Expr::Builtin { name: Builtin::IsNaN, args: vec![x] }),
+              "isFinite" => both(number, finite),
+              "isInteger" => both(number, both(finite, whole)),
+              _ => both(number, both(finite, both(whole, compare(CompareOp::Le, Expr::Builtin { name: Builtin::Abs, args: vec![x] }, Expr::Lit(Lit::Int(9_007_199_254_740_991)))))),
+            });
+          }
           "Math" => {
             let name = match method.as_str() {
               "round" => Builtin::Round,

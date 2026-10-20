@@ -151,7 +151,8 @@ fn keep_value(value: Expr) -> Expr {
 }
 
 /// Ink's `Box`, `Text`, `Newline` and `Spacer`: an `ink-*` element carrying
-/// the props in kebab case, which the terminal renderer reads back.
+/// the props in kebab case, which the terminal renderer reads back. The
+/// `aria-*` props, which only Ink's screen-reader output reads, are left out.
 pub(crate) fn terminal<'p>(cx: &mut impl Placer<'p>, which: &str, attrs: &[Attr<'_>], children: Vec<Tmpl>) -> Lowered<Tmpl> {
   let mut out = Vec::new();
   for attr in attrs {
@@ -159,7 +160,7 @@ pub(crate) fn terminal<'p>(cx: &mut impl Placer<'p>, which: &str, attrs: &[Attr<
       out.push(Entry::Spread(cx.lowerer().expr(expr)?));
       continue;
     }
-    if matches!(attr.name.as_str(), "key" | "ref") {
+    if matches!(attr.name.as_str(), "key" | "ref") || attr.name.starts_with("aria-") {
       continue;
     }
     let mut name = String::new();

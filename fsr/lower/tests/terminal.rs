@@ -147,3 +147,25 @@ fn a_terminal_reads_the_clock_on_its_render_path() {
   assert_eq!(first.rendered.html, "<ink-text>ticking</ink-text>");
 
 }
+
+#[test]
+fn number_checks_read_as_javascript_does() {
+  let checks = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Pick() {\n  const [picked, setPicked] = useState(0);\n  useInput((input) => {\n    const number = Number(input);\n    if (Number.isSafeInteger(number) && number > 0) setPicked(number);\n  });\n  const flags = [Number.isInteger(2.5), Number.isInteger(4), Number.isFinite(1 / 0), Number.isNaN(0 / 0), Number.isSafeInteger(2 ** 60), Number.isInteger(\"4\")];\n  return <Text>{picked} {flags.join(\",\")}</Text>;\n}\n";
+  let library = library(checks);
+  let component = &library[MODULE];
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>0 false,true,false,true,false,false</ink-text>");
+  let three = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &key("3", &[]), &library).unwrap();
+  assert!(three.rendered.html.starts_with("<ink-text>3 "), "{}", three.rendered.html);
+  let letter = interpreter.island_step(MODULE, component, &ValueMap::default(), &three.state, Some(HandlerRef::own(0)), &key("x", &[]), &library).unwrap();
+  assert!(letter.rendered.html.starts_with("<ink-text>3 "), "{}", letter.rendered.html);
+}
+
+#[test]
+fn the_screen_reader_props_are_left_out_of_a_terminal_element() {
+  let aria = "import { Box, Text } from \"ink\";\n\nexport default function Aria() {\n  return <Box aria-role=\"checkbox\" aria-state={{ checked: true }} aria-label=\"done\"><Text aria-hidden>ok</Text></Box>;\n}\n";
+  let library = library(aria);
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-box><ink-text>ok</ink-text></ink-box>");
+}
