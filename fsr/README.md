@@ -60,7 +60,7 @@ Each corpus builds a framework's own published examples through FSR as one appli
 | [svelte.dev](docs/corpus/svelte-dev.md) | 167 | 150 (89.8%) | 16 | 1 |
 | [vuejs.org](docs/corpus/vuejs-org.md) | 70 | 56 (80.0%) | 12 | 2 |
 
-"By design" covers what no server renderer can write the same as the browser: the viewer's clock, `Math.random`, `fetch` during render, npm packages the build does not follow. Leaving those out, the server renders all of what it could on react.dev, 99.3% on svelte.dev and 96.6% on vuejs.org.
+The "by design" column counts examples that use something the server can't reproduce exactly: the current time, `Math.random`, a `fetch` during render or an npm package the build doesn't follow. Not counting those, the server renders 100% of the rest on react.dev, 99.3% on svelte.dev and 96.6% on vuejs.org.
 
 ## Architecture
 
