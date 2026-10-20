@@ -579,6 +579,7 @@ The build's half of images and fonts, `snapfire_fsr_cli::assets`.
 * `Serve(String)`, the stock host refusing to build or the listener failing, from `fsr serve`.
 * `Dependency { package: String, wants: String }`, a vendored module importing a package outside its bundle.
 * `VendorUrl { map: String, specifier: String, found: String, base: String, want: String }`, an import map entry for a package the vendor manifest records that does not sit under the layout's base, with the URL it should carry. A site's base is its own prefix, so a map written before the `[site]` section is named here.
+* `VendorImports { dir: String, file: String, specifier: String, map: String }`, a vendored module that imports a bare specifier the import map, its scopes or the shell's contract cannot resolve, which the browser would fail to load along with every module importing it. Each `.js` and `.mjs` file under a vendored entry's directory is parsed, so an import named in a comment is not one.
 * `Xwpm(String)`, an `xwpm` command that could not start or failed.
 * `Typecheck(String)`, the checker that could not be read or the diagnostics of a check that found an error, the row first.
 * `Strict(String)`, what `Options::strict` refused: one line per `client` or `foreign` cause with its hint and the components it leaves in the browser, then each `plugins` row.
