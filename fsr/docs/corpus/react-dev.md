@@ -4,18 +4,18 @@ The corpus in `fsr/examples/corpus` builds the 641 code examples from react.dev 
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |
-| Lowered whole | 575 | the server renders every component on the page |
-| Client side rendered, lowerable | 0 | a component renders in the browser because it uses something the build does not render on the server yet |
-| Client side rendered by design | 59 | a component renders in the browser for a reason that holds under any server renderer: the viewer's clock choosing markup, a promise the render awaits, a portal |
+| Rendered on the server | 575 | the server renders every component on the page |
+| Browser rendered, SSR pending | 0 | a component renders in the browser because it uses something FSR can't render on the server yet |
+| Left to the browser by design | 59 | a component uses something the server can't reproduce exactly, such as the current time, `Math.random`, a promise the render awaits or a portal |
 | Refused | 0 | the build stops |
 | Not a working example (excluded) | 7 | react.dev shows it broken on purpose, as an empty exercise or as a page with no `App` |
 | Total | 641 | |
 
-A component that is client side rendered still works: it renders in the browser as it would under React and its HTML is missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The viewer's clock written as text, `<p>{new Date().toLocaleTimeString()}</p>`, is left to the browser the same way: the server writes nothing for it, the component hydrates with the value null and computes it once mounted, which is the `useEffect` fix Next.js has you write, written by the build. Such an example counts as lowered whole. A function passed to a component that hydrates, a render prop among them, crosses as a module reference: the build exports an arrow from its file and the island imports it before it mounts, so such an example counts as lowered whole too. The guide's chapter 111 covers both.
+A component rendered in the browser still works the way it does under React. Its HTML is just missing from the first response. The corpus checks what the build lowers, not that the lowered page renders; the lowerer's own tests render each shape and the lowering conformance app's `/idioms` page runs them in a browser. A `console` call on a render path writes to the server's log on each render under the target `fsr::console` and again in the browser where the component hydrates, as Next.js and React's own server renderer do; one that logs the viewer's clock or another value the server would compute differently is left to the browser. The viewer's clock written as text, `<p>{new Date().toLocaleTimeString()}</p>`, is left to the browser the same way: the server writes nothing for it, the component hydrates with the value null and computes it once mounted, which is the `useEffect` fix Next.js has you write, written by the build. Such an example counts as lowered whole. A function passed to a component that hydrates, a render prop among them, crosses as a module reference: the build exports an arrow from its file and the island imports it before it mounts, so such an example counts as lowered whole too. The guide's chapter 111 covers both.
 
-## How causes hide each other
+## Only the first cause is listed
 
-The build stops a module at its first cause and a component that fails never lowers its children. An example names the first thing in each component the build could not render, so removing one cause can uncover the next.
+The build stops a module at its first cause. A component that fails never lowers its children. An example names the first thing in each component the build could not render, so removing one cause can uncover the next.
 
 ## What sends a component to the browser
 

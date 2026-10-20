@@ -4,17 +4,17 @@ The corpus in `fsr/examples/corpus` builds the 35 examples and tutorial steps fr
 
 | Outcome | Programs | Meaning |
 | --- | --- | --- |
-| Lowered whole | 58 | the server renders every component on the page as Vue's own server renderer writes it |
-| Client side rendered, lowerable | 0 | a component renders in the browser because it uses something the build does not render on the server yet |
-| Client side rendered by design | 12 | a component renders in the browser for a reason that holds under any server renderer |
+| Rendered on the server | 58 | the server renders every component on the page the way Vue's own server renderer does |
+| Browser rendered, SSR pending | 0 | a component renders in the browser because it uses something FSR can't render on the server yet |
+| Left to the browser by design | 12 | a component uses something the server can't reproduce exactly, such as the current time or `Math.random` |
 | Refused | 0 | the build stops |
 | Total | 70 | |
 
-A component that is client side rendered still works: it renders in the browser as it would under Vue and its HTML is missing from the first response. The corpus checks what the build lowers. The lowerer's own tests render each construct and compare the markup byte for byte with Vue's server renderer running in the build's JavaScript engine.
+A component rendered in the browser still works the way it does under Vue. Its HTML is just missing from the first response. The corpus checks what the build lowers. The lowerer's own tests render each construct and compare the markup byte for byte with Vue's server renderer running in the build's JavaScript engine.
 
-## How causes hide each other
+## Only the first cause is listed
 
-The build stops a module at its first cause and a component that fails never lowers its children. A program names the first thing in each component the build could not render, so removing one cause can uncover the next.
+The build stops a module at its first cause. A component that fails never lowers its children. A program names the first thing in each component the build could not render, so removing one cause can uncover the next.
 
 ## What sends a component to the browser
 
