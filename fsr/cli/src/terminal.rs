@@ -249,7 +249,7 @@ impl Focus {
       Act::FocusPrevious => self.step(true),
       Act::FocusEnable => self.disabled = false,
       Act::FocusDisable => self.disabled = true,
-      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen => return false,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run => return false,
     }
     true
   }
@@ -502,6 +502,11 @@ impl Session {
           self.settle(&deferred, ok, settle.get("value").cloned().unwrap_or(Value::Null));
         }
       }
+      (Some(Act::Run), Value::Map(run)) => {
+        let Some(Value::Str(event)) = run.get("event") else { return };
+        let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: run.get("carry").cloned().unwrap_or(Value::Null) };
+        self.ready.push((waiting, true, Value::Null));
+      }
       (Some(Act::Listen), Value::Map(listen)) => {
         let process = match listen.get("process") {
           Some(Value::Map(process)) => match process.get(snapfire_fsr_lower::terminal::PROCESS) {
@@ -567,7 +572,7 @@ impl Session {
         self.spawns.push(Spawn { path: path.to_owned(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
       }
       (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
-      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen), _) | (None, _) => {}
+      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run), _) | (None, _) => {}
     }
   }
 

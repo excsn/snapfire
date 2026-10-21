@@ -157,6 +157,8 @@ pub enum Act {
   Then,
   /// `{ process, report, event, carry }` or `{ process, report, settle }`: when the process [`PROCESS`] names reports `report`, run the handler `event` names with `{ value, ok, carry }`. With `settle` instead, settle the promise it names, [`SETTLES`], with what it reported.
   Listen,
+  /// `{ event, carry }`: run the handler `event` names next, with `{ value: null, ok: true, carry }`; where the ways through an async handler's `if` or `try` join.
+  Run,
   /// `{ until, settles }`: give up the screen until the deferred `until` settles, then take it back and settle `settles` as `until` settled. Ink's `suspendTerminal`.
   Suspend,
   /// `focus(id)`.
@@ -178,6 +180,7 @@ impl Act {
       Act::Then => "$then",
       Act::Suspend => "$suspend",
       Act::Listen => "$listen",
+      Act::Run => "$run",
       Act::Focus => "$focus",
       Act::FocusNext => "$focusNext",
       Act::FocusPrevious => "$focusPrevious",
@@ -187,7 +190,7 @@ impl Act {
   }
 
   pub fn parse(name: &str) -> Option<Act> {
-    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
+    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Run, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
   }
 }
 

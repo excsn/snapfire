@@ -1835,6 +1835,36 @@ impl<'a> Lowerer<'a> {
     Ok(Some(Stmt::Act { action: crate::terminal::Act::Listen.name().to_owned(), input: Expr::Object(fields) }))
   }
 
+  /// `p.then(f)` in a terminal page: a fresh promise and a continuation on `p` running `f` with what `p` resolved to, which settles the fresh one with what `f` returns; one `p` rejects rejects it as well.
+  fn then_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    let (true, js::Callee::Expr(callee)) = (self.terminal, &call.callee) else { return Ok(None) };
+    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return Ok(None) };
+    if self.member_name(member).as_deref() != Some("then") || call.args.len() != 1 {
+      return Ok(None);
+    }
+    let Some(js::Expr::Arrow(f)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Ok(None) };
+    let awaited = self.expr(&member.obj)?;
+    let done = self.temp();
+    let param = match f.params.as_slice() {
+      [] => None,
+      [js::Pat::Ident(name)] => Some(name.id.sym.to_string()),
+      _ => return Err(self.residue(call.span, "a `then` callback whose parameter is not one name")),
+    };
+    let finished = Expr::Var(done.clone());
+    let (event, carry) = self.continuation(call.span, param, |this| {
+      let stmts = match &*f.body {
+        js::ArrowFunctionBody::FunctionBody(b) => b.stmts.clone(),
+        js::ArrowFunctionBody::Expr(e) => vec![js::Stmt::Return(js::ReturnStmt { span: e.span(), arg: Some(e.clone()) })],
+      };
+      let ran = this.async_to(&stmts, Some(finished.clone()))?;
+      let resumed = Expr::Var("$resume".to_owned());
+      let rejected = Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(crate::terminal::SETTLES.to_owned(), finished.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(false)))])), Entry::Field("value".to_owned(), resumed.clone().field("value"))]) };
+      Ok(Expr::Ternary(Box::new(resumed.field("ok")), Box::new(ran), Box::new(Expr::Block(vec![rejected]))))
+    })?;
+    let then = Stmt::Act { action: crate::terminal::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), awaited), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
+    Ok(Some(Expr::Block(vec![Stmt::Let { name: done.clone(), expr: self.new_deferred() }, then, Stmt::Return(Expr::Var(done))])))
+  }
+
   /// A fresh deferred, `{ "$deferred": id }`.
   fn new_deferred(&self) -> Expr {
     let id = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] };
@@ -2597,6 +2627,9 @@ impl<'a> Lowerer<'a> {
     if self.terminal && self.spawns(call) {
       return self.spawn_value(call);
     }
+    if let Some(chained) = self.then_call(call)? {
+      return Ok(chained);
+    }
     if let js::Callee::Expr(callee) = &call.callee {
       if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::Emit)) {
         let mut args = Vec::with_capacity(2);
@@ -3166,6 +3199,10 @@ impl<'a> Lowerer<'a> {
         let init = call.args.get(1).ok_or_else(|| self.residue(call.span, "`reduce` needs an initial value"))?;
         let init = Box::new(self.expr(&init.expr)?);
         Ok(Expr::Reduce(target, init, f))
+      }
+      "trimStart" | "trimEnd" | "trimLeft" | "trimRight" if call.args.is_empty() => {
+        let side = if matches!(method.as_str(), "trimStart" | "trimLeft") { "start" } else { "end" };
+        Ok(Expr::Builtin { name: Builtin::Trim, args: vec![*target, Expr::lit_str(side)] })
       }
       "toFixed" | "repeat" | "join" | "trim" | "toUpperCase" | "toLowerCase" | "includes" | "toLocaleString" => {
         let name = match method.as_str() {

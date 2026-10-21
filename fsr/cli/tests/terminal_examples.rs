@@ -68,3 +68,43 @@ fn log_streams_what_git_writes_and_scrolls_it_in_a_box_it_measures() {
   let bottom = lines(session.press(&key(KeyCode::Char('G'))).unwrap(), 80);
   assert!(bottom.last().unwrap().starts_with("21-30 of 30"), "{bottom:?}");
 }
+
+#[test]
+fn launcher_runs_a_command_piped_or_with_the_terminal_and_reads_the_system_under_suspense() {
+  use snapfire_fsr_cli::terminal::Report;
+  let exit = |code: i128| {
+    let mut exit = snapfire_fsr_core::ValueMap::default();
+    exit.insert("code".to_owned(), Value::Int(code));
+    exit.insert("signal".to_owned(), Value::Null);
+    Value::Map(exit)
+  };
+  let mut session = open("launcher_terminal_ts");
+  let first = lines(session.view().unwrap(), 80);
+  assert!(first[0].starts_with("Launcher") && first[0].ends_with("reading the system"), "{first:?}");
+  let uname = session.take_spawns();
+  assert_eq!(uname[0].args, ["-c", "uname -sm"]);
+  session.deliver(&uname[0], Report::Stdout, &Value::Str("Darwin arm64\n".into())).unwrap();
+  let read = lines(session.deliver(&uname[0], Report::Exit, &exit(0)).unwrap(), 80);
+  assert!(read[0].ends_with("on Darwin arm64"), "{read:?}");
+  for _ in 0..3 {
+    session.press(&key(KeyCode::Down)).unwrap();
+  }
+  let running = lines(session.press(&key(KeyCode::Enter)).unwrap(), 80);
+  assert!(running.iter().any(|l| l == "running Show the date"), "{running:?}");
+  assert!(session.wants_screen(), "a piped command leaves the screen");
+  let date = session.take_spawns();
+  assert_eq!(date[0].args, ["-c", "date"]);
+  session.deliver(&date[0], Report::Stdout, &Value::Str("Tue Oct 21\n".into())).unwrap();
+  let shown = lines(session.deliver(&date[0], Report::Exit, &exit(0)).unwrap(), 80);
+  assert!(shown.iter().any(|l| l.starts_with("Show the date finished in ")), "{shown:?}");
+  assert!(shown.iter().any(|l| l.contains("Tue Oct 21")), "{shown:?}");
+  session.press(&key(KeyCode::Up)).unwrap();
+  session.press(&key(KeyCode::Up)).unwrap();
+  session.press(&key(KeyCode::Enter)).unwrap();
+  assert!(!session.wants_screen(), "an interactive command owns the terminal");
+  let less = session.take_spawns();
+  assert_eq!(less[0].args, ["-c", "less README.md"]);
+  let failed = lines(session.deliver(&less[0], Report::Exit, &exit(1)).unwrap(), 80);
+  assert!(session.wants_screen());
+  assert!(failed.iter().any(|l| l == "Page through the README failed: exited with 1"), "{failed:?}");
+}

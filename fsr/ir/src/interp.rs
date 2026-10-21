@@ -2507,7 +2507,14 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let parts: Result<Vec<String>, Fail> = items.iter().map(|v| if matches!(v, Value::Null) { Ok(String::new()) } else { stringify(v) }).collect();
       Value::str(parts?.join(&sep))
     }
-    Builtin::Trim => Value::str(text(name, arg(0)?)?.trim_matches(js_whitespace).to_owned()),
+    Builtin::Trim => {
+      let s = text(name, arg(0)?)?;
+      Value::str(match args.get(1) {
+        Some(Value::Str(side)) if side.as_str() == "start" => s.trim_start_matches(js_whitespace),
+        Some(Value::Str(side)) if side.as_str() == "end" => s.trim_end_matches(js_whitespace),
+        _ => s.trim_matches(js_whitespace),
+      }.to_owned())
+    }
     Builtin::Upper => Value::str(text(name, arg(0)?)?.to_uppercase()),
     Builtin::Lower => Value::str(text(name, arg(0)?)?.to_lowercase()),
     Builtin::Includes => match arg(0)? {

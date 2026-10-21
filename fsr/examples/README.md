@@ -24,6 +24,7 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | [counter_terminal_ts](counter_terminal_ts/README.md) | An Ink component in the terminal | `fsr dev app --terminal` with an fsr built with its `terminal` feature: Ink's `Box`, `Text` and `useInput` imported from `ink`, lowered and drawn by FSR with no Node, each key stepping the state and redrawing only the cells that changed |
 | [tasks_terminal_ts](tasks_terminal_ts/README.md) | A task list in the terminal | A reducer, a prompt with its cursor placed by `useCursor`, rows `useFocus` makes focusable, a log `Static` prints above the page and percentage columns, all from `ink` with no Node |
 | [log_terminal_ts](log_terminal_ts/README.md) | A scrolling `git log` viewer in the terminal | A process a mount effect spawns and streams, `strip-ansi`, a spinner from `useAnimation`, a clock on its own timer and a scroll view `useBoxMetrics` measures |
+| [launcher_terminal_ts](launcher_terminal_ts/README.md) | A command launcher in the terminal | Async handlers awaiting in branches of a `try`, `suspendTerminal` handing the terminal to an editor or a pager, piped commands, `ms`, and a `Suspense` boundary over a promise chained with `then` |
 
 ### Vue
 

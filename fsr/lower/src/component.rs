@@ -3618,6 +3618,46 @@ pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target
 /// The globals only a browser holds.
 const BROWSER_GLOBALS: [&str; 7] = ["document", "window", "navigator", "location", "history", "localStorage", "sessionStorage"];
 
+/// The name a continuation binds what it was run with, `{ value, ok, carry }`.
+const RESUME: &str = "$resume";
+
+/// What an async handler's statements run inside: the `catch` a rejection runs and the join every way through ends with.
+#[derive(Clone, Default)]
+struct Within<'p> {
+  catch: Option<Catch<'p>>,
+  then: Option<Join>,
+}
+
+/// A `catch` around an `await`: its parameter, its statements and the join after its `try`, where it goes on once it has run.
+#[derive(Clone)]
+struct Catch<'p> {
+  param: Option<String>,
+  body: &'p [js::Stmt],
+  after: Option<Join>,
+}
+
+/// A continuation to run once a way through an `if` or a `try` is done: its event and what the act passes it.
+#[derive(Clone)]
+struct Join {
+  event: String,
+  carry: Expr,
+}
+
+/// The act running `join`, when there is one.
+fn run_join(join: Option<&Join>, walk: &mut HandlerWalk) {
+  if let Some(join) = join {
+    walk.act(crate::terminal::Act::Run.name().to_owned(), Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(join.event.clone())), Entry::Field("carry".to_owned(), join.carry.clone())]));
+  }
+}
+
+/// A branch's statements: a block's, or the one statement it is.
+fn arm(stmt: &js::Stmt) -> &[js::Stmt] {
+  match stmt {
+    js::Stmt::Block(block) => &block.stmts,
+    other => std::slice::from_ref(other),
+  }
+}
+
 /// Where the ids a terminal component's inlined hooks take start, past any its hoisting candidates number.
 const HOOK_IDS: u32 = 1 << 20;
 
@@ -8100,35 +8140,47 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(false)
   }
 
-  /// An async function a terminal handler runs, `void (async () => { … })()`: its statements run in the handler as far as the first `await`, which hands the awaited promise a continuation, a handler of the component named [`crate::terminal::Event::Resume`] holding the rest. The names the rest reads that the component does not hold itself are carried to it, the handler's own `$event` among them. A `try` around the `await` runs the rest of its block when the promise resolves and its `catch` when it rejects.
+  /// An async function a terminal handler runs, `void (async () => { … })()`: its statements run in the handler as far as the first `await`, which hands the awaited promise a continuation, a handler of the component named [`crate::terminal::Event::Resume`] holding the rest. The names the rest reads that the component does not hold itself are carried to it, the handler's own `$event` among them.
   fn handler_async(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk) -> Lowered<()> {
+    self.async_within(stmts, walk, &Within::default())
+  }
+
+  /// `stmts` run as an async function's are, inside `within`. An `if` holding an `await` runs each branch under its condition, the statements after it a join each branch runs once it is done; a `try` holding one runs the statements after it as a join too, its `catch` where a promise inside rejects.
+  fn async_within(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk, within: &Within<'p>) -> Lowered<()> {
     let Some(at) = stmts.iter().position(crate::awaits) else {
       self.handler_block(stmts, walk)?;
+      run_join(within.then.as_ref(), walk);
       return Ok(());
     };
     self.handler_block(&stmts[..at], walk)?;
-    let plain = |lowerer: &Lowerer<'_>, stmt: &'p js::Stmt| -> Lowered<(&'p js::Expr, Option<String>)> {
-      match stmt {
-        js::Stmt::Expr(e) => match crate::meaning::bare(&e.expr) {
-          js::Expr::Await(a) => Ok((&*a.arg, None)),
-          _ => Err(lowerer.residue(e.span, "an `await` inside an expression of a handler; await as a statement or a `const`'s value")),
-        },
-        js::Stmt::Decl(js::Decl::Var(var)) => match (var.decls.as_slice(), var.decls.first().and_then(|d| d.init.as_deref()).map(crate::meaning::bare)) {
-          ([decl], Some(js::Expr::Await(a))) => match &decl.name {
-            js::Pat::Ident(name) => Ok((&*a.arg, Some(name.id.sym.to_string()))),
-            _ => Err(lowerer.residue(decl.span, "an awaited value bound to a pattern")),
-          },
-          _ => Err(lowerer.residue(var.span, "an `await` inside an expression of a handler; await as a statement or a `const`'s value")),
-        },
-        other => Err(lowerer.residue(other.span(), "an `await` inside a branch or a loop of a handler")),
+    let rest = &stmts[at + 1..];
+    match &stmts[at] {
+      js::Stmt::If(branch) => {
+        let inner = Within { catch: within.catch.clone(), then: self.join(rest, within)? };
+        let cond = self.lowerer.expr(&branch.test)?;
+        let outer = walk.reach.clone();
+        let depth = self.lowerer.scope.len();
+        walk.reach = Some(reach_under(&outer, cond.clone()));
+        let then = self.async_within(arm(&branch.cons), walk, &inner);
+        self.lowerer.scope.truncate(depth);
+        then?;
+        walk.reach = Some(reach_under(&outer, Expr::Not(Box::new(cond))));
+        let otherwise = match &branch.alt {
+          Some(alt) => self.async_within(arm(alt), walk, &inner),
+          None => {
+            run_join(inner.then.as_ref(), walk);
+            Ok(())
+          }
+        };
+        self.lowerer.scope.truncate(depth);
+        walk.reach = outer;
+        otherwise
       }
-    };
-    let (awaited, bound, in_try, caught) = match &stmts[at] {
-      js::Stmt::Try(t) if t.finalizer.is_none() => {
-        let inner = &t.block.stmts;
-        let Some(i) = inner.iter().position(crate::awaits) else { return Err(self.lowerer.residue(t.span, "a `try` holding no `await` the handler could reach")) };
-        self.handler_block(&inner[..i], walk)?;
-        let (awaited, bound) = plain(&self.lowerer, &inner[i])?;
+      js::Stmt::Try(t) => {
+        if t.finalizer.is_some() {
+          return Err(self.lowerer.residue(t.span, "a `finally` in a handler"));
+        }
+        let after = self.join(rest, within)?;
         let caught = match &t.handler {
           Some(catch) => {
             let param = match &catch.param {
@@ -8136,66 +8188,88 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               None => None,
               Some(other) => return Err(self.lowerer.residue(other.span(), "a `catch` parameter that is not a name")),
             };
-            Some((param, &catch.body.stmts[..]))
+            Some(Catch { param, body: &catch.body.stmts[..], after: after.clone() })
           }
-          None => None,
+          None => within.catch.clone(),
         };
-        (awaited, bound, &inner[i + 1..], caught)
+        let inner = Within { catch: caught, then: after };
+        self.async_within(&t.block.stmts, walk, &inner)
       }
-      js::Stmt::Try(t) => return Err(self.lowerer.residue(t.span, "a `finally` in a handler")),
       stmt => {
-        let (awaited, bound) = plain(&self.lowerer, stmt)?;
-        (awaited, bound, &[][..], None)
-      }
-    };
-    if in_try.iter().any(crate::awaits) {
-      return Err(self.lowerer.residue(stmts[at].span(), "a second `await` inside one `try` of a handler"));
-    }
-    let deferred = self.lowerer.expr(awaited)?;
-    let resume = "$resume".to_owned();
-    let mut rest = HandlerWalk::default();
-    let depth = self.lowerer.scope.len();
-    let resumed = Expr::Var(resume.clone());
-    if let Some(name) = &bound {
-      self.lowerer.scope.push((name.clone(), resumed.clone().field("value")));
-    }
-    let lowered = (|| -> Lowered<()> {
-      let ok = resumed.clone().field("ok");
-      match caught {
-        Some((param, body)) => {
-          rest.reach = Some(ok.clone());
-          self.handler_block(in_try, &mut rest)?;
-          rest.reach = Some(Expr::Not(Box::new(ok)));
-          if let Some(param) = param {
-            self.lowerer.scope.push((param, resumed.clone().field("value")));
+        let (awaited, bound) = match stmt {
+          js::Stmt::Expr(e) => match crate::meaning::bare(&e.expr) {
+            js::Expr::Await(a) => (&*a.arg, None),
+            _ => return Err(self.lowerer.residue(e.span, "an `await` inside an expression of a handler; await as a statement or a `const`'s value")),
+          },
+          js::Stmt::Decl(js::Decl::Var(var)) => match (var.decls.as_slice(), var.decls.first().and_then(|d| d.init.as_deref()).map(crate::meaning::bare)) {
+            ([decl], Some(js::Expr::Await(a))) => match &decl.name {
+              js::Pat::Ident(name) => (&*a.arg, Some(name.id.sym.to_string())),
+              _ => return Err(self.lowerer.residue(decl.span, "an awaited value bound to a pattern")),
+            },
+            _ => return Err(self.lowerer.residue(var.span, "an `await` inside an expression of a handler; await as a statement or a `const`'s value")),
+          },
+          other => return Err(self.lowerer.residue(other.span(), "an `await` inside a loop of a handler")),
+        };
+        let deferred = self.lowerer.expr(awaited)?;
+        let resumed = Expr::Var(RESUME.to_owned());
+        let mut cw = HandlerWalk::default();
+        let depth = self.lowerer.scope.len();
+        if let Some(name) = &bound {
+          self.lowerer.scope.push((name.clone(), resumed.clone().field("value")));
+        }
+        let lowered = (|| -> Lowered<()> {
+          let ok = resumed.clone().field("ok");
+          if let Some(catch) = &within.catch {
+            cw.reach = Some(Expr::Not(Box::new(ok.clone())));
+            if let Some(param) = &catch.param {
+              self.lowerer.scope.push((param.clone(), resumed.clone().field("value")));
+            }
+            self.handler_block(catch.body, &mut cw)?;
+            run_join(catch.after.as_ref(), &mut cw);
           }
-          self.handler_block(body, &mut rest)?;
-          rest.reach = None;
-        }
-        None => {
-          self.handler_block(in_try, &mut rest)?;
-        }
+          cw.reach = Some(ok);
+          self.async_within(rest, &mut cw, within)
+        })();
+        self.lowerer.scope.truncate(depth);
+        lowered?;
+        let (event, carry) = self.continuation_handler(stmt.span(), cw);
+        walk.act(crate::terminal::Act::Then.name().to_owned(), Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
+        Ok(())
       }
-      self.handler_async(&stmts[at + 1..], &mut rest)
-    })();
+    }
+  }
+
+  /// The statements after an `if` or a `try` that awaits, run inside `within` as a continuation every way through it ends with; `within`'s own join when there are none.
+  fn join(&mut self, rest: &'p [js::Stmt], within: &Within<'p>) -> Lowered<Option<Join>> {
+    if rest.is_empty() {
+      return Ok(within.then.clone());
+    }
+    let mut cw = HandlerWalk::default();
+    let depth = self.lowerer.scope.len();
+    let lowered = self.async_within(rest, &mut cw, within);
     self.lowerer.scope.truncate(depth);
     lowered?;
-    let mut body = rest.out;
-    body.push(Stmt::Return(Expr::Object(rest.patch)));
-    let held: Vec<String> = self.state.iter().chain(self.state_bindings.iter()).cloned().chain(["$state".to_owned(), "$props".to_owned(), resume.clone()]).chain(self.lowerer.cells.iter().map(|(name, _)| name.clone())).collect();
+    let (event, carry) = self.continuation_handler(rest[0].span(), cw);
+    Ok(Some(Join { event, carry }))
+  }
+
+  /// `walk` as a handler of the component named [`crate::terminal::Event::Resume`] for `at`: what it was run with bound as [`RESUME`], every name it reads that the component does not hold carried in. Returns the event and the carry the act that runs it passes.
+  fn continuation_handler(&mut self, at: Span, walk: HandlerWalk) -> (String, Expr) {
+    let mut body = walk.out;
+    body.push(Stmt::Return(Expr::Object(walk.patch)));
+    let held: Vec<String> = self.state.iter().chain(self.state_bindings.iter()).cloned().chain(["$state".to_owned(), "$props".to_owned(), RESUME.to_owned()]).chain(self.lowerer.cells.iter().map(|(name, _)| name.clone())).collect();
     let carried: Vec<String> = snapfire_fsr_ir::body_free_vars(&body).into_iter().filter(|name| !held.contains(name)).collect();
-    let mut handler = vec![Stmt::Let { name: resume.clone(), expr: Expr::Var("$event".to_owned()) }];
+    let resumed = Expr::Var(RESUME.to_owned());
+    let mut handler = vec![Stmt::Let { name: RESUME.to_owned(), expr: Expr::Var("$event".to_owned()) }];
     for name in &carried {
       handler.push(Stmt::Let { name: name.clone(), expr: resumed.clone().field("carry").field(name.clone()) });
     }
     handler.extend(body);
-    let event = crate::terminal::Event::Resume(format!("{}@{}", self.lowerer.parsed.file, stmts[at].span().lo.0)).name();
+    let event = crate::terminal::Event::Resume(format!("{}@{}", self.lowerer.parsed.file, at.lo.0)).name();
     if !self.lowered_handlers.iter().any(|held| held.event == event) {
       self.lowered_handlers.push(Handler { event: event.clone(), body: handler });
     }
-    let carry = Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), Expr::Var(name.clone()))).collect());
-    walk.act(crate::terminal::Act::Then.name().to_owned(), Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
-    Ok(())
+    (event, Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), Expr::Var(name.clone()))).collect()))
   }
 
   /// `if`, `else` and `else if`: each branch lowers under its condition joined to the reach around it and the names it declares go out of scope with it. A branch that returns leaves the rest of the handler reachable only when the other one ran.
