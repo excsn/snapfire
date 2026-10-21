@@ -5,7 +5,7 @@
 import { useId } from "react";
 import { action } from "@snapfire/fsr-client";
 import { useStore } from "@snapfire/fsr-client/react";
-import { Box, emit } from "@snapfire/fsr/terminal/core";
+import { Box, emit, suspendTerminal } from "@snapfire/fsr/terminal/core";
 
 /** The terminal's size, which the terminal keeps in the store. */
 export function useWindowSize() {
@@ -79,4 +79,9 @@ export function Static<T>({ items, style, children }: { items: T[]; style?: Reco
       {items.map((item, index) => children(item, index))}
     </Box>
   );
+}
+
+/** The page's control of the terminal: `exit` quits, and `suspendTerminal(f)` gives the terminal up while the promise `f` returns is pending. */
+export function useApp() {
+  return { exit: action("$exit"), suspendTerminal };
 }

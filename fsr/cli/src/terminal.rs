@@ -177,6 +177,7 @@ pub struct Session {
   ready: Vec<(Waiting, bool, Value)>,
   suspensions: Vec<(String, String)>,
   listeners: Vec<(String, Report, Listener)>,
+  exiting: bool,
 }
 
 /// What a page asked to happen when a process it spawned reports: a continuation to run or a promise to settle.
@@ -249,7 +250,7 @@ impl Focus {
       Act::FocusPrevious => self.step(true),
       Act::FocusEnable => self.disabled = false,
       Act::FocusDisable => self.disabled = true,
-      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run => return false,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run | Act::Exit => return false,
     }
     true
   }
@@ -267,7 +268,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), exiting: false })
   }
 
   /// The page as it stands.
@@ -363,7 +364,7 @@ impl Session {
 
   /// Whether the page has called Ink's `useApp().exit()`.
   pub fn exited(&self) -> bool {
-    self.state.get(snapfire_fsr_lower::EXIT_STATE) == Some(&Value::Bool(true))
+    self.exiting
   }
 
   /// The page after `timer` fires; as it stands when the component that started it is gone.
@@ -502,6 +503,7 @@ impl Session {
           self.settle(&deferred, ok, settle.get("value").cloned().unwrap_or(Value::Null));
         }
       }
+      (Some(Act::Exit), _) => self.exiting = true,
       (Some(Act::Run), Value::Map(run)) => {
         let Some(Value::Str(event)) = run.get("event") else { return };
         let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: run.get("carry").cloned().unwrap_or(Value::Null) };

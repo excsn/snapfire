@@ -27,6 +27,28 @@ pub const SETTLES: &str = "$settles";
 /// The key an act reference is held under, `{ "$act": action }`: what `action("$stdout")` is in a terminal page. A handler's call to one issues the act with what it was called with.
 pub const ACT_REF: &str = "$act";
 
+/// The key a terminal primitive used as a value is held under, `{ "$primitive": name }`: `suspendTerminal` as Ink's `useApp` hands it back. A call through one is the primitive's.
+pub const PRIMITIVE: &str = "$primitive";
+
+/// The primitive a value refers to, read the way [`act_ref`] reads an act.
+pub fn primitive_ref(expr: &snapfire_fsr_ir::Expr) -> Option<String> {
+  use snapfire_fsr_ir::ast::{Entry, Expr, Lit};
+  match expr {
+    Expr::Object(entries) => entries.iter().find_map(|entry| match entry {
+      Entry::Field(key, Expr::Lit(Lit::Str(name))) if key == PRIMITIVE => Some(name.clone()),
+      _ => None,
+    }),
+    Expr::Field(object, name) => match &**object {
+      Expr::Object(entries) => entries.iter().rev().find_map(|entry| match entry {
+        Entry::Field(key, value) if key == name => primitive_ref(value),
+        _ => None,
+      }),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
 /// The act a value refers to: `{ "$act": action }`, read through any field of an object written out that holds one.
 pub fn act_ref(expr: &snapfire_fsr_ir::Expr) -> Option<String> {
   use snapfire_fsr_ir::ast::{Entry, Expr, Lit};
@@ -161,6 +183,8 @@ pub enum Act {
   Run,
   /// `{ until, settles }`: give up the screen until the deferred `until` settles, then take it back and settle `settles` as `until` settled. Ink's `suspendTerminal`.
   Suspend,
+  /// Ink's `exit()`: the page is done and the terminal quits.
+  Exit,
   /// `focus(id)`.
   Focus,
   FocusNext,
@@ -181,6 +205,7 @@ impl Act {
       Act::Suspend => "$suspend",
       Act::Listen => "$listen",
       Act::Run => "$run",
+      Act::Exit => "$exit",
       Act::Focus => "$focus",
       Act::FocusNext => "$focusNext",
       Act::FocusPrevious => "$focusPrevious",
@@ -190,7 +215,7 @@ impl Act {
   }
 
   pub fn parse(name: &str) -> Option<Act> {
-    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Run, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
+    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Run, Act::Exit, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
   }
 }
 

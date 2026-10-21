@@ -5322,7 +5322,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn bind_value(&mut self, pattern: &js::Pat, value: Expr) -> Lowered<()> {
-    if crate::terminal::act_ref(&value).is_some() || (self.lowerer.terminal && matches!(value, Expr::Lambda { .. })) {
+    if crate::terminal::act_ref(&value).is_some() || crate::terminal::primitive_ref(&value).is_some() || (self.lowerer.terminal && matches!(value, Expr::Lambda { .. })) {
       return bind_pattern(&mut self.lowerer, pattern, value);
     }
     let name = self.lowerer.temp();
@@ -6530,9 +6530,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       self.template_import(decl, call)?;
       return Ok(None);
     }
-    if library_hook(&self.meanings(), init).is_some_and(|(hook, _)| hook == "useApp") {
-      return self.app_hook(&decl.name, decl.span);
-    }
     if let Some(("useAnimation", call)) = library_hook(&self.meanings(), init) {
       return self.animation_hook(call, &decl.name, decl.span).map(Some);
     }
@@ -7610,41 +7607,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(self.lowered_handlers.len() - 1)
   }
 
-  /// Ink's `const { exit, suspendTerminal } = useApp()`: `exit` the setter of
-  /// [`crate::EXIT_STATE`], state that starts `false` and that a call to `exit`
-  /// sets to `true`; `suspendTerminal` a function [`Lowerer::suspenders`] names.
-  fn app_hook(&mut self, pattern: &js::Pat, span: Span) -> Lowered<Option<Stmt>> {
-    let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, "`useApp` bound to one name; destructure it as `const { exit } = useApp()`")) };
-    let mut exit = None;
-    for prop in &object.props {
-      let (key, local) = match prop {
-        js::ObjectPatProp::Assign(assign) => (assign.key.sym.to_string(), assign.key.sym.to_string()),
-        js::ObjectPatProp::KeyValue(kv) => match (&kv.key, &*kv.value) {
-          (js::PropName::Ident(key), js::Pat::Ident(local)) => (key.sym.to_string(), local.id.sym.to_string()),
-          _ => return Err(self.lowerer.residue(span, "a pattern from `useApp`")),
-        },
-        js::ObjectPatProp::Rest(_) => return Err(self.lowerer.residue(span, "a rest pattern from `useApp`")),
-      };
-      match key.as_str() {
-        "exit" => exit = Some(local),
-        "suspendTerminal" => {
-          self.lowerer.suspenders.push(local.clone());
-          self.browser_function(local);
-        }
-        other => return Err(self.lowerer.residue(span, format!("`{other}` from `useApp`; it gives `exit` and `suspendTerminal`"))),
-      }
-    }
-    let state = crate::EXIT_STATE.to_owned();
-    if let Some(exit) = exit {
-      self.setters.push((exit.clone(), state.clone()));
-      self.browser_function(exit);
-    }
-    self.state.push(state.clone());
-    self.state_bindings.push(state.clone());
-    self.lowerer.scope.push((state.clone(), Expr::Var(state.clone())));
-    Ok(Some(Stmt::Let { name: state, expr: Expr::Lit(Lit::Bool(false)) }))
-  }
-
   /// Ink's `useAnimation({ interval, isActive })`: frame state of its own that
   /// starts at 0 and an `interval:<ms>` handler adding one to it while
   /// `isActive` holds, 100 ms and always active unless the options say so.
@@ -8388,10 +8350,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               return Ok(());
             }
             if let Some((_, state)) = self.setters.iter().find(|(s, _)| *s == name).cloned() {
-              if state == crate::EXIT_STATE {
-                walk.set(state, Expr::Lit(Lit::Bool(true)));
-                return Ok(());
-              }
               let arg = call.args.first().ok_or_else(|| self.lowerer.residue(call.span, format!("`{name}` without a value")))?;
               let value = match &*arg.expr {
                 js::Expr::Arrow(arrow) => {

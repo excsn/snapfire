@@ -156,9 +156,6 @@ pub const GENERATED: &[(&str, &str)] = &[("@snapfire/fsr/head", "generated/head"
 /// rather than by reading; this file holds nothing but lowerable helpers.
 pub const HEAD_MODULE: &str = "generated/head.ts";
 
-/// The state Ink's `useApp().exit()` sets to `true`, which the terminal reads to quit.
-pub const EXIT_STATE: &str = "$exit";
-
 /// The store keys the terminal sets to its size, which Ink's `useWindowSize` and `useStdout().stdout` read.
 pub const TERMINAL_COLUMNS: &str = "$terminal.columns";
 pub const TERMINAL_ROWS: &str = "$terminal.rows";
@@ -985,8 +982,6 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) settlers: Vec<String>,
   /// The continuations a terminal page's async functions lowered to, each the rest of a function after an `await`, which the component that runs it holds as handlers.
   pub(crate) continuations: Vec<snapfire_fsr_ir::ast::Handler>,
-  /// The locals Ink's `useApp` gives `suspendTerminal` as.
-  pub(crate) suspenders: Vec<String>,
   /// The locals a terminal block bound to a process it spawned.
   pub(crate) spawned: Vec<String>,
   /// The contexts this component provides, by key, for a `getContext` of its own to read.
@@ -1055,7 +1050,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), suspenders: Vec::new(), spawned: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1875,7 +1870,14 @@ impl<'a> Lowerer<'a> {
   fn suspend_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
     let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
     let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return Ok(None) };
-    if !self.terminal || !self.suspenders.iter().any(|s| *s == *id.sym) {
+    if !self.terminal {
+      return Ok(None);
+    }
+    let suspends = match self.scope.iter().rev().find(|(n, _)| *n == *id.sym) {
+      Some((_, bound)) => crate::terminal::primitive_ref(bound).as_deref() == Some("suspendTerminal"),
+      None => self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) == Some(&meaning::Meaning::Library(meaning::Construct::Suspend)),
+    };
+    if !suspends {
       return Ok(None);
     }
     let Some(js::Expr::Arrow(f)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.residue(call.span, "`suspendTerminal` of something other than an arrow written in place")) };
@@ -2386,6 +2388,9 @@ impl<'a> Lowerer<'a> {
     }
     if let Some((_, bound)) = self.globals.iter().rev().find(|(n, _)| n == name) {
       return Ok(bound.clone());
+    }
+    if self.terminal && self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) == Some(&meaning::Meaning::Library(meaning::Construct::Suspend)) {
+      return Ok(Expr::Object(vec![Entry::Field(crate::terminal::PRIMITIVE.to_owned(), Expr::lit_str("suspendTerminal"))]));
     }
     match self.root_of(id) {
       Some(Root::Input) => Ok(Expr::Input),

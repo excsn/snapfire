@@ -50,6 +50,8 @@ pub(crate) enum Construct {
   NodeProcess,
   /// The terminal primitive `emit(kind, value)`, `Builtin::Emit`.
   Emit,
+  /// The terminal primitive `suspendTerminal(f)`.
+  Suspend,
   /// React's `Children`, of which the build reads the count of a component's own children.
   Children,
   /// React's `cloneElement`.
@@ -86,7 +88,7 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
       rows.extend(TERMINAL_ELEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
       rows.push((module, "useInput", Construct::Hook("useInput")));
       rows.push((module, "emit", Construct::Emit));
-      rows.push((module, "useApp", Construct::Hook("useApp")));
+      rows.push((module, "suspendTerminal", Construct::Suspend));
       rows.push((module, "useAnimation", Construct::Hook("useAnimation")));
     }
     let react_hooks: Vec<(&'static str, Construct)> = LIBRARY.iter().filter(|(m, _, c)| *m == "react" && matches!(c, Construct::Hook(_))).map(|(_, e, c)| (*e, *c)).collect();
