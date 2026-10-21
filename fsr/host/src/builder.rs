@@ -420,7 +420,7 @@ impl HostBuilder {
     if config.session.key.is_none() && config.dev() {
       config.session.key = Some(snapfire_fsr_session::random_token());
     }
-    if config.session.key.as_deref() == Some(config::SESSION_KEY_PLACEHOLDER) {
+    if config.runtime_values().iter().any(|value| value.state == config::ValueState::Placeholder) {
       return Err(placeholder_session_key(&config));
     }
     let ttl = config.session_ttl()?;

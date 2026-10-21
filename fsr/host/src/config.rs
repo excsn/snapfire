@@ -98,6 +98,9 @@ pub struct Config {
   /// application's own store to read. A project that shares `config/`
   /// between its store and the host's puts its keys on the same rungs.
   pub ignored: Vec<String>,
+  /// The deployment whose ladder was loaded; `None` when the caller owned
+  /// the store, when `dev` reads the environment.
+  pub deployment: Option<Deployment>,
 }
 
 /// One `[public]` value: a TOML scalar, kept as written so the build can type
@@ -1305,6 +1308,44 @@ fn default_capacity() -> u64 {
   4096
 }
 
+/// A value a deployment outside development must hold, which its files may
+/// leave to the environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct RuntimeValue {
+  pub key: String,
+  /// The variable c5store reads it from, `env_name(key)`.
+  pub env: String,
+  pub state: ValueState,
+}
+
+impl RuntimeValue {
+  pub fn new(key: impl Into<String>, state: ValueState) -> Self {
+    let key = key.into();
+    Self { env: env_name(&key), key, state }
+  }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ValueState {
+  Set,
+  /// The value a scaffold writes for a person to replace.
+  Placeholder,
+  Missing,
+}
+
+/// The `C5_` variable c5store layers over the files for `key`: `session.key`
+/// is `C5_SESSION__KEY`.
+pub fn env_name(key: &str) -> String {
+  format!("C5_{}", key.split('.').map(|part| part.to_uppercase()).collect::<Vec<_>>().join("__"))
+}
+
+/// The top-level sections the host reads; any other is the application's.
+pub fn host_sections() -> &'static [&'static str] {
+  SECTIONS
+}
+
 /// The deployment axes, read from the environment: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (no default).
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -1552,7 +1593,9 @@ impl Loader {
     options.secret_opts = self.secret_options(&located.dir);
     let (store, _mgr) = create_c5store(located.sources.clone(), Some(options))
       .map_err(|e| HostError::Config(located.sources[0].clone(), e.to_string()))?;
-    Config::from_store(&store, located)
+    let mut config = Config::from_store(&store, located)?;
+    config.deployment = Some(self.deployment.clone());
+    Ok(config)
   }
 
   /// The configuration plus the plan file and the contracts directory it names.
@@ -2437,6 +2480,7 @@ impl Config {
       bundle,
       inferred,
       ignored,
+      deployment: None,
     })
   }
 
@@ -2483,12 +2527,23 @@ impl Config {
   }
 
   /// Whether development conveniences are on: `server.dev` when written,
-  /// else whether `RELEASE_ENV` is `development`, which it is when unset.
+  /// else whether the deployment loaded is `development`, the environment's
+  /// `RELEASE_ENV` when nothing says which was.
   pub fn dev(&self) -> bool {
-    self
-      .server
-      .dev
-      .unwrap_or_else(|| Deployment::from_env().release_env == "development")
+    self.server.dev.unwrap_or_else(|| self.deployment.clone().unwrap_or_else(Deployment::from_env).release_env == "development")
+  }
+
+  /// The values this deployment must hold that its files may leave to the
+  /// environment, each with the `C5_` variable that sets it. An absent
+  /// session key is set in development, which mints one; a placeholder is
+  /// one everywhere.
+  pub fn runtime_values(&self) -> Vec<RuntimeValue> {
+    let state = match self.session.key.as_deref() {
+      Some(SESSION_KEY_PLACEHOLDER) => ValueState::Placeholder,
+      None if !self.dev() => ValueState::Missing,
+      _ => ValueState::Set,
+    };
+    vec![RuntimeValue::new("session.key", state)]
   }
 
   /// The cache lifetime, `None` when no `[cache]` section is written.

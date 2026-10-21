@@ -291,6 +291,18 @@ struct Doctor {
   /// Names each check that found nothing as well.
   #[arg(long)]
   verbose: bool,
+  /// The release environment whose configuration ladder to check, over RELEASE_ENV.
+  #[arg(long = "env", value_name = "RELEASE_ENV")]
+  release_env: Option<String>,
+  /// The application environment of the ladder, over APP_ENV.
+  #[arg(long)]
+  app_env: Option<String>,
+  /// The region of the ladder, over APP_REGION.
+  #[arg(long)]
+  region: Option<String>,
+  /// Runs in the deployment's own environment: a value the files leave to it is a finding when it is missing.
+  #[arg(long)]
+  runtime: bool,
 }
 
 #[cfg(feature = "web")]
@@ -677,7 +689,7 @@ fn main() -> ExitCode {
         Err(e) => failed(e),
       }
     }
-    Command::Doctor(args) => match doctor::run(&snapfire_fsr_cli::serve::project_root(&args.app_dir)) {
+    Command::Doctor(args) => match doctor::run_with(&snapfire_fsr_cli::serve::project_root(&args.app_dir), &doctor_options(&args)) {
       Ok(report) => {
         if args.verbose {
           print!("{}", report.verbose());
@@ -783,6 +795,24 @@ fn run_new(args: New) -> ExitCode {
     }
     Err(e) => failed(e),
   }
+}
+
+fn doctor_options(args: &Doctor) -> doctor::DoctorOptions {
+  let options = doctor::DoctorOptions::default().runtime(args.runtime);
+  if args.release_env.is_none() && args.app_env.is_none() && args.region.is_none() {
+    return options;
+  }
+  let mut deployment = snapfire_fsr_host::config::Deployment::from_env();
+  if let Some(release_env) = &args.release_env {
+    deployment = deployment.release_env(release_env.clone());
+  }
+  if let Some(app_env) = &args.app_env {
+    deployment = deployment.app_env(app_env.clone());
+  }
+  if args.region.is_some() {
+    deployment = deployment.region(args.region.clone());
+  }
+  options.deployment(deployment)
 }
 
 fn run_migrate(args: Migrate) -> ExitCode {

@@ -806,6 +806,24 @@ fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
 }
 
 #[test]
+fn a_loaded_configuration_is_development_by_the_deployment_it_was_loaded_for() {
+  use snapfire_fsr_host::config::{env_name, Deployment, Loader, RuntimeValue, ValueState};
+
+  let root = std::env::temp_dir().join(format!("fsr-host-deployment-{}-{}", std::process::id(), rand_suffix()));
+  std::fs::create_dir_all(root.join("config")).unwrap();
+  std::fs::write(root.join("config/app.toml"), "[document]\ntitle = \"App\"\n").unwrap();
+  let production = Loader::at(&root).deployment(Deployment::default().release_env("production".to_owned())).config().unwrap();
+  assert!(!production.dev(), "loaded for production, whatever RELEASE_ENV this process has");
+  assert_eq!(production.runtime_values(), [RuntimeValue::new("session.key", ValueState::Missing)]);
+  let development = Loader::at(&root).deployment(Deployment::default()).config().unwrap();
+  assert!(development.dev());
+  assert_eq!(development.runtime_values(), [RuntimeValue::new("session.key", ValueState::Set)], "development mints the key");
+  assert_eq!(env_name("session.key"), "C5_SESSION__KEY");
+  assert_eq!(env_name("clients.cms.base_url"), "C5_CLIENTS__CMS__BASE_URL");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn a_config_directory_loads_the_deployment_ladder_in_order_and_nothing_else() {
   use snapfire_fsr_host::config::{Deployment, Loader, config_paths};
 

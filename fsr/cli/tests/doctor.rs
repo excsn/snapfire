@@ -50,7 +50,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 19, "{out}");
+  assert_eq!(out.clean.len(), 21, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -248,7 +248,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 19 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 21 checks"), "{out}");
   assert!(!out.is_clean());
 }
 
@@ -699,3 +699,49 @@ fn verbose_names_each_check_that_found_nothing() {
   assert_eq!(quiet.lines().count(), 1, "{quiet}");
   assert!(verbose.ends_with(&quiet), "{verbose}");
 }
+
+fn production() -> doctor::DoctorOptions {
+  doctor::DoctorOptions::default().deployment(snapfire_fsr_host::config::Deployment::default().release_env("production".to_owned()))
+}
+
+#[test]
+fn the_deployment_doctor_is_named_is_the_ladder_it_checks() {
+  let dir = app("", &[("production.toml", "[server]\nlisten = 5\n")]);
+  assert!(doctor::run(&dir).is_ok(), "development does not read production.toml");
+  let error = doctor::run_with(&dir, &production()).expect_err("production's overlay is wrong").to_string();
+  assert!(error.contains("server"), "{error}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_value_the_files_leave_to_the_environment_is_expected_and_missing_only_at_runtime() {
+  let dir = app("", &[("production.toml", "[session]\nkey = \"replace-this-with-a-generated-key\"\n")]);
+  let ci = doctor::run_with(&dir, &production()).expect("runs");
+  assert!(ci.is_clean(), "{ci}");
+  assert_eq!(ci.expected, ["session.key: the files hold the placeholder; this deployment needs C5_SESSION__KEY when it starts"], "{ci}");
+  assert!(ci.to_string().contains("expects      session.key"), "{ci}");
+  let runtime = doctor::run_with(&dir, &production().runtime(true)).expect("runs");
+  assert_eq!(runtime.findings.iter().map(|f| f.check).collect::<Vec<_>>(), ["runtime"], "{runtime}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_value_a_file_of_the_deployment_sets_is_neither_expected_nor_missing() {
+  let dir = app("", &[("production.toml", "[session]\nkey = \"a-real-key-for-production\"\n")]);
+  let ci = doctor::run_with(&dir, &production()).expect("runs");
+  assert!(ci.is_clean() && ci.expected.is_empty(), "{ci}");
+  let runtime = doctor::run_with(&dir, &production().runtime(true)).expect("runs");
+  assert!(runtime.is_clean(), "{runtime}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_section_one_edit_from_the_hosts_own_is_reported_as_a_misspelling() {
+  let dir = app("[sesion]\nttl = \"1h\"\n[metrics]\nenabled = true\n", &[]);
+  let out = doctor::run(&dir).expect("runs");
+  assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), ["sections"], "{out}");
+  assert!(out.to_string().contains("[sesion]") && out.to_string().contains("[session]"), "{out}");
+  assert!(!out.to_string().contains("[metrics]"), "an application's own section is not a misspelling: {out}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+

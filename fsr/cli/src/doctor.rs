@@ -9,7 +9,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_host::config::{BearerKey, Config};
+use snapfire_fsr_host::config::{host_sections, BearerKey, Config, Deployment, Loader, ValueState};
 use snapfire_fsr_ir::ast::{Entry, Expr, Tmpl};
 use snapfire_fsr_plan::Manifest;
 
@@ -47,6 +47,10 @@ pub struct Report {
   /// The checks that ran and found nothing, so a clean report still says what
   /// it looked at.
   pub clean: Vec<&'static str>,
+  /// Values the files leave to the environment of the deployment checked,
+  /// each with the variable that must set it when the host starts. Not a
+  /// finding: CI has the files and not the deployment's environment.
+  pub expected: Vec<String>,
 }
 
 impl Report {
@@ -72,6 +76,9 @@ impl Report {
       for check in &self.clean {
         writeln!(f, "{check:<12} nothing to report")?;
       }
+    }
+    for expected in &self.expected {
+      writeln!(f, "{:<12} {expected}", "expects")?;
     }
     if self.findings.is_empty() {
       writeln!(f, "{:<12} {} checks, nothing to report", "doctor", self.clean.len())?;
@@ -100,10 +107,45 @@ impl std::fmt::Display for Verbose<'_> {
   }
 }
 
+/// Which deployment's configuration doctor checks and what it may assume
+/// about the environment.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct DoctorOptions {
+  /// The ladder to merge; the one the environment names when absent.
+  pub deployment: Option<Deployment>,
+  /// Runs in the deployment's own environment, so a value the files leave to
+  /// it is a finding when it is not there rather than an expectation.
+  pub runtime: bool,
+}
+
+impl DoctorOptions {
+  pub fn deployment(mut self, deployment: Deployment) -> Self {
+    self.deployment = Some(deployment);
+    self
+  }
+
+  pub fn runtime(mut self, runtime: bool) -> Self {
+    self.runtime = runtime;
+    self
+  }
+}
+
 /// Runs every check over the application at `app`, which is a directory
-/// holding an `app.toml` or a project root that names one.
+/// holding an `app.toml` or a project root that names one, under the
+/// deployment the environment names.
 pub fn run(app: &Path) -> Result<Report, DoctorError> {
-  let config = Config::load(app).map_err(|e| DoctorError::Config(e.to_string()))?;
+  run_with(app, &DoctorOptions::default())
+}
+
+/// `run` over the deployment `options` names, its ladder merged the way the
+/// host merges it.
+pub fn run_with(app: &Path, options: &DoctorOptions) -> Result<Report, DoctorError> {
+  let loader = match &options.deployment {
+    Some(deployment) => Loader::at(app).deployment(deployment.clone()),
+    None => Loader::at(app),
+  };
+  let config = loader.config().map_err(|e| DoctorError::Config(e.to_string()))?;
   let manifest = read_plan(&config)?;
   let prerenderable = prerenderable(&config);
   let mut report = Report::default();
@@ -127,6 +169,8 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     ("store", store(&config)),
     ("images", image_metadata(&config)),
     ("desktop", desktop(&config, manifest.as_ref())),
+    ("runtime", runtime(&config, options.runtime, &mut report.expected)),
+    ("sections", sections(&config)),
   ] {
     if findings.is_empty() {
       report.clean.push(check);
@@ -135,6 +179,54 @@ pub fn run(app: &Path) -> Result<Report, DoctorError> {
     }
   }
   Ok(report)
+}
+
+/// Each value the deployment must hold that its files leave unset or at the
+/// scaffold's placeholder: a finding where doctor runs in the deployment's
+/// environment, an expectation otherwise.
+fn runtime(config: &Config, at_runtime: bool, expected: &mut Vec<String>) -> Vec<Finding> {
+  let mut out = Vec::new();
+  for value in config.runtime_values() {
+    let what = match value.state {
+      ValueState::Set => continue,
+      ValueState::Placeholder => "the files hold the placeholder",
+      _ => "no file sets it",
+    };
+    if at_runtime {
+      out.push(Finding::new("runtime", format!("{}: {what} and {} is not set", value.key, value.env), format!("set {} in the deployment's environment or write the value in a configuration file it reads", value.env)));
+    } else {
+      expected.push(format!("{}: {what}; this deployment needs {} when it starts", value.key, value.env));
+    }
+  }
+  out
+}
+
+/// A top-level section the host does not read whose name is one letter from
+/// one it does: a misspelling the host loads without a word, since any other
+/// section is the application's own.
+fn sections(config: &Config) -> Vec<Finding> {
+  let mut out = Vec::new();
+  for name in &config.ignored {
+    if let Some(known) = host_sections().iter().find(|known| name.len() > 2 && one_edit(name, known)) {
+      out.push(Finding::new("sections", format!("[{name}] is not a section the host reads"), format!("rename it [{known}], the section it is one letter from")));
+    }
+  }
+  out
+}
+
+/// Whether `a` becomes `b` by one insertion, deletion or substitution.
+fn one_edit(a: &str, b: &str) -> bool {
+  let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+  if a == b || a.len().abs_diff(b.len()) > 1 {
+    return false;
+  }
+  let (short, long) = if a.len() <= b.len() { (&a, &b) } else { (&b, &a) };
+  let start = short.iter().zip(long.iter()).take_while(|(x, y)| x == y).count();
+  if short.len() == long.len() {
+    short[start + 1..] == long[start + 1..]
+  } else {
+    short[start..] == long[start + 1..]
+  }
 }
 
 /// Every AVIF original the build serves carrying an EXIF or XMP block. The

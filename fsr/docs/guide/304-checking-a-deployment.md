@@ -51,6 +51,8 @@ Each check answers from something a build already computed, so none of it needs 
 | `render` | a `[server] render` line | Every page renders on the server and every island in the browser, so no host accepts the setting and the boot stops until the line is taken out |
 | `tree` | a file a deploy tree would carry that the project does not hold; a setting no tree can express | The host reads each of these at boot, so a tree without one starts on the machine that built it and fails on the machine it was copied to |
 | `csp` | a policy naming `'unsafe-inline'` in `script-src` beside an import map; a policy naming `'strict-dynamic'` | The host adds the import map's hash to that directive; a hash makes the browser ignore `'unsafe-inline'`. `'strict-dynamic'` makes it ignore `'self'` and every host, leaving the entry module with nothing to allow it |
+| `runtime` | with `--runtime`, a value the deployment must hold that is unset or still the scaffold's placeholder, `session.key` among them | The host refuses to start without it; on the machine that will run it, doctor says so before the deploy swaps over |
+| `sections` | a top-level section the host does not read whose name is one letter from one it does, `[sesion]` | Any other section belongs to the application's own store, so the host loads a misspelt one without a word and the setting it held never applies |
 | `sites` | a mounted site that pins no hash, ships a part the artifact does not carry, has no plan or one older than its own routes, plus artifacts under the root no mount names | A shell serves a site it never builds, so nothing about the artifact is checked until a request asks for it |
 
 A report names the check, the fact and the remedy:
@@ -92,6 +94,29 @@ A part the artifact says it ships and does not carry is hashed as absent rather 
 Artifacts under the sites root that no mount names are what `fsr sites install` leaves behind. They cost disk and they make it hard to tell which version is live; `--keep <n>` bounds them.
 
 A pin the artifact does not match is reported with what to do about it. The content changed. If that was meant, `fsr sites pin` records it. If it was not, the directory is not the version the shell pinned. A mount pointing at nothing is reported too. Both are refusals to start rather than warnings; doctor reports them before the deploy and the host still refuses them at boot.
+
+## Checking one deployment
+
+The configuration a deployment boots with is a ladder of files merged in order: `app.toml`, then the release environment, the application environment, the region and the two together. Doctor merges the ladder the environment names, which on a build machine is usually development. Name the deployment to check its ladder instead:
+
+```sh
+fsr doctor app --env production --app-env eu --region sfo1
+```
+
+Each flag stands in for the variable the host reads, `RELEASE_ENV`, `APP_ENV` and `APP_REGION`, so the files doctor merges are the ones that deployment boots with. A key an overlay misspells or gives the wrong type stops it the way it stops the host.
+
+Some values arrive only when the deployment starts, set in its environment rather than written in a file: `session.key` is set by `C5_SESSION__KEY`, a secret no repository should hold. A build machine does not have them, so doctor lists each one the files leave unset as an expectation, with the variable that must set it, rather than a finding:
+
+```
+expects      session.key: the files hold the placeholder; this deployment needs C5_SESSION__KEY when it starts
+doctor       21 checks, nothing to report
+```
+
+On the machine that will run it, with its environment in place, add `--runtime` and the same value is a finding when it is still missing:
+
+```sh
+fsr doctor app --env production --runtime
+```
 
 ## What doctor does not do
 
