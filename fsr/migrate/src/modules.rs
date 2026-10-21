@@ -335,6 +335,12 @@ impl Pass for Stylesheets {
         tree.insert(path, crate::items::tidy(&edits.apply(&text)));
       }
     }
+    let sheets: Vec<String> = tree.paths().filter(|p| p.starts_with("app/") && p.ends_with(".css")).map(str::to_owned).collect();
+    for path in sheets {
+      if let Some(rewritten) = tree.text(&path).and_then(tailwind_four) {
+        tree.insert(path, rewritten);
+      }
+    }
     for (from, to) in moved {
       let Some(bytes) = tree.remove(&from) else { continue };
       if std::str::from_utf8(&bytes).is_ok_and(|css| css.split("url(").skip(1).any(|u| {
@@ -346,6 +352,30 @@ impl Pass for Stylesheets {
       tree.insert(to, bytes);
     }
   }
+}
+
+/// Tailwind 3's `@tailwind base;`, `@tailwind components;` and
+/// `@tailwind utilities;` as Tailwind 4's one `@import "tailwindcss";`, which
+/// FSR compiles, written where the first of them was.
+fn tailwind_four(css: &str) -> Option<String> {
+  let directive = |line: &str| matches!(line.trim(), "@tailwind base;" | "@tailwind components;" | "@tailwind utilities;");
+  if !css.lines().any(directive) {
+    return None;
+  }
+  let mut out = String::with_capacity(css.len());
+  let mut written = false;
+  for line in css.lines() {
+    if directive(line) {
+      if !written {
+        out.push_str("@import \"tailwindcss\";\n");
+        written = true;
+      }
+      continue;
+    }
+    out.push_str(line);
+    out.push('\n');
+  }
+  Some(out)
 }
 
 /// The weights a font loader's options name, `weight: "400"` or
@@ -453,7 +483,7 @@ mod tests {
     let input = tree(&[
       ("package.json", PACKAGE),
       ("app/layout.tsx", "import \"./globals.css\";\nimport styles from \"./page.module.css\";\n\nexport default function Layout({ children }) {\n  return <div className={styles.x}>{children}</div>;\n}\n"),
-      ("app/globals.css", "@import \"tailwindcss\";\n"),
+      ("app/globals.css", "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\nbody {\n  @apply bg-gray-50;\n}\n"),
       ("app/page.module.css", ".x {}\n"),
       ("Dockerfile.bun", "FROM oven/bun\n"),
       ("compose.yml", "services: {}\n"),
@@ -462,6 +492,7 @@ mod tests {
     let paths: Vec<&str> = out.paths().collect();
     assert_eq!(paths, ["app/routes/layout.tsx", "app/routes/page.module.css", "app/styles/globals.css"]);
     assert!(out.text("app/routes/layout.tsx").unwrap().starts_with("import styles from \"./page.module.css\";\n"));
+    assert_eq!(out.text("app/styles/globals.css").unwrap(), "@import \"tailwindcss\";\n\nbody {\n  @apply bg-gray-50;\n}\n", "Tailwind 3's directives are Tailwind 4's import");
   }
 
   #[test]

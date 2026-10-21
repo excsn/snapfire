@@ -79,11 +79,19 @@ pub(crate) fn read_packages(tree: &Tree, report: &mut Report) {
   let Some(package) = tree.text("package.json").and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok()) else { return };
   let Some(deps) = package.get("dependencies").and_then(|d| d.as_object()) else { return };
   for (name, range) in deps {
-    if ["next", "react", "react-dom"].contains(&name.as_str()) || name.starts_with("@types/") {
+    if ["next", "react", "react-dom"].contains(&name.as_str()) || is_tooling(name) {
       continue;
     }
     report.packages.insert(name.clone(), range.as_str().unwrap_or_default().to_owned());
   }
+}
+
+/// A package a build uses and a page never imports, which some applications
+/// list under `dependencies` all the same.
+fn is_tooling(name: &str) -> bool {
+  const TOOLS: &[&str] = &["typescript", "tailwindcss", "postcss", "autoprefixer", "eslint", "prettier", "sass", "prisma", "dotenv", "ts-node", "tsx"];
+  const PREFIXES: &[&str] = &["@types/", "@tailwindcss/", "eslint-", "@eslint/", "prettier-", "postcss-", "@next/eslint", "@next/bundle-analyzer"];
+  TOOLS.contains(&name) || PREFIXES.iter().any(|p| name.starts_with(p))
 }
 
 /// Where `path`, at `rest` under the App Router directory, goes.
@@ -365,7 +373,7 @@ mod tests {
   #[test]
   fn an_app_router_tree_moves_under_routes_and_its_imports_follow() {
     let input = tree(&[
-      ("package.json", r#"{ "dependencies": { "next": "latest", "react": "19", "clsx": "^2" } }"#),
+      ("package.json", r#"{ "dependencies": { "next": "latest", "react": "19", "clsx": "^2", "typescript": "5", "tailwindcss": "4", "@tailwindcss/postcss": "4", "autoprefixer": "10" } }"#),
       ("next.config.js", "module.exports = {};\n"),
       ("app/page.tsx", "import Nav from \"../components/nav\";\nexport default function Page() { return <Nav />; }\n"),
       ("app/@modal/page.tsx", "export default function M() { return null; }\n"),

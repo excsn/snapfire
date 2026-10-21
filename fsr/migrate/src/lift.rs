@@ -54,6 +54,39 @@ fn route_kind(path: &str) -> Option<&'static str> {
   }
 }
 
+/// The source id FSR gives the route whose page is at `path`: its
+/// directories under `app/routes/` joined with `.`, a parameter as `$name`,
+/// `$root` for the top.
+pub(crate) fn route_id(path: &str) -> String {
+  let dir = dirname(path.strip_prefix("app/routes/").unwrap_or(path));
+  let parts: Vec<String> = dir
+    .split('/')
+    .filter(|p| !p.is_empty())
+    .map(|p| match p.strip_prefix("[...").or_else(|| p.strip_prefix('[')).and_then(|p| p.strip_suffix(']')) {
+      Some(param) => format!("${param}"),
+      None => p.to_owned(),
+    })
+    .collect();
+  if parts.is_empty() { "$root".to_owned() } else { parts.join(".") }
+}
+
+/// The props type `fsr build` generates for a source id, as `props_name` in
+/// `cli/src/lib.rs` names it: `product.$id` is `ProductIdProps`.
+pub(crate) fn props_name(id: &str) -> String {
+  let mut name = String::new();
+  for part in id.split(['.', '-', '_']) {
+    let mut chars = part.trim_start_matches(['$', '(']).trim_end_matches(')').chars();
+    if let Some(first) = chars.next() {
+      name.extend(first.to_uppercase());
+      name.push_str(chars.as_str());
+    }
+  }
+  if name.starts_with(|c: char| c.is_ascii_digit()) {
+    name.insert_str(0, "Route");
+  }
+  name + "Props"
+}
+
 /// Whether `node` holds JSX, an `await` or a `return` outside the functions
 /// inside it.
 #[derive(Default)]
@@ -532,10 +565,12 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   }
   let mut prop_names: Vec<String> = fields.iter().map(|f| f.split(':').next().unwrap_or(f).trim().to_owned()).collect();
   prop_names.extend(param_names.iter().filter(|p| !["params", "searchParams"].contains(&p.as_str())).cloned());
-  let new_param = if prop_names.is_empty() { String::new() } else { format!("{{ {} }}", prop_names.join(", ")) };
+  let props_type = (route_kind(path) == Some("page") && (path.ends_with(".tsx") || path.ends_with(".ts"))).then(|| props_name(&route_id(path)));
+  let typed = props_type.as_deref().map(|t| format!(": {t}")).unwrap_or_default();
+  let new_param = if prop_names.is_empty() { String::new() } else { format!("{{ {} }}{typed}", prop_names.join(", ")) };
   match (function.params.first(), &props) {
     (Some(param), Some(name)) => {
-      page.replace(parsed.range(param.span()), name.clone());
+      page.replace(parsed.range(param.span()), format!("{name}{typed}"));
       if let (Some(body), false) = (&function.body, fields.is_empty()) {
         let open = parsed.range(body.span).start + 1;
         let names: Vec<String> = fields.iter().map(|f| f.split(':').next().unwrap_or(f).trim().to_owned()).collect();
@@ -550,7 +585,10 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
       }
     }
   }
-  let page = crate::items::prune(path, &page.apply(text), &needed);
+  let mut page = crate::items::prune(path, &page.apply(text), &needed);
+  if let Some(props_type) = &props_type {
+    page.insert_str(0, &format!("import type {{ {props_type} }} from \"@generated/client\";\n"));
+  }
   Some((page, Load { imports, body: body_text }, fails))
 }
 
@@ -1007,6 +1045,19 @@ mod tests {
   }
 
   #[test]
+  fn a_page_is_typed_with_the_props_the_build_names_for_its_route() {
+    use super::{props_name, route_id};
+    let named = |path: &str| props_name(&route_id(path));
+    assert_eq!(named("app/routes/page.tsx"), "RootProps");
+    assert_eq!(named("app/routes/cart/page.tsx"), "CartProps");
+    assert_eq!(named("app/routes/product/[id]/page.tsx"), "ProductIdProps");
+    assert_eq!(named("app/routes/admin/users/page.tsx"), "AdminUsersProps");
+    assert_eq!(named("app/routes/(shop)/cart/page.tsx"), "ShopCartProps");
+    assert_eq!(named("app/routes/030-intro/page.tsx"), "Route030IntroProps");
+    assert_eq!(named("app/routes/docs/[...rest]/page.tsx"), "DocsRestProps");
+  }
+
+  #[test]
   fn an_async_page_awaits_in_its_loader_and_receives_the_results() {
     let page = "import prisma from \"../src/lib/prisma\";\nimport { Product } from \"../src/components/Product\";\n\nexport default async function Home({ searchParams }) {\n  const { q } = await searchParams;\n  const products = await prisma.product.findMany({ where: { q } });\n  if (!products) notFound();\n  return (\n    <main>\n      {products.map((product) => (\n        <Product key={product.id} product={product} />\n      ))}\n    </main>\n  );\n}\n";
     let input = tree(&[("app/routes/page.tsx", page), ("app/src/lib/prisma.ts", "export default {};\n"), ("app/src/components/Product.tsx", "export function Product() { return null; }\n")]);
@@ -1017,7 +1068,7 @@ mod tests {
     );
     assert_eq!(
       out.text("app/routes/page.tsx").unwrap(),
-      "import { Product } from \"../src/components/Product\";\n\nexport default function Home({ products }) {\n  return (\n    <main>\n      {products.map((product) => (\n        <Product key={product.id} product={product} />\n      ))}\n    </main>\n  );\n}\n"
+      "import type { RootProps } from \"@generated/client\";\nimport { Product } from \"../src/components/Product\";\n\nexport default function Home({ products }: RootProps) {\n  return (\n    <main>\n      {products.map((product) => (\n        <Product key={product.id} product={product} />\n      ))}\n    </main>\n  );\n}\n"
     );
     assert!(report.notes.is_empty(), "{:?}", report.notes);
   }

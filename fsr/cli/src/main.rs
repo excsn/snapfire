@@ -830,7 +830,15 @@ fn run_migrate(args: Migrate) -> ExitCode {
       }
       let app = args.project_dir.join("app");
       if !migrated.report.packages.is_empty() {
-        let specs: Vec<String> = migrated.report.packages.keys().cloned().collect();
+        let specs: Vec<String> = migrated
+          .report
+          .packages
+          .iter()
+          .map(|(name, range)| match range.as_str() {
+            "" | "*" | "latest" => format!("{name}@latest"),
+            range => format!("{name}@{range}"),
+          })
+          .collect();
         println!("next      fsr add {} {}", app.display(), specs.join(" "));
       }
       for command in &migrated.report.commands {
