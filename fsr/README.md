@@ -62,7 +62,7 @@ Each corpus builds a framework's own published examples through FSR as one appli
 
 The "by design" column counts examples that use something the server can't reproduce exactly: the current time, `Math.random`, a `fetch` during render or an npm package the build doesn't follow. Not counting those, the server renders 100% of the rest on all three.
 
-The migration column counts the by-design examples that render on the server once the rewrite a migration makes is applied: an awaited read moved into the route's loader and seeded into the store, a `<svelte:head>` moved into the loader's `meta`. For react.dev `fsr migrate` makes the rewrite and `examples/corpus/migrated_outcomes.txt` holds what each example then builds to, leaving out a read only a later render makes; the svelte.dev one was applied by hand. The rest load their data after a click, a navigation or typing, read the clock, or need a contract for a remote API.
+The migration column counts the by-design examples that render on the server once the rewrite a migration makes is applied: an awaited read moved into the route's loader and seeded into the store, a `<svelte:head>` moved into the loader's `meta`. For react.dev `fsr migrate` makes the rewrite and `examples/corpus/migrated_outcomes.txt` holds what each example then builds to, leaving out a read only a later render makes; the svelte.dev one was applied by hand. The rest load their data after a click, a navigation or typing, read the clock or need a contract for a remote API.
 
 ## Desktop apps (experimental)
 
