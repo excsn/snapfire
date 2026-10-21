@@ -53,13 +53,13 @@ i18n-routing	refused: routes/[lang]/layout.loader.ts:6:12: `params` as a whole; 
 i18n-routing-pages	refused: routes/gsp/page.loader.ts:11:7: `locales` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 7
 image-component	refused: src/styles.module.css: 1:1: Expression expected	pages 8	notes 11
 image-secure-compute	refused: routes/image-api/[...path]/route.ts:5:8: `headers` is not a field of the context	pages 2	notes 1
-inngest	refused: routes/api/inngest/route.ts:4:16: `GET` is bound by a destructuring the build does not read	pages 1	notes 1
+inngest	refused: src/inngest/inngest.config.ts:14:28: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 2
 markdoc	lowered	pages 0	notes 1
 mdx	refused: routes/page.module.css: 1:1: Expression expected	pages 3	notes 1
 mdx-pages	lowered	pages 0	notes 0
 next-forms	refused: routes/page.loader.ts:8:21: a tagged template	pages 1	notes 3
 panda-css	refused: routes/page.tsx:7:16: a call to `css`, which the build cannot follow	pages 1	notes 1
-prisma-postgres	refused: routes/posts/[id]/page.loader.ts:12:3: a function declared inside a body	pages 6	notes 4
+prisma-postgres	refused: src/lib/prisma.ts:4:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 6	notes 9
 radix-ui	client: routes/page.island0.tsx:18:5 `DropdownMenu` comes from ``, which the build cannot follow | routes/page.island0.tsx:91:17 `ChevronRightIcon` comes from `@radix-ui/react-icons`, which the build cannot follow | routes/page.tsx:97:13 `HamburgerMenuIcon` comes from `@radix-ui/react-icons`, which the build cannot follow	pages 1	notes 1
 react-remove-properties	lowered	pages 1	notes 0
 remove-console	lowered	pages 1	notes 0
@@ -122,7 +122,7 @@ with-i18n-next-intl	refused: routes/page.loader.ts:4:12: a call to `require`, wh
 with-i18n-rosetta	refused: routes/[lng]/page.loader.ts:4:43: `super` or `import()`	pages 2	notes 2
 with-ionic	lowered	pages 1	notes 0
 with-iron-session	no application
-with-iron-session-cache-components	refused: src/lib/session.ts:42:3: a call for its effect, which a straight-line body cannot hold	pages 3	notes 5
+with-iron-session-cache-components	refused: src/lib/session.ts:42:3: a call for its effect, which a straight-line body cannot hold	pages 3	notes 6
 with-jest	lowered	pages 2	notes 2
 with-jest-babel	refused: routes/index.module.css: 1:1: Expression expected	pages 1	notes 1
 with-joi	lowered	pages 0	notes 3
@@ -201,7 +201,7 @@ with-stencil	unmigrated: not a Next.js application	pages 0	notes 1
 with-stitches	refused: routes/page.tsx: no exported `Text`	pages 1	notes 1
 with-storybook	refused: routes/page.module.css: 1:1: Expression expected	pages 2	notes 1
 with-strict-csp	refused: routes/page.loader.ts:4:29: a call to `headers`, which the build cannot follow	pages 1	notes 1
-with-stripe-typescript	refused: routes/donate-with-checkout/result/page.loader.ts:7:5: `throw`, and a body has no exceptions	pages 7	notes 6
+with-stripe-typescript	refused: routes/actions.ts:14:26: a call to `headers`, which the build cannot follow	pages 7	notes 4
 with-styled-components	refused: routes/_components/globalstyles.tsx: no exported `default`	pages 2	notes 0
 with-styled-jsx	client: routes/registry.tsx:14:45 a call to `createStyleRegistry`, which the build cannot follow	pages 1	notes 0
 with-supabase	refused: routes/auth/confirm/route.ts:7:36: `url` is not a field of the context	pages 8	notes 6
