@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use snapfire_fsr_cli::{build, Built, Options};
 use snapfire_fsr_ir::render::{Rendered, ISLAND_MARK};
 
+pub mod react;
+
 pub struct Case {
   pub name: String,
   pub source: String,
@@ -29,7 +31,7 @@ pub fn cases() -> Vec<Case> {
   out
 }
 
-fn copy(from: &Path, to: &Path) {
+pub(crate) fn copy(from: &Path, to: &Path) {
   std::fs::create_dir_all(to).unwrap();
   for entry in std::fs::read_dir(from).unwrap().flatten() {
     let target = to.join(entry.file_name());
@@ -114,9 +116,9 @@ pub fn without_fsr_markers(html: &str) -> String {
   out
 }
 
-/// Both renderings with what legitimately differs taken out: React's `<!-- -->` between adjacent text, a void element's `/`, attribute order and case.
+/// Both renderings with what legitimately differs taken out: React's `<!-- -->` between adjacent text, its `&#x27;` for an apostrophe, a void element's `/`, attribute order and case.
 pub fn normalised(html: &str) -> String {
-  let text = html.replace("<!-- -->", "");
+  let text = html.replace("<!-- -->", "").replace("&#x27;", "'");
   let mut out = String::with_capacity(text.len());
   let mut rest = text.as_str();
   while let Some(lt) = rest.find('<') {
