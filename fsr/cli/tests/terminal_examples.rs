@@ -45,3 +45,26 @@ fn tasks_adds_what_is_typed_moves_the_focus_with_tab_and_logs_a_task_marked_done
   assert!(done.iter().any(|l| l == "Tasks, 1 open of 2"), "{done:?}");
   assert!(done.iter().any(|l| l.contains("buy milk") && l.contains("done")), "{done:?}");
 }
+
+#[test]
+fn log_streams_what_git_writes_and_scrolls_it_in_a_box_it_measures() {
+  use snapfire_fsr_cli::terminal::Report;
+  let mut session = open("log_terminal_ts");
+  let first = lines(session.view().unwrap(), 80);
+  assert!(first[0].contains("reading git log"), "{first:?}");
+  let spawns = session.take_spawns();
+  assert_eq!((spawns[0].command.as_str(), spawns[0].args[0].as_str()), ("git", "log"));
+  let written: String = (1..=30).map(|n| format!("\u{1b}[33m{n:07x}\u{1b}[m commit number {n}\n")).collect();
+  session.deliver(&spawns[0], Report::Stdout, &Value::Str(written.into())).unwrap();
+  let mut exit = snapfire_fsr_core::ValueMap::default();
+  exit.insert("code".to_owned(), Value::Int(0));
+  exit.insert("signal".to_owned(), Value::Null);
+  let done = lines(session.deliver(&spawns[0], Report::Exit, &Value::Map(exit)).unwrap(), 80);
+  assert!(done[0].starts_with("30 commits"), "{done:?}");
+  assert!(done[2].contains("0000001 commit number 1"), "escape codes stripped: {done:?}");
+  assert!(done.last().unwrap().starts_with("1-10 of 30"), "{done:?}");
+  let scrolled = lines(session.press(&key(KeyCode::Char('j'))).unwrap(), 80);
+  assert!(scrolled[2].contains("commit number 2"), "{scrolled:?}");
+  let bottom = lines(session.press(&key(KeyCode::Char('G'))).unwrap(), 80);
+  assert!(bottom.last().unwrap().starts_with("21-30 of 30"), "{bottom:?}");
+}
