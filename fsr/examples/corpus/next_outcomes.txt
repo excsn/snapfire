@@ -1,7 +1,7 @@
 active-class-name	client: routes/[slug]/page.island0.tsx:5:20 `usePathname`, a hook the build cannot follow | src/components/ActiveLink.tsx:25:20 `usePathname`, a hook the build cannot follow	pages 4	notes 0
 api-routes-apollo-server	refused: src/shared/query-graphql/index.ts:6:26: a call to `graphql`, which the build cannot follow	pages 2	notes 1
 api-routes-apollo-server-and-client	refused: src/apollo/client.tsx:7:5: `apolloClient`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 2
-api-routes-apollo-server-and-client-auth	refused: routes/page.tsx: 16:21: Expression expected	pages 5	notes 5
+api-routes-apollo-server-and-client-auth	client: routes/layout.tsx:5:34 `pageProps` is not bound here; an import the build cannot follow or a name from outside the body | routes/page.island0.tsx:15:18 `useRouter`, a hook the build cannot follow | routes/signin/page.island0.tsx:20:18 `useApolloClient`, a hook the build cannot follow | routes/signout/page.island0.tsx:11:18 `useApolloClient`, a hook the build cannot follow | routes/signup/page.island0.tsx:19:20 `useMutation`, a hook the build cannot follow	pages 5	notes 5
 api-routes-cors	lowered	pages 1	notes 1
 api-routes-graphql	client: routes/page.island0.tsx:19:38 `useSWR`, a hook the build cannot follow	pages 1	notes 1
 api-routes-middleware	client: routes/page.island0.tsx:5:38 `useSWR`, a hook the build cannot follow	pages 1	notes 1
@@ -145,7 +145,7 @@ with-msw	refused: routes/page.loader.ts:3:21: a call to `fetch`, which the build
 with-mux-video	refused: routes/(upload)/page.loader.ts:3:17: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 3	notes 9
 with-mysql	lowered	pages 1	notes 2
 with-neo4j	refused: src/styles/global.js:3:16: a tagged template	pages 3	notes 8
-with-next-page-transitions	refused: routes/about/page.js: 6:26: Expression expected	pages 2	notes 2
+with-next-page-transitions	client: routes/layout.island0.tsx:7:5 `PageTransition` comes from `next-page-transitions`, which the build cannot follow | routes/layout.js:10:7 `PageTransition` comes from `next-page-transitions`, which the build cannot follow	pages 2	notes 2
 with-next-seo	client: routes/jsonld/page.island0.tsx:5:5 `ArticleJsonLd` comes from `next-seo`, which the build cannot follow | routes/layout.island0.tsx:6:5 `DefaultSeo` comes from `next-seo`, which the build cannot follow | routes/layout.js:14:7 `DefaultSeo` comes from `next-seo`, which the build cannot follow | routes/page.island0.tsx:6:5 `NextSeo` comes from `next-seo`, which the build cannot follow	pages 2	notes 1
 with-next-sitemap	refused: routes/[dynamic]/page.loader.ts:10:15: a call to `Array`, which the build cannot follow	pages 2	notes 0
 with-next-translate	client: routes/[lang]/page.island0.tsx:6:23 `useTranslation`, a hook the build cannot follow | routes/layout.js:4:23 `useTranslation`, a hook the build cannot follow	pages 1	notes 0
@@ -177,7 +177,7 @@ with-react-multi-carousel	client: routes/page.island0.tsx:22:5 `Carousel` comes 
 with-react-native-web	refused: routes/page.js:3:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 2	notes 2
 with-react-toolbox	client: routes/page.island0.tsx:7:27 `theme` comes from `../src/theme`, which the build cannot follow	pages 1	notes 0
 with-reactstrap	refused: routes/page.jsx:27:19: `CardTitle` comes from `reactstrap`, which the build cannot follow	pages 1	notes 1
-with-realm-web	refused: routes/page.js: 22:25: Expression expected	pages 1	notes 2
+with-realm-web	client: routes/page.island0.tsx:20:20 `useSWR`, a hook the build cannot follow	pages 1	notes 2
 with-rebass	refused: routes/page.js:15:9: `children` as a prop; pass them between the tags	pages 1	notes 0
 with-redis	refused: routes/page.loader.ts:7:3: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`	pages 1	notes 5
 with-redux	refused: routes/api/counter/route.ts:9:42: `ctx` as a value; read one of its fields	pages 3	notes 1

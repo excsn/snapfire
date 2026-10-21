@@ -382,10 +382,7 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
   let range_of = |span: Span| parsed.range(span);
   let unit_range: Range<usize> = match (&unit, &found) {
     (Some(cut), _) => range_of(cut.span),
-    (None, _) if early => match &found {
-      Found::Declared(_, stmts, _) => range_of(Span::new(stmts.first().map(|s| s.span().lo).unwrap_or_default(), stmts.last().map(|s| s.span().hi).unwrap_or_default())),
-      Found::Arrow(arrow) => range_of(arrow.body.span()),
-    },
+    (None, _) if early => range_of(Span::new(stmts.first().map(|s| s.span().lo).unwrap_or_default(), stmts.last().map(|s| s.span().hi).unwrap_or_default())),
     (None, _) => range_of(ret.span()),
   };
   let whole_body = unit.is_none() && early;
@@ -408,10 +405,8 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
       line.stmt.visit_with(&mut names);
     }
     if whole_body {
-      if let Found::Declared(_, stmts, _) = &found {
-        for stmt in stmts.iter() {
-          stmt.visit_with(&mut names);
-        }
+      for stmt in stmts {
+        stmt.visit_with(&mut names);
       }
     } else {
       struct Within<'a> {

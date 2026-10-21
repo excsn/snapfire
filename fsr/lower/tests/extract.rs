@@ -148,6 +148,22 @@ export default function Agent({ name, watched }: { name: string; watched: boolea
 }
 
 #[test]
+fn a_component_that_returns_early_moves_whole_whether_declared_or_an_arrow() {
+  let body = "{\n  const [n, setN] = useState(0);\n  if (n > 2) {\n    return <p>done {label}</p>;\n  }\n  return <button onClick={() => setN(n + 1)}>{label}</button>;\n}";
+  let declared = format!("import {{ useState }} from \"react\";\n\nexport default function Shown({{ label }}: {{ label: string }}) {body}\n");
+  let arrow = format!("import {{ useState }} from \"react\";\n\nconst Shown = ({{ label }}: {{ label: string }}) => {body};\n\nexport default Shown;\n");
+  for (shape, source) in [("declared", declared), ("arrow", arrow)] {
+    let mut set = set(&[("routes/page.tsx", &source)]);
+    let extracted = set.extract_route("routes/page.tsx#default").unwrap().expect(shape);
+    let page = &extracted.page.1;
+    assert!(page.contains("{\n  return <SfIsland label={label} />;\n}"), "{shape}: {page}");
+    assert!(!page.contains("=> return"), "{shape}: {page}");
+    assert!(extracted.source.contains("export default function ShownIsland({ label }: any) {"), "{shape}: {}", extracted.source);
+    assert!(extracted.source.contains("if (n > 2) {"), "{shape}: {}", extracted.source);
+  }
+}
+
+#[test]
 fn a_page_with_nothing_for_the_browser_is_left_alone() {
   let mut set = set(&[("routes/page.tsx", "export default function Plain({ n }: { n: number }) {\n  return <p>{n}</p>;\n}\n")]);
   assert!(set.extract_route("routes/page.tsx#default").unwrap().is_none());
