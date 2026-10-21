@@ -541,6 +541,40 @@ fn a_page_slot_variant_is_an_intercept_under_the_layout_declaring_the_slot() {
 }
 
 #[test]
+fn route_files_written_in_javascript_are_read_like_their_typescript_forms() {
+  let dir = app(&[
+    ("routes/layout.jsx", "export default function Layout({ children }) {\n  return <main>{children}</main>;\n}\n"),
+    ("routes/page.jsx", PAGE),
+    ("routes/error.js", "export default function Failed({ error }) {\n  return <p>{error}</p>;\n}\n"),
+    ("routes/not-found.jsx", "export default function Missing() {\n  return <p>missing</p>;\n}\n"),
+    ("routes/about/page.js", PAGE),
+    ("routes/about/loading.jsx", "export default function Loading() {\n  return <p>soon</p>;\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let patterns: Vec<&str> = built.report.routes.iter().map(|(p, _)| p.as_str()).collect();
+  assert_eq!(patterns, ["/", "/about"], "{}", built.report);
+  let plan = plan_json(&dir);
+  let about = plan["routes"].as_array().unwrap().iter().find(|r| r["pattern"] == "/about").unwrap();
+  let layout = &about["plan"]["children"][0]["node"];
+  assert_eq!(layout["module"], "routes/layout.jsx#default");
+  assert_eq!(layout["children"][0]["node"]["module"], "routes/about/page.js#default");
+  assert_eq!(layout["children"][0]["node"]["fallback"], "routes/about/loading.jsx#default");
+  assert!(plan.to_string().contains("routes/error.js#default"), "{plan}");
+  assert!(plan.to_string().contains("routes/not-found.jsx#default"), "{plan}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_page_written_in_both_typescript_and_javascript_is_refused_naming_both() {
+  let dir = app(&[("routes/page.tsx", PAGE), ("routes/page.jsx", PAGE)]);
+  match fails(&dir) {
+    BuildError::PageAndTemplate { first, second, .. } => assert_eq!((first.as_str(), second.as_str()), ("page.tsx", "page.jsx")),
+    other => panic!("{other}"),
+  }
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_layout_declared_tree_is_refused() {
   let dir = app(&[
     (

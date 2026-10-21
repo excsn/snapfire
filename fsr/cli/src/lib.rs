@@ -780,7 +780,7 @@ struct Boundary {
 impl Boundary {
   fn read(dir: &Path, rel: &str) -> Self {
     Self {
-      module: ["error.tsx", "error.ts"].iter().find(|f| dir.join(f).is_file()).map(|f| format!("{rel}/{f}#default")),
+      module: component_file(dir, "error").map(|f| format!("{rel}/{f}#default")),
       kinds: error_kind_modules(dir, rel),
     }
   }
@@ -809,7 +809,7 @@ fn error_kind_modules(dir: &Path, rel: &str) -> Vec<(String, String)> {
   let mut found = Vec::new();
   for kind in snapfire_fsr_core::ext::FailureKind::ALL {
     let infix = kind.as_str().replace('_', "-");
-    for ext in ["tsx", "ts"] {
+    for ext in COMPONENT_EXTENSIONS {
       let file = format!("error.{infix}.{ext}");
       if dir.join(&file).is_file() {
         found.push((kind.as_str().to_owned(), format!("{rel}/{file}#default")));
@@ -980,10 +980,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
 
   let root_boundary = Boundary::read(&routes_dir, "routes");
 
-  let not_found_module = ["not-found.tsx", "not-found.ts"]
-    .iter()
-    .find(|f| routes_dir.join(f).is_file())
-    .map(|f| format!("routes/{f}#default"));
+  let not_found_module = component_file(&routes_dir, "not-found").map(|f| format!("routes/{f}#default"));
 
   let mut entries = Vec::new();
   let mut sources = Vec::new();
@@ -1079,7 +1076,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
         }
       }
 
-      let loading = ["loading.tsx", "loading.ts"].iter().find(|f| slot_dir.join(f).is_file()).map(|f| format!("{slot_rel}/{f}#default"));
+      let loading = component_file(&slot_dir, "loading").map(|f| format!("{slot_rel}/{f}#default"));
       let error = Boundary::read(&slot_dir, &slot_rel);
       for module in [Some(&page), loading.as_ref()].into_iter().flatten().chain(error.modules()) {
         if is_template(module) {
@@ -1171,10 +1168,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
 
     let local = Boundary::read(&route.dir, &rel);
     let boundary = local.or(&root_boundary);
-    let loading = ["loading.tsx", "loading.ts"]
-      .iter()
-      .find(|f| route.dir.join(f).is_file())
-      .map(|f| format!("{rel}/{f}#default"));
+    let loading = component_file(&route.dir, "loading").map(|f| format!("{rel}/{f}#default"));
 
     for module in [Some(&page), loading.as_ref()].into_iter().flatten().chain(local.modules()) {
       if is_template(module) {
@@ -1206,7 +1200,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
         return Err(BuildError::SlotUndeclared { path: route.dir.clone(), file, slot });
       };
       islands.push(module.clone());
-      let slot_loading = [format!("loading.{slot}.tsx"), format!("loading.{slot}.ts")].iter().find(|f| route.dir.join(f).is_file()).map(|f| format!("{rel}/{f}#default"));
+      let slot_loading = component_file(&route.dir, &format!("loading.{slot}")).map(|f| format!("{rel}/{f}#default"));
       if let Some(loading) = &slot_loading {
         islands.push(loading.clone());
       }
@@ -1612,8 +1606,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   for module in route_modules {
     let Some(file) = module.strip_suffix("#default") else { continue };
     let stem = Path::new(file).file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    let ts = file.ends_with(".tsx") || file.ends_with(".ts");
-    if !file.starts_with("routes/") || !ts || !(stem == "layout" || stem.starts_with("page")) {
+    let component = COMPONENT_EXTENSIONS.iter().any(|ext| file.ends_with(&format!(".{ext}")));
+    if !file.starts_with("routes/") || !component || !(stem == "layout" || stem.starts_with("page")) {
       continue;
     }
     let Some(theme) = set.theme_export(file)? else { continue };
@@ -3606,12 +3600,13 @@ fn renumber(node: &mut Node, next: &mut u32) {
   }
 }
 
-/// `page.<slot>.tsx` files in a route directory: the file and the slot it names.
+/// `page.<slot>.tsx` files in a route directory (`.ts`, `.jsx` and `.js` as
+/// well): the file and the slot it names.
 fn variant_files(dir: &Path) -> Result<Vec<(String, String)>, BuildError> {
   let mut out = Vec::new();
-  for file in sorted_files(dir, ".tsx")? {
+  for file in sorted_files(dir, "")? {
     let name = file.file_name().unwrap_or_default().to_string_lossy().to_string();
-    let Some(middle) = name.strip_prefix("page.").and_then(|n| n.strip_suffix(".tsx")) else { continue };
+    let Some(middle) = name.strip_prefix("page.").and_then(|n| COMPONENT_EXTENSIONS.iter().find_map(|ext| n.strip_suffix(&format!(".{ext}")))) else { continue };
     if middle.is_empty() || middle == "loader" || middle.contains('.') {
       continue;
     }
@@ -4149,7 +4144,7 @@ fn pages_under(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildError> {
 /// and a template is a refusal when this fsr was built without its feature,
 /// so a template never becomes a silent 404.
 fn page_file(dir: &Path) -> Result<Option<String>, BuildError> {
-  let found = route_file(dir, &["page.tsx", "page.ts", "page.mdx", "page.md"], "page")?;
+  let found = route_file(dir, &["page.tsx", "page.ts", "page.jsx", "page.js", "page.mdx", "page.md"], "page")?;
   if let Some(file) = found.as_deref().filter(|f| snapfire_fsr_lower::component::is_transformed(f)) {
     if !mdx::BUILT {
       return Err(mdx::unbuilt(&dir.join(file)));
@@ -4161,7 +4156,16 @@ fn page_file(dir: &Path) -> Result<Option<String>, BuildError> {
 /// The one layout file in `dir`, `layout.tsx` or a `layout.<ext>` for a
 /// template extension, under the same rules as `page_file`.
 fn layout_file(dir: &Path) -> Result<Option<String>, BuildError> {
-  route_file(dir, &["layout.tsx"], "layout")
+  route_file(dir, &["layout.tsx", "layout.ts", "layout.jsx", "layout.js"], "layout")
+}
+
+/// The extensions a route's component module may be written with, in the
+/// order a lookup prefers them.
+const COMPONENT_EXTENSIONS: &[&str] = &["tsx", "ts", "jsx", "js"];
+
+/// `<stem>.<ext>` in `dir` for the first of `COMPONENT_EXTENSIONS` present.
+fn component_file(dir: &Path, stem: &str) -> Option<String> {
+  COMPONENT_EXTENSIONS.iter().map(|ext| format!("{stem}.{ext}")).find(|f| dir.join(f).is_file())
 }
 
 fn route_file(dir: &Path, sources: &[&str], stem: &str) -> Result<Option<String>, BuildError> {
