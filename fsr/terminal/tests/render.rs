@@ -85,3 +85,14 @@ fn a_percentage_size_is_a_share_of_the_parent_and_of_an_unsized_height_nothing()
   assert_eq!(render(&tall, 20).lines().len(), 1, "a root with no height gives a percentage nothing to share");
   assert_eq!(render(&Boxed::new().width_percent(50.0).child(Text::plain("hello world")).into(), 10).lines(), ["hello", "world"]);
 }
+
+#[test]
+fn a_hidden_overflow_clips_at_the_border_and_a_content_offset_scrolls_what_it_shows() {
+  let markup = "<ink-box ink-ref=\"view\" height=\"4\" overflow=\"hidden\" content-offset-y=\"1\" border-style=\"round\" flex-direction=\"column\"><ink-box ink-ref=\"content\" flex-direction=\"column\" flex-shrink=\"0\"><ink-text>a</ink-text><ink-text>b</ink-text><ink-text>c</ink-text><ink-text>d</ink-text><ink-text>e</ink-text></ink-box></ink-box>";
+  let node = snapfire_fsr_terminal::from_markup(markup).unwrap();
+  let (frame, boxes) = snapfire_fsr_terminal::render_measured(&node, 6);
+  assert_eq!(frame.lines(), ["╭────╮", "│b   │", "│c   │", "╰────╯"]);
+  let metrics = |id: &str| boxes.iter().find(|(name, _)| name == id).map(|(_, m)| *m).unwrap();
+  assert_eq!(metrics("view"), snapfire_fsr_terminal::Metrics { width: 6, height: 4, left: 0, top: 0, client_width: 4, client_height: 2 });
+  assert_eq!(metrics("content"), snapfire_fsr_terminal::Metrics { width: 4, height: 5, left: 1, top: 1, client_width: 4, client_height: 5 });
+}

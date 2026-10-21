@@ -14,19 +14,54 @@ struct Leaf {
 }
 
 enum Kind {
-  Box { border: Option<Border>, color: CellStyle },
+  Box { border: Option<Border>, color: CellStyle, clip: (bool, bool), offset: (i32, i32), id: Option<String> },
   Text(Leaf),
+}
+
+/// A box's layout as Ink's `useBoxMetrics` reports it, in cells: `left` and `top` from its parent's corner, the client size without the border.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Metrics {
+  pub width: u16,
+  pub height: u16,
+  pub left: i32,
+  pub top: i32,
+  pub client_width: u16,
+  pub client_height: u16,
+}
+
+/// The cells a box with a hidden overflow lets its children draw in: columns `x1..x2` and rows `y1..y2`.
+#[derive(Clone, Copy)]
+struct Clip {
+  x1: i64,
+  x2: i64,
+  y1: i64,
+  y2: i64,
+}
+
+impl Clip {
+  const ALL: Clip = Clip { x1: i64::MIN, x2: i64::MAX, y1: i64::MIN, y2: i64::MAX };
+
+  fn put(&self, frame: &mut Frame, x: i64, y: i64, ch: char, style: CellStyle) {
+    if x >= self.x1 && x < self.x2 && y >= self.y1 && y < self.y2 && x >= 0 && y >= 0 {
+      frame.put(x as usize, y as usize, ch, style);
+    }
+  }
 }
 
 /// Lays `node` out across `columns` cells inside a root column that
 /// stretches its children to that width as Ink's root does. Then it draws it.
 /// The frame is as tall as what was drawn.
 pub fn render(node: &Node, columns: u16) -> Frame {
+  render_measured(node, columns).0
+}
+
+/// [`render`], with the metrics of each box that has an id.
+pub fn render_measured(node: &Node, columns: u16) -> (Frame, Vec<(String, Metrics)>) {
   let mut tree: TaffyTree<usize> = TaffyTree::new();
   let mut kinds: Vec<(NodeId, Kind)> = Vec::new();
   let child = add(&mut tree, &mut kinds, node);
   let root_style = Style { flex_direction: FlexDirection::Column, size: Size { width: Dimension::length(columns as f32), height: Dimension::auto() }, ..Default::default() };
-  let Ok(root) = tree.new_with_children(root_style, &[child]) else { return Frame::new(columns as usize, 0) };
+  let Ok(root) = tree.new_with_children(root_style, &[child]) else { return (Frame::new(columns as usize, 0), Vec::new()) };
   let available = Size { width: AvailableSpace::Definite(columns as f32), height: AvailableSpace::MaxContent };
   let leaves: Vec<Option<&Leaf>> = kinds.iter().map(|(_, kind)| match kind {
     Kind::Text(leaf) => Some(leaf),
@@ -49,12 +84,13 @@ pub fn render(node: &Node, columns: u16) -> Frame {
     })
   });
   if measured.is_err() {
-    return Frame::new(columns as usize, 0);
+    return (Frame::new(columns as usize, 0), Vec::new());
   }
   let height = tree.layout(root).map_or(0.0, |layout| layout.size.height).round().max(0.0) as usize;
   let mut frame = Frame::new(columns as usize, height);
-  draw(&tree, root, (0.0, 0.0), &kinds, &mut frame);
-  frame
+  let mut metrics = Vec::new();
+  draw(&tree, root, (0.0, 0.0), Clip::ALL, &kinds, &mut frame, &mut metrics);
+  (frame, metrics)
 }
 
 fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node) -> NodeId {
@@ -101,47 +137,66 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
       };
       let id = tree.new_with_children(style, &children).expect("a box");
       let color = CellStyle { color: s.border_color, ..CellStyle::default() };
-      kinds.push((id, Kind::Box { border: s.border, color }));
+      kinds.push((id, Kind::Box { border: s.border, color, clip: (s.overflow_x, s.overflow_y), offset: s.content_offset, id: boxed.id.clone() }));
       id
     }
   }
 }
 
-fn draw(tree: &TaffyTree<usize>, id: NodeId, at: (f32, f32), kinds: &[(NodeId, Kind)], frame: &mut Frame) {
+fn draw(tree: &TaffyTree<usize>, id: NodeId, at: (f32, f32), clip: Clip, kinds: &[(NodeId, Kind)], frame: &mut Frame, metrics: &mut Vec<(String, Metrics)>) {
   let Ok(layout) = tree.layout(id) else { return };
   let (x, y) = (at.0 + layout.location.x, at.1 + layout.location.y);
-  let (left, top) = (x.round().max(0.0) as usize, y.round().max(0.0) as usize);
-  let (w, h) = (layout.size.width.round().max(0.0) as usize, layout.size.height.round().max(0.0) as usize);
+  let (left, top) = (x.round() as i64, y.round() as i64);
+  let (w, h) = (layout.size.width.round().max(0.0) as i64, layout.size.height.round().max(0.0) as i64);
+  let mut inner = clip;
+  let mut shift = (0.0, 0.0);
   match kinds.iter().find(|(node, _)| *node == id).map(|(_, kind)| kind) {
     Some(Kind::Text(leaf)) => {
-      for (row, line) in leaf.lines(Some(w)).iter().enumerate().take(h.max(1)) {
+      for (row, line) in leaf.lines(Some(w as usize)).iter().enumerate().take(h.max(1) as usize) {
         let mut column = left;
         for &(ch, style) in line {
-          frame.put(column, top + row, ch, style);
-          column += ch.width().unwrap_or(0);
+          clip.put(frame, column, top + row as i64, ch, style);
+          column += ch.width().unwrap_or(0) as i64;
         }
       }
     }
-    Some(Kind::Box { border: Some(border), color }) if w >= 2 && h >= 2 => {
-      let [tl, tr, bl, br, horizontal, vertical] = border.glyphs();
-      for column in left + 1..left + w - 1 {
-        frame.put(column, top, horizontal, *color);
-        frame.put(column, top + h - 1, horizontal, *color);
+    Some(Kind::Box { border, color, clip: (cut_x, cut_y), offset, id: named }) => {
+      let edge = i64::from(border.is_some());
+      if let Some(name) = named {
+        let cells = |n: i64| n.clamp(0, i64::from(u16::MAX)) as u16;
+        let place = |n: f32| n.round() as i32;
+        metrics.push((name.clone(), Metrics { width: cells(w), height: cells(h), left: place(layout.location.x), top: place(layout.location.y), client_width: cells(w - 2 * edge), client_height: cells(h - 2 * edge) }));
       }
-      for row in top + 1..top + h - 1 {
-        frame.put(left, row, vertical, *color);
-        frame.put(left + w - 1, row, vertical, *color);
+      if let Some(border) = border.filter(|_| w >= 2 && h >= 2) {
+        let [tl, tr, bl, br, horizontal, vertical] = border.glyphs();
+        for column in left + 1..left + w - 1 {
+          clip.put(frame, column, top, horizontal, *color);
+          clip.put(frame, column, top + h - 1, horizontal, *color);
+        }
+        for row in top + 1..top + h - 1 {
+          clip.put(frame, left, row, vertical, *color);
+          clip.put(frame, left + w - 1, row, vertical, *color);
+        }
+        clip.put(frame, left, top, tl, *color);
+        clip.put(frame, left + w - 1, top, tr, *color);
+        clip.put(frame, left, top + h - 1, bl, *color);
+        clip.put(frame, left + w - 1, top + h - 1, br, *color);
       }
-      frame.put(left, top, tl, *color);
-      frame.put(left + w - 1, top, tr, *color);
-      frame.put(left, top + h - 1, bl, *color);
-      frame.put(left + w - 1, top + h - 1, br, *color);
+      if *cut_x {
+        inner.x1 = inner.x1.max(left + edge);
+        inner.x2 = inner.x2.min(left + w - edge);
+      }
+      if *cut_y {
+        inner.y1 = inner.y1.max(top + edge);
+        inner.y2 = inner.y2.min(top + h - edge);
+      }
+      shift = (offset.0 as f32, offset.1 as f32);
     }
-    _ => {}
+    None => {}
   }
   if let Ok(children) = tree.children(id) {
     for child in children {
-      draw(tree, child, (x, y), kinds, frame);
+      draw(tree, child, (x - shift.0, y - shift.1), inner, kinds, frame, metrics);
     }
   }
 }

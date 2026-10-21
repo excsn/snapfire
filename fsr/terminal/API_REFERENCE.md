@@ -17,6 +17,8 @@ Ink's `Box` and `Text` laid out with flexbox and drawn to a terminal as cells.
   * [Style](#style)
 * [3. Drawing](#3-drawing)
   * [render](#render)
+  * [render_measured](#render_measured)
+  * [Metrics](#metrics)
   * [Frame](#frame)
   * [Cell](#cell)
 * [4. Markup](#4-markup)
@@ -33,9 +35,10 @@ Ink's `Box` and `Text` laid out with flexbox and drawn to a terminal as cells.
 
 Ink's `Box`.
 
-* `pub struct Boxed { pub style: BoxStyle, pub children: Vec<Node> }`, `Default`.
+* `pub struct Boxed { pub style: BoxStyle, pub children: Vec<Node>, pub id: Option<String> }`, `Default`. `id` names the box in [render_measured](#render_measured).
 * `pub fn new() -> Self`
 * `pub fn child(self, child: impl Into<Node>) -> Self`
+* `pub fn id(self, id: impl Into<String>) -> Self`
 * `pub fn column(self) -> Self`
 * `pub fn gap(self, cells: u16) -> Self`
 * `pub fn padding(self, cells: u16) -> Self`, `padding_x`, `padding_y`
@@ -50,7 +53,7 @@ Ink's `Box`.
 
 ### BoxStyle
 
-* `pub struct BoxStyle { pub direction: Direction, pub gap: u16, pub padding: [u16; 4], pub margin: [u16; 4], pub width: Option<Extent>, pub height: Option<Extent>, pub grow: f32, pub shrink: Option<f32>, pub justify: Option<Justify>, pub align: Option<Align>, pub border: Option<Border>, pub border_color: Option<Color> }`, `Default`. `padding` and `margin` are top, right, bottom and left in cells. `shrink` is 1 when `None`. A border takes one cell on each side.
+* `pub struct BoxStyle { pub direction: Direction, pub gap: u16, pub padding: [u16; 4], pub margin: [u16; 4], pub width: Option<Extent>, pub height: Option<Extent>, pub grow: f32, pub shrink: Option<f32>, pub justify: Option<Justify>, pub align: Option<Align>, pub border: Option<Border>, pub border_color: Option<Color>, pub overflow_x: bool, pub overflow_y: bool, pub content_offset: (i32, i32) }`, `Default`. With `overflow_x` or `overflow_y` set, what the children draw past the inner border edge on that axis is cut, as Ink's `overflow="hidden"`. `content_offset` draws the children that many cells left and up, as Ink's `contentOffsetX` and `contentOffsetY`. `padding` and `margin` are top, right, bottom and left in cells. `shrink` is 1 when `None`. A border takes one cell on each side.
 
 ### Extent
 
@@ -113,12 +116,20 @@ Ink's `Text`. A nested `Text` adds its style to the one around it.
 
 * `pub struct Cell { pub ch: char, pub style: Style, pub tail: bool }`, `Copy`. `tail` marks the second cell of a wide character, which its first cell draws.
 
+### render_measured
+
+* `pub fn render_measured(node: &Node, columns: u16) -> (Frame, Vec<(String, Metrics)>)`: [render](#render), with the metrics of each box that has an `id`, in drawing order.
+
+### Metrics
+
+* `pub struct Metrics { pub width: u16, pub height: u16, pub left: i32, pub top: i32, pub client_width: u16, pub client_height: u16 }`, `Copy`, `PartialEq`, `Default`: a box's layout as Ink's `useBoxMetrics` reports it. `left` and `top` are from the parent's corner and leave out any content offset. The client size leaves out the border and keeps the padding.
+
 ## 4. Markup
 
 ### from_markup
 
 * `pub fn from_markup(markup: &str) -> Result<Node, String>`: reads `ink-box`, `ink-text`, `ink-spacer` and `ink-newline` with their props as kebab-case attributes, the form `snapfire_fsr_lower` lowers Ink's `Box`, `Text`, `Spacer` and `Newline` to. Several top-level elements become one column.
-* `ink-box` reads `flex-direction`, `gap`, `column-gap`, `row-gap`, `padding`, `padding-x`, `padding-y`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left`, the same `margin` forms, `width`, `height` (whole cells or a percentage, `50%`), `flex-grow`, `flex-shrink`, `justify-content`, `align-items`, `border-style` and `border-color`. Others are ignored.
+* `ink-box` reads `flex-direction`, `gap`, `column-gap`, `row-gap`, `padding`, `padding-x`, `padding-y`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left`, the same `margin` forms, `width`, `height` (whole cells or a percentage, `50%`), `flex-grow`, `flex-shrink`, `justify-content`, `align-items`, `border-style`, `border-color`, `overflow`, `overflow-x`, `overflow-y`, `content-offset-x` and `content-offset-y`, and `ink-ref` as the box's `id`. Others are ignored.
 * `ink-text` reads `color`, `background-color`, `bold`, `dim-color`, `italic`, `underline`, `strikethrough`, `inverse` and `wrap` (`truncate…` truncates). A flag is on unless its value is `false`.
 * `ink-spacer` is a box with `flex-grow` 1. `ink-newline` is a `\n`.
 * `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&#x27;` are decoded. Comments are skipped.

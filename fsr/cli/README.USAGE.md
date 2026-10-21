@@ -1347,6 +1347,24 @@ export default function Menu() {
 
 `useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do. `getHours()`, the other local getters, `getTimezoneOffset()` and `toLocaleTimeString()` read this machine's time zone, since the machine running the page is the viewer; without a locale, `toLocaleTimeString()` takes the system's from `LC_ALL`, `LC_TIME` or `LANG`, as Node does. A Box's `width` and `height` may be a percentage of its parent, `width="50%"`.
 
+`useBoxMetrics(ref)` reads the layout of the Box that `ref` is on: `width`, `height`, `left`, `top`, `clientWidth`, `clientHeight` and `hasMeasured`, zeros until the first layout. With `overflow="hidden"` a Box cuts its children at its border and `contentOffsetY` scrolls them:
+
+```tsx
+const ref = useRef(null);
+const content = useRef(null);
+const { clientHeight } = useBoxMetrics(ref);
+const { height } = useBoxMetrics(content);
+const [top, setTop] = useState(0);
+useInput((_, key) => {
+  if (key.downArrow) setTop((t) => Math.min(Math.max(0, height - clientHeight), t + 1));
+});
+return (
+  <Box ref={ref} height={10} overflow="hidden" contentOffsetY={top} borderStyle="round">
+    <Box ref={content} flexDirection="column" flexShrink={0}>{lines}</Box>
+  </Box>
+);
+```
+
 `Static` draws its `items` in a column above the rest of the page, each through its function child. Its `style` takes Box props:
 
 ```tsx
@@ -1357,7 +1375,7 @@ export default function Menu() {
 
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
-Effects with dependencies, `Transform`, `measureElement`, `useCursor`, `useBoxMetrics`, `Suspense` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
+Effects with dependencies, `Transform`, `measureElement`, `useCursor`, `Suspense` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 

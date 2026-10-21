@@ -12,7 +12,7 @@ jest	refused: `src/jest.tsx#Jest` does not lower, so only a browser could render
 justify-content	rendered
 render-throttle	rendered
 router	refused: `src/router.tsx#Home` does not lower, so only a browser could render it: src/router.tsx:7:22: `useNavigate`, a hook the build cannot follow
-scroll	refused: `src/scroll.tsx#ScrollView` does not lower, so only a browser could render it: src/scroll.tsx:20:41: `useBoxMetrics`, a hook the build cannot follow
+scroll	rendered
 select-input	rendered
 static	rendered
 subprocess-output	refused: `src/subprocess-output.tsx#SubprocessOutput` does not lower, so only a browser could render it: src/subprocess-output.tsx:10:28: `childProcess` comes from `node:child_process`, which the build cannot follow

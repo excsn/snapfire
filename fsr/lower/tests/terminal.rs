@@ -222,3 +222,27 @@ fn a_terminal_updater_writes_a_copy_at_a_computed_index() {
   let pressed = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &key("1", &[]), &library).unwrap();
   assert_eq!(pressed.rendered.html, "<ink-text>axc</ink-text>");
 }
+
+#[test]
+fn use_box_metrics_reads_what_the_terminal_measured_for_the_box_its_ref_is_on() {
+  let page = "import { useRef } from \"react\";\nimport { Box, Text, useBoxMetrics } from \"ink\";\n\nexport default function Measured() {\n  const ref = useRef(null);\n  const { width, clientHeight, hasMeasured } = useBoxMetrics(ref);\n  const all = useBoxMetrics(ref);\n  return <Box ref={ref} borderStyle=\"round\"><Text>{hasMeasured ? \"m\" : \"-\"} {width} {clientHeight} {all.top}</Text></Box>;\n}\n";
+  let library = library(page);
+  let component = &library[MODULE];
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let html = &first.rendered.html;
+  assert!(html.contains("<ink-text>- 0 0 0</ink-text>"), "zeros until measured: {html}");
+  let id = html.split("ink-ref=\"").nth(1).and_then(|rest| rest.split('"').next()).unwrap_or_else(|| panic!("the box names its ref: {html}")).to_owned();
+  let mut measured = ValueMap::default();
+  for (key, n) in [("width", 12), ("height", 3), ("left", 0), ("top", 2), ("clientWidth", 10), ("clientHeight", 1)] {
+    measured.insert(key.to_owned(), Value::Int(n));
+  }
+  let mut metrics = ValueMap::default();
+  metrics.insert(id, Value::Map(measured));
+  let mut store = ValueMap::default();
+  store.insert("$terminal.metrics".to_owned(), Value::Map(metrics));
+  let mut props = ValueMap::default();
+  props.insert("$store".to_owned(), Value::Map(store));
+  let second = interpreter.island_step(MODULE, component, &props, &first.state, None, &Value::Null, &library).unwrap();
+  assert!(second.rendered.html.contains("<ink-text>m 12 1 2</ink-text>"), "{}", second.rendered.html);
+}

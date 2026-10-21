@@ -16,7 +16,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::render::{prepare, Components, HandlerRef};
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_terminal::{from_markup, render, Boxed, Color, Frame, Node, Text};
+use snapfire_fsr_terminal::{from_markup, render, render_measured, Boxed, Color, Frame, Node, Text};
 
 use crate::BuildError;
 
@@ -31,6 +31,9 @@ const MOUNT_PASSES: usize = 8;
 
 /// How many times a step renders again for a focus that moved while it rendered.
 const FOCUS_PASSES: usize = 3;
+
+/// How many times a step renders again for boxes whose measured layout changed, so `useBoxMetrics` reads where they landed.
+const METRIC_PASSES: usize = 3;
 
 /// How long the loop waits for a key when no timer is due sooner.
 const IDLE: Duration = Duration::from_millis(100);
@@ -116,6 +119,7 @@ pub struct Session {
   focus_acts: Vec<(String, Value)>,
   mounted: std::collections::HashSet<String>,
   started: Vec<Timer>,
+  metrics: ValueMap,
 }
 
 /// Ink's focus: the focusables the page rendered last, in order, the one
@@ -200,7 +204,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default() })
   }
 
   /// The page as it stands.
@@ -325,7 +329,19 @@ impl Session {
       }
       html = self.render(None, &Value::Null)?;
     }
-    let page = from_markup(&html)?;
+    let mut page = from_markup(&html)?;
+    for _ in 0..METRIC_PASSES {
+      if !html.contains("ink-ref=") {
+        break;
+      }
+      let measured = measured(&page, self.size.0);
+      if measured == self.metrics {
+        break;
+      }
+      self.metrics = measured;
+      html = self.render(None, &Value::Null)?;
+      page = from_markup(&html)?;
+    }
     if self.written.is_empty() {
       return Ok(page);
     }
@@ -339,6 +355,7 @@ impl Session {
     store.insert(snapfire_fsr_lower::TERMINAL_COLUMNS.to_owned(), Value::Int(self.size.0.into()));
     store.insert(snapfire_fsr_lower::TERMINAL_ROWS.to_owned(), Value::Int(self.size.1.into()));
     store.insert(snapfire_fsr_lower::TERMINAL_FOCUS.to_owned(), self.focus.value());
+    store.insert(snapfire_fsr_lower::TERMINAL_METRICS.to_owned(), Value::Map(self.metrics.clone()));
     let mut props = ValueMap::default();
     props.insert("$store".to_owned(), Value::Map(store));
     let path = handler.as_ref().map(|handler| handler.path.clone()).unwrap_or_default();
@@ -369,6 +386,19 @@ impl Session {
     self.focusables_seen = stepped.focusables;
     Ok(stepped.rendered.html)
   }
+}
+
+/// Each box a ref is on, by the ref's id, as `useBoxMetrics` reads it once `page` is laid out across `columns`.
+fn measured(page: &Node, columns: u16) -> ValueMap {
+  let mut out = ValueMap::default();
+  for (id, m) in render_measured(page, columns).1 {
+    let mut fields = ValueMap::default();
+    for (key, n) in [("width", i128::from(m.width)), ("height", i128::from(m.height)), ("left", i128::from(m.left)), ("top", i128::from(m.top)), ("clientWidth", i128::from(m.client_width)), ("clientHeight", i128::from(m.client_height))] {
+      fields.insert(key.to_owned(), Value::Int(n));
+    }
+    out.insert(id, Value::Map(fields));
+  }
+  out
 }
 
 /// The library `module` lowers to. A component it places that does not lower

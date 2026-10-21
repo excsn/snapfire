@@ -195,3 +195,14 @@ fn static_draws_its_items_in_a_column_above_the_rest() {
   let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
   assert_eq!(lines(session.press(&key).unwrap())[..3], [" ✔ 0 a", " ✔ 1 t1", "count 2"]);
 }
+
+#[test]
+fn use_box_metrics_reads_the_layout_and_a_content_offset_scrolls_a_hidden_overflow() {
+  let page = "import { useRef, useState } from \"react\";\nimport { Box, Text, useBoxMetrics, useInput } from \"ink\";\n\nexport default function Scroll() {\n  const ref = useRef(null);\n  const contentRef = useRef(null);\n  const { clientHeight } = useBoxMetrics(ref);\n  const content = useBoxMetrics(contentRef);\n  const [top, setTop] = useState(0);\n  const max = Math.max(0, content.height - clientHeight);\n  useInput(() => setTop((t) => Math.min(max, t + 1)));\n  return (\n    <Box flexDirection=\"column\">\n      <Box ref={ref} height={4} overflow=\"hidden\" contentOffsetY={top} borderStyle=\"round\" flexDirection=\"column\">\n        <Box ref={contentRef} flexDirection=\"column\" flexShrink={0}>\n          <Text>a</Text>\n          <Text>b</Text>\n          <Text>c</Text>\n        </Box>\n      </Box>\n      <Text>{top}/{max}</Text>\n    </Box>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let lines = |node| snapfire_fsr_terminal::render(&node, 6).lines().iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(lines(session.view().unwrap()), ["╭────╮", "│a   │", "│b   │", "╰────╯", "0/1"]);
+  let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)) else { panic!("down is input") };
+  assert_eq!(lines(session.press(&key).unwrap()), ["╭────╮", "│b   │", "│c   │", "╰────╯", "1/1"]);
+  assert_eq!(lines(session.press(&key).unwrap())[4], "1/1", "clamped at the bottom");
+}

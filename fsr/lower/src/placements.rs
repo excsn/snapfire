@@ -160,6 +160,10 @@ pub(crate) fn terminal<'p>(cx: &mut impl Placer<'p>, which: &str, attrs: &[Attr<
       out.push(Entry::Spread(cx.lowerer().expr(expr)?));
       continue;
     }
+    if let ("ref", Value::Script(target)) = (attr.name.as_str(), &attr.value) {
+      out.push(Entry::Field("ink-ref".to_owned(), Expr::Field(Box::new(cx.lowerer().expr(target)?), crate::REF_ID.to_owned())));
+      continue;
+    }
     if matches!(attr.name.as_str(), "key" | "ref") || attr.name.starts_with("aria-") {
       continue;
     }

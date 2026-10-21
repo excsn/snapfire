@@ -11,7 +11,7 @@ mod markup;
 mod style;
 
 pub use frame::{Cell, Frame};
-pub use layout::render;
+pub use layout::{render, render_measured, Metrics};
 pub use markup::from_markup;
 pub use style::{Color, Style};
 
@@ -108,6 +108,11 @@ pub struct BoxStyle {
   pub align: Option<Align>,
   pub border: Option<Border>,
   pub border_color: Option<Color>,
+  /// Whether what overflows the box is cut at its inner border edge, across and down, as Ink's `overflowX` and `overflowY` set to `hidden`.
+  pub overflow_x: bool,
+  pub overflow_y: bool,
+  /// Ink's `contentOffsetX` and `contentOffsetY`: how far the children are drawn left and up of where they lie.
+  pub content_offset: (i32, i32),
 }
 
 /// Ink's `Box`.
@@ -115,6 +120,8 @@ pub struct BoxStyle {
 pub struct Boxed {
   pub style: BoxStyle,
   pub children: Vec<Node>,
+  /// The name [`render_measured`] reports the box's metrics under.
+  pub id: Option<String>,
 }
 
 impl Boxed {
@@ -124,6 +131,11 @@ impl Boxed {
 
   pub fn child(mut self, child: impl Into<Node>) -> Self {
     self.children.push(child.into());
+    self
+  }
+
+  pub fn id(mut self, id: impl Into<String>) -> Self {
+    self.id = Some(id.into());
     self
   }
 

@@ -6247,6 +6247,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if let Some((hook @ ("useFocus" | "useFocusManager"), call)) = hook_call(&self.meanings(), init) {
       return self.focus_hook(hook, call, &decl.name, decl.span);
     }
+    if let Some(("useBoxMetrics", call)) = hook_call(&self.meanings(), init) {
+      let Some(target) = call.args.first() else { return Err(self.lowerer.residue(decl.span, "`useBoxMetrics` without a ref")) };
+      let id = Expr::Field(Box::new(self.lowerer.expr(&target.expr)?), crate::REF_ID.to_owned());
+      let measured = Expr::Index(Box::new(Expr::Store(crate::TERMINAL_METRICS.to_owned())), Box::new(id));
+      let mut unmeasured: Vec<Entry> = ["width", "height", "left", "top", "clientWidth", "clientHeight"].iter().map(|key| Entry::Field((*key).to_owned(), Expr::Lit(Lit::Int(0)))).collect();
+      unmeasured.push(Entry::Field("hasMeasured".to_owned(), Expr::Lit(Lit::Bool(false))));
+      let found = Expr::Object(vec![Entry::Spread(measured.clone()), Entry::Field("hasMeasured".to_owned(), Expr::Lit(Lit::Bool(true)))]);
+      let metrics = Expr::Ternary(Box::new(Expr::Compare(CompareOp::Ne, Box::new(measured), Box::new(Expr::Lit(Lit::Null)))), Box::new(found), Box::new(Expr::Object(unmeasured)));
+      bind_pattern(&mut self.lowerer, &decl.name, metrics)?;
+      return Ok(None);
+    }
     if let Some((hook @ ("useWindowSize" | "useStdout" | "useStderr" | "useIsScreenReaderEnabled"), _)) = hook_call(&self.meanings(), init) {
       self.terminal_hook(hook, &decl.name, decl.span)?;
       return Ok(None);
@@ -6280,11 +6291,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               None => Expr::Lit(Lit::Null),
             };
             self.state.push(local.clone());
+            let mut fields = vec![Entry::Field("current".to_owned(), current)];
             if self.lowerer.terminal {
               self.state_bindings.push(local.clone());
               self.held_refs.push(local.clone());
+              let range = self.lowerer.parsed.range(call.span);
+              if let Some(candidates) = &mut self.lowerer.hoisting {
+                fields.push(Entry::Field(crate::REF_ID.to_owned(), candidates.id(range)));
+              }
             }
-            Expr::Object(vec![Entry::Field("current".to_owned(), current)])
+            Expr::Object(fields)
           }
           Some(("useStore", _)) => {
             return Err(self.lowerer.residue(decl.span, "`useStore` bound to one name; it is a pair, as `const [x, setX] = useStore(key, initial)`"))

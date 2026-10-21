@@ -113,6 +113,7 @@ fn boxed(el: Element) -> Result<Boxed, String> {
       Some(share) => share.trim().parse::<f32>().ok().filter(|p| p.is_finite() && *p >= 0.0).map(Extent::Percent).ok_or_else(|| format!("`{name}` on a Box is cells or a percentage, not `{value}`")),
       None => cells().map(Extent::Cells),
     };
+    let offset = || value.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n.trunc() as i32).ok_or_else(|| format!("`{name}` on a Box is a number of cells, not `{value}`"));
     let s = &mut out.style;
     match name.as_str() {
       "flex-direction" => s.direction = if value.starts_with("column") { Direction::Column } else { Direction::Row },
@@ -162,6 +163,12 @@ fn boxed(el: Element) -> Result<Boxed, String> {
         })
       }
       "border-color" => s.border_color = Color::parse(value),
+      "overflow" => (s.overflow_x, s.overflow_y) = (value == "hidden", value == "hidden"),
+      "overflow-x" => s.overflow_x = value == "hidden",
+      "overflow-y" => s.overflow_y = value == "hidden",
+      "content-offset-x" => s.content_offset.0 = offset()?,
+      "content-offset-y" => s.content_offset.1 = offset()?,
+      "ink-ref" => out.id = Some(value.clone()),
       _ => {}
     }
   }

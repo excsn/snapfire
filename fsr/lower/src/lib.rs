@@ -165,6 +165,12 @@ pub const TERMINAL_ROWS: &str = "$terminal.rows";
 /// The store key the terminal sets to the focused id, or null, which Ink's `useFocus` and `useFocusManager().activeId` read.
 pub const TERMINAL_FOCUS: &str = "$terminal.focus";
 
+/// The store key the terminal sets to what it measured for each box a ref is on, by the ref's id, which Ink's `useBoxMetrics` reads.
+pub const TERMINAL_METRICS: &str = "$terminal.metrics";
+
+/// The field a terminal `useRef` holds its id in beside `current`, which `ref` on an Ink element writes as `ink-ref`.
+pub const REF_ID: &str = "$id";
+
 /// The module `fsr` writes from `[mdx.collections]`, which a body may read:
 /// every content file under each collection's directory with its `meta` and `toc`.
 pub const CONTENT_MODULE: &str = "generated/content.ts";
