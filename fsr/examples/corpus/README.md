@@ -18,6 +18,8 @@ A change to the lowerer that moves an outcome fails the test, naming each exampl
 | `react_dev/` | 641 examples from react.dev, see [NOTICE.md](NOTICE.md) |
 | `template/` | the configuration, `app.toml`, and the import map every example is built with |
 | `outcomes.txt` | one line per example, the outcome it is held to |
+| `migrated_outcomes.txt` | one line per react.dev example not held as `lowered`: its outcome once `fsr migrate` has moved what its components await into the route's loader, `eager` when the read moved is one only a later render makes |
+| `tests/react_dev_migrated.rs` | the migration and build of each of those examples and the comparison |
 | `tests/corpus.rs` | the build of every example and the comparison |
 | `svelte_dev/` | 167 examples and tutorial solutions from svelte.dev, see [NOTICE.md](NOTICE.md) |
 | `template_svelte/` | the configuration and the import map every Svelte example is built with, Svelte 5.57.2 vendored |
