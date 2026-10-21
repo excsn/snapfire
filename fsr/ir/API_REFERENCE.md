@@ -289,8 +289,8 @@ The registry an `Expr::Ext` is answered from, by `module.member`. `Clone`, `Defa
 
 Re-exported from `snapfire_fsr_core::ext`. `STANDARD` and `standard_reach` are this crate's.
 
-* `pub enum Reach { Render, Body }`, `Copy`, `Eq`; `as_str` is `render` or `body`.
-* `Render`: pure, both sides, callable from every site. `Body`: server only, callable from a body, a handler and middleware; the lowerer refuses it on a component's render path.
+* `pub enum Reach { Render, Body, Terminal }`, `Copy`, `Eq`; `as_str` is `render`, `body` or `terminal`.
+* `Render`: pure, both sides, callable from every site. `Body`: server only, callable from a body, a handler and middleware; the lowerer refuses it on a component's render path. `Terminal`: a terminal page only, where the machine running the page is the viewer; it has no browser half and the lowerer refuses it anywhere else.
 * `pub const STANDARD: &[(&str, &str, Reach)]`: module, member and reach of every standard member; `standard_reach(module, name) -> Option<Reach>` looks one up. The registry `Extensions::standard` builds and the lowerer's checks are both taken from it.
 
 ### Ambient
@@ -325,6 +325,12 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `crypto.verify` | render | `s`, `hash` | whether `hash` is the hash of `s`, compared in constant time, case insensitive |
 | `crypto.random` | body | `bytes` (at most 1024) | that many random bytes as hex |
 | `id.new` | body | | a UUID version 7 |
+| `intl.localTime` | terminal | `when`, `locale?` | `toLocaleTimeString(locale)` in this machine's time zone at ICU's medium length; without a locale the one `LC_ALL`, `LC_TIME` or `LANG` names, else `en-US`; `Invalid Date` for an invalid instant |
+| `time.localOffset` | terminal | `when` | `getTimezoneOffset()` for that instant in this machine's time zone, minutes behind UTC; NaN for an invalid instant |
+| `terminal.ms` | terminal | `x`, `{ long? }?` | as the `ms` package: milliseconds as `1m` or `1 minute`, a string such as `2 days` as milliseconds, null for one it cannot read |
+| `terminal.stripAnsi` | terminal | `s` | `s` without the escape codes `ansi-regex` matches |
+| `terminal.stringWidth` | terminal | `s` | the terminal columns `s` takes once its escape codes are gone, a grapheme cluster at most two |
+| `terminal.wrapAnsi` | terminal | `s`, `columns`, `{ hard?, trim?, wordWrap? }?` | the rows `wrap-ansi` 9 breaks `s` into; escape codes stay where they stand |
 | `i18n.t` | render | `key`, `{ count?, …}?` | the message under `key` in the ambient locale's catalog; with `count` a number, `key.<cardinal category>` then `key.other` then `key`; `{name}` filled from a scalar argument, left as written otherwise; the key itself when nothing matches or no catalogs are set. What `t` from the client's std module lowers to |
 
 The locale is `Ambient::bcp47`; a tag ICU4X cannot parse falls back to `en`. `fsr/ir/tests/conformance.rs` runs every `render` member against the client's `dist/std.js` through node over nine locales and fails on any difference the file does not list as a known CLDR divergence; it skips itself when node or the build is absent.
@@ -426,7 +432,7 @@ The frameworks an application vendors, each at the major whose server markup the
 * `Builtin::Omit` takes a `Map` and string keys and yields the map without those keys, the rest of a destructuring; `Null` reads as an empty map and any other first argument is `Internal`.
 * `Builtin::StartsWith` and `Builtin::EndsWith` take two strings and yield a `Bool`. Every string starts with and ends with the empty one. `StartsWith` takes an optional third argument, the position in UTF-16 code units to test from, clamped to the string.
 * `Builtin::Trim` strips JavaScript's whitespace and line terminators from both ends, `\u{feff}` included and `\u{85}` not.
-* `Builtin::Split` takes a subject and a separator and yields a `Seq` of strings. A separator the subject does not hold gives one piece, a leading or trailing separator keeps its empty piece; an empty separator is `Internal`: JavaScript splits one into UTF-16 code units, which the value model holds no half of. It refuses to build more than a million pieces, for the same reason `Repeat` and `Range` have bounds.
+* `Builtin::Split` takes a subject, a separator and an optional limit, read as `ToUint32`, and yields a `Seq` of at most that many strings. A separator the subject does not hold gives one piece, a leading or trailing separator keeps its empty piece; an empty separator is `Internal`: JavaScript splits one into UTF-16 code units, which the value model holds no half of. It refuses to build more than a million pieces, for the same reason `Repeat` and `Range` have bounds.
 * `Builtin::Replace` takes a subject, a string pattern and a replacement, yielding the subject with the **first** occurrence replaced, as JavaScript's `String.prototype.replace` does with a string pattern. The replacement carries JavaScript's substitutions: `$$` is one dollar, `$&` the match, `` $` `` the text before it and `$'` the text after. A string pattern has no capture groups, so `$1` stays the two characters it is written as. Given a regular expression as its pattern it replaces the first match (every match with `g`) and the replacement also reads `$1` to `$99` and `$<name>`, a group that did not take part as nothing.
 * `Builtin::Slice`, `At`, `IndexOf` and `Concat` take an array or a string; `Reverse` an array; `PadStart`, `PadEnd` and `Substring` a string. Indices follow JavaScript's `ToIntegerOrInfinity`, negative counting from the end where JavaScript's does. A string's indices count UTF-16 code units. A cut through a surrogate pair is `Internal`, since the value model holds no half of one. `IndexOf` over an array compares numbers by value whatever their width and anything else by equality. `PadStart` and `PadEnd` refuse to build more than `Repeat`'s bound.
 * `Builtin::Json` is `JSON.stringify(value, null, indent)`: maps in insertion order, a non-finite number as `null`, an `Int`, which only a `bigint` produces, `Internal` as JavaScript throws, an indent of a number capped at 10 spaces or a string's first 10 characters.
