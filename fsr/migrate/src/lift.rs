@@ -223,6 +223,137 @@ impl Visit for Delays {
   }
 }
 
+/// The module-level items `taken`, as a loader holds them: artificial
+/// delays dropped and a function that memoizes in a module-level `Map` read
+/// as the call it memoizes, since a loader runs once per request and FSR
+/// caches what it returns. A `Map` nothing else copied reads is left out.
+fn copied(text: &str, parsed: &Parsed, items: &[Item], taken: &BTreeSet<usize>, path: &str, report: &mut Report) -> String {
+  let mut memo_maps = BTreeSet::new();
+  let mut bodies: BTreeMap<usize, String> = BTreeMap::new();
+  for &n in taken {
+    let item = &parsed.module.body[n];
+    let function = match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => &*f.function,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) => &*f.function,
+      _ => continue,
+    };
+    if let Some((map, call)) = memoized(text, parsed, function) {
+      let body = function.body.as_ref().map(|b| parsed.range(b.span)).unwrap_or_default();
+      let range = items[n].range.clone();
+      let mut e = Edits::default();
+      e.replace(shift(body, range.start), format!("{{\n  return {call};\n}}"));
+      bodies.insert(n, e.apply(&text[range]));
+      memo_maps.insert(map);
+    }
+  }
+  let mut out = String::new();
+  for &n in taken {
+    let item = &items[n];
+    if item.binds.len() == 1 && memo_maps.contains(&item.binds[0]) && !taken.iter().any(|&m| m != n && !bodies.contains_key(&m) && items[m].reads.contains(&item.binds[0])) {
+      continue;
+    }
+    let copy = match bodies.get(&n) {
+      Some(body) => body.clone(),
+      None => {
+        let mut e = Edits::default();
+        without_delays(text, parsed, &parsed.module.body[n], item.range.start, &mut e, path, report);
+        e.apply(&text[item.range.clone()])
+      }
+    };
+    let exported = matches!(parsed.module.body[n], js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(_)));
+    out.push_str(if exported { copy.strip_prefix("export ").unwrap_or(&copy) } else { &copy });
+    out.push_str("\n\n");
+  }
+  out
+}
+
+/// The functions `needed` names that `parsed` imports from a module of the
+/// tree and that memoize in a `Map`, copied for the loader at `to` with what
+/// they read in their own module: the imports those copies need and the
+/// copies. Each is taken out of `needed`, so the loader does not import it.
+fn inline_memoized(tree: &Tree, parsed: &Parsed, needed: &mut BTreeSet<String>, from: &str, to: &str, report: &mut Report) -> (String, String) {
+  let mut imports = String::new();
+  let mut decls = String::new();
+  for item in &parsed.module.body {
+    let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+    let spec = import.src.value.to_string_lossy().into_owned();
+    let base = if let Some(rest) = spec.strip_prefix("@src/") {
+      Some(format!("app/src/{rest}"))
+    } else if spec.starts_with("./") || spec.starts_with("../") {
+      normalize(dirname(from), &spec)
+    } else {
+      None
+    };
+    let Some(base) = base else { continue };
+    let Some(target) = std::iter::once(base.clone()).chain(crate::syntax::SCRIPT_EXTENSIONS.iter().map(|e| format!("{base}{e}"))).find(|c| tree.contains(c)) else { continue };
+    let Some(target_text) = tree.text(&target) else { continue };
+    let Ok(target_parsed) = parse(&target, target_text) else { continue };
+    for s in &import.specifiers {
+      let js::ImportSpecifier::Named(named) = s else { continue };
+      let local_name = named.local.sym.to_string();
+      if !needed.contains(&local_name) {
+        continue;
+      }
+      let imported = match &named.imported {
+        Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
+        Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
+        None => local_name.clone(),
+      };
+      let memo = target_parsed.module.body.iter().any(|item| match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) => *f.ident.sym == *imported && memoized(target_text, &target_parsed, &f.function).is_some(),
+        _ => false,
+      });
+      if !memo {
+        continue;
+      }
+      let items: Vec<Item> = target_parsed.module.body.iter().map(|item| describe(item, &target_parsed)).collect();
+      let mut wanted: BTreeSet<String> = [imported.clone()].into_iter().collect();
+      let taken = closure(&items, &mut wanted);
+      decls.push_str(&copied(target_text, &target_parsed, &items, &taken, &target, report));
+      if local_name != imported {
+        decls.push_str(&format!("const {local_name} = {imported};\n\n"));
+      }
+      imports.push_str(&imports_for(target_text, &target_parsed, &wanted, &target, to));
+      needed.remove(&local_name);
+    }
+  }
+  (imports, decls)
+}
+
+/// `if (!cache.has(k)) cache.set(k, f(k)); return cache.get(k);` with
+/// `cache` a module-level `Map`: the map's name and `f(k)`.
+fn memoized(text: &str, parsed: &Parsed, function: &js::Function) -> Option<(String, String)> {
+  let body = function.body.as_ref()?;
+  let [js::Stmt::If(check), js::Stmt::Return(ret)] = body.stmts.as_slice() else { return None };
+  let js::Expr::Unary(js::UnaryExpr { op: js::UnaryOp::Bang, arg, .. }) = &*check.test else { return None };
+  let (map, "has", has_args) = method_call(arg)? else { return None };
+  let set = match &*check.cons {
+    js::Stmt::Expr(e) => &*e.expr,
+    js::Stmt::Block(b) => match b.stmts.as_slice() {
+      [js::Stmt::Expr(e)] => &*e.expr,
+      _ => return None,
+    },
+    _ => return None,
+  };
+  let (set_map, "set", set_args) = method_call(set)? else { return None };
+  let (get_map, "get", get_args) = method_call(ret.arg.as_deref()?)? else { return None };
+  let [key, value] = set_args else { return None };
+  let same_key = |args: &[js::ExprOrSpread]| args.len() == 1 && text[parsed.range(args[0].expr.span())] == text[parsed.range(key.expr.span())];
+  if check.alt.is_some() || map != set_map || map != get_map || !same_key(has_args) || !same_key(get_args) {
+    return None;
+  }
+  Some((map.to_owned(), text[parsed.range(value.expr.span())].to_owned()))
+}
+
+/// `map.method(args)` with `map` a plain name.
+fn method_call(e: &js::Expr) -> Option<(&str, &str, &[js::ExprOrSpread])> {
+  let js::Expr::Call(call) = e else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Member(m) = &**callee else { return None };
+  let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) else { return None };
+  Some((&obj.sym, &prop.sym, &call.args))
+}
+
 fn shift(range: Range<usize>, by: usize) -> Range<usize> {
   range.start - by..range.end - by
 }
@@ -257,7 +388,7 @@ impl Pass for RouteLift {
         report.note(&path, parsed.line(function.span), "the route's loader already has a `load`, so what this component awaits was left in it");
         continue;
       }
-      match lift_route(&path, &text, &parsed, function, &loader_path, report) {
+      match lift_route(tree, &path, &text, &parsed, function, &loader_path, report) {
         Some((page, load, fails)) => {
           let mut loader = String::new();
           if fails {
@@ -284,7 +415,7 @@ struct Load {
   body: String,
 }
 
-fn lift_route(path: &str, text: &str, parsed: &Parsed, function: &js::Function, loader_path: &str, report: &mut Report) -> Option<(String, Load, bool)> {
+fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &js::Function, loader_path: &str, report: &mut Report) -> Option<(String, Load, bool)> {
   let body = function.body.as_ref()?;
   let line = parsed.line(function.span);
   let Some((last, before)) = body.stmts.split_last() else { return None };
@@ -383,17 +514,10 @@ fn lift_route(path: &str, text: &str, parsed: &Parsed, function: &js::Function, 
     ctx.push("query");
   }
   let ctx = if ctx.is_empty() { String::new() } else { format!("{{ {} }}", ctx.join(", ")) };
-  let mut decls = String::new();
-  for (n, item) in items.iter().enumerate() {
-    if taken.contains(&n) {
-      let mut edits = Edits::default();
-      without_delays(text, parsed, &parsed.module.body[n], item.range.start, &mut edits, path, report);
-      decls.push_str(&edits.apply(&text[item.range.clone()]));
-      decls.push_str("\n\n");
-    }
-  }
+  let (inlined_imports, inlined) = inline_memoized(tree, parsed, &mut needed, path, loader_path, report);
+  let decls = format!("{inlined}{}", copied(text, parsed, &items, &taken, path, report));
   let body_text = format!("{decls}export async function load({ctx}) {{\n{statements}  return {{ {} }};\n}}\n", fields.join(", "));
-  let imports = imports_for(text, parsed, &needed, path, loader_path);
+  let imports = format!("{inlined_imports}{}", imports_for(text, parsed, &needed, path, loader_path));
 
   let mut page = Edits::default();
   for stmt in &moved {
@@ -638,15 +762,7 @@ impl Pass for ComponentLift {
         }
       }
       let taken = closure(&items, &mut needed);
-      let mut decls = String::new();
-      for (n, item) in items.iter().enumerate() {
-        if taken.contains(&n) {
-          let mut e = Edits::default();
-          without_delays(&text, &parsed, &parsed.module.body[n], item.range.start, &mut e, &path, report);
-          decls.push_str(&e.apply(&text[item.range.clone()]));
-          decls.push_str("\n\n");
-        }
-      }
+      let own = copied(&text, &parsed, &items, &taken, &path, report);
       let fields: Vec<String> = lifted.iter().flat_map(|(c, rs)| rs.iter().map(move |r| format!("{}{}", lower_first(c), upper_first(&r.name)))).collect();
       for page in &pages {
         let loader_path = format!("{}/page.loader.ts", dirname(page));
@@ -655,7 +771,10 @@ impl Pass for ComponentLift {
           report.note(&path, 0, format!("`{loader_path}` already has a `load` or a `store`, so the data this component awaits was not moved there"));
           continue;
         }
-        let imports = imports_for(&text, &parsed, &needed, &path, &loader_path);
+        let mut needed_here = needed.clone();
+        let (inlined_imports, inlined) = inline_memoized(tree, &parsed, &mut needed_here, &path, &loader_path, report);
+        let decls = format!("{inlined}{own}");
+        let imports = format!("{inlined_imports}{}", imports_for(&text, &parsed, &needed_here, &path, &loader_path));
         let loader = format!(
           "{imports}\n{existing}\n{decls}export async function load() {{\n{loads}  return {{ {} }};\n}}\n\nexport const store = ({{ data }}) => ({{ {} }});\n",
           fields.join(", "),
@@ -837,6 +956,20 @@ mod tests {
       "import { Product } from \"../src/components/Product\";\n\nexport default function Home({ products }) {\n  return (\n    <main>\n      {products.map((product) => (\n        <Product key={product.id} product={product} />\n      ))}\n    </main>\n  );\n}\n"
     );
     assert!(report.notes.is_empty(), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_function_memoizing_in_a_map_is_read_as_the_call_it_memoizes() {
+    let data = "let cache = new Map();\n\nexport function fetchData(url) {\n  if (!cache.has(url)) {\n    cache.set(url, getData(url));\n  }\n  return cache.get(url);\n}\n\nasync function getData(url) {\n  return [url];\n}\n";
+    let app = "import { use } from 'react';\nimport { fetchData } from './data.js';\n\nexport default function Albums() {\n  const albums = use(fetchData('/albums'));\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n";
+    let page = "import App from \"@src/App.js\";\n\nexport default function Page() {\n  return <App />;\n}\n";
+    let input = tree(&[("app/src/data.js", data), ("app/src/App.js", app), ("app/routes/page.tsx", page)]);
+    let (out, _) = lift(&input);
+    assert_eq!(
+      out.text("app/routes/page.loader.ts").unwrap(),
+      "function fetchData(url) {\n  return getData(url);\n}\n\nasync function getData(url) {\n  return [url];\n}\n\nexport async function load() {\n  const albumsAlbums = await fetchData('/albums');\n  return { albumsAlbums };\n}\n\nexport const store = ({ data }) => ({ \"albums/albums\": data.albumsAlbums });\n"
+    );
+    assert_eq!(out.text("app/src/App.js").unwrap(), "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { albumsAlbums } from \"@src/store\";\n\nexport default function Albums() {\n  const [albums] = useStore(albumsAlbums, null);\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n");
   }
 
   #[test]
