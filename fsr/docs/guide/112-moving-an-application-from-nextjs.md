@@ -96,6 +96,47 @@ export default function Home({ products }) {
 
 A component further down that awaits a read known before it renders, one whose arguments come from no prop or state, has the read moved to the loader of each page that places it. The loader seeds the result in the store and the component reads it with `useStore`, from a key the migration declares in `app/src/store.ts`. A read only a later render makes, a component placed under `tab === "posts" &&`, moves the same way and is noted, since its data now loads with the page.
 
+## Server actions
+
+Each async function a `"use server"` module exports becomes an action in the `actions.ts` of the route it belongs to, the nearest directory at or above the module holding a page. Its one typed parameter becomes its input and the type moves under `app/schemas/`:
+
+```ts
+// app/actions.ts, before
+"use server";
+import { Feature } from "./types";
+
+export async function upvote(feature: Feature) {
+  await kv.hset(`item:${feature.id}`, feature);
+  revalidatePath("/");
+}
+```
+
+```ts
+// app/routes/actions.ts, after
+import { action } from "@snapfire/fsr";
+import type { ActionCtx } from "@snapfire/fsr";
+import type { Feature } from "@schemas/feature";
+
+export const upvote = action(async ({ input }: ActionCtx<Feature>) => {
+  const feature = input;
+  await kv.hset(`item:${feature.id}`, feature);
+});
+```
+
+`revalidatePath` and `revalidateTag` are dropped, since an action revalidates its route. A caller imports `actions` from `@generated/client` and calls `actions.$root.upvote(feature)`.
+
+An action taking a `FormData` it reads only as `formData.get("key")` takes those keys as its input. The pass writes the input type, every field a `string`, since that is what a form posts; the host coerces each field against the type, so changing one to `number` is all a numeric field needs:
+
+```ts
+// app/schemas/createuserinput.ts
+export interface CreateUserInput {
+  name: string;
+  email: string;
+}
+```
+
+Each read becomes `input.name`. An action that reads its `FormData` any other way, takes no type or takes more than one argument is left where it was with a note. When that module was `actions.ts`, the actions left behind move to `server-actions.ts`, since FSR reads every export of `actions.ts` as an action.
+
 ## Prisma
 
 An application with a `schema.prisma` gets a Rust service in place of the Prisma client. Each model becomes a record in `src/db.rs` and each distinct call a loader makes becomes a method on `Db`, holding the call in its doc comment and a `todo!()` for its query:

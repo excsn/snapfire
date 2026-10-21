@@ -23,6 +23,8 @@ struct Converted {
   name: String,
   /// The type its one parameter is annotated with; `None` when it takes none.
   input: Option<String>,
+  /// The input type's declaration when the pass wrote it, as for a `FormData`.
+  declared: Option<String>,
   text: String,
 }
 
@@ -71,8 +73,7 @@ fn route_dir(tree: &Tree, path: &str) -> String {
 fn accessor(id: &str) -> String {
   let mut out = "actions".to_owned();
   for segment in id.split('.') {
-    let identifier = segment.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$') && segment.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
-    if identifier {
+    if is_identifier(segment) {
       out.push('.');
       out.push_str(segment);
     } else {
@@ -91,12 +92,32 @@ fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, repo
     let line = parsed.line(item.span());
     let (Some(body), true) = (&f.function.body, f.function.is_async) else { continue };
     let params: Vec<&js::Pat> = f.function.params.iter().map(|p| &p.pat).collect();
+    let body_range = parsed.range(body.span);
+    let mut edits = Edits::default();
+    let mut declared = None;
     let input = match params.as_slice() {
       [] => None,
       [param] => match annotated_type(param) {
         Some(t) if t == "FormData" => {
-          report.note(path, line, format!("`{name}` takes a `FormData`; an FSR action takes the form's fields as its input, typed under `schemas/`, so it was left in place"));
-          continue;
+          let reads = match param {
+            js::Pat::Ident(p) => form_reads(body, &p.id.sym),
+            _ => None,
+          };
+          let Some(reads) = reads else {
+            report.note(path, line, format!("`{name}` takes a `FormData` it reads other than by `get(\"key\")`; an FSR action takes the form's fields as its input, typed under `schemas/`, so it was left in place"));
+            continue;
+          };
+          let input = format!("{}Input", upper_first(&name));
+          let mut keys: Vec<&str> = Vec::new();
+          for (span, key) in &reads {
+            let range = parsed.range(*span);
+            edits.replace(range.start - body_range.start..range.end - body_range.start, format!("input.{key}"));
+            if !keys.contains(&key.as_str()) {
+              keys.push(key);
+            }
+          }
+          declared = Some(format!("export interface {input} {{\n{}}}\n", keys.iter().map(|k| format!("  {k}: string;\n")).collect::<String>()));
+          Some(input)
         }
         Some(t) => Some(t),
         None => {
@@ -109,9 +130,7 @@ fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, repo
         continue;
       }
     };
-    let body_range = parsed.range(body.span);
-    let mut edits = Edits::default();
-    if let (Some(js::Pat::Ident(param)), Some(_)) = (params.first(), &input) {
+    if let (Some(js::Pat::Ident(param)), Some(_), None) = (params.first(), &input, &declared) {
       edits.replace(1..1, format!("\n  const {} = input;", param.id.sym));
     }
     let mut revalidates = Revalidates { found: Vec::new() };
@@ -125,7 +144,7 @@ fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, repo
       None => "_ctx: ActionCtx".to_owned(),
     };
     let body_text = edits.apply(&text[body_range.clone()]);
-    converted.push(Converted { name: name.clone(), input, text: format!("export const {name} = action(async ({ctx}) => {body_text});\n") });
+    converted.push(Converted { name: name.clone(), input, declared, text: format!("export const {name} = action(async ({ctx}) => {body_text});\n") });
     kept.replace(line_range(text, parsed.range(item.span())), "");
   }
   if converted.is_empty() {
@@ -139,7 +158,8 @@ fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, repo
 
   let mut schemas = String::new();
   for input in &inputs {
-    match declaration(tree, path, parsed, input) {
+    let written = converted.iter().find(|c| c.input.as_ref() == Some(input)).and_then(|c| c.declared.clone());
+    match written.or_else(|| declaration(tree, path, parsed, input)) {
       Some(declared) => {
         let file = format!("app/schemas/{}.ts", input.to_lowercase());
         tree.insert(file, declared);
@@ -296,6 +316,55 @@ fn rewrite_callers(tree: &mut Tree, module: &str, names: &BTreeSet<String>, acce
   }
 }
 
+/// Each `form.get("key")` in `body` by its span, when every use of `form` is
+/// one with a key that is an identifier; None otherwise.
+fn form_reads(body: &js::FunctionBody, form: &str) -> Option<Vec<(Span, String)>> {
+  struct Reads<'a> {
+    form: &'a str,
+    found: Vec<(Span, String)>,
+    other: bool,
+  }
+  impl Visit for Reads<'_> {
+    fn visit_call_expr(&mut self, n: &js::CallExpr) {
+      if let js::Callee::Expr(callee) = &n.callee {
+        if let js::Expr::Member(m) = &**callee {
+          if let (js::Expr::Ident(obj), js::MemberProp::Ident(method)) = (&*m.obj, &m.prop) {
+            if &*obj.sym == self.form && &*method.sym == "get" {
+              match n.args.as_slice() {
+                [arg] if arg.spread.is_none() => match &*arg.expr {
+                  js::Expr::Lit(js::Lit::Str(key)) if is_identifier(&key.value.to_string_lossy()) => self.found.push((n.span, key.value.to_string_lossy().into_owned())),
+                  _ => self.other = true,
+                },
+                _ => self.other = true,
+              }
+              return;
+            }
+          }
+        }
+      }
+      n.visit_children_with(self);
+    }
+
+    fn visit_ident(&mut self, n: &js::Ident) {
+      if &*n.sym == self.form {
+        self.other = true;
+      }
+    }
+  }
+  let mut reads = Reads { form, found: Vec::new(), other: false };
+  body.visit_with(&mut reads);
+  (!reads.other).then_some(reads.found)
+}
+
+fn is_identifier(s: &str) -> bool {
+  s.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$') && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+fn upper_first(s: &str) -> String {
+  let mut c = s.chars();
+  c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+}
+
 fn annotated_type(pat: &js::Pat) -> Option<String> {
   let ann = match pat {
     js::Pat::Ident(i) => i.type_ann.as_ref()?,
@@ -376,7 +445,7 @@ mod tests {
 
   #[test]
   fn a_server_action_is_an_fsr_action_its_input_a_schema_and_its_callers_reach_it_through_actions() {
-    let actions = "\"use server\";\n\nimport { kv } from \"@vercel/kv\";\nimport { revalidatePath } from \"next/cache\";\nimport { Feature } from \"./types\";\n\nexport async function upvote(feature: Feature) {\n  await kv.hset(`item:${feature.id}`, feature);\n  revalidatePath(\"/\");\n}\n\nexport async function saveEmail(formData: FormData) {\n  await kv.sadd(\"emails\", formData.get(\"email\"));\n}\n";
+    let actions = "\"use server\";\n\nimport { kv } from \"@vercel/kv\";\nimport { revalidatePath } from \"next/cache\";\nimport { Feature } from \"./types\";\n\nexport async function upvote(feature: Feature) {\n  await kv.hset(`item:${feature.id}`, feature);\n  revalidatePath(\"/\");\n}\n\nexport async function saveEmail(formData: FormData) {\n  await kv.sadd(\"emails\", formData.getAll(\"email\"));\n}\n";
     let types = "export type Feature = {\n  id: string;\n  title: string;\n};\n";
     let form = "\"use client\";\nimport { upvote } from \"./actions\";\nimport { Feature } from \"./types\";\n\nexport default function Item({ feature }: { feature: Feature }) {\n  return <button onClick={() => upvote(feature)}>up</button>;\n}\n";
     let page = "import Item from \"./item\";\n\nexport default function Page() {\n  return <Item feature={{ id: \"1\", title: \"t\" }} />;\n}\n";
@@ -399,5 +468,19 @@ mod tests {
     let left = out.text("app/routes/server-actions.ts").expect("the action left in place moves out of actions.ts");
     assert!(left.starts_with("\"use server\";") && left.contains("export async function saveEmail"), "{left}");
     assert!(report.notes.iter().any(|n| n.message.starts_with("`saveEmail` takes a `FormData`")), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn an_action_reading_its_form_data_by_key_takes_those_keys_as_its_input() {
+    let actions = "\"use server\";\n\nimport { db } from \"./db\";\n\nexport async function createUser(formData: FormData) {\n  const name = formData.get(\"name\") as string;\n  const email = formData.get(\"email\") as string;\n  await db.create({ name, email });\n}\n";
+    let page = "export default function Page() {\n  return <p>new</p>;\n}\n";
+    let input = tree(&[("package.json", r#"{ "dependencies": { "next": "latest" } }"#), ("app/actions.ts", actions), ("app/db.ts", "export const db = { create: async (_: object) => {} };\n"), ("app/page.tsx", page)]);
+    let (out, report) = migrate(&input);
+    assert_eq!(out.text("app/schemas/createuserinput.ts").unwrap(), "export interface CreateUserInput {\n  name: string;\n  email: string;\n}\n");
+    assert_eq!(
+      out.text("app/routes/actions.ts").unwrap(),
+      "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { CreateUserInput } from \"@schemas/createuserinput\";\nimport { db } from \"./db\";\n\nexport const createUser = action(async ({ input }: ActionCtx<CreateUserInput>) => {\n  const name = input.name as string;\n  const email = input.email as string;\n  await db.create({ name, email });\n});\n"
+    );
+    assert!(!report.notes.iter().any(|n| n.message.contains("FormData")), "{:?}", report.notes);
   }
 }
