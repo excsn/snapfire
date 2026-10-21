@@ -20,7 +20,7 @@ pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
 
 /// The default export of `module` when it is a function: its declaration
 /// and its name.
-fn default_function(module: &js::Module) -> Option<(&js::Function, Option<String>)> {
+pub(crate) fn default_function(module: &js::Module) -> Option<(&js::Function, Option<String>)> {
   let mut named = None;
   for item in &module.body {
     match item {
@@ -42,7 +42,7 @@ fn default_function(module: &js::Module) -> Option<(&js::Function, Option<String
   })
 }
 
-fn route_kind(path: &str) -> Option<&'static str> {
+pub(crate) fn route_kind(path: &str) -> Option<&'static str> {
   let file = path.strip_prefix("app/routes/")?.rsplit('/').next()?;
   if file.matches('.').count() != 1 || !is_script(file) {
     return None;

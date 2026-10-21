@@ -5,6 +5,7 @@
 
 mod actions;
 mod config;
+mod env;
 mod edit;
 mod head;
 mod items;
@@ -179,8 +180,8 @@ pub trait Pass {
 /// The passes for `source`, in the order they run.
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
-    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).collect(),
-    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).collect(),
+    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }
@@ -200,6 +201,10 @@ fn imported_packages(tree: &Tree) -> Vec<String> {
 
 fn prisma_pass() -> Vec<Box<dyn Pass>> {
   vec![Box::new(prisma::Prisma)]
+}
+
+fn env_pass() -> Vec<Box<dyn Pass>> {
+  vec![Box::new(env::PublicEnv)]
 }
 
 /// `input` rewritten as an FSR project tree: the application under `app/`.

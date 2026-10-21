@@ -202,11 +202,33 @@ export async function load({ services }: Ctx<"/">) {
 
 A type imported from `@prisma/client` is imported from `@generated/client`, which `fsr build` writes from the records. The schema, the client module and `prisma.config.ts` are removed. `src/main.rs` and `Cargo.toml` start the host with the service; write each query with sqlx or the database crate of your choice, then `cargo run`.
 
+## Public environment variables
+
+A `process.env.NEXT_PUBLIC_*` read in a page, a layout or a loader becomes a `[public]` key in `config/app.toml`, the prefix dropped and the name lowercased, declared empty for each deployment to set. A page or layout receives it as a prop its loader returns from `config`:
+
+```tsx
+// app/layout.tsx, before
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return <html><GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_ID as string} /><body>{children}</body></html>;
+}
+```
+
+```ts
+// app/routes/layout.loader.ts, after
+import type { Ctx } from "@snapfire/fsr";
+
+export async function load({ config }: Ctx) {
+  return { gaId: config.ga_id };
+}
+```
+
+The layout destructures `gaId` beside `children` and reads it where the variable was. A module constant that held the variable, `const API_KEY = process.env.NEXT_PUBLIC_GOOGLE_API_KEY`, becomes the prop of that name. A read in a component below the route is a note, as is one anywhere else a prop does not reach.
+
 ## What is left for you
 
 Each of these is a note naming the line:
 
-- a fetch from a loader to a backend, a database client or a `process.env` secret: FSR reaches a backend through a contract (chapter 001)
+- a fetch from a loader to a backend, a database client or a server-only `process.env` variable: FSR reaches a backend through a contract (chapter 001) and a secret only as a client's credential (chapter 202)
 - `draftMode()`, `cookies()` and `headers()`: a loader reads `session`, `identity` and `query` instead
 - `revalidate`: the data cache sets its time to live under `[cache]`
 - a redirect from a data function: `middleware.ts` answers `{ redirect }`
