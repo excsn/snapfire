@@ -96,6 +96,15 @@ fn a_numeric_property_name_is_read_back_by_number_or_by_string() {
   assert_eq!(html("numeric", page).as_deref(), Ok("<ul><li>Earth</li><li>Moon</li><li>Moon</li><li>half</li></ul>"));
 }
 
+#[test]
+fn bitwise_operators_answer_as_javascript_does() {
+  let page = "function Text({ format }: { format: number }) {\n  const bold = (format & 1) !== 0 ? <strong>x</strong> : \"x\";\n  const italic = (format & 2) !== 0 ? <em>{bold}</em> : bold;\n  return (format & 8) !== 0 ? <u>{italic}</u> : italic;\n}\nexport default function Page() {\n  let mask = 0;\n  mask |= 4;\n  mask |= 1;\n  const values = [5 & 3, 5 | 3, 5 ^ 3, ~5, 1 << 31, -16 >> 2, -16 >>> 2, 1 << 33, 2.9 | 0, -2.9 | 0, 4294967297 | 0, (1 << 31) >>> 0, mask];\n  return <p>{[0, 1, 2, 3, 8, 11].map((format) => <span key={format}><Text format={format} /></span>)}<i>{values.join(\",\")}</i></p>;\n}\n";
+  assert_eq!(
+    html("bitwise", page).as_deref(),
+    Ok("<p><span>x</span><span><strong>x</strong></span><span><em>x</em></span><span><em><strong>x</strong></em></span><span><u>x</u></span><span><u><em><strong>x</strong></em></u></span><i>1,7,6,-6,-2147483648,-4,1073741820,2,2,-2,1,2147483648,5</i></p>")
+  );
+}
+
 fn html_with(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
   let dir = app(tag, files);
   let mut set = ComponentSet::new(&dir);

@@ -1868,10 +1868,32 @@ fn float(op: ArithOp, a: f64, b: f64) -> f64 {
     ArithOp::Rem => a % b,
     ArithOp::Pow => js_pow(a, b),
     ArithOp::Quot => (a / b).trunc(),
+    ArithOp::BitAnd | ArithOp::BitOr | ArithOp::BitXor | ArithOp::Shl | ArithOp::Shr | ArithOp::UShr => bitwise(op, a, b) as f64,
+  }
+}
+
+/// A bitwise operator on two numbers as JavaScript applies it: `ToInt32` on each side, the shift count taken modulo 32 and `>>>` reading its left side unsigned.
+fn bitwise(op: ArithOp, a: f64, b: f64) -> i128 {
+  let (a, b) = (int32(a), int32(b));
+  let shift = (b as u32) & 31;
+  match op {
+    ArithOp::BitAnd => i128::from(a & b),
+    ArithOp::BitOr => i128::from(a | b),
+    ArithOp::BitXor => i128::from(a ^ b),
+    ArithOp::Shl => i128::from(a.wrapping_shl(shift)),
+    ArithOp::Shr => i128::from(a >> shift),
+    ArithOp::UShr => i128::from((a as u32) >> shift),
+    _ => unreachable!("bitwise is called for the bitwise operators"),
   }
 }
 
 fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
+  if matches!(op, ArithOp::BitAnd | ArithOp::BitOr | ArithOp::BitXor | ArithOp::Shl | ArithOp::Shr | ArithOp::UShr) {
+    return match (to_number(&l), to_number(&r)) {
+      (Some(a), Some(b)) => Ok(Value::Int(bitwise(op, a, b))),
+      _ => Err(Fail::internal(format!("{:?} wants numbers, strings, booleans or null, got {} and {}", op, kind_name(&l), kind_name(&r)))),
+    };
+  }
   match (l, r) {
     (Value::Int(a), Value::Int(b)) if op == ArithOp::Div => Ok(match a.checked_rem(b).filter(|rem| *rem == 0).and_then(|_| a.checked_div(b)) {
       Some(quotient) => Value::Int(quotient),
@@ -1884,6 +1906,7 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
       ArithOp::Div | ArithOp::Quot => a.checked_div(b).ok_or_else(|| Fail::internal("a bigint divided by zero"))?,
       ArithOp::Rem => a.checked_rem(b).ok_or_else(|| Fail::internal("division by zero"))?,
       ArithOp::Pow => u32::try_from(b).ok().and_then(|b| a.checked_pow(b)).ok_or_else(|| Fail::internal("integer power out of range"))?,
+      ArithOp::BitAnd | ArithOp::BitOr | ArithOp::BitXor | ArithOp::Shl | ArithOp::Shr | ArithOp::UShr => bitwise(op, a as f64, b as f64),
     })),
     (Value::F64(a), Value::F64(b)) => Ok(Value::F64(float(op, a, b))),
     // A number literal lowers as a float and a record's width is an integer,

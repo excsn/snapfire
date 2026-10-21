@@ -56,7 +56,7 @@ fn pair(a: Value, b: Value) -> ValueMap {
 }
 
 fn arith_ops() -> BoxedStrategy<ArithOp> {
-  prop_oneof![Just(ArithOp::Add), Just(ArithOp::Sub), Just(ArithOp::Mul), Just(ArithOp::Div), Just(ArithOp::Rem), Just(ArithOp::Pow), Just(ArithOp::Quot)].boxed()
+  prop_oneof![Just(ArithOp::Add), Just(ArithOp::Sub), Just(ArithOp::Mul), Just(ArithOp::Div), Just(ArithOp::Rem), Just(ArithOp::Pow), Just(ArithOp::Quot), Just(ArithOp::BitAnd), Just(ArithOp::BitOr), Just(ArithOp::BitXor), Just(ArithOp::Shl), Just(ArithOp::Shr), Just(ArithOp::UShr)].boxed()
 }
 
 fn compare_ops() -> BoxedStrategy<CompareOp> {

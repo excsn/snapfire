@@ -318,7 +318,7 @@ fn every_manifest() -> Manifest {
       },
       ComponentEntry {
         module: "src/ui/Card.svelte#default".to_owned(),
-        body: Component::new(snapfire_fsr_ir::Owner::Svelte, vec![Stmt::Let { name: "half".to_owned(), expr: Expr::Arith(ArithOp::Quot, Box::new(Expr::var("$props").field("n")), Box::new(Expr::Lit(Lit::Int(2)))) }], Tmpl::Fragment(vec![Tmpl::Marker("<!--[-->".to_owned()), Tmpl::Text("card".to_owned()), Tmpl::Element { tag: "input".to_owned(), attrs: vec![Entry::Baked(" disabled=\"false\"".to_owned())], children: Vec::new() }, Tmpl::Marker("<!--]-->".to_owned())])),
+        body: Component::new(snapfire_fsr_ir::Owner::Svelte, vec![Stmt::Let { name: "half".to_owned(), expr: Expr::Arith(ArithOp::Quot, Box::new(Expr::var("$props").field("n")), Box::new(Expr::Lit(Lit::Int(2)))) }, Stmt::Let { name: "flags".to_owned(), expr: Expr::Arith(ArithOp::UShr, Box::new(Expr::Arith(ArithOp::Shr, Box::new(Expr::Arith(ArithOp::Shl, Box::new(Expr::Arith(ArithOp::BitXor, Box::new(Expr::Arith(ArithOp::BitOr, Box::new(Expr::Arith(ArithOp::BitAnd, Box::new(Expr::var("$props").field("n")), Box::new(Expr::Lit(Lit::Int(1))))), Box::new(Expr::Lit(Lit::Int(2))))), Box::new(Expr::Lit(Lit::Int(3))))), Box::new(Expr::Lit(Lit::Int(4))))), Box::new(Expr::Lit(Lit::Int(5))))), Box::new(Expr::Lit(Lit::Int(6)))) }], Tmpl::Fragment(vec![Tmpl::Marker("<!--[-->".to_owned()), Tmpl::Text("card".to_owned()), Tmpl::Element { tag: "input".to_owned(), attrs: vec![Entry::Baked(" disabled=\"false\"".to_owned())], children: Vec::new() }, Tmpl::Marker("<!--]-->".to_owned())])),
         head: Vec::new(),
       },
     ],

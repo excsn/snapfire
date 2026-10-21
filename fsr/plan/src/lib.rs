@@ -32,6 +32,7 @@ pub mod sexpr;
 /// render holds), the `!` entry (attributes written as given), the `svelte`
 /// owner and framework and the `quot` operator, a `bigint` division. A format
 /// 6 reader refuses each by name.
+/// It also adds the bitwise operators `bit-and`, `bit-or`, `bit-xor`, `<<`, `>>` and `>>>`.
 ///
 /// Raise this only for a change to a format a published release of this crate
 /// already writes. A change to the format since the last publish is part of
