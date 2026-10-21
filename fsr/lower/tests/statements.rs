@@ -96,6 +96,21 @@ fn a_numeric_property_name_is_read_back_by_number_or_by_string() {
   assert_eq!(html("numeric", page).as_deref(), Ok("<ul><li>Earth</li><li>Moon</li><li>Moon</li><li>half</li></ul>"));
 }
 
+#[test]
+fn a_loop_variable_named_like_a_markup_local_is_the_loop_variable() {
+  let page = "function Card({ cta }: { cta: any }) {\n  return <section>{cta}</section>;\n}\nfunction renderCta(cta: any, key: number) {\n  return <a key={key} href=\"/x\">{cta.label}</a>;\n}\nfunction renderCtas(ctas: any[]) {\n  return <div>{ctas.map((cta, index) => renderCta(cta, index))}</div>;\n}\nexport default function Page() {\n  const top = [{ label: \"Top\" }];\n  const cards = [{ ctas: [{ label: \"Buy\" }, { label: \"More\" }] }];\n  const cta = renderCtas(top);\n  return <main><Card cta={cta} />{cards.map((card, i) => <Card key={i} cta={renderCtas(card.ctas)} />)}</main>;\n}\n";
+  assert_eq!(html("loop_shadows_markup", page).as_deref(), Ok("<main><section><div><a href=\"/x\">Top</a></div></section><section><div><a href=\"/x\">Buy</a><a href=\"/x\">More</a></div></section></main>"));
+}
+
+#[test]
+fn bitwise_operators_answer_as_javascript_does() {
+  let page = "function Text({ format }: { format: number }) {\n  const bold = (format & 1) !== 0 ? <strong>x</strong> : \"x\";\n  const italic = (format & 2) !== 0 ? <em>{bold}</em> : bold;\n  return (format & 8) !== 0 ? <u>{italic}</u> : italic;\n}\nexport default function Page() {\n  let mask = 0;\n  mask |= 4;\n  mask |= 1;\n  const values = [5 & 3, 5 | 3, 5 ^ 3, ~5, 1 << 31, -16 >> 2, -16 >>> 2, 1 << 33, 2.9 | 0, -2.9 | 0, 4294967297 | 0, (1 << 31) >>> 0, mask];\n  return <p>{[0, 1, 2, 3, 8, 11].map((format) => <span key={format}><Text format={format} /></span>)}<i>{values.join(\",\")}</i></p>;\n}\n";
+  assert_eq!(
+    html("bitwise", page).as_deref(),
+    Ok("<p><span>x</span><span><strong>x</strong></span><span><em>x</em></span><span><em><strong>x</strong></em></span><span><u>x</u></span><span><u><em><strong>x</strong></em></u></span><i>1,7,6,-6,-2147483648,-4,1073741820,2,2,-2,1,2147483648,5</i></p>")
+  );
+}
+
 fn html_with(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
   let dir = app(tag, files);
   let mut set = ComponentSet::new(&dir);
@@ -114,6 +129,63 @@ fn html_with(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
 #[test]
 fn a_bare_return_renders_nothing() {
   assert_eq!(html("bare_return", "export default function Page() {\n  return\n    <img src=\"/a.png\" />;\n}\n").as_deref(), Ok(""));
+}
+
+#[test]
+fn an_imported_component_in_a_markup_prop_is_placed_by_its_module() {
+  use snapfire_fsr_ir::ast::{Expr, Tmpl};
+  fn placed(t: &Tmpl, out: &mut Vec<String>) {
+    match t {
+      Tmpl::Component { module, children, .. } | Tmpl::Island { module, children, .. } => {
+        out.push(module.clone());
+        children.iter().for_each(|c| placed(c, out));
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => children.iter().for_each(|c| placed(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        placed(then, out);
+        if let Some(e) = r#else {
+          placed(e, out);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => placed(body, out),
+      _ => {}
+    }
+  }
+  let rich = "export default function Rich({ value }: { value: string }) {\n  return <p>{value}</p>;\n}\n";
+  let page = "import Rich from \"./Rich\";\nfunction Card({ body }: { body: any }) {\n  return <section>{body}</section>;\n}\nexport default function Page({ blocks }: { blocks: string[] }) {\n  return <main>{blocks.map((b, i) => <Card key={i} body={<Rich value={b} />} />)}</main>;\n}\n";
+  let dir = app("markup_prop_import", &[("routes/Rich.tsx", rich), ("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default");
+  std::fs::remove_dir_all(&dir).unwrap();
+  result.unwrap_or_else(|e| panic!("{e}"));
+  let (_, component) = set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").expect("the page lowered");
+  let mut modules = Vec::new();
+  component.render.visit(&mut |e| {
+    if let Expr::Markup(t) = e {
+      placed(t, &mut modules);
+    }
+  });
+  assert_eq!(modules, ["routes/Rich.tsx#default"], "{:?}", component.render);
+}
+
+#[test]
+fn children_passed_through_a_spread_render_inside_the_element() {
+  let page = "function Button({ label, ...rest }: any) {\n  return <button {...rest} aria-label={label} />;\n}\nexport default function Page() {\n  return <Button label=\"x\" type=\"button\">Hover over me</Button>;\n}\n";
+  assert_eq!(html("spread_children", page).as_deref(), Ok("<button type=\"button\" aria-label=\"x\">Hover over me</button>"));
+  let page = "function Button(props: any) {\n  return <button {...props} />;\n}\nfunction Own({ label, ...rest }: any) {\n  return <b {...rest}>{label}</b>;\n}\nexport default function Page() {\n  return <p><Button type=\"button\">Go</Button><Own label=\"mine\">theirs</Own></p>;\n}\n";
+  assert_eq!(html("spread_children_props", page).as_deref(), Ok("<p><button type=\"button\">Go</button><b>mine</b></p>"));
+}
+
+#[test]
+fn use_after_an_early_return_reads_the_context_as_react_allows() {
+  let page = "import { createContext, use } from \"react\";\nconst Theme = createContext(\"light\");\nfunction Label({ hidden }: { hidden: boolean }) {\n  if (hidden) {\n    return null;\n  }\n  const theme = use(Theme);\n  return <b>{theme}</b>;\n}\nexport default function Page() {\n  return <Theme.Provider value=\"dark\"><p><Label hidden={true} /><Label hidden={false} /></p></Theme.Provider>;\n}\n";
+  assert_eq!(html("use_after_return", page).as_deref(), Ok("<p><b>dark</b></p>"));
+}
+
+#[test]
+fn a_textarea_writes_its_value_as_its_text() {
+  let page = "import { useState } from \"react\";\nexport default function Page() {\n  const [text, setText] = useState(\"Hello\");\n  return <p><textarea value={text} onChange={(e) => setText(e.target.value)} /><textarea placeholder=\"x\" defaultValue=\"d\" /><textarea defaultValue=\"d\" value=\"v\" readOnly /></p>;\n}\n";
+  assert_eq!(html("textarea_value", page).as_deref(), Ok("<p><textarea>Hello</textarea><textarea placeholder=\"x\">d</textarea><textarea readonly=\"\">v</textarea></p>"));
 }
 
 #[test]

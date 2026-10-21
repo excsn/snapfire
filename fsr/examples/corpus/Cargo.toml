@@ -8,6 +8,15 @@ authors = { workspace = true }
 license = { workspace = true }
 
 [dev-dependencies]
+patterns = { path = "../patterns" }
 snapfire_fsr_cli = { path = "../../cli", features = ["terminal"] }
+snapfire_fsr_core = { path = "../../core" }
+snapfire_fsr_engine = { path = "../../engine" }
+snapfire_fsr_ir = { path = "../../ir" }
 snapfire_fsr_terminal = { path = "../../terminal" }
 crossterm = "0.29"
+tokio = { version = "1", features = ["rt"] }
+
+[[test]]
+name = "first_html"
+harness = false

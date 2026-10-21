@@ -539,8 +539,8 @@ reference-react-suspense-2	lowered
 reference-react-suspense-3	refused: src/App.js: no exported `default`
 reference-react-suspense-4	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-suspense-5	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
-reference-react-suspense-6	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
-reference-react-suspense-7	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
+reference-react-suspense-6	client: src/SearchResults.js:8:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-suspense-7	client: src/SearchResults.js:8:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-suspense-8	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-suspense-9	client: src/Albums.js:5:18 `use` of something other than a `createContext` value; a promise is awaited in the browser | src/Biography.js:5:15 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-use-1	lowered
@@ -566,9 +566,9 @@ reference-react-usecontext-7	lowered
 reference-react-usecontext-8	lowered
 reference-react-usecontext-9	lowered
 reference-react-usedebugvalue-1	lowered
-reference-react-usedeferredvalue-1	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
-reference-react-usedeferredvalue-2	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
-reference-react-usedeferredvalue-3	client: src/SearchResults.js:8:9 `use` after an early `return`, which React refuses since the hooks would change between renders
+reference-react-usedeferredvalue-1	client: src/SearchResults.js:8:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-usedeferredvalue-2	client: src/SearchResults.js:8:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
+reference-react-usedeferredvalue-3	client: src/SearchResults.js:8:18 `use` of something other than a `createContext` value; a promise is awaited in the browser
 reference-react-useeffect-1	lowered
 reference-react-useeffect-11	lowered
 reference-react-useeffect-12	lowered

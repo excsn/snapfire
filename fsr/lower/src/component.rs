@@ -1182,7 +1182,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -2403,7 +2403,17 @@ fn refs_by_module(modules: &HashMap<String, String>, module: &str, refs: &[(Stri
 }
 
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
-  let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_modules(c, modules, islands)).collect();
+  let mut tmpl = rewrite_tree(tmpl, modules, islands);
+  tmpl.visit_mut(&mut |e| {
+    if let Expr::Markup(markup) = e {
+      *markup = std::sync::Arc::new(rewrite_tree((**markup).clone(), modules, islands));
+    }
+  });
+  tmpl
+}
+
+fn rewrite_tree(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
+  let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_tree(c, modules, islands)).collect();
   match tmpl {
     Tmpl::Component { module, props, children, id, keyed } => match islands.get(&module) {
       Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone(), id, define: false },
@@ -2412,9 +2422,9 @@ fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &Hash
     Tmpl::Island { module, props, children, when, mode, id, define } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode, id, define },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
     Tmpl::Fragment(children) => Tmpl::Fragment(walk(children)),
-    Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules, islands)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules, islands))) },
-    Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(rewrite_modules(*body, modules, islands)) },
-    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(rewrite_modules(*then, modules, islands)) },
+    Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_tree(*then, modules, islands)), r#else: r#else.map(|e| Box::new(rewrite_tree(*e, modules, islands))) },
+    Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(rewrite_tree(*body, modules, islands)) },
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(rewrite_tree(*then, modules, islands)) },
     other => other,
   }
 }
@@ -5134,6 +5144,8 @@ struct ComponentLowerer<'a, 'p> {
   select_value: Option<Expr>,
   /// The props parameter when bound whole, so `props.children` is the slot.
   props_name: Option<String>,
+  /// The rest of a destructured props parameter that leaves `children` in it.
+  props_rest: Option<String>,
   /// The local name `children` was destructured to.
   children_name: Option<String>,
   /// Whether the component is wrapped in `forwardRef`, so its second parameter is the `ref` prop.
@@ -5293,6 +5305,17 @@ impl ComponentLowerer<'_, '_> {
     let inner = Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot(name.to_owned())), r#else: Some(Box::new(Tmpl::Fragment(fallback))) };
     let attrs = if name == "content" { Vec::new() } else { vec![Entry::Field("data-sf-name".to_owned(), Expr::lit_str(name))] };
     Tmpl::Element { tag: "sf-s".to_owned(), attrs, children: vec![inner] }
+  }
+
+  /// True when `attrs` spread the props, or their rest, which carry the caller's `children`.
+  fn spreads_props(&self, attrs: &[js::JSXAttrOrSpread]) -> bool {
+    attrs.iter().any(|attr| match attr {
+      js::JSXAttrOrSpread::SpreadElement(spread) => match &*spread.expr {
+        js::Expr::Ident(id) => [&self.props_name, &self.props_rest].iter().any(|name| name.as_deref() == Some(id.sym.as_ref())),
+        _ => false,
+      },
+      js::JSXAttrOrSpread::JSXAttr(_) => false,
+    })
   }
 
   /// The slot an expression stands for: `children` or `props.children` is
@@ -5711,7 +5734,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.premake_stmt(stmt)?;
               for decl in &var.decls {
                 if let Some(init) = decl.init.as_deref() {
-                  if let Some((hook, _)) = hook_call(&self.meanings(), init) {
+                  if let Some((hook, _)) = hook_call(&self.meanings(), init).filter(|(hook, _)| *hook != "use") {
                     return Err(self.lowerer.residue(decl.span, format!("`{hook}` after an early `return`, which React refuses since the hooks would change between renders")));
                   }
                 }
@@ -6152,6 +6175,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           },
           _ => None,
         });
+        self.props_rest = match (&self.children_name, obj.props.last()) {
+          (None, Some(js::ObjectPatProp::Rest(rest))) => match &*rest.arg {
+            js::Pat::Ident(local) => Some(local.id.sym.to_string()),
+            _ => None,
+          },
+          _ => None,
+        };
         if self.layout_root {
           for prop in &obj.props {
             let (local, key) = match prop {
@@ -6901,6 +6931,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut select_value = None;
     let mut bound = false;
     let mut escaped_asset: Option<String> = None;
+    let (mut text_value, mut text_default) = (None, None);
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
@@ -6961,6 +6992,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         "dangerouslySetInnerHTML" => attrs.push(Entry::Field(RAW_ATTR.to_owned(), inner_html(value))),
         "style" => attrs.push(Entry::Field("style".to_owned(), self.style(attr)?)),
         "value" | "defaultValue" if name == "select" => select_value = Some(value),
+        "value" if name == "textarea" => text_value = Some(value),
+        "defaultValue" if name == "textarea" => text_default = Some(value),
         "value" if name == "option" => {
           attrs.push(Entry::Field("value".to_owned(), value.clone()));
           if let Some(selected) = &self.select_value {
@@ -6982,7 +7015,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let outer = if name == "select" { std::mem::replace(&mut self.select_value, select_value) } else { self.select_value.take() };
     let children = self.children(&el.children);
     self.select_value = outer;
-    let children = children?;
+    let mut children = children?;
+    if children.is_empty() && self.spreads_props(&el.opening.attrs) {
+      children.push(self.slot("content"));
+    }
+    let text = match (text_value, text_default) {
+      (Some(value), Some(default)) => Some(Expr::Coalesce(Box::new(value), Box::new(default))),
+      (value, default) => value.or(default),
+    };
+    if let Some(text) = text.filter(|_| children.is_empty()) {
+      children.push(Tmpl::Expr(text));
+    }
     if bound {
       attrs.push(Entry::Field(hoist::BOUND_ATTR.to_owned(), Expr::Lit(Lit::Bool(true))));
     }
@@ -10489,9 +10532,20 @@ mod fills {
           place(e, held);
         }
       }
+      Tmpl::For { params, body, .. } if params.iter().any(|p| held.contains_key(p)) => place(body, &unheld(held, params.iter())),
+      Tmpl::Let { name, then, .. } if held.contains_key(name.as_str()) => place(then, &unheld(held, std::iter::once(&*name))),
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => place(body, held),
       Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Slot(_) => {}
     }
+  }
+
+  /// `held` without the names a binding inside it shadows.
+  fn unheld<'n>(held: &HashMap<String, Tmpl>, names: impl Iterator<Item = &'n String>) -> HashMap<String, Tmpl> {
+    let mut inner = held.clone();
+    for name in names {
+      inner.remove(name);
+    }
+    inner
   }
 
   /// Every (module, prop) a placement in `t` passes markup for.

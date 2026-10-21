@@ -37,6 +37,12 @@ pub(super) fn arith_sym(op: ArithOp) -> &'static str {
     ArithOp::Rem => "%",
     ArithOp::Pow => "**",
     ArithOp::Quot => "quot",
+    ArithOp::BitAnd => "bit-and",
+    ArithOp::BitOr => "bit-or",
+    ArithOp::BitXor => "bit-xor",
+    ArithOp::Shl => "<<",
+    ArithOp::Shr => ">>",
+    ArithOp::UShr => ">>>",
   }
 }
 
@@ -49,6 +55,12 @@ pub(super) fn arith_of(s: &str) -> Option<ArithOp> {
     "%" => ArithOp::Rem,
     "**" => ArithOp::Pow,
     "quot" => ArithOp::Quot,
+    "bit-and" => ArithOp::BitAnd,
+    "bit-or" => ArithOp::BitOr,
+    "bit-xor" => ArithOp::BitXor,
+    "<<" => ArithOp::Shl,
+    ">>" => ArithOp::Shr,
+    ">>>" => ArithOp::UShr,
     _ => return None,
   })
 }

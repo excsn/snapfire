@@ -752,6 +752,14 @@ pub enum ArithOp {
   Pow,
   /// `/` between `bigint`s, which truncates toward zero and refuses zero.
   Quot,
+  /// `&`, `|`, `^`, `<<` and `>>` between numbers, each side taken through `ToInt32`.
+  BitAnd,
+  BitOr,
+  BitXor,
+  Shl,
+  Shr,
+  /// `>>>`, the left side taken through `ToUint32`.
+  UShr,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

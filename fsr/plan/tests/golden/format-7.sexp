@@ -335,7 +335,9 @@
     "100vw"))
 (component src/ui/Card.svelte#default
   (owner svelte)
-  (body (let half (quot (. $props n) 2)))
+  (body
+    (let half (quot (. $props n) 2))
+    (let flags (>>> (>> (<< (bit-xor (bit-or (bit-and (. $props n) 1) 2) 3) 4) 5) 6)))
   (render
     (<> (marker "<!--[-->") "card" (el input ((! " disabled=\"false\""))) (marker "<!--]-->"))))
 (derive "order/total"

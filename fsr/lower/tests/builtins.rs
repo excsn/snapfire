@@ -345,6 +345,14 @@ fn in_tests_a_key() {
 }
 
 #[test]
+fn a_bitwise_operator_on_a_bigint_is_refused() {
+  let err = lowered("bitand_bigint", "7n & 3n").unwrap_err();
+  assert!(err.contains("the `&` operator on a `bigint`"), "{err}");
+  let err = lowered("tilde_bigint", "~BigInt(params.a)").unwrap_err();
+  assert!(err.contains("the `~` operator on a `bigint`"), "{err}");
+}
+
+#[test]
 fn array_is_array_is_a_builtin() {
   let body = lowered("is_array", "Array.isArray(params.tags) ? params.tags : []").unwrap_or_else(|e| panic!("{e}"));
   assert!(matches!(&body[0], Stmt::Let { expr: Expr::Ternary(c, ..), .. } if matches!(&**c, Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::IsArray, .. })), "{body:?}");

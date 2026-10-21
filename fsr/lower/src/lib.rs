@@ -857,6 +857,10 @@ fn lower_function(lowerer: &mut Lowerer<'_>, first: Option<&js::Pat>, body: Func
   }
 }
 
+fn is_bitwise(op: js::BinaryOp) -> bool {
+  matches!(op, js::BinaryOp::BitAnd | js::BinaryOp::BitOr | js::BinaryOp::BitXor | js::BinaryOp::LShift | js::BinaryOp::RShift | js::BinaryOp::ZeroFillRShift)
+}
+
 fn type_ref_name(ty: &js::TsType) -> Option<String> {
   match ty {
     js::TsType::TsTypeRef(r) => match &r.type_name {
@@ -1825,6 +1829,8 @@ impl<'a> Lowerer<'a> {
           other => Ok(Expr::Arith(ArithOp::Sub, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(self.expr(other)?))),
         },
         js::UnaryOp::Plus => Ok(Expr::Num(Box::new(self.expr(&u.arg)?))),
+        js::UnaryOp::Tilde if self.kind_of(&u.arg) == Some(Kind::BigInt) => Err(self.residue(u.span, "the `~` operator on a `bigint`")),
+        js::UnaryOp::Tilde => Ok(Expr::Arith(ArithOp::BitXor, Box::new(self.expr(&u.arg)?), Box::new(Expr::Lit(Lit::Float(-1.0))))),
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
@@ -1834,6 +1840,7 @@ impl<'a> Lowerer<'a> {
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
       },
       js::Expr::Bin(bin) if bin.op == js::BinaryOp::InstanceOf => self.instance_of(bin),
+      js::Expr::Bin(bin) if is_bitwise(bin.op) && (self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt)) => Err(self.residue(bin.span, format!("the `{}` operator on a `bigint`", bin.op))),
       js::Expr::Bin(bin) => {
         let l = Box::new(self.expr(&bin.left)?);
         let r = Box::new(self.expr(&bin.right)?);
@@ -1855,6 +1862,12 @@ impl<'a> Lowerer<'a> {
           js::BinaryOp::LogicalOr => Expr::Logic(LogicOp::Or, l, r),
           js::BinaryOp::NullishCoalescing => Expr::Coalesce(l, r),
           js::BinaryOp::In => Expr::Builtin { name: Builtin::HasKey, args: vec![*r, *l] },
+          js::BinaryOp::BitAnd => Expr::Arith(ArithOp::BitAnd, l, r),
+          js::BinaryOp::BitOr => Expr::Arith(ArithOp::BitOr, l, r),
+          js::BinaryOp::BitXor => Expr::Arith(ArithOp::BitXor, l, r),
+          js::BinaryOp::LShift => Expr::Arith(ArithOp::Shl, l, r),
+          js::BinaryOp::RShift => Expr::Arith(ArithOp::Shr, l, r),
+          js::BinaryOp::ZeroFillRShift => Expr::Arith(ArithOp::UShr, l, r),
           other => return Err(self.residue(bin.span, format!("the `{}` operator", other))),
         })
       }
