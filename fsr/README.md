@@ -108,9 +108,9 @@ The corpus runs Ink's own examples through terminal mode as one application each
 
 | Corpus | Examples | Runs in the terminal | Not run by design | Refused |
 |---|---|---|---|---|
-| [Ink](docs/corpus/ink.md) | 29 | 24 (82.8%) | 3 | 2 |
+| [Ink](docs/corpus/ink.md) | 29 | 25 (86.2%) | 3 | 1 |
 
-The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `@faker-js/faker` and `p-queue` with `delay`. Not counting those, 24 of the 26 run (92.3%). A refused example uses something terminal mode cannot run yet, such as `useApp().suspendTerminal`. The corpus page lists each cause.
+The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `@faker-js/faker` and `p-queue` with `delay`. Not counting those, 25 of the 26 run (96.2%). A refused example uses something terminal mode cannot run yet, such as `useApp().suspendTerminal`. The corpus page lists each cause.
 
 ## Architecture
 

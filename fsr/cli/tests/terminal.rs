@@ -68,7 +68,7 @@ fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state()
   use std::time::Duration;
   let clock = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 100);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setTicks(100), 2000);\n  }, []);\n  return <Text>ticks {ticks}</Text>;\n}\n";
   let mut session = Session::open(&app(clock)).unwrap();
-  assert_eq!(session.timers(), [Timer { path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true, settles: None }, Timer { path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false, settles: None }]);
+  assert_eq!(session.timers(), [Timer { path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true, settles: None, carry: Value::Null }, Timer { path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false, settles: None, carry: Value::Null }]);
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
   assert_eq!(line(session.view().unwrap()), "ticks 0");
   let timers = session.timers();
@@ -267,4 +267,15 @@ fn a_component_that_throws_a_pending_promise_shows_its_suspense_fallback_until_t
   assert_eq!(line(session.fire(&started[0]).unwrap()), "Hello World");
   assert!(session.take_started().is_empty(), "the promise is made once");
   assert_eq!(line(session.view().unwrap()), "Hello World");
+}
+
+#[test]
+fn a_timer_callback_carries_what_it_reads_and_a_module_map_it_changes_lasts() {
+  let page = "import { Suspense } from \"react\";\nimport { Text } from \"ink\";\n\nconst cache = new Map<string, { done: boolean; promise?: Promise<void> }>();\n\nfunction load(key: string, ms: number): string {\n  const held = cache.get(key);\n  if (held?.done) {\n    return `${key} after ${ms}`;\n  }\n  if (held) {\n    throw held.promise;\n  }\n  const promise = new Promise<void>((resolve) => {\n    setTimeout(() => {\n      cache.set(key, { done: true });\n      resolve();\n    }, ms);\n  });\n  cache.set(key, { done: false, promise });\n  throw promise;\n}\n\nfunction Item({ name, ms }: { name: string; ms: number }) {\n  return <Text>{load(name, ms)}</Text>;\n}\n\nexport default function Page() {\n  return (\n    <Suspense fallback={<Text>waiting</Text>}>\n      <Item name=\"a\" ms={30} />\n    </Suspense>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "waiting");
+  let started = session.take_started();
+  assert_eq!(started.iter().map(|t| t.every).collect::<Vec<_>>(), [std::time::Duration::from_millis(30)]);
+  assert_eq!(line(session.fire(&started[0]).unwrap()), "a after 30", "the callback read key and ms from what it carried");
 }

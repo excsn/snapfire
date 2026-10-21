@@ -1134,7 +1134,7 @@ impl ComponentSet {
     let mut module_bindings: Vec<(String, String, Expr)> = Vec::new();
     if self.terminal {
       let parsed = self.parsed[file].clone();
-      for (name, _, written) in module_lets_of(&parsed) {
+      for (name, _, written) in module_lets_of(&parsed, self.terminal) {
         if written {
           let seed = self.module_init(file, &name)?;
           module_bindings.push((name.clone(), format!("{file}#{name}"), seed));
@@ -1275,7 +1275,7 @@ impl ComponentSet {
           if self.terminal {
             let declared_file = key.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_default();
             let parsed = self.parsed[&declared_file].clone();
-            for (cell, _, written) in module_lets_of(&parsed) {
+            for (cell, _, written) in module_lets_of(&parsed, self.terminal) {
               if written && held_in_a_cell(&expr, &cell) && !module_bindings.iter().any(|(n, _, _)| *n == cell) {
                 let seed = self.module_init(&declared_file, &cell)?;
                 module_bindings.push((cell.clone(), format!("{declared_file}#{cell}"), seed));
@@ -2099,7 +2099,7 @@ impl ComponentSet {
       Some(crate::meaning::Meaning::Library(_) | crate::meaning::Meaning::Foreign | crate::meaning::Meaning::Namespace(_)) => return Ok(None),
       _ => {}
     }
-    if let Some(span) = written_module_let(&parsed, name) {
+    if let Some(span) = written_module_let(&parsed, name, self.terminal) {
       if !self.lowering_component {
         return Err(LowerError::Residue(parsed.residue(span, format!("`{name}`, a module-level `let` a function writes; a body reads module state through the store"))));
       }
@@ -2136,7 +2136,7 @@ impl ComponentSet {
         return Ok(Some((Expr::Ext { module, name: member, args: Vec::new() }, key)));
       }
     }
-    let replays = matches!(item, Global::Const(_)) && module_lets_of(&parsed).into_iter().any(|(_, _, written)| written);
+    let replays = matches!(item, Global::Const(_)) && module_lets_of(&parsed, self.terminal).into_iter().any(|(_, _, written)| written);
     self.resolving.push(key.clone());
     let result = self.lower_global(file, item);
     self.resolving.pop();
@@ -2152,7 +2152,7 @@ impl ComponentSet {
   fn module_init(&mut self, file: &str, upto: &str) -> Result<Expr, LowerError> {
     let parsed = self.parsed[file].clone();
     let mut body = Vec::new();
-    for (name, init, written) in module_lets_of(&parsed) {
+    for (name, init, written) in module_lets_of(&parsed, self.terminal) {
       let expr = match init {
         Some(init) => self.lower_global(file, Global::Const(init))?,
         None => Expr::Lit(Lit::Null),
@@ -2229,7 +2229,7 @@ impl ComponentSet {
       lowerer.global_formatters = global_formatters.clone();
       lowerer.natives = self.natives.clone();
       if self.terminal {
-        lowerer.cells = module_lets_of(&parsed).into_iter().filter(|(_, _, written)| *written).map(|(name, _, _)| (name.clone(), Expr::Var(name))).collect();
+        lowerer.cells = module_lets_of(&parsed, self.terminal).into_iter().filter(|(_, _, written)| *written).map(|(name, _, _)| (name.clone(), Expr::Var(name))).collect();
       }
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
@@ -2928,8 +2928,9 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
 }
 
 /// The module's top-level `let` and `const` declarations with a value that is not a function, in order: each name, its initialiser and whether a function in the module writes it.
-fn module_lets_of(parsed: &Parsed) -> Vec<(String, Option<&js::Expr>, bool)> {
+fn module_lets_of(parsed: &Parsed, terminal: bool) -> Vec<(String, Option<&js::Expr>, bool)> {
   let writes = module_writes(&parsed.module);
+  let mutations = if terminal { module_mutations(&parsed.module) } else { Vec::new() };
   let mut out = Vec::new();
   for item in &parsed.module.body {
     let var = match item {
@@ -2947,7 +2948,9 @@ fn module_lets_of(parsed: &Parsed) -> Vec<(String, Option<&js::Expr>, bool)> {
         continue;
       }
       let name = id.id.sym.to_string();
-      let written = var.kind != js::VarDeclKind::Const && writes.contains(&name);
+      // A terminal page also holds a module-level collection a function changes in place, `cache.set(k, v)` on a `new Map()`, as state.
+      let mutated = init.is_some_and(|init| crate::made_kind(init).is_some()) && mutations.contains(&name);
+      let written = (var.kind != js::VarDeclKind::Const && writes.contains(&name)) || mutated;
       out.push((name, init, written));
     }
   }
@@ -2966,8 +2969,8 @@ fn held_in_a_cell(expr: &Expr, name: &str) -> bool {
 }
 
 /// The declaration span of `name` when it is a module-level `let` or `var` that a function in the module writes.
-fn written_module_let(parsed: &Parsed, name: &str) -> Option<Span> {
-  if !module_lets_of(parsed).iter().any(|(n, _, written)| n == name && *written) {
+fn written_module_let(parsed: &Parsed, name: &str, terminal: bool) -> Option<Span> {
+  if !module_lets_of(parsed, terminal).iter().any(|(n, _, written)| n == name && *written) {
     return None;
   }
   for item in &parsed.module.body {
@@ -3252,6 +3255,28 @@ pub(crate) fn written_names(stmts: &[js::Stmt], through_functions: bool) -> Vec<
 }
 
 /// The bare names a module writes anywhere, its functions included.
+/// The names `module` calls `set`, `delete`, `add` or `clear` on, which change a collection in place.
+fn module_mutations(module: &js::Module) -> Vec<String> {
+  struct Mutations(Vec<String>);
+  impl Visit for Mutations {
+    fn visit_call_expr(&mut self, call: &js::CallExpr) {
+      if let js::Callee::Expr(callee) = &call.callee {
+        if let js::Expr::Member(member) = &**callee {
+          if let (js::Expr::Ident(id), Some("set" | "delete" | "add" | "clear")) = (&*member.obj, prop_name_of(member).as_deref()) {
+            if !self.0.iter().any(|n| *n == *id.sym) {
+              self.0.push(id.sym.to_string());
+            }
+          }
+        }
+      }
+      call.visit_children_with(self);
+    }
+  }
+  let mut found = Mutations(Vec::new());
+  module.visit_with(&mut found);
+  found.0
+}
+
 pub(crate) fn module_writes(module: &js::Module) -> Vec<String> {
   let mut writes = BareWrites { names: Vec::new(), through_functions: true };
   module.visit_with(&mut writes);
@@ -4549,12 +4574,32 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
           Some(init) => lowerer.expr(init)?,
           None => Expr::Lit(Lit::Null),
         };
-        if touches_cells(&expr) {
+        if computed_once(lowerer, &expr) {
           let held = lowerer.temp();
           lets.push(Stmt::Let { name: held.clone(), expr });
           expr = Expr::Var(held);
         }
         bind_pattern(lowerer, &decl.name, expr)?;
+      }
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(lets, value))
+    }
+    js::Stmt::Decl(js::Decl::Var(var)) if var.decls.iter().filter_map(|decl| decl.init.as_deref()).any(|init| matches!(crate::meaning::bare(init), js::Expr::New(_) | js::Expr::Call(_))) && lowerer.terminal => {
+      let mut lets = Vec::new();
+      for decl in &var.decls {
+        let mut expr = match decl.init.as_deref() {
+          Some(init) => lowerer.expr(init)?,
+          None => Expr::Lit(Lit::Null),
+        };
+        if computed_once(lowerer, &expr) {
+          let held = lowerer.temp();
+          lets.push(Stmt::Let { name: held.clone(), expr });
+          expr = Expr::Var(held);
+        }
+        bind_pattern(lowerer, &decl.name, expr)?;
+        if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
+          lowerer.note_kind(id.id.sym.as_ref(), init);
+        }
       }
       let value = block_to_expr_inner(lowerer, rest, floor)?;
       Ok(sequenced(lets, value))
@@ -4646,6 +4691,17 @@ fn writes_a_cell(lowerer: &Lowerer<'_>, expr: &js::Expr) -> bool {
     js::Expr::Call(_) => true,
     _ => false,
   }
+}
+
+/// Whether a declaration's value must be computed once, where it is declared, rather than wherever it is read: it touches a cell, it issues an act or, in a terminal page, it calls a server-only extension such as the randomness a promise's id is drawn from.
+fn computed_once(lowerer: &Lowerer<'_>, expr: &Expr) -> bool {
+  let mut acts = false;
+  expr.visit(&mut |e| {
+    if let Expr::Block(body) = e {
+      acts |= body.iter().any(|stmt| matches!(stmt, Stmt::Act { .. }));
+    }
+  });
+  acts || touches_cells(expr) || (lowerer.terminal && lowerer.body_extension_in(expr).is_some())
 }
 
 /// Whether an expression reads or writes a cell or calls a function, which may: a value computed from one is taken where it is declared, not where it is used.

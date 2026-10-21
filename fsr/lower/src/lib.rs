@@ -1525,19 +1525,14 @@ impl<'a> Lowerer<'a> {
         let expr = self.expr(&js::Expr::Bin(js::BinExpr { span: update.span, op, left: update.arg.clone(), right: Box::new(one) }))?;
         Ok(Stmt::Set { name: id.sym.to_string(), expr })
       }
+      js::Expr::Call(call) if self.cell_collection_write(call).is_some() => {
+        let (handle, kind, method) = self.cell_collection_write(call).expect("checked");
+        let expr = self.collection_written(call, kind, &method, Expr::ReadCell(Box::new(handle.clone())))?;
+        Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(expr))))
+      }
       js::Expr::Call(call) if self.local_collection_write(call).is_some() => {
         let (name, kind, method) = self.local_collection_write(call).expect("checked");
-        let arg = |this: &mut Self, i: usize| -> Lowered<Expr> {
-          let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
-          this.expr(&a.expr)
-        };
-        let held = Expr::Var(name.clone());
-        let expr = match (kind, method.as_str()) {
-          (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
-          (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
-          (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
-          (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
-        };
+        let expr = self.collection_written(call, kind, &method, Expr::Var(name.clone()))?;
         Ok(Stmt::Set { name, expr })
       }
       js::Expr::Call(call) if self.local_push(call).is_some() => {
@@ -1660,7 +1655,7 @@ impl<'a> Lowerer<'a> {
     let js::Callee::Expr(callee) = &call.callee else { return false };
     let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return false };
     let settler = |e: &js::Expr| matches!(crate::meaning::bare(e), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym));
-    settler(callee) || (id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr)))
+    settler(callee) || (self.terminal && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
   }
 
   /// `(async () => { … })()`: an async arrow called where it is written, in a terminal page.
@@ -1691,12 +1686,20 @@ impl<'a> Lowerer<'a> {
     };
     let before = crate::component::block_to_expr(self, &stmts[..at])?;
     let deferred = self.expr(awaited)?;
+    let rest = &stmts[at + 1..];
+    let (event, carry) = self.continuation(stmts[at].span(), bound, |this| this.async_stmts(rest))?;
+    let then = Stmt::Act { action: crate::terminal::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
+    Ok(Expr::Block(vec![Stmt::Expr(before), then]))
+  }
+
+  /// Code the host runs later, the rest of an async function or a timer's callback, as a handler named [`crate::terminal::Event::Resume`] for `at` in [`Lowerer::continuations`]. `bound` names the settled value it is handed. Every other name it reads that is not a module cell is carried to it. Returns the event and the carry the act that schedules it passes.
+  fn continuation(&mut self, at: Span, bound: Option<String>, lower: impl FnOnce(&mut Self) -> Lowered<Expr>) -> Lowered<(String, Expr)> {
     let resume = "$resume".to_owned();
     let depth = self.scope.len();
     if let Some(name) = &bound {
       self.scope.push((name.clone(), Expr::Var(resume.clone()).field("value")));
     }
-    let rest = self.async_stmts(&stmts[at + 1..]);
+    let rest = lower(self);
     self.scope.truncate(depth);
     let rest = rest?;
     let mut free = Vec::new();
@@ -1710,11 +1713,12 @@ impl<'a> Lowerer<'a> {
     }
     body.push(Stmt::Expr(rest));
     body.push(Stmt::Return(Expr::Object(Vec::new())));
-    let event = crate::terminal::Event::Resume(format!("{}@{}", self.parsed.file, stmts[at].span().lo.0)).name();
-    self.continuations.push(snapfire_fsr_ir::ast::Handler { event: event.clone(), body });
+    let event = crate::terminal::Event::Resume(format!("{}@{}", self.parsed.file, at.lo.0)).name();
+    if !self.continuations.iter().any(|held| held.event == event) {
+      self.continuations.push(snapfire_fsr_ir::ast::Handler { event: event.clone(), body });
+    }
     let carry = Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), Expr::Var(name.clone()))).collect());
-    let then = Stmt::Act { action: crate::terminal::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
-    Ok(Expr::Block(vec![Stmt::Expr(before), then]))
+    Ok((event, carry))
   }
 
   /// In a promise's executor, `resolve(v)` or `reject(e)` as an [`crate::terminal::Act::Settle`] and `setTimeout(resolve, ms)` as a timer that settles; `None` for any other call.
@@ -1731,10 +1735,19 @@ impl<'a> Lowerer<'a> {
       let input = Expr::Object(vec![Entry::Field("settle".to_owned(), settle), Entry::Field("value".to_owned(), value)]);
       return Ok(Some(Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input }));
     }
-    if id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved {
+    if id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && self.terminal {
       if let [callback, delay] = call.args.as_slice() {
         if settler(self, &callback.expr) {
           let input = Expr::Object(vec![Entry::Field("settle".to_owned(), self.expr(&callback.expr)?), Entry::Field("ms".to_owned(), self.expr(&delay.expr)?)]);
+          return Ok(Some(Stmt::Act { action: crate::terminal::Act::Timer.name().to_owned(), input }));
+        }
+        if let js::Expr::Arrow(arrow) = crate::meaning::bare(&callback.expr) {
+          let ms = self.expr(&delay.expr)?;
+          let (event, carry) = self.continuation(call.span, None, |this| match &*arrow.body {
+            js::ArrowFunctionBody::FunctionBody(b) => this.async_stmts(&b.stmts),
+            js::ArrowFunctionBody::Expr(e) => this.async_stmts(&[js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })]),
+          })?;
+          let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), ms), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("carry".to_owned(), carry)]);
           return Ok(Some(Stmt::Act { action: crate::terminal::Act::Timer.name().to_owned(), input }));
         }
       }
@@ -1775,6 +1788,31 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` a local collection: the local, which kind it is and the method.
+  /// `held` after `call` changes it, a collection of `kind`.
+  fn collection_written(&mut self, call: &js::CallExpr, kind: Kind, method: &str, held: Expr) -> Lowered<Expr> {
+    let arg = |this: &mut Self, i: usize| -> Lowered<Expr> {
+      let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
+      this.expr(&a.expr)
+    };
+    Ok(match (kind, method) {
+      (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
+      (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
+      (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
+      (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
+    })
+  }
+
+  /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` held in a cell: the cell's handle, the collection's kind and the method.
+  fn cell_collection_write(&self, call: &js::CallExpr) -> Option<(Expr, Kind, String)> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(member) = &**callee else { return None };
+    let js::Expr::Ident(obj) = &*member.obj else { return None };
+    let handle = self.cells.iter().rev().find(|(name, _)| *name == *obj.sym).map(|(_, handle)| handle.clone())?;
+    let kind = self.kind_of(&member.obj)?;
+    let method = self.member_name(member)?;
+    matches!(method.as_str(), "set" | "delete" | "add" | "clear").then_some((handle, kind, method))
+  }
+
   fn local_collection_write(&self, call: &js::CallExpr) -> Option<(String, Kind, String)> {
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Member(member) = &**callee else { return None };

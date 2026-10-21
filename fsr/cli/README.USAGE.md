@@ -1360,7 +1360,7 @@ useEffect(() => {
 
 `stdout` and `stderr` give `data`; the process gives `exit` and `close` with the code and signal. It gives `error` when it cannot start. The options read are `cwd`, `env` and `shell`.
 
-A promise runs as it does in Node. `new Promise((resolve, reject) => …)` makes one whose `resolve` and `reject` settle it, `setTimeout(resolve, ms)` among them. An `await`, in an async function called where it is written, runs the rest of the function once the promise settles. A module-level `let` keeps what a function writes from one step to the next. A component that throws a pending promise under `Suspense` shows the fallback until it settles:
+A promise runs as it does in Node. `new Promise((resolve, reject) => …)` makes one whose `resolve` and `reject` settle it, `setTimeout(resolve, ms)` among them. An `await`, in an async function called where it is written, runs the rest of the function once the promise settles. A module-level `let` keeps what a function writes from one step to the next, as does a module-level `Map` or `Set` a function changes in place. A callback handed to `setTimeout` runs when it is due with the values it read. A component that throws a pending promise under `Suspense` shows the fallback until it settles:
 
 ```tsx
 let message: string | undefined;

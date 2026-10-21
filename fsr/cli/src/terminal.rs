@@ -111,14 +111,16 @@ pub fn key_event(event: KeyEvent) -> Option<Press> {
 /// A timer a component's mount effects start: the component, by its path
 /// in the page, the handler it steps, how often and whether it fires again
 /// after the first time. One that `settles` a promise, its deferred and
-/// whether it resolves, runs no handler.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// whether it resolves, runs no handler. One a callback started carries
+/// the names the callback reads, which its handler is run with.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Timer {
   pub path: String,
   pub handler: usize,
   pub every: Duration,
   pub repeats: bool,
   pub settles: Option<(String, bool)>,
+  pub carry: Value,
 }
 
 /// A promise the page made: what it settled to, whether it resolved, and
@@ -305,8 +307,8 @@ impl Session {
     self
       .handlers()
       .filter_map(|(path, handler, event)| match HandlerEvent::parse(&event)? {
-        HandlerEvent::Interval(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: true, settles: None }),
-        HandlerEvent::Timeout(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: false, settles: None }),
+        HandlerEvent::Interval(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: true, settles: None, carry: Value::Null }),
+        HandlerEvent::Timeout(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: false, settles: None, carry: Value::Null }),
         _ => None,
       })
       .collect()
@@ -352,7 +354,17 @@ impl Session {
     if !self.holds(timer) {
       return self.run(None, &Value::Null);
     }
-    self.run(Some(HandlerRef::at(timer.path.clone(), timer.handler)), &Value::Null)
+    let event = match &timer.carry {
+      Value::Null => Value::Null,
+      carry => {
+        let mut event = ValueMap::default();
+        event.insert("value".to_owned(), Value::Null);
+        event.insert("ok".to_owned(), Value::Bool(true));
+        event.insert("carry".to_owned(), carry.clone());
+        Value::Map(event)
+      }
+    };
+    self.run(Some(HandlerRef::at(timer.path.clone(), timer.handler)), &event)
   }
 
   /// Whether the component that started `timer` rendered last time, so the timer still runs.
@@ -379,8 +391,8 @@ impl Session {
         for (index, handler) in component.handlers.iter().enumerate() {
           match HandlerEvent::parse(&handler.event) {
             Some(HandlerEvent::Mount) => html = self.render(Some(HandlerRef::at(path.clone(), index)), &Value::Null)?,
-            Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true, settles: None }),
-            Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false, settles: None }),
+            Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true, settles: None, carry: Value::Null }),
+            Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false, settles: None, carry: Value::Null }),
             Some(HandlerEvent::Input | HandlerEvent::Call(_) | HandlerEvent::Process { .. } | HandlerEvent::Effect(_) | HandlerEvent::Resume(_)) | None => {}
           }
         }
@@ -461,7 +473,7 @@ impl Session {
           _ => 0,
         };
         if let Some(settles) = timer.get("settle").and_then(settle_of) {
-          self.started.push(Timer { path: path.to_owned(), handler: 0, every: Duration::from_millis(ms), repeats: false, settles: Some(settles) });
+          self.started.push(Timer { path: path.to_owned(), handler: 0, every: Duration::from_millis(ms), repeats: false, settles: Some(settles), carry: Value::Null });
         }
       }
       (Some(Act::Settle), Value::Map(settle)) => {
@@ -490,7 +502,7 @@ impl Session {
           Some(Value::Int(ms)) => *ms as u64,
           _ => 0,
         };
-        self.started.push(Timer { path: path.to_owned(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)), settles: None });
+        self.started.push(Timer { path: path.to_owned(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)), settles: None, carry: timer.get("carry").cloned().unwrap_or(Value::Null) });
       }
       (Some(Act::Spawn), Value::Map(spawn)) => {
         let text = |v: Option<&Value>| match v {
