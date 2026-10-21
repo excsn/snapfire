@@ -1198,7 +1198,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0 };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -5517,6 +5517,8 @@ struct ComponentLowerer<'a, 'p> {
   stable_callbacks: Vec<String>,
   /// While a terminal effect lowers, each process it spawns: the local holding it and the id its handlers are named by.
   spawns: Vec<(String, String)>,
+  /// While a terminal effect whose dependencies change lowers, its event: a function it returns is its cleanup, [`crate::terminal::Act::Cleanup`].
+  cleanup_for: Option<String>,
   /// How many ids the custom hooks a terminal component inlines have taken with `useId`.
   hook_ids: u32,
 }
@@ -7821,18 +7823,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     browser.0
   }
 
-  /// A terminal's effect whose dependencies change: its body a handler named [`crate::terminal::Event::Effect`] and a [`crate::terminal::EFFECT`] the body emits with the dependencies' values, which the terminal compares from one render to the next. An effect that sets no state and calls no action changes nothing the page shows and is left out, as is one that does not lower and reads a browser global: that is the browser's work. The cleanup it returns is left out too, so a timer it starts is refused as a handler's is.
+  /// A terminal's effect whose dependencies change: its body a handler named [`crate::terminal::Event::Effect`] and a [`crate::terminal::EFFECT`] the body emits with the dependencies' values, which the terminal compares from one render to the next. An effect that sets no state and calls no action changes nothing the page shows and is left out, as is one that does not lower and reads a browser global: that is the browser's work. An arrow it returns is its cleanup, [`crate::terminal::Act::Cleanup`].
   fn rerun_effect(&mut self, effect: &'p js::Expr, deps: &'p js::ArrayLit) -> Lowered<()> {
     let js::Expr::Arrow(arrow) = crate::meaning::bare(effect) else { return Err(self.lowerer.residue(effect.span(), "an effect that is not an arrow written in place")) };
-    let body = match arrow_body(arrow) {
-      FunctionBody::Block(stmts) => match stmts.split_last() {
-        Some((js::Stmt::Return(js::ReturnStmt { arg: Some(cleanup), .. }), before)) if matches!(crate::meaning::bare(cleanup), js::Expr::Arrow(_) | js::Expr::Fn(_)) => FunctionBody::Block(before),
-        _ => FunctionBody::Block(stmts),
-      },
-      expr => expr,
-    };
     let event = crate::terminal::Event::Effect(self.lowered_handlers.len()).name();
-    let lowered = match self.handler_fn(&[], body, arrow.span) {
+    let cleanup_for = self.cleanup_for.replace(event.clone());
+    let lowered = self.handler_fn(&[], arrow_body(arrow), arrow.span);
+    self.cleanup_for = cleanup_for;
+    let lowered = match lowered {
       Ok(lowered) => lowered,
       Err(residue) if residue.message == NO_EFFECT => return Ok(()),
       Err(_) if self.reads_the_browser(&arrow.body) => return Ok(()),
@@ -8074,7 +8072,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           for decl in &var.decls {
             let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
             let expr = match decl.init.as_deref() {
-              Some(init) => self.lowerer.expr(init)?,
+              Some(init) => match self.arrow_timer(init) {
+                Some((repeats, callback, delay)) => self.handler_timer(repeats, callback, delay, decl.span, walk)?,
+                None => self.lowerer.expr(init)?,
+              },
               None => Expr::Lit(Lit::Null),
             };
             let local = name.id.sym.to_string();
@@ -8105,6 +8106,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           }
         }
         js::Stmt::Return(r) if r.arg.is_none() => return Ok(true),
+        js::Stmt::Return(js::ReturnStmt { arg: Some(cleanup), span }) if self.cleanup_for.is_some() => {
+          let effect = self.cleanup_for.clone().expect("checked");
+          let js::Expr::Arrow(arrow) = crate::meaning::bare(cleanup) else { return Err(self.lowerer.residue(*span, "an effect's cleanup that is not an arrow written in place")) };
+          let (event, carry) = self.arrow_continuation(arrow, Vec::new(), *span)?;
+          walk.act(crate::terminal::Act::Cleanup.name().to_owned(), Expr::Object(vec![Entry::Field("effect".to_owned(), Expr::lit_str(effect)), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
+          return Ok(true);
+        }
         js::Stmt::If(branch) => self.handler_if(branch, walk)?,
         js::Stmt::Try(t) => {
           if t.finalizer.is_some() {
@@ -8247,7 +8255,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(callback.span(), "a process listener that is not an arrow written in place or a promise's `resolve` or `reject`")) };
     let exits = matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close);
     let value = Expr::Var(RESUME.to_owned()).field("value");
-    let depth = self.lowerer.scope.len();
+    let mut binds = Vec::new();
     for (i, param) in arrow.params.iter().enumerate() {
       let js::Pat::Ident(name) = param else { return Err(self.lowerer.residue(param.span(), "a process listener's parameter that is not a name")) };
       let bound = match (exits, i) {
@@ -8255,20 +8263,49 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         (true, _) => value.clone().field("signal"),
         (false, _) => value.clone(),
       };
-      self.lowerer.scope.push((name.id.sym.to_string(), bound));
+      binds.push((name.id.sym.to_string(), bound));
     }
+    let (event, carry) = self.arrow_continuation(arrow, binds, call.span)?;
+    fields.push(Entry::Field("event".to_owned(), Expr::lit_str(event)));
+    fields.push(Entry::Field("carry".to_owned(), carry));
+    walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
+    Ok(())
+  }
+
+  /// `arrow`'s body as a continuation of the component with `binds` in scope: its event and the carry the act that runs it passes.
+  fn arrow_continuation(&mut self, arrow: &'p js::ArrowExpr, binds: Vec<(String, Expr)>, at: Span) -> Lowered<(String, Expr)> {
+    let depth = self.lowerer.scope.len();
+    self.lowerer.scope.extend(binds);
+    let cleanup_for = self.cleanup_for.take();
     let mut cw = HandlerWalk::default();
     let lowered = match &*arrow.body {
       js::ArrowFunctionBody::FunctionBody(b) => self.async_within(&b.stmts, &mut cw, &Within::default()),
       js::ArrowFunctionBody::Expr(e) => self.handler_stmt(e, &mut cw),
     };
+    self.cleanup_for = cleanup_for;
     self.lowerer.scope.truncate(depth);
     lowered?;
-    let (event, carry) = self.continuation_handler(call.span, cw);
-    fields.push(Entry::Field("event".to_owned(), Expr::lit_str(event)));
-    fields.push(Entry::Field("carry".to_owned(), carry));
-    walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
-    Ok(())
+    Ok(self.continuation_handler(at, cw))
+  }
+
+  /// `setInterval(f, ms)` or `setTimeout(f, ms)` in a terminal handler with `f` an arrow written in place.
+  fn arrow_timer(&self, e: &'p js::Expr) -> Option<(bool, &'p js::ArrowExpr, &'p js::Expr)> {
+    let (repeats, callback, delay) = timer_call(e).filter(|_| self.lowerer.terminal)?;
+    match crate::meaning::bare(callback) {
+      js::Expr::Arrow(arrow) => Some((repeats, arrow, delay)),
+      _ => None,
+    }
+  }
+
+  /// A timer a handler starts on an arrow, [`Self::arrow_timer`]: the act [`crate::terminal::Act::Timer`] with a fresh id and the arrow as a continuation. Its value is `{ "$timer": id }`, [`crate::terminal::TIMER`].
+  fn handler_timer(&mut self, repeats: bool, callback: &'p js::ArrowExpr, delay: &'p js::Expr, at: Span, walk: &mut HandlerWalk) -> Lowered<Expr> {
+    let id = self.lowerer.temp();
+    walk.out.push(Stmt::Let { name: id.clone(), expr: Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] } });
+    let ms = self.lowerer.expr(delay)?;
+    let (event, carry) = self.arrow_continuation(callback, Vec::new(), at)?;
+    let input = vec![("id", Expr::Var(id.clone())), ("event", Expr::lit_str(event)), ("carry", carry), ("ms", ms), ("repeats", Expr::Lit(Lit::Bool(repeats)))];
+    walk.act(crate::terminal::Act::Timer.name().to_owned(), Expr::Object(input.into_iter().map(|(key, value)| Entry::Field(key.to_owned(), value)).collect()));
+    Ok(Expr::Object(vec![Entry::Field(crate::terminal::TIMER.to_owned(), Expr::Var(id))]))
   }
 
   /// `walk` as a handler of the component named [`crate::terminal::Event::Resume`] for `at`: what it was run with bound as [`RESUME`], every name it reads that the component does not hold carried in. Returns the event and the carry the act that runs it passes.
@@ -8382,6 +8419,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 None => Expr::lit_str(String::new()),
               };
               walk.act(action.to_owned(), input);
+              return Ok(());
+            }
+            if let Some((repeats, callback, delay)) = self.arrow_timer(e) {
+              self.handler_timer(repeats, callback, delay, call.span, walk)?;
+              return Ok(());
+            }
+            if self.lowerer.terminal && (name == "clearInterval" || name == "clearTimeout") {
+              let timer = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::Lit(Lit::Null),
+              };
+              walk.act(crate::terminal::Act::ClearTimer.name().to_owned(), Expr::Object(vec![Entry::Field("timer".to_owned(), timer)]));
               return Ok(());
             }
             if let Some((repeats, callback, delay)) = timer_call(e) {

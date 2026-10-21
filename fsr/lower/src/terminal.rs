@@ -68,6 +68,9 @@ pub fn act_ref(expr: &snapfire_fsr_ir::Expr) -> Option<String> {
   }
 }
 
+/// The key a timer a handler started is held under, `{ "$timer": id }`, the id its [`Act::Timer`] names and [`Act::ClearTimer`] takes: what `setInterval` and `setTimeout` return in a handler.
+pub const TIMER: &str = "$timer";
+
 /// The key a process a block spawned is held under, `{ "$process": id }`, the id its [`Act::Spawn`] and its listeners name.
 pub const PROCESS: &str = "$process";
 
@@ -169,8 +172,12 @@ pub enum Act {
   Stdout,
   /// The same through `useStderr().write`.
   Stderr,
-  /// `{ event, ms, repeats }`: a timer on the handler [`Event::Call`] names; `{ settle, ms }`, one that settles a promise, [`SETTLES`].
+  /// `{ event, ms, repeats }`: a timer on the handler [`Event::Call`] names; `{ id, event, carry, ms, repeats }`, one on a continuation run with `{ value: null, ok: true, carry }`, which [`Act::ClearTimer`] stops by `id`; `{ settle, ms }`, one that settles a promise, [`SETTLES`].
   Timer,
+  /// `{ timer }`: stop the timer [`TIMER`] names, `clearInterval` and `clearTimeout`.
+  ClearTimer,
+  /// `{ effect, event, carry }`: the cleanup the [`Event::Effect`] handler `effect` returned, run before that effect runs again.
+  Cleanup,
   /// `{ id, command, args, options }`: a process to start, whose reports are [`Event::Process`].
   Spawn,
   /// `{ settle, value }`: a promise's `resolve` or `reject`, [`SETTLES`], called with `value`.
@@ -199,6 +206,8 @@ impl Act {
       Act::Stdout => "$stdout",
       Act::Stderr => "$stderr",
       Act::Timer => "$timer",
+      Act::ClearTimer => "$clearTimer",
+      Act::Cleanup => "$cleanup",
       Act::Spawn => "$spawn",
       Act::Settle => "$settle",
       Act::Then => "$then",
@@ -215,7 +224,7 @@ impl Act {
   }
 
   pub fn parse(name: &str) -> Option<Act> {
-    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Run, Act::Exit, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
+    [Act::Stdout, Act::Stderr, Act::Timer, Act::ClearTimer, Act::Cleanup, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Run, Act::Exit, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
   }
 }
 

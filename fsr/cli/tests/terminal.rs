@@ -68,7 +68,7 @@ fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state()
   use std::time::Duration;
   let clock = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 100);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setTicks(100), 2000);\n  }, []);\n  return <Text>ticks {ticks}</Text>;\n}\n";
   let mut session = Session::open(&app(clock)).unwrap();
-  assert_eq!(session.timers(), [Timer { path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true, settles: None, carry: Value::Null }, Timer { path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false, settles: None, carry: Value::Null }]);
+  assert_eq!(session.timers(), [Timer { id: None, path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true, settles: None, carry: Value::Null }, Timer { id: None, path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false, settles: None, carry: Value::Null }]);
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
   assert_eq!(line(session.view().unwrap()), "ticks 0");
   let timers = session.timers();

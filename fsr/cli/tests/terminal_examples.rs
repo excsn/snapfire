@@ -147,3 +147,26 @@ fn monitor_reruns_its_command_when_the_tab_changes_spins_while_it_runs_and_stack
   session.press(&key(KeyCode::Char('q'))).unwrap();
   assert!(session.exited());
 }
+
+#[test]
+fn pomodoro_starts_and_stops_its_ticking_from_an_effect_on_running_and_moves_to_a_break_at_zero() {
+  let mut session = open("pomodoro_terminal_ts");
+  let first = lines(session.view().unwrap(), 80);
+  assert!(first.iter().any(|l| l.contains("25:00 paused")), "{first:?}");
+  session.take_started();
+  session.press(&key(KeyCode::Char(' '))).unwrap();
+  let started = session.take_started();
+  let tick = started.iter().find(|t| t.every.as_millis() == 1000 && t.repeats).expect("the effect starts the tick when running turns true");
+  session.fire(tick).unwrap();
+  session.fire(tick).unwrap();
+  let ticked = lines(session.fire(tick).unwrap(), 80);
+  assert!(ticked.iter().any(|l| l.contains("24:57") && !l.contains("paused")), "{ticked:?}");
+  let paused = lines(session.press(&key(KeyCode::Char(' '))).unwrap(), 80);
+  assert!(paused.iter().any(|l| l.contains("24:57 paused")), "{paused:?}");
+  let still = lines(session.fire(tick).unwrap(), 80);
+  assert!(still.iter().any(|l| l.contains("24:57 paused")), "the cleanup stopped the tick: {still:?}");
+  let skipped = lines(session.press(&key(KeyCode::Char('s'))).unwrap(), 80);
+  assert!(skipped[0].starts_with("work finished after 25 minutes"), "{skipped:?}");
+  assert!(skipped.iter().any(|l| l.contains("Break") && l.contains("1 round")), "{skipped:?}");
+  assert!(skipped.iter().any(|l| l.contains("05:00 paused")), "{skipped:?}");
+}

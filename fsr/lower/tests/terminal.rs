@@ -257,17 +257,14 @@ fn the_text_packages_ink_apps_import_run_natively_in_a_terminal() {
 }
 
 #[test]
-fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_starting_a_timer_is_refused() {
+fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_starts_a_timer_on_a_continuation() {
   let stable = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s) => s + 1, 0);\n  const tick = useCallback(() => dispatch(), []);\n  useEffect(() => {\n    const timer = setInterval(tick, 100);\n    return () => clearInterval(timer);\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
-  let library = library(stable);
-  assert_eq!(library[MODULE].handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:100"]);
+  let ticks = library(stable);
+  assert_eq!(ticks[MODULE].handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:100"]);
   let changing = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Echo() {\n  const [n, setN] = useState(0);\n  useEffect(() => {\n    setTimeout(() => setN(n + 1), 100);\n  }, [n]);\n  return <Text>{n}</Text>;\n}\n";
-  let n = NEXT.fetch_add(1, Ordering::Relaxed);
-  let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
-  std::fs::create_dir_all(dir.join("routes")).unwrap();
-  std::fs::write(dir.join("routes/page.tsx"), changing).unwrap();
-  let err = ComponentSet::new(&dir).for_terminal().lower(MODULE).unwrap_err().to_string();
-  assert!(err.contains("a timer a handler starts on something other than a function its effect declares"), "{err}");
+  let echo = library(changing);
+  let events: Vec<&str> = echo[MODULE].handlers.iter().map(|h| h.event.as_str()).collect();
+  assert!(events[0].starts_with("resume:routes/page.tsx@") && events[1] == "effect:0", "{events:?}");
 }
 
 #[test]

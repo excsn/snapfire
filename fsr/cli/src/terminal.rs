@@ -112,9 +112,11 @@ pub fn key_event(event: KeyEvent) -> Option<Press> {
 /// in the page, the handler it steps, how often and whether it fires again
 /// after the first time. One that `settles` a promise, its deferred and
 /// whether it resolves, runs no handler. One a callback started carries
-/// the names the callback reads, which its handler is run with.
+/// the names the callback reads, which its handler is run with, and the
+/// id `clearInterval` stops it by.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Timer {
+  pub id: Option<String>,
   pub path: String,
   pub handler: usize,
   pub every: Duration,
@@ -177,6 +179,10 @@ pub struct Session {
   ready: Vec<(Waiting, bool, Value)>,
   suspensions: Vec<(String, String)>,
   listeners: Vec<(String, Report, Listener)>,
+  /// The timers `clearInterval` or `clearTimeout` stopped, by id.
+  cleared: std::collections::HashSet<String>,
+  /// The cleanup each effect returned the last time it ran, by the component's path and the effect's event, run before it runs again.
+  cleanups: HashMap<(String, String), Waiting>,
   exiting: bool,
 }
 
@@ -250,7 +256,7 @@ impl Focus {
       Act::FocusPrevious => self.step(true),
       Act::FocusEnable => self.disabled = false,
       Act::FocusDisable => self.disabled = true,
-      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run | Act::Exit => return false,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run | Act::Exit => return false,
     }
     true
   }
@@ -268,7 +274,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), exiting: false })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
   }
 
   /// The page as it stands.
@@ -316,8 +322,8 @@ impl Session {
     self
       .handlers()
       .filter_map(|(path, handler, event)| match HandlerEvent::parse(&event)? {
-        HandlerEvent::Interval(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: true, settles: None, carry: Value::Null }),
-        HandlerEvent::Timeout(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: false, settles: None, carry: Value::Null }),
+        HandlerEvent::Interval(ms) => Some(Timer { id: None, path, handler, every: Duration::from_millis(ms), repeats: true, settles: None, carry: Value::Null }),
+        HandlerEvent::Timeout(ms) => Some(Timer { id: None, path, handler, every: Duration::from_millis(ms), repeats: false, settles: None, carry: Value::Null }),
         _ => None,
       })
       .collect()
@@ -389,9 +395,9 @@ impl Session {
     self.run(Some(HandlerRef::at(timer.path.clone(), timer.handler)), &event)
   }
 
-  /// Whether the component that started `timer` rendered last time, so the timer still runs.
+  /// Whether the component that started `timer` rendered last time and nothing cleared it, so the timer still runs.
   pub fn holds(&self, timer: &Timer) -> bool {
-    self.components.iter().any(|(path, _)| *path == timer.path)
+    self.components.iter().any(|(path, _)| *path == timer.path) && timer.id.as_ref().is_none_or(|id| !self.cleared.contains(id))
   }
 
   /// The timers started since the last call: those of each component as it first renders, and those a handler started.
@@ -413,8 +419,8 @@ impl Session {
         for (index, handler) in component.handlers.iter().enumerate() {
           match HandlerEvent::parse(&handler.event) {
             Some(HandlerEvent::Mount) => html = self.render(Some(HandlerRef::at(path.clone(), index)), &Value::Null)?,
-            Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true, settles: None, carry: Value::Null }),
-            Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false, settles: None, carry: Value::Null }),
+            Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { id: None, path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true, settles: None, carry: Value::Null }),
+            Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { id: None, path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false, settles: None, carry: Value::Null }),
             Some(HandlerEvent::Input | HandlerEvent::Call(_) | HandlerEvent::Process { .. } | HandlerEvent::Effect(_) | HandlerEvent::Resume(_)) | None => {}
           }
         }
@@ -426,29 +432,30 @@ impl Session {
         break;
       }
       for (waiting, ok, value) in ready {
-        let Some(index) = self.handlers().find(|(at, _, named)| *at == waiting.path && *named == waiting.event).map(|(_, index, _)| index) else { continue };
-        let mut event = ValueMap::default();
-        event.insert("value".to_owned(), value);
-        event.insert("ok".to_owned(), Value::Bool(ok));
-        event.insert("carry".to_owned(), waiting.carry);
-        html = self.render(Some(HandlerRef::at(waiting.path, index)), &Value::Map(event))?;
+        if let Some(resumed) = self.resume_with(waiting, ok, value) {
+          html = resumed?;
+        }
       }
     }
     for _ in 0..EFFECT_PASSES {
       self.effects_ran.retain(|(path, _), _| self.components.iter().any(|(at, _)| at == path));
+      self.cleanups.retain(|(path, _), _| self.components.iter().any(|(at, _)| at == path));
       let seen = std::mem::take(&mut self.effects_seen);
       let mut due = Vec::new();
       for (path, event, deps) in seen {
         if self.effects_ran.get(&(path.clone(), event.clone())) != Some(&deps) {
           let index = self.handlers().find(|(at, _, named)| *at == path && *named == event).map(|(_, index, _)| index);
-          self.effects_ran.insert((path.clone(), event), deps);
-          due.extend(index.map(|index| HandlerRef::at(path, index)));
+          self.effects_ran.insert((path.clone(), event.clone()), deps);
+          due.extend(index.map(|index| (path.clone(), event, HandlerRef::at(path, index))));
         }
       }
       if due.is_empty() {
         break;
       }
-      for handler in due {
+      for (path, effect, handler) in due {
+        if let Some(cleanup) = self.cleanups.remove(&(path, effect)) {
+          html = self.resume(cleanup)?;
+        }
         html = self.render(Some(handler), &Value::Null)?;
       }
     }
@@ -484,6 +491,24 @@ impl Session {
     Ok(Node::Box(Boxed::new().column().child(Text::plain(&self.written.join("\n"))).child(page)))
   }
 
+  /// `waiting`'s continuation run with `{ value: null, ok: true, carry }`; the markup unchanged when its component no longer holds it.
+  fn resume(&mut self, waiting: Waiting) -> Result<String, String> {
+    match self.resume_with(waiting, true, Value::Null) {
+      Some(resumed) => resumed,
+      None => self.render(None, &Value::Null),
+    }
+  }
+
+  /// `waiting`'s continuation run with `{ value, ok, carry }`, `None` when its component no longer holds it.
+  fn resume_with(&mut self, waiting: Waiting, ok: bool, value: Value) -> Option<Result<String, String>> {
+    let index = self.handlers().find(|(at, _, named)| *at == waiting.path && *named == waiting.event).map(|(_, index, _)| index)?;
+    let mut event = ValueMap::default();
+    event.insert("value".to_owned(), value);
+    event.insert("ok".to_owned(), Value::Bool(ok));
+    event.insert("carry".to_owned(), waiting.carry);
+    Some(self.render(Some(HandlerRef::at(waiting.path, index)), &Value::Map(event)))
+  }
+
   /// An act a handler or a block of `path`'s component issued, `components` the step's.
   fn take_act(&mut self, path: &str, components: &[(String, String)], action: &str, value: Value) {
     match (Act::parse(action), &value) {
@@ -495,7 +520,7 @@ impl Session {
           _ => 0,
         };
         if let Some(settles) = timer.get("settle").and_then(settle_of) {
-          self.started.push(Timer { path: path.to_owned(), handler: 0, every: Duration::from_millis(ms), repeats: false, settles: Some(settles), carry: Value::Null });
+          self.started.push(Timer { id: None, path: path.to_owned(), handler: 0, every: Duration::from_millis(ms), repeats: false, settles: Some(settles), carry: Value::Null });
         }
       }
       (Some(Act::Settle), Value::Map(settle)) => {
@@ -504,6 +529,18 @@ impl Session {
         }
       }
       (Some(Act::Exit), _) => self.exiting = true,
+      (Some(Act::ClearTimer), Value::Map(clear)) => {
+        if let Some(Value::Map(timer)) = clear.get("timer") {
+          if let Some(Value::Str(id)) = timer.get(snapfire_fsr_lower::terminal::TIMER) {
+            self.cleared.insert(id.to_string());
+          }
+        }
+      }
+      (Some(Act::Cleanup), Value::Map(cleanup)) => {
+        let (Some(Value::Str(effect)), Some(Value::Str(event))) = (cleanup.get("effect"), cleanup.get("event")) else { return };
+        let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: cleanup.get("carry").cloned().unwrap_or(Value::Null) };
+        self.cleanups.insert((path.to_owned(), effect.to_string()), waiting);
+      }
       (Some(Act::Run), Value::Map(run)) => {
         let Some(Value::Str(event)) = run.get("event") else { return };
         let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: run.get("carry").cloned().unwrap_or(Value::Null) };
@@ -556,7 +593,10 @@ impl Session {
           Some(Value::Int(ms)) => *ms as u64,
           _ => 0,
         };
-        self.started.push(Timer { path: path.to_owned(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)), settles: None, carry: timer.get("carry").cloned().unwrap_or(Value::Null) });
+        self.started.push(Timer { id: match timer.get("id") {
+          Some(Value::Str(id)) => Some(id.to_string()),
+          _ => None,
+        }, path: path.to_owned(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)), settles: None, carry: timer.get("carry").cloned().unwrap_or(Value::Null) });
       }
       (Some(Act::Spawn), Value::Map(spawn)) => {
         let text = |v: Option<&Value>| match v {
@@ -574,7 +614,7 @@ impl Session {
         self.spawns.push(Spawn { path: path.to_owned(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
       }
       (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
-      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run), _) | (None, _) => {}
+      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run), _) | (None, _) => {}
     }
   }
 
