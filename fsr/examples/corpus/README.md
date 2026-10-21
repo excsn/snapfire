@@ -1,6 +1,6 @@
 # corpus
 
-The code examples of the React, Svelte and Vue documentation, built through FSR one at a time. Ink's examples run through its terminal mode as well. Each example under `react_dev/` becomes an application whose only page renders its `App`; each under `svelte_dev/` or `vuejs_org/` one whose only page places its `App.svelte` or `App.vue` as an island. `cargo test -p corpus` holds what the build made of it against `outcomes.txt`, one of three outcomes: `lowered`; `client:` with the causes that sent a component to the browser; `refused:` with the error that stopped the build. The Next.js and Nuxt examples and the SvelteKit tutorial are whole applications written for those frameworks; no test builds them yet.
+The code examples of the React, Svelte and Vue documentation, built through FSR one at a time. Ink's examples run through its terminal mode as well. Each example under `react_dev/` becomes an application whose only page renders its `App`; each under `svelte_dev/` or `vuejs_org/` one whose only page places its `App.svelte` or `App.vue` as an island. `cargo test -p corpus` holds what the build made of it against `outcomes.txt`, one of three outcomes: `lowered`; `client:` with the causes that sent a component to the browser; `refused:` with the error that stopped the build. The Next.js and Nuxt examples and the SvelteKit tutorial are whole applications written for those frameworks. `cargo test -p corpus --test next_examples` migrates each Next.js one with `fsr migrate` and builds the result; the Nuxt and SvelteKit ones are not built yet.
 
 The examples were written without FSR in mind. A cause that recurs is an idiom the lowerer may be missing; once read, each one either becomes a lowering with a test of its own or is kept as a refusal that is right.
 
@@ -31,5 +31,7 @@ A change to the lowerer that moves an outcome fails the test, naming each exampl
 | `ink_outcomes.txt` | one line per Ink example: `rendered` or `refused:` with the reason |
 | `tests/ink.rs` | the run of every Ink example and the comparison; `CORPUS_FRAMES=1` prints each first frame |
 | `next_examples/` | the 231 examples of Next.js, see [NOTICE.md](NOTICE.md) |
+| `next_outcomes.txt` | one line per Next.js application: what `fsr migrate` made of it and how its build went, with the pages routed and the notes left |
+| `tests/next_examples.rs` | the migration and build of every Next.js application and the comparison; `CORPUS_NOTES=1` prints each note |
 | `nuxt_examples/` | the 24 examples of Nuxt and the layer they extend, see [NOTICE.md](NOTICE.md) |
 | `sveltekit_tutorial/` | the 46 exercises of the SvelteKit chapters of the svelte.dev tutorial, see [NOTICE.md](NOTICE.md) |

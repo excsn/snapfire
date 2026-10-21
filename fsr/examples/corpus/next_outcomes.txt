@@ -1,0 +1,231 @@
+active-class-name	client: routes/[slug]/page.island0.tsx:5:20 `usePathname`, a hook the build cannot follow | src/components/ActiveLink.tsx:25:20 `usePathname`, a hook the build cannot follow	pages 4	notes 0
+api-routes-apollo-server	refused: src/shared/query-graphql/index.ts:6:26: a call to `graphql`, which the build cannot follow	pages 2	notes 1
+api-routes-apollo-server-and-client	refused: src/apollo/client.tsx:29:25: `apolloClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 2
+api-routes-apollo-server-and-client-auth	refused: routes/page.tsx: 16:21: Expression expected	pages 5	notes 3
+api-routes-cors	lowered	pages 1	notes 1
+api-routes-graphql	client: routes/page.island0.tsx:19:38 `useSWR`, a hook the build cannot follow	pages 1	notes 1
+api-routes-middleware	client: routes/page.island0.tsx:5:38 `useSWR`, a hook the build cannot follow	pages 1	notes 1
+api-routes-rest	client: routes/page.island0.tsx:7:38 `useSwr`, a hook the build cannot follow | routes/user/[id]/page.island0.tsx:7:21 `useRouter`, a hook the build cannot follow	pages 2	notes 2
+auth	refused: routes/api/auth/[...nextauth]/route.ts:1:10: `GET` is exported from a name this module does not declare	pages 1	notes 2
+auth-with-stytch	no application
+auth0	refused: routes/advanced/ssr-profile/page.loader.ts:3:21: `load` is a call the build does not recognise	pages 5	notes 4
+basic-css	refused: src/styles.module.css: 1:1: Expression expected	pages 1	notes 0
+blog	lowered	pages 0	notes 2
+blog-starter	refused: routes/layout.tsx:10:15: a call to `Inter`, which the build cannot follow	pages 2	notes 2
+blog-with-comment	refused: src/lib/getPost.ts:9:10: `fs` comes from `fs`, which the build cannot follow	pages 3	notes 5
+cache-handler-redis	refused: routes/[timezone]/page.tsx:54:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 0
+cache-handler-redis-turbo	refused: routes/page.tsx:19:9: `Link` comes from `next/link`, which the build cannot follow	pages 3	notes 0
+cloudflare-turnstile	refused: routes/explicit/page.tsx:24:25: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 3
+cms-agilitycms	refused: routes/[...slug]/page.loader.ts:3:38: `preview` is not a field of the context	pages 2	notes 6
+cms-builder-io	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 6
+cms-buttercms	refused: routes/blog/page.loader.ts:5:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 7	notes 5
+cms-contentful	refused: routes/api/disable-draft/route.ts:4:10: a call to `draftMode`, which the build cannot follow	pages 2	notes 2
+cms-cosmic	refused: routes/page.loader.ts:8:11: `preview` is not a field of the context	pages 2	notes 7
+cms-datocms	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 6
+cms-dotcms	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 5
+cms-drupal	refused: routes/page.loader.ts:4:23: a call to `getResourceCollectionFromContext`, which the build cannot follow	pages 2	notes 6
+cms-enterspeed	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 5
+cms-ghost	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 6
+cms-graphcms	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 6
+cms-keystonejs-embedded	no application
+cms-kontent-ai	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 8
+cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 4
+cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 1
+cms-plasmic	refused: routes/[[...catchall]]/page.loader.ts: 31:26: Expected '>', got 'ident'	pages 1	notes 6
+cms-prepr	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 7
+cms-prismic	refused: routes/page.loader.ts:11:3: `preview` is not a field of the context	pages 3	notes 6
+cms-sanity	refused: routes/api/draft-mode/enable/route.ts:6:16: `GET` is bound by a destructuring the build does not read	pages 3	notes 4
+cms-sitecore-xmcloud	refused: src/lib/page-props-factory/index.ts:53:45: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 13
+cms-sitefinity	refused: src/lib/api.ts:6:30: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 3
+cms-storyblok	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 6
+cms-strapi	no application
+cms-takeshape	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 6
+cms-tina	refused: src/lib/api.js:8:10: `fs` comes from `fs`, which the build cannot follow	pages 3	notes 4
+cms-umbraco	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 5
+cms-umbraco-heartcore	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 6
+cms-webiny	refused: routes/page.loader.ts:3:30: `preview` is not a field of the context	pages 2	notes 5
+cms-wordpress	refused: routes/api/exit-preview/route.ts:5:36: `url` is not a field of the context	pages 1	notes 5
+convex	refused: routes/layout.tsx:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 2
+custom-server	lowered	pages 1	notes 0
+github-pages	refused: routes/layout.tsx:4:15: a call to `Inter`, which the build cannot follow	pages 2	notes 0
+hello-world	lowered	pages 1	notes 0
+i18n-routing	refused: middleware.ts:27:20: `nextUrl` is not a field of the context	pages 1	notes 1
+i18n-routing-pages	refused: routes/gsp/page.loader.ts:10:3: `locales` is not a field of the context	pages 4	notes 1
+image-component	refused: src/styles.module.css: 1:1: Expression expected	pages 8	notes 0
+image-secure-compute	refused: routes/image-api/[...path]/route.ts:5:8: `headers` is not a field of the context	pages 2	notes 0
+inngest	refused: routes/api/inngest/route.ts:4:16: `GET` is bound by a destructuring the build does not read	pages 1	notes 1
+markdoc	lowered	pages 0	notes 1
+mdx	refused: routes/page.module.css: 1:1: Expression expected	pages 3	notes 0
+mdx-pages	lowered	pages 0	notes 0
+next-forms	refused: routes/page.tsx:10:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 1
+panda-css	refused: routes/page.tsx:7:16: a call to `css`, which the build cannot follow	pages 1	notes 0
+prisma-postgres	refused: routes/api/posts/route.ts:5:23: `url` is not a field of the context	pages 6	notes 1
+radix-ui	client: routes/page.island0.tsx:18:5 `DropdownMenu` comes from ``, which the build cannot follow | routes/page.island0.tsx:91:17 `ChevronRightIcon` comes from `@radix-ui/react-icons`, which the build cannot follow | routes/page.tsx:97:13 `HamburgerMenuIcon` comes from `@radix-ui/react-icons`, which the build cannot follow	pages 1	notes 1
+react-remove-properties	lowered	pages 1	notes 0
+remove-console	lowered	pages 1	notes 0
+reproduction-template	lowered	pages 1	notes 0
+reproduction-template-pages	lowered	pages 1	notes 0
+with-ably	refused: routes/api/createTokenRequest/route.ts:5:8: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 0
+with-absolute-imports	lowered	pages 1	notes 0
+with-algolia-react-instantsearch	client: src/components/Search.tsx:30:22 a call to `algoliasearch`, which the build cannot follow	pages 1	notes 0
+with-ant-design	refused: routes/layout.tsx:7:15: a call to `Inter`, which the build cannot follow	pages 1	notes 0
+with-apivideo	refused: routes/videos/[videoId]/page.loader.ts:4:33: `ctx.query` as a whole; read one of its fields	pages 4	notes 5
+with-apollo	refused: routes/layout.tsx:6:15: a call to `Inter`, which the build cannot follow	pages 1	notes 0
+with-apollo-and-redux	refused: src/lib/redux.js:50:16: `store` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 4
+with-axiom	refused: routes/page.loader.ts:5:3: `log` comes from `next-axiom`, which the build cannot follow	pages 1	notes 3
+with-azure-cosmos	refused: src/lib/cosmosdb.ts:38:3: `client` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 3
+with-babel-macros	refused: routes/page.tsx:3:16: a tagged template	pages 1	notes 0
+with-biome	lowered	pages 1	notes 0
+with-chakra-ui	refused: src/theme.tsx:12:15: a call to `extendTheme`, which the build cannot follow	pages 1	notes 2
+with-clerk	refused: routes/api/getAuthenticatedUserId/route.ts:5:33: a call to `auth`, which the build cannot follow	pages 4	notes 5
+with-compiled-css	refused: src/components/styled-button.js: no exported `Button`	pages 1	notes 0
+with-context-api	client: routes/about/page.island0.tsx:25:9 `Link` comes from `next/link`, which the build cannot follow | routes/page.island0.tsx:24:9 `Link` comes from `next/link`, which the build cannot follow	pages 2	notes 0
+with-cookies-next	refused: routes/ssr-cookies/page.loader.ts:3:24: `req` is not a field of the context	pages 2	notes 4
+with-couchbase	refused: src/util/couchbase.js:26:5: `cached`, a module-level `let` a function writes; a body reads module state through the store	pages 1	notes 2
+with-custom-babel-config	refused: routes/page.js: 14:19: Expression expected	pages 1	notes 1
+with-cxs	refused: routes/page.tsx:4:9: a call to `cxs`, which the build cannot follow	pages 1	notes 1
+with-cypress	refused: routes/layout.tsx:6:15: a call to `Inter`, which the build cannot follow	pages 2	notes 0
+with-docker	refused: routes/layout.tsx:5:19: a call to `Geist`, which the build cannot follow	pages 1	notes 0
+with-docker-compose/next-app	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
+with-docker-export-output	refused: routes/layout.tsx:5:19: a call to `Geist`, which the build cannot follow	pages 1	notes 0
+with-docker-multi-env	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 6
+with-dynamic-import	refused: routes/page.island0.tsx: no exported `DynamicComponent1`	pages 1	notes 0
+with-edgedb	refused: routes/page.loader.ts:5:22: `e` comes from `../src/client`, which the build cannot follow	pages 4	notes 4
+with-elasticsearch	refused: src/lib/elasticsearch.ts:4:24: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 2
+with-electron	refused: no `routes/` directory under <app>	pages 0	notes 1
+with-electron-typescript	refused: no `routes/` directory under <app>	pages 0	notes 0
+with-emotion	refused: routes/layout.tsx:6:15: a call to `createCache`, which the build cannot follow	pages 1	notes 1
+with-eslint	lowered	pages 1	notes 0
+with-expo-typescript	refused: routes/page.tsx:5:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 1	notes 1
+with-facebook-pixel	client: routes/about/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow | routes/components/FacebookPixel.js:10:20 `usePathname`, a hook the build cannot follow | routes/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow	pages 2	notes 1
+with-fela	client: routes/layout.island0.tsx:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/page.js:25:19 `useFela`, a hook the build cannot follow | routes/page.js:31:19 `useFela`, a hook the build cannot follow | routes/page.js:4:3 `FelaComponent` comes from `react-fela`, which the build cannot follow	pages 1	notes 2
+with-filbert	refused: routes/page.js:69:14: a tagged template	pages 1	notes 1
+with-fingerprintjs-pro	client: routes/home/[cacheStrategy]/page.island0.tsx:10:26 `useContext` of something the build cannot follow to a `createContext` | routes/home/[cacheStrategy]/page.tsx:11:38 `useVisitorData`, a hook the build cannot follow | routes/layout.tsx:29:18 `useRouter`, a hook the build cannot follow | routes/signin/[cacheStrategy]/page.island0.tsx:11:47 `useVisitorData`, a hook the build cannot follow	pages 2	notes 2
+with-firebase	refused: routes/profile/[username]/page.loader.ts:5:24: `params` as a whole; read one of its fields	pages 2	notes 2
+with-firebase-cloud-messaging	lowered	pages 1	notes 0
+with-firebase-hosting	client: src/components/Header.jsx:6:5 `Link` comes from `next/link`, which the build cannot follow	pages 2	notes 0
+with-flow	refused: routes/layout.js:8:11: `Link` comes from `next/link`, which the build cannot follow	pages 3	notes 1
+with-formspree	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
+with-framer-motion	refused: routes/image/[index]/page.loader.ts:4:18: `Number` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 1
+with-goober	refused: routes/layout.tsx:16:15: a call to `extractCss`, which the build cannot follow	pages 1	notes 1
+with-google-analytics	client: routes/layout.island0.tsx:5:28 `process` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.tsx:16:30 `process` is not bound here; an import the build cannot follow or a name from outside the body | src/components/Header.tsx:9:13 `Link` comes from `next/link`, which the build cannot follow	pages 3	notes 1
+with-google-maps-embed	refused: routes/page.tsx:3:17: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 1
+with-google-tag-manager	client: routes/layout.island0.tsx:7:16 `process` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.tsx:18:16 `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 1
+with-grafbase	refused: routes/layout.tsx:28:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 2	notes 2
+with-graphql-gateway	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 2
+with-graphql-hooks	refused: routes/layout.tsx:5:15: a call to `Inter`, which the build cannot follow	pages 1	notes 0
+with-graphql-react	refused: routes/layout.js: no exported `default`	pages 1	notes 1
+with-gsap	client: routes/page.island0.tsx:35:5 `CSSTransition` comes from `react-transition-group`, which the build cannot follow	pages 1	notes 1
+with-hls-js	client: routes/page.island0.tsx:6:5 `Head` comes from `next/head`, which the build cannot follow	pages 1	notes 0
+with-http2	client: routes/about/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow | routes/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow	pages 2	notes 0
+with-i18n-next-intl	refused: routes/page.loader.ts:4:12: a call to `require`, which the build cannot follow	pages 2	notes 1
+with-i18n-rosetta	refused: routes/[lng]/page.loader.ts:4:43: `super` or `import()`	pages 2	notes 2
+with-ionic	client: src/_components/Card.tsx:18:7 `Image` comes from `next/image`, which the build cannot follow	pages 1	notes 0
+with-iron-session	no application
+with-iron-session-cache-components	client: routes/notes/[id]/page.island0.tsx:8:5 `Link` comes from `next/link`, which the build cannot follow | routes/notes/[id]/page.tsx:7:1 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | routes/page.tsx:9:1 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/lib/auth.ts:18:3 an expression statement other than a write to a local	pages 3	notes 1
+with-jest	lowered	pages 2	notes 0
+with-jest-babel	refused: routes/index.module.css: 1:1: Expression expected	pages 1	notes 1
+with-joi	lowered	pages 0	notes 3
+with-jotai	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 0
+with-kea	refused: routes/layout.js: no exported `default`	pages 1	notes 1
+with-knex	lowered	pages 1	notes 2
+with-linaria	lowered	pages 1	notes 0
+with-lingui	refused: routes/page.js:6:5: `Trans` comes from `@lingui/macro`, which the build cannot follow	pages 2	notes 1
+with-magic	client: src/components/layout.js:6:5 `Head` comes from `next/head`, which the build cannot follow | src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot follow	pages 3	notes 4
+with-mantine	refused: routes/page.tsx:17:7: `Head` comes from `next/head`, which the build cannot follow	pages 1	notes 2
+with-mdbreact	refused: routes/page.js:17:7: `Head` comes from `next/head`, which the build cannot follow	pages 1	notes 1
+with-meilisearch	refused: routes/layout.js:4:15: a call to `Inter`, which the build cannot follow	pages 1	notes 4
+with-mobx	refused: src/components/Page.js: no exported `default`	pages 4	notes 1
+with-mobx-state-tree	refused: src/store.ts:43:18: `store` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 1
+with-mocha	lowered	pages 1	notes 0
+with-mongodb	refused: <app>/routes: holds `actions.ts` but no `page.tsx`; an action is named for the page beside it	pages 1	notes 2
+with-mongodb-mongoose	refused: src/lib/dbConnect.ts:13:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 5
+with-mqtt-js	client: routes/page.island0.tsx:17:9 a call for its effect, which a straight-line body cannot hold	pages 1	notes 1
+with-msw	refused: routes/page.loader.ts:3:21: a call to `fetch`, which the build cannot follow	pages 1	notes 4
+with-mux-video	refused: routes/layout.tsx:10:16: a call to `DM_Sans`, which the build cannot follow	pages 3	notes 3
+with-mysql	refused: routes/page.tsx:4:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 1
+with-neo4j	refused: src/styles/global.js:3:16: a tagged template	pages 3	notes 5
+with-next-page-transitions	refused: routes/layout.js:11:7: `Head` comes from `next/head`, which the build cannot follow	pages 2	notes 2
+with-next-seo	refused: routes/page.js:7:7: `NextSeo` comes from `next-seo`, which the build cannot follow	pages 2	notes 1
+with-next-sitemap	refused: routes/[dynamic]/page.loader.ts:10:15: a call to `Array`, which the build cannot follow	pages 2	notes 0
+with-next-translate	client: routes/[lang]/page.island0.tsx:6:23 `useTranslation`, a hook the build cannot follow | routes/layout.js:9:23 `useTranslation`, a hook the build cannot follow	pages 1	notes 0
+with-next-ui	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 2
+with-nhost-auth-realtime-graphql	refused: src/utils/nhost.js:3:22: a call to `createClient`, which the build cannot follow	pages 3	notes 3
+with-opentelemetry	refused: routes/page.tsx:3:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 0
+with-orbit-components	refused: routes/layout.tsx:11:15: a call to `Inter`, which the build cannot follow	pages 1	notes 1
+with-overmind	refused: routes/layout.js: no exported `default`	pages 2	notes 1
+with-oxlint	lowered	pages 1	notes 0
+with-particles	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
+with-passport	client: src/components/layout.js:6:5 `Head` comes from `next/head`, which the build cannot follow | src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot follow	pages 4	notes 5
+with-passport-and-next-connect	client: routes/page.js:6:36 `useSWR`, a hook the build cannot follow | src/lib/hooks.jsx:6:39 `useSWR`, a hook the build cannot follow	pages 4	notes 6
+with-paste-typescript	refused: routes/page.tsx:13:7: `Head` comes from `next/head`, which the build cannot follow	pages 1	notes 1
+with-plausible	client: routes/contact/page.island0.tsx:6:21 `usePlausible`, a hook the build cannot follow | src/_components/Header.tsx:9:13 `Link` comes from `next/link`, which the build cannot follow	pages 3	notes 2
+with-playwright	client: routes/about/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow | routes/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow	pages 2	notes 0
+with-polyfills	lowered	pages 1	notes 0
+with-portals	client: src/components/ClientOnlyPortal.js:13:20 a call to `createPortal`, which the build cannot follow	pages 1	notes 1
+with-portals-ssr	client: routes/page.island0.tsx:11:7 `UniversalPortal` comes from `@jesstelford/react-portal-universal`, which the build cannot follow	pages 1	notes 2
+with-postgres	no application
+with-prefetching	client: src/components/Nav.tsx:5:18 `useRouter`, a hook the build cannot follow	pages 4	notes 1
+with-quill-js	refused: routes/page.js: no exported `QuillNoSSRWrapper`	pages 1	notes 1
+with-rbx-bulma-pro	refused: routes/page.js:12:15: `Title` comes from `rbx`, which the build cannot follow	pages 3	notes 1
+with-react-bootstrap	refused: routes/page.jsx:7:7: `Head` comes from `next/head`, which the build cannot follow	pages 1	notes 1
+with-react-ga4	client: routes/layout.js:6:18 `useRouter`, a hook the build cannot follow | routes/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow	pages 2	notes 1
+with-react-hook-form	client: src/styles/login.module.css 1:1: Expression expected	pages 1	notes 2
+with-react-intl	refused: routes/page.loader.ts:5:3: `defaultLocale` is not a field of the context	pages 2	notes 1
+with-react-md-typescript	refused: routes/page.tsx:7:7: `Text` comes from `react-md`, which the build cannot follow	pages 2	notes 1
+with-react-multi-carousel	refused: routes/page.tsx:30:7: `Image` comes from `next/image`, which the build cannot follow	pages 1	notes 0
+with-react-native-web	refused: routes/page.js:3:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 2	notes 2
+with-react-toolbox	refused: routes/page.js:13:29: `theme` comes from `../src/theme`, which the build cannot follow	pages 1	notes 0
+with-reactstrap	refused: routes/page.jsx:16:7: `Head` comes from `next/head`, which the build cannot follow	pages 1	notes 1
+with-realm-web	refused: routes/page.js: 22:25: Expression expected	pages 1	notes 1
+with-rebass	refused: routes/page.js:15:9: `children` as a prop; pass them between the tags	pages 1	notes 0
+with-redis	refused: routes/page.tsx:61:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 2
+with-redux	refused: routes/api/counter/route.ts:9:42: `ctx` as a value; read one of its fields	pages 3	notes 0
+with-reflexjs	client: routes/layout.island0.tsx:6:5 `ThemeProvider` comes from `reflexjs`, which the build cannot follow | routes/layout.tsx:6:5 `ThemeProvider` comes from `reflexjs`, which the build cannot follow	pages 1	notes 2
+with-reflux	refused: routes/page.js: no exported `default`	pages 1	notes 0
+with-relay-modern	refused: src/lib/relay.js:32:23: `relayEnvironment` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 2
+with-rematch	refused: src/shared/store.js:23:16: `store` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 1
+with-route-as-modal	refused: routes/article/[articleId]/page.loader.ts:3:32: a nested destructuring of the context	pages 3	notes 1
+with-rspack	lowered	pages 1	notes 0
+with-sass	refused: src/components/hello-world.module.scss: 3:1: Expression expected	pages 1	notes 0
+with-segment-analytics	refused: routes/layout.tsx:5:15: a call to `Inter`, which the build cannot follow	pages 3	notes 1
+with-segment-analytics-pages-router	refused: routes/layout.tsx:5:15: a call to `Inter`, which the build cannot follow	pages 3	notes 2
+with-sentry	refused: routes/ssr/test1/page.loader.ts:2:3: `throw`, and a body has no exceptions	pages 10	notes 8
+with-service-worker	lowered	pages 1	notes 0
+with-sfcc	refused: src/sfcc.js:9:17: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 4
+with-shallow-routing	refused: routes/page.loader.ts:4:3: `++` or `--`, which mutate	pages 2	notes 0
+with-sitemap	lowered	pages 2	notes 2
+with-slate	refused: routes/api/editor-state/route.ts:2:29: `ctx` as a value; read one of its fields	pages 1	notes 0
+with-static-export	client: routes/about/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow | routes/page.island0.tsx:5:5 `Link` comes from `next/link`, which the build cannot follow	pages 2	notes 0
+with-stencil	unmigrated: not a Next.js application	pages 0	notes 1
+with-stitches	refused: routes/page.tsx: no exported `Text`	pages 1	notes 1
+with-storybook	refused: routes/layout.tsx:5:15: a call to `Inter`, which the build cannot follow	pages 2	notes 0
+with-strict-csp	refused: routes/page.js:4:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 1
+with-stripe-typescript	refused: routes/api/webhooks/route.ts:8:7: a declaration without a value	pages 7	notes 1
+with-styled-components	refused: routes/_components/globalstyles.tsx: no exported `default`	pages 2	notes 0
+with-styled-jsx	client: routes/registry.tsx:14:45 a call to `createStyleRegistry`, which the build cannot follow	pages 1	notes 0
+with-supabase	refused: routes/auth/confirm/route.ts:7:36: `url` is not a field of the context	pages 8	notes 2
+with-temporal	client: routes/about/page.island0.tsx:7:5 `Link` comes from `next/link`, which the build cannot follow | src/components/Layout.tsx:12:5 `Head` comes from `next/head`, which the build cannot follow	pages 2	notes 1
+with-three-js	refused: routes/page.tsx:6:7: `Link` comes from `next/link`, which the build cannot follow	pages 3	notes 0
+with-turbopack	client: routes/page.island0.tsx:4:3 a call for its effect, which a straight-line body cannot hold	pages 1	notes 0
+with-turbopack-loaders	client: routes/page.island0.tsx:6:5 `Vercel` is not a component this file declares or imports	pages 1	notes 0
+with-turso	refused: routes/layout.tsx:5:15: a call to `Inter`, which the build cannot follow	pages 1	notes 2
+with-typescript	refused: routes/users/[id]/page.loader.ts:16:3: `try`, and a body has no exceptions	pages 4	notes 2
+with-typescript-graphql	refused: src/lib/apollo.ts:51:25: `apolloClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 2
+with-typescript-types	lowered	pages 1	notes 0
+with-unsplash	refused: routes/page.tsx:10:7: `Head` comes from `next/head`, which the build cannot follow	pages 2	notes 10
+with-urql	refused: routes/page.tsx:10:16: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 2	notes 0
+with-userbase	lowered	pages 1	notes 3
+with-vanilla-extract	refused: <app>/routes: `page.css.ts` names slot `css`, which no layout above it declares	pages 2	notes 0
+with-vercel-blob	refused: src/utils/cachedImages.ts:5:5: `cached`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 4
+with-videojs	lowered	pages 1	notes 0
+with-vitest	lowered	pages 2	notes 0
+with-web-worker	lowered	pages 1	notes 0
+with-webassembly	refused: routes/api/edge/route.ts:5:17: `WebAssembly` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 0
+with-xata	refused: src/utils/xata.codegen.ts:35:5: `instance`, a module-level `let` a function writes; a body reads module state through the store	pages 1	notes 3
+with-xstate	client: routes/_components/Counter.tsx:6:25 `useMachine`, a hook the build cannot follow | routes/_components/Toggle.tsx:6:25 `useMachine`, a hook the build cannot follow	pages 1	notes 0
+with-yarn-workspaces	unmigrated: not a Next.js application	pages 0	notes 1
+with-yoga	refused: routes/page.tsx:6:7: `Text` comes from `@gympass/yoga`, which the build cannot follow	pages 1	notes 1
+with-youtube-embed	client: routes/page.island0.tsx:5:5 `YouTubeEmbed` comes from `@next/third-parties/google`, which the build cannot follow	pages 1	notes 0
+with-zones	unmigrated: not a Next.js application	pages 0	notes 1
+with-zustand	client: src/lib/StoreProvider.tsx:17:5 a write to `storeRef`, which this body did not declare | src/lib/store.ts:34:10 a call to `useZustandStore`, which the build cannot follow	pages 1	notes 0
