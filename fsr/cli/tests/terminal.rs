@@ -79,9 +79,9 @@ fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state()
 
 #[test]
 fn a_component_that_would_render_in_a_browser_refuses_the_page_naming_it() {
-  let page = "import { Box, Text } from \"ink\";\nimport { useBoxMetrics } from \"ink\";\n\nfunction Item() {\n  const { width } = useBoxMetrics();\n  return <Text>{width}</Text>;\n}\n\nexport default function Page() {\n  return <Box><Item /></Box>;\n}\n";
+  let page = "import { Box, Text } from \"ink\";\nimport { measureElement } from \"ink\";\n\nfunction Item() {\n  const { width } = measureElement(null);\n  return <Text>{width}</Text>;\n}\n\nexport default function Page() {\n  return <Box><Item /></Box>;\n}\n";
   let why = Session::open(&app(page)).err().expect("refused");
-  assert!(why.contains("Item") && why.contains("useBoxMetrics"), "{why}");
+  assert!(why.contains("Item") && why.contains("measureElement"), "{why}");
 }
 
 #[test]

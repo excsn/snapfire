@@ -49,10 +49,6 @@ pub fn act_ref(expr: &snapfire_fsr_ir::Expr) -> Option<String> {
 /// The key a process a block spawned is held under, `{ "$process": id }`, the id its [`Act::Spawn`] and its listeners name.
 pub const PROCESS: &str = "$process";
 
-/// The body `let` that emits a value of `kind`.
-pub fn emit(kind: &str) -> String {
-  format!("{}{kind}", snapfire_fsr_ir::render::EMIT_PREFIX)
-}
 
 /// What a terminal runs a handler on, the event its `Handler::event` names.
 #[derive(Debug, Clone, PartialEq, Eq)]

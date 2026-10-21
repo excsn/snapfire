@@ -1198,7 +1198,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0 };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -3618,6 +3618,9 @@ pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target
 /// The globals only a browser holds.
 const BROWSER_GLOBALS: [&str; 7] = ["document", "window", "navigator", "location", "history", "localStorage", "sessionStorage"];
 
+/// Where the ids a terminal component's inlined hooks take start, past any its hoisting candidates number.
+const HOOK_IDS: u32 = 1 << 20;
+
 /// The residue of a handler that sets no state and calls no action.
 const NO_EFFECT: &str = "a handler that sets no state and calls no action";
 
@@ -5474,6 +5477,8 @@ struct ComponentLowerer<'a, 'p> {
   stable_callbacks: Vec<String>,
   /// While a terminal effect lowers, each process it spawns: the local holding it and the id its handlers are named by.
   spawns: Vec<(String, String)>,
+  /// How many ids the custom hooks a terminal component inlines have taken with `useId`.
+  hook_ids: u32,
 }
 
 /// Where the browser gets a function passed as a prop: the placement and prop it went to, the value the server holds and the module id `file#export` the browser imports it from or else why the browser cannot reach it. `needs` is what the rewrite and the bundle add for the id to resolve.
@@ -6491,24 +6496,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if let Some(("useAnimation", call)) = library_hook(&self.meanings(), init) {
       return self.animation_hook(call, &decl.name, decl.span).map(Some);
     }
-    if let Some((hook @ ("useFocus" | "useFocusManager"), call)) = library_hook(&self.meanings(), init) {
-      return self.focus_hook(hook, call, &decl.name, decl.span);
-    }
-    if let Some(("useBoxMetrics", call)) = library_hook(&self.meanings(), init) {
-      let Some(target) = call.args.first() else { return Err(self.lowerer.residue(decl.span, "`useBoxMetrics` without a ref")) };
-      let id = Expr::Field(Box::new(self.lowerer.expr(&target.expr)?), crate::REF_ID.to_owned());
-      let measured = Expr::Index(Box::new(Expr::Store(crate::TERMINAL_METRICS.to_owned())), Box::new(id));
-      let mut unmeasured: Vec<Entry> = ["width", "height", "left", "top", "clientWidth", "clientHeight"].iter().map(|key| Entry::Field((*key).to_owned(), Expr::Lit(Lit::Int(0)))).collect();
-      unmeasured.push(Entry::Field("hasMeasured".to_owned(), Expr::Lit(Lit::Bool(false))));
-      let found = Expr::Object(vec![Entry::Spread(measured.clone()), Entry::Field("hasMeasured".to_owned(), Expr::Lit(Lit::Bool(true)))]);
-      let metrics = Expr::Ternary(Box::new(Expr::Compare(CompareOp::Ne, Box::new(measured), Box::new(Expr::Lit(Lit::Null)))), Box::new(found), Box::new(Expr::Object(unmeasured)));
-      bind_pattern(&mut self.lowerer, &decl.name, metrics)?;
-      return Ok(None);
-    }
-    if let Some((hook @ ("useWindowSize" | "useStdout" | "useStderr" | "useIsScreenReaderEnabled"), _)) = library_hook(&self.meanings(), init) {
-      self.terminal_hook(hook, &decl.name, decl.span)?;
-      return Ok(None);
-    }
     match &decl.name {
       js::Pat::Ident(name) => {
         let local = name.id.sym.to_string();
@@ -6568,6 +6555,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             let range = self.lowerer.parsed.range(call.span);
             match &mut self.lowerer.hoisting {
               Some(candidates) => candidates.id(range),
+              // A terminal page has no browser copy whose ids must match, so a hook's own id is the component's to number.
+              None if self.lowerer.terminal => {
+                self.hook_ids += 1;
+                Expr::HoistId(HOOK_IDS + self.hook_ids)
+              }
               None => return Err(self.lowerer.residue_with(decl.span, "`useId` inside a custom hook", "the id is keyed by the component that calls the hook; call `useId` there and pass the id in")),
             }
           }
@@ -7705,128 +7697,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Stmt::Let { name: state, expr: Expr::Lit(Lit::Int(0)) })
   }
 
-  /// Ink's hooks that read the terminal: `useWindowSize`'s `columns` and `rows`
-  /// and `useStdout().stdout` read the size the terminal stores; `write` from
-  /// `useStdout` or `useStderr` is an action the terminal prints;
-  /// `useIsScreenReaderEnabled` is `false`.
-  fn terminal_hook(&mut self, hook: &str, pattern: &js::Pat, span: Span) -> Lowered<()> {
-    let size = || Expr::Object(vec![Entry::Field("columns".to_owned(), Expr::Store(crate::TERMINAL_COLUMNS.to_owned())), Entry::Field("rows".to_owned(), Expr::Store(crate::TERMINAL_ROWS.to_owned()))]);
-    if hook == "useIsScreenReaderEnabled" {
-      let js::Pat::Ident(local) = pattern else { return Err(self.lowerer.residue(span, "`useIsScreenReaderEnabled` bound to a pattern")) };
-      self.lowerer.scope.push((local.id.sym.to_string(), Expr::Lit(Lit::Bool(false))));
-      return Ok(());
-    }
-    if let (js::Pat::Ident(local), "useWindowSize") = (pattern, hook) {
-      self.lowerer.scope.push((local.id.sym.to_string(), size()));
-      return Ok(());
-    }
-    let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, format!("`{hook}` bound to one name; destructure what it gives"))) };
-    for prop in &object.props {
-      let (key, local) = match prop {
-        js::ObjectPatProp::Assign(assign) => (assign.key.sym.to_string(), assign.key.sym.to_string()),
-        js::ObjectPatProp::KeyValue(kv) => {
-          let (js::PropName::Ident(key), js::Pat::Ident(local)) = (&kv.key, &*kv.value) else { return Err(self.lowerer.residue(span, format!("a pattern from `{hook}`"))) };
-          (key.sym.to_string(), local.id.sym.to_string())
-        }
-        js::ObjectPatProp::Rest(_) => return Err(self.lowerer.residue(span, format!("a rest pattern from `{hook}`"))),
-      };
-      match (hook, key.as_str()) {
-        ("useWindowSize", "columns") => self.lowerer.scope.push((local, Expr::Store(crate::TERMINAL_COLUMNS.to_owned()))),
-        ("useWindowSize", "rows") => self.lowerer.scope.push((local, Expr::Store(crate::TERMINAL_ROWS.to_owned()))),
-        ("useStdout", "stdout") | ("useStderr", "stderr") => self.lowerer.scope.push((local, size())),
-        ("useStdout", "write") => {
-          self.writers.push((local.clone(), crate::terminal::Act::Stdout.name()));
-          self.browser_function(local);
-        }
-        ("useStderr", "write") => {
-          self.writers.push((local.clone(), crate::terminal::Act::Stderr.name()));
-          self.browser_function(local);
-        }
-        _ => return Err(self.lowerer.residue(span, format!("`{key}` from `{hook}`"))),
-      }
-    }
-    Ok(())
-  }
-
-  /// Ink's `useFocus({ id, autoFocus, isActive })` and `useFocusManager()`:
-  /// `isFocused` compares the focused id the terminal sets in the store with
-  /// the component's, the one given or its own, and each `focus` function is
-  /// an act the terminal runs. `useFocus` binds the component's focusable, so
-  /// the terminal finds them in render order.
-  fn focus_hook(&mut self, hook: &str, call: &'p js::CallExpr, pattern: &js::Pat, span: Span) -> Lowered<Option<Stmt>> {
-    let focused = Expr::Store(crate::TERMINAL_FOCUS.to_owned());
-    let (mut id, mut auto, mut active) = (None, Expr::Lit(Lit::Bool(false)), Expr::Lit(Lit::Bool(true)));
-    if let (Some(options), "useFocus") = (call.args.first(), hook) {
-      let js::Expr::Object(object) = &*options.expr else { return Err(self.lowerer.residue(span, "`useFocus` options that are not an object written out")) };
-      for prop in &object.props {
-        let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(span, "a spread in `useFocus`'s options")) };
-        let (key, value) = match &**prop {
-          js::Prop::KeyValue(kv) => match &kv.key {
-            js::PropName::Ident(key) => (key.sym.to_string(), self.lowerer.expr(&kv.value)?),
-            _ => return Err(self.lowerer.residue(span, "a `useFocus` option named by an expression")),
-          },
-          js::Prop::Shorthand(name) => (name.sym.to_string(), self.lowerer.expr(&js::Expr::Ident(name.clone()))?),
-          _ => return Err(self.lowerer.residue(span, "a `useFocus` option that is not `key: value`")),
-        };
-        match key.as_str() {
-          "id" => id = Some(value),
-          "autoFocus" => auto = value,
-          "isActive" => active = value,
-          other => return Err(self.lowerer.residue(span, format!("`{other}` in `useFocus`'s options"))),
-        }
-      }
-    }
-    let id = match hook {
-      "useFocus" => {
-        let range = self.lowerer.parsed.range(call.span);
-        let own = match &mut self.lowerer.hoisting {
-          Some(candidates) => candidates.id(range),
-          None => return Err(self.lowerer.residue_with(span, "`useFocus` inside a custom hook", "the focus id is keyed by the component that calls the hook; call `useFocus` there")),
-        };
-        match id {
-          Some(given) => Expr::Coalesce(Box::new(given), Box::new(own)),
-          None => own,
-        }
-      }
-      _ => Expr::Lit(Lit::Null),
-    };
-    let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, format!("`{hook}` bound to one name; destructure what it gives"))) };
-    for prop in &object.props {
-      let (key, local) = match prop {
-        js::ObjectPatProp::Assign(assign) => (assign.key.sym.to_string(), assign.key.sym.to_string()),
-        js::ObjectPatProp::KeyValue(kv) => {
-          let (js::PropName::Ident(key), js::Pat::Ident(local)) = (&kv.key, &*kv.value) else { return Err(self.lowerer.residue(span, format!("a pattern from `{hook}`"))) };
-          (key.sym.to_string(), local.id.sym.to_string())
-        }
-        js::ObjectPatProp::Rest(_) => return Err(self.lowerer.residue(span, format!("a rest pattern from `{hook}`"))),
-      };
-      let act = match (hook, key.as_str()) {
-        ("useFocus", "isFocused") => {
-          self.lowerer.scope.push((local, Expr::Compare(CompareOp::Eq, Box::new(focused.clone()), Box::new(id.clone()))));
-          continue;
-        }
-        ("useFocusManager", "activeId") => {
-          self.lowerer.scope.push((local, focused.clone()));
-          continue;
-        }
-        (_, "focus") => crate::terminal::Act::Focus.name(),
-        ("useFocusManager", "focusNext") => crate::terminal::Act::FocusNext.name(),
-        ("useFocusManager", "focusPrevious") => crate::terminal::Act::FocusPrevious.name(),
-        ("useFocusManager", "enableFocus") => crate::terminal::Act::FocusEnable.name(),
-        ("useFocusManager", "disableFocus") => crate::terminal::Act::FocusDisable.name(),
-        _ => return Err(self.lowerer.residue(span, format!("`{key}` from `{hook}`"))),
-      };
-      self.writers.push((local.clone(), act));
-      self.browser_function(local);
-    }
-    if hook == "useFocusManager" {
-      return Ok(None);
-    }
-    self.state.push(crate::terminal::emit(crate::terminal::FOCUSABLE));
-    let focusable = Expr::Object(vec![Entry::Field("id".to_owned(), id), Entry::Field("autoFocus".to_owned(), auto), Entry::Field("isActive".to_owned(), active)]);
-    Ok(Some(Stmt::Let { name: crate::terminal::emit(crate::terminal::FOCUSABLE), expr: focusable }))
-  }
-
   /// The timers a mount effect starts, `useEffect(() => { setInterval(f, ms) }, [])`,
   /// each lowered as a handler named `interval:<ms>` or `timeout:<ms>`, which a
   /// terminal runtime schedules. An effect with dependencies that change, a
@@ -8016,7 +7886,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       values.push(Entry::Item(self.lowerer.expr(&dep.expr)?));
     }
     let emitted = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("deps".to_owned(), Expr::Array(values))]);
-    self.pending_lets.push(Stmt::Let { name: crate::terminal::emit(crate::terminal::EFFECT), expr: emitted });
+    let held = self.lowerer.temp();
+    self.pending_lets.push(Stmt::Let { name: held, expr: Expr::Builtin { name: Builtin::Emit, args: vec![Expr::lit_str(crate::terminal::EFFECT), emitted] } });
     Ok(())
   }
 

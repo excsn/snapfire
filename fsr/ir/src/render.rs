@@ -238,7 +238,7 @@ pub struct Stepped {
   pub acts: Vec<(String, Value)>,
   /// Each component the render entered, by the path a `HandlerRef` addresses it with and its module, root first.
   pub components: Vec<(String, String)>,
-  /// Each value a body handed its host with an [`EMIT_PREFIX`] `let`, in render order.
+  /// Each value the render and the handler handed the host with `Builtin::Emit`, in the order they did.
   pub emitted: Vec<Emitted>,
   /// Each module cell's value as the step left it, by key.
   pub cells: ValueMap,
@@ -350,9 +350,6 @@ pub const HOLD_PREFIX: &str = "$hold:";
 /// The prop a host passes a step the module cells' values in, by key, as the last step left them; a step's [`Stepped::cells`] is what it leaves them at. A terminal keeps module state this way, so a write to a module-level `let` lasts from one step to the next as it does in JavaScript.
 pub const CELLS_PROP: &str = "$cells";
 
-/// The start of a body `let` whose value the step hands its host: the prefix, then the kind, which the host reads it by. The renderer gives it no meaning of its own; a terminal reads a focusable and a cursor this way.
-pub const EMIT_PREFIX: &str = "$emit:";
-
 /// A value a body handed its host: the path of the component that emitted it, as a `HandlerRef` addresses it, its kind and the value.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Emitted {
@@ -379,8 +376,6 @@ enum Directive<'n> {
   Rerun(&'n str),
   /// [`HOLD_PREFIX`] and the state binding's name.
   Hold(&'n str),
-  /// [`EMIT_PREFIX`] and the kind.
-  Emit(&'n str),
 }
 
 fn directive(name: &str) -> Option<Directive<'_>> {
@@ -390,7 +385,7 @@ fn directive(name: &str) -> Option<Directive<'_>> {
   if let Some(state) = name.strip_prefix(HOLD_PREFIX) {
     return Some(Directive::Hold(state));
   }
-  name.strip_prefix(EMIT_PREFIX).map(Directive::Emit)
+  None
 }
 
 /// How many passes a body may take, React's limit for a component that keeps setting its own state while rendering.
@@ -840,11 +835,9 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
 /// Binds the body's `let`s, running it again while a pass asks for new state (`RERUN_PREFIX`). Its own function so the passes' locals are off the stack while the tree renders.
 fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out: &mut Out) -> Result<(), Fail> {
   let mut next: Vec<(String, Value)> = Vec::new();
-  let mut emitted = Vec::new();
   let issued = env.emitted.len();
   for pass in 1.. {
     let mut asked = false;
-    emitted.clear();
     env.emitted.truncate(issued);
     for stmt in &component.body {
       let Stmt::Let { name, expr } = stmt else {
@@ -867,7 +860,7 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
           }
           continue;
         }
-        Some(Directive::Emit(_)) | None => {}
+        None => {}
       }
       let held_here = component.state.contains(name) && component.store_key(name).is_none();
       let value = match next.iter().find(|(n, _)| n == name) {
@@ -880,13 +873,9 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
       if held_here {
         out.state.insert(state_key(path, name), value.clone());
       }
-      if let (Some(Directive::Emit(kind)), true) = (directive(name), env.server_mode) {
-        emitted.push(Emitted { path: path.to_owned(), kind: kind.to_owned(), value: value.clone() });
-      }
       env.scope.push((name.clone(), value));
     }
     if !asked {
-      env.emitted.append(&mut emitted);
       break;
     }
     if pass == RERUN_LIMIT {

@@ -2,6 +2,7 @@
 // build reads this file wherever a page imports a name it exports from `ink`
 // or `@snapfire/fsr/terminal`; every other name comes from the primitives.
 
+import { useId } from "react";
 import { action } from "@snapfire/fsr-client";
 import { useStore } from "@snapfire/fsr-client/react";
 import { emit } from "@snapfire/fsr/terminal/core";
@@ -51,4 +52,22 @@ function setCursorPosition(position: { x: number; y: number } | undefined) {
 /** Ink's cursor control. */
 export function useCursor() {
   return { setCursorPosition };
+}
+
+/** Makes the component focusable: its id, the one given or its own, is handed to the terminal, which moves the focus through them in render order; `isFocused` compares it with the focused id the terminal keeps in the store. */
+export function useFocus(options: { id?: string; autoFocus?: boolean; isActive?: boolean } = {}) {
+  const own = useId();
+  const id = options.id ?? own;
+  emit("focusable", { id, autoFocus: options.autoFocus ?? false, isActive: options.isActive ?? true });
+  const [focused] = useStore("$terminal.focus", null);
+  return { isFocused: focused === id, focus: action("$focus") };
+}
+
+const unmeasured = { width: 0, height: 0, left: 0, top: 0, clientWidth: 0, clientHeight: 0, hasMeasured: false };
+
+/** The layout of the Box `ref` is on, as the terminal measured it after its last layout, by the id a terminal `useRef` holds; zeros until it is measured. */
+export function useBoxMetrics(ref: { $id?: string }) {
+  const [measured] = useStore("$terminal.metrics", {});
+  const found = measured[ref.$id];
+  return found ? { ...found, hasMeasured: true } : unmeasured;
 }
