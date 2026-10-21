@@ -6798,6 +6798,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut select_value = None;
     let mut bound = false;
     let mut escaped_asset: Option<String> = None;
+    let (mut text_value, mut text_default) = (None, None);
     for attr in &el.opening.attrs {
       let attr = match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) => attr,
@@ -6858,6 +6859,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         "dangerouslySetInnerHTML" => attrs.push(Entry::Field(RAW_ATTR.to_owned(), inner_html(value))),
         "style" => attrs.push(Entry::Field("style".to_owned(), self.style(attr)?)),
         "value" | "defaultValue" if name == "select" => select_value = Some(value),
+        "value" if name == "textarea" => text_value = Some(value),
+        "defaultValue" if name == "textarea" => text_default = Some(value),
         "value" if name == "option" => {
           attrs.push(Entry::Field("value".to_owned(), value.clone()));
           if let Some(selected) = &self.select_value {
@@ -6882,6 +6885,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut children = children?;
     if children.is_empty() && self.spreads_props(&el.opening.attrs) {
       children.push(self.slot("content"));
+    }
+    let text = match (text_value, text_default) {
+      (Some(value), Some(default)) => Some(Expr::Coalesce(Box::new(value), Box::new(default))),
+      (value, default) => value.or(default),
+    };
+    if let Some(text) = text.filter(|_| children.is_empty()) {
+      children.push(Tmpl::Expr(text));
     }
     if bound {
       attrs.push(Entry::Field(hoist::BOUND_ATTR.to_owned(), Expr::Lit(Lit::Bool(true))));
