@@ -292,17 +292,22 @@ fn lift_route(path: &str, text: &str, parsed: &Parsed, function: &js::Function, 
     report.note(path, line, "the async component does not end in a `return`, so what it awaits was left in it");
     return None;
   }
+  let props = match function.params.first().map(|p| &p.pat) {
+    Some(js::Pat::Ident(i)) => Some(i.id.sym.to_string()),
+    _ => None,
+  };
   let mut moved: Vec<&js::Stmt> = Vec::new();
   let mut kept: Vec<&js::Stmt> = Vec::new();
-  let mut kept_binds: BTreeSet<String> = BTreeSet::new();
+  let mut kept_binds: BTreeSet<String> = props.iter().cloned().collect();
   for stmt in before {
     let h = holds(stmt);
     if h.returns {
       report.note(path, parsed.line(stmt.span()), "the async component returns early, so what it awaits was left in it");
       return None;
     }
-    let r = reads(stmt);
-    if h.jsx || r.iter().any(|n| kept_binds.contains(n)) {
+    let mut r = RequestReads { props: props.clone(), names: BTreeSet::new() };
+    stmt.visit_with(&mut r);
+    if h.jsx || r.names.iter().any(|n| kept_binds.contains(n)) {
       kept_binds.extend(binds(stmt));
       kept.push(stmt);
     } else {
@@ -328,6 +333,9 @@ fn lift_route(path: &str, text: &str, parsed: &Parsed, function: &js::Function, 
   let mut moved_reads: BTreeSet<String> = BTreeSet::new();
   for stmt in &moved {
     moved_reads.extend(reads(*stmt));
+    let mut r = RequestReads { props: props.clone(), names: BTreeSet::new() };
+    stmt.visit_with(&mut r);
+    moved_reads.extend(r.names);
   }
   let reads_params = moved_reads.contains("params") || later_reads.contains("params");
   let reads_query = moved_reads.contains("searchParams") || later_reads.contains("searchParams");
@@ -339,9 +347,12 @@ fn lift_route(path: &str, text: &str, parsed: &Parsed, function: &js::Function, 
   let mut fails = false;
   let mut statements = String::new();
   for stmt in &moved {
+    if binds_request_params(stmt, props.as_deref()) {
+      continue;
+    }
     let range = parsed.range(stmt.span());
     let mut edits = Edits::default();
-    let mut found = ContextUses { found: Vec::new() };
+    let mut found = ContextUses { props: props.clone(), found: Vec::new() };
     stmt.visit_with(&mut found);
     for (span, with) in found.found {
       if with.starts_with("fail(") {
@@ -358,7 +369,7 @@ fn lift_route(path: &str, text: &str, parsed: &Parsed, function: &js::Function, 
     statements.push('\n');
   }
   let mut fields: Vec<String> = returned.clone();
-  if later_reads.contains("params") {
+  if later_reads.contains("params") && !fields.iter().any(|f| f == "params") {
     fields.push("params".to_owned());
   }
   if later_reads.contains("searchParams") {
@@ -395,12 +406,20 @@ fn lift_route(path: &str, text: &str, parsed: &Parsed, function: &js::Function, 
   } else if let Some(at) = text[..parsed.range(function.span).start].rfind("async ") {
     page.replace(at..at + "async ".len(), "");
   }
-  let mut props: Vec<String> = fields.iter().map(|f| f.split(':').next().unwrap_or(f).trim().to_owned()).collect();
-  props.extend(param_names.iter().filter(|p| !["params", "searchParams"].contains(&p.as_str())).cloned());
-  let new_param = if props.is_empty() { String::new() } else { format!("{{ {} }}", props.join(", ")) };
-  match function.params.first() {
-    Some(param) => page.replace(parsed.range(param.span()), new_param),
-    None => {
+  let mut prop_names: Vec<String> = fields.iter().map(|f| f.split(':').next().unwrap_or(f).trim().to_owned()).collect();
+  prop_names.extend(param_names.iter().filter(|p| !["params", "searchParams"].contains(&p.as_str())).cloned());
+  let new_param = if prop_names.is_empty() { String::new() } else { format!("{{ {} }}", prop_names.join(", ")) };
+  match (function.params.first(), &props) {
+    (Some(param), Some(name)) => {
+      page.replace(parsed.range(param.span()), name.clone());
+      if let (Some(body), false) = (&function.body, fields.is_empty()) {
+        let open = parsed.range(body.span).start + 1;
+        let names: Vec<String> = fields.iter().map(|f| f.split(':').next().unwrap_or(f).trim().to_owned()).collect();
+        page.replace(open..open, format!("\n  const {{ {} }} = {name};", names.join(", ")));
+      }
+    }
+    (Some(param), None) => page.replace(parsed.range(param.span()), new_param),
+    (None, _) => {
       let open = text[parsed.range(function.span)].find('(').map(|i| parsed.range(function.span).start + i + 1);
       if let Some(open) = open {
         page.replace(open..open, new_param);
@@ -429,6 +448,22 @@ fn param_names(function: &js::Function) -> Vec<String> {
   out
 }
 
+/// `const params = await params` and `const params = props.params`: a
+/// binding the loader's own `params` already is.
+fn binds_request_params(stmt: &js::Stmt, props: Option<&str>) -> bool {
+  let js::Stmt::Decl(js::Decl::Var(v)) = stmt else { return false };
+  let [d] = v.decls.as_slice() else { return false };
+  let (js::Pat::Ident(name), Some(init)) = (&d.name, d.init.as_deref()) else { return false };
+  if &*name.id.sym != "params" {
+    return false;
+  }
+  let init = match init {
+    js::Expr::Await(a) => &*a.arg,
+    other => other,
+  };
+  matches!(init, js::Expr::Ident(i) if &*i.sym == "params") || request_field(props, init) == Some("params")
+}
+
 fn found_redirect(stmt: &js::Stmt) -> bool {
   let mut c = Calls { names: Vec::new() };
   stmt.visit_with(&mut c);
@@ -438,17 +473,75 @@ fn found_redirect(stmt: &js::Stmt) -> bool {
 /// Next's request reads, written as FSR's: `await params` as `params`,
 /// `searchParams` as `query` and `notFound()` as a failure.
 struct ContextUses {
+  /// The name the component binds its whole props to, when it does.
+  props: Option<String>,
   found: Vec<(Span, String)>,
+}
+
+impl ContextUses {
+  /// `params` or `query` for `props.params` or `props.searchParams`.
+  fn request_field(&self, e: &js::Expr) -> Option<&'static str> {
+    request_field(self.props.as_deref(), e)
+  }
+}
+
+fn request_field(props: Option<&str>, e: &js::Expr) -> Option<&'static str> {
+  let js::Expr::Member(m) = e else { return None };
+  let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) else { return None };
+  if Some(&*obj.sym) != props {
+    return None;
+  }
+  match &*prop.sym {
+    "params" => Some("params"),
+    "searchParams" => Some("query"),
+    _ => None,
+  }
+}
+
+/// The names a statement reads, `props.params` and `props.searchParams`
+/// counted as the request's `params` and `searchParams` rather than as a read
+/// of `props`.
+struct RequestReads {
+  props: Option<String>,
+  names: BTreeSet<String>,
+}
+
+impl Visit for RequestReads {
+  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
+    match request_field(self.props.as_deref(), &js::Expr::Member(n.clone())) {
+      Some("params") => {
+        self.names.insert("params".to_owned());
+      }
+      Some(_) => {
+        self.names.insert("searchParams".to_owned());
+      }
+      None => n.visit_children_with(self),
+    }
+  }
+
+  fn visit_ident(&mut self, n: &js::Ident) {
+    self.names.insert(n.sym.to_string());
+  }
 }
 
 impl Visit for ContextUses {
   fn visit_await_expr(&mut self, n: &js::AwaitExpr) {
+    if let Some(field) = self.request_field(&n.arg) {
+      return self.found.push((n.span, field.to_owned()));
+    }
     if let js::Expr::Ident(i) = &*n.arg {
       match &*i.sym {
         "params" => return self.found.push((n.span, "params".to_owned())),
         "searchParams" => return self.found.push((n.span, "query".to_owned())),
         _ => {}
       }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
+    if let Some(field) = request_field(self.props.as_deref(), &js::Expr::Member(n.clone())) {
+      return self.found.push((n.span, field.to_owned()));
     }
     n.visit_children_with(self);
   }
@@ -742,6 +835,22 @@ mod tests {
     assert_eq!(
       out.text("app/routes/page.tsx").unwrap(),
       "import { Product } from \"../src/components/Product\";\n\nexport default function Home({ products }) {\n  return (\n    <main>\n      {products.map((product) => (\n        <Product key={product.id} product={product} />\n      ))}\n    </main>\n  );\n}\n"
+    );
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_layout_taking_its_props_whole_reads_params_from_the_loader() {
+    let layout = "import { getDictionary } from \"../../src/dictionaries\";\n\nexport default async function Root(props: { params: Promise<{ lang: string }>; children: React.ReactNode }) {\n  const params = await props.params;\n  const { children } = props;\n  const dict = await getDictionary(params.lang);\n  return <div lang={params.lang}>{dict.title}{children}</div>;\n}\n";
+    let input = tree(&[("app/routes/[lang]/layout.tsx", layout), ("app/src/dictionaries.ts", "export async function getDictionary() {}\n")]);
+    let (out, report) = lift(&input);
+    assert_eq!(
+      out.text("app/routes/[lang]/layout.loader.ts").unwrap(),
+      "import { getDictionary } from \"../../src/dictionaries\";\n\nexport async function load({ params }) {\n  const dict = await getDictionary(params.lang);\n  return { params, dict };\n}\n"
+    );
+    assert_eq!(
+      out.text("app/routes/[lang]/layout.tsx").unwrap(),
+      "export default function Root(props) {\n  const { params, dict } = props;\n  const { children } = props;\n  return <div lang={params.lang}>{dict.title}{children}</div>;\n}\n"
     );
     assert!(report.notes.is_empty(), "{:?}", report.notes);
   }
