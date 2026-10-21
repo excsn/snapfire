@@ -1347,15 +1347,21 @@ export default function Menu() {
 
 `useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do. The default exports of `ms`, `strip-ansi`, `string-width` and `wrap-ansi` run natively, as do the same functions from `@snapfire/fsr/terminal`; `wrapAnsi` keeps escape codes where they stand rather than reopening a style on the next row. `getHours()`, the other local getters, `getTimezoneOffset()` and `toLocaleTimeString()` read this machine's time zone, since the machine running the page is the viewer; without a locale, `toLocaleTimeString()` takes the system's from `LC_ALL`, `LC_TIME` or `LANG`, as Node does. A Box's `width` and `height` may be a percentage of its parent, `width="50%"`.
 
-A mount effect may start a process with `spawn` from `node:child_process`. The terminal runs it with its output piped. Its listeners step the page as handlers do:
+An effect or a handler may start a process with `spawn` from `node:child_process`. The terminal runs it with its output piped. Its listeners step the page as handlers do and may call the component's setters. A local the listeners write keeps its value from one report to the next, and each run of the effect gets its own:
 
 ```tsx
 useEffect(() => {
-  const sub = spawn("git", ["log", "--oneline", "-5"]);
-  sub.stdout.on("data", (chunk: string) => setOutput((o) => o + chunk));
-  sub.on("exit", (code) => setCode(code));
+  let read = "";
+  const sub = spawn("git", ["log", "--oneline", "-5", branch]);
+  sub.stdout.on("data", (chunk: string) => {
+    read = read + chunk;
+  });
+  sub.on("exit", (code) => {
+    setOutput(read);
+    setCode(code);
+  });
   sub.on("error", (error) => setOutput(error.message));
-}, []);
+}, [branch]);
 ```
 
 `stdout` and `stderr` give `data`; the process gives `exit` and `close` with the code and signal. It gives `error` when it cannot start. The options read are `cwd`, `env` and `shell`.
@@ -1391,7 +1397,7 @@ export default function Page() {
 }
 ```
 
-An async function a handler calls where it is written may `await` inside a `try`, whose `catch` runs when the promise rejects. `useApp().suspendTerminal(fn)` gives up the screen while the promise `fn` returns is pending, so a process spawned with `stdio: "inherit"` can own the terminal. Once the promise settles it takes the screen back and redraws. `process.env.NAME` reads the environment:
+An async function, one a handler calls where it is written or an `async function` declared in the module, may `await` inside a `try`, whose `catch` runs when the promise rejects; what follows the `try` runs either way. An async function that returns a promise settles as that promise does. `useApp().suspendTerminal(fn)` gives up the screen while the promise `fn` returns is pending, so a process spawned with `stdio: "inherit"` can own the terminal. Once the promise settles it takes the screen back and redraws. `process.env.NAME` reads the environment:
 
 ```tsx
 const run = (command: string) =>
