@@ -381,3 +381,13 @@ fn a_handler_calling_an_imported_helper_that_sets_a_store_key_steps_the_page() {
   session.press(&key).unwrap();
   assert_eq!(line(session.press(&key).unwrap()), "4");
 }
+
+#[test]
+fn a_child_handler_calling_a_function_its_parent_passed_runs_the_parents_handler_in_the_same_step() {
+  let page = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Picker({ onPick }: { onPick: (n: number) => void }) {\n  useInput((input) => {\n    if (input >= \"0\" && input <= \"9\") onPick(Number(input));\n  });\n  return <Text>pick a digit</Text>;\n}\n\nexport default function Page() {\n  const [picked, setPicked] = useState(-1);\n  return (\n    <Box flexDirection=\"column\">\n      <Picker onPick={(n) => setPicked(n * 2)} />\n      <Text>picked {picked}</Text>\n    </Box>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE)) else { panic!("4 is input") };
+  let lines = |node| snapfire_fsr_terminal::render(&node, 30).lines().iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(lines(session.view().unwrap()), ["pick a digit", "picked -1"]);
+  assert_eq!(lines(session.press(&key).unwrap()), ["pick a digit", "picked 8"]);
+}

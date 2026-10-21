@@ -263,6 +263,7 @@ impl Interpreter {
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
+      handler_calls: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
       thrown: None,
       marks: Vec::new(),
@@ -346,6 +347,8 @@ pub(crate) struct Env {
   pub(crate) store: ValueMap,
   /// The store keys `WriteStore` wrote, which a step returns with its patch's.
   pub(crate) store_written: ValueMap,
+  /// The handlers a handler called through a reference, by token, each with what it was called with; the step runs them after it.
+  pub(crate) handler_calls: Vec<(String, Value)>,
   /// The store keys a deferred segment has yet to seed: an island reading one is held.
   pub(crate) pending: std::collections::BTreeSet<String>,
   clock: Arc<dyn Clock>,
@@ -652,6 +655,7 @@ impl Env {
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
+      handler_calls: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
       thrown: None,
       marks: Vec::new(),
@@ -874,6 +878,7 @@ impl Env {
       cells: None,
       module_cells: Vec::new(),
       store_written: ValueMap::default(),
+      handler_calls: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
       thrown: None,
       marks: Vec::new(),
@@ -1443,6 +1448,12 @@ impl Env {
   }
 
   pub(crate) fn apply_sync(&mut self, f: &Expr, args: Vec<Value>) -> Result<Value, Fail> {
+    if !matches!(f, Expr::Lambda { .. }) {
+      if let Some(token) = self.eval_sync(f).ok().as_ref().and_then(crate::render::handler_token) {
+        self.handler_calls.push((token.to_owned(), args.into_iter().next().unwrap_or(Value::Null)));
+        return Ok(Value::Null);
+      }
+    }
     let Expr::Lambda { params, body } = f else {
       let closure = match self.closure_of(f) {
         Ok(closure) => closure,

@@ -4570,6 +4570,11 @@ pub(crate) fn reach_under(outer: &Option<Expr>, cond: Expr) -> Expr {
 }
 
 /// Whether a handler's statements do something besides setting state: an act, or a write to a cell.
+/// Whether `expr` is a call of a function it holds as a value, a prop among them: a handler reference the parent passed runs that handler.
+fn calls_a_value(expr: &Expr) -> bool {
+  matches!(expr, Expr::Apply { f, .. } if !matches!(**f, Expr::Lambda { .. }))
+}
+
 /// Whether `expr` writes the store wherever it is evaluated.
 fn writes_store(expr: &Expr) -> bool {
   let mut found = false;
@@ -8523,7 +8528,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               return self.store_call(store_call, call, walk);
             }
             if let Ok(lowered) = self.lowerer.expr(e) {
-              if writes_store(&lowered) || (self.lowerer.terminal && !self.lowerer.cells.is_empty() && touches_cells(&lowered)) {
+              if writes_store(&lowered) || calls_a_value(&lowered) || (self.lowerer.terminal && !self.lowerer.cells.is_empty() && touches_cells(&lowered)) {
                 walk.effect(Stmt::Expr(lowered));
                 return Ok(());
               }

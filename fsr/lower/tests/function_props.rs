@@ -118,3 +118,18 @@ fn an_object_of_functions_in_a_component_body_is_a_table_of_handlers() {
   assert_eq!(table.len(), 2);
   assert!(table.iter().all(|entry| matches!(entry, snapfire_fsr_ir::ast::Entry::Field(_, snapfire_fsr_ir::Expr::Handler(_)))), "{table:?}");
 }
+
+#[test]
+fn a_childs_handler_calling_a_function_prop_its_parent_passed_runs_the_parents_handler_in_the_step() {
+  let page = "import { useState } from 'react';\n\nfunction Picker({ onPick }) {\n  return <button onClick={() => onPick(3)}>pick</button>;\n}\n\nexport default function Page() {\n  const [picked, setPicked] = useState(0);\n  return <div><Picker onPick={(n) => setPicked(picked + n)} /><p>{picked}</p></div>;\n}\n";
+  let out = lower("call_prop", &[("routes/page.tsx", page)]).unwrap();
+  let library: Components = out.set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(module, &library[module], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let (picker, _) = first.components.iter().find(|(_, m)| m == "routes/page.tsx#Picker").expect("the picker renders");
+  let picked = interpreter.island_step(module, &library[module], &ValueMap::default(), &first.state, Some(snapfire_fsr_ir::render::HandlerRef::at(picker.clone(), 0)), &Value::Null, &library).unwrap();
+  assert!(picked.rendered.html.contains("<p>3</p>"), "{}", picked.rendered.html);
+  let again = interpreter.island_step(module, &library[module], &ValueMap::default(), &picked.state, Some(snapfire_fsr_ir::render::HandlerRef::at(picker.clone(), 0)), &Value::Null, &library).unwrap();
+  assert!(again.rendered.html.contains("<p>6</p>"), "{}", again.rendered.html);
+}

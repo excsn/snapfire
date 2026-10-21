@@ -625,7 +625,14 @@ impl Interpreter {
     let mut state = state.clone();
     let mut written = ValueMap::default();
     env.emitted.clear();
-    if let Some(handler) = handler {
+    let mut queue: std::collections::VecDeque<(HandlerRef, Value)> = handler.map(|handler| (handler, event.clone())).into_iter().collect();
+    let mut runs = 0;
+    while let Some((handler, event)) = queue.pop_front() {
+      runs += 1;
+      if runs > HANDLER_CALLS {
+        return Err(Fail::internal(format!("handlers called one another more than {HANDLER_CALLS} times in one step")));
+      }
+      env.handler_calls.clear();
       let (target, own_props, path): (&Component, Option<ValueMap>, String) = if handler.path.is_empty() {
         (component, None, String::new())
       } else {
@@ -689,6 +696,7 @@ impl Interpreter {
           }
         }
       }
+      queue.extend(std::mem::take(&mut env.handler_calls).into_iter().filter_map(|(token, event)| handler_ref(&token).map(|handler| (handler, event))));
     }
     env.state = Some(state);
     if !written.is_empty() {
@@ -2796,6 +2804,16 @@ pub fn handler_value(path: &str, index: u32) -> Value {
   let token = if path.is_empty() { index.to_string() } else { format!("{path}/{index}") };
   Value::Variant { tag: HANDLER_VALUE.to_owned(), payload: Some(Box::new(Value::str(token))) }
 }
+
+/// The handler a reference's token names, `path/index` or `index` for the root; `None` for the browser's.
+pub fn handler_ref(token: &str) -> Option<HandlerRef> {
+  let (path, index) = token.rsplit_once('/').unwrap_or(("", token));
+  let index: u32 = index.parse().ok()?;
+  (index != BROWSER_HANDLER).then(|| HandlerRef::at(path, index as usize))
+}
+
+/// How many handlers one step runs, the one it was asked for and those it called through references, before it is taken for a loop.
+const HANDLER_CALLS: usize = 64;
 
 /// The token of a handler reference; `None` for any other value.
 pub fn handler_token(value: &Value) -> Option<&str> {
