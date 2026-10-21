@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use snapfire_fsr_cli::terminal::{key_event, Press, Session};
+use snapfire_fsr_cli::terminal::{key_event, Press, Report, Session};
 
 const INK_SOURCE: &str = "'../../src/index.js'";
 
@@ -102,10 +102,10 @@ fn outcome(example: &Path, scratch: &Path) -> String {
         let mut exit = snapfire_fsr_core::ValueMap::default();
         exit.insert("code".to_owned(), snapfire_fsr_core::Value::Int(0));
         exit.insert("signal".to_owned(), snapfire_fsr_core::Value::Null);
-        for (kind, event) in [("stdout", snapfire_fsr_core::Value::Str("output\n".into())), ("exit", snapfire_fsr_core::Value::Map(exit.clone())), ("close", snapfire_fsr_core::Value::Map(exit))] {
-          match session.deliver(&spawn, kind, &event) {
+        for (report, event) in [(Report::Stdout, snapfire_fsr_core::Value::Str("output\n".into())), (Report::Exit, snapfire_fsr_core::Value::Map(exit.clone())), (Report::Close, snapfire_fsr_core::Value::Map(exit))] {
+          match session.deliver(&spawn, report, &event) {
             Ok(node) => stepped = Some(node),
-            Err(why) => return first(format!("a process's {kind} step fails: {why}")),
+            Err(why) => return first(format!("a process's {} step fails: {why}", report.name())),
           }
         }
       }

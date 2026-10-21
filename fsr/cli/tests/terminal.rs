@@ -1,7 +1,7 @@
 //! `fsr dev --terminal`: the root page lowered, drawn and stepped by keys read the way Ink reads them.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use snapfire_fsr_cli::terminal::{key_event, Press, Session};
+use snapfire_fsr_cli::terminal::{key_event, Press, Report, Session};
 use snapfire_fsr_core::Value;
 
 const COUNTER: &str = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  useInput((input, key) => {\n    if (input === \"+\" || key.upArrow) setCount(count + 1);\n  });\n  return (\n    <Box borderStyle=\"round\" paddingX={1}>\n      <Text>Count: {count}</Text>\n    </Box>\n  );\n}\n";
@@ -231,12 +231,12 @@ fn a_spawned_process_is_handed_to_the_terminal_and_its_output_and_exit_step_the_
   assert_eq!(spawns.len(), 1);
   assert_eq!((spawns[0].command.as_str(), spawns[0].args.clone()), ("echo", vec!["hi".to_owned()]));
   assert!(session.take_spawns().is_empty(), "a process starts once");
-  assert_eq!(line(session.deliver(&spawns[0], "stdout", &Value::Str("hi".into())).unwrap()), "hi|-1");
+  assert_eq!(line(session.deliver(&spawns[0], Report::Stdout, &Value::Str("hi".into())).unwrap()), "hi|-1");
   let mut exit = snapfire_fsr_core::ValueMap::default();
   exit.insert("code".to_owned(), Value::Int(0));
   exit.insert("signal".to_owned(), Value::Null);
-  assert_eq!(line(session.deliver(&spawns[0], "exit", &Value::Map(exit)).unwrap()), "hi|0");
+  assert_eq!(line(session.deliver(&spawns[0], Report::Exit, &Value::Map(exit)).unwrap()), "hi|0");
   let mut failed = snapfire_fsr_core::ValueMap::default();
   failed.insert("message".to_owned(), Value::Str("spawn echo ENOENT".into()));
-  assert_eq!(line(session.deliver(&spawns[0], "error", &Value::Map(failed)).unwrap()), "spawn echo ENOENT|0");
+  assert_eq!(line(session.deliver(&spawns[0], Report::Error, &Value::Map(failed)).unwrap()), "spawn echo ENOENT|0");
 }

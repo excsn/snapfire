@@ -16,6 +16,8 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::render::{prepare, Components, HandlerRef};
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
+use snapfire_fsr_lower::terminal::{Act, Event as HandlerEvent};
+pub use snapfire_fsr_lower::terminal::Report;
 use snapfire_fsr_terminal::{from_markup, render, render_measured, Boxed, Color, Frame, Node, Text};
 
 use crate::BuildError;
@@ -42,7 +44,7 @@ const IDLE: Duration = Duration::from_millis(100);
 const RUNNING: Duration = Duration::from_millis(16);
 
 /// What a process the terminal started reports: the spawn, the kind [`Session::deliver`] takes and its event.
-type Reported = (Spawn, &'static str, Value);
+type Reported = (Spawn, Report, Value);
 
 /// The flags Ink's `useInput` hands a handler beside the input text.
 const KEYS: [&str; 14] = ["upArrow", "downArrow", "leftArrow", "rightArrow", "pageUp", "pageDown", "return", "escape", "ctrl", "shift", "tab", "backspace", "delete", "meta"];
@@ -135,7 +137,7 @@ pub struct Session {
   components: Vec<(String, String)>,
   focus: Focus,
   focusables_seen: Vec<Value>,
-  focus_acts: Vec<(String, Value)>,
+  focus_acts: Vec<(Act, Value)>,
   mounted: std::collections::HashSet<String>,
   started: Vec<Timer>,
   metrics: ValueMap,
@@ -194,20 +196,20 @@ impl Focus {
   }
 
   /// Runs one of the acts `useFocus` and `useFocusManager` lower their functions to; false for any other act.
-  fn act(&mut self, action: &str, input: &Value) -> bool {
-    match action {
-      "$focus" => {
+  fn act(&mut self, act: Act, input: &Value) -> bool {
+    match act {
+      Act::Focus => {
         if let Value::Str(id) = input {
           if self.focusables.iter().any(|f| f.id == **id) {
             self.focused = Some(id.to_string());
           }
         }
       }
-      "$focusNext" => self.step(false),
-      "$focusPrevious" => self.step(true),
-      "$focusEnable" => self.disabled = false,
-      "$focusDisable" => self.disabled = true,
-      _ => return false,
+      Act::FocusNext => self.step(false),
+      Act::FocusPrevious => self.step(true),
+      Act::FocusEnable => self.disabled = false,
+      Act::FocusDisable => self.disabled = true,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn => return false,
     }
     true
   }
@@ -243,7 +245,7 @@ impl Session {
         _ => {}
       }
     }
-    let heard: Vec<HandlerRef> = self.handlers().filter(|(_, _, event)| *event == "input").map(|(path, index, _)| HandlerRef::at(path, index)).collect();
+    let heard: Vec<HandlerRef> = self.handlers().filter(|(_, _, event)| HandlerEvent::parse(event) == Some(HandlerEvent::Input)).map(|(path, index, _)| HandlerRef::at(path, index)).collect();
     if heard.is_empty() {
       return self.run(None, &Value::Null);
     }
@@ -272,14 +274,10 @@ impl Session {
   pub fn timers(&self) -> Vec<Timer> {
     self
       .handlers()
-      .filter_map(|(path, handler, event)| {
-        let (kind, ms) = event.split_once(':')?;
-        let every = Duration::from_millis(ms.parse().ok()?);
-        match kind {
-          "interval" => Some(Timer { path, handler, every, repeats: true }),
-          "timeout" => Some(Timer { path, handler, every, repeats: false }),
-          _ => None,
-        }
+      .filter_map(|(path, handler, event)| match HandlerEvent::parse(&event)? {
+        HandlerEvent::Interval(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: true }),
+        HandlerEvent::Timeout(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: false }),
+        _ => None,
       })
       .collect()
   }
@@ -294,9 +292,9 @@ impl Session {
     std::mem::take(&mut self.spawns)
   }
 
-  /// The page after `spawn` reports `kind`: `stdout` or `stderr` with a chunk of text, `exit` or `close` with `{ code, signal }`, `error` with `{ message }`. As it stands when the page does not listen for it or the component that spawned it is gone.
-  pub fn deliver(&mut self, spawn: &Spawn, kind: &str, event: &Value) -> Result<Node, String> {
-    let event_name = format!("spawn:{}:{kind}", spawn.id);
+  /// The page after `spawn` reports `report` with `event`, as [`Report`] describes it. As it stands when the page does not listen for it or the component that spawned it is gone.
+  pub fn deliver(&mut self, spawn: &Spawn, report: Report, event: &Value) -> Result<Node, String> {
+    let event_name = HandlerEvent::Process { id: spawn.id.clone(), report }.name();
     let listener = self.handlers().find(|(path, _, event)| *path == spawn.path && *event == event_name).map(|(path, index, _)| HandlerRef::at(path, index));
     match listener {
       Some(handler) => self.run(Some(handler), event),
@@ -345,15 +343,11 @@ impl Session {
         self.mounted.insert(path.clone());
         let Some(component) = self.library.get(&module).cloned() else { continue };
         for (index, handler) in component.handlers.iter().enumerate() {
-          let Some((kind, ms)) = handler.event.split_once(':') else {
-            if handler.event == "mount" {
-              html = self.render(Some(HandlerRef::at(path.clone(), index)), &Value::Null)?;
-            }
-            continue;
-          };
-          let Ok(ms) = ms.parse() else { continue };
-          if let "interval" | "timeout" = kind {
-            self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: kind == "interval" });
+          match HandlerEvent::parse(&handler.event) {
+            Some(HandlerEvent::Mount) => html = self.render(Some(HandlerRef::at(path.clone(), index)), &Value::Null)?,
+            Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true }),
+            Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false }),
+            Some(HandlerEvent::Input | HandlerEvent::Call(_) | HandlerEvent::Process { .. }) | None => {}
           }
         }
       }
@@ -364,7 +358,7 @@ impl Session {
       self.focus.rendered(&found);
       let acts = std::mem::take(&mut self.focus_acts);
       for (action, input) in &acts {
-        self.focus.act(action, input);
+        self.focus.act(*action, input);
       }
       if self.focus.focused == before && acts.is_empty() {
         break;
@@ -403,9 +397,9 @@ impl Session {
     let path = handler.as_ref().map(|handler| handler.path.clone()).unwrap_or_default();
     let stepped = Interpreter::default().island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
     for (action, value) in stepped.acts {
-      match (action.as_str(), &value) {
-        ("$stdout" | "$stderr", Value::Str(text)) => self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned)),
-        ("$timer", Value::Map(timer)) => {
+      match (Act::parse(&action), &value) {
+        (Some(Act::Stdout | Act::Stderr), Value::Str(text)) => self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned)),
+        (Some(Act::Timer), Value::Map(timer)) => {
           let module = stepped.components.iter().find(|(at, _)| *at == path).map(|(_, module)| module.clone());
           let component = module.and_then(|module| self.library.get(&module).cloned());
           let (Some(component), Some(Value::Str(event))) = (component, timer.get("event")) else { continue };
@@ -417,7 +411,7 @@ impl Session {
           };
           self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)) });
         }
-        ("$spawn", Value::Map(spawn)) => {
+        (Some(Act::Spawn), Value::Map(spawn)) => {
           let text = |v: Option<&Value>| match v {
             Some(Value::Str(s)) => Some(s.to_string()),
             Some(Value::Int(n)) => Some(n.to_string()),
@@ -432,8 +426,8 @@ impl Session {
           };
           self.spawns.push(Spawn { path: path.clone(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
         }
-        (focus, _) if focus.starts_with("$focus") => self.focus_acts.push((action, value)),
-        _ => {}
+        (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
+        (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn), _) | (None, _) => {}
       }
     }
     let excess = self.written.len().saturating_sub(WRITTEN);
@@ -642,12 +636,12 @@ fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<
       };
       let mut error = ValueMap::default();
       error.insert("message".to_owned(), Value::Str(format!("spawn {} {code}", spawn.command).into()));
-      let _ = reports.send((spawn, "error", Value::Map(error)));
+      let _ = reports.send((spawn, Report::Error, Value::Map(error)));
       return;
     }
   };
   running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-  let readers: Vec<std::thread::JoinHandle<()>> = [(child.stdout.take().map(|out| Box::new(out) as Box<dyn std::io::Read + Send>), "stdout"), (child.stderr.take().map(|err| Box::new(err) as Box<dyn std::io::Read + Send>), "stderr")]
+  let readers: Vec<std::thread::JoinHandle<()>> = [(child.stdout.take().map(|out| Box::new(out) as Box<dyn std::io::Read + Send>), Report::Stdout), (child.stderr.take().map(|err| Box::new(err) as Box<dyn std::io::Read + Send>), Report::Stderr)]
     .into_iter()
     .filter_map(|(pipe, kind)| pipe.map(|pipe| (pipe, kind)))
     .map(|(mut pipe, kind)| {
@@ -690,8 +684,8 @@ fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<
     };
     exit.insert("code".to_owned(), code);
     exit.insert("signal".to_owned(), signal);
-    let _ = reports.send((spawn.clone(), "exit", Value::Map(exit.clone())));
-    let _ = reports.send((spawn, "close", Value::Map(exit)));
+    let _ = reports.send((spawn.clone(), Report::Exit, Value::Map(exit.clone())));
+    let _ = reports.send((spawn, Report::Close, Value::Map(exit)));
     running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
   });
 }
@@ -754,7 +748,7 @@ fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool, cursor: Opt
 mod tests {
   use super::*;
 
-  fn spawned(command: &str, args: &[&str]) -> Vec<(&'static str, Value)> {
+  fn spawned(command: &str, args: &[&str]) -> Vec<(Report, Value)> {
     let spawn = Spawn { path: String::new(), id: "1".to_owned(), command: command.to_owned(), args: args.iter().map(|a| (*a).to_owned()).collect(), options: Value::Null };
     let (reports, reported) = std::sync::mpsc::channel();
     start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
@@ -766,13 +760,13 @@ mod tests {
     let mut exit = ValueMap::default();
     exit.insert("code".to_owned(), Value::Int(0));
     exit.insert("signal".to_owned(), Value::Null);
-    assert_eq!(spawned("echo", &["hi"]), [("stdout", Value::Str("hi\n".into())), ("exit", Value::Map(exit.clone())), ("close", Value::Map(exit))]);
+    assert_eq!(spawned("echo", &["hi"]), [(Report::Stdout, Value::Str("hi\n".into())), (Report::Exit, Value::Map(exit.clone())), (Report::Close, Value::Map(exit))]);
   }
 
   #[test]
   fn a_command_that_is_not_there_reports_the_error_node_words() {
     let mut error = ValueMap::default();
     error.insert("message".to_owned(), Value::Str("spawn fsr-no-such-command ENOENT".into()));
-    assert_eq!(spawned("fsr-no-such-command", &[]), [("error", Value::Map(error))]);
+    assert_eq!(spawned("fsr-no-such-command", &[]), [(Report::Error, Value::Map(error))]);
   }
 }

@@ -3684,17 +3684,17 @@ fn counted_test(test: &js::Expr, counted: &dyn Fn(&str) -> bool, updates: &mut V
 }
 
 /// `setInterval(callback, ms)` or `setTimeout(callback, ms)` with its delay written out: the timer's kind, its callback and its delay.
-fn timer_call(e: &js::Expr) -> Option<(&'static str, &js::Expr, &js::Expr)> {
+fn timer_call(e: &js::Expr) -> Option<(bool, &js::Expr, &js::Expr)> {
   let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
   let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return None };
-  let kind = match id.sym.as_ref() {
-    "setInterval" => "interval",
-    "setTimeout" => "timeout",
+  let repeats = match id.sym.as_ref() {
+    "setInterval" => true,
+    "setTimeout" => false,
     _ => return None,
   };
   let [callback, delay] = call.args.as_slice() else { return None };
-  Some((kind, &callback.expr, &delay.expr))
+  Some((repeats, &callback.expr, &delay.expr))
 }
 
 /// Records `const name = array[index]` or `array.at(index)` on a writable local array as an alias:
@@ -7484,7 +7484,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.state.push(state.clone());
     self.state_bindings.push(state.clone());
     let next = Expr::Ternary(Box::new(active), Box::new(Expr::Arith(ArithOp::Add, Box::new(Expr::Var(state.clone())), Box::new(Expr::Lit(Lit::Int(1))))), Box::new(Expr::Var(state.clone())));
-    self.lowered_handlers.push(Handler { event: format!("interval:{interval}"), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(state.clone(), next)]))] });
+    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Interval(interval).name(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(state.clone(), next)]))] });
     Ok(Stmt::Let { name: state, expr: Expr::Lit(Lit::Int(0)) })
   }
 
@@ -7518,11 +7518,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         ("useWindowSize", "rows") => self.lowerer.scope.push((local, Expr::Store(crate::TERMINAL_ROWS.to_owned()))),
         ("useStdout", "stdout") | ("useStderr", "stderr") => self.lowerer.scope.push((local, size())),
         ("useStdout", "write") => {
-          self.writers.push((local.clone(), "$stdout"));
+          self.writers.push((local.clone(), crate::terminal::Act::Stdout.name()));
           self.browser_function(local);
         }
         ("useStderr", "write") => {
-          self.writers.push((local.clone(), "$stderr"));
+          self.writers.push((local.clone(), crate::terminal::Act::Stderr.name()));
           self.browser_function(local);
         }
         _ => return Err(self.lowerer.residue(span, format!("`{key}` from `{hook}`"))),
@@ -7592,11 +7592,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           self.lowerer.scope.push((local, focused.clone()));
           continue;
         }
-        (_, "focus") => "$focus",
-        ("useFocusManager", "focusNext") => "$focusNext",
-        ("useFocusManager", "focusPrevious") => "$focusPrevious",
-        ("useFocusManager", "enableFocus") => "$focusEnable",
-        ("useFocusManager", "disableFocus") => "$focusDisable",
+        (_, "focus") => crate::terminal::Act::Focus.name(),
+        ("useFocusManager", "focusNext") => crate::terminal::Act::FocusNext.name(),
+        ("useFocusManager", "focusPrevious") => crate::terminal::Act::FocusPrevious.name(),
+        ("useFocusManager", "enableFocus") => crate::terminal::Act::FocusEnable.name(),
+        ("useFocusManager", "disableFocus") => crate::terminal::Act::FocusDisable.name(),
         _ => return Err(self.lowerer.residue(span, format!("`{key}` from `{hook}`"))),
       };
       self.writers.push((local.clone(), act));
@@ -7652,9 +7652,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let js::Expr::Call(timer) = expr else { continue };
       let js::Callee::Expr(callee) = &timer.callee else { continue };
       let js::Expr::Ident(id) = &**callee else { continue };
-      let kind = match id.sym.as_ref() {
-        "setInterval" => "interval",
-        "setTimeout" => "timeout",
+      let repeats = match id.sym.as_ref() {
+        "setInterval" => true,
+        "setTimeout" => false,
         _ => continue,
       };
       if id.ctxt != unresolved {
@@ -7664,7 +7664,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let js::Expr::Lit(js::Lit::Num(delay)) = &*delay.expr else { continue };
       let held = self.lowered_handlers.len();
       match self.handler_body(&callback.expr) {
-        Ok(body) => self.lowered_handlers.push(Handler { event: format!("{kind}:{}", delay.value.max(0.0) as u64), body }),
+        Ok(body) => self.lowered_handlers.push(Handler { event: crate::terminal::timer(repeats, delay.value.max(0.0) as u64).name(), body }),
         Err(_) => self.lowered_handlers.truncate(held),
       }
     }
@@ -7694,8 +7694,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       };
       fields.push(Entry::Field((*key).to_owned(), value));
     }
-    let body = vec![Stmt::Act { action: "$spawn".to_owned(), input: Expr::Object(fields) }, Stmt::Return(Expr::Object(Vec::new()))];
-    self.lowered_handlers.push(Handler { event: "mount".to_owned(), body });
+    let body = vec![Stmt::Act { action: crate::terminal::Act::Spawn.name().to_owned(), input: Expr::Object(fields) }, Stmt::Return(Expr::Object(Vec::new()))];
+    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Mount.name(), body });
     Ok(())
   }
 
@@ -7718,10 +7718,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some(js::Expr::Lit(js::Lit::Str(event))) => Some(event.value.to_string_lossy().into_owned()),
       _ => None,
     };
-    let kind = match (stream, prop_name_of(method).as_deref(), event.as_deref()) {
+    let report = match (stream, prop_name_of(method).as_deref(), event.as_deref()) {
       (Some(_), Some("setEncoding"), _) => return Ok(true),
-      (Some(stream), Some("on"), Some("data")) => stream.to_owned(),
-      (None, Some("on"), Some(event @ ("error" | "exit" | "close"))) => event.to_owned(),
+      (Some("stdout"), Some("on"), Some("data")) => crate::terminal::Report::Stdout,
+      (Some(_), Some("on"), Some("data")) => crate::terminal::Report::Stderr,
+      (None, Some("on"), Some("error")) => crate::terminal::Report::Error,
+      (None, Some("on"), Some("exit")) => crate::terminal::Report::Exit,
+      (None, Some("on"), Some("close")) => crate::terminal::Report::Close,
       _ => return Err(self.lowerer.residue(call.span, "a use of a spawned process other than `on(\"error\" | \"exit\" | \"close\", f)`, `stdout.on(\"data\", f)`, `stderr.on(\"data\", f)` and `setEncoding`")),
     };
     let Some(listener) = call.args.get(1) else { return Err(self.lowerer.residue(call.span, "a process listener without a function")) };
@@ -7733,12 +7736,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       },
       other => return Err(self.lowerer.residue(other.span(), "a process listener that is not a function written in place")),
     };
-    if kind == "exit" || kind == "close" {
+    if matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close) {
       let event = || Expr::Var("$event".to_owned());
       self.event_binds = Some(vec![event().field("code".to_owned()), event().field("signal".to_owned())]);
     }
     let lowered = self.handler_fn(&params, body, call.span)?;
-    self.lowered_handlers.push(Handler { event: format!("spawn:{id}:{kind}"), body: lowered });
+    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Process { id, report }.name(), body: lowered });
     Ok(true)
   }
 
@@ -7868,7 +7871,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// An effect's function as a handler the terminal can call, `call:<n>`, and a function the effect's other handlers inline.
   fn effect_fn(&mut self, name: &str, params: Vec<js::Pat>, body: FunctionBody<'p>) {
-    let event = format!("call:{}", self.lowered_handlers.len() + self.effect_fns.len());
+    let event = crate::terminal::Event::Call(self.lowered_handlers.len() + self.effect_fns.len()).name();
     self.handler_fns.insert(name.to_owned(), (params, body));
     self.effect_fns.push((name.to_owned(), event));
   }
@@ -7884,10 +7887,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A statement at the top of a terminal effect: a timer it starts, a call to one of its functions, which runs on mount, or a call made for its effect, which the terminal cannot run.
   fn effect_start(&mut self, e: &'p js::Expr, span: Span) -> Lowered<()> {
-    if let Some((kind, callback, delay)) = timer_call(e) {
+    if let Some((repeats, callback, delay)) = timer_call(e) {
       let delay = self.timer_delay(delay)?;
       let body = self.handler_body(callback)?;
-      self.lowered_handlers.push(Handler { event: format!("{kind}:{delay}"), body });
+      self.lowered_handlers.push(Handler { event: crate::terminal::timer(repeats, delay).name(), body });
       return Ok(());
     }
     if let js::Expr::Call(call) = crate::meaning::bare(e) {
@@ -7895,7 +7898,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         if let js::Expr::Ident(id) = crate::meaning::bare(callee) {
           if self.effect_fns.iter().any(|(name, _)| *name == *id.sym) {
             let body = self.handler_body(callee)?;
-            self.lowered_handlers.push(Handler { event: "mount".to_owned(), body });
+            self.lowered_handlers.push(Handler { event: crate::terminal::Event::Mount.name(), body });
             return Ok(());
           }
         }
@@ -7904,7 +7907,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     match e {
       js::Expr::Call(_) => {
         let body = self.handler_fn(&[], FunctionBody::Expr(e), span)?;
-        self.lowered_handlers.push(Handler { event: "mount".to_owned(), body });
+        self.lowered_handlers.push(Handler { event: crate::terminal::Event::Mount.name(), body });
         Ok(())
       }
       _ => Err(self.lowerer.residue(span, "an expression a terminal effect cannot run")),
@@ -7925,7 +7928,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.event_binds = Some(vec![Expr::Field(Box::new(event.clone()), "input".to_owned()), Expr::Field(Box::new(event), "key".to_owned())]);
     let body = self.handler_body(&arg.expr);
     self.event_binds = None;
-    self.lowered_handlers.push(Handler { event: "input".to_owned(), body: body? });
+    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Input.name(), body: body? });
     Ok(())
   }
 
@@ -8104,11 +8107,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               walk.act(action.to_owned(), input);
               return Ok(());
             }
-            if let Some((kind, callback, delay)) = timer_call(e) {
+            if let Some((repeats, callback, delay)) = timer_call(e) {
               let js::Expr::Ident(target) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(call.span, "a timer a handler starts on something other than a function its effect declares")) };
               let Some((_, event)) = self.effect_fns.iter().find(|(f, _)| *f == *target.sym).cloned() else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect declares", target.sym))) };
-              let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), self.lowerer.expr(delay)?), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(kind == "interval")))]);
-              walk.act("$timer".to_owned(), input);
+              let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), self.lowerer.expr(delay)?), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(repeats)))]);
+              walk.act(crate::terminal::Act::Timer.name().to_owned(), input);
               return Ok(());
             }
             if self.transitions.contains(&name) {
