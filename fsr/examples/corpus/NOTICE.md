@@ -25,3 +25,15 @@ The documentation keeps each component as a template, a Composition API script, 
 ## Ink
 
 The applications under `ink_examples/` are the examples of Ink, the React renderer for the terminal, copied from https://github.com/vadimdemedes/ink at commit `26d2c3f` (2026-10-03), `examples/`. Ink is licensed under the MIT License, copyright Vadym Demedes. Each directory is one example as authored; nothing in the files was changed.
+
+## Next.js
+
+The applications under `next_examples/` are the examples of Next.js, copied from https://github.com/vercel/next.js at commit `72895219d44df111ee6ac81e4eac10d81a5e5cbf` (2026-10-20), `examples/`. Next.js is licensed under the MIT License, copyright Vercel, Inc. Each directory is one example as authored, without its lockfile, its `.gitignore` and its binary files (images, icons, fonts, models, archives and WebAssembly); nothing in the files was changed.
+
+## Nuxt
+
+The applications under `nuxt_examples/` are the examples of Nuxt, copied from https://github.com/nuxt/examples at commit `d4b49cae689d1260425bb4b39f00ff315b931d24` (2026-10-14), `examples/` and `shared/`. They are licensed under the MIT License, copyright Nuxt Project. Each directory is one example as authored, named after its category and its name, without its binary files; `shared/` is the `@nuxt/examples-ui` layer the examples extend. Nothing in the files was changed.
+
+## SvelteKit tutorial
+
+The applications under `sveltekit_tutorial/` are the exercises of the SvelteKit and advanced SvelteKit chapters of the svelte.dev tutorial, from the same svelte.dev commit and under the same license as `svelte_dev/` above. Each directory is one exercise as its solution reads, assembled the way svelte.dev's tutorial loader does: the tutorial's, the part's and the chapter's common files under the exercise's `app-a` files, an exercise with no `app-a` starting from the previous exercise's solution, then its `app-b` files over them, with the files and directories `app-b` marks `__delete` removed. svelte.dev's `src/__client.js` is left out and exercises with no `app-b` are not copied. Nothing in the files was changed.

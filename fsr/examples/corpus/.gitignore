@@ -1,0 +1,3 @@
+!/next_examples/**/.env
+!/sveltekit_tutorial/**/.env
+!/next_examples/**/Icon/

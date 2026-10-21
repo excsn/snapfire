@@ -1,0 +1,15 @@
+{
+  "name": "hello-world",
+  "private": true,
+  "scripts": {
+    "dev": "nuxi dev",
+    "build": "nuxi build",
+    "generate": "nuxi generate",
+    "start": "nuxi preview"
+  },
+  "devDependencies": {
+    "@nuxt/examples-ui": "latest",
+    "nuxt": "^4.5.1",
+    "vue": "3.5.13"
+  }
+}

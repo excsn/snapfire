@@ -1,0 +1,26 @@
+{
+  "name": "@nuxt/examples-ui",
+  "version": "0.0.2",
+  "private": false,
+  "scripts": {
+    "dev": "nuxi dev",
+    "build": "nuxi build",
+    "start": "nuxi preview",
+    "prepare": "nuxi prepare"
+  },
+  "main": "./nuxt.config.ts",
+  "files": [
+    "assets",
+    "components",
+    "nuxt.config.ts"
+  ],
+  "devDependencies": {
+    "nuxt": "^4.6.0",
+    "vue": "3.5.43"
+  },
+  "dependencies": {
+    "@iconify-json/lucide": "^1.2.134",
+    "@nuxt/ui": "4.5.1",
+    "tailwindcss": "4.3.3"
+  }
+}

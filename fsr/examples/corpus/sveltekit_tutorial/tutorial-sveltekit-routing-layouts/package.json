@@ -1,0 +1,21 @@
+{
+	"name": "tutorial",
+	"version": "0.0.1",
+	"scripts": {
+		"dev": "./node_modules/vite/bin/vite.js dev",
+		"build": "./node_modules/vite/bin/vite.js build",
+		"preview": "./node_modules/vite/bin/vite.js preview"
+	},
+	"devDependencies": {
+		"@rollup/wasm-node": "^4.59.0",
+		"@sveltejs/kit": "^3.0.0-next.25",
+		"esbuild-wasm": "^0.27.3",
+		"svelte": "^5.57.1",
+		"vite": "^8.0.12"
+	},
+	"type": "module",
+	"imports": {
+		"#lib": "./src/lib/index.js",
+		"#lib/*": "./src/lib/*"
+	}
+}
