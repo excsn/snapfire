@@ -1,4 +1,4 @@
-import { ctx, expect, load, test } from "@snapfire/fsr-client/testing";
+import { ctx, expect, fireEvent, load, test, waitFor } from "@snapfire/fsr-client/testing";
 
 const transcript = {
   room: { id: "lobby", name: "Lobby", about: "Anyone, anything", messages: 2 },
@@ -45,4 +45,18 @@ test("the room list links into each room", async () => {
   await load("/", { ctx: room("alice") });
   const hrefs = Array.from(document.querySelectorAll("a")).map((a) => a.getAttribute("href"));
   expect(hrefs.includes("/room/lobby"), `a link per room, got ${hrefs.join(" ")}`).toBeTruthy();
+});
+
+test("a reader with no name is sent to name themselves and comes back to the room", async () => {
+  await load("/room/lobby", { ctx: room("") });
+  expect(document.querySelector(".say"), "no composer before a name").toBeNull();
+  const link = document.querySelector(".unnamed a");
+  expect(link?.getAttribute("href")).toEqual("/?next=/room/lobby");
+
+  await load("/?next=/room/lobby", { ctx: room("") });
+  const field = document.querySelector<HTMLInputElement>(".name input");
+  field!.value = "carol";
+  await fireEvent.submit(document.querySelector(".name")!);
+  await waitFor(() => expect(location.pathname).toEqual("/room/lobby"));
+  expect(document.querySelector(".say input"), "named, the composer is there").toBeTruthy();
 });

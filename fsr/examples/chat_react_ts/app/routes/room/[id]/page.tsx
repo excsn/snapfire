@@ -1,4 +1,5 @@
 import type { RoomIdProps } from "@generated/client";
+import { Link } from "@snapfire/fsr/components";
 
 import Say from "@src/ui/Say";
 import Follow from "@src/ui/Follow";
@@ -25,7 +26,13 @@ export default function RoomPage({ room, messages, me, words, longest }: RoomIdP
           </li>
         ))}
       </ol>
-      <Say room={room.id} />
+      {me ? (
+        <Say room={room.id} />
+      ) : (
+        <p className="unnamed">
+          <Link href={`/?next=/room/${room.id}`}>Name yourself</Link> to say something.
+        </p>
+      )}
     </div>
   );
 }

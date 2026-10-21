@@ -17,10 +17,25 @@ Sending is an action. `say` posts the message through the `rooms` service, which
 | Piece | What it is |
 | --- | --- |
 | `routes/page.tsx` | the room list and the form that names you |
+| `routes/actions.ts` | `name`, which keeps your name and sends you on to `next` when the lobby was opened with one |
 | `routes/room/[id]/page.tsx` | the transcript, the composer and the island that follows the room |
 | `routes/room/[id]/actions.ts` | `say`, the only way a message is made |
 | `src/ui/Follow.tsx` | one `live(["room/" + id])` in an effect |
 | `src/backend.rs` | the rooms in process and the topic each message names |
+
+## Naming yourself on the way in
+
+A room opened before you have a name shows a link to the lobby instead of the composer, carrying the room as `?next=/room/lobby`. The lobby's loader passes `next` to the name form and the `name` action ends with it:
+
+```ts
+export const name = action(async ({ input, session }: ActionCtx<NameInput>) => {
+  session.name = input.name;
+  if (input.next) redirect(input.next);
+  return { name: input.name };
+});
+```
+
+`redirect` answers the call with the path and the client navigates there, so naming yourself lands you back in the room. `next` comes from the address bar, which anyone can write, so the host takes only a path on this site: `?next=//elsewhere.example/` fails the action as `invalid` and the name is not kept.
 
 ## A topic is not public
 

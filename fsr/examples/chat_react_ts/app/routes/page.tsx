@@ -3,10 +3,10 @@ import { Link } from "@snapfire/fsr/components";
 
 import Name from "@src/ui/Name";
 
-export default function RoomsPage({ rooms }: RootProps) {
+export default function RoomsPage({ rooms, next }: RootProps) {
   return (
     <div className="page rooms">
-      <Name />
+      <Name next={next} />
       <ul className="room-list">
         {rooms.map((room) => (
           <li key={room.id}>
