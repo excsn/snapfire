@@ -100,15 +100,17 @@ pub fn native(_attr: TokenStream, item: TokenStream) -> TokenStream {
   }
 
   let clone = quote_spanned! {ty.span()=> <#ty as ::std::clone::Clone>::clone(self) };
+  let state = quote_spanned! {ty.span()=> const _: fn() = || { fn needs<T: ::snapfire_fsr_runtime::CallState>() {} needs::<#ty>(); }; };
   let expanded = quote! {
     #block
+    #state
 
     impl ::snapfire_fsr_runtime::Native for #ty {
       fn call(
         &self,
         method: &str,
         args: ::snapfire_fsr_core::ValueMap,
-      ) -> ::futures_util::future::BoxFuture<'static, ::std::result::Result<::snapfire_fsr_core::Value, ::snapfire_fsr_runtime::ServiceError>> {
+      ) -> ::snapfire_fsr_runtime::BoxFuture<'static, ::std::result::Result<::snapfire_fsr_core::Value, ::snapfire_fsr_runtime::ServiceError>> {
         let held = ::std::sync::Arc::new(#clone);
         match method {
             #(#async_arms)*
@@ -325,14 +327,16 @@ pub fn service(_attr: TokenStream, item: TokenStream) -> TokenStream {
   }
 
   let clone = quote_spanned! {ty.span()=> <#ty as ::std::clone::Clone>::clone(self) };
+  let state = quote_spanned! {ty.span()=> const _: fn() = || { fn needs<T: ::snapfire_fsr_runtime::CallState>() {} needs::<#ty>(); }; };
   let expanded = quote! {
     #block
+    #state
 
     impl ::snapfire_fsr_service::Transport for #ty {
       fn call(
         &self,
         call: ::snapfire_fsr_service::Call,
-      ) -> ::futures_util::future::BoxFuture<'static, ::std::result::Result<::snapfire_fsr_core::Value, ::snapfire_fsr_runtime::ServiceError>> {
+      ) -> ::snapfire_fsr_runtime::BoxFuture<'static, ::std::result::Result<::snapfire_fsr_core::Value, ::snapfire_fsr_runtime::ServiceError>> {
         let this = ::std::sync::Arc::new(#clone);
         let caller = ::snapfire_fsr_service::Caller::of(&call);
         let args = call.args;

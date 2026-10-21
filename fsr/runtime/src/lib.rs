@@ -31,6 +31,18 @@ pub use meta::{is_data_block, DocumentTheme, Head, HeadEl, HeadRows, Meta, Metad
 pub use resolver::{Resolver, TableResolver};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use natives::{FromNativeValue, IntoNativeValue, Native, NativeHandle, Natives, native_arg};
+pub use futures_util::future::BoxFuture;
+
+/// What a `#[native]` or `#[service]` type needs: each call's future owns a
+/// copy of it, so it is cloned per call. Shared state goes behind an `Arc`.
+#[diagnostic::on_unimplemented(
+  message = "`{Self}` is a `#[native]` or `#[service]` type and needs `Clone`",
+  label = "each call clones it",
+  note = "derive `Clone` on `{Self}` and keep shared state behind an `Arc`"
+)]
+pub trait CallState: Clone + Send + Sync + 'static {}
+
+impl<T: Clone + Send + Sync + 'static> CallState for T {}
 pub use services::{ServiceCaller, ServiceError, ServiceHandle};
 pub use paths::Paths;
 pub use reads::{subtree_shape, Reads, Static, SubtreeReads, DOCUMENT_PROP, PATH_PROP};

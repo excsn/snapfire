@@ -53,6 +53,9 @@ The contract never moves to Rust. Rust code calls services through the same regi
 The overrides above take over a whole name. For something smaller, such as a computation that belongs in Rust while the loader stays in TypeScript, mark an `impl` block and call it:
 
 ```rust
+#[derive(Clone)]
+pub struct Digest;
+
 #[native]
 impl Digest {
   pub fn words(&self, bodies: Vec<String>) -> i64 {
@@ -74,6 +77,8 @@ export async function load({ params, services, native }: Ctx<"/room/{id}">) {
 ```
 
 A native call is synchronous. The build types a `fn` as returning a value and an `async fn` as returning a promise, so `words` returns a number and needs no `await`.
+
+The type derives `Clone`: each call's future owns a copy of it, so state shared between calls goes behind an `Arc`. The attribute needs nothing else in your `Cargo.toml` beyond the FSR crates it names. A `#[service]` block below is the same.
 
 Only what the block declares `pub` crosses into TypeScript, so a module holding another calls it as an ordinary method and that one never appears in TypeScript. A native call has no contract, transport or interceptor chain, because it does not leave the process. The declaration comes from the signature: `fsr` reads the Rust with `syn` the way it reads your TypeScript with swc, before anything compiles, so the two cannot drift.
 
