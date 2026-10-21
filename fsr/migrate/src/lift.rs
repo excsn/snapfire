@@ -743,6 +743,11 @@ impl Pass for ComponentLift {
         report.note(&path, 0, "a component awaits data but no page places it, so it was left as it is");
         continue;
       }
+      for (component, _) in &lifted {
+        if !placed_unconditionally(tree, component) {
+          report.note(&path, 0, format!("`{component}` renders only under a condition, so its data now loads with the page before any render reads it"));
+        }
+      }
       let mut needed: BTreeSet<String> = BTreeSet::new();
       let mut loads = String::new();
       let mut seeds = Vec::new();
@@ -880,6 +885,65 @@ fn component_reads(text: &str, parsed: &Parsed, function: &js::Function, module_
 
 const GLOBALS: &[&str] = &["undefined", "String", "Number", "Math", "JSON", "Date", "Boolean", "Array", "Object", "Promise"];
 
+/// Whether some module places `<component>` outside every `&&`, `||`,
+/// ternary and `if`, so that the render reaching it is the first one.
+fn placed_unconditionally(tree: &Tree, component: &str) -> bool {
+  for path in tree.paths().filter(|p| p.starts_with("app/") && is_script(p)) {
+    let Some(text) = tree.text(path) else { continue };
+    if !text.contains(component) {
+      continue;
+    }
+    let Ok(parsed) = parse(path, text) else { continue };
+    let mut placements = Placements { name: component, depth: 0, unconditional: false };
+    parsed.module.visit_with(&mut placements);
+    if placements.unconditional {
+      return true;
+    }
+  }
+  false
+}
+
+struct Placements<'a> {
+  name: &'a str,
+  depth: usize,
+  unconditional: bool,
+}
+
+impl Visit for Placements<'_> {
+  fn visit_jsx_opening_element(&mut self, n: &js::JSXOpeningElement) {
+    if let js::JSXElementName::Ident(i) = &n.name {
+      if *i.sym == *self.name && self.depth == 0 {
+        self.unconditional = true;
+      }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_cond_expr(&mut self, n: &js::CondExpr) {
+    n.test.visit_with(self);
+    self.depth += 1;
+    n.cons.visit_with(self);
+    n.alt.visit_with(self);
+    self.depth -= 1;
+  }
+
+  fn visit_bin_expr(&mut self, n: &js::BinExpr) {
+    n.left.visit_with(self);
+    let conditional = matches!(n.op, js::BinaryOp::LogicalAnd | js::BinaryOp::LogicalOr | js::BinaryOp::NullishCoalescing);
+    self.depth += conditional as usize;
+    n.right.visit_with(self);
+    self.depth -= conditional as usize;
+  }
+
+  fn visit_if_stmt(&mut self, n: &js::IfStmt) {
+    n.test.visit_with(self);
+    self.depth += 1;
+    n.cons.visit_with(self);
+    n.alt.visit_with(self);
+    self.depth -= 1;
+  }
+}
+
 /// Each script's imports resolved to the scripts they name, relative
 /// specifiers and `@src/` alike.
 fn imports_graph(tree: &Tree) -> BTreeMap<String, Vec<String>> {
@@ -970,6 +1034,16 @@ mod tests {
       "function fetchData(url) {\n  return getData(url);\n}\n\nasync function getData(url) {\n  return [url];\n}\n\nexport async function load() {\n  const albumsAlbums = await fetchData('/albums');\n  return { albumsAlbums };\n}\n\nexport const store = ({ data }) => ({ \"albums/albums\": data.albumsAlbums });\n"
     );
     assert_eq!(out.text("app/src/App.js").unwrap(), "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { albumsAlbums } from \"@src/store\";\n\nexport default function Albums() {\n  const [albums] = useStore(albumsAlbums, null);\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n");
+  }
+
+  #[test]
+  fn a_component_placed_only_under_a_condition_is_noted_as_loading_eagerly() {
+    let posts = "export default async function Posts() {\n  const posts = await getPosts();\n  return <ul>{posts}</ul>;\n}\n\nasync function getPosts() {\n  return [];\n}\n";
+    let app = "import { useState } from 'react';\nimport Posts from './Posts';\n\nexport default function App() {\n  const [tab, setTab] = useState('about');\n  return <div>{tab === 'posts' && <Posts />}</div>;\n}\n";
+    let page = "import App from \"@src/App.js\";\n\nexport default function Page() {\n  return <App />;\n}\n";
+    let input = tree(&[("app/src/Posts.js", posts), ("app/src/App.js", app), ("app/routes/page.tsx", page)]);
+    let (_, report) = lift(&input);
+    assert!(report.notes.iter().any(|n| n.message == "`Posts` renders only under a condition, so its data now loads with the page before any render reads it"), "{:?}", report.notes);
   }
 
   #[test]
