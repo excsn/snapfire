@@ -145,3 +145,10 @@ fn a_handler_calling_a_helper_that_sets_a_store_key_writes_the_key() {
   assert!(bumped.rendered.html.contains(">5</button>"), "{}", bumped.rendered.html);
   assert_eq!(step(1).store.get("demo/count"), Some(&snapfire_fsr_core::Value::F64(0.0)));
 }
+
+#[test]
+fn a_write_through_a_path_of_indexes_and_fields_on_a_local_rebinds_it_with_that_path_changed() {
+  let page = "function opened(cells, x, y) {\n  cells[y][x].opened = true;\n  cells[y][x].count += 2;\n  cells[y][0] = { opened: false, count: 9 };\n  return cells;\n}\nexport default function Page() {\n  const next = opened([[{ opened: false, count: 0 }, { opened: false, count: 1 }]], 1, 0);\n  return <p>{next[0].map((c) => (c.opened ? \"#\" : \".\") + c.count).join(\" \")}</p>;\n}\n";
+  let out = lower("path_write", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p>.9 #3</p>");
+}

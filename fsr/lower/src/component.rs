@@ -3968,9 +3968,9 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
       js::Expr::Assign(assign) => {
         let (name, read) = match &assign.left {
           js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => (id.id.sym.to_string(), js::Expr::Ident(id.id.clone())),
-          js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match &*m.obj {
-            js::Expr::Ident(id) => (id.sym.to_string(), js::Expr::Member(m.clone())),
-            _ => return Err(lowerer.residue(assign.span, "a write to something other than a local")),
+          js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match crate::write_root(m) {
+            Some((id, _)) => (id.sym.to_string(), js::Expr::Member(m.clone())),
+            None => return Err(lowerer.residue(assign.span, "a write to something other than a local")),
           },
           _ => return Err(lowerer.residue(assign.span, "a write to something other than a local")),
         };
@@ -3983,14 +3983,8 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         };
         match &read {
           js::Expr::Member(member) => {
-            let value = match (prop_name_of(member), &member.prop) {
-              (Some(field), _) => Expr::Object(vec![Entry::Spread(current(lowerer, &name)), Entry::Field(field, value)]),
-              (None, js::MemberProp::Computed(key)) if lowerer.terminal => {
-                let key = lowerer.expr(&key.expr)?;
-                Expr::Builtin { name: Builtin::SetAt, args: vec![current(lowerer, &name), key, value] }
-              }
-              (None, _) => return Err(lowerer.residue(member.span, "a write at a computed index of a local")),
-            };
+            let (_, path) = crate::write_root(member).expect("the root found above");
+            let value = lowerer.written_at(current(lowerer, &name), &path, value)?;
             write_field(lowerer, assign.span, &name, value, assigned)
           }
           _ => {

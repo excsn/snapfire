@@ -1707,12 +1707,25 @@ impl<'a> Lowerer<'a> {
   fn local_target(&self, target: &js::AssignTarget) -> Option<String> {
     match target {
       js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.is_local(id.id.sym.as_ref()).then(|| id.id.sym.to_string()),
-      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match &*m.obj {
-        js::Expr::Ident(id) if self.is_local(id.sym.as_ref()) => Some(id.sym.to_string()),
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(m)) => match write_root(m) {
+        Some((id, _)) if self.is_local(id.sym.as_ref()) => Some(id.sym.to_string()),
         _ => None,
       },
       _ => None,
     }
+  }
+
+  /// `current` with what `path` reaches replaced by `value`, each step on the way copied: a field as a spread with the field changed, an index through `SetAt`.
+  pub(crate) fn written_at(&mut self, current: Expr, path: &[&js::MemberExpr], value: Expr) -> Lowered<Expr> {
+    let Some((step, rest)) = path.split_first() else { return Ok(value) };
+    if let Some(field) = self.member_name(step) {
+      let inner = self.written_at(current.clone().field(field.clone()), rest, value)?;
+      return Ok(Expr::Object(vec![Entry::Spread(current), Entry::Field(field, inner)]));
+    }
+    let js::MemberProp::Computed(key) = &step.prop else { return Err(self.residue(step.span, "a write through a private field")) };
+    let key = self.expr(&key.expr)?;
+    let inner = self.written_at(Expr::Index(Box::new(current.clone()), Box::new(key.clone())), rest, value)?;
+    Ok(Expr::Builtin { name: Builtin::SetAt, args: vec![current, key, inner] })
   }
 
   /// Whether `call` is one [`Lowerer::settling`] makes an act of. An async arrow called in place is one too, since it issues an act at its first `await`.
@@ -2129,14 +2142,8 @@ impl<'a> Lowerer<'a> {
     let js::Expr::Member(member) = &read else {
       return Ok(Stmt::Set { name, expr: value });
     };
-    let Some(field) = self.member_name(member) else {
-      if let (true, js::MemberProp::Computed(key)) = (self.terminal, &member.prop) {
-        let key = self.expr(&key.expr)?;
-        return Ok(Stmt::Set { expr: Expr::Builtin { name: Builtin::SetAt, args: vec![Expr::Var(name.clone()), key, value] }, name });
-      }
-      return Err(self.residue_with(member.span, "a write at a computed index of a local", "build the new value whole with `map` or a spread and assign that"));
-    };
-    let expr = Expr::Object(vec![Entry::Spread(Expr::Var(name.clone())), Entry::Field(field, value)]);
+    let (_, path) = write_root(member).expect("local_target found the root");
+    let expr = self.written_at(Expr::Var(name.clone()), &path, value)?;
     Ok(Stmt::Set { name, expr })
   }
 
@@ -3875,6 +3882,25 @@ struct AsyncCatch {
   param: Option<String>,
   body: Vec<js::Stmt>,
   covers: usize,
+}
+
+/// The local a member write changes and the members from it outward: `x.a[i].b` is `x` with `.a`, `[i]` and `.b`.
+pub(crate) fn write_root(member: &js::MemberExpr) -> Option<(&js::Ident, Vec<&js::MemberExpr>)> {
+  let mut path = vec![member];
+  let mut at = member;
+  loop {
+    match crate::meaning::bare(&at.obj) {
+      js::Expr::Ident(id) => {
+        path.reverse();
+        return Some((id, path));
+      }
+      js::Expr::Member(inner) => {
+        path.push(inner);
+        at = inner;
+      }
+      _ => return None,
+    }
+  }
 }
 
 pub(crate) fn awaits(stmt: &js::Stmt) -> bool {
