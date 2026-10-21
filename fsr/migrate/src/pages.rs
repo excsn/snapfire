@@ -424,6 +424,9 @@ fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::Mod
       js::Decl::Fn(f) => {
         edits.replace(shift(parsed.range(f.ident.span), range.start), fsr_name);
         f.function.body.visit_with(&mut returns);
+        let params: Vec<&js::Pat> = f.function.params.iter().map(|p| &p.pat).collect();
+        let body = f.function.body.as_ref().map(|b| parsed.range(b.span).start + 1);
+        context(path, text, parsed, &params, body, range.clone(), &mut edits, report);
       }
       js::Decl::Var(v) => {
         if let Some(d) = v.decls.first() {
@@ -435,8 +438,21 @@ fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::Mod
             }
           }
           match d.init.as_deref() {
-            Some(js::Expr::Arrow(a)) => a.body.visit_with(&mut returns),
-            Some(js::Expr::Fn(f)) => f.function.body.visit_with(&mut returns),
+            Some(js::Expr::Arrow(a)) => {
+              a.body.visit_with(&mut returns);
+              let params: Vec<&js::Pat> = a.params.iter().collect();
+              let body = match &*a.body {
+                js::ArrowFunctionBody::FunctionBody(b) => Some(parsed.range(b.span).start + 1),
+                js::ArrowFunctionBody::Expr(_) => None,
+              };
+              context(path, text, parsed, &params, body, range.clone(), &mut edits, report);
+            }
+            Some(js::Expr::Fn(f)) => {
+              f.function.body.visit_with(&mut returns);
+              let params: Vec<&js::Pat> = f.function.params.iter().map(|p| &p.pat).collect();
+              let body = f.function.body.as_ref().map(|b| parsed.range(b.span).start + 1);
+              context(path, text, parsed, &params, body, range.clone(), &mut edits, report);
+            }
             _ => {}
           }
         }
@@ -471,7 +487,9 @@ fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::Mod
       continue;
     }
     if let Some(props) = field("props") {
-      edits.replace(arg_range, text[parsed.range(props.span())].to_owned());
+      let props_range = shift(parsed.range(props.span()), range.start);
+      edits.replace(arg_range.start..props_range.start, "");
+      edits.replace(props_range.end..arg_range.end, "");
       if field("revalidate").is_some() {
         report.note(path, line, "`revalidate` has no counterpart on a loader; FSR's data cache sets its time to live under `[cache]`");
       }
@@ -490,6 +508,94 @@ fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::Mod
     report.note(path, parsed.line(item.span()), "`getServerSideProps` reads `req` or `res`; FSR's loader reads `session`, `query` and `params` from its context");
   }
   (edits.apply(source), fails)
+}
+
+/// Fields of Next's context FSR's loader context has no counterpart for.
+/// Draft mode is off, so `preview` and `draftMode` are `false`; the others
+/// are notes.
+const UNREAD_CONTEXT: &[&str] = &["preview", "previewData", "draftMode", "locales", "defaultLocale", "req", "res", "resolvedUrl"];
+
+/// The data function's context parameter without the fields in
+/// `UNREAD_CONTEXT`: taken out of a destructuring, `preview` and `draftMode`
+/// declared `false` at the top of the body; `ctx.preview` is read as
+/// `false`.
+#[allow(clippy::too_many_arguments)]
+fn context(path: &str, text: &str, parsed: &Parsed, params: &[&js::Pat], body: Option<usize>, item: Range<usize>, edits: &mut Edits, report: &mut Report) {
+  let Some(param) = params.first() else { return };
+  let mut declared = Vec::new();
+  match param {
+    js::Pat::Object(object) => {
+      let mut kept = Vec::new();
+      let mut dropped = false;
+      for prop in &object.props {
+        let key = match prop {
+          js::ObjectPatProp::Assign(a) => Some(a.key.sym.to_string()),
+          js::ObjectPatProp::KeyValue(kv) => prop_name(&kv.key),
+          js::ObjectPatProp::Rest(_) => None,
+        };
+        match key {
+          Some(key) if UNREAD_CONTEXT.contains(&key.as_str()) => {
+            dropped = true;
+            let local = match prop {
+              js::ObjectPatProp::KeyValue(js::KeyValuePatProp { value, .. }) => match &**value {
+                js::Pat::Ident(i) => i.id.sym.to_string(),
+                _ => key.clone(),
+              },
+              _ => key.clone(),
+            };
+            match key.as_str() {
+              "preview" | "draftMode" => declared.push(format!("const {local} = false;")),
+              _ => report.note(path, parsed.line(prop.span()), format!("`{key}` has no counterpart in FSR's loader context, so it was taken out of the parameter")),
+            }
+          }
+          _ => kept.push(&text[parsed.range(prop.span())]),
+        }
+      }
+      if dropped {
+        let pattern = parsed.range(object.span);
+        let typed = object.type_ann.as_ref().filter(|t| parsed.range(t.span).end <= pattern.end).map(|t| format!(": {}", text[parsed.range(t.type_ann.span())].trim()));
+        let braces = if kept.is_empty() { "{}".to_owned() } else { format!("{{ {} }}", kept.join(", ")) };
+        edits.replace(shift(pattern, item.start), format!("{braces}{}", typed.unwrap_or_default()));
+      }
+    }
+    js::Pat::Ident(ident) => {
+      let mut reads = ContextReads { name: ident.id.sym.to_string(), found: Vec::new() };
+      parsed.module.visit_with(&mut reads);
+      for (span, field) in reads.found {
+        let at = parsed.range(span);
+        if at.start < item.start || at.end > item.end {
+          continue;
+        }
+        match field.as_str() {
+          "preview" | "draftMode" => edits.replace(shift(at, item.start), "false"),
+          f if UNREAD_CONTEXT.contains(&f) => report.note(path, parsed.line(span), format!("`{f}` has no counterpart in FSR's loader context")),
+          _ => {}
+        }
+      }
+    }
+    _ => {}
+  }
+  if let (Some(body), false) = (body, declared.is_empty()) {
+    edits.replace(body - item.start..body - item.start, format!("\n  {}", declared.join("\n  ")));
+  }
+}
+
+/// Reads of `name.<field>`.
+struct ContextReads {
+  name: String,
+  found: Vec<(swc_core::common::Span, String)>,
+}
+
+impl Visit for ContextReads {
+  fn visit_member_expr(&mut self, n: &js::MemberExpr) {
+    if let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*n.obj, &n.prop) {
+      if *obj.sym == *self.name {
+        self.found.push((n.span, prop.sym.to_string()));
+        return;
+      }
+    }
+    n.visit_children_with(self);
+  }
 }
 
 /// `paths` from `getStaticPaths` as FSR's `paths` returns them: an array
@@ -621,6 +727,20 @@ mod tests {
       out.text("app/routes/layout.tsx").unwrap(),
       "import \"../src/styles/globals.css\";\n\nexport default function MyApp({ children }) {\n  return <Layout><>{children}</></Layout>;\n}\n"
     );
+  }
+
+  #[test]
+  fn draft_mode_fields_leave_the_context_and_preview_is_false() {
+    let page = "import { getPost } from \"../lib/api\";\n\nexport default function P({ post }) {\n  return <p>{post}</p>;\n}\n\nexport async function getStaticProps({ params, preview = false, locales }) {\n  return { props: { post: await getPost(params.slug, preview) } };\n}\n";
+    let other = "export default function Q({ q }) {\n  return <p>{q}</p>;\n}\n\nexport const getServerSideProps = async (context) => {\n  return { props: { q: context.preview ? 1 : 0 } };\n};\n";
+    let input = tree(&[("package.json", PACKAGE), ("pages/[slug].js", page), ("pages/q.js", other), ("lib/api.js", "export function getPost() {}\n")]);
+    let (out, report) = migrate(&input);
+    assert_eq!(
+      out.text("app/routes/[slug]/page.loader.ts").unwrap(),
+      "import { getPost } from \"../../src/lib/api\";\n\nexport async function load({ params }) {\n  const preview = false;\n  return { post: await getPost(params.slug, preview) };\n}\n"
+    );
+    assert_eq!(out.text("app/routes/q/page.loader.ts").unwrap(), "export const load = async (context) => {\n  return { q: false ? 1 : 0 };\n};\n");
+    assert_eq!(report.notes.iter().filter(|n| n.message.contains("`locales`")).count(), 1, "{:?}", report.notes);
   }
 
   #[test]

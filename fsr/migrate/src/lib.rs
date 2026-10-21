@@ -5,6 +5,7 @@
 
 mod config;
 mod edit;
+mod head;
 mod items;
 mod modules;
 mod next;

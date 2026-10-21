@@ -14,7 +14,7 @@ use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(Links), Box::new(Fonts)]
+  vec![Box::new(Links), Box::new(Fonts), Box::new(crate::head::Head)]
 }
 
 fn scripts(tree: &Tree) -> Vec<String> {
