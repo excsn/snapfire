@@ -152,6 +152,8 @@ pub enum Expr {
   ReadCell(Box<Expr>),
   /// Writes `value` into the cell a handle names and evaluates to `value`.
   WriteCell(Box<Expr>, Box<Expr>),
+  /// Writes `value` to the store key and evaluates to `value`: the store's `set` where a function body calls it, which a step returns with the writes its handler's patch made.
+  WriteStore(String, Box<Expr>),
   /// Markup written where a value goes, `body={<p />}` or `const x = <p />`. The build moves it into the tree where it can; one left here evaluates to a markup value that renders where it is interpolated, in the scope it was written in.
   Markup(std::sync::Arc<Tmpl>),
 }
@@ -910,7 +912,7 @@ impl Expr {
         }
       }
       Expr::Hoist { expr, .. } => expr.free_vars(out),
-      Expr::Cell(e) | Expr::ReadCell(e) => e.free_vars(out),
+      Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.free_vars(out),
       Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
         a.free_vars(out);
         b.free_vars(out);
@@ -955,7 +957,7 @@ impl Expr {
       Expr::Lambda { body, .. } => body.visit(f),
       Expr::Block(body) => body_visit(body, f),
       Expr::Hoist { expr, .. } => expr.visit(f),
-      Expr::Cell(e) | Expr::ReadCell(e) => e.visit(f),
+      Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.visit(f),
       Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
         a.visit(f);
         b.visit(f);
@@ -993,7 +995,7 @@ impl Expr {
       Expr::Lambda { body, .. } => body.visit_mut(f),
       Expr::Block(body) => body_visit_mut(body, f),
       Expr::Hoist { expr, .. } => expr.visit_mut(f),
-      Expr::Cell(e) | Expr::ReadCell(e) => e.visit_mut(f),
+      Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.visit_mut(f),
       Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
         a.visit_mut(f);
         b.visit_mut(f);
@@ -1034,7 +1036,7 @@ impl Expr {
       Expr::Lambda { body, .. } => body.reads_request(),
       Expr::Block(body) => body_reads_request(body),
       Expr::Hoist { expr, .. } => expr.reads_request(),
-      Expr::Cell(e) | Expr::ReadCell(e) => e.reads_request(),
+      Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.reads_request(),
       Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => a.reads_request() || b.reads_request(),
     }
   }
@@ -1069,7 +1071,7 @@ impl Expr {
         any
       }
       Expr::Hoist { expr, .. } => expr.has_call(),
-      Expr::Cell(e) | Expr::ReadCell(e) => e.has_call(),
+      Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => e.has_call(),
       Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => a.has_call() || b.has_call(),
     }
   }

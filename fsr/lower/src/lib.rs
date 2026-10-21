@@ -2698,6 +2698,11 @@ impl<'a> Lowerer<'a> {
         }
         return Ok(Expr::Builtin { name: Builtin::Emit, args });
       }
+      if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)).and_then(|meant| meant.store_call()) == Some("set") {
+        let [key, value] = call.args.as_slice() else { return Err(self.residue(call.span, "`set` takes a key and a value")) };
+        let Expr::Lit(Lit::Str(key)) = self.expr(&key.expr)? else { return Err(self.residue(key.expr.span(), "a store key that is not a string the build can read")) };
+        return Ok(Expr::WriteStore(key, Box::new(self.expr(&value.expr)?)));
+      }
     }
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));

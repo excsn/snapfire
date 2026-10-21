@@ -121,7 +121,7 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
   let mut pure = free.is_empty();
   let mut refs = Vec::new();
   expr.visit(&mut |e| match e {
-    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) => pure = false,
+    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
     Expr::Const(other) => refs.push(other.clone()),
     _ => {}
   });
@@ -262,6 +262,7 @@ impl Interpreter {
       closures: Some(Vec::new()),
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
+      store_written: ValueMap::default(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
       thrown: None,
       marks: Vec::new(),
@@ -343,6 +344,8 @@ pub(crate) struct Env {
   redirect: Option<String>,
   pub(crate) scope: Vec<(String, Value)>,
   pub(crate) store: ValueMap,
+  /// The store keys `WriteStore` wrote, which a step returns with its patch's.
+  pub(crate) store_written: ValueMap,
   /// The store keys a deferred segment has yet to seed: an island reading one is held.
   pub(crate) pending: std::collections::BTreeSet<String>,
   clock: Arc<dyn Clock>,
@@ -648,6 +651,7 @@ impl Env {
       closures: Some(Vec::new()),
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
+      store_written: ValueMap::default(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
       thrown: None,
       marks: Vec::new(),
@@ -869,6 +873,7 @@ impl Env {
       closures: None,
       cells: None,
       module_cells: Vec::new(),
+      store_written: ValueMap::default(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
       thrown: None,
       marks: Vec::new(),
@@ -1004,6 +1009,10 @@ impl Env {
         let handle = self.eval_sync(handle)?;
         let value = self.eval_sync(value)?;
         self.write_cell(&handle, value)
+      }
+      Expr::WriteStore(key, value) => {
+        let value = self.eval_sync(value)?;
+        Ok(self.write_store(key, value))
       }
       Expr::Const(key) => {
         if let Some(value) = self.held.get(key) {
@@ -1401,6 +1410,13 @@ impl Env {
     Ok(Value::Variant { tag: FUNCTION_VALUE.to_owned(), payload: Some(Box::new(Value::Int((table.len() - 1) as i128))) })
   }
 
+  /// `value` written to the store key for the rest of the step and kept for the step to return.
+  fn write_store(&mut self, key: &str, value: Value) -> Value {
+    self.store.insert(key.to_owned(), value.clone());
+    self.store_written.insert(key.to_owned(), value.clone());
+    value
+  }
+
   fn new_cell(&mut self, value: Value) -> Result<Value, Fail> {
     let Some(cells) = &mut self.cells else {
       return Err(Fail::internal("a cell made while the body's independent lets evaluate in parallel"));
@@ -1491,6 +1507,10 @@ impl Env {
           let handle = self.eval(handle).await?;
           let value = self.eval(value).await?;
           self.write_cell(&handle, value)
+        }
+        Expr::WriteStore(key, value) => {
+          let value = self.eval(value).await?;
+          Ok(self.write_store(key, value))
         }
         Expr::Const(key) => {
           let Some(consts) = self.consts.clone() else { return Err(undeclared(key)) };

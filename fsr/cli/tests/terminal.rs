@@ -367,3 +367,17 @@ fn a_store_key_a_handler_writes_holds_its_value_for_the_next_step_and_every_comp
   assert_eq!(lines(session.press(&press('u')).unwrap()), ["page 12", "shown 12"], "an updater starts from the value held");
   assert_eq!(lines(session.view().unwrap()), ["page 12", "shown 12"], "a render with no handler reads it too");
 }
+
+#[test]
+fn a_handler_calling_an_imported_helper_that_sets_a_store_key_steps_the_page() {
+  let page = "import { Text, useInput } from \"ink\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { count, step } from \"../src/count\";\n\nexport default function Page() {\n  const [n] = useStore(count, 0);\n  useInput(() => step(n));\n  return <Text>{n}</Text>;\n}\n";
+  let app = app(page);
+  std::fs::create_dir_all(app.join("src")).unwrap();
+  std::fs::write(app.join("src/count.ts"), "import { key, set } from \"@snapfire/fsr-client/store\";\n\nexport const count = key<number>(\"demo/count\");\n\nexport const step = (n: number) => set(count, n + 2);\n").unwrap();
+  let mut session = Session::open(&app).unwrap();
+  let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  session.view().unwrap();
+  session.press(&key).unwrap();
+  assert_eq!(line(session.press(&key).unwrap()), "4");
+}

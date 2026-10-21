@@ -672,11 +672,13 @@ impl Interpreter {
       }
       env.scope.push(("$state".to_owned(), Value::Map(own_state)));
       env.scope.push(("$event".to_owned(), event.clone()));
+      env.store_written.clear();
       let outer_path = std::mem::replace(&mut env.component_path, path.clone());
       let patch = eval_body_sync(&mut env, &body.body);
       env.component_path = outer_path;
       let patch = patch?;
       env.scope.truncate(depth);
+      written.extend(std::mem::take(&mut env.store_written));
       if let Value::Map(patch) = patch {
         for (name, value) in patch {
           if let Some(key) = target.store_key(&name) {
@@ -2615,7 +2617,7 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
         *expr = Expr::Folded(Value::str(text));
       }
     }
-    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } | Expr::Cell(e) | Expr::ReadCell(e) => fold_expr(e),
+    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Hoist { expr: e, .. } | Expr::Cell(e) | Expr::ReadCell(e) | Expr::WriteStore(_, e) => fold_expr(e),
     Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
       fold_expr(a);
       fold_expr(b);

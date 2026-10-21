@@ -127,3 +127,21 @@ fn a_module_let_declared_without_a_value_starts_undefined_and_a_function_may_wri
   let out = lower("undeclared_value", &[("routes/page.tsx", page)]).unwrap();
   assert_eq!(out.html, "<p>first</p>");
 }
+
+#[test]
+fn a_handler_calling_a_helper_that_sets_a_store_key_writes_the_key() {
+  let counter = "import { key, set } from \"@snapfire/fsr-client/store\";\n\nexport const count = key<number>(\"demo/count\");\n\nexport function bump(n: number) {\n  set(count, n + 1);\n}\n\nexport const reset = () => set(count, 0);\n";
+  let page = "import { useStore } from \"@snapfire/fsr-client/react\";\nimport { bump, count, reset } from \"@src/counter\";\nexport default function Page() {\n  const [n] = useStore(count, 0);\n  return <div><button onClick={() => bump(n)}>{n}</button><button onClick={() => { reset(); }}>reset</button></div>;\n}\n";
+  let out = lower("helper_set", &[("src/counter.ts", counter), ("routes/page.tsx", page)]).unwrap();
+  let library: Components = out.set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let mut store = ValueMap::default();
+  store.insert("demo/count".to_owned(), snapfire_fsr_core::Value::Int(4));
+  let mut props = ValueMap::default();
+  props.insert("$store".to_owned(), snapfire_fsr_core::Value::Map(store));
+  let step = |handler: usize| Interpreter::default().island_step(module, &library[module], &props, &ValueMap::default(), Some(snapfire_fsr_ir::render::HandlerRef::own(handler)), &snapfire_fsr_core::Value::Null, &library).unwrap();
+  let bumped = step(0);
+  assert_eq!(bumped.store.get("demo/count"), Some(&snapfire_fsr_core::Value::F64(5.0)), "{:?}", bumped.store);
+  assert!(bumped.rendered.html.contains(">5</button>"), "{}", bumped.rendered.html);
+  assert_eq!(step(1).store.get("demo/count"), Some(&snapfire_fsr_core::Value::F64(0.0)));
+}

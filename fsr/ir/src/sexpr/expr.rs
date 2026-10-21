@@ -98,6 +98,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::ModuleCell { key, init } => form("module-cell", vec![expr_to_sx(key), expr_to_sx(init)]),
     Expr::ReadCell(handle) => one("read-cell", handle),
     Expr::WriteCell(handle, value) => form("write-cell", vec![expr_to_sx(handle), expr_to_sx(value)]),
+    Expr::WriteStore(key, value) => form("write-store", vec![Sx::Str(key.clone()), expr_to_sx(value)]),
   }
 }
 
@@ -306,6 +307,10 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "write-cell" => {
       let a = args(items, head, 2)?;
       Expr::WriteCell(boxed(&a[0])?, boxed(&a[1])?)
+    }
+    "write-store" => {
+      let a = args(items, head, 2)?;
+      Expr::WriteStore(str_of(&a[0])?, boxed(&a[1])?)
     }
     "markup" => Expr::Markup(std::sync::Arc::new(super::tmpl::tmpl_from_sx(&args(items, head, 1)?[0])?)),
     other => match builtin_of(other) {

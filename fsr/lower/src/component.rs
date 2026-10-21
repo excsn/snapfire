@@ -4576,6 +4576,13 @@ pub(crate) fn reach_under(outer: &Option<Expr>, cond: Expr) -> Expr {
 }
 
 /// Whether a handler's statements do something besides setting state: an act, or a write to a cell.
+/// Whether `expr` writes the store wherever it is evaluated.
+fn writes_store(expr: &Expr) -> bool {
+  let mut found = false;
+  expr.visit(&mut |e| found |= matches!(e, Expr::WriteStore(..)));
+  found
+}
+
 fn holds_effect(stmts: &[Stmt]) -> bool {
   stmts.iter().any(|stmt| match stmt {
     Stmt::Act { .. } | Stmt::Expr(_) => true,
@@ -4757,9 +4764,9 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       let value = block_to_expr_inner(lowerer, rest, floor)?;
       Ok(sequenced(vec![Stmt::Let { name: held, expr: effect }], value))
     }
-    js::Stmt::Expr(stmt) if lowerer.terminal && matches!(&*stmt.expr, js::Expr::Call(_)) && {
+    js::Stmt::Expr(stmt) if matches!(&*stmt.expr, js::Expr::Call(_)) && {
       let depth = lowerer.scope.len();
-      let probed = lowerer.expr(&stmt.expr).map(|e| effectful(&e)).unwrap_or(false);
+      let probed = lowerer.expr(&stmt.expr).map(|e| writes_store(&e) || (lowerer.terminal && effectful(&e))).unwrap_or(false);
       lowerer.scope.truncate(depth);
       probed
     } => {
@@ -8521,9 +8528,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             if let Some(store_call) = self.meanings().of_expr(callee).and_then(|meant| meant.store_call()) {
               return self.store_call(store_call, call, walk);
             }
-            if self.lowerer.terminal && !self.lowerer.cells.is_empty() {
-              let lowered = self.lowerer.expr(e)?;
-              if touches_cells(&lowered) {
+            if let Ok(lowered) = self.lowerer.expr(e) {
+              if writes_store(&lowered) || (self.lowerer.terminal && !self.lowerer.cells.is_empty() && touches_cells(&lowered)) {
                 walk.effect(Stmt::Expr(lowered));
                 return Ok(());
               }
