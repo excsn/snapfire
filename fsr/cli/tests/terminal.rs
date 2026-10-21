@@ -391,3 +391,22 @@ fn a_child_handler_calling_a_function_its_parent_passed_runs_the_parents_handler
   assert_eq!(lines(session.view().unwrap()), ["pick a digit", "picked -1"]);
   assert_eq!(lines(session.press(&key).unwrap()), ["pick a digit", "picked 8"]);
 }
+
+#[test]
+fn a_custom_hooks_effect_starts_a_timer_whose_callback_sets_the_hooks_own_state() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nconst useDebounced = <T,>(value: T, delay: number): T => {\n  const [debounced, setDebounced] = useState(value);\n  useEffect(() => {\n    const timer = setTimeout(() => {\n      setDebounced(value);\n    }, delay);\n    return () => {\n      clearTimeout(timer);\n    };\n  }, [value, delay]);\n  return debounced;\n};\n\nexport default function Page() {\n  const [query, setQuery] = useState(\"\");\n  const shown = useDebounced(query, 200);\n  useInput((input) => setQuery(query + input));\n  return <Text>{query}|{shown}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let press = |c: char| {
+    let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    key
+  };
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  session.view().unwrap();
+  session.take_started();
+  session.press(&press('a')).unwrap();
+  let first = session.take_started();
+  assert_eq!(line(session.press(&press('b')).unwrap()), "ab|");
+  let second = session.take_started();
+  assert_eq!(line(session.fire(&first[0]).unwrap()), "ab|", "the cleanup cleared the timer the first key started");
+  assert_eq!(line(session.fire(&second[0]).unwrap()), "ab|ab");
+}

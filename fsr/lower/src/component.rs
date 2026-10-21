@@ -1198,7 +1198,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None, hook_renames: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -5179,12 +5179,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
           let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
-          self.input_hook(call)?;
+          let depth = self.hook_renames.len();
+          self.hook_renames.extend(renames.iter().cloned());
+          let result = self.input_hook(call);
+          self.hook_renames.truncate(depth);
+          result?;
         }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
           let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
           if hook == "useEffect" || hook == "useLayoutEffect" {
-            self.effect_timers(call)?;
+            let depth = self.hook_renames.len();
+            self.hook_renames.extend(renames.iter().cloned());
+            let result = self.effect_timers(call);
+            self.hook_renames.truncate(depth);
+            result?;
           }
         }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
@@ -5538,6 +5546,8 @@ struct ComponentLowerer<'a, 'p> {
   spawns: Vec<(String, String)>,
   /// While a terminal effect whose dependencies change lowers, its event: a function it returns is its cleanup, [`crate::terminal::Act::Cleanup`].
   cleanup_for: Option<String>,
+  /// While an effect or an input handler of an inlined custom hook lowers, each name the hook declared and what the inlining renamed it to.
+  hook_renames: Vec<(String, String)>,
   /// How many ids the custom hooks a terminal component inlines have taken with `useId`.
   hook_ids: u32,
 }
@@ -8431,7 +8441,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
         match &**callee {
           js::Expr::Ident(id) => {
-            let name = id.sym.to_string();
+            let name = self.hook_renames.iter().rev().find(|(from, _)| *from == *id.sym).map_or_else(|| id.sym.to_string(), |(_, to)| to.clone());
             if let Some((_, action)) = self.writers.iter().find(|(w, _)| *w == name).cloned() {
               let input = match call.args.first() {
                 Some(arg) => self.lowerer.expr(&arg.expr)?,
