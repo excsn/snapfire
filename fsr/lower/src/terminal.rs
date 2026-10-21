@@ -3,6 +3,15 @@
 //! body emits. Both sides build and read these names only through the types
 //! here.
 
+/// Where a terminal page's Ink API is read from: [`INK_SOURCE`], provided to the build under this name.
+pub const INK_FILE: &str = "$fsr/terminal.tsx";
+
+/// Ink's hooks written over the terminal primitives, which the build reads wherever a page imports one of its exports from [`INK_MODULES`].
+pub const INK_SOURCE: &str = include_str!("../terminal/ink.tsx");
+
+/// The specifiers a page imports Ink's API from.
+pub const INK_MODULES: [&str; 2] = ["ink", "@snapfire/fsr/terminal"];
+
 /// A focusable a terminal can move focus to, `{ id, autoFocus, isActive }`, one per `useFocus`, in render order.
 pub const FOCUSABLE: &str = "focusable";
 

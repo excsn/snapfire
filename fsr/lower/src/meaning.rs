@@ -69,7 +69,7 @@ const PLACEMENTS: [&str; 9] = ["Island", "island", "Link", "Slot", "Picture", "M
 pub const COMPONENTS_MODULE: &str = "@snapfire/fsr/components";
 const COMPONENTS: [&str; 5] = ["Link", "Picture", "Mount", "Embed", "Place"];
 /// Ink's elements, from Ink itself or FSR's terminal module, which a terminal window draws.
-const TERMINAL_MODULES: [&str; 2] = ["ink", "@snapfire/fsr/terminal"];
+const TERMINAL_MODULES: [&str; 3] = ["ink", "@snapfire/fsr/terminal", "@snapfire/fsr/terminal/core"];
 const TERMINAL_ELEMENTS: [&str; 5] = ["Box", "Text", "Newline", "Spacer", "Static"];
 
 fn rows() -> &'static [(&'static str, &'static str, Construct)] {

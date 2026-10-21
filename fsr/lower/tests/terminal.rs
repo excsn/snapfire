@@ -313,3 +313,16 @@ fn a_module_let_a_function_writes_lasts_from_one_step_to_the_next_in_a_cell() {
   let pressed = interpreter.island_step(MODULE, component, &props, &first.state, Some(HandlerRef::own(0)), &key("x", &[]), &library).unwrap();
   assert_eq!(pressed.rendered.html, "<ink-text>1 2</ink-text>", "the handler's write and the render's own both last");
 }
+
+#[test]
+fn ink_hooks_written_in_the_provided_module_are_inlined_like_an_apps_own() {
+  let page = "import { Text, useWindowSize } from \"ink\";\n\nexport default function Size() {\n  const { columns } = useWindowSize();\n  return <Text>{columns}</Text>;\n}\n";
+  let n = NEXT.fetch_add(1, Ordering::Relaxed);
+  let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
+  std::fs::create_dir_all(dir.join("routes")).unwrap();
+  std::fs::write(dir.join("routes/page.tsx"), page).unwrap();
+  let mut set = ComponentSet::new(&dir).for_terminal();
+  set.lower(MODULE).unwrap_or_else(|e| panic!("{e}"));
+  let component = &set.components.iter().find(|(m, _)| m == MODULE).unwrap().1;
+  assert!(component.stores.iter().any(|(_, key)| key == "$terminal.columns"), "{:?}", component.stores);
+}

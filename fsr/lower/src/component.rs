@@ -206,6 +206,7 @@ impl ComponentSet {
   /// render may read the clock, which a web render leaves to the browser.
   pub fn for_terminal(mut self) -> Self {
     self.terminal = true;
+    self.provided.insert(crate::terminal::INK_FILE.to_owned(), crate::terminal::INK_SOURCE.to_owned());
     self
   }
 
@@ -2043,6 +2044,11 @@ impl ComponentSet {
     use crate::meaning::{self, Construct, Meaning};
     if export == "actions" && is_generated_client(file, source) {
       return Meaning::Library(Construct::GeneratedActions);
+    }
+    if self.terminal && file != crate::terminal::INK_FILE && crate::terminal::INK_MODULES.contains(&source) {
+      if let Some(written) = self.meanings(crate::terminal::INK_FILE).exports.get(export).cloned() {
+        return written;
+      }
     }
     if meaning::is_library(source) {
       return meaning::library(source, export).map(Meaning::Library).unwrap_or(Meaning::Foreign);
@@ -5089,8 +5095,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           self.browser_function(bound.clone());
           renames.push((f.ident.sym.to_string(), bound));
         }
-        js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
-          let (_, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
+        js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
+          let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
           self.input_hook(call)?;
         }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
@@ -5564,6 +5570,13 @@ const EFFECT_HOOKS: &[&str] = &["useEffect", "useLayoutEffect", "useInsertionEff
 /// The hook `expr` calls: a library's by the library's own name, however the
 /// file reaches it, and an application's by the name the file calls it. `None`
 /// for a call that is no hook, a local that shadows a hook's name among them.
+/// A call to one of a library's own hooks, by what its callee means rather than its name: a hook an application or FSR's Ink module declares under the same name is not one.
+fn library_hook<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Option<(&'static str, &'a js::CallExpr)> {
+  let js::Expr::Call(call) = expr else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  meanings.of_expr(callee).and_then(|meant| meant.hook()).map(|hook| (hook, call))
+}
+
 fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Option<(&'a str, &'a js::CallExpr)> {
   let js::Expr::Call(call) = expr else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
@@ -5962,8 +5975,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 }
               }
             }
-            js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
-              let (_, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
+            js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
+              let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
               self.input_hook(call)?;
             }
             js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
@@ -6452,16 +6465,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       self.template_import(decl, call)?;
       return Ok(None);
     }
-    if hook_call(&self.meanings(), init).is_some_and(|(hook, _)| hook == "useApp") {
+    if library_hook(&self.meanings(), init).is_some_and(|(hook, _)| hook == "useApp") {
       return self.app_hook(&decl.name, decl.span);
     }
-    if let Some(("useAnimation", call)) = hook_call(&self.meanings(), init) {
+    if let Some(("useAnimation", call)) = library_hook(&self.meanings(), init) {
       return self.animation_hook(call, &decl.name, decl.span).map(Some);
     }
-    if let Some((hook @ ("useFocus" | "useFocusManager"), call)) = hook_call(&self.meanings(), init) {
+    if let Some((hook @ ("useFocus" | "useFocusManager"), call)) = library_hook(&self.meanings(), init) {
       return self.focus_hook(hook, call, &decl.name, decl.span);
     }
-    if let Some(("useCursor", _)) = hook_call(&self.meanings(), init) {
+    if let Some(("useCursor", _)) = library_hook(&self.meanings(), init) {
       let js::Pat::Object(object) = &decl.name else { return Err(self.lowerer.residue(decl.span, "`useCursor` bound to one name; destructure `setCursorPosition`")) };
       for prop in &object.props {
         let local = match prop {
@@ -6478,7 +6491,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       self.lowerer.scope.push((crate::terminal::emit(crate::terminal::CURSOR), Expr::Lit(Lit::Null)));
       return Ok(None);
     }
-    if let Some(("useBoxMetrics", call)) = hook_call(&self.meanings(), init) {
+    if let Some(("useBoxMetrics", call)) = library_hook(&self.meanings(), init) {
       let Some(target) = call.args.first() else { return Err(self.lowerer.residue(decl.span, "`useBoxMetrics` without a ref")) };
       let id = Expr::Field(Box::new(self.lowerer.expr(&target.expr)?), crate::REF_ID.to_owned());
       let measured = Expr::Index(Box::new(Expr::Store(crate::TERMINAL_METRICS.to_owned())), Box::new(id));
@@ -6489,7 +6502,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       bind_pattern(&mut self.lowerer, &decl.name, metrics)?;
       return Ok(None);
     }
-    if let Some((hook @ ("useWindowSize" | "useStdout" | "useStderr" | "useIsScreenReaderEnabled"), _)) = hook_call(&self.meanings(), init) {
+    if let Some((hook @ ("useWindowSize" | "useStdout" | "useStderr" | "useIsScreenReaderEnabled"), _)) = library_hook(&self.meanings(), init) {
       self.terminal_hook(hook, &decl.name, decl.span)?;
       return Ok(None);
     }
