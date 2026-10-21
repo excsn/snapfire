@@ -1234,6 +1234,7 @@ const SECTIONS: &[&str] = &[
   "document",
   "session",
   "cache",
+  "store",
   "clients",
   "static",
   "route",

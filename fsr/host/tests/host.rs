@@ -806,6 +806,19 @@ fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
 }
 
 #[test]
+fn a_section_the_host_reads_is_never_listed_as_left_to_the_application() {
+  use snapfire_fsr_host::config::{Deployment, Loader};
+
+  let root = std::env::temp_dir().join(format!("fsr-host-store-section-{}-{}", std::process::id(), rand_suffix()));
+  std::fs::create_dir_all(root.join("config")).unwrap();
+  std::fs::write(root.join("config/app.toml"), "[session]\nkey = \"k\"\n[store]\nslot_order = [\"content\"]\n[metrics]\non = true\n").unwrap();
+  let config = Loader::at(&root).deployment(Deployment::default()).config().unwrap();
+  assert_eq!(config.store.slot_order, ["content"]);
+  assert_eq!(config.ignored, ["metrics"], "[store] is the host's own");
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn a_loaded_configuration_is_development_by_the_deployment_it_was_loaded_for() {
   use snapfire_fsr_host::config::{env_name, Deployment, Loader, RuntimeValue, ValueState};
 
