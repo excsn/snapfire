@@ -14,7 +14,7 @@ render-throttle	rendered
 router	refused: `src/router.tsx#Home` does not lower, so only a browser could render it: src/router.tsx:7:22: `useNavigate`, a hook the build cannot follow
 scroll	refused: `src/scroll.tsx#ScrollView` does not lower, so only a browser could render it: src/scroll.tsx:20:41: `useBoxMetrics`, a hook the build cannot follow
 select-input	rendered
-static	refused: `src/static.tsx#Example` does not lower, so only a browser could render it: src/static.tsx:41:13: `Static` comes from `ink`, which the build cannot follow
+static	rendered
 subprocess-output	refused: `src/subprocess-output.tsx#SubprocessOutput` does not lower, so only a browser could render it: src/subprocess-output.tsx:10:28: `childProcess` comes from `node:child_process`, which the build cannot follow
 suspend-terminal	refused: `src/suspend-terminal.tsx#Example` does not lower, so only a browser could render it: src/suspend-terminal.tsx:28:11: `useApp` gives `exit` alone
 suspense	refused: `src/suspense.tsx#Example` does not lower, so only a browser could render it: src/suspense.tsx:9:10: `promise` is not bound here; an import the build cannot follow or a name from outside the body

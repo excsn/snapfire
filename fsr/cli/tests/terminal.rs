@@ -185,3 +185,13 @@ fn a_mount_effect_runs_once_and_a_timer_its_function_restarts_counts_with_its_ow
   assert_eq!(line(session.fire(&last[0]).unwrap()), "done 3", "the fourth run returns early");
   assert!(session.take_started().is_empty(), "and starts no timer");
 }
+
+#[test]
+fn static_draws_its_items_in_a_column_above_the_rest() {
+  let page = "import { useState } from \"react\";\nimport { Box, Static, Text, useInput } from \"ink\";\n\nexport default function Log() {\n  const [done, setDone] = useState([\"a\"]);\n  useInput(() => setDone((d) => [...d, `t${d.length}`]));\n  return (\n    <>\n      <Static items={done} style={{ paddingLeft: 1 }}>\n        {(item, i) => <Text key={item}>✔ {i} {item}</Text>}\n      </Static>\n      <Text>count {done.length}</Text>\n    </>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let lines = |node| snapfire_fsr_terminal::render(&node, 20).lines().iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(lines(session.view().unwrap())[..2], [" ✔ 0 a", "count 1"]);
+  let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  assert_eq!(lines(session.press(&key).unwrap())[..3], [" ✔ 0 a", " ✔ 1 t1", "count 2"]);
+}

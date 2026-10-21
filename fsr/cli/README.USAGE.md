@@ -1347,9 +1347,17 @@ export default function Menu() {
 
 `useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do.
 
+`Static` draws its `items` in a column above the rest of the page, each through its function child. Its `style` takes Box props:
+
+```tsx
+<Static items={tests} style={{ paddingLeft: 1 }}>
+  {(test) => <Text key={test.id} color="green">✔ {test.title}</Text>}
+</Static>
+```
+
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
-Effects with dependencies, `Static`, `Transform`, `measureElement`, `useCursor`, `useBoxMetrics`, `Suspense`, percentage sizes and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
+Effects with dependencies, `Transform`, `measureElement`, `useCursor`, `useBoxMetrics`, `Suspense`, percentage sizes and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 
