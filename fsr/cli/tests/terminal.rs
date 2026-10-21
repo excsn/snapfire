@@ -410,3 +410,16 @@ fn a_custom_hooks_effect_starts_a_timer_whose_callback_sets_the_hooks_own_state(
   assert_eq!(line(session.fire(&first[0]).unwrap()), "ab|", "the cleanup cleared the timer the first key started");
   assert_eq!(line(session.fire(&second[0]).unwrap()), "ab|ab");
 }
+
+#[test]
+fn an_effect_returning_undefined_early_has_no_cleanup_and_the_rest_runs_when_it_does_not() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Page() {\n  const [query, setQuery] = useState(\"\");\n  const [runs, setRuns] = useState(0);\n  useEffect(() => {\n    if (query.length <= 1) {\n      return undefined;\n    }\n    setRuns((n) => n + 1);\n  }, [query]);\n  useInput((input) => setQuery(query + input));\n  return <Text>{query} {runs}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let press = |c: char| {
+    let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    key
+  };
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  assert_eq!(line(session.press(&press('a')).unwrap()), "a 0");
+  assert_eq!(line(session.press(&press('b')).unwrap()), "ab 1");
+}

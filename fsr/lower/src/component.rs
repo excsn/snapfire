@@ -4575,6 +4575,15 @@ fn calls_a_value(expr: &Expr) -> bool {
   matches!(expr, Expr::Apply { f, .. } if !matches!(**f, Expr::Lambda { .. }))
 }
 
+/// `undefined` or `void 0`, which a `return` hands back as a bare `return` does.
+fn is_undefined(expr: &js::Expr) -> bool {
+  match crate::meaning::bare(expr) {
+    js::Expr::Ident(id) => id.sym.as_ref() == "undefined",
+    js::Expr::Unary(u) => u.op == js::UnaryOp::Void && matches!(&*u.arg, js::Expr::Lit(_)),
+    _ => false,
+  }
+}
+
 /// Whether `expr` writes the store wherever it is evaluated.
 fn writes_store(expr: &Expr) -> bool {
   let mut found = false;
@@ -8134,7 +8143,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             walk.out.push(Stmt::Let { name, expr });
           }
         }
-        js::Stmt::Return(r) if r.arg.is_none() => return Ok(true),
+        js::Stmt::Return(r) if r.arg.as_deref().is_none_or(is_undefined) => return Ok(true),
         js::Stmt::Return(js::ReturnStmt { arg: Some(cleanup), span }) if self.cleanup_for.is_some() => {
           let effect = self.cleanup_for.clone().expect("checked");
           let js::Expr::Arrow(arrow) = crate::meaning::bare(cleanup) else { return Err(self.lowerer.residue(*span, "an effect's cleanup that is not an arrow written in place")) };
