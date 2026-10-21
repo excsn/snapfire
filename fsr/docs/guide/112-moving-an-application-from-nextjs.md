@@ -121,7 +121,7 @@ impl Db {
 }
 ```
 
-A relation is an `Option` or a `Vec`, empty unless the call includes it. The loader calls the method through `services`:
+A relation is an `Option` or a `Vec`, empty unless the call includes it. A value the call reads at request time, directly under `where` or `data` and keyed by one of the model's fields, becomes a parameter typed from that field: `prisma.post.findUnique({ where: { id: postId } })` is `services.db.postFindUniqueById({ id: postId })` answered by `post_find_unique_by_id(&self, id: i32)`. Any other request-time value, such as `{ title: { contains: q } }`, is a note and the call is left for you. The loader calls the method through `services`:
 
 ```ts
 import type { Ctx } from "@snapfire/fsr";

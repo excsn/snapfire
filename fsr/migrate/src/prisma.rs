@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use swc_core::common::Span;
+use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 use swc_core::ecma::visit::{Visit, VisitWith};
 
@@ -36,6 +36,8 @@ struct Call {
   method: String,
   model: String,
   op: String,
+  /// Each request-time value the call passes, as the field it is keyed by.
+  params: Vec<String>,
   written: String,
 }
 
@@ -66,18 +68,29 @@ impl Pass for Prisma {
       for (span, model, op, args) in found.found {
         let line = parsed.line(span);
         let Some(model) = models.iter().find(|m| m.name.eq_ignore_ascii_case(&model)) else { continue };
-        if !args.as_ref().is_none_or(literal) {
-          report.note(&path, line, format!("`{client}.{}.{op}` passes a value read at request time; its method was not generated", lower_first(&model.name)));
+        let Some(passed) = args.as_ref().map_or(Some(Vec::new()), |a| request_values(a, model, &models, &text, &parsed)) else {
+          report.note(&path, line, format!("`{client}.{}.{op}` passes a value read at request time other than as a field of `where` or `data`; its method was not generated", lower_first(&model.name)));
           continue;
-        }
+        };
         let includes = args.as_ref().map(includes).unwrap_or_default();
         let mut method = format!("{}_{}", snake(&model.name), snake(&op));
+        let by: Vec<String> = passed.iter().filter(|p| p.under_where).map(|p| snake(&p.field)).collect();
+        if !by.is_empty() {
+          method.push_str(&format!("_by_{}", by.join("_and_")));
+        }
         if !includes.is_empty() {
           method.push_str(&format!("_with_{}", includes.iter().map(|i| snake(i)).collect::<Vec<_>>().join("_and_")));
         }
+        let params: Vec<String> = passed.iter().map(|p| p.field.clone()).collect();
+        if calls.get(&method).is_some_and(|c| c.params != params) {
+          report.note(&path, line, format!("`{client}.{}.{op}` passes other fields than a call answered by `{method}`; its method was not generated", lower_first(&model.name)));
+          continue;
+        }
         let written = text[parsed.range(span)].to_owned();
-        edits.replace(parsed.range(span), format!("services.db.{}()", camel(&method)));
-        calls.entry(method.clone()).or_insert(Call { method, model: model.name.clone(), op, written });
+        let passing = passed.iter().map(|p| if p.value == p.field { p.field.clone() } else { format!("{}: {}", p.field, p.value) }).collect::<Vec<_>>().join(", ");
+        let passing = if passing.is_empty() { String::new() } else { format!("{{ {passing} }}") };
+        edits.replace(parsed.range(span), format!("services.db.{}({passing})", camel(&method)));
+        calls.entry(method.clone()).or_insert(Call { method, model: model.name.clone(), op, params, written });
       }
       if edits.is_empty() {
         continue;
@@ -177,6 +190,60 @@ fn includes(args: &js::Expr) -> Vec<String> {
     }
   }
   out
+}
+
+/// A request-time value a call passes as a field of `where` or `data`.
+struct Passed {
+  field: String,
+  /// The value's source text.
+  value: String,
+  under_where: bool,
+}
+
+/// The request-time values `args` passes, each directly under `where` or
+/// `data` and keyed by a scalar field of `model`; None when one sits
+/// anywhere else, such as `{ title: { contains: q } }` or `take: n`.
+fn request_values(args: &js::Expr, model: &Model, models: &[Model], text: &str, parsed: &Parsed) -> Option<Vec<Passed>> {
+  let js::Expr::Object(object) = args else { return literal(args).then(Vec::new) };
+  let scalar = |name: &str| model.fields.iter().any(|f| f.name == name && !models.iter().any(|m| m.name == f.ty));
+  let mut out: Vec<Passed> = Vec::new();
+  for prop in &object.props {
+    let js::PropOrSpread::Prop(prop) = prop else { return None };
+    let js::Prop::KeyValue(kv) = &**prop else { return None };
+    let section = match &kv.key {
+      js::PropName::Ident(i) => i.sym.to_string(),
+      _ => return None,
+    };
+    if literal(&kv.value) {
+      continue;
+    }
+    if section != "where" && section != "data" {
+      return None;
+    }
+    let js::Expr::Object(fields) = &*kv.value else { return None };
+    for field in &fields.props {
+      let js::PropOrSpread::Prop(field) = field else { return None };
+      let (name, value) = match &**field {
+        js::Prop::Shorthand(i) => (i.sym.to_string(), i.sym.to_string()),
+        js::Prop::KeyValue(kv) => {
+          let js::PropName::Ident(key) = &kv.key else { return None };
+          if literal(&kv.value) {
+            continue;
+          }
+          if matches!(&*kv.value, js::Expr::Object(_) | js::Expr::Array(_)) {
+            return None;
+          }
+          (key.sym.to_string(), text[parsed.range(kv.value.span())].to_owned())
+        }
+        _ => return None,
+      };
+      if !scalar(&name) || out.iter().any(|p| p.field == name) {
+        return None;
+      }
+      out.push(Passed { field: name, value, under_where: section == "where" });
+    }
+  }
+  Some(out)
 }
 
 fn literal(e: &js::Expr) -> bool {
@@ -281,7 +348,9 @@ fn service_source(models: &[Model], calls: &BTreeMap<String, Call>) -> String {
       _ => record.clone(),
     };
     let written = call.written.split_whitespace().collect::<Vec<_>>().join(" ").replace(", }", " }");
-    out.push_str(&format!("  /// `{written}`\n  pub fn {}(&self) -> Result<{returns}, ServiceError> {{\n    todo!(\"the query the doc comment names\")\n  }}\n\n", call.method));
+    let model = models.iter().find(|m| m.name == call.model);
+    let params: String = call.params.iter().filter_map(|p| model?.fields.iter().find(|f| &f.name == p)).map(|f| format!(", {}: {}", snake(&f.name), rust_type(f, models))).collect();
+    out.push_str(&format!("  /// `{written}`\n  pub fn {}(&self{params}) -> Result<{returns}, ServiceError> {{\n    todo!(\"the query the doc comment names\")\n  }}\n\n", call.method));
   }
   out.truncate(out.trim_end().len());
   out.push_str("\n}\n");
@@ -389,5 +458,31 @@ mod tests {
     assert!(out.contains("src/main.rs") && out.contains("Cargo.toml"));
     assert!(!out.paths().any(|p| p.contains("prisma")), "{:?}", out.paths().collect::<Vec<_>>());
     assert!(out.text("app/src/components/Product.tsx").unwrap().contains("from \"@generated/client\""));
+  }
+
+  #[test]
+  fn a_request_time_value_under_where_or_data_is_a_parameter_of_the_method() {
+    let input = tree(&[
+      ("package.json", r#"{ "dependencies": { "next": "latest", "@prisma/client": "6" } }"#),
+      ("prisma/schema.prisma", "model Post {\n  id       Int     @id\n  title    String\n  author   User    @relation(fields: [authorId], references: [id])\n  authorId Int\n}\n\nmodel User {\n  id    Int    @id\n  email String @unique\n  posts Post[]\n}\n"),
+      ("lib/prisma.ts", "import { PrismaClient } from \"@prisma/client\";\nconst prisma = new PrismaClient();\nexport default prisma;\n"),
+      ("app/posts/[id]/page.tsx", "import prisma from \"@/lib/prisma\";\n\nexport default async function Post({ params }) {\n  const { id } = await params;\n  const postId = parseInt(id);\n  const post = await prisma.post.findUnique({ where: { id: postId }, include: { author: true } });\n  return <h1>{post.title}</h1>;\n}\n"),
+      ("app/users/[email]/page.tsx", "import prisma from \"@/lib/prisma\";\n\nexport default async function User({ params }) {\n  const { email } = await params;\n  const user = await prisma.user.findUnique({ where: { email } });\n  const found = await prisma.post.findMany({ where: { title: { contains: email } } });\n  return <h1>{user.email}{found.length}</h1>;\n}\n"),
+      ("tsconfig.json", "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./*\"] } } }"),
+    ]);
+    let (out, report) = migrate(&input);
+    let post = out.text("app/routes/posts/[id]/page.loader.ts").unwrap();
+    assert!(post.contains("const post = await services.db.postFindUniqueByIdWithAuthor({ id: postId });"), "{post}");
+    let user = out.text("app/routes/users/[email]/page.loader.ts").unwrap();
+    assert!(user.contains("const user = await services.db.userFindUniqueByEmail({ email });"), "{user}");
+    let db = out.text("src/db.rs").unwrap();
+    for expected in [
+      "  /// `prisma.post.findUnique({ where: { id: postId }, include: { author: true } })`\n  pub fn post_find_unique_by_id_with_author(&self, id: i32) -> Result<Option<Post>, ServiceError> {",
+      "  pub fn user_find_unique_by_email(&self, email: String) -> Result<Option<User>, ServiceError> {",
+    ] {
+      assert!(db.contains(expected), "missing {expected} in {db}");
+    }
+    assert!(!db.contains("post_find_many"), "{db}");
+    assert!(report.notes.iter().any(|n| n.file == "app/routes/users/[email]/page.loader.ts" && n.message.contains("`prisma.post.findMany`")), "{:?}", report.notes);
   }
 }
