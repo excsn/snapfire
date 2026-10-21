@@ -5637,7 +5637,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.premake_stmt(stmt)?;
               for decl in &var.decls {
                 if let Some(init) = decl.init.as_deref() {
-                  if let Some((hook, _)) = hook_call(&self.meanings(), init) {
+                  if let Some((hook, _)) = hook_call(&self.meanings(), init).filter(|(hook, _)| *hook != "use") {
                     return Err(self.lowerer.residue(decl.span, format!("`{hook}` after an early `return`, which React refuses since the hooks would change between renders")));
                   }
                 }

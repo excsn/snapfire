@@ -177,6 +177,12 @@ fn children_passed_through_a_spread_render_inside_the_element() {
 }
 
 #[test]
+fn use_after_an_early_return_reads_the_context_as_react_allows() {
+  let page = "import { createContext, use } from \"react\";\nconst Theme = createContext(\"light\");\nfunction Label({ hidden }: { hidden: boolean }) {\n  if (hidden) {\n    return null;\n  }\n  const theme = use(Theme);\n  return <b>{theme}</b>;\n}\nexport default function Page() {\n  return <Theme.Provider value=\"dark\"><p><Label hidden={true} /><Label hidden={false} /></p></Theme.Provider>;\n}\n";
+  assert_eq!(html("use_after_return", page).as_deref(), Ok("<p><b>dark</b></p>"));
+}
+
+#[test]
 fn a_default_exported_value_is_read_where_it_is_imported() {
   let out = html_with("data_default", &[("src/quotes.ts", "export default [\"one\", \"two\"];\n"), ("routes/page.tsx", "import quotes from \"@src/quotes\";\nexport default function Page() {\n  return <p>{quotes[1]} of {quotes.length}</p>;\n}\n")]);
   assert_eq!(out.as_deref(), Ok("<p>two of 2</p>"));
