@@ -28,3 +28,16 @@ export function useStderr() {
 export function useIsScreenReaderEnabled() {
   return false;
 }
+
+/** The focus across the page: the focused id, which the terminal keeps in the store, and the acts that move it. */
+export function useFocusManager() {
+  const [activeId] = useStore("$terminal.focus", null);
+  return {
+    activeId,
+    focus: action("$focus"),
+    focusNext: action("$focusNext"),
+    focusPrevious: action("$focusPrevious"),
+    enableFocus: action("$focusEnable"),
+    disableFocus: action("$focusDisable"),
+  };
+}
