@@ -38,6 +38,8 @@ struct Cli {
 enum Command {
   /// Scaffolds a bare project: configuration, routes and an import map, no framework; --with react adds React.
   New(New),
+  /// Rewrites a Next.js application into a new project, naming each line it left for a person.
+  Migrate(Migrate),
   /// Builds and serves an application, rebuilding what changed as it changes.
   Dev(Dev),
   #[cfg(feature = "web")]
@@ -96,6 +98,17 @@ enum IrCommand {
     /// One export of a source row: body, meta, store, defaults or paths.
     section: Option<String>,
   },
+}
+
+#[derive(Args)]
+struct Migrate {
+  /// The application to migrate: the directory holding its package.json.
+  from: PathBuf,
+  /// The directory to create the project in.
+  project_dir: PathBuf,
+  /// Skips vendoring packages and fetching declarations.
+  #[arg(long)]
+  no_fetch: bool,
 }
 
 #[derive(Args)]
@@ -591,6 +604,7 @@ fn refused(message: &str) -> ExitCode {
 fn main() -> ExitCode {
   match Cli::parse().command {
     Command::New(args) => run_new(args),
+    Command::Migrate(args) => run_migrate(args),
     Command::Dev(args) => match dev::run(&args.build.app_dir, args.options()) {
       Ok(()) => ExitCode::SUCCESS,
       Err(e) => failed(e),
@@ -765,6 +779,34 @@ fn run_new(args: New) -> ExitCode {
       for step in &created.next {
         println!("next      {step}");
       }
+      ExitCode::SUCCESS
+    }
+    Err(e) => failed(e),
+  }
+}
+
+fn run_migrate(args: Migrate) -> ExitCode {
+  match snapfire_fsr_cli::migrate::run(&args.from, &args.project_dir, !args.no_fetch) {
+    Ok(migrated) => {
+      if let Some(source) = migrated.report.source {
+        println!("from      {}", source.name());
+      }
+      println!("wrote     {} files under {}", migrated.written.len(), args.project_dir.display());
+      for (specifier, file, bytes) in &migrated.created.vendored {
+        println!("added     {specifier:<28} {file}  {bytes} bytes");
+      }
+      for note in &migrated.report.notes {
+        eprintln!("note      {note}");
+      }
+      let app = args.project_dir.join("app");
+      if !migrated.report.packages.is_empty() {
+        let specs: Vec<String> = migrated.report.packages.keys().cloned().collect();
+        println!("next      fsr add {} {}", app.display(), specs.join(" "));
+      }
+      for command in &migrated.report.commands {
+        println!("next      {command}");
+      }
+      println!("next      fsr check {}", app.display());
       ExitCode::SUCCESS
     }
     Err(e) => failed(e),

@@ -37,6 +37,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [109. Tailwind and themes](109-tailwind-and-themes.md), a stylesheet that imports Tailwind built for the classes the plan renders, what the build says about a class it cannot list, a theme for the whole document chosen by a layout, a site or `theme.ts` per request, light and dark beside it and card images that draw the same classes. App developers.
 - [110. MDX and markdown](110-mdx-and-markdown.md), a page or a piece of content written in MDX or markdown and lowered like any component, a page that picks a file by its data, collections an index reads, the component map, highlighted code and a file an island renders in the browser. App developers.
 - [111. Values the server and browser disagree on](111-values-the-server-and-browser-disagree-on.md), a component that reads the viewer's clock, time zone, `Math.random` or `window`, why Next.js turns it into a hydration error and fsr does not, `console` calls logged on the server and left to the browser when they log such a value plus the other parts of a component the browser runs. App developers.
+- [112. Moving an application from Next.js](112-moving-an-application-from-nextjs.md), `fsr migrate`: where each file of an App Router or Pages Router application goes, the metadata, data functions, async components, links, images and fonts it rewrites and the notes it leaves for a person. App developers moving a Next.js application.
 
 **The host:**
 
@@ -64,7 +65,7 @@ And one appendix:
 
 ## Reading paths
 
-**A frontend developer who knows Next or Remix:** read 000 for the vocabulary, then 100, 101, 102, 103 and 111, which is where a hydration error you are used to working around does not happen. Chapter 003 will read like the rendering model you already have, minus the engine; 004 says what became of server components and `async function Page()`. Start the project with `fsr new <dir> --with react`: a plain `fsr new` is a bare application with no framework. 102 is written for React.
+**A frontend developer who knows Next or Remix:** read 000 for the vocabulary, then 100, 101, 102, 103 and 111, which is where a hydration error you are used to working around does not happen. Chapter 003 will read like the rendering model you already have, minus the engine; 004 says what became of server components and `async function Page()`. Start the project with `fsr new <dir> --with react`: a plain `fsr new` is a bare application with no framework. 102 is written for React. To bring an existing Next application over, 112 is `fsr migrate`.
 
 **A frontend developer who writes Vue:** read 000, then 100 and 101 for the templates and bodies, then 104. Your components are islands and the pages around them are templates. 102 covers the same split for React and 106 covers what it costs to run both at once.
 

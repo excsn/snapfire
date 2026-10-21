@@ -9,6 +9,7 @@ pub mod desktop;
 pub mod dev;
 pub mod direction;
 pub mod doctor;
+pub mod migrate;
 pub mod new;
 pub mod plugins;
 pub mod published;
