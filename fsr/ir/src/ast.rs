@@ -173,7 +173,7 @@ pub enum Builtin {
   Includes,
   StartsWith,
   EndsWith,
-  /// `s.split(sep)`. An empty separator is refused: JavaScript splits one into
+  /// `s.split(sep, limit?)`, at most `limit` pieces, read as `ToUint32`. An empty separator is refused: JavaScript splits one into
   /// UTF-16 code units, which a Rust `String` cannot hold a half of.
   Split,
   /// `s.replace(from, to)`, the first occurrence only, with `$` in `to`
@@ -285,6 +285,14 @@ pub enum Builtin {
   LocalTime,
   /// `x[key] = value` on a local, as a copy: an array with the index set (its length appends) or an object with `String(key)` set. A key on an array that is not an index or lies past its length is an error, since the value model holds no sparse array.
   SetAt,
+  /// `stripAnsi(s)` from `strip-ansi`: `s` without its escape codes.
+  StripAnsi,
+  /// `stringWidth(s)` from `string-width`: the terminal columns `s` takes.
+  StringWidth,
+  /// `wrapAnsi(s, columns, { hard, trim, wordWrap })` from `wrap-ansi`: `s` broken into rows at most `columns` wide.
+  WrapAnsi,
+  /// `ms(x, { long })` from `ms`: a number of milliseconds as `1m` or `1 minute`, a string such as `2 days` as milliseconds, null for one it cannot read.
+  Ms,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is

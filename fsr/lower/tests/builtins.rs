@@ -123,7 +123,6 @@ fn the_four_string_builtins_lower() {
 #[test]
 fn a_second_argument_is_residue_rather_than_one_the_interpreter_drops() {
   for (tag, expr, takes) in [
-    ("split_limit", "params.slug.split(\",\", 2)", "`split` takes 1 argument, got 2"),
     ("starts_at", "params.slug.startsWith(\"a\", 3)", "`startsWith` takes 1 argument, got 2"),
     ("ends_at", "params.slug.endsWith(\"a\", 3)", "`endsWith` takes 1 argument, got 2"),
     ("replace_one", "params.slug.replace(\" \")", "`replace` takes 2 arguments, got 1"),
@@ -131,6 +130,12 @@ fn a_second_argument_is_residue_rather_than_one_the_interpreter_drops() {
     let err = lowered(tag, expr).unwrap_err();
     assert!(err.contains(takes), "{err}");
   }
+}
+
+#[test]
+fn split_with_a_limit_lowers_with_the_limit_as_its_third_argument() {
+  let body = lowered("split_limit", "params.slug.split(\",\", 2)").unwrap();
+  assert!(matches!(&body[0], Stmt::Let { expr: Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::Split, args }, .. } if args.len() == 3), "{body:?}");
 }
 
 #[test]
@@ -238,6 +243,13 @@ fn a_case_that_falls_through_into_the_next_is_residue() {
   let dir = app("write_param", &[("routes/a/page.loader.ts", "export async function load({ params }) {\n  switch (params.k) {\n    case \"a\":\n      params.k;\n    case \"b\":\n      break;\n  }\n  return {};\n}\n")]);
   let err = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_err().to_string();
   assert!(err.contains("a `case` that falls through into the next"), "{err}");
+}
+
+#[test]
+fn a_case_written_as_a_block_ends_where_its_block_does() {
+  let dir = app("block_cases", &[("routes/a/page.loader.ts", "export async function load({ params }) {\n  let n = 0;\n  switch (params.k) {\n    case \"a\": {\n      n = 1;\n      break;\n    }\n    case \"b\": {\n      return { n: 2 };\n    }\n    default: {\n      n = 3;\n    }\n  }\n  return { n };\n}\n")]);
+  let body = ComponentSet::new(&dir).lower_loader("routes/a/page.loader.ts").unwrap_or_else(|e| panic!("{e}"));
+  assert!(body.iter().any(|s| matches!(s, Stmt::If { .. })), "{body:?}");
 }
 
 #[test]

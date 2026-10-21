@@ -1319,7 +1319,7 @@ useEffect(() => {
 }, []);
 ```
 
-Each `setInterval` or `setTimeout` in an effect with an empty dependency list, its delay written out, steps the page when it is due, its callback lowered like a handler. An effect with dependencies is not run yet.
+Each `setInterval` or `setTimeout` in a mount effect steps the page when it is due, its callback lowered like a handler and its delay a number written out or a module constant. A mount effect has an empty dependency list or depends only on what never changes: setters, a `useReducer` dispatch, refs and `useCallback` functions whose own dependencies never change. An effect whose dependencies change is refused when it could change the page, since it would not run again yet.
 
 Every component the page places runs in place with its own state, its own `useInput` and its own timers. A key reaches every `useInput`, as in Ink. `useFocus` makes a component focusable; Tab and Shift+Tab move the focus through them in the order they render and Esc clears it:
 
@@ -1345,7 +1345,7 @@ export default function Menu() {
 }
 ```
 
-`useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do. `getHours()`, the other local getters, `getTimezoneOffset()` and `toLocaleTimeString()` read this machine's time zone, since the machine running the page is the viewer; without a locale, `toLocaleTimeString()` takes the system's from `LC_ALL`, `LC_TIME` or `LANG`, as Node does. A Box's `width` and `height` may be a percentage of its parent, `width="50%"`.
+`useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do. The default exports of `ms`, `strip-ansi`, `string-width` and `wrap-ansi` run natively, as do the same functions from `@snapfire/fsr/terminal`; `wrapAnsi` keeps escape codes where they stand rather than reopening a style on the next row. `getHours()`, the other local getters, `getTimezoneOffset()` and `toLocaleTimeString()` read this machine's time zone, since the machine running the page is the viewer; without a locale, `toLocaleTimeString()` takes the system's from `LC_ALL`, `LC_TIME` or `LANG`, as Node does. A Box's `width` and `height` may be a percentage of its parent, `width="50%"`.
 
 `useBoxMetrics(ref)` reads the layout of the Box that `ref` is on: `width`, `height`, `left`, `top`, `clientWidth`, `clientHeight` and `hasMeasured`, zeros until the first layout. With `overflow="hidden"` a Box cuts its children at its border and `contentOffsetY` scrolls them:
 
@@ -1375,7 +1375,7 @@ return (
 
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
-Effects with dependencies, `Transform`, `measureElement`, `useCursor`, `Suspense` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
+Effects whose dependencies change, `Transform`, `measureElement`, `useCursor`, `Suspense` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 

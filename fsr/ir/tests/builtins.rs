@@ -307,3 +307,78 @@ async fn set_at_copies_an_array_or_an_object_with_one_index_or_key_written() {
   assert_eq!(interp.evaluate(&set(object, Lit::Int(1), "y"), Vec::new()).await.unwrap(), Value::Map(written), "an object's key is String(key)");
   assert!(interp.evaluate(&set(over(&["a"]), Lit::Float(-1.0), "c"), Vec::new()).await.is_err());
 }
+
+async fn text_of(interp: &Interpreter, name: Builtin, args: Vec<Expr>) -> Value {
+  interp.evaluate(&Expr::Builtin { name, args }, Vec::new()).await.unwrap()
+}
+
+#[tokio::test]
+async fn strip_ansi_removes_escape_codes_as_ansi_regex_matches_them() {
+  let interp = Interpreter::default();
+  assert_eq!(text_of(&interp, Builtin::StripAnsi, vec![str("\u{1b}[4m\u{1b}[42mcake\u{1b}[49m\u{1b}[24m")]).await, Value::str("cake"));
+  assert_eq!(text_of(&interp, Builtin::StripAnsi, vec![str("\u{1b}]8;;https://x.dev\u{7}link\u{1b}]8;;\u{7} plain")]).await, Value::str("link plain"), "an OSC hyperlink");
+}
+
+#[tokio::test]
+async fn string_width_counts_terminal_columns_as_string_width_does() {
+  let interp = Interpreter::default();
+  let width = |s: &str| Expr::Builtin { name: Builtin::StringWidth, args: vec![str(s)] };
+  for (s, n) in [("abc", 3.0), ("古", 2.0), ("안녕", 4.0), ("\u{1b}[1municorn\u{1b}[22m", 7.0), ("👍🏽", 2.0), ("👨‍👩‍👧", 2.0), ("e\u{301}", 1.0), ("", 0.0)] {
+    assert_eq!(interp.evaluate(&width(s), Vec::new()).await.unwrap(), Value::F64(n), "{s:?}");
+  }
+}
+
+#[tokio::test]
+async fn wrap_ansi_wraps_at_columns_as_wrap_ansi_does() {
+  let interp = Interpreter::default();
+  let options = |hard: bool, trim: bool| {
+    let mut entries = vec![Entry::Field("hard".to_owned(), Expr::Lit(Lit::Bool(hard)))];
+    entries.push(Entry::Field("trim".to_owned(), Expr::Lit(Lit::Bool(trim))));
+    Expr::Object(entries)
+  };
+  let wrap = |s: &str, columns: i64, opts: Option<Expr>| {
+    let mut args = vec![str(s), Expr::Lit(Lit::Int(columns.into()))];
+    args.extend(opts);
+    Expr::Builtin { name: Builtin::WrapAnsi, args }
+  };
+  let interp = &interp;
+  let run = |e: Expr| async move { interp.evaluate(&e, Vec::new()).await.unwrap() };
+  assert_eq!(run(wrap("The quick brown fox jumped", 10, None)).await, Value::str("The quick\nbrown fox\njumped"));
+  assert_eq!(run(wrap("unicorns", 3, Some(options(true, true)))).await, Value::str("uni\ncor\nns"));
+  assert_eq!(run(wrap("unicorns", 3, None)).await, Value::str("unicorns"), "soft wrapping leaves a long word whole");
+  assert_eq!(run(wrap("Type:\n> ab ", 4, Some(options(true, false)))).await, Value::str("Type\n:\n> ab\n "));
+  assert_eq!(run(wrap("   ", 4, None)).await, Value::str(""));
+}
+
+#[tokio::test]
+async fn ms_formats_and_parses_as_the_ms_package_does() {
+  let interp = Interpreter::default();
+  let ms = |arg: Expr, long: bool| {
+    let mut args = vec![arg];
+    if long {
+      args.push(Expr::Object(vec![Entry::Field("long".to_owned(), Expr::Lit(Lit::Bool(true)))]));
+    }
+    Expr::Builtin { name: Builtin::Ms, args }
+  };
+  let num = |n: f64| Expr::Lit(Lit::Float(n));
+  for (n, short, long) in [(500.0, "500ms", "500 ms"), (1000.0, "1s", "1 second"), (1500.0, "2s", "2 seconds"), (60_000.0, "1m", "1 minute"), (-3_600_000.0, "-1h", "-1 hour"), (2.0 * 86_400_000.0, "2d", "2 days")] {
+    assert_eq!(interp.evaluate(&ms(num(n), false), Vec::new()).await.unwrap(), Value::str(short), "{n}");
+    assert_eq!(interp.evaluate(&ms(num(n), true), Vec::new()).await.unwrap(), Value::str(long), "{n}");
+  }
+  for (s, n) in [("2 days", 172_800_000.0), ("1h", 3_600_000.0), ("-.5h", -1_800_000.0), ("100", 100.0), ("1y", 31_557_600_000.0)] {
+    assert_eq!(interp.evaluate(&ms(str(s), false), Vec::new()).await.unwrap(), Value::F64(n), "{s}");
+  }
+  assert_eq!(interp.evaluate(&ms(str("soon"), false), Vec::new()).await.unwrap(), Value::Null, "undefined for what it cannot read");
+}
+
+#[tokio::test]
+async fn split_keeps_as_many_pieces_as_its_limit_reads_as_uint32() {
+  let interp = Interpreter::default();
+  let split = |limit: Lit| Expr::Builtin { name: Builtin::Split, args: vec![str("src/a/b.ts"), str("/"), Expr::Lit(limit)] };
+  let pieces = |items: &[&str]| Value::Seq(items.iter().map(|s| Value::str(*s)).collect::<Vec<_>>().into());
+  assert_eq!(interp.evaluate(&split(Lit::Int(1)), Vec::new()).await.unwrap(), pieces(&["src"]));
+  assert_eq!(interp.evaluate(&split(Lit::Int(2)), Vec::new()).await.unwrap(), pieces(&["src", "a"]));
+  assert_eq!(interp.evaluate(&split(Lit::Int(0)), Vec::new()).await.unwrap(), pieces(&[]));
+  assert_eq!(interp.evaluate(&split(Lit::Int(-1)), Vec::new()).await.unwrap(), pieces(&["src", "a", "b.ts"]), "-1 is 2^32 - 1");
+  assert_eq!(interp.evaluate(&split(Lit::Null), Vec::new()).await.unwrap(), pieces(&["src", "a", "b.ts"]), "undefined is no limit");
+}

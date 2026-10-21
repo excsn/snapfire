@@ -1182,7 +1182,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -3527,7 +3527,7 @@ pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target
   Ok(())
 }
 
-/// A `switch` as its arms: the tests that select each body in order and the `default` body. A body ends with a `break` (dropped), a `return` or the end of the last arm; cases with no body share the next one's.
+/// A `switch` as its arms: the tests that select each body in order and the `default` body. A body ends with a `break` (dropped), a `return` or the end of the last arm; cases with no body share the next one's. A body written as one block is that block's statements.
 pub(crate) type SwitchArms<'s> = (Vec<(Vec<&'s js::Expr>, &'s [js::Stmt])>, Option<&'s [js::Stmt]>);
 
 pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStmt) -> Lowered<SwitchArms<'s>> {
@@ -3543,13 +3543,17 @@ pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStmt) -> 
     if let Some(test) = &case.test {
       tests.push(test);
     }
-    if case.cons.is_empty() {
+    let cons: &[js::Stmt] = match case.cons.as_slice() {
+      [js::Stmt::Block(block)] => &block.stmts,
+      other => other,
+    };
+    if cons.is_empty() {
       continue;
     }
-    let body: &[js::Stmt] = match case.cons.last() {
-      Some(js::Stmt::Break(b)) if b.label.is_none() => &case.cons[..case.cons.len() - 1],
-      Some(js::Stmt::Return(_) | js::Stmt::Throw(_)) => &case.cons,
-      _ if i == last => &case.cons,
+    let body: &[js::Stmt] = match cons.last() {
+      Some(js::Stmt::Break(b)) if b.label.is_none() => &cons[..cons.len() - 1],
+      Some(js::Stmt::Return(_) | js::Stmt::Throw(_)) => cons,
+      _ if i == last => cons,
       _ => return Err(lowerer.residue_with(case.span, "a `case` that falls through into the next", "end it with `break` or `return`")),
     };
     if let Some(inner) = body.iter().find(|s| holds_break(s)) {
@@ -3680,7 +3684,7 @@ fn counted_test(test: &js::Expr, counted: &dyn Fn(&str) -> bool, updates: &mut V
 }
 
 /// `setInterval(callback, ms)` or `setTimeout(callback, ms)` with its delay written out: the timer's kind, its callback and its delay.
-fn timer_call(e: &js::Expr) -> Option<(&'static str, &js::Expr, u64)> {
+fn timer_call(e: &js::Expr) -> Option<(&'static str, &js::Expr, &js::Expr)> {
   let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
   let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return None };
@@ -3690,8 +3694,7 @@ fn timer_call(e: &js::Expr) -> Option<(&'static str, &js::Expr, u64)> {
     _ => return None,
   };
   let [callback, delay] = call.args.as_slice() else { return None };
-  let js::Expr::Lit(js::Lit::Num(delay)) = &*delay.expr else { return None };
-  Some((kind, &callback.expr, delay.value.max(0.0) as u64))
+  Some((kind, &callback.expr, &delay.expr))
 }
 
 /// Records `const name = array[index]` or `array.at(index)` on a writable local array as an alias:
@@ -5239,6 +5242,8 @@ struct ComponentLowerer<'a, 'p> {
   effect_locals: Vec<(String, String)>,
   /// While a terminal effect lowers, each function it declares and the event of the handler it lowered to.
   effect_fns: Vec<(String, String)>,
+  /// The `useCallback` functions whose dependencies never change, which an effect may depend on as a mount effect.
+  stable_callbacks: Vec<String>,
 }
 
 /// Where the browser gets a function passed as a prop: the placement and prop it went to, the value the server holds and the module id `file#export` the browser imports it from or else why the browser cannot reach it. `needs` is what the rewrite and the bundle add for the id to resolve.
@@ -6272,6 +6277,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           Some(("useCallback", call)) => {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
               self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+            }
+            if matches!(call.args.get(1).map(|a| &*a.expr), Some(js::Expr::Array(deps)) if deps.elems.iter().all(|d| self.never_changes(d))) {
+              self.stable_callbacks.push(local.clone());
             }
             self.browser_function(local);
             return Ok(None);
@@ -7570,20 +7578,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// The timers a mount effect starts, `useEffect(() => { setInterval(f, ms) }, [])`,
   /// each lowered as a handler named `interval:<ms>` or `timeout:<ms>`, which a
-  /// terminal runtime schedules. An effect with dependencies, a timer whose
-  /// delay is not written out and a callback that does not lower are dropped,
-  /// as every effect is on the server.
+  /// terminal runtime schedules. An effect with dependencies that change, a
+  /// timer whose delay is not written out and a callback that does not lower
+  /// are dropped, as every effect is on the server; a terminal page refuses
+  /// the first when it could change what the page shows, since it has no
+  /// browser to run the effect in.
   fn effect_timers(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
     let [effect, deps] = &call.args[..] else { return Ok(()) };
     let js::Expr::Array(deps) = &*deps.expr else { return Ok(()) };
-    let stable = |elem: &Option<js::ExprOrSpread>| match elem.as_ref().map(|e| &*e.expr) {
-      Some(js::Expr::Ident(id)) => {
-        let name = id.sym.as_ref();
-        self.setters.iter().any(|(setter, _)| setter == name) || self.writers.iter().any(|(writer, _)| writer == name)
+    if !deps.elems.iter().all(|d| self.never_changes(d)) {
+      if self.lowerer.terminal && self.shows_on_the_page(&effect.expr) {
+        return Err(self.lowerer.residue_with(deps.span, "an effect whose dependencies change, which a terminal page does not run again yet", "depend only on setters, refs and callbacks that never change; otherwise move the work into a handler"));
       }
-      _ => false,
-    };
-    if !deps.elems.iter().all(stable) {
       return Ok(());
     }
     let mut inner: &'p js::Expr = &effect.expr;
@@ -7629,6 +7635,34 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
     }
     Ok(())
+  }
+
+  /// Whether an effect's dependency is the same on every render: a state setter or a writer; in a terminal also a `useReducer` dispatch, a held ref or a `useCallback` whose own dependencies never change.
+  fn never_changes(&self, elem: &Option<js::ExprOrSpread>) -> bool {
+    let Some(js::Expr::Ident(id)) = elem.as_ref().map(|e| &*e.expr) else { return false };
+    let name = id.sym.as_ref();
+    self.setters.iter().any(|(setter, _)| setter == name)
+      || self.writers.iter().any(|(writer, _)| writer == name)
+      || (self.lowerer.terminal && (self.dispatchers.iter().any(|(d, _, _)| d == name) || self.held_refs.iter().any(|r| r == name) || self.stable_callbacks.iter().any(|c| c == name)))
+  }
+
+  /// Whether an effect could change what the page shows: it names a setter, a dispatch, a writer, a timer or one of the component's own functions.
+  fn shows_on_the_page(&self, effect: &js::Expr) -> bool {
+    struct Names(Vec<String>);
+    impl Visit for Names {
+      fn visit_ident(&mut self, id: &js::Ident) {
+        self.0.push(id.sym.to_string());
+      }
+    }
+    let mut names = Names(Vec::new());
+    effect.visit_with(&mut names);
+    names.0.iter().any(|name| {
+      matches!(name.as_str(), "setInterval" | "setTimeout")
+        || self.setters.iter().any(|(setter, _)| setter == name)
+        || self.writers.iter().any(|(writer, _)| writer == name)
+        || self.dispatchers.iter().any(|(d, _, _)| d == name)
+        || self.handler_fns.contains_key(name)
+    })
   }
 
   /// A terminal's mount effect, run as Ink runs it: each `let` it declares is
@@ -7727,9 +7761,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.effect_fns.push((name.to_owned(), event));
   }
 
+  /// A mount timer's delay in milliseconds: a number written out or a module constant holding one.
+  fn timer_delay(&mut self, delay: &'p js::Expr) -> Lowered<u64> {
+    match self.lowerer.expr(delay)? {
+      Expr::Lit(Lit::Int(n)) => Ok(n.max(0) as u64),
+      Expr::Lit(Lit::Float(n)) if n.is_finite() => Ok(n.max(0.0) as u64),
+      _ => Err(self.lowerer.residue(delay.span(), "a timer whose delay is not a number written out or a module constant")),
+    }
+  }
+
   /// A statement at the top of a terminal effect: a timer it starts, a call to one of its functions, which runs on mount, or a call made for its effect, which the terminal cannot run.
   fn effect_start(&mut self, e: &'p js::Expr, span: Span) -> Lowered<()> {
     if let Some((kind, callback, delay)) = timer_call(e) {
+      let delay = self.timer_delay(delay)?;
       let body = self.handler_body(callback)?;
       self.lowered_handlers.push(Handler { event: format!("{kind}:{delay}"), body });
       return Ok(());
@@ -7951,7 +7995,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             if let Some((kind, callback, delay)) = timer_call(e) {
               let js::Expr::Ident(target) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(call.span, "a timer a handler starts on something other than a function its effect declares")) };
               let Some((_, event)) = self.effect_fns.iter().find(|(f, _)| *f == *target.sym).cloned() else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect declares", target.sym))) };
-              let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), Expr::Lit(Lit::Float(delay as f64))), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(kind == "interval")))]);
+              let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), self.lowerer.expr(delay)?), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(kind == "interval")))]);
               walk.act("$timer".to_owned(), input);
               return Ok(());
             }

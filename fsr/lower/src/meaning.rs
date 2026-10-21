@@ -42,6 +42,8 @@ pub(crate) enum Construct {
   AsyncComponent,
   /// `clsx` or `classnames`, which join class names.
   ClassNames,
+  /// A text function of the npm packages Ink applications import, `ms`, `stripAnsi`, `stringWidth` or `wrapAnsi`, which a terminal page runs natively.
+  TerminalText(&'static str),
   /// React's `Children`, of which the build reads the count of a component's own children.
   Children,
   /// React's `cloneElement`.
@@ -168,6 +170,14 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("clsx", "clsx", Construct::ClassNames),
   ("clsx", "default", Construct::ClassNames),
   ("classnames", "default", Construct::ClassNames),
+  ("ms", "default", Construct::TerminalText("ms")),
+  ("strip-ansi", "default", Construct::TerminalText("stripAnsi")),
+  ("string-width", "default", Construct::TerminalText("stringWidth")),
+  ("wrap-ansi", "default", Construct::TerminalText("wrapAnsi")),
+  ("@snapfire/fsr/terminal", "ms", Construct::TerminalText("ms")),
+  ("@snapfire/fsr/terminal", "stripAnsi", Construct::TerminalText("stripAnsi")),
+  ("@snapfire/fsr/terminal", "stringWidth", Construct::TerminalText("stringWidth")),
+  ("@snapfire/fsr/terminal", "wrapAnsi", Construct::TerminalText("wrapAnsi")),
   ("svelte/store", "writable", Construct::SvelteStore("writable")),
   ("svelte/store", "readable", Construct::SvelteStore("readable")),
   ("svelte/store", "readonly", Construct::SvelteStore("readonly")),

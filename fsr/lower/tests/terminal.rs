@@ -246,3 +246,37 @@ fn use_box_metrics_reads_what_the_terminal_measured_for_the_box_its_ref_is_on() 
   let second = interpreter.island_step(MODULE, component, &props, &first.state, None, &Value::Null, &library).unwrap();
   assert!(second.rendered.html.contains("<ink-text>m 12 1 2</ink-text>"), "{}", second.rendered.html);
 }
+
+#[test]
+fn the_text_packages_ink_apps_import_run_natively_in_a_terminal() {
+  let page = "import ms from \"ms\";\nimport stripAnsi from \"strip-ansi\";\nimport stringWidth from \"string-width\";\nimport wrapAnsi from \"wrap-ansi\";\nimport { Text } from \"ink\";\n\nexport default function Texts() {\n  const rows = wrapAnsi(\"ab cd\", 2, { hard: true }).split(\"\\n\");\n  return <Text>{ms(90000)} {ms(\"1h\")} {stripAnsi(\"\\u001b[1mx\\u001b[22m\")} {stringWidth(\"古a\")} {rows.join(\"|\")}</Text>;\n}\n";
+  let library = library(page);
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>2m 3600000 x 3 ab|cd</ink-text>");
+}
+
+#[test]
+fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_is_refused() {
+  let stable = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s) => s + 1, 0);\n  const tick = useCallback(() => dispatch(), []);\n  useEffect(() => {\n    const timer = setInterval(tick, 100);\n    return () => clearInterval(timer);\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
+  let library = library(stable);
+  assert_eq!(library[MODULE].handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:100"]);
+  let changing = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Echo() {\n  const [n, setN] = useState(0);\n  useEffect(() => {\n    setTimeout(() => setN(n + 1), 100);\n  }, [n]);\n  return <Text>{n}</Text>;\n}\n";
+  let n = NEXT.fetch_add(1, Ordering::Relaxed);
+  let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
+  std::fs::create_dir_all(dir.join("routes")).unwrap();
+  std::fs::write(dir.join("routes/page.tsx"), changing).unwrap();
+  let err = ComponentSet::new(&dir).for_terminal().lower(MODULE).unwrap_err().to_string();
+  assert!(err.contains("an effect whose dependencies change"), "{err}");
+}
+
+#[test]
+fn a_timer_reads_its_delay_from_a_module_constant_and_runs_a_named_callback() {
+  let page = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nconst tickMs = 150;\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s: number) => s + 1, 0);\n  const tick = useCallback(() => {\n    dispatch();\n  }, []);\n  useEffect(() => {\n    const timer = setInterval(tick, tickMs);\n    return () => {\n      clearInterval(timer);\n    };\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
+  let library = library(page);
+  let component = &library[MODULE];
+  assert_eq!(component.handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:150"]);
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let tick = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
+  assert_eq!(tick.rendered.html, "<ink-text>1</ink-text>");
+}

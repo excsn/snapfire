@@ -2189,6 +2189,29 @@ impl<'a> Lowerer<'a> {
     if let Some(meaning::Meaning::Library(meaning::Construct::SvelteStore(store))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
       return self.svelte_store(store, call);
     }
+    if let Some(meaning::Meaning::Library(meaning::Construct::TerminalText(which))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
+      if !self.terminal {
+        let named = match &**callee {
+          js::Expr::Ident(id) => id.sym.to_string(),
+          _ => which.to_owned(),
+        };
+        return Err(self.residue(call.span, format!("a call to `{named}`, which the build cannot follow")));
+      }
+      let name = match which {
+        "ms" => Builtin::Ms,
+        "stripAnsi" => Builtin::StripAnsi,
+        "stringWidth" => Builtin::StringWidth,
+        _ => Builtin::WrapAnsi,
+      };
+      let mut args = Vec::with_capacity(call.args.len());
+      for a in &call.args {
+        if a.spread.is_some() {
+          return Err(self.residue(a.expr.span(), format!("a spread into `{which}`")));
+        }
+        args.push(self.expr(&a.expr)?);
+      }
+      return Ok(Expr::Builtin { name, args });
+    }
     if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClassNames)) {
       let mut items = Vec::with_capacity(call.args.len());
       for a in &call.args {
@@ -2768,10 +2791,10 @@ impl<'a> Lowerer<'a> {
           "endsWith" => (Builtin::EndsWith, 1),
           _ => (Builtin::Replace, 2),
         };
-        // The second argument each of these takes in JavaScript, `limit` for
-        // `split` and `position` for the other two, would otherwise lower to an
-        // argument the interpreter ignores.
-        if call.args.len() != arity {
+        // The `position` that `startsWith` and `endsWith` take in JavaScript
+        // would otherwise lower to an argument the interpreter ignores.
+        let limited = name == Builtin::Split && call.args.len() == 2;
+        if call.args.len() != arity && !limited {
           let plural = if arity == 1 { "" } else { "s" };
           return Err(self.residue(call.span, format!("`{method}` takes {arity} argument{plural}, got {}", call.args.len())));
         }

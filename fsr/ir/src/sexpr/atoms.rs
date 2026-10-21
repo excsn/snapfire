@@ -161,6 +161,10 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::LocalOffset => "local-offset",
     Builtin::LocalTime => "local-time",
     Builtin::SetAt => "set-at",
+    Builtin::StripAnsi => "strip-ansi",
+    Builtin::StringWidth => "string-width",
+    Builtin::WrapAnsi => "wrap-ansi",
+    Builtin::Ms => "ms",
   }
 }
 
@@ -237,6 +241,10 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "local-offset" => Builtin::LocalOffset,
     "local-time" => Builtin::LocalTime,
     "set-at" => Builtin::SetAt,
+    "strip-ansi" => Builtin::StripAnsi,
+    "string-width" => Builtin::StringWidth,
+    "wrap-ansi" => Builtin::WrapAnsi,
+    "ms" => Builtin::Ms,
     _ => return None,
   })
 }
