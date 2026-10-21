@@ -1,4 +1,4 @@
-import { refresh } from "./navigator.js";
+import { navigate, refresh } from "./navigator.js";
 import { decodeValue, encodeValue } from "./values.js";
 export class ActionFailure extends Error {
     kind;
@@ -193,10 +193,16 @@ export async function upload(id, form, opts) {
         throw failure(res.status, res.statusText, text);
     }
     const result = decodeValue(JSON.parse(text));
-    if (opts?.revalidate !== false) {
+    await settle(res, opts);
+    return result;
+}
+async function settle(res, opts) {
+    const to = res.headers.get("x-sf-redirect");
+    if (to !== null) {
+        await navigate(to);
+    } else if (opts?.revalidate !== false) {
         await refresh();
     }
-    return result;
 }
 export function action(id, opts) {
     return async (input = {})=>{
@@ -214,9 +220,7 @@ export function action(id, opts) {
             throw failure(res.status, res.statusText, text);
         }
         const result = decodeValue(JSON.parse(text));
-        if (opts?.revalidate !== false) {
-            await refresh();
-        }
+        await settle(res, opts);
         return result;
     };
 }

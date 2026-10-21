@@ -367,6 +367,8 @@ struct MockCtx {
   transport: Arc<LambdaTransport>,
   written: Vec<String>,
   extended: Option<u64>,
+  /// The path the last run redirected to.
+  redirect: Option<String>,
 }
 
 impl MockCtx {
@@ -386,6 +388,7 @@ impl MockCtx {
     session_trace.insert("written".to_owned(), Value::Seq(self.written.iter().map(Value::str).collect()));
     session_trace.insert("extended".to_owned(), self.extended.map(Value::int).unwrap_or(Value::Null));
     trace.insert("session".to_owned(), Value::Map(session_trace));
+    trace.insert("redirect".to_owned(), self.redirect.clone().map(Value::str).unwrap_or(Value::Null));
     map.insert("trace".to_owned(), Value::Map(trace));
     Value::Map(map)
   }
@@ -512,7 +515,7 @@ impl<'a> Run<'a> {
     ctx.origin = origin;
     ctx.config = config;
     ctx.services = handle;
-    let mock = MockCtx { ctx, input, transport, written: Vec::new(), extended: None };
+    let mock = MockCtx { ctx, input, transport, written: Vec::new(), extended: None, redirect: None };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);
     Ok(())
@@ -539,6 +542,7 @@ impl<'a> Run<'a> {
       Ok(outcome) => {
         mock.written = outcome.written;
         mock.extended = outcome.extended;
+        mock.redirect = outcome.redirected;
         Ok(outcome.value)
       }
       Err(fail) => Err(fail),

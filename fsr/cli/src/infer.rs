@@ -212,7 +212,7 @@ impl<'a> Inferer<'a> {
           env.pop();
         }
         Stmt::Return(e) => returns.push(self.expr(e, env)),
-        Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } | Stmt::Expr(_) => {}
+        Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } | Stmt::Expr(_) => {}
       }
     }
     env.truncate(depth);

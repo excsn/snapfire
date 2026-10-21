@@ -63,5 +63,8 @@ export interface ActionCtx<Input, Params = Record<string, string>, Session = Rec
 /** Fails the body with a kind the runtime maps onto a status. A statement, never an expression. */
 export function fail(kind: FailureKind, message: string): never;
 
+/** Ends an action and sends its caller to `to`, a path on this origin: a form post is answered with a 303 there and a call from `actions` navigates there. A statement, never an expression; only an action holds one. */
+export function redirect(to: string): never;
+
 /** Declares an action. The type argument names the input type the build emits into the contract. */
 export function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out>;

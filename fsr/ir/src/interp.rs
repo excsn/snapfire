@@ -23,6 +23,9 @@ pub struct Outcome {
   /// Seconds from now the body moved the session's end to, already applied
   /// to the cell; `None` when it did not extend.
   pub extended: Option<u64>,
+  /// The path the body redirected to, already set on the request's
+  /// `redirect`; `None` when it did not.
+  pub redirected: Option<String>,
 }
 
 /// What `ctx.now` reads. Milliseconds since the Unix epoch, as `Value::Int`.
@@ -273,6 +276,7 @@ impl Interpreter {
       session: data,
       written: Vec::new(),
       extend: None,
+      redirect: None,
       scope: Vec::new(),
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
@@ -291,7 +295,7 @@ impl Interpreter {
           }
         }
         Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
-        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => break,
+        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => break,
       }
     }
 
@@ -303,7 +307,10 @@ impl Interpreter {
     if let Some(seconds) = env.extend {
       ctx.session.extend(std::time::Duration::from_secs(seconds));
     }
-    Ok(Outcome { value, written: env.written, extended: env.extend })
+    if let Some(to) = &env.redirect {
+      ctx.redirect.set(to.clone()).map_err(|e| Fail::new(e.kind, e.message))?;
+    }
+    Ok(Outcome { value, written: env.written, extended: env.extend, redirected: env.redirect })
   }
 }
 
@@ -332,6 +339,8 @@ pub(crate) struct Env {
   written: Vec<String>,
   /// The last `SessionExtend` the body ran, applied with the draft on success.
   extend: Option<u64>,
+  /// The `Redirect` that ended the body, checked and set on the request on success.
+  redirect: Option<String>,
   pub(crate) scope: Vec<(String, Value)>,
   pub(crate) store: ValueMap,
   /// The store keys a deferred segment has yet to seed: an island reading one is held.
@@ -603,6 +612,7 @@ impl Env {
       session: ValueMap::default(),
       written: Vec::new(),
       extend: None,
+      redirect: None,
       scope,
       store: ValueMap::default(),
       pending: Default::default(),
@@ -764,7 +774,7 @@ impl Env {
           act.insert("input".to_owned(), input);
           self.emitted.push(crate::render::Emitted { path: self.component_path.clone(), kind: crate::render::ACT.to_owned(), value: Value::Map(act) });
         }
-        Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => return Err(Fail::internal("a guard, a session write or a dispatch inside a block, which runs where no request is")),
+        Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => return Err(Fail::internal("a guard, a session write, a redirect or a dispatch inside a block, which runs where no request is")),
       }
     }
     self.scope.truncate(depth);
@@ -823,6 +833,7 @@ impl Env {
       session: self.session.clone(),
       written: Vec::new(),
       extend: None,
+      redirect: None,
       scope: self.scope.clone(),
       store: self.store.clone(),
       pending: self.pending.clone(),
@@ -933,6 +944,15 @@ impl Env {
           other => return Err(type_error("session extend", "a positive whole number of seconds", &other)),
         };
         self.extend = Some(seconds);
+      }
+      Stmt::Redirect(to) => {
+        let to = match self.eval(to).await? {
+          Value::Str(to) => to.to_string(),
+          other => return Err(type_error("redirect", "a path", &other)),
+        };
+        snapfire_fsr_runtime::RedirectHandle::check(&to).map_err(|e| Fail::new(e.kind, e.message))?;
+        self.redirect = Some(to);
+        return Ok(Flow::Return(Value::Null));
       }
       Stmt::Act { action, .. } => return Err(Fail::internal(format!("a body cannot dispatch `{action}`; an action is dispatched from a handler"))),
       Stmt::Expr(expr) => {

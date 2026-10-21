@@ -49,6 +49,20 @@ fn a_body_test_sees_an_extension_in_the_session_trace() {
 }
 
 #[test]
+fn a_redirecting_action_shows_its_target_in_the_trace_and_answers_a_spec_post_as_the_host_does() {
+  let dir = app(&[
+    ("routes/page.tsx", "export default function Page() {\n  return <p>page</p>;\n}\n"),
+    ("routes/actions.ts", "import { action, redirect } from \"@snapfire/fsr\";\n\nexport const save = action(async ({ session }) => {\n  session.saved = true;\n  redirect(\"/saved\");\n});\n"),
+    ("tests/save.test.ts", "import { save } from \"@routes/actions\";\nimport { ctx, expect, test } from \"@snapfire/fsr/testing\";\n\ntest(\"the trace names where the action sent its caller\", async () => {\n  const c = ctx({});\n  await save(c);\n  expect(c.trace.redirect).toEqual(\"/saved\");\n  expect(c.session.saved).toEqual(true);\n});\n"),
+    ("tests/save.spec.ts", "import { ctx, expect, load, test } from \"@snapfire/fsr-client/testing\";\n\ntest(\"a form post goes where the action sent it and a json caller is told\", async () => {\n  await load(\"/\", { ctx: ctx({}) });\n  const posted = await fetch(\"/_sf/action/$root.save?__fragment\", { method: \"POST\", headers: { \"content-type\": \"application/x-www-form-urlencoded\", referer: \"/\" }, body: \"_csrf=t\" });\n  expect(posted.status).toEqual(303);\n  expect(posted.headers.get(\"location\")).toEqual(\"/saved?__fragment\");\n  const called = await fetch(\"/_sf/action/$root.save\", { method: \"POST\", headers: { \"content-type\": \"application/json\" }, body: \"null\" });\n  expect(called.status).toEqual(200);\n  expect(called.headers.get(\"x-sf-redirect\")).toEqual(\"/saved\");\n});\n"),
+  ]);
+  let summary = test::run(&dir, &Options::beside(&dir), &snapfire_fsr_cli::typecheck::Typecheck::default(), None).unwrap();
+  assert_eq!(summary.failed, 0, "{summary}");
+  assert_eq!(summary.passed, 2, "{summary}");
+  std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
+}
+
+#[test]
 fn a_spec_fetch_reads_an_empty_fragment_or_payload_value_like_the_bare_key() {
   let dir = app(&[
     ("routes/layout.tsx", "export default function Layout({ children }: { children: unknown }) {\n  return <main class=\"frame\">{children}</main>;\n}\n"),

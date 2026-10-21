@@ -261,6 +261,39 @@ pub struct RequestCtx {
   /// The application's own Rust, `ctx.native`. No wire, so no contract and no
   /// interceptors; the build read its shape off the Rust signature.
   pub natives: crate::natives::NativeHandle,
+  /// Where a successful action sends its caller, `redirect(to)`: a form post
+  /// is answered with a 303 there instead of back to its page.
+  pub redirect: RedirectHandle,
+}
+
+/// The target an action body named with `redirect`. A clone shares the cell,
+/// so the edge reads what the handler it passed a clone to set.
+#[derive(Clone, Default)]
+pub struct RedirectHandle(Arc<Mutex<Option<String>>>);
+
+impl RedirectHandle {
+  /// Refuses as `invalid` a target that is not a path on this origin: one
+  /// leading `/`, not `//` or `/\`, which a browser reads as another host.
+  pub fn set(&self, to: impl Into<String>) -> Result<(), crate::ActionError> {
+    let to = to.into();
+    Self::check(&to)?;
+    *self.0.lock() = Some(to);
+    Ok(())
+  }
+
+  /// What `set` refuses, without setting.
+  pub fn check(to: &str) -> Result<(), crate::ActionError> {
+    let local = to.starts_with('/') && !to.starts_with("//") && !to.contains('\\') && !to.chars().any(char::is_control);
+    if local {
+      Ok(())
+    } else {
+      Err(crate::ActionError::new(crate::FailureKind::Invalid, format!("a redirect goes to a path on this origin, not `{to}`")))
+    }
+  }
+
+  pub fn get(&self) -> Option<String> {
+    self.0.lock().clone()
+  }
 }
 
 impl RequestCtx {
@@ -280,6 +313,7 @@ impl RequestCtx {
       csrf: CsrfHandle::default(),
       services: ServiceHandle::default(),
       natives: crate::natives::NativeHandle::default(),
+      redirect: RedirectHandle::default(),
     }
   }
 

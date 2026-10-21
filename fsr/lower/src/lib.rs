@@ -421,6 +421,7 @@ pub(crate) fn lower_actions_in(parsed: &Parsed, defaults: &SessionDefaults, reso
     };
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
     lowerer.extends = true;
+    lowerer.redirects = true;
     let body = lower_function(&mut lowerer, first, body).map_err(|r| (r.into(), lowerer.unbound.take()))?;
     out.push(LoweredAction { export: name.to_owned(), input, body });
   }
@@ -926,6 +927,8 @@ pub(crate) struct Lowerer<'a> {
   /// An action, a route handler or middleware may call `session.extend`; a
   /// loader runs on every navigation, so it may not.
   extends: bool,
+  /// An action may `redirect`; anything else answers for itself.
+  redirects: bool,
   pub(crate) scope: Vec<(String, Expr)>,
   /// Markup a component lowered ahead of the expression that holds it, by
   /// that expression's span; `expr` returns it rather than refusing JSX.
@@ -1052,7 +1055,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1624,6 +1627,19 @@ impl<'a> Lowerer<'a> {
         };
         let (key, path) = self.session_target(&member)?;
         Ok(Stmt::SessionDelete { key, path })
+      }
+      js::Expr::Call(call) if self.parsed.names_server(&call.callee, "redirect") => {
+        if !self.redirects {
+          return Err(self.residue_with(
+            call.span,
+            "`redirect` outside an action",
+            "middleware answers `{ redirect }` and a route handler returns its own response; a loader cannot send the visitor elsewhere",
+          ));
+        }
+        let [to] = call.args.as_slice() else {
+          return Err(self.residue(call.span, "`redirect` takes the path to send the caller to"));
+        };
+        Ok(Stmt::Redirect(self.expr(&to.expr)?))
       }
       js::Expr::Call(call) if self.is_ident_call(call, "fail") => {
         let stmt = js::Stmt::Expr(js::ExprStmt { span: call.span, expr: Box::new(expr.clone()) });
@@ -2824,6 +2840,7 @@ impl<'a> Lowerer<'a> {
             Ok(Expr::Builtin { name: Builtin::ParseInt, args })
           }
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
+          "redirect" if self.parsed.names_server(&call.callee, "redirect") => Err(self.residue(call.span, "`redirect` inside an expression; it is a statement")),
           "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.args.first() {
             Some(_) => Ok(*one(self)?),
             None => Ok(Expr::Lit(Lit::Null)),

@@ -1084,16 +1084,24 @@ impl FetchHooks {
       }
     };
     match self.run_action(&id, input, form).await {
+      Ok((_, Some(to))) if form => match snapfire_fsr_host::fragment_of(&query) {
+        Some(slot) => see_other(&snapfire_fsr_host::with_fragment(&to, slot.as_deref())),
+        None => see_other(&to),
+      },
       Ok(_) if form => see_other(&back_to(&headers, &query)),
-      Ok(value) => json_response(200, value_to_json(&value)),
+      Ok((value, to)) => match to {
+        Some(to) => json_response(200, value_to_json(&value)).header("x-sf-redirect", &to),
+        None => json_response(200, value_to_json(&value)),
+      },
       Err(response) => response,
     }
   }
 
   /// A lowered action run under the current ctx: the input read against the
-  /// action's declared type, as text when `form`, then the body. A failure
-  /// is the response to answer with.
-  async fn run_action(&self, id: &str, mut input: Value, form: bool) -> Result<Value, FetchResponse> {
+  /// action's declared type, as text when `form`, then the body, answering
+  /// its value and the path it redirected to. A failure is the response to
+  /// answer with.
+  async fn run_action(&self, id: &str, mut input: Value, form: bool) -> Result<(Value, Option<String>), FetchResponse> {
     let Some((input_type, body_ir)) = self.actions.get(id).cloned() else {
       let message = format!("`{id}` is not a lowered action; a test can only call what the build lowered");
       return Err(json_response(501, serde_json::json!({ "kind": "internal", "message": message })));
@@ -1112,7 +1120,7 @@ impl FetchHooks {
       }
     }
     match self.interpreter.run(&body_ir, &mock.ctx, Some(input)).await {
-      Ok(outcome) => Ok(outcome.value),
+      Ok(outcome) => Ok((outcome.value, outcome.redirected)),
       Err(fail) => Err(json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message }))),
     }
   }

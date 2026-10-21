@@ -1,4 +1,4 @@
-import { refresh } from "./navigator.js";
+import { navigate, refresh } from "./navigator.js";
 import { decodeValue, encodeValue, SfValue } from "./values.js";
 
 export class ActionFailure extends Error {
@@ -80,10 +80,18 @@ export async function upload(id: string, form: FormData, opts?: { revalidate?: b
     throw failure(res.status, res.statusText, text);
   }
   const result = decodeValue(JSON.parse(text));
-  if (opts?.revalidate !== false) {
+  await settle(res, opts);
+  return result;
+}
+
+/** Navigates to the path the action redirected to (`x-sf-redirect`) or else revalidates the current route unless `revalidate` is false. */
+async function settle(res: Response, opts?: { revalidate?: boolean }): Promise<void> {
+  const to = res.headers.get("x-sf-redirect");
+  if (to !== null) {
+    await navigate(to);
+  } else if (opts?.revalidate !== false) {
     await refresh();
   }
-  return result;
 }
 
 /** A callable for a stable action id. The client holds references, not URLs. A successful call revalidates the current route by default, so mutated segments refresh in place. The document's path rides as `x-sf-from`, which is how the server gives the action the document's locale. */
@@ -101,9 +109,7 @@ export function action(id: string, opts?: { revalidate?: boolean }): (input?: Sf
       throw failure(res.status, res.statusText, text);
     }
     const result = decodeValue(JSON.parse(text));
-    if (opts?.revalidate !== false) {
-      await refresh();
-    }
+    await settle(res, opts);
     return result;
   };
 }

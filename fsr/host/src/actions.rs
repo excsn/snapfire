@@ -306,6 +306,15 @@ pub(crate) fn wants_json(headers: &http::HeaderMap) -> bool {
     .is_some_and(|accept| accept.split(',').any(|part| part.trim().starts_with("application/json")))
 }
 
+/// `response` with `x-sf-redirect` naming where the action sent its caller,
+/// which the client's action call navigates to.
+pub(crate) fn redirecting(mut response: Response<Body>, to: Option<String>) -> Response<Body> {
+  if let Some(value) = to.and_then(|to| http::HeaderValue::from_str(&to).ok()) {
+    response.headers_mut().insert("x-sf-redirect", value);
+  }
+  response
+}
+
 /// The boundary a `multipart/form-data` content type names, or `None` when the
 /// header is some other type.
 pub(crate) fn multipart_boundary(headers: &http::HeaderMap) -> Option<String> {
@@ -652,7 +661,22 @@ impl Host {
     locale: Locale,
     input: Value,
   ) -> Result<Value, ActionError> {
+    self.dispatch_action_to(t, id, incoming, path, locale, input).await.map(|(value, _)| value)
+  }
+
+  /// [`Host::dispatch_action`] with the path the action redirected to.
+  pub(crate) async fn dispatch_action_to(
+    &self,
+    t: &Tables,
+    id: &str,
+    incoming: Incoming,
+    path: &str,
+    locale: Locale,
+    input: Value,
+  ) -> Result<(Value, Option<String>), ActionError> {
     let ctx = self.ctx(t, incoming, Params::new(), Params::new(), path, locale);
-    t.app.actions.dispatch(id, ctx, input).await
+    let redirect = ctx.redirect.clone();
+    let value = t.app.actions.dispatch(id, ctx, input).await?;
+    Ok((value, redirect.get()))
   }
 }

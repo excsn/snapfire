@@ -655,6 +655,8 @@ The call POSTs to `/_sf/action/${encodeURIComponent(id)}` with `content-type: ap
 
 `revalidate` defaults to true, which awaits `refresh()` after a successful call and before the result is returned. Pass `{ revalidate: false }` for a read-only action or to batch several mutations behind one manual `refresh`.
 
+When the action ended in `redirect`, the response carries its path in `x-sf-redirect` and the call awaits `navigate` to it instead of `refresh`, whatever `revalidate` says. `upload` does the same.
+
 * `upload(id: string, form: FormData, opts?: { revalidate?: boolean }): Promise<SfValue>`
 
 Posts a `FormData` to the same action endpoint, which is how a file reaches an action: the host reads `multipart/form-data` into the input an ordinary call carries, with each part that has a filename arriving as an `Upload`.

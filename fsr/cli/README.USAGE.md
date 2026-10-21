@@ -305,6 +305,20 @@ The input type must be declared under `schemas/`; the host checks a submitted va
 
 A plain form can post an action too: `<form method="post" action="/_sf/action/cart.addToCart">` with a hidden `_csrf` input holding the `csrf_token` prop a page or layout receives. The host verifies the token, hands the fields to the action as strings and answers 303 back to the page that posted. The token exists once the session is signed in or for every session with `csrf = "always"` under `[session]`, which a form anonymous visitors post needs.
 
+`redirect(to)` ends an action and sends its caller to another page of this origin. A form post is answered with a 303 there instead of back to the page that posted. A call through `actions` navigates there instead of refreshing:
+
+```ts
+import { action, redirect } from "@snapfire/fsr";
+import type { NewPost } from "@schemas/newpost";
+
+export const createPost = action<NewPost>(async ({ input, services }) => {
+  const post = await services.blog.create({ title: input.title });
+  redirect(`/posts/${post.id}`);
+});
+```
+
+It is a statement like `fail`. Only an action holds one. A path that is not on this origin, `https://…` or `//host/…`, fails the action as `invalid`, so a target read from the request cannot send a visitor elsewhere. A Rust action sets the same with `ctx.redirect.set("/posts")?`.
+
 ## Writing a Route Handler
 
 `route.ts` exports one function per HTTP method it answers. A plain function reads the request body as `input` unchecked; an `action<T>` has the body checked against `T` first, the way an action's input is. The value returned is the JSON response; `fail` sets the status by its kind.

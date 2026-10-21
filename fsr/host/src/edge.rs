@@ -640,12 +640,14 @@ impl Host {
           }
         };
         let mut response = match self
-          .dispatch_action(t, id, self.incoming(opened, self.matched_host(req.headers())), &visit.path, visit.locale.clone(), input)
+          .dispatch_action_to(t, id, self.incoming(opened, self.matched_host(req.headers())), &visit.path, visit.locale.clone(), input)
           .await
         {
-          Ok(value) if is_form && wants_json(req.headers()) => {
-            json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value))
-          }
+          Ok((_, Some(to))) if is_form && !wants_json(req.headers()) => match fragment_of(raw_query) {
+            Some(slot) => see_other(&with_fragment(&to, slot.as_deref())),
+            None => see_other(&to),
+          },
+          Ok((value, to)) if is_form && wants_json(req.headers()) => redirecting(json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)), to),
           Ok(_) if is_form => {
             let back = req
               .headers()
@@ -658,7 +660,7 @@ impl Host {
               None => see_other(&back),
             }
           }
-          Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
+          Ok((value, to)) => redirecting(json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)), to),
           // A browser that posted a form is answered the page it posted from,
           // failure or not: a JSON body is not something a visitor can read.
           // The failure waits on the session for that render.

@@ -151,6 +151,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr-client", "action", Construct::ClientAction),
   ("@snapfire/fsr", "action", Construct::Server("action")),
   ("@snapfire/fsr", "fail", Construct::Server("fail")),
+  ("@snapfire/fsr", "redirect", Construct::Server("redirect")),
   ("@snapfire/fsr-client/std", "t", Construct::Std("t")),
   ("@snapfire/fsr-client/std", "native", Construct::Std("native")),
   ("@snapfire/fsr-client/std", "localeTag", Construct::Std("localeTag")),

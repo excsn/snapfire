@@ -2225,6 +2225,64 @@ async fn a_form_posts_an_action_with_its_token_and_lands_back_on_the_referer() {
 }
 
 #[tokio::test]
+async fn an_action_that_redirects_sends_a_form_there_and_tells_a_json_caller_where() {
+  let host = Arc::new(
+    Host::from(formed_dir().join("app.toml"))
+      .unwrap()
+      .services_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![]))))
+      .action("away", |ctx, _input| async move {
+        ctx.redirect.set("/posts/7")?;
+        Ok(Value::str("saved"))
+      })
+      .action("off", |ctx, _input| async move {
+        ctx.redirect.set("https://elsewhere.example/")?;
+        Ok(Value::Null)
+      })
+      .build()
+      .unwrap(),
+  );
+  let response = host.handle(Request::get("/").body(Bytes::new()).unwrap()).await;
+  let cookie = cookie_of(&response);
+  let token = field(&body_of(response).await, "csrf_token").unwrap();
+  let form = |action: &str, token: &str| {
+    Request::post(format!("/_sf/action/{action}"))
+      .header(header::COOKIE, &cookie)
+      .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+      .header(header::REFERER, "http://localhost/posts/new")
+      .body(Bytes::from(format!("_csrf={token}")))
+      .unwrap()
+  };
+  let response = host.handle(form("away", &token)).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/posts/7");
+
+  let token = fresh_token(&host, &cookie).await;
+  let response = host.handle(form("away?__fragment", &token)).await;
+  assert_eq!(location(&response), "/posts/7?__fragment", "a form posted from a fragment gets the fragment of where it was sent");
+
+  let token = fresh_token(&host, &cookie).await;
+  let response = host.handle(form("off", &token)).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(location(&response), "/posts/new", "a refused target fails the action, which lands back on its page");
+
+  let json = |action: &str| {
+    Request::post(format!("/_sf/action/{action}"))
+      .header(header::COOKIE, &cookie)
+      .header(header::CONTENT_TYPE, "application/json")
+      .body(Bytes::from("null"))
+      .unwrap()
+  };
+  let response = host.handle(json("away")).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("x-sf-redirect").and_then(|v| v.to_str().ok()), Some("/posts/7"));
+  assert_eq!(body_of(response).await, "\"saved\"");
+  let response = host.handle(json("off")).await;
+  assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+  assert!(response.headers().get("x-sf-redirect").is_none());
+  assert!(body_of(response).await.contains("a path on this origin"));
+}
+
+#[tokio::test]
 async fn a_payload_request_may_only_name_an_encoding_that_exists() {
   let host = formed();
   let response = host

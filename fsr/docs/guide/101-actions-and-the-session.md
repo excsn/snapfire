@@ -57,6 +57,21 @@ The build writes one typed callable per action into `generated/client.ts`, neste
 
 A successful call re-fetches the current route by default and patches the segments that changed, so the header's badge follows the cart without a page reload and without the page asking. A call that should not revalidate says so when it is created.
 
+## Sending the caller elsewhere
+
+An action that creates or deletes the thing its page shows ends with `redirect`, which names the page to land on:
+
+```ts
+import { action, redirect } from "@snapfire/fsr";
+
+export const deletePost = action<{ id: string }>(async ({ input, services }) => {
+  await services.blog.remove({ id: input.id });
+  redirect("/posts");
+});
+```
+
+A form post is answered with a 303 to that path instead of back to the page that posted. A call from `actions` navigates there instead of refreshing. `redirect` is a statement like `fail` and only an action holds one: middleware answers `{ redirect }` and a loader cannot send a visitor away. The path must be on this origin. Anything else, `https://elsewhere/` or `//elsewhere/`, fails the action as `invalid`, so a `?next=` the request carries cannot become an open redirect.
+
 ## File uploads
 
 An action posted as `multipart/form-data` receives the parts as its input: one with no filename is a text field, coerced against the schema exactly as a urlencoded field is; one with a filename is an `Upload`.

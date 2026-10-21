@@ -162,7 +162,7 @@ export default function Post({ postId, csrf_token }: PostsIdProps) {
 }
 ```
 
-A captured value is typed `number` when `parseInt`, `parseFloat`, `Number` or a numeric literal made it and `string` when a string, a template or the route's `params` did. An action that reads anything else of the component is left where it was with a note. So is one used other than as a form's `action`. A form post lands back on the page that posted it, so a `redirect()` in an action is a note too.
+A captured value is typed `number` when `parseInt`, `parseFloat`, `Number` or a numeric literal made it and `string` when a string, a template or the route's `params` did. An action that reads anything else of the component is left where it was with a note. So is one used other than as a form's `action`. A `redirect()` or `permanentRedirect()` the action makes as a statement becomes `redirect` from `@snapfire/fsr`, which sends the form post to that path; one inside an expression leaves the action where it was with a note.
 
 ## Prisma
 

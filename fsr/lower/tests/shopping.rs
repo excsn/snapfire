@@ -398,6 +398,25 @@ export async function load(ctx: Ctx) {
 }
 
 #[test]
+fn an_action_redirects_as_a_statement_and_nothing_else_may() {
+  let src = "import { action, redirect } from \"@snapfire/fsr\";\n\nexport const save = action(async ({ input }) => {\n  if (input.id == null) {\n    redirect(\"/posts\");\n  }\n  redirect(`/posts/${input.id}`);\n});\n";
+  let actions = lower_actions("actions.ts", src).unwrap();
+  let Stmt::If { then, .. } = &actions[0].body[0] else { panic!("{:?}", actions[0].body) };
+  assert_eq!(then[0], Stmt::Redirect(Expr::Lit(Lit::Str("/posts".into()))), "{then:?}");
+  assert!(matches!(&actions[0].body[1], Stmt::Redirect(_)), "{:?}", actions[0].body);
+
+  let import = "import { redirect } from \"@snapfire/fsr\";\n";
+  let r = residue(lower_loader("page.loader.ts", &format!("{import}export async function load() {{\n  redirect(\"/a\");\n  return {{}};\n}}\n")).unwrap_err());
+  assert!(r.message.contains("`redirect` outside an action"), "{r}");
+  let r = residue(lower_handlers("route.ts", &format!("{import}export async function POST() {{\n  redirect(\"/a\");\n  return {{}};\n}}\n")).unwrap_err());
+  assert!(r.message.contains("`redirect` outside an action"), "{r}");
+  let r = residue(lower_actions("actions.ts", &format!("import {{ action, redirect }} from \"@snapfire/fsr\";\nexport const a = action(async () => {{\n  const to = redirect(\"/a\");\n  return to;\n}});\n")).unwrap_err());
+  assert!(r.message.contains("`redirect` inside an expression"), "{r}");
+  let r = residue(lower_actions("actions.ts", &format!("import {{ action, redirect }} from \"@snapfire/fsr\";\nexport const a = action(async () => {{\n  redirect();\n}});\n")).unwrap_err());
+  assert!(r.message.contains("`redirect` takes the path"), "{r}");
+}
+
+#[test]
 fn an_action_or_middleware_extends_the_session_and_a_loader_may_not() {
   let src = r#"
 export const touch = action(async ({ session }) => {

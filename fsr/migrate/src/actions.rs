@@ -26,6 +26,8 @@ struct Converted {
   /// The input type's declaration when the pass wrote it, as for a `FormData`.
   declared: Option<String>,
   text: String,
+  /// Whether its body calls `redirect` from `@snapfire/fsr`.
+  redirects: bool,
 }
 
 impl Pass for ServerActions {
@@ -164,8 +166,25 @@ fn convert_function(f: &js::Function, name: &str, line: usize, indent: &str, cap
   }
   let mut redirects = Redirects { found: Vec::new() };
   body.visit_with(&mut redirects);
-  if let Some(span) = redirects.found.first() {
-    report.note(path, parsed.line(*span), format!("`{name}` calls `redirect`; a form posted to an FSR action lands back on the page that posted it, so the call is left for you"));
+  for r in &redirects.found {
+    if !r.statement {
+      report.note(path, parsed.line(r.call), format!("`{name}` calls `redirect` inside an expression; an FSR action's `redirect` is a statement, so it was left in place"));
+      return None;
+    }
+    let Some(to) = r.to else {
+      report.note(path, parsed.line(r.call), format!("`{name}` calls `redirect` without a path, so it was left in place"));
+      return None;
+    };
+    let rel = |range: std::ops::Range<usize>| range.start - body_range.start..range.end - body_range.start;
+    if r.permanent {
+      edits.replace(rel(parsed.range(r.callee)), "redirect");
+    }
+    if let Some(returned) = r.returned {
+      edits.replace(rel(parsed.range(returned).start..parsed.range(r.call).start), "");
+    }
+    if let Some(kind) = r.kind {
+      edits.replace(rel(parsed.range(to).end..parsed.range(kind).end), "");
+    }
   }
   let (input, declared) = match typed {
     Some(t) => (Some(t), None),
@@ -181,22 +200,63 @@ fn convert_function(f: &js::Function, name: &str, line: usize, indent: &str, cap
     None => "_ctx: ActionCtx".to_owned(),
   };
   let body_text = dedent(&edits.apply(&text[body_range]), indent);
-  Some(Converted { name: name.to_owned(), input, declared, text: format!("export const {name} = action(async ({ctx}) => {body_text});\n") })
+  Some(Converted { name: name.to_owned(), input, declared, text: format!("export const {name} = action(async ({ctx}) => {body_text});\n"), redirects: !redirects.found.is_empty() })
 }
 
 /// Each `redirect(...)` or `permanentRedirect(...)` call.
 struct Redirects {
-  found: Vec<Span>,
+  found: Vec<Redirect>,
+}
+
+struct Redirect {
+  call: Span,
+  callee: Span,
+  permanent: bool,
+  /// The path, its first argument.
+  to: Option<Span>,
+  /// Next's `RedirectType`, a second argument FSR has no use for.
+  kind: Option<Span>,
+  /// Whether it stands as a statement, alone or returned.
+  statement: bool,
+  /// The `return` statement around it.
+  returned: Option<Span>,
+}
+
+impl Redirects {
+  fn record(&mut self, call: &js::CallExpr, statement: bool, returned: Option<Span>) -> bool {
+    let js::Callee::Expr(e) = &call.callee else { return false };
+    let js::Expr::Ident(i) = &**e else { return false };
+    if &*i.sym != "redirect" && &*i.sym != "permanentRedirect" {
+      return false;
+    }
+    let (to, kind) = match call.args.as_slice() {
+      [to] => (Some(to.span()), None),
+      [to, kind] => (Some(to.span()), Some(kind.span())),
+      _ => (None, None),
+    };
+    self.found.push(Redirect { call: call.span, callee: i.span, permanent: &*i.sym == "permanentRedirect", to, kind, statement, returned });
+    call.args.visit_with(self);
+    true
+  }
 }
 
 impl Visit for Redirects {
-  fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if let js::Callee::Expr(e) = &n.callee {
-      if matches!(&**e, js::Expr::Ident(i) if &*i.sym == "redirect" || &*i.sym == "permanentRedirect") {
-        self.found.push(n.span);
-      }
+  fn visit_expr_stmt(&mut self, n: &js::ExprStmt) {
+    if !matches!(&*n.expr, js::Expr::Call(call) if self.record(call, true, None)) {
+      n.visit_children_with(self);
     }
-    n.visit_children_with(self);
+  }
+
+  fn visit_return_stmt(&mut self, n: &js::ReturnStmt) {
+    if !matches!(n.arg.as_deref(), Some(js::Expr::Call(call)) if self.record(call, true, Some(n.span))) {
+      n.visit_children_with(self);
+    }
+  }
+
+  fn visit_call_expr(&mut self, n: &js::CallExpr) {
+    if !self.record(n, false, None) {
+      n.visit_children_with(self);
+    }
   }
 }
 
@@ -271,10 +331,15 @@ fn write_actions(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, conve
     }
   }
 
-  let needed = import_locals(parsed, &inputs);
+  let redirects = converted.iter().any(|c| c.redirects);
+  let mut needed = import_locals(parsed, &inputs);
+  if redirects {
+    needed.retain(|name| name != "redirect" && name != "permanentRedirect");
+  }
   let imports = imports_for(text, parsed, &needed, path, &actions_path);
   let existing = if actions_path == path { String::new() } else { tree.text(&actions_path).unwrap_or_default().to_owned() };
-  let mut actions = format!("import {{ action }} from \"@snapfire/fsr\";\nimport type {{ ActionCtx }} from \"@snapfire/fsr\";\n{schemas}{imports}\n{existing}");
+  let fsr = if redirects { "action, redirect" } else { "action" };
+  let mut actions = format!("import {{ {fsr} }} from \"@snapfire/fsr\";\nimport type {{ ActionCtx }} from \"@snapfire/fsr\";\n{schemas}{imports}\n{existing}");
   for c in converted {
     actions.push('\n');
     actions.push_str(&c.text);
@@ -907,7 +972,7 @@ mod tests {
     assert_eq!(out.text("app/schemas/deletepostinput.ts").unwrap(), "export interface DeletePostInput {\n  reason: string;\n  postId: number;\n}\n");
     assert_eq!(
       out.text("app/routes/posts/[id]/actions.ts").unwrap(),
-      "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\nimport { db } from \"@src/lib/db\";\nimport { redirect } from \"next/navigation\";\n\nexport const deletePost = action(async ({ input }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n\n  const reason = input.reason as string;\n  await db.remove(postId, reason);\n  redirect(\"/posts\");\n});\n"
+      "import { action, redirect } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\nimport { db } from \"@src/lib/db\";\n\nexport const deletePost = action(async ({ input }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n\n  const reason = input.reason as string;\n  await db.remove(postId, reason);\n  redirect(\"/posts\");\n});\n"
     );
     let page = out.text("app/routes/posts/[id]/page.tsx").unwrap();
     for expected in [
@@ -921,6 +986,20 @@ mod tests {
       assert!(!page.contains(gone), "{gone} in {page}");
     }
     let notes: Vec<&str> = report.notes.iter().filter(|n| n.message.contains("deletePost")).map(|n| n.message.as_str()).collect();
-    assert!(matches!(notes.as_slice(), [only] if only.contains("`redirect")), "{notes:?}");
+    assert!(notes.is_empty(), "{notes:?}");
+  }
+
+  #[test]
+  fn a_redirect_an_action_makes_as_a_statement_is_fsrs_and_any_other_is_a_note() {
+    let module = "\"use server\";\nimport { permanentRedirect, redirect } from \"next/navigation\";\n\nexport async function go(formData: FormData) {\n  const id = formData.get(\"id\");\n  return permanentRedirect(`/p/${id}`);\n}\n\nexport async function maybe(formData: FormData) {\n  const to = formData.get(\"to\");\n  to ? redirect(\"/a\") : null;\n}\n";
+    let input = tree(&[("package.json", r#"{ "dependencies": { "next": "latest" } }"#), ("app/page.tsx", "export default function Page() {\n  return <main />;\n}\n"), ("app/actions.ts", module)]);
+    let (out, report) = migrate(&input);
+    let actions = out.text("app/routes/actions.ts").unwrap();
+    assert!(actions.starts_with("import { action, redirect } from \"@snapfire/fsr\";\n"), "{actions}");
+    assert!(actions.contains("  redirect(`/p/${id}`);\n"), "{actions}");
+    assert!(!actions.contains("permanentRedirect") && !actions.contains("return redirect"), "{actions}");
+    let notes: Vec<&str> = report.notes.iter().map(|n| n.message.as_str()).collect();
+    assert!(notes.iter().any(|n| n.contains("`maybe` calls `redirect` inside an expression")), "{notes:?}");
+    assert!(!notes.iter().any(|n| n.contains("`go`")), "{notes:?}");
   }
 }

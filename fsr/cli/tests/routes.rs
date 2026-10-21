@@ -844,6 +844,18 @@ fn a_route_and_its_parameterised_child_get_ids_of_their_own() {
 }
 
 #[test]
+fn an_action_imports_redirect_from_the_module_it_imports_action_from() {
+  let dir = app(&[
+    ("routes/posts/page.tsx", PAGE),
+    ("routes/posts/actions.ts", "import { action, redirect } from \"@snapfire/fsr\";\n\nexport const save = action(async () => {\n  redirect(\"/posts\");\n});\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let fsr = &built.files.iter().find(|(name, _)| name == "generated/fsr.ts").unwrap().1;
+  assert!(fsr.contains("import { action as declare, fail, redirect } from \"@snapfire/fsr-authoring\";"), "{fsr}");
+  assert!(fsr.contains("\nexport { fail, redirect };\n"), "{fsr}");
+}
+
+#[test]
 fn a_page_and_a_layout_props_type_carries_what_the_host_gives_every_page() {
   let dir = app(&[
     ("routes/layout.tsx", PAGE),

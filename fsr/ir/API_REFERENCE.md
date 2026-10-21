@@ -82,6 +82,7 @@ One statement. Derives `Debug`, `Clone`, `PartialEq`, `Serialize`, `Deserialize`
 * `SessionSet { key: String, path: Vec<Expr>, value: Expr }`; `path` is omitted from JSON when empty.
 * `SessionDelete { key: String, path: Vec<Expr> }`; `path` is omitted from JSON when empty.
 * `SessionExtend { seconds: Expr }` moves the session's end to `seconds` from now once the body commits. An action, a route handler or middleware holds one; the lowerer refuses it in a loader.
+* `Redirect(Expr)` ends the body and names the path a successful action sends its caller to. Only an action holds one.
 * `Act { action: String, input: Expr }` asks for the action `action` to be dispatched with `input`. Only a handler holds one: `island_step` evaluates the input and collects the pair in `Stepped::acts` for the host to dispatch; a body reaching one fails with `Internal`.
 * `Expr(Expr)` evaluates for effect and discards the value.
 
@@ -263,10 +264,11 @@ Runs a body. `Clone`; the default carries the system clock and the standard libr
 
 ### Outcome
 
-* `pub struct Outcome { pub value: Value, pub written: Vec<String>, pub extended: Option<u64> }`
+* `pub struct Outcome { pub value: Value, pub written: Vec<String>, pub extended: Option<u64>, pub redirected: Option<String> }`
 * `value` is `Value::Null` when the body ends without a `return`.
 * `written` lists every session key set or deleted, in first-touch order, already committed.
 * `extended` is the seconds the last `SessionExtend` named, already applied to the cell through `SessionCell::extend`; `None` when the body ran none.
+* `redirected` is the path a `Redirect` named, already set on `ctx.redirect`; `None` when the body ran none.
 
 ### Clock
 
@@ -457,10 +459,11 @@ The frameworks an application vendors, each at the major whose server markup the
 * `SessionDelete` with an empty path removes the key; with a path it removes the last step's entry from its `Map` and is a no-op where the path does not exist.
 * Both mark the key in `written`.
 * `SessionExtend` evaluates `seconds`, which must be a positive whole number, `Int` or an integral `F64`, else the body fails with `Internal`. The last one the body ran is applied to the cell after the draft commits, so a failed body leaves the end where it was. It marks no key and does not dirty the cell.
+* `Redirect` evaluates its path, which must be a `Str` on this origin as `RedirectHandle::check` takes it, else the body fails with `Internal` for another value and `Invalid` for another origin. It ends the body with `Value::Null`; the path is set on `ctx.redirect` after the draft commits.
 
 ### Guards
 
-* Before the body runs, top-level guards are scanned in order. A guard whose condition reads no `Var` and contains no `Call` is evaluated immediately. The scan stops at the first `If`, `ForOf`, `SessionSet`, `SessionDelete`, `SessionExtend` or `Act`.
+* Before the body runs, top-level guards are scanned in order. A guard whose condition reads no `Var` and contains no `Call` is evaluated immediately. The scan stops at the first `If`, `ForOf`, `SessionSet`, `SessionDelete`, `SessionExtend`, `Redirect` or `Act`.
 * Every guard also runs in sequence at its own position.
 * An unknown kind name is `Internal`.
 
