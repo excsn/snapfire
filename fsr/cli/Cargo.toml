@@ -112,6 +112,10 @@ name = "terminal"
 required-features = ["terminal"]
 
 [[test]]
+name = "terminal_examples"
+required-features = ["terminal"]
+
+[[test]]
 name = "bundle"
 required-features = ["web"]
 
