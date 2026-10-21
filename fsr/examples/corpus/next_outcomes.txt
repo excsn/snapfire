@@ -18,7 +18,7 @@ cache-handler-redis-turbo	refused: routes/use-cache/page.loader.ts:9:3: an expre
 cloudflare-turnstile	refused: routes/explicit/page.tsx:24:25: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 4
 cms-agilitycms	refused: src/lib/api.ts:15:23: `agility` comes from `@agility/content-fetch`, which the build cannot follow	pages 2	notes 21
 cms-builder-io	refused: src/lib/api.js:23:21: `builder` comes from `@builder.io/react`, which the build cannot follow	pages 2	notes 22
-cms-buttercms	refused: routes/blog/page.loader.ts:5:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 7	notes 19
+cms-buttercms	refused: routes/blog/page.loader.ts:5:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 7	notes 21
 cms-contentful	refused: routes/page.loader.ts:5:31: a call to `draftMode`, which the build cannot follow	pages 2	notes 8
 cms-cosmic	refused: routes/page.loader.ts:9:11: `preview` is not a field of the context	pages 2	notes 22
 cms-datocms	refused: src/lib/api.js:22:21: a call to `fetch`, which the build cannot follow	pages 2	notes 19
@@ -33,7 +33,7 @@ cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of somethi
 cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 2
 cms-plasmic	refused: routes/[[...catchall]]/page.loader.ts: 31:26: Expected '>', got 'ident'	pages 1	notes 6
 cms-prepr	refused: src/lib/api.js:2:26: a call to `fetch`, which the build cannot follow	pages 2	notes 20
-cms-prismic	refused: src/lib/prismic.ts:32:18: `prismic` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 20
+cms-prismic	refused: src/lib/prismic.ts:32:18: `prismic` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 21
 cms-sanity	refused: src/sanity/lib/fetch.ts:30:28: a call to `draftMode`, which the build cannot follow	pages 3	notes 7
 cms-sitecore-xmcloud	refused: src/lib/page-props-factory/index.ts:53:45: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 18
 cms-sitefinity	refused: src/lib/api.ts:6:30: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 15
@@ -45,7 +45,7 @@ cms-umbraco	refused: src/lib/api.ts:10:26: a call to `fetch`, which the build ca
 cms-umbraco-heartcore	refused: src/lib/umbraco-heartcore.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 19
 cms-webiny	refused: src/lib/api.ts:7:10: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 18
 cms-wordpress	refused: routes/api/exit-preview/route.ts:5:36: `url` is not a field of the context	pages 1	notes 13
-convex	refused: routes/layout.tsx:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 2
+convex	refused: routes/layout.tsx:7:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 2
 custom-server	lowered	pages 1	notes 0
 github-pages	lowered	pages 2	notes 1
 hello-world	lowered	pages 1	notes 0
@@ -100,7 +100,7 @@ with-expo-typescript	refused: routes/page.tsx:5:16: `StyleSheet` comes from `rea
 with-facebook-pixel	client: routes/components/FacebookPixel.js:10:20 `usePathname`, a hook the build cannot follow	pages 2	notes 1
 with-fela	client: routes/layout.island0.tsx:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/page.js:25:19 `useFela`, a hook the build cannot follow | routes/page.js:31:19 `useFela`, a hook the build cannot follow | routes/page.js:4:3 `FelaComponent` comes from `react-fela`, which the build cannot follow	pages 1	notes 2
 with-filbert	refused: routes/page.js:69:14: a tagged template	pages 1	notes 1
-with-fingerprintjs-pro	client: routes/home/[cacheStrategy]/page.island0.tsx:10:26 `useContext` of something the build cannot follow to a `createContext` | routes/home/[cacheStrategy]/page.tsx:11:38 `useVisitorData`, a hook the build cannot follow | routes/layout.tsx:28:18 `useRouter`, a hook the build cannot follow | routes/signin/[cacheStrategy]/page.island0.tsx:11:47 `useVisitorData`, a hook the build cannot follow	pages 2	notes 4
+with-fingerprintjs-pro	client: routes/home/[cacheStrategy]/page.island0.tsx:10:26 `useContext` of something the build cannot follow to a `createContext` | routes/home/[cacheStrategy]/page.tsx:11:38 `useVisitorData`, a hook the build cannot follow | routes/layout.tsx:26:18 `useRouter`, a hook the build cannot follow | routes/signin/[cacheStrategy]/page.island0.tsx:11:47 `useVisitorData`, a hook the build cannot follow	pages 2	notes 4
 with-firebase	refused: routes/profile/[username]/page.loader.ts:6:24: `params` as a whole; read one of its fields	pages 2	notes 2
 with-firebase-cloud-messaging	lowered	pages 1	notes 0
 with-firebase-hosting	lowered	pages 2	notes 0
@@ -114,7 +114,7 @@ with-google-tag-manager	client: routes/layout.island0.tsx:6:16 `process` is not 
 with-grafbase	refused: src/lib/grafbase.ts:4:29: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 3
 with-graphql-gateway	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 2
 with-graphql-hooks	client: src/client-components/client-context-provider.tsx:13:5 `<ClientContext.Provider>`: `ClientContext` is not a `createContext` value this file declares or imports | src/client-components/repo-list.tsx:12:36 `useQuery`, a hook the build cannot follow	pages 1	notes 1
-with-graphql-react	refused: routes/layout.js: no exported `default`	pages 1	notes 1
+with-graphql-react	client: routes/layout.island0.tsx:5:31 `graphql` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:4:29 `graphql` is not bound here; an import the build cannot follow or a name from outside the body | routes/page.island0.tsx:4:50 `useGraphQL`, a hook the build cannot follow	pages 1	notes 2
 with-gsap	client: routes/page.island0.tsx:35:5 `CSSTransition` comes from `react-transition-group`, which the build cannot follow	pages 1	notes 1
 with-hls-js	lowered	pages 1	notes 0
 with-http2	lowered	pages 2	notes 0
@@ -127,7 +127,7 @@ with-jest	lowered	pages 2	notes 2
 with-jest-babel	refused: routes/index.module.css: 1:1: Expression expected	pages 1	notes 1
 with-joi	lowered	pages 0	notes 3
 with-jotai	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
-with-kea	refused: routes/layout.js: no exported `default`	pages 1	notes 1
+with-kea	client: routes/layout.island0.tsx:7:22 `store` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:7:22 `store` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 2
 with-knex	lowered	pages 1	notes 2
 with-linaria	lowered	pages 1	notes 0
 with-lingui	refused: routes/page.js:6:5: `Trans` comes from `@lingui/macro`, which the build cannot follow	pages 2	notes 2
@@ -148,7 +148,7 @@ with-neo4j	refused: src/styles/global.js:3:16: a tagged template	pages 3	notes 5
 with-next-page-transitions	refused: routes/about/page.js: 6:26: Expression expected	pages 2	notes 2
 with-next-seo	client: routes/jsonld/page.island0.tsx:5:5 `ArticleJsonLd` comes from `next-seo`, which the build cannot follow | routes/layout.island0.tsx:6:5 `DefaultSeo` comes from `next-seo`, which the build cannot follow | routes/layout.js:14:7 `DefaultSeo` comes from `next-seo`, which the build cannot follow | routes/page.island0.tsx:6:5 `NextSeo` comes from `next-seo`, which the build cannot follow	pages 2	notes 1
 with-next-sitemap	refused: routes/[dynamic]/page.loader.ts:10:15: a call to `Array`, which the build cannot follow	pages 2	notes 0
-with-next-translate	client: routes/[lang]/page.island0.tsx:6:23 `useTranslation`, a hook the build cannot follow | routes/layout.js:5:23 `useTranslation`, a hook the build cannot follow	pages 1	notes 0
+with-next-translate	client: routes/[lang]/page.island0.tsx:6:23 `useTranslation`, a hook the build cannot follow | routes/layout.js:4:23 `useTranslation`, a hook the build cannot follow	pages 1	notes 0
 with-next-ui	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 2
 with-nhost-auth-realtime-graphql	refused: src/utils/nhost.js:3:22: a call to `createClient`, which the build cannot follow	pages 3	notes 3
 with-opentelemetry	refused: src/shared/fetch-github-stars.ts:4:16: `trace` comes from `@opentelemetry/api`, which the build cannot follow	pages 1	notes 0
@@ -208,7 +208,7 @@ with-supabase	refused: routes/auth/confirm/route.ts:7:36: `url` is not a field o
 with-temporal	lowered	pages 2	notes 2
 with-three-js	refused: routes/birds/page.tsx:13:17: `Math.random`	pages 3	notes 0
 with-turbopack	client: routes/page.island0.tsx:4:3 a call for its effect, which a straight-line body cannot hold	pages 1	notes 0
-with-turbopack-loaders	client: routes/page.island0.tsx:6:5 `Vercel` is not a component this file declares or imports	pages 1	notes 0
+with-turbopack-loaders	client: routes/page.island0.tsx:6:5 `Vercel` is not a component this file declares or imports	pages 1	notes 2
 with-turso	client: routes/form.tsx:21:3 an expression statement other than a write to a local | routes/todo-list.tsx:19:8 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 4
 with-typescript	refused: routes/users/[id]/page.loader.ts:16:3: `try`, and a body has no exceptions	pages 4	notes 3
 with-typescript-graphql	refused: src/lib/apollo.ts:51:25: `apolloClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 2
