@@ -1187,6 +1187,52 @@ impl<'a> Lowerer<'a> {
     matches!(init, Some(js::Expr::Ident(id)) if matches!(self.root_of(id), Some(Root::Ctx)))
   }
 
+  /// `params`, `query`, `session` or `config`, by name or as a field of the context: a root read only by key.
+  fn keyed_root(&self, init: &js::Expr) -> Option<Root> {
+    let keyed = |root: Root| matches!(root, Root::Params | Root::Query | Root::Session | Root::Config).then_some(root);
+    match init {
+      js::Expr::Paren(p) => self.keyed_root(&p.expr),
+      js::Expr::Ident(id) if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) => self.root_of(id).and_then(keyed),
+      js::Expr::Member(m) => {
+        let (js::Expr::Ident(obj), js::MemberProp::Ident(field)) = (&*m.obj, &m.prop) else { return None };
+        if self.scope.iter().any(|(n, _)| n == obj.sym.as_ref()) || !matches!(self.root_of(obj), Some(Root::Ctx)) {
+          return None;
+        }
+        root_named(field.sym.as_ref()).and_then(keyed)
+      }
+      _ => None,
+    }
+  }
+
+  /// `const { id, slug: s = "a" } = params`: each name bound to its key's read.
+  fn bind_keyed(&mut self, fields: &js::ObjectPat, root: Root) -> Lowered<()> {
+    let read = |lowerer: &Self, key: String| match root {
+      Root::Params => Expr::Param(key),
+      Root::Query => Expr::Query(key),
+      Root::Session => lowerer.session_read(key),
+      _ => Expr::Config(key),
+    };
+    for field in &fields.props {
+      match field {
+        js::ObjectPatProp::Assign(a) => {
+          let name = a.key.id.sym.to_string();
+          let bound = match &a.value {
+            Some(default) => Expr::Coalesce(Box::new(read(self, name.clone())), Box::new(self.expr(default)?)),
+            None => read(self, name.clone()),
+          };
+          self.scope.push((name, bound));
+        }
+        js::ObjectPatProp::KeyValue(kv) => {
+          let key = prop_name(&kv.key).ok_or_else(|| self.residue(kv.key.span(), "a computed key in a pattern"))?;
+          let value = read(self, key);
+          crate::component::bind_pattern(self, &kv.value, value)?;
+        }
+        js::ObjectPatProp::Rest(r) => return Err(self.residue(r.span, "a rest of a value read only by key")),
+      }
+    }
+    Ok(())
+  }
+
   fn root_named(&self, name: &str) -> Option<Root> {
     if self.middleware && name == "request" {
       return Some(Root::Input);
@@ -1210,6 +1256,10 @@ impl<'a> Lowerer<'a> {
           for decl in &var.decls {
             if self.is_ctx(decl.init.as_deref()) {
               self.bind_ctx(Some(&decl.name))?;
+              continue;
+            }
+            if let (js::Pat::Object(fields), Some(root)) = (&decl.name, decl.init.as_deref().and_then(|init| self.keyed_root(init))) {
+              self.bind_keyed(fields, root)?;
               continue;
             }
             out.push(self.declare(decl)?);
