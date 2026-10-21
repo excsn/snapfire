@@ -179,6 +179,8 @@ pub struct Session {
   ready: Vec<(Waiting, bool, Value)>,
   suspensions: Vec<(String, String)>,
   listeners: Vec<(String, Report, Listener)>,
+  /// The store keys the page wrote, handed back with the terminal's own on every step.
+  store: ValueMap,
   /// The promises resolved with another that is still pending: the pending one and the one that settles as it does.
   adopted: Vec<(String, String)>,
   /// The timers `clearInterval` or `clearTimeout` stopped, by id.
@@ -276,7 +278,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
   }
 
   /// The page as it stands.
@@ -657,7 +659,7 @@ impl Session {
   /// One step of the page: its acts taken, its state held and its markup.
   fn render(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<String, String> {
     let component = self.library.get(&self.module).ok_or_else(|| format!("{} did not lower", self.module))?.clone();
-    let mut store = ValueMap::default();
+    let mut store = self.store.clone();
     store.insert(snapfire_fsr_lower::TERMINAL_COLUMNS.to_owned(), Value::Int(self.size.0.into()));
     store.insert(snapfire_fsr_lower::TERMINAL_ROWS.to_owned(), Value::Int(self.size.1.into()));
     store.insert(snapfire_fsr_lower::TERMINAL_FOCUS.to_owned(), self.focus.value());
@@ -668,6 +670,7 @@ impl Session {
     props.insert(snapfire_fsr_ir::render::CELLS_PROP.to_owned(), Value::Map(self.cells.clone()));
     let stepped = Interpreter::default().island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
     self.cells.extend(stepped.cells.clone());
+    self.store.extend(stepped.store.clone());
     let issued = stepped.emitted.iter().filter(|e| e.kind == snapfire_fsr_ir::render::ACT).filter_map(|e| match &e.value {
       Value::Map(act) => match (act.get("action"), act.get("input")) {
         (Some(Value::Str(action)), Some(input)) => Some((e.path.clone(), action.to_string(), input.clone())),

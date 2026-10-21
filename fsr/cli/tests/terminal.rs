@@ -351,3 +351,19 @@ fn an_interval_an_effect_starts_without_a_cleanup_keeps_ticking_after_the_effect
   session.fire(&first[0]).unwrap();
   assert_eq!(line(session.fire(&second[0]).unwrap()), "3 running", "a second interval runs beside the first");
 }
+
+#[test]
+fn a_store_key_a_handler_writes_holds_its_value_for_the_next_step_and_every_component_reading_it() {
+  let page = "import { Box, Text, useInput } from \"ink\";\nimport { useStore } from \"@snapfire/fsr-client/react\";\nimport { key, set } from \"@snapfire/fsr-client/store\";\n\nconst count = key<number>(\"demo/count\");\n\nfunction Shown() {\n  const [n] = useStore(count, 0);\n  return <Text>shown {n}</Text>;\n}\n\nexport default function Page() {\n  const [n, setN] = useStore(count, 0);\n  useInput((input) => {\n    if (input === \"+\") set(count, n + 1);\n    if (input === \"u\") setN((n: number) => n + 10);\n  });\n  return (\n    <Box flexDirection=\"column\">\n      <Text>page {n}</Text>\n      <Shown />\n    </Box>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let press = |c: char| {
+    let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    key
+  };
+  let lines = |node| snapfire_fsr_terminal::render(&node, 30).lines().iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  session.view().unwrap();
+  session.press(&press('+')).unwrap();
+  assert_eq!(lines(session.press(&press('+')).unwrap()), ["page 2", "shown 2"], "the second write reads what the first wrote");
+  assert_eq!(lines(session.press(&press('u')).unwrap()), ["page 12", "shown 12"], "an updater starts from the value held");
+  assert_eq!(lines(session.view().unwrap()), ["page 12", "shown 12"], "a render with no handler reads it too");
+}
