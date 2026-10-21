@@ -7,6 +7,7 @@ mod config;
 mod edit;
 mod head;
 mod items;
+mod lift;
 mod modules;
 mod next;
 mod pages;
@@ -176,8 +177,8 @@ pub trait Pass {
 /// The passes for `source`, in the order they run.
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
-    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).collect(),
-    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).collect(),
+    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).chain(lift::passes()).collect(),
+    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).chain(lift::passes()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }
@@ -198,6 +199,19 @@ pub fn migrate(input: &Tree) -> (Tree, Report) {
         pass.run(&mut tree, &mut report);
       }
     }
+  }
+  (tree, report)
+}
+
+/// The passes that work on an FSR application whatever it was written for,
+/// run alone on `tree`: what a component awaits while it renders moved to
+/// the route's loader.
+pub fn lift(tree: &Tree) -> (Tree, Report) {
+  let mut report = Report::default();
+  let mut tree = tree.clone();
+  for pass in lift::passes() {
+    report.passes.push(pass.name());
+    pass.run(&mut tree, &mut report);
   }
   (tree, report)
 }

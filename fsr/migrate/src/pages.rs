@@ -9,7 +9,7 @@ use swc_core::ecma::ast as js;
 use swc_core::ecma::visit::{Visit, VisitWith};
 
 use crate::edit::Edits;
-use crate::items::{drop_named_import, import_text, line_range, local, tidy};
+use crate::items::{describe, drop_named_import, import_text, line_range, local, tidy, Item};
 use crate::next::{read_packages, source_path};
 use crate::relocate::{relocate, Aliases};
 use crate::syntax::{is_script, parse, Parsed};
@@ -234,16 +234,7 @@ struct Moved {
   page: String,
 }
 
-const DATA_FUNCTIONS: &[&str] = &["getStaticProps", "getServerSideProps", "getStaticPaths"];
-
-/// A top-level item: its range, the names it binds and the names it reads.
-struct Item {
-  range: Range<usize>,
-  binds: Vec<String>,
-  reads: BTreeSet<String>,
-  data: Option<&'static str>,
-  import: bool,
-}
+pub(crate) const DATA_FUNCTIONS: &[&str] = &["getStaticProps", "getServerSideProps", "getStaticPaths"];
 
 fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) -> Option<Moved> {
   let items: Vec<Item> = parsed.module.body.iter().map(|item| describe(item, parsed)).collect();
@@ -327,89 +318,6 @@ fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) 
     }
   }
   Some(Moved { loader: loader.trim_start().to_owned(), page: tidy(&page_edits.apply(text)) })
-}
-
-fn describe(item: &js::ModuleItem, parsed: &Parsed) -> Item {
-  let range = parsed.range(item.span());
-  let mut reads = Reads { names: BTreeSet::new() };
-  let mut binds = Vec::new();
-  let mut data = None;
-  let mut import = false;
-  let decl_binds = |decl: &js::Decl, binds: &mut Vec<String>| match decl {
-    js::Decl::Fn(f) => binds.push(f.ident.sym.to_string()),
-    js::Decl::Class(c) => binds.push(c.ident.sym.to_string()),
-    js::Decl::Var(v) => {
-      for d in &v.decls {
-        let mut names = Vec::new();
-        pat_names(&d.name, &mut names);
-        binds.extend(names);
-      }
-    }
-    js::Decl::TsInterface(i) => binds.push(i.id.sym.to_string()),
-    js::Decl::TsTypeAlias(t) => binds.push(t.id.sym.to_string()),
-    js::Decl::TsEnum(e) => binds.push(e.id.sym.to_string()),
-    _ => {}
-  };
-  match item {
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(i)) => {
-      import = true;
-      binds.extend(i.specifiers.iter().map(local));
-    }
-    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(e)) => {
-      decl_binds(&e.decl, &mut binds);
-      data = binds.iter().find_map(|b| DATA_FUNCTIONS.iter().find(|d| **d == b.as_str()).copied());
-      e.decl.visit_with(&mut reads);
-    }
-    js::ModuleItem::Stmt(js::Stmt::Decl(d)) => {
-      decl_binds(d, &mut binds);
-      d.visit_with(&mut reads);
-    }
-    other => other.visit_with(&mut reads),
-  }
-  Item { range, binds, reads: reads.names, data, import }
-}
-
-fn pat_names(pat: &js::Pat, out: &mut Vec<String>) {
-  match pat {
-    js::Pat::Ident(i) => out.push(i.id.sym.to_string()),
-    js::Pat::Array(a) => a.elems.iter().flatten().for_each(|p| pat_names(p, out)),
-    js::Pat::Object(o) => {
-      for p in &o.props {
-        match p {
-          js::ObjectPatProp::Assign(a) => out.push(a.key.sym.to_string()),
-          js::ObjectPatProp::KeyValue(kv) => pat_names(&kv.value, out),
-          js::ObjectPatProp::Rest(r) => pat_names(&r.arg, out),
-        }
-      }
-    }
-    js::Pat::Rest(r) => pat_names(&r.arg, out),
-    js::Pat::Assign(a) => pat_names(&a.left, out),
-    _ => {}
-  }
-}
-
-struct Reads {
-  names: BTreeSet<String>,
-}
-
-impl Visit for Reads {
-  fn visit_ident(&mut self, n: &js::Ident) {
-    self.names.insert(n.sym.to_string());
-  }
-
-  fn visit_jsx_element_name(&mut self, n: &js::JSXElementName) {
-    if let js::JSXElementName::Ident(i) = n {
-      self.names.insert(i.sym.to_string());
-    }
-    n.visit_children_with(self);
-  }
-
-  fn visit_ts_type_ref(&mut self, n: &js::TsTypeRef) {
-    if let js::TsEntityName::Ident(i) = &n.type_name {
-      self.names.insert(i.sym.to_string());
-    }
-    n.visit_children_with(self);
-  }
 }
 
 /// The data function `item` rewritten under FSR's name for it, plus whether
