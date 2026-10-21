@@ -21,3 +21,25 @@ The build stops a component at its first cause, so removing one can uncover the 
 | --- | --- |
 | An npm package: `@faker-js/faker` and `p-queue` with `delay` | jest, table |
 | `react-router` | router |
+
+## Running an Ink application outside the corpus
+
+`tests/ink_app.rs` opens one Ink application of your own the way `fsr dev --terminal` does and prints what it draws or why it is refused. Lay the application out as an app: its source under `app/src` and an `app/routes/page.tsx` that renders its root component with the props its `render(…)` call gave it:
+
+```tsx
+// app/routes/page.tsx
+import App from "../src/ui.js";
+
+export default function Page() {
+  return <App />;
+}
+```
+
+Then run it from `fsr/examples`, naming the `app/` directory:
+
+```sh
+INK_APP=/path/to/app cargo nextest run -p corpus --test ink_app --no-capture
+INK_APP=/path/to/app INK_KEYS=hjk INK_COLUMNS=80 INK_ROWS=24 cargo nextest run -p corpus --test ink_app --no-capture
+```
+
+It prints the first frame at `INK_COLUMNS` by `INK_ROWS` (100 by 30 when unset), then the frame after each character of `INK_KEYS`; a newline in it is Enter and an escape character is Esc, `INK_KEYS=$'q\e'` in a shell. A refused application fails the test with the first cause, as the corpus records it. With `INK_APP` unset the test says so and passes, so it never changes a normal run.
