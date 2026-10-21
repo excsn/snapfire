@@ -15,7 +15,7 @@ blog-starter	refused: src/lib/api.ts:9:10: `fs` comes from `fs`, which the build
 blog-with-comment	refused: src/lib/getPost.ts:9:10: `fs` comes from `fs`, which the build cannot follow	pages 3	notes 9
 cache-handler-redis	refused: routes/[timezone]/page.loader.ts:26:3: an expression statement other than a write to a local	pages 1	notes 12
 cache-handler-redis-turbo	refused: routes/use-cache/page.loader.ts:10:3: an expression statement other than a write to a local	pages 3	notes 4
-cloudflare-turnstile	refused: routes/explicit/page.tsx:22:7: `Script` comes from `next/script`, which the build cannot follow	pages 2	notes 5
+cloudflare-turnstile	client: routes/explicit/page.island0.tsx:6:5 `Script` comes from `next/script`, which the build cannot follow	pages 2	notes 6
 cms-agilitycms	refused: src/lib/api.ts:15:23: `agility` comes from `@agility/content-fetch`, which the build cannot follow	pages 2	notes 26
 cms-builder-io	refused: src/lib/api.js:23:21: `builder` comes from `@builder.io/react`, which the build cannot follow	pages 2	notes 23
 cms-buttercms	refused: routes/blog/page.loader.ts:9:5: `try`, and a body has no exceptions	pages 7	notes 28
@@ -97,7 +97,7 @@ with-electron-typescript	refused: no `routes/` directory under <app>	pages 0	not
 with-emotion	refused: routes/layout.tsx:6:15: a call to `createCache`, which the build cannot follow	pages 1	notes 1
 with-eslint	lowered	pages 1	notes 0
 with-expo-typescript	refused: routes/page.tsx:5:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 1	notes 1
-with-facebook-pixel	client: routes/components/FacebookPixel.js:10:20 `usePathname`, a hook the build cannot follow	pages 2	notes 2
+with-facebook-pixel	client: routes/components/FacebookPixel.js:10:20 `usePathname`, a hook the build cannot follow	pages 2	notes 4
 with-fela	client: routes/layout.island0.tsx:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/page.js:25:19 `useFela`, a hook the build cannot follow | routes/page.js:31:19 `useFela`, a hook the build cannot follow | routes/page.js:4:3 `FelaComponent` comes from `react-fela`, which the build cannot follow	pages 1	notes 2
 with-filbert	refused: routes/page.js:69:14: a tagged template	pages 1	notes 1
 with-fingerprintjs-pro	client: routes/home/[cacheStrategy]/page.island0.tsx:10:26 `useContext` of something the build cannot follow to a `createContext` | routes/home/[cacheStrategy]/page.tsx:11:38 `useVisitorData`, a hook the build cannot follow | routes/layout.tsx:26:18 `useRouter`, a hook the build cannot follow | routes/signin/[cacheStrategy]/page.island0.tsx:11:47 `useVisitorData`, a hook the build cannot follow	pages 2	notes 8
@@ -109,7 +109,7 @@ with-formspree	refused: src/styles/Home.module.css: 1:1: Expression expected	pag
 with-framer-motion	refused: routes/image/[index]/page.loader.ts:4:18: `Number` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 2
 with-goober	refused: routes/layout.tsx:16:15: a call to `extractCss`, which the build cannot follow	pages 1	notes 1
 with-google-analytics	client: routes/layout.island0.tsx:6:5 `GoogleAnalytics` comes from `@next/third-parties/google`, which the build cannot follow | routes/layout.tsx:12:7 `GoogleAnalytics` comes from `@next/third-parties/google`, which the build cannot follow	pages 3	notes 1
-with-google-maps-embed	client: routes/page.island0.tsx:6:5 `GoogleMapsEmbed` comes from `@next/third-parties/google`, which the build cannot follow	pages 1	notes 1
+with-google-maps-embed	lowered	pages 1	notes 1
 with-google-tag-manager	client: routes/layout.island0.tsx:6:5 `GoogleTagManager` comes from `@next/third-parties/google`, which the build cannot follow | routes/layout.tsx:13:7 `GoogleTagManager` comes from `@next/third-parties/google`, which the build cannot follow	pages 1	notes 1
 with-grafbase	refused: src/lib/grafbase.ts:4:29: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 7
 with-graphql-gateway	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 2
@@ -200,7 +200,7 @@ with-static-export	lowered	pages 2	notes 0
 with-stencil	unmigrated: not a Next.js application	pages 0	notes 1
 with-stitches	refused: routes/page.tsx: no exported `Text`	pages 1	notes 1
 with-storybook	refused: routes/page.module.css: 1:1: Expression expected	pages 2	notes 1
-with-strict-csp	refused: routes/page.loader.ts:4:29: a call to `headers`, which the build cannot follow	pages 1	notes 2
+with-strict-csp	refused: routes/page.loader.ts:5:29: a call to `headers`, which the build cannot follow	pages 1	notes 2
 with-stripe-typescript	refused: routes/actions.ts:14:26: a call to `headers`, which the build cannot follow	pages 7	notes 7
 with-styled-components	refused: routes/_components/globalstyles.tsx: no exported `default`	pages 2	notes 0
 with-styled-jsx	client: routes/registry.tsx:14:45 a call to `createStyleRegistry`, which the build cannot follow	pages 1	notes 0
@@ -226,6 +226,6 @@ with-xata	refused: routes/layout.loader.ts:6:5: `process` is not bound here; an 
 with-xstate	client: routes/_components/Counter.tsx:6:25 `useMachine`, a hook the build cannot follow | routes/_components/Toggle.tsx:6:25 `useMachine`, a hook the build cannot follow	pages 1	notes 0
 with-yarn-workspaces	unmigrated: not a Next.js application	pages 0	notes 1
 with-yoga	refused: routes/page.tsx:6:7: `Text` comes from `@gympass/yoga`, which the build cannot follow	pages 1	notes 1
-with-youtube-embed	client: routes/page.island0.tsx:5:5 `YouTubeEmbed` comes from `@next/third-parties/google`, which the build cannot follow	pages 1	notes 0
+with-youtube-embed	lowered	pages 1	notes 0
 with-zones	unmigrated: not a Next.js application	pages 0	notes 1
 with-zustand	client: src/lib/StoreProvider.tsx:17:5 a write to `storeRef`, which this body did not declare | src/lib/store.ts:34:10 a call to `useZustandStore`, which the build cannot follow	pages 1	notes 0

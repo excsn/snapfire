@@ -15,6 +15,7 @@ mod next;
 mod pages;
 mod prisma;
 mod relocate;
+mod scripts;
 mod syntax;
 
 use std::collections::BTreeMap;
@@ -204,7 +205,7 @@ fn prisma_pass() -> Vec<Box<dyn Pass>> {
 }
 
 fn env_pass() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(env::PublicEnv)]
+  vec![Box::new(env::PublicEnv), Box::new(scripts::Scripts)]
 }
 
 /// `input` rewritten as an FSR project tree: the application under `app/`.

@@ -58,6 +58,8 @@ Every import follows the file it names. A relative specifier is rewritten for bo
 | `next/image` | `Picture` from `@snapfire/fsr/components` |
 | `next/font/google` | a `[fonts.<key>]` table in `config/app.toml` and a `font-<key>` class over `--font-<key>` |
 | the root layout's `<html>` and `<body>` | a fragment and a `<div>`, since the host writes the document |
+| `next/script`'s `<Script src>` in a page or layout | a `scriptTag` row in the route's `meta` head, `lazyOnload` loading on `idle` |
+| `GoogleMapsEmbed`, `YouTubeEmbed` from `@next/third-parties/google` | the `<iframe>` each renders |
 
 A loader that only titles its route exports `meta` and no `load`:
 
@@ -235,6 +237,7 @@ Each of these is a note naming the line:
 - `useRouter`, `usePathname` and `useSearchParams`: a page receives its params and query from its loader; `navigate` from `@snapfire/fsr-client` moves to another page
 - Next's API routes, which take `(req, res)`: a `route.ts` exports `GET`, `POST` and the rest, each taking the request context
 - a title template: `[document] title_template` in `config/app.toml`
+- a `<Script>` with inline code or an `onLoad`: a module `src/main.ts` imports, calling `loadScript` (chapter 305)
 - `next/font/local`: `[fonts.<key>]` with `files`
 - a slot's `default`, `template`, `global-error` and an intercepting `(.)` directory
 
