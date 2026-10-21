@@ -172,6 +172,7 @@ pub fn run_with(app: &Path, options: &DoctorOptions) -> Result<Report, DoctorErr
     ("desktop", desktop(&config, manifest.as_ref())),
     ("runtime", runtime(&config, options.runtime, &mut report.expected)),
     ("sections", sections(&config)),
+    ("secrets", secrets(&config)),
   ] {
     if findings.is_empty() {
       report.clean.push(check);
@@ -214,6 +215,23 @@ fn sections(config: &Config) -> Vec<Finding> {
   for name in &config.ignored {
     if let Some(known) = host_sections().iter().find(|known| name.len() > 2 && one_edit(name, known)) {
       out.push(Finding::new("sections", format!("[{name}] is not a section the host reads"), format!("rename it [{known}], the section it is one letter from")));
+    }
+  }
+  out
+}
+
+/// A declared secret no client sends; a `[public]` key named like a
+/// secret: a page may render a public value, so a name both share is one
+/// misplaced line from shipping the secret.
+fn secrets(config: &Config) -> Vec<Finding> {
+  let mut out = Vec::new();
+  let sent: BTreeSet<&str> = config.clients.values().filter_map(|c| c.credential.as_ref()).map(|c| c.secret.as_str()).collect();
+  for name in config.secrets.keys() {
+    if !sent.contains(name.as_str()) {
+      out.push(Finding::new("secrets", format!("[secrets.{name}] is declared and no client sends it"), format!("name it on a client, `credential = {{ secret = \"{name}\" }}`; otherwise take the table out")));
+    }
+    if config.public.contains_key(name) {
+      out.push(Finding::new("secrets", format!("`public.{name}` shares its name with [secrets.{name}]"), "rename one; a `[public]` value is rendered into pages, a secret never is"));
     }
   }
   out

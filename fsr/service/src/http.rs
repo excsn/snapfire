@@ -121,6 +121,10 @@ pub struct HttpTransport {
   base: String,
   routes: HashMap<String, Route>,
   client: reqwest::Client,
+  /// Sent on every call before the call's own metadata: an application
+  /// credential, which no interceptor or trace sees since it is not metadata.
+  headers: Vec<(String, String)>,
+  query: Vec<(String, String)>,
 }
 
 impl HttpTransport {
@@ -134,7 +138,19 @@ impl HttpTransport {
   }
 
   pub fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self {
-    Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client }
+    Self { base: base.into().trim_end_matches('/').to_owned(), routes: HashMap::new(), client, headers: Vec::new(), query: Vec::new() }
+  }
+
+  /// A header every call carries.
+  pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+    self.headers.push((name.into(), value.into()));
+    self
+  }
+
+  /// A query parameter every call carries, beside any its arguments become.
+  pub fn query(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+    self.query.push((name.into(), value.into()));
+    self
   }
 
   pub fn route(mut self, path: impl Into<String>, route: Route) -> Self {
@@ -180,6 +196,9 @@ impl Transport for HttpTransport {
       return Box::pin(async move { Err(fail(FailureKind::Internal, format!("bad method `{method}`"))) });
     };
     let mut request = self.client.request(verb.clone(), &url);
+    for (key, value) in &self.headers {
+      request = request.header(key.as_str(), value.as_str());
+    }
     for (key, value) in &call.metadata {
       let Value::Str(value) = value else {
         let why = format!("metadata `{key}` is not a string, so it cannot be a header");
@@ -193,6 +212,9 @@ impl Transport for HttpTransport {
       let query: Vec<(String, String)> =
         body.iter().map(|(k, v)| (k.clone(), scalar_to_path(v))).collect();
       request = request.query(&query);
+    }
+    if !self.query.is_empty() {
+      request = request.query(&self.query);
     }
 
     Box::pin(async move {

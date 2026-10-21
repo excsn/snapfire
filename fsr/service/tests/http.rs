@@ -269,3 +269,35 @@ async fn a_server_failure_or_an_unreachable_backend_keeps_its_details_out_of_the
   assert_eq!(unreachable.kind, FailureKind::Unavailable);
   assert!(!unreachable.message.contains("127.0.0.1"), "the backend's address stays in the log: {unreachable}");
 }
+
+#[tokio::test]
+async fn a_header_the_transport_carries_goes_out_on_every_call() {
+  let body = r#"{"name":"web-1","load":0.5}"#;
+  let (base, seen) = serve(vec![(200, body), (200, body)]);
+  let transport = HttpTransport::new(&base).header("x-api-key", "app-secret").route("fleet.get", Route::get("/servers/{name}"));
+  let services = Services::builder().contract(contract()).default_transport(Arc::new(transport)).build();
+  let binding = services.bind_anonymous();
+  binding.call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap();
+  binding.call("fleet", "add", args(vec![("name", Value::str("web-2")), ("load", Value::F64(0.1))])).await.unwrap_or(Value::Null);
+  let seen = seen.lock();
+  assert_eq!(seen.len(), 2);
+  for recorded in seen.iter() {
+    assert_eq!(header_of(recorded, "x-api-key"), Some("app-secret"), "{}", recorded.request_line);
+  }
+}
+
+#[tokio::test]
+async fn a_query_parameter_the_transport_carries_goes_out_on_every_call_beside_the_arguments() {
+  let body = r#"{"name":"web-1","load":0.5}"#;
+  let (base, seen) = serve(vec![(200, body), (200, "1")]);
+  let transport = HttpTransport::new(&base).query("key", "app secret").route("fleet.get", Route::get("/servers"));
+  let services = Services::builder().contract(contract()).default_transport(Arc::new(transport)).build();
+  let binding = services.bind_anonymous();
+  binding.call("fleet", "get", args(vec![("name", Value::str("web-1"))])).await.unwrap();
+  binding.call("fleet", "add", args(vec![("name", Value::str("web-2")), ("load", Value::F64(0.1))])).await.unwrap();
+  let seen = seen.lock();
+  let target = |i: usize| seen[i].request_line.split(' ').nth(1).unwrap().to_owned();
+  assert_eq!(target(0), "/servers?name=web-1&key=app+secret");
+  assert_eq!(target(1), "/fleet/add?key=app+secret");
+  assert_eq!(seen[1].body, r#"{"name":"web-2","load":0.1}"#, "the parameter is not an argument");
+}

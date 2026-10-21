@@ -200,8 +200,11 @@ pub(crate) fn clients_of(
       }
       let base_url = client.base_url.clone().unwrap_or_default();
       if build_transports {
-        let transport = snapfire_fsr_service::GrpcTransport::new(&base_url, &imported)
+        let mut transport = snapfire_fsr_service::GrpcTransport::new(&base_url, &imported)
           .map_err(|e| HostError::Transport(name.clone(), e))?;
+        if let Some((header, value)) = credential_header(config, client) {
+          transport = transport.metadata(header, value);
+        }
         transports.push((named.clone(), Arc::new(transport)));
       }
       service_rows.push((named.clone(), "grpc".to_owned(), base_url));
@@ -222,10 +225,35 @@ pub(crate) fn clients_of(
     for (path, route) in &imported.routes {
       transport = transport.route(path.clone(), route.clone());
     }
+    if let Some((header, value)) = credential_header(config, client) {
+      transport = transport.header(header, value);
+    }
+    if let Some((query, value)) = client.credential.as_ref().and_then(|c| Some((c.query.clone()?, secret_value(config, &c.secret)?))) {
+      transport = transport.query(query, value);
+    }
     transports.push((named.clone(), Arc::new(transport)));
     service_rows.push((named.clone(), "http".to_owned(), base_url));
   }
   Ok(())
+}
+
+/// The header a client's credential goes out as and its value: `authorization`
+/// with `Bearer ` before the secret unless the credential names a header or a
+/// query parameter.
+fn credential_header(config: &Config, client: &ClientConfig) -> Option<(String, String)> {
+  let credential = client.credential.as_ref()?;
+  if credential.query.is_some() {
+    return None;
+  }
+  let value = secret_value(config, &credential.secret)?;
+  Some(match &credential.header {
+    Some(header) => (header.clone(), value),
+    None => ("authorization".to_owned(), format!("Bearer {value}")),
+  })
+}
+
+fn secret_value(config: &Config, name: &str) -> Option<String> {
+  config.secrets.get(name)?.value.as_ref().map(|secret| secret.expose().to_owned())
 }
 
 /// The shell's import map with a site's entries added where the shell has

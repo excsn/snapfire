@@ -28,6 +28,25 @@ A session carries two things: the cell a body reads and writes plus the tokens t
 
 Application code has no way to reach a token. The registry, the interceptors and the session are designed together to keep it that way.
 
+## An application credential
+
+Some backends authenticate the application rather than the visitor: a CMS token, a payments key, an API key a SaaS backend issues once. That value is the deployment's, not any session's, so it lives in configuration. Declare it under `[secrets]` and name it on the client that sends it:
+
+```toml
+[secrets.cms]
+description = "The CMS's read-only API token"
+
+[clients.cms]
+base_url = "https://graphql.example-cms.com"
+credential = { secret = "cms" }
+```
+
+The client sends it as `Authorization: Bearer <value>` on every call. `credential = { secret = "maps", header = "x-api-key" }` sends it as that header instead, `credential = { secret = "maps", query = "key" }` as that query parameter. A gRPC client sends a header as call metadata and has no query string.
+
+The value comes from the deployment's environment (`C5_SECRETS__CMS__VALUE`) or is written encrypted in an overlay as a `.c5encval` value. Outside development a value written as plain text in a file stops the host at boot, since the file is in the repository. `development.toml` may hold one for a backend on your own machine. A client on the `mock` transport sends nothing, so tests and a project without the backend run with no secret at all.
+
+The value sits on the client's transport, not on any call, so no interceptor, trace or body sees it. It never prints. A secret a client sends with no value stops the host at boot, naming the variable. `fsr doctor` checks the declarations (chapter 304): it lists each value as one the deployment must set, reports a secret no client sends and one named like a `[public]` key. A client may carry both: `bearer = true` sends the visitor's token while `credential` with a `header` other than `authorization` sends the application's beside it.
+
 ## Failure kinds
 
 A call fails with a kind, one per HTTP error status: `unauthorized`, `forbidden`, `not_found`, `conflict`, `too_many_requests`, `bad_gateway`, `invalid` for 400 and the rest. The HTTP transport reads a backend's status as its own kind, so a 403 stays `forbidden` and a 429 stays `too_many_requests`; the gRPC transport maps `PermissionDenied` to `forbidden` and `ResourceExhausted` to `too_many_requests` and a guard in a body names one directly. A loader that fails renders the route's error component with the message; an action that fails returns the kind to the browser, which is what the toast shows. The same kinds describe every failure from the backend to the rendered page; the contract check's own failures use them too, as `invalid` with the field's path.

@@ -50,7 +50,7 @@ fn a_healthy_application_reports_nothing() {
   let dir = app("", &[]);
   let out = doctor::run(&dir).expect("runs");
   assert!(out.is_clean(), "{out}");
-  assert_eq!(out.clean.len(), 21, "{out}");
+  assert_eq!(out.clean.len(), 22, "{out}");
   assert!(out.to_string().contains("nothing to report"), "{out}");
 }
 
@@ -248,7 +248,7 @@ fn several_findings_are_all_reported_and_counted() {
   );
   let out = doctor::run(&dir).expect("runs");
   assert_eq!(out.findings.iter().map(|f| f.check).collect::<Vec<_>>(), vec!["canonical", "locales", "render"]);
-  assert!(out.to_string().contains("3 of 21 checks"), "{out}");
+  assert!(out.to_string().contains("3 of 22 checks"), "{out}");
   assert!(!out.is_clean());
 }
 
@@ -754,6 +754,27 @@ fn a_secret_this_machine_cannot_decrypt_is_expected_and_the_deployment_refuses_i
   assert_eq!(ci.expected, ["session.key: encrypted in the files; this deployment needs the key that decrypts it when it starts"], "{ci}");
   let error = doctor::run_with(&dir, &production().runtime(true)).expect_err("the deployment itself refuses it").to_string();
   assert!(error.contains("does not decrypt"), "{error}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_secret_no_client_sends_and_one_named_like_a_public_key_are_reported() {
+  let dir = app("[secrets.cms]\n[secrets.maps]\n[public]\nmaps = \"x\"\n[clients.shop]\ntransport = \"mock\"\ncredential = { secret = \"cms\" }\n", &[("app/clients/shop.openapi.json", "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"s\",\"version\":\"1\"},\"paths\":{}}"), ("app/clients/shop.mock.json", "{}")]);
+  let out = doctor::run(&dir).expect("runs");
+  let secrets: Vec<&str> = out.findings.iter().filter(|f| f.check == "secrets").map(|f| f.what.as_str()).collect();
+  assert_eq!(secrets.len(), 2, "{out}");
+  let text = out.to_string();
+  assert!(text.contains("[secrets.maps] is declared and no client sends it"), "{text}");
+  assert!(!text.contains("[secrets.cms] is declared"), "a mock client still names its secret: {text}");
+  assert!(text.contains("`public.maps` shares its name with [secrets.maps]"), "{text}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_secret_a_client_sends_is_expected_from_the_deployments_environment() {
+  let dir = app("[secrets.cms]\ndescription = \"the CMS token\"\n[clients.cms]\nbase_url = \"http://127.0.0.1:1\"\ncredential = { secret = \"cms\" }\n", &[("clients/cms.openapi.json", "{\"openapi\":\"3.0.3\",\"info\":{\"title\":\"c\",\"version\":\"1\"},\"paths\":{}}")]);
+  let ci = doctor::run_with(&dir, &production()).expect("runs");
+  assert!(ci.expected.contains(&"secrets.cms.value: no file sets it; this deployment needs C5_SECRETS__CMS__VALUE when it starts".to_owned()), "{ci}");
   std::fs::remove_dir_all(&dir).unwrap();
 }
 

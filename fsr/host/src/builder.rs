@@ -423,6 +423,9 @@ impl HostBuilder {
     if config.runtime_values().iter().any(|value| value.state == config::ValueState::Placeholder) {
       return Err(placeholder_session_key(&config));
     }
+    if let Some(value) = config.runtime_values().into_iter().find(|value| value.key.starts_with("secrets.") && value.state == config::ValueState::Missing) {
+      return Err(HostError::Config(config.config_dir(), format!("`{}` has no value and a client sends it; set {} or write it encrypted in a configuration file the host reads", value.key, value.env)));
+    }
     let ttl = config.session_ttl()?;
     let store: Arc<dyn SessionStore> = match store {
       Some(store) => store,

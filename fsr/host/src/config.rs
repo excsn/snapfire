@@ -104,6 +104,8 @@ pub struct Config {
   /// Keys written as secrets this process could not decrypt, recorded rather
   /// than refused when the loader was asked to keep them (`Loader::keep_undecrypted`).
   pub undecrypted: Vec<String>,
+  /// `[secrets.<name>]`: what the application's clients send as credentials.
+  pub secrets: BTreeMap<String, SecretEntry>,
 }
 
 /// One `[public]` value: a TOML scalar, kept as written so the build can type
@@ -1020,6 +1022,69 @@ pub struct ClientConfig {
   /// client carries no token.
   #[serde(default)]
   pub bearer: Option<BearerKey>,
+  /// An application credential sent on every call: a secret's value as a
+  /// bearer token, a named header or a query parameter.
+  #[serde(default)]
+  pub credential: Option<CredentialConfig>,
+}
+
+/// `credential = { secret = "cms" }`: the secret `[secrets.cms]` holds, sent
+/// as `Authorization: Bearer <value>`; with `header`, as that header's value;
+/// with `query`, as that query parameter.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct CredentialConfig {
+  pub secret: String,
+  #[serde(default)]
+  pub header: Option<String>,
+  #[serde(default)]
+  pub query: Option<String>,
+}
+
+/// `[secrets.<name>]`: a value the application holds for a backend. Its
+/// `value` comes from `C5_SECRETS__<NAME>__VALUE` or is written encrypted;
+/// written plain in a file only in development.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct SecretEntry {
+  #[serde(default)]
+  pub description: Option<String>,
+  #[serde(default)]
+  pub value: Option<Secret>,
+}
+
+/// A secret's value, which never prints.
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct Secret(String);
+
+impl Secret {
+  pub fn new(value: impl Into<String>) -> Self {
+    Self(value.into())
+  }
+
+  /// The value, for the transport that sends it.
+  pub fn expose(&self) -> &str {
+    &self.0
+  }
+}
+
+impl std::fmt::Debug for Secret {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    f.write_str("Secret(***)")
+  }
+}
+
+impl schemars::JsonSchema for Secret {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "Secret".into()
+  }
+
+  fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({ "type": ["string", "object"], "description": "Set by the C5_SECRETS__<NAME>__VALUE variable or written as a `.c5encval` value; plain text only in development." })
+  }
 }
 
 impl ClientConfig {
@@ -1277,6 +1342,7 @@ const SECTIONS: &[&str] = &[
   "images",
   "media",
   "fonts",
+  "secrets",
 ];
 
 fn default_app_dir() -> String {
@@ -1433,6 +1499,12 @@ pub fn config_schema() -> serde_json::Value {
       "type": "object",
       "properties": { "base": { "type": "string" } },
       "additionalProperties": of::<FontEntry>(&mut generator)
+    })),
+    ("secrets", serde_json::json!({
+      "type": "object",
+      "description": "A value the application's clients send as a credential, `credential = { secret = \"<name>\" }` on a client.",
+      "additionalProperties": of::<SecretEntry>(&mut generator),
+      "x-runtime": "C5_SECRETS__<NAME>__VALUE"
     })),
   ];
   debug_assert_eq!(sections.iter().map(|(name, _)| *name).collect::<Vec<_>>(), SECTIONS);
@@ -1718,6 +1790,12 @@ impl Loader {
       .map_err(|e| HostError::Config(located.sources[0].clone(), e.to_string()))?;
     let mut config = Config::from_store_keeping(&store, located, self.keep_undecrypted)?;
     config.deployment = Some(self.deployment.clone());
+    if !config.dev() {
+      if let Some((file, name)) = config.plain_secrets().into_iter().next() {
+        let key = format!("secrets.{name}.value");
+        return Err(HostError::Config(file, format!("`{key}` is written as plain text; outside development a secret's value comes from {} or is written encrypted", env_name(&key))));
+      }
+    }
     Ok(config)
   }
 
@@ -1776,7 +1854,7 @@ impl Config {
   /// Every path it returns exists, so it can be handed to a loader whole.
   pub fn from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Self, HostError> {
     let root = root.as_ref();
-    Self::sections(store, root, root.to_path_buf(), false)
+    Self::sections(store, root, root.to_path_buf(), false, &[])
   }
 
   /// `from_store_at` over a store loaded from the files `located` names,
@@ -1788,7 +1866,7 @@ impl Config {
 
   fn from_store_keeping<S: C5Store>(store: &S, located: Located, keep_undecrypted: bool) -> Result<Self, HostError> {
     let at = located.sources.first().cloned().unwrap_or_else(|| located.root.clone());
-    let mut config = Self::sections(store, &located.root, at, keep_undecrypted)?;
+    let mut config = Self::sections(store, &located.root, at, keep_undecrypted, &located.sources)?;
     if let Some(cache) = config.cache.as_mut() {
       if cache.data.is_none() && located.sources.iter().any(|file| declares_empty_table(file, &["cache", "data"])) {
         cache.data = Some(DataCacheSection::default());
@@ -1798,7 +1876,7 @@ impl Config {
     Ok(config)
   }
 
-  fn sections<S: C5Store>(store: &S, root: &Path, at: PathBuf, keep_undecrypted: bool) -> Result<Self, HostError> {
+  fn sections<S: C5Store>(store: &S, root: &Path, at: PathBuf, keep_undecrypted: bool, sources: &[PathBuf]) -> Result<Self, HostError> {
     let fail = |e: ConfigError| HostError::Config(at.clone(), e.to_string());
 
     let mut ignored: Vec<String> = Vec::new();
@@ -1886,6 +1964,27 @@ impl Config {
         at.clone(),
         "`session.key` is written but has no value: a secret that does not decrypt loads empty".to_owned(),
       ));
+    }
+    let mut secrets: BTreeMap<String, SecretEntry> = section(store, "secrets", &at)?;
+    // A table holding nothing yet, `[secrets.cms]` alone, is not in the store.
+    for source in sources {
+      let Some(text) = source.extension().filter(|e| *e == "toml").and_then(|_| std::fs::read_to_string(source).ok()) else { continue };
+      let Ok(table) = text.parse::<toml::Table>() else { continue };
+      if let Some(toml::Value::Table(declared)) = table.get("secrets") {
+        for name in declared.keys() {
+          secrets.entry(name.clone()).or_default();
+        }
+      }
+    }
+    for (name, entry) in secrets.iter_mut() {
+      if entry.value.is_some() || !store.path_exists(&format!("secrets.{name}.value")) {
+        continue;
+      }
+      if keep_undecrypted {
+        undecrypted.push(format!("secrets.{name}.value"));
+      } else {
+        return Err(HostError::Config(at.clone(), format!("`secrets.{name}.value` is written but has no value: a secret that does not decrypt loads empty")));
+      }
     }
     if !matches!(session.csrf.as_str(), "identified" | "always") {
       return Err(HostError::Config(
@@ -2577,6 +2676,23 @@ impl Config {
         inferred.push(format!("clients.{name}.document from clients/"));
       }
     }
+    for (name, client) in &clients {
+      let Some(credential) = &client.credential else { continue };
+      let refuse = |why: String| Err(HostError::Config(at.clone(), format!("clients.{name}.credential: {why}")));
+      if !secrets.contains_key(&credential.secret) {
+        return refuse(format!("names `{}`, which no [secrets.{}] declares", credential.secret, credential.secret));
+      }
+      if credential.header.is_some() && credential.query.is_some() {
+        return refuse("a credential goes out as a header or a query parameter, not both".to_owned());
+      }
+      if credential.query.is_some() && client.document.as_deref().is_some_and(|d| d.ends_with(".proto")) {
+        return refuse("a gRPC call has no query string; send it as a header".to_owned());
+      }
+      let authorization = credential.header.as_deref().is_none_or(|h| h.eq_ignore_ascii_case("authorization")) && credential.query.is_none();
+      if authorization && client.bearer.as_ref().and_then(BearerKey::key).is_some() {
+        return refuse("`bearer` already sends the session's token as `Authorization`; name another header".to_owned());
+      }
+    }
 
     Ok(Self {
       root,
@@ -2612,6 +2728,7 @@ impl Config {
       ignored,
       deployment: None,
       undecrypted,
+      secrets,
     })
   }
 
@@ -2680,7 +2797,43 @@ impl Config {
       None if !self.dev() => ValueState::Missing,
       _ => ValueState::Set,
     };
-    vec![RuntimeValue::new("session.key", state)]
+    let mut values = vec![RuntimeValue::new("session.key", state)];
+    for name in self.sent_secrets() {
+      let key = format!("secrets.{name}.value");
+      let state = match self.secrets.get(name).and_then(|entry| entry.value.as_ref()) {
+        Some(_) => ValueState::Set,
+        None if self.undecrypted.contains(&key) => ValueState::Encrypted,
+        None => ValueState::Missing,
+      };
+      values.push(RuntimeValue::new(key, state));
+    }
+    values
+  }
+
+  /// The secrets a client that reaches a backend sends, by name; a mock
+  /// client sends nothing.
+  pub fn sent_secrets(&self) -> Vec<&str> {
+    let mut names: Vec<&str> = self.clients.values().filter(|client| !client.is_mock()).filter_map(|client| client.credential.as_ref()).map(|c| c.secret.as_str()).collect();
+    names.sort();
+    names.dedup();
+    names
+  }
+
+  /// Each secret's value written as plain text in one of `sources`, which
+  /// only a development deployment may hold.
+  fn plain_secrets(&self) -> Vec<(PathBuf, String)> {
+    let mut found = Vec::new();
+    for source in &self.sources {
+      let Ok(text) = std::fs::read_to_string(source) else { continue };
+      let Ok(toml::Value::Table(table)) = text.parse::<toml::Value>() else { continue };
+      let Some(toml::Value::Table(secrets)) = table.get("secrets") else { continue };
+      for (name, entry) in secrets {
+        if let Some(toml::Value::String(_)) = entry.get("value") {
+          found.push((source.clone(), name.clone()));
+        }
+      }
+    }
+    found
   }
 
   /// The cache lifetime, `None` when no `[cache]` section is written.

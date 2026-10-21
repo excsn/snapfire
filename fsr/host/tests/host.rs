@@ -6820,3 +6820,119 @@ async fn an_action_whose_session_write_is_over_max_bytes_is_refused_and_nothing_
   assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
   assert!(response.headers().get(header::SET_COOKIE).is_none(), "no session was saved, so none is named");
 }
+
+/// A server answering `body` to each of `count` requests and keeping each
+/// request's line and headers.
+fn record(count: usize, body: &'static str) -> (String, Arc<parking_lot::Mutex<Vec<(String, Vec<String>)>>>) {
+  use std::io::{BufRead, BufReader, Write};
+  let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+  let base = format!("http://{}", listener.local_addr().unwrap());
+  let seen = Arc::new(parking_lot::Mutex::new(Vec::new()));
+  let keep = seen.clone();
+  std::thread::spawn(move || {
+    for _ in 0..count {
+      let Ok((stream, _)) = listener.accept() else { return };
+      let mut reader = BufReader::new(stream);
+      let mut line = String::new();
+      reader.read_line(&mut line).unwrap();
+      let mut headers = Vec::new();
+      loop {
+        let mut header = String::new();
+        reader.read_line(&mut header).unwrap();
+        if header.trim().is_empty() {
+          break;
+        }
+        headers.push(header.trim().to_ascii_lowercase());
+      }
+      keep.lock().push((line.trim().to_owned(), headers));
+      let mut stream = reader.into_inner();
+      let _ = stream.write_all(format!("HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes());
+    }
+  });
+  (base, seen)
+}
+
+fn credential_dir(base: &str, credential: &str, secrets: &str) -> PathBuf {
+  let dir = app_dir();
+  std::fs::create_dir_all(dir.join("clients")).unwrap();
+  write_plan(&dir, WHO_PLAN);
+  std::fs::write(dir.join("clients/shop.openapi.json"), SHOP_OPENAPI).unwrap();
+  std::fs::write(
+    dir.join("app.toml"),
+    format!("[app]\ndir = \".\"\n\n[server]\nlisten = \"127.0.0.1:0\"\ndev = true\n\n[document]\ntitle = \"t\"\n\n[session]\nkey = \"test-key\"\n\n{secrets}\n[clients.shop]\nbase_url = \"{base}\"\ncredential = {credential}\n"),
+  )
+  .unwrap();
+  dir
+}
+
+#[test]
+fn a_client_credential_goes_out_as_the_header_or_the_query_parameter_it_names() {
+  let rt = tokio::runtime::Runtime::new().unwrap();
+  let secret = "[secrets.shop]\nvalue = \"app-secret\"\n";
+  let (base, seen) = record(1, r#"["a"]"#);
+  let host = Host::from(credential_dir(&base, r#"{ secret = "shop", header = "x-api-key" }"#, secret).join("app.toml")).unwrap().build().unwrap();
+  let response = rt.block_on(host.handle(Request::get("/who").body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), StatusCode::OK);
+  assert!(seen.lock()[0].1.contains(&"x-api-key: app-secret".to_owned()), "{:?}", seen.lock());
+
+  let (base, seen) = record(1, r#"["a"]"#);
+  let host = Host::from(credential_dir(&base, r#"{ secret = "shop", query = "key" }"#, secret).join("app.toml")).unwrap().build().unwrap();
+  rt.block_on(host.handle(Request::get("/who").body(Bytes::new()).unwrap()));
+  assert_eq!(seen.lock()[0].0.split(' ').nth(1), Some("/list?key=app-secret"), "{:?}", seen.lock());
+
+  let (base, seen) = record(1, r#"["a"]"#);
+  let host = Host::from(credential_dir(&base, r#"{ secret = "shop" }"#, secret).join("app.toml")).unwrap().build().unwrap();
+  rt.block_on(host.handle(Request::get("/who").body(Bytes::new()).unwrap()));
+  assert!(seen.lock()[0].1.contains(&"authorization: bearer app-secret".to_owned()), "a bearer token by default: {:?}", seen.lock());
+}
+
+#[test]
+fn a_credential_is_refused_at_load_when_it_cannot_be_sent_as_written() {
+  use snapfire_fsr_host::config::{Deployment, Loader};
+  let load = |credential: &str, secrets: &str, deployment: Deployment| {
+    let dir = credential_dir("http://127.0.0.1:1", credential, secrets);
+    Loader::at(dir.join("app.toml")).deployment(deployment).config().map(|_| ()).map_err(|e| e.to_string())
+  };
+  let declared = "[secrets.shop]\nvalue = \"app-secret\"\n";
+  let undeclared = load(r#"{ secret = "nope" }"#, declared, Deployment::default()).unwrap_err();
+  assert!(undeclared.contains("clients.shop.credential") && undeclared.contains("[secrets.nope]"), "{undeclared}");
+  let both = load(r#"{ secret = "shop", header = "x-key", query = "key" }"#, declared, Deployment::default()).unwrap_err();
+  assert!(both.contains("header or a query parameter"), "{both}");
+  let plain = {
+    let dir = credential_dir("http://127.0.0.1:1", r#"{ secret = "shop" }"#, declared);
+    std::fs::write(dir.join("production.toml"), "[server]\ndev = false\n").unwrap();
+    Loader::at(&dir).deployment(Deployment::default().release_env("production".to_owned())).config().map(|_| ()).unwrap_err().to_string()
+  };
+  assert!(plain.contains("secrets.shop.value") && plain.contains("C5_SECRETS__SHOP__VALUE"), "{plain}");
+  assert!(load(r#"{ secret = "shop" }"#, declared, Deployment::default()).is_ok(), "development may write a value in its files");
+  let session_bearer = {
+    let dir = credential_dir("http://127.0.0.1:1", r#"{ secret = "shop" }"#, declared);
+    let text = std::fs::read_to_string(dir.join("app.toml")).unwrap().replace("[clients.shop]\n", "[clients.shop]\nbearer = true\n");
+    std::fs::write(dir.join("app.toml"), text).unwrap();
+    Loader::at(&dir).deployment(Deployment::default()).config().map(|_| ()).unwrap_err().to_string()
+  };
+  assert!(session_bearer.contains("`bearer` already sends"), "{session_bearer}");
+  let grpc = {
+    let dir = credential_dir("http://127.0.0.1:1", r#"{ secret = "shop", query = "key" }"#, declared);
+    std::fs::remove_file(dir.join("clients/shop.openapi.json")).unwrap();
+    std::fs::write(dir.join("clients/shop.proto"), "syntax = \"proto3\";\n").unwrap();
+    Loader::at(&dir).deployment(Deployment::default()).config().map(|_| ()).unwrap_err().to_string()
+  };
+  assert!(grpc.contains("no query string"), "{grpc}");
+}
+
+#[test]
+fn a_secret_a_client_sends_is_a_runtime_value_and_never_prints() {
+  use snapfire_fsr_host::config::{Deployment, Loader, RuntimeValue, ValueState};
+  let dir = credential_dir("http://127.0.0.1:1", r#"{ secret = "shop" }"#, "[secrets.shop]\ndescription = \"the shop's API key\"\n");
+  let production = Loader::at(dir.join("app.toml")).deployment(Deployment::default().release_env("production".to_owned())).config().unwrap();
+  assert!(production.runtime_values().contains(&RuntimeValue::new("secrets.shop.value", ValueState::Missing)), "{:?}", production.runtime_values());
+  assert_eq!(snapfire_fsr_host::config::env_name("secrets.shop.value"), "C5_SECRETS__SHOP__VALUE");
+
+  let dir = credential_dir("http://127.0.0.1:1", r#"{ secret = "shop" }"#, "[secrets.shop]\nvalue = \"app-secret\"\n");
+  let development = Loader::at(dir.join("app.toml")).deployment(Deployment::default()).config().unwrap();
+  assert!(development.runtime_values().contains(&RuntimeValue::new("secrets.shop.value", ValueState::Set)));
+  assert!(!format!("{development:?}").contains("app-secret"), "a secret's value never prints");
+  let Err(e) = Host::from(credential_dir("http://127.0.0.1:1", r#"{ secret = "shop" }"#, "[secrets.shop]\n").join("app.toml")).unwrap().build() else { panic!("booted without the secret") };
+  assert!(e.to_string().contains("C5_SECRETS__SHOP__VALUE"), "{e}");
+}

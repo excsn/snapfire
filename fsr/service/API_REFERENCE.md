@@ -390,6 +390,8 @@ The base URL has any trailing slashes trimmed.
 * `fn with_timeout(base: impl Into<String>, timeout: Duration) -> Self`
 * `fn with_client(base: impl Into<String>, client: reqwest::Client) -> Self`
 * `fn route(self, path: impl Into<String>, route: Route) -> Self` overrides one `service.method`
+* `fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a header every call carries, set before the call's metadata; not metadata, so no interceptor or trace sees it. What an application credential goes out as.
+* `fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: a query parameter every call carries, after the ones a `GET` or `DELETE` turns its arguments into; never part of a body.
 
 Request shape:
 
@@ -444,6 +446,7 @@ Modules `proto` and `grpc`, behind the `grpc` feature, re-exported at the crate 
 
 * `fn new(base: &str, imported: &ImportedProto) -> Result<Self, String>`: `base` is `http://host:port` or `https://`; the channel opens lazily on the first call, so construction needs no runtime.
 * `fn with_channel(channel: tonic::transport::Channel, imported: &ImportedProto) -> Self`
+* `fn metadata(self, name: impl Into<String>, value: impl Into<String>) -> Self`: metadata every call carries, before the call's own.
 * `impl Transport`: the arguments become the request message field by field (`grpc::encode_request`), the response message becomes a value with every field present, unset messages and presence-tracking fields as `Null`, enums as their value names, `Timestamp` and `Duration` as strings (`grpc::decode_response`, `grpc::from_message`). Metadata entries with string values become request metadata.
 * Errors: an argument the message lacks or one outside its width is `Invalid` before the call; a method not in `methods` is `NotFound`; a channel that cannot be opened is `Unavailable`; a gRPC status maps through `kind_for_code` with the status message; a response that does not decode is `Internal`.
 

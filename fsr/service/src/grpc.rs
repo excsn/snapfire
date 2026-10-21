@@ -27,6 +27,9 @@ pub struct GrpcTransport {
   channel: Mutex<Option<Channel>>,
   pool: DescriptorPool,
   methods: HashMap<String, GrpcMethod>,
+  /// Sent on every call before the call's own metadata: an application
+  /// credential, which no interceptor or trace sees since it is not metadata.
+  metadata: Vec<(String, String)>,
 }
 
 impl GrpcTransport {
@@ -34,11 +37,17 @@ impl GrpcTransport {
   /// connects until the first call.
   pub fn new(base: &str, imported: &ImportedProto) -> Result<Self, String> {
     let endpoint = Endpoint::from_shared(base.to_owned()).map_err(|e| e.to_string())?;
-    Ok(Self { endpoint: Some(endpoint), channel: Mutex::new(None), pool: imported.pool.clone(), methods: imported.methods.iter().cloned().collect() })
+    Ok(Self { endpoint: Some(endpoint), channel: Mutex::new(None), pool: imported.pool.clone(), methods: imported.methods.iter().cloned().collect(), metadata: Vec::new() })
+  }
+
+  /// Metadata every call carries.
+  pub fn metadata(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+    self.metadata.push((name.into(), value.into()));
+    self
   }
 
   pub fn with_channel(channel: Channel, imported: &ImportedProto) -> Self {
-    Self { endpoint: None, channel: Mutex::new(Some(channel)), pool: imported.pool.clone(), methods: imported.methods.iter().cloned().collect() }
+    Self { endpoint: None, channel: Mutex::new(Some(channel)), pool: imported.pool.clone(), methods: imported.methods.iter().cloned().collect(), metadata: Vec::new() }
   }
 
   fn channel(&self) -> Result<Channel, String> {
@@ -350,11 +359,14 @@ impl Transport for GrpcTransport {
       Err(e) => return Box::pin(async move { Err(fail(FailureKind::Invalid, e)) }),
     };
     let mut request = Request::new(body);
-    for (k, v) in &call.metadata {
-      if let Value::Str(v) = v {
-        if let (Ok(key), Ok(value)) = (tonic::metadata::MetadataKey::from_bytes(k.as_bytes()), v.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>()) {
-          request.metadata_mut().insert(key, value);
-        }
+    let fixed = self.metadata.iter().map(|(k, v)| (k.as_str(), v.as_str()));
+    let called = call.metadata.iter().filter_map(|(k, v)| match v {
+      Value::Str(v) => Some((k.as_str(), v.as_str())),
+      _ => None,
+    });
+    for (k, v) in fixed.chain(called) {
+      if let (Ok(key), Ok(value)) = (tonic::metadata::MetadataKey::from_bytes(k.as_bytes()), v.parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>()) {
+        request.metadata_mut().insert(key, value);
       }
     }
     let channel = match self.channel() {
