@@ -16,42 +16,42 @@ blog-with-comment	refused: src/lib/getPost.ts:9:10: `fs` comes from `fs`, which 
 cache-handler-redis	refused: routes/[timezone]/page.loader.ts:43:24: `params` as a whole; read one of its fields	pages 1	notes 0
 cache-handler-redis-turbo	refused: routes/use-cache/page.loader.ts:9:3: an expression statement other than a write to a local	pages 3	notes 0
 cloudflare-turnstile	refused: routes/explicit/page.tsx:24:25: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 4
-cms-agilitycms	refused: src/lib/api.ts:15:23: `agility` comes from `@agility/content-fetch`, which the build cannot follow	pages 2	notes 20
-cms-builder-io	refused: src/lib/api.js:23:21: `builder` comes from `@builder.io/react`, which the build cannot follow	pages 2	notes 21
-cms-buttercms	refused: routes/blog/page.loader.ts:5:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 7	notes 8
-cms-contentful	refused: routes/page.loader.ts:5:31: a call to `draftMode`, which the build cannot follow	pages 2	notes 6
-cms-cosmic	refused: routes/page.loader.ts:9:11: `preview` is not a field of the context	pages 2	notes 21
-cms-datocms	refused: src/lib/api.js:22:21: a call to `fetch`, which the build cannot follow	pages 2	notes 18
-cms-dotcms	refused: src/lib/api.ts:10:21: a call to `fetch`, which the build cannot follow	pages 2	notes 20
-cms-drupal	refused: routes/page.loader.ts:5:23: a call to `getResourceCollectionFromContext`, which the build cannot follow	pages 2	notes 18
-cms-enterspeed	refused: src/lib/api.ts:7:26: a call to `fetch`, which the build cannot follow	pages 2	notes 16
-cms-ghost	refused: src/lib/api.js:7:17: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 18
-cms-graphcms	refused: src/lib/graphcms.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 18
+cms-agilitycms	refused: src/lib/api.ts:15:23: `agility` comes from `@agility/content-fetch`, which the build cannot follow	pages 2	notes 21
+cms-builder-io	refused: src/lib/api.js:23:21: `builder` comes from `@builder.io/react`, which the build cannot follow	pages 2	notes 22
+cms-buttercms	refused: routes/blog/page.loader.ts:5:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 7	notes 19
+cms-contentful	refused: routes/page.loader.ts:5:31: a call to `draftMode`, which the build cannot follow	pages 2	notes 8
+cms-cosmic	refused: routes/page.loader.ts:9:11: `preview` is not a field of the context	pages 2	notes 22
+cms-datocms	refused: src/lib/api.js:22:21: a call to `fetch`, which the build cannot follow	pages 2	notes 19
+cms-dotcms	refused: src/lib/api.ts:10:21: a call to `fetch`, which the build cannot follow	pages 2	notes 21
+cms-drupal	refused: routes/page.loader.ts:5:23: a call to `getResourceCollectionFromContext`, which the build cannot follow	pages 2	notes 19
+cms-enterspeed	refused: src/lib/api.ts:7:26: a call to `fetch`, which the build cannot follow	pages 2	notes 17
+cms-ghost	refused: src/lib/api.js:7:17: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 20
+cms-graphcms	refused: src/lib/graphcms.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 19
 cms-keystonejs-embedded	no application
-cms-kontent-ai	refused: src/lib/api.ts:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 20
+cms-kontent-ai	refused: src/lib/api.ts:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 21
 cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 4
-cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 1
+cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 2
 cms-plasmic	refused: routes/[[...catchall]]/page.loader.ts: 31:26: Expected '>', got 'ident'	pages 1	notes 6
-cms-prepr	refused: src/lib/api.js:2:26: a call to `fetch`, which the build cannot follow	pages 2	notes 19
+cms-prepr	refused: src/lib/api.js:2:26: a call to `fetch`, which the build cannot follow	pages 2	notes 20
 cms-prismic	refused: src/lib/prismic.ts:32:18: `prismic` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 20
 cms-sanity	refused: src/sanity/lib/fetch.ts:30:28: a call to `draftMode`, which the build cannot follow	pages 3	notes 7
 cms-sitecore-xmcloud	refused: src/lib/page-props-factory/index.ts:53:45: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 18
 cms-sitefinity	refused: src/lib/api.ts:6:30: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 15
-cms-storyblok	refused: src/lib/api.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 18
+cms-storyblok	refused: src/lib/api.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 19
 cms-strapi	no application
-cms-takeshape	refused: src/lib/api.js:5:21: a call to `fetch`, which the build cannot follow	pages 2	notes 18
-cms-tina	refused: src/lib/api.js:8:10: `fs` comes from `fs`, which the build cannot follow	pages 3	notes 16
-cms-umbraco	refused: src/lib/api.ts:10:26: a call to `fetch`, which the build cannot follow	pages 2	notes 16
-cms-umbraco-heartcore	refused: src/lib/umbraco-heartcore.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 18
-cms-webiny	refused: src/lib/api.ts:7:10: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 17
+cms-takeshape	refused: src/lib/api.js:5:21: a call to `fetch`, which the build cannot follow	pages 2	notes 19
+cms-tina	refused: src/lib/api.js:8:10: `fs` comes from `fs`, which the build cannot follow	pages 3	notes 17
+cms-umbraco	refused: src/lib/api.ts:10:26: a call to `fetch`, which the build cannot follow	pages 2	notes 17
+cms-umbraco-heartcore	refused: src/lib/umbraco-heartcore.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 19
+cms-webiny	refused: src/lib/api.ts:7:10: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 18
 cms-wordpress	refused: routes/api/exit-preview/route.ts:5:36: `url` is not a field of the context	pages 1	notes 13
 convex	refused: routes/layout.tsx:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 2
 custom-server	lowered	pages 1	notes 0
 github-pages	lowered	pages 2	notes 1
 hello-world	lowered	pages 1	notes 0
-i18n-routing	refused: routes/[lang]/layout.loader.ts:4:24: `props` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 1
+i18n-routing	refused: routes/[lang]/layout.loader.ts:4:12: `params` as a whole; read one of its fields	pages 1	notes 1
 i18n-routing-pages	refused: routes/gsp/page.loader.ts:11:7: `locales` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 7
-image-component	refused: src/styles.module.css: 1:1: Expression expected	pages 8	notes 0
+image-component	refused: src/styles.module.css: 1:1: Expression expected	pages 8	notes 11
 image-secure-compute	refused: routes/image-api/[...path]/route.ts:5:8: `headers` is not a field of the context	pages 2	notes 1
 inngest	refused: routes/api/inngest/route.ts:4:16: `GET` is bound by a destructuring the build does not read	pages 1	notes 1
 markdoc	lowered	pages 0	notes 1
@@ -85,9 +85,9 @@ with-couchbase	refused: src/util/couchbase.js:26:5: `cached`, a module-level `le
 with-custom-babel-config	refused: routes/page.js: 14:19: Expression expected	pages 1	notes 1
 with-cxs	refused: routes/page.tsx:4:9: a call to `cxs`, which the build cannot follow	pages 1	notes 1
 with-cypress	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 2	notes 2
-with-docker	client: routes/page.island0.tsx:6:5 `Image` comes from `next/image`, which the build cannot follow	pages 1	notes 5
+with-docker	lowered	pages 1	notes 5
 with-docker-compose/next-app	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
-with-docker-export-output	client: routes/page.island0.tsx:6:5 `Image` comes from `next/image`, which the build cannot follow	pages 1	notes 5
+with-docker-export-output	lowered	pages 1	notes 5
 with-docker-multi-env	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 6
 with-dynamic-import	refused: routes/page.island0.tsx: no exported `DynamicComponent1`	pages 1	notes 0
 with-edgedb	refused: routes/page.loader.ts:5:22: `e` comes from `../src/client`, which the build cannot follow	pages 4	notes 4
@@ -120,7 +120,7 @@ with-hls-js	lowered	pages 1	notes 0
 with-http2	lowered	pages 2	notes 0
 with-i18n-next-intl	refused: routes/page.loader.ts:4:12: a call to `require`, which the build cannot follow	pages 2	notes 2
 with-i18n-rosetta	refused: routes/[lng]/page.loader.ts:4:43: `super` or `import()`	pages 2	notes 2
-with-ionic	client: src/_components/Card.tsx:18:7 `Image` comes from `next/image`, which the build cannot follow	pages 1	notes 0
+with-ionic	lowered	pages 1	notes 0
 with-iron-session	no application
 with-iron-session-cache-components	client: routes/notes/[id]/page.tsx:6:1 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | routes/page.tsx:9:1 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders | src/lib/auth.ts:18:3 an expression statement other than a write to a local	pages 3	notes 1
 with-jest	lowered	pages 2	notes 2
@@ -134,7 +134,7 @@ with-lingui	refused: routes/page.js:6:5: `Trans` comes from `@lingui/macro`, whi
 with-magic	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot follow	pages 3	notes 6
 with-mantine	refused: routes/page.tsx:29:9: `Text` comes from `@mantine/core`, which the build cannot follow	pages 1	notes 2
 with-mdbreact	refused: routes/page.js:27:17: `MDBCardTitle` comes from `mdbreact`, which the build cannot follow	pages 1	notes 1
-with-meilisearch	refused: routes/page.tsx:92:25: `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 5
+with-meilisearch	client: routes/page.island0.tsx:76:25 `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 5
 with-mobx	refused: src/components/Page.js: no exported `default`	pages 4	notes 1
 with-mobx-state-tree	refused: src/store.ts:43:18: `store` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 1
 with-mocha	lowered	pages 1	notes 0
@@ -173,7 +173,7 @@ with-react-ga4	client: routes/layout.js:6:18 `useRouter`, a hook the build canno
 with-react-hook-form	client: src/styles/login.module.css 1:1: Expression expected	pages 1	notes 2
 with-react-intl	refused: src/helper/loadIntlMessages.ts:12:3: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`	pages 2	notes 6
 with-react-md-typescript	refused: routes/page.tsx:7:7: `Text` comes from `react-md`, which the build cannot follow	pages 2	notes 4
-with-react-multi-carousel	refused: routes/page.tsx:30:7: `Image` comes from `next/image`, which the build cannot follow	pages 1	notes 0
+with-react-multi-carousel	client: routes/page.island0.tsx:22:5 `Carousel` comes from `react-multi-carousel`, which the build cannot follow	pages 1	notes 5
 with-react-native-web	refused: routes/page.js:3:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 2	notes 2
 with-react-toolbox	client: routes/page.island0.tsx:7:27 `theme` comes from `../src/theme`, which the build cannot follow	pages 1	notes 0
 with-reactstrap	refused: routes/page.jsx:27:19: `CardTitle` comes from `reactstrap`, which the build cannot follow	pages 1	notes 1
@@ -192,7 +192,7 @@ with-segment-analytics	client: src/components/analytics.tsx:8:20 `usePathname`, 
 with-segment-analytics-pages-router	client: src/components/analytics.tsx:6:18 `useRouter`, a hook the build cannot follow	pages 3	notes 3
 with-sentry	refused: routes/ssr/test1/page.loader.ts:2:3: `throw`, and a body has no exceptions	pages 10	notes 9
 with-service-worker	lowered	pages 1	notes 0
-with-sfcc	refused: src/sfcc.js:9:17: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 5
+with-sfcc	refused: src/sfcc.js:9:17: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 8
 with-shallow-routing	refused: routes/page.loader.ts:4:3: `++` or `--`, which mutate	pages 2	notes 0
 with-sitemap	lowered	pages 2	notes 3
 with-slate	refused: routes/api/editor-state/route.ts:2:29: `ctx` as a value; read one of its fields	pages 1	notes 1
@@ -217,11 +217,11 @@ with-unsplash	refused: src/components/Layout/layout.module.css: 1:1: Expression 
 with-urql	refused: src/graphql/client.js:3:23: a call to `createClient`, which the build cannot follow	pages 2	notes 0
 with-userbase	lowered	pages 1	notes 3
 with-vanilla-extract	refused: <app>/routes: `page.css.ts` names slot `css`, which no layout above it declares	pages 2	notes 0
-with-vercel-blob	refused: src/utils/cachedImages.ts:5:5: `cached`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 7
+with-vercel-blob	refused: src/utils/cachedImages.ts:5:5: `cached`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 10
 with-videojs	lowered	pages 1	notes 0
 with-vitest	lowered	pages 2	notes 3
 with-web-worker	lowered	pages 1	notes 0
-with-webassembly	refused: routes/page.loader.ts:2:23: `props` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 2
+with-webassembly	refused: routes/page.loader.ts:2:17: `query` as a whole; read one of its fields	pages 1	notes 2
 with-xata	refused: routes/layout.loader.ts:6:5: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 8
 with-xstate	client: routes/_components/Counter.tsx:6:25 `useMachine`, a hook the build cannot follow | routes/_components/Toggle.tsx:6:25 `useMachine`, a hook the build cannot follow	pages 1	notes 0
 with-yarn-workspaces	unmigrated: not a Next.js application	pages 0	notes 1
