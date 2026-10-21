@@ -137,6 +137,33 @@ export interface CreateUserInput {
 
 Each read becomes `input.name`. An action that reads its `FormData` any other way, takes no type or takes more than one argument is left where it was with a note. When that module was `actions.ts`, the actions left behind move to `server-actions.ts`, since FSR reads every export of `actions.ts` as an action.
 
+An action a component declares in its own body moves to the route's `actions.ts` the same way. What it reads of the component joins its input. Each `<form action={deletePost}>` posts those values as hidden fields beside the CSRF token; `next/form`'s `<Form>` becomes a `<form>` that does the same:
+
+```tsx
+// app/posts/[id]/page.tsx, before
+export default async function Post({ params }) {
+  const { id } = await params;
+  const postId = parseInt(id);
+  async function deletePost() {
+    "use server";
+    await db.remove(postId);
+  }
+  return <form action={deletePost}><button>Delete</button></form>;
+}
+```
+
+```tsx
+// app/routes/posts/[id]/page.tsx, after
+export default function Post({ postId, csrf_token }: PostsIdProps & { csrf_token?: string }) {
+  return <form method="post" action="/_sf/action/posts.$id.deletePost">
+    <input type="hidden" name="_csrf" value={csrf_token ?? ""} />
+    <input type="hidden" name="postId" value={postId} />
+    <button>Delete</button></form>;
+}
+```
+
+A captured value is typed `number` when `parseInt`, `parseFloat`, `Number` or a numeric literal made it and `string` when a string, a template or the route's `params` did. An action that reads anything else of the component is left where it was with a note. So is one used other than as a form's `action`. A form post lands back on the page that posted it, so a `redirect()` in an action is a note too.
+
 ## Prisma
 
 An application with a `schema.prisma` gets a Rust service in place of the Prisma client. Each model becomes a record in `src/db.rs` and each distinct call a loader makes becomes a method on `Db`, holding the call in its doc comment and a `todo!()` for its query:
@@ -162,7 +189,7 @@ impl Db {
 }
 ```
 
-A relation is an `Option` or a `Vec`, empty unless the call includes it. A value the call reads at request time, directly under `where` or `data` and keyed by one of the model's fields, becomes a parameter typed from that field: `prisma.post.findUnique({ where: { id: postId } })` is `services.db.postFindUniqueById({ id: postId })` answered by `post_find_unique_by_id(&self, id: i32)`. Any other request-time value, such as `{ title: { contains: q } }`, is a note and the call is left for you. The loader calls the method through `services`:
+A relation is an `Option` or a `Vec`, empty unless the call includes it. A value the call reads at request time, directly under `where` or `data` and keyed by one of the model's fields, becomes a parameter typed from that field: `prisma.post.findUnique({ where: { id: postId } })` is `services.db.postFindUniqueById({ id: postId })` answered by `post_find_unique_by_id(&self, id: i32)`. Any other request-time value, such as `{ title: { contains: q } }`, is a note and the call is left for you, with the client module and `schema.prisma` kept until every call is a method. A call in an action becomes a method the same way, the action taking `services` from its context. The loader calls the method through `services`:
 
 ```ts
 import type { Ctx } from "@snapfire/fsr";

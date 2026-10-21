@@ -53,8 +53,9 @@ impl Pass for Prisma {
       return;
     }
     let clients: Vec<String> = tree.paths().filter(|p| p.starts_with("app/") && is_script(p) && tree.text(p).is_some_and(|t| t.contains("new PrismaClient"))).map(str::to_owned).collect();
-    let loaders: Vec<String> = tree.paths().filter(|p| p.starts_with("app/routes/") && p.contains(".loader.")).map(str::to_owned).collect();
+    let loaders: Vec<String> = tree.paths().filter(|p| p.starts_with("app/routes/") && (p.contains(".loader.") || p.ends_with("/actions.ts"))).map(str::to_owned).collect();
     let mut calls: BTreeMap<String, Call> = BTreeMap::new();
+    let mut left = 0;
     for path in loaders {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
       let Ok(parsed) = parse(&path, &text) else { continue };
@@ -70,6 +71,7 @@ impl Pass for Prisma {
         let Some(model) = models.iter().find(|m| m.name.eq_ignore_ascii_case(&model)) else { continue };
         let Some(passed) = args.as_ref().map_or(Some(Vec::new()), |a| request_values(a, model, &models, &text, &parsed)) else {
           report.note(&path, line, format!("`{client}.{}.{op}` passes a value read at request time other than as a field of `where` or `data`; its method was not generated", lower_first(&model.name)));
+          left += 1;
           continue;
         };
         let includes = args.as_ref().map(includes).unwrap_or_default();
@@ -84,6 +86,7 @@ impl Pass for Prisma {
         let params: Vec<String> = passed.iter().map(|p| p.field.clone()).collect();
         if calls.get(&method).is_some_and(|c| c.params != params) {
           report.note(&path, line, format!("`{client}.{}.{op}` passes other fields than a call answered by `{method}`; its method was not generated", lower_first(&model.name)));
+          left += 1;
           continue;
         }
         let written = text[parsed.range(span)].to_owned();
@@ -96,7 +99,7 @@ impl Pass for Prisma {
         continue;
       }
       let mut rewritten = edits.apply(&text);
-      rewritten = with_services(&path, &rewritten);
+      rewritten = if path.ends_with("/actions.ts") { with_action_services(&path, &rewritten) } else { with_services(&path, &rewritten) };
       rewritten = crate::items::prune(&path, &rewritten, &[client.clone()].into_iter().collect());
       tree.insert(path, tidy(&rewritten));
     }
@@ -107,6 +110,13 @@ impl Pass for Prisma {
     tree.insert("src/main.rs", MAIN.to_owned());
     tree.insert("Cargo.toml", CARGO.to_owned());
     report.note("src/db.rs", 0, format!("each of the {} methods holds the Prisma call it answers in its doc comment and a `todo!()` for its query; write it with sqlx or the database crate of your choice, then `cargo run` serves the application", calls.len()));
+    if left > 0 {
+      for path in &clients {
+        report.note(path, 0, format!("still imported by the {left} Prisma calls the pass left; remove it with `schema.prisma` once each is a method in `src/db.rs`"));
+      }
+      retarget_types(tree);
+      return;
+    }
     for path in clients.iter().chain(std::iter::once(&schema_path)) {
       tree.remove(path);
     }
@@ -257,6 +267,44 @@ fn literal(e: &js::Expr) -> bool {
     js::Expr::Paren(p) => literal(&p.expr),
     _ => false,
   }
+}
+
+/// Each `action(async (ctx) => ...)` whose body calls a service with
+/// `services` added to what it destructures from its context.
+fn with_action_services(path: &str, text: &str) -> String {
+  struct Actions<'a> {
+    text: &'a str,
+    parsed: &'a Parsed,
+    edits: Edits,
+  }
+  impl Visit for Actions<'_> {
+    fn visit_call_expr(&mut self, n: &js::CallExpr) {
+      let is_action = matches!(&n.callee, js::Callee::Expr(e) if matches!(&**e, js::Expr::Ident(i) if &*i.sym == "action"));
+      let arrow = n.args.first().and_then(|a| match &*a.expr {
+        js::Expr::Arrow(arrow) => Some(arrow),
+        _ => None,
+      });
+      if let (true, Some(arrow)) = (is_action, arrow) {
+        if self.text[self.parsed.range(arrow.body.span())].contains("services.") {
+          match arrow.params.first() {
+            Some(js::Pat::Object(obj)) if !obj.props.iter().any(|p| matches!(p, js::ObjectPatProp::Assign(a) if &*a.key.sym == "services")) => {
+              if let Some(last) = obj.props.last() {
+                let at = self.parsed.range(last.span()).end;
+                self.edits.replace(at..at, ", services");
+              }
+            }
+            Some(js::Pat::Ident(ctx)) => self.edits.replace(self.parsed.range(ctx.id.span), "{ services }"),
+            _ => {}
+          }
+        }
+      }
+      n.visit_children_with(self);
+    }
+  }
+  let Ok(parsed) = parse(path, text) else { return text.to_owned() };
+  let mut actions = Actions { text, parsed: &parsed, edits: Edits::default() };
+  parsed.module.visit_with(&mut actions);
+  actions.edits.apply(text)
 }
 
 /// `load()` or `load({ params }: Ctx)` with `services` added to what it
@@ -484,5 +532,40 @@ mod tests {
     }
     assert!(!db.contains("post_find_many"), "{db}");
     assert!(report.notes.iter().any(|n| n.file == "app/routes/users/[email]/page.loader.ts" && n.message.contains("`prisma.post.findMany`")), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_prisma_call_in_an_action_is_a_service_method_the_action_reaches_through_services() {
+    let input = tree(&[
+      ("package.json", r#"{ "dependencies": { "next": "latest", "@prisma/client": "6" } }"#),
+      ("prisma/schema.prisma", "model Post {\n  id    Int    @id\n  title String\n}\n"),
+      ("lib/prisma.ts", "import { PrismaClient } from \"@prisma/client\";\nconst prisma = new PrismaClient();\nexport default prisma;\n"),
+      ("app/posts/[id]/page.tsx", "import prisma from \"@/lib/prisma\";\n\nexport default async function Post({ params }) {\n  const { id } = await params;\n  const postId = parseInt(id);\n  const post = await prisma.post.findUnique({ where: { id: postId } });\n\n  async function deletePost() {\n    \"use server\";\n    await prisma.post.delete({ where: { id: postId } });\n  }\n\n  return (\n    <form action={deletePost}>\n      <button type=\"submit\">Delete {post.title}</button>\n    </form>\n  );\n}\n"),
+      ("tsconfig.json", "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./*\"] } } }"),
+    ]);
+    let (out, _) = migrate(&input);
+    assert_eq!(
+      out.text("app/routes/posts/[id]/actions.ts").unwrap(),
+      "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\n\nexport const deletePost = action(async ({ input, services }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n  await services.db.postDeleteById({ id: postId });\n});\n"
+    );
+    let db = out.text("src/db.rs").unwrap();
+    assert!(db.contains("  pub fn post_delete_by_id(&self, id: i32) -> Result<Post, ServiceError> {"), "{db}");
+    assert!(db.contains("  pub fn post_find_unique_by_id(&self, id: i32) -> Result<Option<Post>, ServiceError> {"), "{db}");
+  }
+
+  #[test]
+  fn the_client_module_stays_while_a_call_the_pass_left_still_imports_it() {
+    let input = tree(&[
+      ("package.json", r#"{ "dependencies": { "next": "latest", "@prisma/client": "6" } }"#),
+      ("prisma/schema.prisma", "model Post {\n  id    Int    @id\n  title String\n}\n"),
+      ("lib/prisma.ts", "import { PrismaClient } from \"@prisma/client\";\nconst prisma = new PrismaClient();\nexport default prisma;\n"),
+      ("app/page.tsx", "import prisma from \"@/lib/prisma\";\n\nexport default async function Home({ searchParams }) {\n  const { q } = await searchParams;\n  const posts = await prisma.post.findMany();\n  const found = await prisma.post.findMany({ where: { title: { contains: q } } });\n  return <p>{posts.length}{found.length}</p>;\n}\n"),
+      ("tsconfig.json", "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./*\"] } } }"),
+    ]);
+    let (out, report) = migrate(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("import prisma from \"@src/lib/prisma\";") && loader.contains("services.db.postFindMany()"), "{loader}");
+    assert!(out.contains("app/src/lib/prisma.ts") && out.contains("app/src/prisma/schema.prisma"), "{:?}", out.paths().collect::<Vec<_>>());
+    assert!(report.notes.iter().any(|n| n.file == "app/src/lib/prisma.ts" && n.message.contains("still")), "{:?}", report.notes);
   }
 }

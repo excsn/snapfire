@@ -43,6 +43,8 @@ impl Pass for ServerActions {
       let Ok(parsed) = parse(&path, &text) else { continue };
       if uses_server(&parsed.module) {
         convert_module(tree, &path, &text, &parsed, report);
+      } else {
+        convert_inline(tree, &path, &text, &parsed, report);
       }
     }
   }
@@ -83,74 +85,174 @@ fn accessor(id: &str) -> String {
   out
 }
 
-fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, report: &mut Report) {
-  let mut converted = Vec::new();
-  let mut kept = Edits::default();
-  for item in &parsed.module.body {
-    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) = item else { continue };
-    let name = f.ident.sym.to_string();
-    let line = parsed.line(item.span());
-    let (Some(body), true) = (&f.function.body, f.function.is_async) else { continue };
-    let params: Vec<&js::Pat> = f.function.params.iter().map(|p| &p.pat).collect();
-    let body_range = parsed.range(body.span);
-    let mut edits = Edits::default();
-    let mut declared = None;
-    let input = match params.as_slice() {
-      [] => None,
-      [param] => match annotated_type(param) {
-        Some(t) if t == "FormData" => {
-          let reads = match param {
-            js::Pat::Ident(p) => form_reads(body, &p.id.sym),
-            _ => None,
-          };
-          let Some(reads) = reads else {
-            report.note(path, line, format!("`{name}` takes a `FormData` it reads other than by `get(\"key\")`; an FSR action takes the form's fields as its input, typed under `schemas/`, so it was left in place"));
-            continue;
-          };
-          let input = format!("{}Input", upper_first(&name));
-          let mut keys: Vec<&str> = Vec::new();
-          for (span, key) in &reads {
-            let range = parsed.range(*span);
-            edits.replace(range.start - body_range.start..range.end - body_range.start, format!("input.{key}"));
-            if !keys.contains(&key.as_str()) {
-              keys.push(key);
-            }
-          }
-          declared = Some(format!("export interface {input} {{\n{}}}\n", keys.iter().map(|k| format!("  {k}: string;\n")).collect::<String>()));
-          Some(input)
-        }
-        Some(t) => Some(t),
-        None => {
-          report.note(path, line, format!("`{name}`'s parameter has no type; an FSR action's input is a type under `schemas/`, so it was left in place"));
-          continue;
-        }
-      },
-      _ => {
-        report.note(path, line, format!("`{name}` takes more than one argument; an FSR action takes one input, so it was left in place"));
-        continue;
-      }
-    };
-    if let (Some(js::Pat::Ident(param)), Some(_), None) = (params.first(), &input, &declared) {
-      edits.replace(1..1, format!("\n  const {} = input;", param.id.sym));
-    }
-    let mut revalidates = Revalidates { found: Vec::new() };
-    body.visit_with(&mut revalidates);
-    for span in revalidates.found {
-      let range = line_range(text, parsed.range(span));
-      edits.replace(range.start - body_range.start..range.end - body_range.start, "");
-    }
-    let ctx = match &input {
-      Some(t) => format!("{{ input }}: ActionCtx<{t}>"),
-      None => "_ctx: ActionCtx".to_owned(),
-    };
-    let body_text = edits.apply(&text[body_range.clone()]);
-    converted.push(Converted { name: name.clone(), input, declared, text: format!("export const {name} = action(async ({ctx}) => {body_text});\n") });
-    kept.replace(line_range(text, parsed.range(item.span())), "");
-  }
-  if converted.is_empty() {
-    return;
-  }
+/// A value an inline action reads from the component around it, which its
+/// form posts as a hidden field.
+struct Captured {
+  name: String,
+  ty: &'static str,
+}
 
+/// `f` as an action named `name`. Its input is its one typed parameter
+/// or the keys it reads from a `FormData` together with what it captured.
+/// None with a note when the input cannot be named. `indent` is what the
+/// declaration was indented by, taken off every line of the body.
+#[allow(clippy::too_many_arguments)]
+fn convert_function(f: &js::Function, name: &str, line: usize, indent: &str, captured: &[Captured], path: &str, text: &str, parsed: &Parsed, report: &mut Report) -> Option<Converted> {
+  let (Some(body), true) = (&f.body, f.is_async) else { return None };
+  let params: Vec<&js::Pat> = f.params.iter().map(|p| &p.pat).collect();
+  let body_range = parsed.range(body.span);
+  let mut edits = Edits::default();
+  let mut fields: Vec<(String, &'static str)> = Vec::new();
+  let mut typed = None;
+  match params.as_slice() {
+    [] => {}
+    [param] => match annotated_type(param) {
+      Some(t) if t == "FormData" => {
+        let reads = match param {
+          js::Pat::Ident(p) => form_reads(body, &p.id.sym),
+          _ => None,
+        };
+        let Some(reads) = reads else {
+          report.note(path, line, format!("`{name}` takes a `FormData` it reads other than by `get(\"key\")`; an FSR action takes the form's fields as its input, typed under `schemas/`, so it was left in place"));
+          return None;
+        };
+        for (span, key) in &reads {
+          let range = parsed.range(*span);
+          edits.replace(range.start - body_range.start..range.end - body_range.start, format!("input.{key}"));
+          if !fields.iter().any(|(k, _)| k == key) {
+            fields.push((key.clone(), "string"));
+          }
+        }
+      }
+      Some(t) if captured.is_empty() => typed = Some(t),
+      Some(_) => {
+        report.note(path, line, format!("`{name}` takes a typed input and reads values of the component around it; an FSR action takes one input, so it was left in place"));
+        return None;
+      }
+      None => {
+        report.note(path, line, format!("`{name}`'s parameter has no type; an FSR action's input is a type under `schemas/`, so it was left in place"));
+        return None;
+      }
+    },
+    _ => {
+      report.note(path, line, format!("`{name}` takes more than one argument; an FSR action takes one input, so it was left in place"));
+      return None;
+    }
+  }
+  for c in captured {
+    if fields.iter().any(|(k, _)| *k == c.name) {
+      report.note(path, line, format!("`{name}` reads `{}` from both its form and the component around it, so it was left in place", c.name));
+      return None;
+    }
+    fields.push((c.name.clone(), c.ty));
+  }
+  if let (Some(js::Pat::Ident(param)), Some(_)) = (params.first(), &typed) {
+    edits.replace(1..1, format!("\n{indent}  const {} = input;", param.id.sym));
+  }
+  if !captured.is_empty() {
+    edits.replace(1..1, format!("\n{indent}  const {{ {} }} = input;", captured.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ")));
+  }
+  if let Some(directive) = body.stmts.first().filter(|s| is_use_server(s)) {
+    let range = line_range(text, parsed.range(directive.span()));
+    edits.replace(range.start - body_range.start..range.end - body_range.start, "");
+  }
+  let mut revalidates = Revalidates { found: Vec::new() };
+  body.visit_with(&mut revalidates);
+  for span in revalidates.found {
+    let range = line_range(text, parsed.range(span));
+    edits.replace(range.start - body_range.start..range.end - body_range.start, "");
+  }
+  let mut redirects = Redirects { found: Vec::new() };
+  body.visit_with(&mut redirects);
+  if let Some(span) = redirects.found.first() {
+    report.note(path, parsed.line(*span), format!("`{name}` calls `redirect`; a form posted to an FSR action lands back on the page that posted it, so the call is left for you"));
+  }
+  let (input, declared) = match typed {
+    Some(t) => (Some(t), None),
+    None if fields.is_empty() => (None, None),
+    None => {
+      let input = format!("{}Input", upper_first(name));
+      let declared = format!("export interface {input} {{\n{}}}\n", fields.iter().map(|(k, t)| format!("  {k}: {t};\n")).collect::<String>());
+      (Some(input), Some(declared))
+    }
+  };
+  let ctx = match &input {
+    Some(t) => format!("{{ input }}: ActionCtx<{t}>"),
+    None => "_ctx: ActionCtx".to_owned(),
+  };
+  let body_text = dedent(&edits.apply(&text[body_range]), indent);
+  Some(Converted { name: name.to_owned(), input, declared, text: format!("export const {name} = action(async ({ctx}) => {body_text});\n") })
+}
+
+/// Each `redirect(...)` or `permanentRedirect(...)` call.
+struct Redirects {
+  found: Vec<Span>,
+}
+
+impl Visit for Redirects {
+  fn visit_call_expr(&mut self, n: &js::CallExpr) {
+    if let js::Callee::Expr(e) = &n.callee {
+      if matches!(&**e, js::Expr::Ident(i) if &*i.sym == "redirect" || &*i.sym == "permanentRedirect") {
+        self.found.push(n.span);
+      }
+    }
+    n.visit_children_with(self);
+  }
+}
+
+/// `range` widened up over the comment lines directly above it.
+fn with_leading_comments(text: &str, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+  let mut start = range.start;
+  while start > 0 {
+    let above = text[..start - 1].rfind('\n').map_or(0, |i| i + 1);
+    if !text[above..start].trim_start().starts_with("//") {
+      break;
+    }
+    start = above;
+  }
+  start..range.end
+}
+
+/// The local name `parsed` imports `next/form`'s `Form` under.
+fn next_form(parsed: &Parsed) -> Option<String> {
+  parsed.module.body.iter().find_map(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(i)) if i.src.value.to_string_lossy() == "next/form" => i.specifiers.iter().find_map(|s| match s {
+      js::ImportSpecifier::Default(d) => Some(d.local.sym.to_string()),
+      _ => None,
+    }),
+    _ => None,
+  })
+}
+
+fn is_use_server(stmt: &js::Stmt) -> bool {
+  matches!(stmt, js::Stmt::Expr(e) if matches!(&*e.expr, js::Expr::Lit(js::Lit::Str(s)) if s.value.to_string_lossy() == "use server"))
+}
+
+/// `text` with `indent` taken off each line after the first that starts with it.
+fn dedent(text: &str, indent: &str) -> String {
+  if indent.is_empty() {
+    return text.to_owned();
+  }
+  let mut lines = text.split('\n');
+  let mut out = lines.next().unwrap_or_default().to_owned();
+  for line in lines {
+    out.push('\n');
+    out.push_str(line.strip_prefix(indent).unwrap_or(line));
+  }
+  out
+}
+
+/// The whitespace a line begins with.
+fn indent_at(text: &str, at: usize) -> &str {
+  let start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+  let line = &text[start..];
+  &line[..line.len() - line.trim_start_matches([' ', '\t']).len()]
+}
+
+/// The schemas and the route's `actions.ts` for `converted`, which `path`
+/// declared: every import of `path` an action still reads goes with it.
+/// Answers the route id the actions are reached under.
+fn write_actions(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, converted: &[Converted], report: &mut Report) -> (String, String) {
   let dir = route_dir(tree, path);
   let id = route_id(&format!("{dir}/page.tsx"));
   let actions_path = format!("{dir}/actions.ts");
@@ -169,6 +271,21 @@ fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, repo
     }
   }
 
+  let needed = import_locals(parsed, &inputs);
+  let imports = imports_for(text, parsed, &needed, path, &actions_path);
+  let existing = if actions_path == path { String::new() } else { tree.text(&actions_path).unwrap_or_default().to_owned() };
+  let mut actions = format!("import {{ action }} from \"@snapfire/fsr\";\nimport type {{ ActionCtx }} from \"@snapfire/fsr\";\n{schemas}{imports}\n{existing}");
+  for c in converted {
+    actions.push('\n');
+    actions.push_str(&c.text);
+  }
+  let actions = prune(&actions_path, &actions, &needed);
+  tree.insert(actions_path.clone(), tidy(&actions));
+  (actions_path, id)
+}
+
+/// The names `parsed` imports, but for `next/cache` and the input types.
+fn import_locals(parsed: &Parsed, inputs: &BTreeSet<String>) -> BTreeSet<String> {
   let mut needed: BTreeSet<String> = BTreeSet::new();
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
@@ -177,16 +294,26 @@ fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, repo
     }
     needed.extend(import.specifiers.iter().map(local).filter(|l| !inputs.contains(l)));
   }
-  let imports = imports_for(text, parsed, &needed, path, &actions_path);
-  let existing = if actions_path == path { String::new() } else { tree.text(&actions_path).unwrap_or_default().to_owned() };
-  let mut actions = format!("import {{ action }} from \"@snapfire/fsr\";\nimport type {{ ActionCtx }} from \"@snapfire/fsr\";\n{schemas}{imports}\n{existing}");
-  for c in &converted {
-    actions.push('\n');
-    actions.push_str(&c.text);
-  }
-  let actions = prune(&actions_path, &actions, &needed);
-  tree.insert(actions_path.clone(), tidy(&actions));
+  needed
+}
 
+fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, report: &mut Report) {
+  let mut converted = Vec::new();
+  let mut kept = Edits::default();
+  for item in &parsed.module.body {
+    let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) = item else { continue };
+    let name = f.ident.sym.to_string();
+    let Some(c) = convert_function(&f.function, &name, parsed.line(item.span()), "", &[], path, text, parsed, report) else { continue };
+    converted.push(c);
+    kept.replace(line_range(text, parsed.range(item.span())), "");
+  }
+  if converted.is_empty() {
+    return;
+  }
+  let (actions_path, id) = write_actions(tree, path, text, parsed, &converted, report);
+  let dir = dirname(&actions_path).to_owned();
+  let inputs: BTreeSet<String> = converted.iter().filter_map(|c| c.input.clone()).collect();
+  let needed = import_locals(parsed, &inputs);
   let rest = prune(path, &kept.apply(text), &needed);
   let exports_left = parse(path, &rest).is_ok_and(|p| p.module.body.iter().any(|item| matches!(item, js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(_)))));
   // FSR reads every export of `actions.ts` as an action, so what could not be
@@ -209,6 +336,289 @@ fn convert_module(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, repo
       tree.remove(path);
     }
     None => {}
+  }
+}
+
+/// The component functions `module` declares at its top level.
+fn component_functions(module: &js::Module) -> Vec<&js::Function> {
+  let mut out = Vec::new();
+  for item in &module.body {
+    match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(js::ExportDefaultDecl { decl: js::DefaultDecl::Fn(f), .. })) => out.push(&*f.function),
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) => out.push(&*f.function),
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => out.push(&*f.function),
+      _ => {}
+    }
+  }
+  out
+}
+
+/// Actions a component declares in its own body, `async function f() {
+/// "use server"; ... }`, each moved to the route's `actions.ts` with what it
+/// reads of the component as its input. Each `<form action={f}>` posts to
+/// it with those values and the session's CSRF token as hidden fields.
+fn convert_inline(tree: &mut Tree, path: &str, text: &str, parsed: &Parsed, report: &mut Report) {
+  let mut converted = Vec::new();
+  let mut edits = Edits::default();
+  let mut forms: Vec<(&js::Function, String, Vec<Captured>)> = Vec::new();
+  let form_component = next_form(parsed);
+  for outer in component_functions(&parsed.module) {
+    let Some(body) = &outer.body else { continue };
+    let mut scope: Vec<String> = Vec::new();
+    for p in &outer.params {
+      crate::items::pat_names(&p.pat, &mut scope);
+    }
+    let mut initial: Vec<(String, Option<&js::Expr>)> = Vec::new();
+    for stmt in &body.stmts {
+      if let js::Stmt::Decl(js::Decl::Var(v)) = stmt {
+        for d in &v.decls {
+          let mut names = Vec::new();
+          crate::items::pat_names(&d.name, &mut names);
+          let single = matches!(d.name, js::Pat::Ident(_));
+          for n in names {
+            initial.push((n.clone(), if single { d.init.as_deref() } else { None }));
+            scope.push(n);
+          }
+        }
+      }
+    }
+    for stmt in &body.stmts {
+      let js::Stmt::Decl(js::Decl::Fn(f)) = stmt else { continue };
+      let Some(inner) = &f.function.body else { continue };
+      if !inner.stmts.first().is_some_and(is_use_server) {
+        continue;
+      }
+      let name = f.ident.sym.to_string();
+      let line = parsed.line(f.function.span);
+      let mut reads = FreeReads { declared: Vec::new(), read: Vec::new() };
+      f.function.visit_with(&mut reads);
+      let mut captured = Vec::new();
+      let mut unknown = None;
+      for r in reads.read.iter().filter(|r| scope.contains(r) && !reads.declared.contains(r)) {
+        if captured.iter().any(|c: &Captured| &c.name == r) {
+          continue;
+        }
+        match captured_type(outer, initial.iter().find(|(n, _)| n == r).and_then(|(_, init)| *init), r) {
+          Some(ty) => captured.push(Captured { name: r.clone(), ty }),
+          None => unknown = Some(r.clone()),
+        }
+      }
+      if let Some(r) = unknown {
+        report.note(path, line, format!("`{name}` reads `{r}` from the component around it, a value whose type the pass cannot name for a form field, so it was left in place"));
+        continue;
+      }
+      let mut uses = FormUses { name: &name, component: form_component.as_deref(), forms: Vec::new(), other: false };
+      body.visit_with(&mut uses);
+      if uses.other {
+        report.note(path, line, format!("`{name}` is used other than as a form's `action`; an FSR action is called as `actions.<id>.{name}(input)`, so it was left in place"));
+        continue;
+      }
+      let indent = indent_at(text, parsed.range(f.function.span).start).to_owned();
+      let Some(c) = convert_function(&f.function, &name, line, &indent, &captured, path, text, parsed, report) else { continue };
+      converted.push(c);
+      edits.replace(with_leading_comments(text, line_range(text, parsed.range(stmt.span()))), "");
+      forms.push((outer, name, captured));
+    }
+  }
+  if converted.is_empty() {
+    return;
+  }
+  let (_, id) = write_actions(tree, path, text, parsed, &converted, report);
+  let mut with_token: Vec<Span> = Vec::new();
+  for (outer, name, captured) in &forms {
+    let Some(body) = &outer.body else { continue };
+    let token = csrf_read(outer);
+    let mut uses = FormUses { name, component: form_component.as_deref(), forms: Vec::new(), other: false };
+    body.visit_with(&mut uses);
+    for (attr, open_end, renamed) in uses.forms {
+      for span in renamed {
+        edits.replace(parsed.range(span), "form");
+      }
+      edits.replace(parsed.range(attr), format!("method=\"post\" action=\"/_sf/action/{id}.{name}\""));
+      let child = format!("{}  ", indent_at(text, parsed.range(attr).start));
+      let mut hidden = format!("\n{child}<input type=\"hidden\" name=\"_csrf\" value={{{token} ?? \"\"}} />");
+      for c in captured {
+        hidden.push_str(&format!("\n{child}<input type=\"hidden\" name=\"{}\" value={{{}}} />", c.name, c.name));
+      }
+      let at = parsed.range(open_end).end;
+      edits.replace(at..at, hidden);
+    }
+    if !with_token.contains(&outer.span) {
+      with_token.push(outer.span);
+      csrf_prop(outer, text, parsed, &mut edits);
+    }
+  }
+  let page = prune(path, &edits.apply(text), &import_locals(parsed, &BTreeSet::new()));
+  tree.insert(path.to_owned(), tidy(&page));
+}
+
+/// `number` for a value made by `parseInt`, `Number` or a numeric literal,
+/// `string` for a string, a template or a field of the route's `params`;
+/// None for anything else.
+fn captured_type(outer: &js::Function, init: Option<&js::Expr>, name: &str) -> Option<&'static str> {
+  match init.map(unwrap_await) {
+    Some(js::Expr::Lit(js::Lit::Num(_))) => Some("number"),
+    Some(js::Expr::Lit(js::Lit::Str(_)) | js::Expr::Tpl(_)) => Some("string"),
+    Some(js::Expr::Lit(js::Lit::Bool(_))) => Some("boolean"),
+    Some(js::Expr::Call(call)) => match &call.callee {
+      js::Callee::Expr(e) => match &**e {
+        js::Expr::Ident(i) if ["parseInt", "parseFloat", "Number"].contains(&&*i.sym) => Some("number"),
+        js::Expr::Ident(i) if &*i.sym == "String" => Some("string"),
+        _ => None,
+      },
+      _ => None,
+    },
+    Some(_) => None,
+    None => params_field(outer, name).then_some("string"),
+  }
+}
+
+fn unwrap_await(e: &js::Expr) -> &js::Expr {
+  match e {
+    js::Expr::Await(a) => unwrap_await(&a.arg),
+    js::Expr::Paren(p) => unwrap_await(&p.expr),
+    js::Expr::TsAs(a) => unwrap_await(&a.expr),
+    other => other,
+  }
+}
+
+/// Whether `name` is bound by `const { name } = await params` in `outer`.
+fn params_field(outer: &js::Function, name: &str) -> bool {
+  let Some(body) = &outer.body else { return false };
+  body.stmts.iter().any(|stmt| {
+    let js::Stmt::Decl(js::Decl::Var(v)) = stmt else { return false };
+    v.decls.iter().any(|d| {
+      let (js::Pat::Object(_), Some(init)) = (&d.name, d.init.as_deref()) else { return false };
+      let from_params = match unwrap_await(init) {
+        js::Expr::Ident(i) => &*i.sym == "params",
+        js::Expr::Member(m) => matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "params"),
+        _ => false,
+      };
+      let mut names = Vec::new();
+      crate::items::pat_names(&d.name, &mut names);
+      from_params && names.iter().any(|n| n == name)
+    })
+  })
+}
+
+/// How `outer` reads the `csrf_token` prop: by name from a destructuring, or
+/// as a field of its props object.
+fn csrf_read(outer: &js::Function) -> String {
+  match outer.params.first().map(|p| &p.pat) {
+    Some(js::Pat::Ident(props)) => format!("{}.csrf_token", props.id.sym),
+    _ => "csrf_token".to_owned(),
+  }
+}
+
+/// `csrf_token` added to what `outer` destructures from its props and to
+/// their type when it has one.
+fn csrf_prop(outer: &js::Function, text: &str, parsed: &Parsed, edits: &mut Edits) {
+  let ann = |type_ann: &Option<Box<js::TsTypeAnn>>, edits: &mut Edits| {
+    if let Some(t) = type_ann {
+      let at = parsed.range(t.span).end;
+      edits.replace(at..at, " & { csrf_token?: string }");
+    }
+  };
+  match outer.params.first().map(|p| &p.pat) {
+    None => {
+      let start = parsed.range(outer.span).start;
+      if let Some(open) = text[start..].find("()") {
+        let at = start + open + 1;
+        edits.replace(at..at, "{ csrf_token }: { csrf_token?: string }");
+      }
+    }
+    Some(js::Pat::Object(obj)) => {
+      if let Some(last) = obj.props.last() {
+        let at = parsed.range(last.span()).end;
+        edits.replace(at..at, ", csrf_token");
+      }
+      ann(&obj.type_ann, edits);
+    }
+    Some(js::Pat::Ident(props)) => ann(&props.type_ann, edits),
+    Some(_) => {}
+  }
+}
+
+/// The names a function reads and the names it declares itself.
+struct FreeReads {
+  declared: Vec<String>,
+  read: Vec<String>,
+}
+
+impl Visit for FreeReads {
+  fn visit_pat(&mut self, n: &js::Pat) {
+    crate::items::pat_names(n, &mut self.declared);
+    n.visit_children_with(self);
+  }
+
+  fn visit_ident(&mut self, n: &js::Ident) {
+    self.read.push(n.sym.to_string());
+  }
+}
+
+/// Each `<form action={name}>` or `next/form`'s `<Form action={name}>` by the
+/// attribute's span, the end of its opening tag and the tag names a `Form`
+/// renames; `other` when `name` is used any other way.
+struct FormUses<'a> {
+  name: &'a str,
+  /// The local name of `next/form`'s `Form`.
+  component: Option<&'a str>,
+  forms: Vec<(Span, Span, Vec<Span>)>,
+  other: bool,
+}
+
+impl FormUses<'_> {
+  /// The `action={name}` attribute of `opening` when it is a form's.
+  fn action_attr(&self, opening: &js::JSXOpeningElement) -> Option<Span> {
+    let js::JSXElementName::Ident(tag) = &opening.name else { return None };
+    if &*tag.sym != "form" && Some(&*tag.sym) != self.component {
+      return None;
+    }
+    opening.attrs.iter().find_map(|attr| {
+      let js::JSXAttrOrSpread::JSXAttr(a) = attr else { return None };
+      let (js::JSXAttrName::Ident(n), Some(js::JSXAttrValue::JSXExprContainer(c))) = (&a.name, &a.value) else { return None };
+      let js::JSXExpr::Expr(e) = &c.expr else { return None };
+      (&*n.sym == "action" && matches!(&**e, js::Expr::Ident(i) if &*i.sym == self.name)).then_some(a.span)
+    })
+  }
+}
+
+impl Visit for FormUses<'_> {
+  fn visit_fn_decl(&mut self, n: &js::FnDecl) {
+    if &*n.ident.sym != self.name {
+      n.visit_children_with(self);
+    }
+  }
+
+  fn visit_jsx_element(&mut self, n: &js::JSXElement) {
+    if let Some(attr) = self.action_attr(&n.opening) {
+      let end = Span::new(n.opening.span.hi - swc_core::common::BytePos(1), n.opening.span.hi);
+      let mut renamed = Vec::new();
+      if let js::JSXElementName::Ident(tag) = &n.opening.name {
+        if &*tag.sym != "form" {
+          renamed.push(tag.span);
+          if let Some(js::JSXElementName::Ident(close)) = n.closing.as_ref().map(|c| &c.name) {
+            renamed.push(close.span);
+          }
+        }
+      }
+      self.forms.push((attr, end, renamed));
+      for other in &n.opening.attrs {
+        match other {
+          js::JSXAttrOrSpread::JSXAttr(a) if a.span == attr => {}
+          other => other.visit_with(self),
+        }
+      }
+      n.children.visit_with(self);
+      return;
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_ident(&mut self, n: &js::Ident) {
+    if &*n.sym == self.name {
+      self.other = true;
+    }
   }
 }
 
@@ -482,5 +892,35 @@ mod tests {
       "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { CreateUserInput } from \"@schemas/createuserinput\";\nimport { db } from \"./db\";\n\nexport const createUser = action(async ({ input }: ActionCtx<CreateUserInput>) => {\n  const name = input.name as string;\n  const email = input.email as string;\n  await db.create({ name, email });\n});\n"
     );
     assert!(!report.notes.iter().any(|n| n.message.contains("FormData")), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn an_action_declared_inside_a_page_is_an_fsr_action_and_its_form_posts_what_it_captured() {
+    let page = "import { db } from \"@/lib/db\";\nimport Form from \"next/form\";\nimport { redirect } from \"next/navigation\";\n\nexport default async function Post({ params }: { params: Promise<{ id: string }> }) {\n  const { id } = await params;\n  const postId = parseInt(id);\n  const post = await db.find(postId);\n\n  // Server action to delete the post\n  async function deletePost(formData: FormData) {\n    \"use server\";\n\n    const reason = formData.get(\"reason\") as string;\n    await db.remove(postId, reason);\n    redirect(\"/posts\");\n  }\n\n  return (\n    <Form action={deletePost}>\n      <input name=\"reason\" />\n      <button type=\"submit\">Delete {post.title}</button>\n    </Form>\n  );\n}\n";
+    let input = tree(&[
+      ("package.json", r#"{ "dependencies": { "next": "latest" } }"#),
+      ("app/posts/[id]/page.tsx", page),
+      ("lib/db.ts", "export const db = { find: async (_: number) => ({ title: \"t\" }), remove: async (_: number, __: string) => {} };\n"),
+      ("tsconfig.json", "{ \"compilerOptions\": { \"paths\": { \"@/*\": [\"./*\"] } } }"),
+    ]);
+    let (out, report) = migrate(&input);
+    assert_eq!(out.text("app/schemas/deletepostinput.ts").unwrap(), "export interface DeletePostInput {\n  reason: string;\n  postId: number;\n}\n");
+    assert_eq!(
+      out.text("app/routes/posts/[id]/actions.ts").unwrap(),
+      "import { action } from \"@snapfire/fsr\";\nimport type { ActionCtx } from \"@snapfire/fsr\";\nimport type { DeletePostInput } from \"@schemas/deletepostinput\";\nimport { db } from \"@src/lib/db\";\nimport { redirect } from \"next/navigation\";\n\nexport const deletePost = action(async ({ input }: ActionCtx<DeletePostInput>) => {\n  const { postId } = input;\n\n  const reason = input.reason as string;\n  await db.remove(postId, reason);\n  redirect(\"/posts\");\n});\n"
+    );
+    let page = out.text("app/routes/posts/[id]/page.tsx").unwrap();
+    for expected in [
+      "<form method=\"post\" action=\"/_sf/action/posts.$id.deletePost\">\n      <input type=\"hidden\" name=\"_csrf\" value={csrf_token ?? \"\"} />\n      <input type=\"hidden\" name=\"postId\" value={postId} />\n      <input name=\"reason\" />",
+      "      <button type=\"submit\">Delete {post.title}</button>\n    </form>",
+      ": PostsIdProps & { csrf_token?: string }",
+    ] {
+      assert!(page.contains(expected), "missing {expected} in {page}");
+    }
+    for gone in ["use server", "async function deletePost", "Server action", "next/form", "next/navigation", "Form"] {
+      assert!(!page.contains(gone), "{gone} in {page}");
+    }
+    let notes: Vec<&str> = report.notes.iter().filter(|n| n.message.contains("deletePost")).map(|n| n.message.as_str()).collect();
+    assert!(matches!(notes.as_slice(), [only] if only.contains("`redirect")), "{notes:?}");
   }
 }
