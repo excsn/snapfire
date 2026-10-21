@@ -3,6 +3,7 @@
 //! [`Tree`]s, so nothing here touches the disk; what a pass could not rewrite
 //! is a [`Note`] naming the line.
 
+mod actions;
 mod config;
 mod edit;
 mod head;

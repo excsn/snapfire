@@ -179,7 +179,7 @@ fn closure(items: &[Item], needed: &mut BTreeSet<String>) -> BTreeSet<usize> {
 
 /// The imports of `parsed` binding `needed`, written for a module at `to`
 /// where they were written for one at `from`.
-fn imports_for(text: &str, parsed: &Parsed, needed: &BTreeSet<String>, from: &str, to: &str) -> String {
+pub(crate) fn imports_for(text: &str, parsed: &Parsed, needed: &BTreeSet<String>, from: &str, to: &str) -> String {
   let mut out = String::new();
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
