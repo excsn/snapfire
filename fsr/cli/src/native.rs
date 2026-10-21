@@ -181,7 +181,7 @@ fn read_file(
       if !matches!(field.vis, syn::Visibility::Public(_)) {
         continue;
       }
-      fields.push((camel(&ident.to_string()), ts_type(&field.ty, &mut wanted)));
+      fields.push((field_key(field, ident), ts_type(&field.ty, &mut wanted)));
     }
     out.types.push(NativeType { name, fields });
   }
@@ -253,7 +253,7 @@ fn read_service(
       if !matches!(field.vis, syn::Visibility::Public(_)) {
         continue;
       }
-      let key = camel(&ident.to_string());
+      let key = field_key(field, ident);
       let ty = contract_type(&field.ty, &mut wanted).map_err(|t| refused(format!("`{record}.{key}` is `{t}`, which is outside the value model")))?;
       fields.push(Field::new(key, ty));
     }
@@ -440,6 +440,21 @@ pub fn declarations(found: &Natives) -> String {
   }
   out.push_str("}\n");
   out
+}
+
+/// A record field's key: `#[record(name = "...")]` when written, the field
+/// camelCased otherwise, as the `Record` derive keys it.
+fn field_key(field: &syn::Field, ident: &syn::Ident) -> String {
+  let mut named = None;
+  for attr in field.attrs.iter().filter(|a| a.path().is_ident("record")) {
+    let _ = attr.parse_nested_meta(|meta| {
+      if meta.path.is_ident("name") {
+        named = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+      }
+      Ok(())
+    });
+  }
+  named.unwrap_or_else(|| camel(&ident.to_string()))
 }
 
 fn camel(name: &str) -> String {

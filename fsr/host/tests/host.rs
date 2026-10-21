@@ -6936,3 +6936,21 @@ fn a_secret_a_client_sends_is_a_runtime_value_and_never_prints() {
   let Err(e) = Host::from(credential_dir("http://127.0.0.1:1", r#"{ secret = "shop" }"#, "[secrets.shop]\n").join("app.toml")).unwrap().build() else { panic!("booted without the secret") };
   assert!(e.to_string().contains("C5_SECRETS__SHOP__VALUE"), "{e}");
 }
+
+#[test]
+fn a_record_field_named_by_its_attribute_crosses_under_that_name_both_ways() {
+  use snapfire_fsr_runtime::{FromNativeValue, IntoNativeValue};
+
+  #[derive(snapfire_fsr_macros::Record, Debug, PartialEq)]
+  pub struct Feature {
+    pub feature_id: String,
+    #[record(name = "created_at")]
+    pub created_at: String,
+  }
+
+  let value = Feature { feature_id: "f1".to_owned(), created_at: "2026-10-21".to_owned() }.into_native_value();
+  let Value::Map(map) = &value else { panic!("{value:?}") };
+  assert_eq!(map.keys().map(String::as_str).collect::<Vec<_>>(), ["featureId", "created_at"]);
+  assert_eq!(Feature::from_native_value(value.clone()).unwrap(), Feature { feature_id: "f1".to_owned(), created_at: "2026-10-21".to_owned() });
+}
+

@@ -1209,6 +1209,28 @@ fn a_service_impl_beside_the_app_is_a_contract_the_build_writes_and_types() {
 }
 
 #[test]
+fn a_record_field_named_by_its_attribute_keeps_that_name_in_the_contract_and_the_types() {
+  let project = app(&[]);
+  let dir = project.join("app");
+  std::fs::create_dir_all(dir.join("routes/index")).unwrap();
+  std::fs::rename(project.join("importmap.json"), dir.join("importmap.json")).unwrap();
+  std::fs::rename(project.join("vendor"), dir.join("vendor")).unwrap();
+  std::fs::write(dir.join("routes/index/page.tsx"), PAGE).unwrap();
+  std::fs::create_dir_all(project.join("src")).unwrap();
+  std::fs::write(
+    project.join("src/services.rs"),
+    "#[derive(Record)]\npub struct Feature {\n  pub feature_id: String,\n  #[record(name = \"created_at\")]\n  pub created_at: String,\n}\n\n#[derive(Clone)]\npub struct Roadmap;\n\n#[service]\nimpl Roadmap {\n  pub fn features(&self) -> Vec<Feature> {\n    todo!()\n  }\n}\n",
+  )
+  .unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
+  let contract = file("generated/contracts/rust.json");
+  assert!(contract.contains("\"created_at\"") && contract.contains("\"featureId\""), "{contract}");
+  assert!(file("generated/services.d.ts").contains("export interface Feature {\n  featureId: string;\n  created_at: string;\n}"), "{}", file("generated/services.d.ts"));
+  std::fs::remove_dir_all(&project).unwrap();
+}
+
+#[test]
 fn a_service_method_naming_a_type_outside_the_value_model_fails_the_build() {
   let project = app(&[]);
   let dir = project.join("app");

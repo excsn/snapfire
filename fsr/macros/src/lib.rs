@@ -424,6 +424,22 @@ fn is_result(ty: &syn::Type) -> bool {
   is_named(ty, "Result")
 }
 
+/// The key `#[record(name = "...")]` gives a field, when it carries one.
+fn record_name(field: &syn::Field) -> syn::Result<Option<String>> {
+  let mut named = None;
+  for attr in field.attrs.iter().filter(|a| a.path().is_ident("record")) {
+    attr.parse_nested_meta(|meta| {
+      if meta.path.is_ident("name") {
+        named = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+        Ok(())
+      } else {
+        Err(meta.error("a record field takes `name = \"...\"`"))
+      }
+    })?;
+  }
+  Ok(named)
+}
+
 fn is_named(ty: &syn::Type, name: &str) -> bool {
   match ty {
     syn::Type::Path(p) => p.path.segments.last().is_some_and(|s| s.ident == name),
@@ -432,8 +448,9 @@ fn is_named(ty: &syn::Type, name: &str) -> bool {
 }
 
 /// `IntoNativeValue`, `FromNativeValue` and `ContractType` for a struct with
-/// named `pub` fields, keyed the way the build declares them, camelCased.
-#[proc_macro_derive(Record)]
+/// named `pub` fields, keyed the way the build declares them: camelCased, or
+/// as `#[record(name = "created_at")]` names a field.
+#[proc_macro_derive(Record, attributes(record))]
 pub fn record(item: TokenStream) -> TokenStream {
   let input = parse_macro_input!(item as syn::DeriveInput);
   let ident = &input.ident;
@@ -455,7 +472,11 @@ pub fn record(item: TokenStream) -> TokenStream {
       return err(field, "a record's fields are all `pub`; a private field cannot cross");
     }
     let ident = field.ident.clone().expect("named");
-    keys.push(camel(&ident.to_string()));
+    let named = match record_name(field) {
+      Ok(named) => named,
+      Err(e) => return e.to_compile_error().into(),
+    };
+    keys.push(named.unwrap_or_else(|| camel(&ident.to_string())));
     idents.push(ident);
     types.push(field.ty.clone());
   }
