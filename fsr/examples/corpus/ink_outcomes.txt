@@ -16,7 +16,7 @@ scroll	rendered
 select-input	rendered
 static	rendered
 subprocess-output	rendered
-suspend-terminal	refused: `src/suspend-terminal.tsx#Example` does not lower, so only a browser could render it: src/suspend-terminal.tsx:28:11: `useApp` gives `exit` alone
+suspend-terminal	rendered
 suspense	rendered
 table	refused: `src/table.tsx#Table` does not lower, so only a browser could render it: src/table.tsx:7:11: `faker` comes from `@faker-js/faker`, which the build cannot follow
 terminal-resize	rendered

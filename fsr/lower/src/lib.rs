@@ -987,6 +987,10 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) settlers: Vec<String>,
   /// The continuations a terminal page's async functions lowered to, each the rest of a function after an `await`, which the component that runs it holds as handlers.
   pub(crate) continuations: Vec<snapfire_fsr_ir::ast::Handler>,
+  /// The locals Ink's `useApp` gives `suspendTerminal` as.
+  pub(crate) suspenders: Vec<String>,
+  /// The locals a terminal block bound to a process it spawned.
+  pub(crate) spawned: Vec<String>,
   /// The contexts this component provides, by key, for a `getContext` of its own to read.
   pub(crate) provided: Vec<(String, Expr)>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
@@ -1053,7 +1057,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), cursor_setters: Vec::new(), settlers: Vec::new(), continuations: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), cursor_setters: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), suspenders: Vec::new(), spawned: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1485,6 +1489,9 @@ impl<'a> Lowerer<'a> {
       if let Some(act) = self.settling(call)? {
         return Ok(act);
       }
+      if let Some(listen) = self.listening(call)? {
+        return Ok(listen);
+      }
       if let Some(arrow) = self.async_iife(call) {
         let ran = match &*arrow.body {
           js::ArrowFunctionBody::FunctionBody(b) => self.async_stmts(&b.stmts)?,
@@ -1649,7 +1656,7 @@ impl<'a> Lowerer<'a> {
 
   /// Whether `call` is one [`Lowerer::settling`] makes an act of. An async arrow called in place is one too, since it issues an act at its first `await`.
   pub(crate) fn issues_act(&self, call: &js::CallExpr) -> bool {
-    if self.async_iife(call).is_some() {
+    if self.async_iife(call).is_some() || self.listens(call) {
       return true;
     }
     let js::Callee::Expr(callee) = &call.callee else { return false };
@@ -1658,8 +1665,160 @@ impl<'a> Lowerer<'a> {
     settler(callee) || (self.terminal && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
   }
 
+  /// `process.env.NAME` or `process.env[name]` in a terminal page, `process` Node's from `node:process` or the global: the variable through `terminal.env`, null when it is not set.
+  fn env_read(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
+    if !self.terminal {
+      return Ok(None);
+    }
+    let js::Expr::Member(env) = crate::meaning::bare(&member.obj) else { return Ok(None) };
+    if self.member_name(env).as_deref() != Some("env") {
+      return Ok(None);
+    }
+    let process = match crate::meaning::bare(&env.obj) {
+      js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.as_ref() == "process",
+      other => self.meanings.as_ref().and_then(|meanings| meanings.of_expr(other)) == Some(meaning::Meaning::Library(meaning::Construct::NodeProcess)),
+    };
+    if !process {
+      return Ok(None);
+    }
+    let name = match &member.prop {
+      js::MemberProp::Ident(name) => Expr::lit_str(name.sym.to_string()),
+      js::MemberProp::Computed(key) => self.expr(&key.expr)?,
+      js::MemberProp::PrivateName(_) => return Ok(None),
+    };
+    Ok(Some(Expr::Ext { module: "terminal".to_owned(), name: "env".to_owned(), args: vec![name] }))
+  }
+
+  /// Whether `call` is `spawn` from `node:child_process`, named or through its default export.
+  pub(crate) fn spawns(&self, call: &js::CallExpr) -> bool {
+    let js::Callee::Expr(callee) = &call.callee else { return false };
+    let meant = |e: &js::Expr| self.meanings.as_ref().and_then(|meanings| meanings.of_expr(e));
+    match crate::meaning::bare(callee) {
+      js::Expr::Member(member) => meant(&member.obj) == Some(meaning::Meaning::Library(meaning::Construct::ChildProcess("module"))) && self.member_name(member).as_deref() == Some("spawn"),
+      other => meant(other) == Some(meaning::Meaning::Library(meaning::Construct::ChildProcess("spawn"))),
+    }
+  }
+
+  /// `spawn(command, args, options)` in a terminal block: a fresh process id and the act [`crate::terminal::Act::Spawn`] starting it, whose value is the process, [`crate::terminal::PROCESS`].
+  fn spawn_value(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+    let id = self.temp();
+    let mut fields = vec![Entry::Field("id".to_owned(), Expr::Var(id.clone()))];
+    for (i, key) in ["command", "args", "options"].iter().enumerate() {
+      let value = match call.args.get(i) {
+        Some(arg) if arg.spread.is_some() => return Err(self.residue(arg.expr.span(), "a spread into `spawn`")),
+        Some(arg) => self.expr(&arg.expr)?,
+        None => Expr::Lit(Lit::Null),
+      };
+      fields.push(Entry::Field((*key).to_owned(), value));
+    }
+    let random = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] };
+    let spawn = Stmt::Act { action: crate::terminal::Act::Spawn.name().to_owned(), input: Expr::Object(fields) };
+    Ok(Expr::Block(vec![Stmt::Let { name: id.clone(), expr: random }, spawn, Stmt::Return(Expr::Object(vec![Entry::Field(crate::terminal::PROCESS.to_owned(), Expr::Var(id))]))]))
+  }
+
+  /// The process local, the report and the listener of `sub.on(event, f)`, `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)` on a local a block bound to a spawn; the report `None` for `setEncoding`, which a terminal takes as read.
+  fn listener<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, Option<crate::terminal::Report>, Option<&'c js::Expr>)> {
+    use crate::terminal::Report;
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
+    let (process, stream) = match crate::meaning::bare(&method.obj) {
+      process @ js::Expr::Ident(id) if self.spawned.iter().any(|s| *s == *id.sym) => (process, None),
+      js::Expr::Member(inner) => match (crate::meaning::bare(&inner.obj), self.member_name(inner).as_deref()) {
+        (process @ js::Expr::Ident(id), Some(stream @ ("stdout" | "stderr"))) if self.spawned.iter().any(|s| *s == *id.sym) => (process, Some(if stream == "stdout" { Report::Stdout } else { Report::Stderr })),
+        _ => return None,
+      },
+      _ => return None,
+    };
+    let event = match call.args.first().map(|a| crate::meaning::bare(&a.expr)) {
+      Some(js::Expr::Lit(js::Lit::Str(event))) => Some(event.value.to_string_lossy().into_owned()),
+      _ => None,
+    };
+    let report = match (stream, self.member_name(method).as_deref(), event.as_deref()) {
+      (Some(_), Some("setEncoding"), _) => return Some((process, None, None)),
+      (Some(stream), Some("on"), Some("data")) => stream,
+      (None, Some("on"), Some(event)) => Report::parse(event)?,
+      _ => return None,
+    };
+    Some((process, Some(report), call.args.get(1).map(|a| &*a.expr)))
+  }
+
+  /// Whether `call` is a listener [`Lowerer::listener`] reads.
+  fn listens(&self, call: &js::CallExpr) -> bool {
+    self.terminal && self.listener(call).is_some()
+  }
+
+  /// A listener on a spawned process as the act [`crate::terminal::Act::Listen`]. Its callback is a continuation with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` settles the promise instead. `None` for any other call.
+  fn listening(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
+    if !self.terminal {
+      return Ok(None);
+    }
+    let Some((process, report, callback)) = self.listener(call) else { return Ok(None) };
+    let Some(report) = report else { return Ok(Some(Stmt::Expr(Expr::Lit(Lit::Null)))) };
+    let Some(callback) = callback else { return Err(self.residue(call.span, "a process listener without a function")) };
+    let process = self.expr(process)?;
+    let mut fields = vec![Entry::Field("process".to_owned(), process), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
+    if matches!(crate::meaning::bare(callback), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym)) {
+      fields.push(Entry::Field("settle".to_owned(), self.expr(callback)?));
+      return Ok(Some(Stmt::Act { action: crate::terminal::Act::Listen.name().to_owned(), input: Expr::Object(fields) }));
+    }
+    let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.residue(callback.span(), "a process listener that is not an arrow written in place or a promise's `resolve` or `reject`")) };
+    let params: Vec<String> = arrow.params.iter().map(|p| match p {
+      js::Pat::Ident(name) => Ok(name.id.sym.to_string()),
+      other => Err(self.residue(other.span(), "a process listener's parameter that is not a name")),
+    }).collect::<Lowered<_>>()?;
+    let exits = matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close);
+    let (event, carry) = self.continuation(call.span, None, |this| {
+      let value = Expr::Var("$resume".to_owned()).field("value");
+      for (i, param) in params.iter().enumerate() {
+        let bound = match (exits, i) {
+          (true, 0) => value.clone().field("code"),
+          (true, _) => value.clone().field("signal"),
+          (false, _) => value.clone(),
+        };
+        this.scope.push((param.clone(), bound));
+      }
+      match &*arrow.body {
+        js::ArrowFunctionBody::FunctionBody(b) => this.async_stmts(&b.stmts),
+        js::ArrowFunctionBody::Expr(e) => this.async_stmts(&[js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })]),
+      }
+    })?;
+    fields.push(Entry::Field("event".to_owned(), Expr::lit_str(event)));
+    fields.push(Entry::Field("carry".to_owned(), carry));
+    Ok(Some(Stmt::Act { action: crate::terminal::Act::Listen.name().to_owned(), input: Expr::Object(fields) }))
+  }
+
+  /// A fresh deferred, `{ "$deferred": id }`.
+  fn new_deferred(&self) -> Expr {
+    let id = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] };
+    Expr::Object(vec![Entry::Field(snapfire_fsr_ir::render::DEFERRED.to_owned(), id)])
+  }
+
+  /// Ink's `suspendTerminal(f)` in a terminal page: `f` run as an async function, then a [`crate::terminal::Act::Suspend`] asking the terminal to give up the screen until `f`'s promise settles. The call's own promise settles as `f`'s does once the screen is back.
+  fn suspend_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return Ok(None) };
+    if !self.terminal || !self.suspenders.iter().any(|s| *s == *id.sym) {
+      return Ok(None);
+    }
+    let Some(js::Expr::Arrow(f)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.residue(call.span, "`suspendTerminal` of something other than an arrow written in place")) };
+    let inner = self.async_value(f)?;
+    let (until, settles) = (self.temp(), self.temp());
+    let suspend = Stmt::Act { action: crate::terminal::Act::Suspend.name().to_owned(), input: Expr::Object(vec![Entry::Field("until".to_owned(), Expr::Var(until.clone())), Entry::Field("settles".to_owned(), Expr::Var(settles.clone()))]) };
+    Ok(Some(Expr::Block(vec![Stmt::Let { name: until, expr: inner }, Stmt::Let { name: settles.clone(), expr: self.new_deferred() }, suspend, Stmt::Return(Expr::Var(settles))])))
+  }
+
+  /// An async arrow as a value: its statements run as an async function. The promise it returns settles with what the function returns; it rejects with what an awaited promise the function does not catch rejects with.
+  pub(crate) fn async_value(&mut self, f: &js::ArrowExpr) -> Lowered<Expr> {
+    let done = self.temp();
+    let ran = match &*f.body {
+      js::ArrowFunctionBody::FunctionBody(b) => self.async_to(&b.stmts, Some(Expr::Var(done.clone())))?,
+      js::ArrowFunctionBody::Expr(e) => self.async_to(&[js::Stmt::Return(js::ReturnStmt { span: e.span(), arg: Some(e.clone()) })], Some(Expr::Var(done.clone())))?,
+    };
+    Ok(Expr::Block(vec![Stmt::Let { name: done.clone(), expr: self.new_deferred() }, Stmt::Expr(ran), Stmt::Return(Expr::Var(done))]))
+  }
+
   /// `(async () => { … })()`: an async arrow called where it is written, in a terminal page.
-  fn async_iife<'c>(&self, call: &'c js::CallExpr) -> Option<&'c js::ArrowExpr> {
+  pub(crate) fn async_iife<'c>(&self, call: &'c js::CallExpr) -> Option<&'c js::ArrowExpr> {
     let js::Callee::Expr(callee) = &call.callee else { return None };
     match crate::meaning::bare(callee) {
       js::Expr::Arrow(arrow) if self.terminal && arrow.is_async && call.args.is_empty() && arrow.params.is_empty() => Some(arrow),
@@ -1669,7 +1828,57 @@ impl<'a> Lowerer<'a> {
 
   /// An async function's statements run as far as its first `await`, which hands the awaited promise a continuation, [`crate::terminal::Act::Then`], holding the rest. The rest lowers as a handler named [`crate::terminal::Event::Resume`] in [`Lowerer::continuations`]; the names it reads that are not module cells are carried to it with the act.
   pub(crate) fn async_stmts(&mut self, stmts: &[js::Stmt]) -> Lowered<Expr> {
-    let Some(at) = stmts.iter().position(awaits) else { return crate::component::block_to_expr(self, stmts) };
+    self.async_to(stmts, None)
+  }
+
+  /// [`Lowerer::async_stmts`] for a function whose promise is `done`: what it returns settles it; an awaited promise that rejects rejects it.
+  fn async_to(&mut self, stmts: &[js::Stmt], done: Option<Expr>) -> Lowered<Expr> {
+    let depth = self.scope.len();
+    let lowered = self.async_to_in(stmts, done);
+    self.scope.truncate(depth);
+    lowered
+  }
+
+  /// The statements before an `await`, as `let`s and effects whose names stay in scope for the awaited value and the continuation.
+  fn before_await(&mut self, stmts: &[js::Stmt]) -> Lowered<Expr> {
+    let mut out = Vec::with_capacity(stmts.len());
+    for stmt in stmts {
+      out.push(self.stmt(stmt)?);
+    }
+    Ok(Expr::Block(out))
+  }
+
+  fn async_to_in(&mut self, stmts: &[js::Stmt], done: Option<Expr>) -> Lowered<Expr> {
+    let settle = |done: &Expr, ok: bool, value: Expr| Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(crate::terminal::SETTLES.to_owned(), done.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))])), Entry::Field("value".to_owned(), value)]) };
+    let Some(at) = stmts.iter().position(awaits) else {
+      let value = crate::component::block_to_expr(self, stmts)?;
+      return Ok(match &done {
+        None => value,
+        Some(done) => {
+          let returned = self.temp();
+          Expr::Block(vec![Stmt::Let { name: returned.clone(), expr: value }, settle(done, true, Expr::Var(returned))])
+        }
+      });
+    };
+    if let js::Stmt::If(branch) = &stmts[at] {
+      let before = self.before_await(&stmts[..at])?;
+      let cond = self.expr(&branch.test)?;
+      let arm = |this: &mut Self, arm: Option<&js::Stmt>| -> Lowered<Expr> {
+        let mut joined: Vec<js::Stmt> = match arm {
+          Some(js::Stmt::Block(block)) => block.stmts.clone(),
+          Some(other) => vec![other.clone()],
+          None => Vec::new(),
+        };
+        joined.extend(stmts[at + 1..].iter().cloned());
+        let depth = this.scope.len();
+        let lowered = this.async_to(&joined, done.clone());
+        this.scope.truncate(depth);
+        lowered
+      };
+      let then = arm(self, Some(&branch.cons))?;
+      let otherwise = arm(self, branch.alt.as_deref())?;
+      return Ok(Expr::Block(vec![Stmt::Expr(before), Stmt::If { cond, then: vec![Stmt::Expr(then)], r#else: vec![Stmt::Expr(otherwise)] }]));
+    }
     let (awaited, bound) = match &stmts[at] {
       js::Stmt::Expr(e) => match crate::meaning::bare(&e.expr) {
         js::Expr::Await(a) => (&*a.arg, None),
@@ -1684,10 +1893,19 @@ impl<'a> Lowerer<'a> {
       },
       other => return Err(self.residue(other.span(), "an `await` inside a branch, a loop or a `try`")),
     };
-    let before = crate::component::block_to_expr(self, &stmts[..at])?;
+    let before = self.before_await(&stmts[..at])?;
     let deferred = self.expr(awaited)?;
     let rest = &stmts[at + 1..];
-    let (event, carry) = self.continuation(stmts[at].span(), bound, |this| this.async_stmts(rest))?;
+    let (event, carry) = self.continuation(stmts[at].span(), bound, |this| {
+      let ran = this.async_to(rest, done.clone())?;
+      Ok(match &done {
+        None => ran,
+        Some(done) => {
+          let resumed = Expr::Var("$resume".to_owned());
+          Expr::Ternary(Box::new(resumed.clone().field("ok")), Box::new(ran), Box::new(Expr::Block(vec![settle(done, false, resumed.field("value"))])))
+        }
+      })
+    })?;
     let then = Stmt::Act { action: crate::terminal::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
     Ok(Expr::Block(vec![Stmt::Expr(before), then]))
   }
@@ -1933,6 +2151,19 @@ impl<'a> Lowerer<'a> {
 
       js::Expr::Ident(id) => self.ident(id),
       js::Expr::Lit(lit) => self.lit(lit, expr.span()),
+      js::Expr::TaggedTpl(tagged) if matches!(crate::meaning::bare(&tagged.tag), js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if id.sym.as_ref() == "String" && id.ctxt == self.parsed.unresolved) && self.member_name(m).as_deref() == Some("raw")) => {
+        // `String.raw` writes each piece as it stands in the source, escapes and all.
+        let mut parts = Vec::new();
+        for (i, quasi) in tagged.tpl.quasis.iter().enumerate() {
+          if !quasi.raw.is_empty() {
+            parts.push(Expr::Lit(Lit::Str(quasi.raw.to_string())));
+          }
+          if let Some(e) = tagged.tpl.exprs.get(i) {
+            parts.push(self.expr(e)?);
+          }
+        }
+        Ok(Expr::Template(parts))
+      }
       js::Expr::Tpl(tpl) => {
         let mut parts = Vec::new();
         for (i, quasi) in tpl.quasis.iter().enumerate() {
@@ -2128,6 +2359,9 @@ impl<'a> Lowerer<'a> {
 
   /// A member read. Context roots become reads; anything else is a field.
   fn member(&mut self, member: &js::MemberExpr) -> Lowered<Expr> {
+    if let Some(read) = self.env_read(member)? {
+      return Ok(read);
+    }
     let prop = |this: &mut Self| -> Lowered<Result<String, Expr>> {
       Ok(match &member.prop {
         js::MemberProp::Ident(id) => Ok(id.sym.to_string()),
@@ -2303,6 +2537,12 @@ impl<'a> Lowerer<'a> {
           _ => Err(self.residue(named.expr.span(), "a source key the build cannot read")),
         };
       }
+    }
+    if let Some(suspended) = self.suspend_call(call)? {
+      return Ok(suspended);
+    }
+    if self.terminal && self.spawns(call) {
+      return self.spawn_value(call);
     }
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));
@@ -3084,6 +3324,13 @@ impl<'a> Lowerer<'a> {
     if self.terminal && matches!(&*n.callee, js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved && id.sym.as_ref() == "Promise") {
       return self.terminal_promise(n, &args);
     }
+    if self.terminal && matches!(&*n.callee, js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved && id.sym.as_ref() == "Error") {
+      let message = match args.first() {
+        Some(a) => Expr::Str(Box::new(self.expr(&a.expr)?)),
+        None => Expr::lit_str(""),
+      };
+      return Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("Error")), Entry::Field("message".to_owned(), message)]));
+    }
     let global = match &*n.callee {
       _ if svelte.is_some() => svelte.expect("checked").to_owned(),
       js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
@@ -3457,7 +3704,7 @@ pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
 }
 
 /// Whether a statement of an async function holds an `await`: `await x;` and `const v = await x;` [`Lowerer::async_stmts`] splits at; one deeper it refuses.
-fn awaits(stmt: &js::Stmt) -> bool {
+pub(crate) fn awaits(stmt: &js::Stmt) -> bool {
   struct Awaits(bool);
   impl swc_core::ecma::visit::Visit for Awaits {
     fn visit_await_expr(&mut self, _: &js::AwaitExpr) {

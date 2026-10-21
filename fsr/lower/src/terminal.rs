@@ -15,6 +15,9 @@ pub const EFFECT: &str = "effect";
 /// The key a promise's `resolve` or `reject` is held under: `{ "$settles": deferred, ok }`, `ok` false for `reject`. Calling one is an [`Act::Settle`]; a timer on one settles the deferred when it is due.
 pub const SETTLES: &str = "$settles";
 
+/// The key a process a block spawned is held under, `{ "$process": id }`, the id its [`Act::Spawn`] and its listeners name.
+pub const PROCESS: &str = "$process";
+
 /// The body `let` that emits a value of `kind`.
 pub fn emit(kind: &str) -> String {
   format!("{}{kind}", snapfire_fsr_ir::render::EMIT_PREFIX)
@@ -125,6 +128,10 @@ pub enum Act {
   Settle,
   /// `{ deferred, event, carry }`: run the handler `event` names when `deferred` settles, with `{ value, ok, carry }`.
   Then,
+  /// `{ process, report, event, carry }` or `{ process, report, settle }`: when the process [`PROCESS`] names reports `report`, run the handler `event` names with `{ value, ok, carry }`. With `settle` instead, settle the promise it names, [`SETTLES`], with what it reported.
+  Listen,
+  /// `{ until, settles }`: give up the screen until the deferred `until` settles, then take it back and settle `settles` as `until` settled. Ink's `suspendTerminal`.
+  Suspend,
   /// `focus(id)`.
   Focus,
   FocusNext,
@@ -142,6 +149,8 @@ impl Act {
       Act::Spawn => "$spawn",
       Act::Settle => "$settle",
       Act::Then => "$then",
+      Act::Suspend => "$suspend",
+      Act::Listen => "$listen",
       Act::Focus => "$focus",
       Act::FocusNext => "$focusNext",
       Act::FocusPrevious => "$focusPrevious",
@@ -151,7 +160,7 @@ impl Act {
   }
 
   pub fn parse(name: &str) -> Option<Act> {
-    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
+    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
   }
 }
 

@@ -330,6 +330,7 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `terminal.ms` | terminal | `x`, `{ long? }?` | as the `ms` package: milliseconds as `1m` or `1 minute`, a string such as `2 days` as milliseconds, null for one it cannot read |
 | `terminal.stripAnsi` | terminal | `s` | `s` without the escape codes `ansi-regex` matches |
 | `terminal.stringWidth` | terminal | `s` | the terminal columns `s` takes once its escape codes are gone, a grapheme cluster at most two |
+| `terminal.env` | terminal | `name` | the environment variable `name`, null when it is not set |
 | `terminal.wrapAnsi` | terminal | `s`, `columns`, `{ hard?, trim?, wordWrap? }?` | the rows `wrap-ansi` 9 breaks `s` into; escape codes stay where they stand |
 | `i18n.t` | render | `key`, `{ count?, …}?` | the message under `key` in the ambient locale's catalog; with `count` a number, `key.<cardinal category>` then `key.other` then `key`; `{name}` filled from a scalar argument, left as written otherwise; the key itself when nothing matches or no catalogs are set. What `t` from the client's std module lowers to |
 

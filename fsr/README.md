@@ -102,15 +102,15 @@ cargo install snapfire_fsr_cli --features terminal
 fsr dev app --terminal
 ```
 
-Terminal mode is experimental. Today it runs the app's root page `routes/page.tsx` with every component it places, each with its own state, keys and timers. It reads React's `useState`, `useReducer` and `useRef` with Ink's `useInput`, `useFocus`, `useFocusManager`, `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr`, `useAnimation`, `useBoxMetrics`, `useCursor` and `Static`; Tab, Shift+Tab and Esc move the focus as Ink's do. A mount effect may start `setInterval` and `setTimeout` timers. Local time reads this machine's time zone. A Box may be sized in percentages. `ms`, `strip-ansi`, `string-width` and `wrap-ansi` run natively. A mount effect may spawn a process with `node:child_process` and read its output. A handler or a timer sets state, dispatches or calls an action. An effect runs again when its dependencies change. A promise made with `new Promise`, an `await` and a `Suspense` boundary waiting on a thrown promise run as they do in Ink. `Transform` and `measureElement` are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
+Terminal mode is experimental. Today it runs the app's root page `routes/page.tsx` with every component it places, each with its own state, keys and timers. It reads React's `useState`, `useReducer` and `useRef` with Ink's `useInput`, `useFocus`, `useFocusManager`, `useApp().exit` and `suspendTerminal`, `useWindowSize`, `useStdout`, `useStderr`, `useAnimation`, `useBoxMetrics`, `useCursor` and `Static`; Tab, Shift+Tab and Esc move the focus as Ink's do. A mount effect may start `setInterval` and `setTimeout` timers. Local time reads this machine's time zone. A Box may be sized in percentages. `ms`, `strip-ansi`, `string-width` and `wrap-ansi` run natively. A mount effect may spawn a process with `node:child_process` and read its output. A handler or a timer sets state, dispatches or calls an action. An effect runs again when its dependencies change. A promise made with `new Promise`, an `await` and a `Suspense` boundary waiting on a thrown promise run as they do in Ink. `Transform` and `measureElement` are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
 
 The corpus runs Ink's own examples through terminal mode as one application each:
 
 | Corpus | Examples | Runs in the terminal | Not run by design | Refused |
 |---|---|---|---|---|
-| [Ink](docs/corpus/ink.md) | 29 | 25 (86.2%) | 3 | 1 |
+| [Ink](docs/corpus/ink.md) | 29 | 26 (89.7%) | 3 | 0 |
 
-The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `@faker-js/faker` and `p-queue` with `delay`. Not counting those, 25 of the 26 run (96.2%). A refused example uses something terminal mode cannot run yet, such as `useApp().suspendTerminal`. The corpus page lists each cause.
+The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `@faker-js/faker` and `p-queue` with `delay`. Not counting those, all 26 run. No example is refused. The corpus page lists each cause.
 
 ## Architecture
 

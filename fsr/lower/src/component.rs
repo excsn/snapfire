@@ -4574,6 +4574,11 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
           Some(init) => lowerer.expr(init)?,
           None => Expr::Lit(Lit::Null),
         };
+        if let (js::Pat::Ident(id), Some(js::Expr::Call(call))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) {
+          if lowerer.terminal && lowerer.spawns(call) {
+            lowerer.spawned.push(id.id.sym.to_string());
+          }
+        }
         if computed_once(lowerer, &expr) {
           let held = lowerer.temp();
           lets.push(Stmt::Let { name: held.clone(), expr });
@@ -4591,6 +4596,11 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
           Some(init) => lowerer.expr(init)?,
           None => Expr::Lit(Lit::Null),
         };
+        if let (js::Pat::Ident(id), Some(js::Expr::Call(call))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) {
+          if lowerer.terminal && lowerer.spawns(call) {
+            lowerer.spawned.push(id.id.sym.to_string());
+          }
+        }
         if computed_once(lowerer, &expr) {
           let held = lowerer.temp();
           lets.push(Stmt::Let { name: held.clone(), expr });
@@ -4656,6 +4666,26 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       Ok(value)
     }
     js::Stmt::For(_) | js::Stmt::ForOf(_) | js::Stmt::While(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
+    js::Stmt::If(branch) if lowerer.terminal && holds_acts(lowerer, first) => {
+      let cond = lowerer.expr(&branch.test)?;
+      let arm = |lowerer: &mut Lowerer<'_>, arm: &js::Stmt| -> Lowered<Expr> {
+        let depth = lowerer.scope.len();
+        let stmts = match arm {
+          js::Stmt::Block(block) => block.stmts.clone(),
+          other => vec![other.clone()],
+        };
+        let lowered = block_to_expr(lowerer, &stmts);
+        lowerer.scope.truncate(depth);
+        lowered
+      };
+      let then = arm(lowerer, &branch.cons)?;
+      let otherwise = match &branch.alt {
+        Some(alt) => arm(lowerer, alt)?,
+        None => Expr::Lit(Lit::Null),
+      };
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(vec![Stmt::If { cond, then: vec![Stmt::Expr(then)], r#else: vec![Stmt::Expr(otherwise)] }], value))
+    }
     js::Stmt::Expr(stmt) if matches!(&*stmt.expr, js::Expr::Call(call) if lowerer.issues_act(call)) => {
       let act = lowerer.effect(&stmt.expr)?;
       let value = block_to_expr_inner(lowerer, rest, floor)?;
@@ -4691,6 +4721,22 @@ fn writes_a_cell(lowerer: &Lowerer<'_>, expr: &js::Expr) -> bool {
     js::Expr::Call(_) => true,
     _ => false,
   }
+}
+
+/// Whether `stmt` holds a call that issues an act, [`Lowerer::issues_act`], outside a function of its own.
+fn holds_acts(lowerer: &Lowerer<'_>, stmt: &js::Stmt) -> bool {
+  struct Acts<'l, 'p>(&'l Lowerer<'p>, bool);
+  impl Visit for Acts<'_, '_> {
+    fn visit_call_expr(&mut self, call: &js::CallExpr) {
+      self.1 |= self.0.issues_act(call);
+      call.visit_children_with(self);
+    }
+    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+    fn visit_function(&mut self, _: &js::Function) {}
+  }
+  let mut found = Acts(lowerer, false);
+  stmt.visit_with(&mut found);
+  found.1
 }
 
 /// Whether a declaration's value must be computed once, where it is declared, rather than wherever it is read: it touches a cell, it issues an act or, in a terminal page, it calls a server-only extension such as the randomness a promise's id is drawn from.
@@ -7560,19 +7606,28 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(self.lowered_handlers.len() - 1)
   }
 
-  /// Ink's `const { exit } = useApp()`: `exit` the setter of [`crate::EXIT_STATE`],
-  /// state that starts `false` and that a call to `exit` sets to `true`.
+  /// Ink's `const { exit, suspendTerminal } = useApp()`: `exit` the setter of
+  /// [`crate::EXIT_STATE`], state that starts `false` and that a call to `exit`
+  /// sets to `true`; `suspendTerminal` a function [`Lowerer::suspenders`] names.
   fn app_hook(&mut self, pattern: &js::Pat, span: Span) -> Lowered<Option<Stmt>> {
     let js::Pat::Object(object) = pattern else { return Err(self.lowerer.residue(span, "`useApp` bound to one name; destructure it as `const { exit } = useApp()`")) };
     let mut exit = None;
     for prop in &object.props {
-      match prop {
-        js::ObjectPatProp::Assign(assign) if assign.key.sym == "exit" => exit = Some(assign.key.sym.to_string()),
-        js::ObjectPatProp::KeyValue(kv) if matches!(&kv.key, js::PropName::Ident(key) if key.sym == "exit") => {
-          let js::Pat::Ident(local) = &*kv.value else { return Err(self.lowerer.residue(span, "`exit` from `useApp` bound to a pattern")) };
-          exit = Some(local.id.sym.to_string());
+      let (key, local) = match prop {
+        js::ObjectPatProp::Assign(assign) => (assign.key.sym.to_string(), assign.key.sym.to_string()),
+        js::ObjectPatProp::KeyValue(kv) => match (&kv.key, &*kv.value) {
+          (js::PropName::Ident(key), js::Pat::Ident(local)) => (key.sym.to_string(), local.id.sym.to_string()),
+          _ => return Err(self.lowerer.residue(span, "a pattern from `useApp`")),
+        },
+        js::ObjectPatProp::Rest(_) => return Err(self.lowerer.residue(span, "a rest pattern from `useApp`")),
+      };
+      match key.as_str() {
+        "exit" => exit = Some(local),
+        "suspendTerminal" => {
+          self.lowerer.suspenders.push(local.clone());
+          self.browser_function(local);
         }
-        _ => return Err(self.lowerer.residue(span, "`useApp` gives `exit` alone")),
+        other => return Err(self.lowerer.residue(span, format!("`{other}` from `useApp`; it gives `exit` and `suspendTerminal`"))),
       }
     }
     let state = crate::EXIT_STATE.to_owned();
@@ -8193,6 +8248,104 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(false)
   }
 
+  /// An async function a terminal handler runs, `void (async () => { … })()`: its statements run in the handler as far as the first `await`, which hands the awaited promise a continuation, a handler of the component named [`crate::terminal::Event::Resume`] holding the rest. The names the rest reads that the component does not hold itself are carried to it, the handler's own `$event` among them. A `try` around the `await` runs the rest of its block when the promise resolves and its `catch` when it rejects.
+  fn handler_async(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk) -> Lowered<()> {
+    let Some(at) = stmts.iter().position(crate::awaits) else {
+      self.handler_block(stmts, walk)?;
+      return Ok(());
+    };
+    self.handler_block(&stmts[..at], walk)?;
+    let plain = |lowerer: &Lowerer<'_>, stmt: &'p js::Stmt| -> Lowered<(&'p js::Expr, Option<String>)> {
+      match stmt {
+        js::Stmt::Expr(e) => match crate::meaning::bare(&e.expr) {
+          js::Expr::Await(a) => Ok((&*a.arg, None)),
+          _ => Err(lowerer.residue(e.span, "an `await` inside an expression of a handler; await as a statement or a `const`'s value")),
+        },
+        js::Stmt::Decl(js::Decl::Var(var)) => match (var.decls.as_slice(), var.decls.first().and_then(|d| d.init.as_deref()).map(crate::meaning::bare)) {
+          ([decl], Some(js::Expr::Await(a))) => match &decl.name {
+            js::Pat::Ident(name) => Ok((&*a.arg, Some(name.id.sym.to_string()))),
+            _ => Err(lowerer.residue(decl.span, "an awaited value bound to a pattern")),
+          },
+          _ => Err(lowerer.residue(var.span, "an `await` inside an expression of a handler; await as a statement or a `const`'s value")),
+        },
+        other => Err(lowerer.residue(other.span(), "an `await` inside a branch or a loop of a handler")),
+      }
+    };
+    let (awaited, bound, in_try, caught) = match &stmts[at] {
+      js::Stmt::Try(t) if t.finalizer.is_none() => {
+        let inner = &t.block.stmts;
+        let Some(i) = inner.iter().position(crate::awaits) else { return Err(self.lowerer.residue(t.span, "a `try` holding no `await` the handler could reach")) };
+        self.handler_block(&inner[..i], walk)?;
+        let (awaited, bound) = plain(&self.lowerer, &inner[i])?;
+        let caught = match &t.handler {
+          Some(catch) => {
+            let param = match &catch.param {
+              Some(js::Pat::Ident(name)) => Some(name.id.sym.to_string()),
+              None => None,
+              Some(other) => return Err(self.lowerer.residue(other.span(), "a `catch` parameter that is not a name")),
+            };
+            Some((param, &catch.body.stmts[..]))
+          }
+          None => None,
+        };
+        (awaited, bound, &inner[i + 1..], caught)
+      }
+      js::Stmt::Try(t) => return Err(self.lowerer.residue(t.span, "a `finally` in a handler")),
+      stmt => {
+        let (awaited, bound) = plain(&self.lowerer, stmt)?;
+        (awaited, bound, &[][..], None)
+      }
+    };
+    if in_try.iter().any(crate::awaits) {
+      return Err(self.lowerer.residue(stmts[at].span(), "a second `await` inside one `try` of a handler"));
+    }
+    let deferred = self.lowerer.expr(awaited)?;
+    let resume = "$resume".to_owned();
+    let mut rest = HandlerWalk::default();
+    let depth = self.lowerer.scope.len();
+    let resumed = Expr::Var(resume.clone());
+    if let Some(name) = &bound {
+      self.lowerer.scope.push((name.clone(), resumed.clone().field("value")));
+    }
+    let lowered = (|| -> Lowered<()> {
+      let ok = resumed.clone().field("ok");
+      match caught {
+        Some((param, body)) => {
+          rest.reach = Some(ok.clone());
+          self.handler_block(in_try, &mut rest)?;
+          rest.reach = Some(Expr::Not(Box::new(ok)));
+          if let Some(param) = param {
+            self.lowerer.scope.push((param, resumed.clone().field("value")));
+          }
+          self.handler_block(body, &mut rest)?;
+          rest.reach = None;
+        }
+        None => {
+          self.handler_block(in_try, &mut rest)?;
+        }
+      }
+      self.handler_async(&stmts[at + 1..], &mut rest)
+    })();
+    self.lowerer.scope.truncate(depth);
+    lowered?;
+    let mut body = rest.out;
+    body.push(Stmt::Return(Expr::Object(rest.patch)));
+    let held: Vec<String> = self.state.iter().chain(self.state_bindings.iter()).cloned().chain(["$state".to_owned(), "$props".to_owned(), resume.clone()]).chain(self.lowerer.cells.iter().map(|(name, _)| name.clone())).collect();
+    let carried: Vec<String> = snapfire_fsr_ir::body_free_vars(&body).into_iter().filter(|name| !held.contains(name)).collect();
+    let mut handler = vec![Stmt::Let { name: resume.clone(), expr: Expr::Var("$event".to_owned()) }];
+    for name in &carried {
+      handler.push(Stmt::Let { name: name.clone(), expr: resumed.clone().field("carry").field(name.clone()) });
+    }
+    handler.extend(body);
+    let event = crate::terminal::Event::Resume(format!("{}@{}", self.lowerer.parsed.file, stmts[at].span().lo.0)).name();
+    if !self.lowered_handlers.iter().any(|held| held.event == event) {
+      self.lowered_handlers.push(Handler { event: event.clone(), body: handler });
+    }
+    let carry = Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), Expr::Var(name.clone()))).collect());
+    walk.act(crate::terminal::Act::Then.name().to_owned(), Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
+    Ok(())
+  }
+
   /// `if`, `else` and `else if`: each branch lowers under its condition joined to the reach around it and the names it declares go out of scope with it. A branch that returns leaves the rest of the handler reachable only when the other one ran.
   fn handler_if(&mut self, branch: &'p js::IfStmt, walk: &mut HandlerWalk) -> Lowered<()> {
     let mut updates = Vec::new();
@@ -8261,6 +8414,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::Paren(p) => self.handler_stmt(&p.expr, walk),
       js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, walk),
       js::Expr::Await(a) => self.handler_stmt(&a.arg, walk),
+      js::Expr::Call(call) if self.lowerer.async_iife(call).is_some() => {
+        let arrow = self.lowerer.async_iife(call).expect("checked");
+        match &*arrow.body {
+          js::ArrowFunctionBody::FunctionBody(b) => self.handler_async(&b.stmts, walk),
+          js::ArrowFunctionBody::Expr(e) => self.handler_stmt(e, walk),
+        }
+      }
       js::Expr::Assign(assign) if self.lowerer.terminal && self.lowerer.cell_of_target(&assign.left).is_some() => {
         let stmt = self.lowerer.effect(e)?;
         walk.effect(stmt);

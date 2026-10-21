@@ -279,3 +279,31 @@ fn a_timer_callback_carries_what_it_reads_and_a_module_map_it_changes_lasts() {
   assert_eq!(started.iter().map(|t| t.every).collect::<Vec<_>>(), [std::time::Duration::from_millis(30)]);
   assert_eq!(line(session.fire(&started[0]).unwrap()), "a after 30", "the callback read key and ms from what it carried");
 }
+
+#[test]
+fn suspend_terminal_gives_up_the_screen_until_the_child_it_waits_on_exits() {
+  let page = "import { spawn } from \"node:child_process\";\nimport { useState } from \"react\";\nimport { Text, useApp, useInput } from \"ink\";\n\nconst runChild = async (command: string, args: string[]): Promise<void> =>\n  new Promise((resolve, reject) => {\n    const child = spawn(command, args, { stdio: \"inherit\" });\n    child.on(\"exit\", (code, signal) => {\n      if (code === 0) {\n        resolve();\n      } else {\n        reject(new Error(`exited with ${code}`));\n      }\n    });\n    child.on(\"error\", reject);\n  });\n\nexport default function Page() {\n  const { suspendTerminal } = useApp();\n  const [status, setStatus] = useState(\"ready\");\n  useInput((input) => {\n    void (async () => {\n      setStatus(\"suspended\");\n      try {\n        await suspendTerminal(async () => {\n          await runChild(\"sh\", [\"-c\", input]);\n        });\n        setStatus(\"resumed\");\n      } catch (error) {\n        setStatus(`failed: ${(error as Error).message}`);\n      }\n    })();\n  });\n  return <Text>{status}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "ready");
+  let press = |c: char| {
+    let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    key
+  };
+  assert_eq!(line(session.press(&press('r')).unwrap()), "suspended");
+  assert!(!session.wants_screen(), "the child owns the terminal");
+  let spawns = session.take_spawns();
+  assert_eq!((spawns[0].command.as_str(), spawns[0].args.clone()), ("sh", vec!["-c".to_owned(), "r".to_owned()]));
+  let exit = |code: i128| {
+    let mut exit = snapfire_fsr_core::ValueMap::default();
+    exit.insert("code".to_owned(), Value::Int(code));
+    exit.insert("signal".to_owned(), Value::Null);
+    Value::Map(exit)
+  };
+  assert_eq!(line(session.deliver(&spawns[0], Report::Exit, &exit(0)).unwrap()), "resumed");
+  assert!(session.wants_screen(), "the screen is back once the child exits");
+  session.press(&press('x')).unwrap();
+  let failing = session.take_spawns();
+  assert_eq!(line(session.deliver(&failing[0], Report::Exit, &exit(1)).unwrap()), "failed: exited with 1");
+  assert!(session.wants_screen());
+}

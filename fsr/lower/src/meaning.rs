@@ -46,6 +46,8 @@ pub(crate) enum Construct {
   Extension(&'static str),
   /// `node:child_process`, its default export `module` or its `spawn`, whose processes a terminal page starts natively.
   ChildProcess(&'static str),
+  /// `node:process`'s default export, whose `env` a terminal page reads through `terminal.env`.
+  NodeProcess,
   /// React's `Children`, of which the build reads the count of a component's own children.
   Children,
   /// React's `cloneElement`.
@@ -184,6 +186,8 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("node:child_process", "spawn", Construct::ChildProcess("spawn")),
   ("child_process", "default", Construct::ChildProcess("module")),
   ("child_process", "spawn", Construct::ChildProcess("spawn")),
+  ("node:process", "default", Construct::NodeProcess),
+  ("process", "default", Construct::NodeProcess),
   ("svelte/store", "writable", Construct::SvelteStore("writable")),
   ("svelte/store", "readable", Construct::SvelteStore("readable")),
   ("svelte/store", "readonly", Construct::SvelteStore("readonly")),

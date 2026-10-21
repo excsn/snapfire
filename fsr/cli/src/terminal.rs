@@ -175,6 +175,14 @@ pub struct Session {
   cells: ValueMap,
   deferreds: HashMap<String, Deferred>,
   ready: Vec<(Waiting, bool, Value)>,
+  suspensions: Vec<(String, String)>,
+  listeners: Vec<(String, Report, Listener)>,
+}
+
+/// What a page asked to happen when a process it spawned reports: a continuation to run or a promise to settle.
+enum Listener {
+  Run(Waiting),
+  Settle(String, bool),
 }
 
 /// Ink's focus: the focusables the page rendered last, in order, the one
@@ -241,7 +249,7 @@ impl Focus {
       Act::FocusPrevious => self.step(true),
       Act::FocusEnable => self.disabled = false,
       Act::FocusDisable => self.disabled = true,
-      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then => return false,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen => return false,
     }
     true
   }
@@ -259,7 +267,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new() })
   }
 
   /// The page as it stands.
@@ -326,6 +334,19 @@ impl Session {
 
   /// The page after `spawn` reports `report` with `event`, as [`Report`] describes it. As it stands when the page does not listen for it or the component that spawned it is gone.
   pub fn deliver(&mut self, spawn: &Spawn, report: Report, event: &Value) -> Result<Node, String> {
+    let heard: Vec<usize> = self.listeners.iter().enumerate().filter(|(_, (id, heard, _))| *id == spawn.id && *heard == report).map(|(at, _)| at).collect();
+    for at in heard {
+      match &self.listeners[at].2 {
+        Listener::Run(waiting) => {
+          let waiting = Waiting { path: waiting.path.clone(), event: waiting.event.clone(), carry: waiting.carry.clone() };
+          self.ready.push((waiting, true, event.clone()));
+        }
+        Listener::Settle(deferred, ok) => {
+          let (deferred, ok) = (deferred.clone(), *ok);
+          self.settle(&deferred, ok, event.clone());
+        }
+      }
+    }
     let event_name = HandlerEvent::Process { id: spawn.id.clone(), report }.name();
     let listener = self.handlers().find(|(path, _, event)| *path == spawn.path && *event == event_name).map(|(path, index, _)| HandlerRef::at(path, index));
     match listener {
@@ -481,6 +502,32 @@ impl Session {
           self.settle(&deferred, ok, settle.get("value").cloned().unwrap_or(Value::Null));
         }
       }
+      (Some(Act::Listen), Value::Map(listen)) => {
+        let process = match listen.get("process") {
+          Some(Value::Map(process)) => match process.get(snapfire_fsr_lower::terminal::PROCESS) {
+            Some(Value::Str(id)) => id.to_string(),
+            _ => return,
+          },
+          _ => return,
+        };
+        let Some(report) = (match listen.get("report") {
+          Some(Value::Str(report)) => Report::parse(report),
+          _ => None,
+        }) else { return };
+        let listener = match (listen.get("settle").and_then(settle_of), listen.get("event")) {
+          (Some((deferred, ok)), _) => Listener::Settle(deferred, ok),
+          (None, Some(Value::Str(event))) => Listener::Run(Waiting { path: path.to_owned(), event: event.to_string(), carry: listen.get("carry").cloned().unwrap_or(Value::Null) }),
+          _ => return,
+        };
+        self.listeners.push((process, report, listener));
+      }
+      (Some(Act::Suspend), Value::Map(suspend)) => {
+        let (Some(until), Some(settles)) = (suspend.get("until").and_then(deferred_of), suspend.get("settles").and_then(deferred_of)) else { return };
+        match self.deferreds.get(&until).and_then(|d| d.settled.clone()) {
+          Some((ok, value)) => self.settle(&settles, ok, value),
+          None => self.suspensions.push((until, settles)),
+        }
+      }
       (Some(Act::Then), Value::Map(then)) => {
         let (Some(deferred), Some(Value::Str(event))) = (then.get("deferred").and_then(deferred_of), then.get("event")) else { return };
         let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: then.get("carry").cloned().unwrap_or(Value::Null) };
@@ -520,7 +567,7 @@ impl Session {
         self.spawns.push(Spawn { path: path.to_owned(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
       }
       (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
-      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then), _) | (None, _) => {}
+      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen), _) | (None, _) => {}
     }
   }
 
@@ -534,6 +581,16 @@ impl Session {
     for waiting in std::mem::take(&mut entry.waiting) {
       self.ready.push((waiting, ok, value.clone()));
     }
+    let resumed: Vec<String> = self.suspensions.iter().filter(|(until, _)| until == deferred).map(|(_, settles)| settles.clone()).collect();
+    self.suspensions.retain(|(until, _)| until != deferred);
+    for settles in resumed {
+      self.settle(&settles, ok, value.clone());
+    }
+  }
+
+  /// Whether the page wants the screen: false while a `suspendTerminal` it called has yet to settle, when a process it started may own the terminal.
+  pub fn wants_screen(&self) -> bool {
+    self.suspensions.is_empty()
   }
 
   /// One step of the page: its acts taken, its state held and its markup.
@@ -675,7 +732,7 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   .map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
   watcher.watch(app, RecursiveMode::Recursive).map_err(|e| BuildError::Dev(format!("terminal: watching {}: {e}", app.display())))?;
 
-  let screen = Screen::enter().map_err(fail)?;
+  let mut screen = Some(Screen::enter().map_err(fail)?);
   let (columns, rows) = terminal_size();
   session.resize(columns, rows);
   let mut shown = Frame::new(0, 0);
@@ -694,7 +751,10 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   loop {
     let busy = running.load(std::sync::atomic::Ordering::Relaxed) > 0;
     let wait = timers.iter().map(|(_, at)| at.saturating_duration_since(Instant::now())).min().unwrap_or(IDLE).min(if busy { RUNNING } else { IDLE });
-    if crossterm::event::poll(wait).map_err(fail)? {
+    // While a child owns the terminal its input is the child's, so no key is read here.
+    if screen.is_none() {
+      std::thread::sleep(wait);
+    } else if crossterm::event::poll(wait).map_err(fail)? {
       match crossterm::event::read().map_err(fail)? {
         Event::Key(key) if key.kind != KeyEventKind::Release => match key_event(key) {
           Some(Press::Exit) => break,
@@ -732,25 +792,35 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
       fired = true;
     }
     timers.extend(schedule(&mut session));
+    if !session.wants_screen() {
+      screen = None;
+    }
     launch(&mut session);
     if session.exited() {
       break;
     }
-    if fired {
+    if session.wants_screen() && screen.is_none() {
+      screen = Some(Screen::enter().map_err(fail)?);
+      draw(&drawn, &mut shown, true, session.cursor()).map_err(fail)?;
+      fired = false;
+    }
+    if fired && screen.is_some() {
       draw(&drawn, &mut shown, false, session.cursor()).map_err(fail)?;
     }
     if rx.try_recv().is_ok() {
       while rx.try_recv().is_ok() {}
       drawn = session.reload().and_then(|()| session.view());
       timers = schedule(&mut session);
-      draw(&drawn, &mut shown, false, session.cursor()).map_err(fail)?;
+      if screen.is_some() {
+        draw(&drawn, &mut shown, false, session.cursor()).map_err(fail)?;
+      }
     }
   }
   drop(screen);
   Ok(())
 }
 
-/// Starts `spawn`'s process with its output piped and reports each chunk it writes, then its exit and close, on `reports`; one that cannot start reports an error as Node words it, `spawn <command> ENOENT` for a command not found. `running` counts it while it may still report.
+/// Starts `spawn`'s process with its output piped and reports each chunk it writes, then its exit and close, on `reports`; with `stdio: "inherit"` the process takes this terminal's input and output instead and only its exit and close are reported; one that cannot start reports an error as Node words it, `spawn <command> ENOENT` for a command not found. `running` counts it while it may still report.
 fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<std::sync::atomic::AtomicUsize>) {
   use std::process::{Command, Stdio};
   let text = |key: &str| match &spawn.options {
@@ -786,7 +856,11 @@ fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<
       }
     }
   }
-  command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+  let inherit = text("stdio").as_deref() == Some("inherit");
+  match inherit {
+    true => command.stdin(Stdio::inherit()).stdout(Stdio::inherit()).stderr(Stdio::inherit()),
+    false => command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()),
+  };
   let mut child = match command.spawn() {
     Ok(child) => child,
     Err(e) => {
@@ -922,6 +996,17 @@ mod tests {
     exit.insert("code".to_owned(), Value::Int(0));
     exit.insert("signal".to_owned(), Value::Null);
     assert_eq!(spawned("echo", &["hi"]), [(Report::Stdout, Value::Str("hi\n".into())), (Report::Exit, Value::Map(exit.clone())), (Report::Close, Value::Map(exit))]);
+  }
+
+  #[test]
+  fn a_process_that_inherits_the_terminal_reports_only_its_exit_and_close() {
+    let mut options = ValueMap::default();
+    options.insert("stdio".to_owned(), Value::Str("inherit".into()));
+    let spawn = Spawn { path: String::new(), id: "1".to_owned(), command: "true".to_owned(), args: Vec::new(), options: Value::Map(options) };
+    let (reports, reported) = std::sync::mpsc::channel();
+    start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    let kinds: Vec<Report> = reported.iter().map(|(_, report, _)| report).collect();
+    assert_eq!(kinds, [Report::Exit, Report::Close]);
   }
 
   #[test]
