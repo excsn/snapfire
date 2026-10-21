@@ -984,6 +984,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) continuations: Vec<snapfire_fsr_ir::ast::Handler>,
   /// The locals a terminal block bound to a process it spawned.
   pub(crate) spawned: Vec<String>,
+  /// Where the scope of the async function lowering starts: its locals, declared before an `await` and carried to the continuation after it, are its own to write.
+  pub(crate) async_floor: Option<usize>,
   /// The contexts this component provides, by key, for a `getContext` of its own to read.
   pub(crate) provided: Vec<(String, Expr)>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
@@ -1050,7 +1052,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1912,9 +1914,17 @@ impl<'a> Lowerer<'a> {
   }
 
   /// [`Lowerer::async_stmts`] for a function whose promise is `done`: what it returns settles it; an awaited promise that rejects rejects it.
-  fn async_to(&mut self, stmts: &[js::Stmt], done: Option<Expr>) -> Lowered<Expr> {
+  pub(crate) fn async_to(&mut self, stmts: &[js::Stmt], done: Option<Expr>) -> Lowered<Expr> {
+    let floor = self.async_floor.replace(self.scope.len());
+    let lowered = self.async_caught(stmts, done, None);
+    self.async_floor = floor;
+    lowered
+  }
+
+  /// [`Lowerer::async_to`] inside `catch`, where an awaited promise among the statements it covers that rejects runs the `catch` instead.
+  fn async_caught(&mut self, stmts: &[js::Stmt], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
     let depth = self.scope.len();
-    let lowered = self.async_to_in(stmts, done);
+    let lowered = self.async_to_in(stmts, done, catch);
     self.scope.truncate(depth);
     lowered
   }
@@ -1928,10 +1938,11 @@ impl<'a> Lowerer<'a> {
     Ok(Expr::Block(out))
   }
 
-  fn async_to_in(&mut self, stmts: &[js::Stmt], done: Option<Expr>) -> Lowered<Expr> {
+  fn async_to_in(&mut self, stmts: &[js::Stmt], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
     let settle = |done: &Expr, ok: bool, value: Expr| Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(crate::terminal::SETTLES.to_owned(), done.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))])), Entry::Field("value".to_owned(), value)]) };
     let Some(at) = stmts.iter().position(awaits) else {
-      let value = crate::component::block_to_expr(self, stmts)?;
+      let floor = self.async_floor.unwrap_or(self.scope.len());
+      let value = crate::component::block_to_expr_from(self, stmts, floor)?;
       return Ok(match &done {
         None => value,
         Some(done) => {
@@ -1940,6 +1951,27 @@ impl<'a> Lowerer<'a> {
         }
       });
     };
+    let inside = catch.filter(|catch| at < catch.covers);
+    if let js::Stmt::Try(t) = &stmts[at] {
+      if inside.is_some() {
+        return Err(self.residue(t.span, "a `try` that awaits inside another"));
+      }
+      if t.finalizer.is_some() {
+        return Err(self.residue(t.span, "a `finally` around an `await`"));
+      }
+      let Some(handler) = &t.handler else { return Err(self.residue(t.span, "a `try` that awaits without a `catch`")) };
+      let param = match &handler.param {
+        None => None,
+        Some(js::Pat::Ident(name)) => Some(name.id.sym.to_string()),
+        Some(other) => return Err(self.residue(other.span(), "a `catch` parameter that is not a name")),
+      };
+      let before = self.before_await(&stmts[..at])?;
+      let rest = &stmts[at + 1..];
+      let body: Vec<js::Stmt> = t.block.stmts.iter().chain(rest).cloned().collect();
+      let caught: Vec<js::Stmt> = handler.body.stmts.iter().chain(rest).cloned().collect();
+      let ran = self.async_caught(&body, done, Some(AsyncCatch { param, body: caught, covers: t.block.stmts.len() }))?;
+      return Ok(Expr::Block(vec![Stmt::Expr(before), Stmt::Expr(ran)]));
+    }
     if let js::Stmt::If(branch) = &stmts[at] {
       let before = self.before_await(&stmts[..at])?;
       let cond = self.expr(&branch.test)?;
@@ -1949,11 +1981,9 @@ impl<'a> Lowerer<'a> {
           Some(other) => vec![other.clone()],
           None => Vec::new(),
         };
+        let covered = inside.clone().map(|catch| AsyncCatch { covers: joined.len() + catch.covers - at - 1, ..catch });
         joined.extend(stmts[at + 1..].iter().cloned());
-        let depth = this.scope.len();
-        let lowered = this.async_to(&joined, done.clone());
-        this.scope.truncate(depth);
-        lowered
+        this.async_caught(&joined, done.clone(), covered)
       };
       let then = arm(self, Some(&branch.cons))?;
       let otherwise = arm(self, branch.alt.as_deref())?;
@@ -1971,20 +2001,29 @@ impl<'a> Lowerer<'a> {
         },
         _ => return Err(self.residue(var.span, "an `await` inside an expression; await as a statement or a `const`'s value")),
       },
-      other => return Err(self.residue(other.span(), "an `await` inside a branch, a loop or a `try`")),
+      other => return Err(self.residue(other.span(), "an `await` inside a loop or a `switch`")),
     };
     let before = self.before_await(&stmts[..at])?;
     let deferred = self.expr(awaited)?;
     let rest = &stmts[at + 1..];
     let (event, carry) = self.continuation(stmts[at].span(), bound, |this| {
-      let ran = this.async_to(rest, done.clone())?;
-      Ok(match &done {
-        None => ran,
-        Some(done) => {
-          let resumed = Expr::Var("$resume".to_owned());
-          Expr::Ternary(Box::new(resumed.clone().field("ok")), Box::new(ran), Box::new(Expr::Block(vec![settle(done, false, resumed.field("value"))])))
+      let resumed = Expr::Var("$resume".to_owned());
+      let covered = inside.clone().map(|catch| AsyncCatch { covers: catch.covers - at - 1, ..catch }).filter(|catch| catch.covers > 0);
+      let ran = this.async_caught(rest, done.clone(), covered)?;
+      let rejected = match (&inside, &done) {
+        (Some(catch), _) => {
+          let depth = this.scope.len();
+          if let Some(param) = &catch.param {
+            this.scope.push((param.clone(), resumed.clone().field("value")));
+          }
+          let caught = this.async_caught(&catch.body, done.clone(), None);
+          this.scope.truncate(depth);
+          caught?
         }
-      })
+        (None, Some(done)) => Expr::Block(vec![settle(done, false, resumed.clone().field("value"))]),
+        (None, None) => return Ok(ran),
+      };
+      Ok(Expr::Ternary(Box::new(resumed.field("ok")), Box::new(ran), Box::new(rejected)))
     })?;
     let then = Stmt::Act { action: crate::terminal::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
     Ok(Expr::Block(vec![Stmt::Expr(before), then]))
@@ -3808,6 +3847,14 @@ pub(crate) fn intl_formatter(n: &js::NewExpr) -> Option<&'static str> {
 }
 
 /// Whether a statement of an async function holds an `await`: `await x;` and `const v = await x;` [`Lowerer::async_stmts`] splits at; one deeper it refuses.
+/// The `catch` of a `try` an async function awaits in: its parameter, its statements followed by those after the `try`, and how many of the statements lowering the `try` covers.
+#[derive(Clone)]
+struct AsyncCatch {
+  param: Option<String>,
+  body: Vec<js::Stmt>,
+  covers: usize,
+}
+
 pub(crate) fn awaits(stmt: &js::Stmt) -> bool {
   struct Awaits(bool);
   impl swc_core::ecma::visit::Visit for Awaits {

@@ -179,6 +179,8 @@ pub struct Session {
   ready: Vec<(Waiting, bool, Value)>,
   suspensions: Vec<(String, String)>,
   listeners: Vec<(String, Report, Listener)>,
+  /// The promises resolved with another that is still pending: the pending one and the one that settles as it does.
+  adopted: Vec<(String, String)>,
   /// The timers `clearInterval` or `clearTimeout` stopped, by id.
   cleared: std::collections::HashSet<String>,
   /// The cleanup each effect returned the last time it ran, by the component's path and the effect's event, run before it runs again.
@@ -274,7 +276,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
   }
 
   /// The page as it stands.
@@ -618,8 +620,15 @@ impl Session {
     }
   }
 
-  /// Settles `deferred` once, queueing every continuation waiting on it.
+  /// Settles `deferred` once, queueing every continuation waiting on it. Resolving it with another promise settles it as that one settles.
   fn settle(&mut self, deferred: &str, ok: bool, value: Value) {
+    if let (true, Some(inner)) = (ok, deferred_of(&value)) {
+      match self.deferreds.get(&inner).and_then(|d| d.settled.clone()) {
+        Some((ok, value)) => self.settle(deferred, ok, value),
+        None => self.adopted.push((inner, deferred.to_owned())),
+      }
+      return;
+    }
     let entry = self.deferreds.entry(deferred.to_owned()).or_default();
     if entry.settled.is_some() {
       return;
@@ -632,6 +641,11 @@ impl Session {
     self.suspensions.retain(|(until, _)| until != deferred);
     for settles in resumed {
       self.settle(&settles, ok, value.clone());
+    }
+    let adopting: Vec<String> = self.adopted.iter().filter(|(inner, _)| inner == deferred).map(|(_, outer)| outer.clone()).collect();
+    self.adopted.retain(|(inner, _)| inner != deferred);
+    for outer in adopting {
+      self.settle(&outer, ok, value.clone());
     }
   }
 

@@ -2239,7 +2239,7 @@ impl ComponentSet {
       }
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
-        Global::Function(params, body) => function_to_lambda(&mut lowerer, params, *body),
+        Global::Function(params, body, is_async) => function_to_lambda(&mut lowerer, params, *body, *is_async),
       };
       match result {
         Ok(expr) => {
@@ -2583,7 +2583,8 @@ pub(crate) fn action_alias_of(parsed: &Parsed, name: &str) -> Option<String> {
 #[derive(Clone)]
 enum Global<'a> {
   Const(&'a js::Expr),
-  Function(Vec<js::Pat>, FunctionBody<'a>),
+  /// Its parameters, its body and whether it is `async`.
+  Function(Vec<js::Pat>, FunctionBody<'a>, bool),
 }
 
 pub(crate) fn patterns(function: &js::Function) -> Vec<js::Pat> {
@@ -2898,7 +2899,7 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
         if let js::DefaultDecl::Fn(f) = &d.decl {
           if name == "default" || f.ident.as_ref().is_some_and(|id| id.sym.as_ref() == name) {
             let body = f.function.body.as_ref()?;
-            return Some(Global::Function(patterns(&f.function), FunctionBody::Block(&body.stmts)));
+            return Some(Global::Function(patterns(&f.function), FunctionBody::Block(&body.stmts), f.function.is_async));
           }
         }
         continue;
@@ -2906,7 +2907,7 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
       js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if name == "default" => {
         return match crate::meaning::bare(&e.expr) {
           js::Expr::Ident(id) => find_value(parsed, id.sym.as_ref()),
-          js::Expr::Arrow(arrow) => Some(Global::Function(arrow.params.clone(), arrow_body(arrow))),
+          js::Expr::Arrow(arrow) => Some(Global::Function(arrow.params.clone(), arrow_body(arrow), arrow.is_async)),
           value => Some(Global::Const(value)),
         };
       }
@@ -2915,13 +2916,13 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
     match decl {
       js::Decl::Fn(f) if f.ident.sym.as_ref() == name => {
         let body = f.function.body.as_ref()?;
-        return Some(Global::Function(patterns(&f.function), FunctionBody::Block(&body.stmts)));
+        return Some(Global::Function(patterns(&f.function), FunctionBody::Block(&body.stmts), f.function.is_async));
       }
       js::Decl::Var(var) => {
         for d in &var.decls {
           if matches!(&d.name, js::Pat::Ident(id) if id.id.sym.as_ref() == name) {
             return match d.init.as_deref()? {
-              js::Expr::Arrow(arrow) => Some(Global::Function(arrow.params.clone(), arrow_body(arrow))),
+              js::Expr::Arrow(arrow) => Some(Global::Function(arrow.params.clone(), arrow_body(arrow), arrow.is_async)),
               init => Some(Global::Const(init)),
             };
           }
@@ -3229,9 +3230,21 @@ pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, Strin
 
 /// A module-level function as a lambda: parameters bind as in `Lowerer::lambda`;
 /// `const`s inline; `if (c) return a;` chains become ternaries.
-fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: FunctionBody<'_>) -> Lowered<Expr> {
+/// A module function as a lambda. An `async` one in a terminal page runs its statements as an async function and returns the promise they settle.
+fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
   let names = bind_params(lowerer, params)?;
+  if is_async && lowerer.terminal {
+    let done = lowerer.temp();
+    let stmts = match body {
+      FunctionBody::Block(stmts) => stmts.to_vec(),
+      FunctionBody::Expr(e) => vec![js::Stmt::Return(js::ReturnStmt { span: e.span(), arg: Some(Box::new(e.clone())) })],
+    };
+    let ran = lowerer.async_to(&stmts, Some(Expr::Var(done.clone())));
+    lowerer.scope.truncate(depth);
+    let body = Expr::Block(vec![Stmt::Let { name: done.clone(), expr: lowerer.new_deferred() }, Stmt::Expr(ran?), Stmt::Return(Expr::Var(done))]);
+    return Ok(Expr::Lambda { params: names, body: Box::new(body) });
+  }
   let result = match body {
     FunctionBody::Expr(e) => lowerer.expr(e),
     FunctionBody::Block(stmts) => {
