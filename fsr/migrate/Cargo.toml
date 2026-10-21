@@ -1,0 +1,19 @@
+[package]
+name = "snapfire_fsr_migrate"
+version = "0.1.0"
+description = "Rewrites an application written for Next.js, SvelteKit or Nuxt into a SnapFire FSR application, naming each line it left for a person."
+keywords = ["snapfire", "fsr", "migration", "codemod", "nextjs"]
+categories = ["web-programming", "development-tools"]
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+
+[dependencies]
+serde_json = "1"
+
+[dependencies.swc_core]
+version = "82"
+features = ["common", "ecma_ast", "ecma_parser", "ecma_visit"]
