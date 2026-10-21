@@ -139,7 +139,7 @@ learn-manipulating-the-dom-with-refs-10	same
 learn-manipulating-the-dom-with-refs-11	same
 learn-manipulating-the-dom-with-refs-12	same
 learn-manipulating-the-dom-with-refs-13	differs
-learn-manipulating-the-dom-with-refs-14	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-17839/learn-manipulating-the-dom-with-refs-14/app/.fsr/test: snapfirec failed:
+learn-manipulating-the-dom-with-refs-14	react fails: prepare: compiling the spec files into <scratch>/learn-manipulating-the-dom-with-refs-14/app/.fsr/test: snapfirec failed:
 learn-manipulating-the-dom-with-refs-15	same
 learn-manipulating-the-dom-with-refs-16	same
 learn-manipulating-the-dom-with-refs-2	same
@@ -147,7 +147,7 @@ learn-manipulating-the-dom-with-refs-3	differs
 learn-manipulating-the-dom-with-refs-4	same
 learn-manipulating-the-dom-with-refs-5	same
 learn-manipulating-the-dom-with-refs-6	differs
-learn-manipulating-the-dom-with-refs-7	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-17868/learn-manipulating-the-dom-with-refs-7/app/.fsr/test: snapfirec failed:
+learn-manipulating-the-dom-with-refs-7	react fails: prepare: compiling the spec files into <scratch>/learn-manipulating-the-dom-with-refs-7/app/.fsr/test: snapfirec failed:
 learn-manipulating-the-dom-with-refs-8	same
 learn-manipulating-the-dom-with-refs-9	same
 learn-passing-data-deeply-with-context-1	same
@@ -268,7 +268,7 @@ learn-reusing-logic-with-custom-hooks-11	same
 learn-reusing-logic-with-custom-hooks-12	same
 learn-reusing-logic-with-custom-hooks-13	same
 learn-reusing-logic-with-custom-hooks-14	same
-learn-reusing-logic-with-custom-hooks-15	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-18400/learn-reusing-logic-with-custom-hooks-15/app/.fsr/test: snapfirec failed:
+learn-reusing-logic-with-custom-hooks-15	react fails: prepare: compiling the spec files into <scratch>/learn-reusing-logic-with-custom-hooks-15/app/.fsr/test: snapfirec failed:
 learn-reusing-logic-with-custom-hooks-16	same
 learn-reusing-logic-with-custom-hooks-17	same
 learn-reusing-logic-with-custom-hooks-18	same
@@ -421,7 +421,7 @@ reference-react-activity-8	same
 reference-react-activity-9	same
 reference-react-captureownerstack-1	same
 reference-react-captureownerstack-2	same
-reference-react-captureownerstack-3	react fails: import: Error: Could not find export 'captureOwnerStack' in module '/private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-co'
+reference-react-captureownerstack-3	react fails: import: Error: Could not find export 'captureOwnerStack' in module '<temp>/fsr-co'
 reference-react-children-1	same
 reference-react-children-10	ir fails: indexing wants an object or an array, got string
 reference-react-children-11	same
@@ -431,7 +431,7 @@ reference-react-children-4	same
 reference-react-children-5	same
 reference-react-children-6	same
 reference-react-children-7	same
-reference-react-children-8	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19056/reference-react-children-8/app/.fsr/test: snapfirec failed:
+reference-react-children-8	react fails: prepare: compiling the spec files into <scratch>/reference-react-children-8/app/.fsr/test: snapfirec failed:
 reference-react-children-9	equivalent
 reference-react-cloneelement-1	ir fails: map wants an array, got null
 reference-react-cloneelement-2	same
@@ -448,7 +448,7 @@ reference-react-component-6	same
 reference-react-component-7	same
 reference-react-component-8	same
 reference-react-component-9	same
-reference-react-createelement-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19123/reference-react-createelement-1/app/.fsr/test: snapfirec failed:
+reference-react-createelement-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-createelement-1/app/.fsr/test: snapfirec failed:
 reference-react-createelement-2	same
 reference-react-createref-1	same
 reference-react-createref-2	same
@@ -468,7 +468,7 @@ reference-react-dom-components-common-6	same
 reference-react-dom-components-common-7	same
 reference-react-dom-components-form-1	same
 reference-react-dom-components-form-2	differs
-reference-react-dom-components-form-3	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19237/reference-react-dom-components-form-3/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-form-3	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-form-3/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-form-4	differs
 reference-react-dom-components-form-6	differs
 reference-react-dom-components-form-7	differs
@@ -480,33 +480,33 @@ reference-react-dom-components-input-2	differs
 reference-react-dom-components-input-3	same
 reference-react-dom-components-input-4	same
 reference-react-dom-components-input-5	same
-reference-react-dom-components-link-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19286/reference-react-dom-components-link-1/app/.fsr/test: snapfirec failed:
-reference-react-dom-components-link-2	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19291/reference-react-dom-components-link-2/app/.fsr/test: snapfirec failed:
-reference-react-dom-components-link-3	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19297/reference-react-dom-components-link-3/app/.fsr/test: snapfirec failed:
-reference-react-dom-components-link-4	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19302/reference-react-dom-components-link-4/app/.fsr/test: snapfirec failed:
-reference-react-dom-components-meta-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19315/reference-react-dom-components-meta-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-link-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-link-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-link-2	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-link-2/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-link-3	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-link-3/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-link-4	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-link-4/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-meta-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-meta-1/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-option-1	same
 reference-react-dom-components-progress-1	same
-reference-react-dom-components-script-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19327/reference-react-dom-components-script-1/app/.fsr/test: snapfirec failed:
-reference-react-dom-components-script-2	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19330/reference-react-dom-components-script-2/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-script-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-script-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-script-2	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-script-2/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-select-1	same
 reference-react-dom-components-select-2	differs
 reference-react-dom-components-select-3	same
 reference-react-dom-components-select-4	ir fails: String wants a scalar, got array
 reference-react-dom-components-select-5	ir fails: String wants a scalar, got array
 reference-react-dom-components-select-6	ir fails: String wants a scalar, got array
-reference-react-dom-components-style-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19349/reference-react-dom-components-style-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-style-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-style-1/app/.fsr/test: snapfirec failed:
 reference-react-dom-components-textarea-1	same
 reference-react-dom-components-textarea-2	differs
 reference-react-dom-components-textarea-3	same
 reference-react-dom-components-textarea-4	same
-reference-react-dom-components-title-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19365/reference-react-dom-components-title-1/app/.fsr/test: snapfirec failed:
-reference-react-dom-createportal-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19368/reference-react-dom-createportal-1/app/.fsr/test: snapfirec failed:
-reference-react-dom-createportal-2	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19376/reference-react-dom-createportal-2/app/.fsr/test: snapfirec failed:
-reference-react-dom-createportal-3	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19377/reference-react-dom-createportal-3/app/.fsr/test: snapfirec failed:
-reference-react-dom-flushsync-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19382/reference-react-dom-flushsync-1/app/.fsr/test: snapfirec failed:
-reference-react-dom-hooks-useformstatus-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19389/reference-react-dom-hooks-useformstatus-1/app/.fsr/test: snapfirec failed:
-reference-react-dom-hooks-useformstatus-2	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19397/reference-react-dom-hooks-useformstatus-2/app/.fsr/test: snapfirec failed:
+reference-react-dom-components-title-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-components-title-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-createportal-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-createportal-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-createportal-2	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-createportal-2/app/.fsr/test: snapfirec failed:
+reference-react-dom-createportal-3	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-createportal-3/app/.fsr/test: snapfirec failed:
+reference-react-dom-flushsync-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-flushsync-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-hooks-useformstatus-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-hooks-useformstatus-1/app/.fsr/test: snapfirec failed:
+reference-react-dom-hooks-useformstatus-2	react fails: prepare: compiling the spec files into <scratch>/reference-react-dom-hooks-useformstatus-2/app/.fsr/test: snapfirec failed:
 reference-react-dom-server-resume-1	refused
 reference-react-forwardref-1	same
 reference-react-forwardref-2	same
@@ -592,9 +592,9 @@ reference-react-useid-2	differs
 reference-react-useid-3	differs
 reference-react-useimperativehandle-1	same
 reference-react-useimperativehandle-2	same
-reference-react-uselayouteffect-1	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19784/reference-react-uselayouteffect-1/app/.fsr/test: snapfirec failed:
-reference-react-uselayouteffect-2	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19786/reference-react-uselayouteffect-2/app/.fsr/test: snapfirec failed:
-reference-react-uselayouteffect-3	react fails: prepare: compiling the spec files into /private/var/folders/t0/qbp7fs7x1ll_08gtnw6lncg80000gn/T/fsr-corpus-html-19790/reference-react-uselayouteffect-3/app/.fsr/test: snapfirec failed:
+reference-react-uselayouteffect-1	react fails: prepare: compiling the spec files into <scratch>/reference-react-uselayouteffect-1/app/.fsr/test: snapfirec failed:
+reference-react-uselayouteffect-2	react fails: prepare: compiling the spec files into <scratch>/reference-react-uselayouteffect-2/app/.fsr/test: snapfirec failed:
+reference-react-uselayouteffect-3	react fails: prepare: compiling the spec files into <scratch>/reference-react-uselayouteffect-3/app/.fsr/test: snapfirec failed:
 reference-react-usememo-1	times out
 reference-react-usememo-2	times out
 reference-react-usememo-3	differs

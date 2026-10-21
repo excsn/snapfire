@@ -60,7 +60,14 @@ fn first_html(name: &str) -> String {
   let (send, receive) = std::sync::mpsc::channel();
   let worker = app.clone();
   std::thread::spawn(move || send.send(verdict(&worker)));
-  let verdict = receive.recv_timeout(BUDGET).unwrap_or_else(|_| "times out".to_owned());
+  let mut verdict = receive.recv_timeout(BUDGET).unwrap_or_else(|_| "times out".to_owned());
+  // The temp directory differs per machine and per run, an error names it resolved through `/private` on macOS and the engine cuts a long message inside the path.
+  let temp = std::env::temp_dir();
+  for (spelled, with) in [(scratch.canonicalize().ok(), "<scratch>"), (Some(scratch.clone()), "<scratch>"), (temp.canonicalize().ok(), "<temp>"), (Some(temp), "<temp>")] {
+    if let Some(spelled) = spelled {
+      verdict = verdict.replace(spelled.to_string_lossy().trim_end_matches('/'), with);
+    }
+  }
   let _ = std::fs::remove_dir_all(&scratch);
   verdict
 }
