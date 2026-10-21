@@ -1,6 +1,6 @@
 # FSR examples
 
-Fifteen applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Twenty-six applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
 Each has a `README.md` saying what it shows and where. They are grouped by what renders in the browser. Within a group, read in order: each carries the part the ones before it do not reach.
 
