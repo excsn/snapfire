@@ -294,7 +294,8 @@ fn set_cursor_position_while_rendering_hands_the_terminal_where_the_cursor_goes(
     map.insert("y".to_owned(), Value::F64(0.0));
     Some(Value::Map(map))
   };
-  assert_eq!(first.cursor, at(2.0));
+  let cursor = |stepped: &snapfire_fsr_ir::render::Stepped| stepped.emitted.iter().filter(|(kind, _)| kind == snapfire_fsr_lower::terminal::CURSOR).map(|(_, v)| v.clone()).last();
+  assert_eq!(cursor(&first), at(2.0));
   let typed = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &key("ab", &[]), &library).unwrap();
-  assert_eq!(typed.cursor, at(4.0));
+  assert_eq!(cursor(&typed), at(4.0));
 }

@@ -440,8 +440,9 @@ impl Session {
     self.written.drain(..excess);
     self.state = stepped.state;
     self.components = stepped.components;
-    self.focusables_seen = stepped.focusables;
-    self.cursor = stepped.cursor.as_ref().and_then(cell_of);
+    use snapfire_fsr_lower::terminal::{CURSOR, FOCUSABLE};
+    self.focusables_seen = stepped.emitted.iter().filter(|(kind, _)| kind == FOCUSABLE).map(|(_, v)| v.clone()).collect();
+    self.cursor = stepped.emitted.iter().rev().find(|(kind, _)| kind == CURSOR).and_then(|(_, v)| cell_of(v));
     Ok(stepped.rendered.html)
   }
 }

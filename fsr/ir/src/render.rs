@@ -238,10 +238,8 @@ pub struct Stepped {
   pub acts: Vec<(String, Value)>,
   /// Each component the render entered, by the path a `HandlerRef` addresses it with and its module, root first.
   pub components: Vec<(String, String)>,
-  /// The value of each [`FOCUSABLE`] the render bound, in render order.
-  pub focusables: Vec<Value>,
-  /// The last [`CURSOR`] the render bound; `None` when it bound none.
-  pub cursor: Option<Value>,
+  /// Each value a body handed its host with an [`EMIT_PREFIX`] `let`, by kind, in render order.
+  pub emitted: Vec<(String, Value)>,
 }
 
 /// The handler a step runs: an index into the handlers of the component at
@@ -347,11 +345,28 @@ pub const RERUN_PREFIX: &str = "$rerun:";
 /// The start of a body `let` that holds a state binding's value from there on: the prefix, then the binding's name. The binding's held state after the render is that value, as a ref written while rendering keeps what was written.
 pub const HOLD_PREFIX: &str = "$hold:";
 
-/// A body `let` of this name holds a focusable a terminal can move focus to, `{ id, autoFocus, isActive }`; a step lists each one it rendered in order.
-pub const FOCUSABLE: &str = "$focusable";
+/// The start of a body `let` whose value the step hands its host: the prefix, then the kind, which the host reads it by. The renderer gives it no meaning of its own; a terminal reads a focusable and a cursor this way.
+pub const EMIT_PREFIX: &str = "$emit:";
 
-/// A body `let` of this name holds where a terminal puts its cursor, `{ x, y }` from the corner of the output; null hides it. Ink's `setCursorPosition` sets it and a step returns the last one bound.
-pub const CURSOR: &str = "$cursor";
+/// What a body `let`'s name asks of the renderer besides binding it.
+enum Directive<'n> {
+  /// [`RERUN_PREFIX`] and the state binding's name.
+  Rerun(&'n str),
+  /// [`HOLD_PREFIX`] and the state binding's name.
+  Hold(&'n str),
+  /// [`EMIT_PREFIX`] and the kind.
+  Emit(&'n str),
+}
+
+fn directive(name: &str) -> Option<Directive<'_>> {
+  if let Some(state) = name.strip_prefix(RERUN_PREFIX) {
+    return Some(Directive::Rerun(state));
+  }
+  if let Some(state) = name.strip_prefix(HOLD_PREFIX) {
+    return Some(Directive::Hold(state));
+  }
+  name.strip_prefix(EMIT_PREFIX).map(Directive::Emit)
+}
 
 /// How many passes a body may take, React's limit for a component that keeps setting its own state while rendering.
 pub const RERUN_LIMIT: usize = 25;
@@ -646,15 +661,13 @@ impl Interpreter {
     let mut out = Out::default();
     let mut slots = Vec::new();
     env.entered.clear();
-    env.focusables.clear();
-    env.cursor = None;
+    env.emitted.clear();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
     let components = std::mem::take(&mut env.entered);
-    let focusables = std::mem::take(&mut env.focusables);
-    let cursor = env.cursor.take();
-    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components, focusables, cursor })
+    let emitted = std::mem::take(&mut env.emitted);
+    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components, emitted })
   }
 }
 
@@ -788,29 +801,32 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
 /// Binds the body's `let`s, running it again while a pass asks for new state (`RERUN_PREFIX`). Its own function so the passes' locals are off the stack while the tree renders.
 fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out: &mut Out) -> Result<(), Fail> {
   let mut next: Vec<(String, Value)> = Vec::new();
-  let mut focusables = Vec::new();
+  let mut emitted = Vec::new();
   for pass in 1.. {
     let mut asked = false;
-    focusables.clear();
+    emitted.clear();
     for stmt in &component.body {
       let Stmt::Let { name, expr } = stmt else {
         return Err(Fail::internal("a component body is `let`s only"));
       };
-      if let Some(state) = name.strip_prefix(HOLD_PREFIX) {
-        let value = env.eval_sync(expr)?;
-        out.state.insert(state_key(path, state), value);
-        continue;
-      }
-      if let Some(state) = name.strip_prefix(RERUN_PREFIX) {
-        if let Value::Seq(value) = env.eval_sync(expr)? {
-          let value = value.first().cloned().unwrap_or(Value::Null);
-          match next.iter_mut().find(|(n, _)| n == state) {
-            Some(held) => held.1 = value,
-            None => next.push((state.to_owned(), value)),
-          }
-          asked = true;
+      match directive(name) {
+        Some(Directive::Hold(state)) => {
+          let value = env.eval_sync(expr)?;
+          out.state.insert(state_key(path, state), value);
+          continue;
         }
-        continue;
+        Some(Directive::Rerun(state)) => {
+          if let Value::Seq(value) = env.eval_sync(expr)? {
+            let value = value.first().cloned().unwrap_or(Value::Null);
+            match next.iter_mut().find(|(n, _)| n == state) {
+              Some(held) => held.1 = value,
+              None => next.push((state.to_owned(), value)),
+            }
+            asked = true;
+          }
+          continue;
+        }
+        Some(Directive::Emit(_)) | None => {}
       }
       let held_here = component.state.contains(name) && component.store_key(name).is_none();
       let value = match next.iter().find(|(n, _)| n == name) {
@@ -823,16 +839,13 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
       if held_here {
         out.state.insert(state_key(path, name), value.clone());
       }
-      if name == FOCUSABLE && env.server_mode {
-        focusables.push(value.clone());
-      }
-      if name == CURSOR && env.server_mode {
-        env.cursor = Some(value.clone());
+      if let (Some(Directive::Emit(kind)), true) = (directive(name), env.server_mode) {
+        emitted.push((kind.to_owned(), value.clone()));
       }
       env.scope.push((name.clone(), value));
     }
     if !asked {
-      env.focusables.append(&mut focusables);
+      env.emitted.append(&mut emitted);
       break;
     }
     if pass == RERUN_LIMIT {

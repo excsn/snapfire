@@ -14,6 +14,7 @@ mod placements;
 pub mod schema;
 pub mod testing;
 pub mod svelte;
+pub mod terminal;
 pub mod vue;
 
 use component::FunctionBody;

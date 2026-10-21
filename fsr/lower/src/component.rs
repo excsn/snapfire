@@ -3925,8 +3925,9 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
               Some(arg) => lowerer.expr(&arg.expr)?,
               None => Expr::Lit(Lit::Null),
             };
-            lowerer.scope.push((snapfire_fsr_ir::render::CURSOR.to_owned(), at));
-            note(assigned, snapfire_fsr_ir::render::CURSOR);
+            let cursor = crate::terminal::emit(crate::terminal::CURSOR);
+            lowerer.scope.push((cursor.clone(), at));
+            note(assigned, &cursor);
             return Ok(());
           }
         }
@@ -5997,7 +5998,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if self.held_refs.contains(&name) {
         lets.push(Stmt::Let { name: format!("{}{name}", snapfire_fsr_ir::render::HOLD_PREFIX), expr: Expr::Var(fresh.clone()) });
       }
-      if name == snapfire_fsr_ir::render::CURSOR {
+      if name == crate::terminal::emit(crate::terminal::CURSOR) {
         lets.push(Stmt::Let { name: name.clone(), expr: Expr::Var(fresh.clone()) });
       }
       self.lowerer.scope.push((name, Expr::Var(fresh)));
@@ -6282,7 +6283,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.lowerer.cursor_setters.push(local.clone());
         self.browser_function(local);
       }
-      self.lowerer.scope.push((snapfire_fsr_ir::render::CURSOR.to_owned(), Expr::Lit(Lit::Null)));
+      self.lowerer.scope.push((crate::terminal::emit(crate::terminal::CURSOR), Expr::Lit(Lit::Null)));
       return Ok(None);
     }
     if let Some(("useBoxMetrics", call)) = hook_call(&self.meanings(), init) {
@@ -7604,9 +7605,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if hook == "useFocusManager" {
       return Ok(None);
     }
-    self.state.push(snapfire_fsr_ir::render::FOCUSABLE.to_owned());
+    self.state.push(crate::terminal::emit(crate::terminal::FOCUSABLE));
     let focusable = Expr::Object(vec![Entry::Field("id".to_owned(), id), Entry::Field("autoFocus".to_owned(), auto), Entry::Field("isActive".to_owned(), active)]);
-    Ok(Some(Stmt::Let { name: snapfire_fsr_ir::render::FOCUSABLE.to_owned(), expr: focusable }))
+    Ok(Some(Stmt::Let { name: crate::terminal::emit(crate::terminal::FOCUSABLE), expr: focusable }))
   }
 
   /// The timers a mount effect starts, `useEffect(() => { setInterval(f, ms) }, [])`,
