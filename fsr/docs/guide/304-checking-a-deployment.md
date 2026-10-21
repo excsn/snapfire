@@ -112,11 +112,25 @@ expects      session.key: the files hold the placeholder; this deployment needs 
 doctor       21 checks, nothing to report
 ```
 
+A secret written encrypted in an overlay (a `.c5encval` value) is in the files but only decrypts with the deployment's key, which a build machine does not hold either. Doctor lists it the same way: `session.key: encrypted in the files; this deployment needs the key that decrypts it when it starts`. `fsr bundle` lays out such an overlay without decrypting it.
+
 On the machine that will run it, with its environment in place, add `--runtime` and the same value is a finding when it is still missing:
 
 ```sh
 fsr doctor app --env production --runtime
 ```
+
+## The schema an editor checks against
+
+`fsr build` writes `generated/config.schema.json`, a JSON Schema of every section the host reads, typed from the code that reads it, so the schema and the host cannot disagree. A project from `fsr new` names it on the first line of each configuration file, which an editor with a TOML language server (taplo, Even Better TOML) reads to complete keys, describe them and underline one no section declares:
+
+```toml
+#:schema ../app/generated/config.schema.json
+[session]
+ttl = "24h"
+```
+
+A value the deployment's environment sets carries the variable that sets it, `x-runtime: C5_SESSION__KEY`. A table the host does not read is allowed, since it is the application's own.
 
 ## What doctor does not do
 

@@ -745,3 +745,15 @@ fn a_section_one_edit_from_the_hosts_own_is_reported_as_a_misspelling() {
   std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn a_secret_this_machine_cannot_decrypt_is_expected_and_the_deployment_refuses_it_at_runtime() {
+  let secret = "[session.key]\n\".c5encval\" = [\"ecies_x25519\", \"absent_key\", \"AAAA\"]\n";
+  let dir = app("", &[("production.toml", secret)]);
+  let ci = doctor::run_with(&dir, &production()).expect("a check machine without the key still runs");
+  assert!(ci.is_clean(), "{ci}");
+  assert_eq!(ci.expected, ["session.key: encrypted in the files; this deployment needs the key that decrypts it when it starts"], "{ci}");
+  let error = doctor::run_with(&dir, &production().runtime(true)).expect_err("the deployment itself refuses it").to_string();
+  assert!(error.contains("does not decrypt"), "{error}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+

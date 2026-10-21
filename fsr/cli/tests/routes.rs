@@ -541,6 +541,16 @@ fn a_page_slot_variant_is_an_intercept_under_the_layout_declaring_the_slot() {
 }
 
 #[test]
+fn the_build_writes_the_configuration_schema_an_editor_validates_app_toml_against() {
+  let dir = app(&[("routes/page.tsx", PAGE)]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let text = built.files.iter().find(|(name, _)| name == "generated/config.schema.json").map(|(_, text)| text.clone()).expect("written");
+  let schema: serde_json::Value = serde_json::from_str(&text).unwrap();
+  assert_eq!(schema, snapfire_fsr_host::config::config_schema());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn route_files_written_in_javascript_are_read_like_their_typescript_forms() {
   let dir = app(&[
     ("routes/layout.jsx", "export default function Layout({ children }) {\n  return <main>{children}</main>;\n}\n"),

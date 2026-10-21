@@ -63,6 +63,7 @@ http-body-util = "0.1"
 hyper = { version = "1", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 serde = { version = "1", features = ["derive"] }
+schemars = "1"
 sha2 = "0.10"
 base64 = "0.22"
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
@@ -81,6 +82,7 @@ multer = "3"
 
 [dev-dependencies]
 snapfire_fsr_macros.workspace = true
+jsonschema = { version = "0", default-features = false }
 proptest = "1"
 bolero = "0.13"
 axum = "0.8"

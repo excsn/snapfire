@@ -101,6 +101,9 @@ pub struct Config {
   /// The deployment whose ladder was loaded; `None` when the caller owned
   /// the store, when `dev` reads the environment.
   pub deployment: Option<Deployment>,
+  /// Keys written as secrets this process could not decrypt, recorded rather
+  /// than refused when the loader was asked to keep them (`Loader::keep_undecrypted`).
+  pub undecrypted: Vec<String>,
 }
 
 /// One `[public]` value: a TOML scalar, kept as written so the build can type
@@ -151,7 +154,7 @@ impl std::fmt::Display for PublicValue {
 /// nothing changes nothing. The routes stay fixed: `/static/css`,
 /// `/static/icons` and the bundle's public path answer whatever directory
 /// a key names.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DirsSection {
@@ -195,7 +198,7 @@ fn default_public_dir() -> String {
 /// plain `<img>` of an imported asset is rewritten, the base its URLs are
 /// served from when a CDN answers them and the named sources a remote
 /// image is addressed through.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ImagesSection {
@@ -228,7 +231,7 @@ pub struct ImagesSection {
 }
 
 /// `[media]`.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct MediaSection {
@@ -241,7 +244,7 @@ pub struct MediaSection {
   pub embed_stills: EmbedStills,
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum EmbedStills {
   #[default]
@@ -261,7 +264,7 @@ impl Default for ImagesSection {
   }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ImageSource {
@@ -292,7 +295,7 @@ pub struct FontsSection {
 /// One `[fonts.<key>]`. Every field is optional, though a key carries at
 /// least one, since an empty table is not read: `family` alone names a
 /// family the directory holds and gives it the variable `--font-<key>`.
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct FontEntry {
@@ -346,7 +349,7 @@ pub struct SitesSection {
 /// `[sites.<name>]`: `artifact`, `name@version` under the root or a path,
 /// with `hash` the content hash the mount is pinned to and `allow_engine`
 /// whether an artifact carrying engine-owned rows may be mounted.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct MountConfig {
@@ -376,7 +379,7 @@ impl MountConfig {
 
 /// `[site]`: `name` prefixes every id the build emits, `<name>:` and `at` is
 /// the path every route and link is written under.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct SiteSection {
@@ -409,7 +412,7 @@ impl SiteSection {
   }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct AppSection {
@@ -423,7 +426,7 @@ impl Default for AppSection {
   }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ServerConfig {
@@ -494,7 +497,7 @@ pub struct ServerConfig {
 
 /// `[server.tls]`: where the certificate and its key are read from, what the
 /// handshake offers and which signal re-reads them.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TlsSection {
@@ -562,7 +565,7 @@ impl Default for ServerConfig {
 /// A Content-Security-Policy as directives and their sources, which is what
 /// lets the host add a source of its own without the policy having left a hole
 /// for it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
 #[serde(transparent)]
 pub struct Csp(pub BTreeMap<String, Vec<String>>);
 
@@ -623,7 +626,7 @@ impl Csp {
 /// minified modules are about a third smaller and import their siblings by
 /// `.min.js`, which the host answers either way, so this picks what the entry
 /// point gets and the graph follows it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]
 pub enum ClientBuild {
@@ -653,7 +656,7 @@ impl ClientBuild {
 }
 
 /// The document shell. `entry`, `import_map` and `styles` are inferred when absent.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DocumentConfig {
@@ -791,6 +794,27 @@ impl Text {
   }
 }
 
+impl schemars::JsonSchema for Text {
+  fn schema_name() -> std::borrow::Cow<'static, str> {
+    "Text".into()
+  }
+
+  fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+      "description": "A literal; a table names a message key read from the catalog of the request's locale and the literal it falls back to.",
+      "anyOf": [
+        { "type": "string" },
+        {
+          "type": "object",
+          "properties": { "key": { "type": "string" }, "default": { "type": "string" } },
+          "required": ["key"],
+          "additionalProperties": false
+        }
+      ]
+    })
+  }
+}
+
 impl<'de> Deserialize<'de> for Text {
   fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
     struct Visitor;
@@ -825,7 +849,7 @@ impl<'de> Deserialize<'de> for Text {
   }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct SessionSection {
@@ -913,7 +937,7 @@ fn default_csrf_outstanding() -> u32 {
 /// The render memo: evaluated subtrees keyed by plan node, params, identity
 /// and a fingerprint of their data, so a hit skips evaluation and a data
 /// change is a miss. `ttl` bounds how long an entry nobody invalidates lives.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CacheSection {
@@ -931,7 +955,7 @@ pub struct CacheSection {
 /// seed. `slot_order` lists slot names, the later winning, `content` for the
 /// page; a slot it leaves out loses to every slot it names and stands in name
 /// order among the others. Empty, name order decides throughout.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct StoreSection {
@@ -939,7 +963,7 @@ pub struct StoreSection {
   pub slot_order: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DataCacheSection {
@@ -974,7 +998,7 @@ fn default_cache_ttl() -> String {
 /// `clients/<name>.openapi.json` under the app directory, or
 /// `clients/<name>.proto` when that is the file present; a `.proto` document
 /// is reached over gRPC, anything else over HTTP.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct ClientConfig {
@@ -1012,7 +1036,7 @@ impl ClientConfig {
   }
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(untagged)]
 #[non_exhaustive]
 pub enum BearerKey {
@@ -1034,7 +1058,7 @@ impl BearerKey {
 /// The `[auth]` section: which provider signs users in and where its login
 /// page is. `users` is the `file` provider's table, relative to the
 /// configuration directory and read on its own, never through the ladder.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct AuthSection {
@@ -1051,7 +1075,7 @@ pub struct AuthSection {
 pub const PROVIDERS: &[&str] = &["file", "service"];
 
 /// `[build]`: build-time choices that are not the type checker's.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct BuildSection {
@@ -1106,7 +1130,7 @@ impl BuildSection {
 /// TypeScript a build checks with, the integrity of a version the checker
 /// pins no hash for and a compiler to use as given on a machine that cannot
 /// fetch one.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TypecheckSection {
@@ -1124,7 +1148,7 @@ pub struct TypecheckSection {
 /// The `[trace]` section. `expose` lists the path prefixes whose requests
 /// carry an `x-sf-request` token and whose trace that token reads back from
 /// `/__fsr/trace/{token}`. Empty exposes nothing; `fsr dev` exposes every path.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct TraceSection {
@@ -1135,7 +1159,7 @@ pub struct TraceSection {
 /// `[crawl]`. Each file is served at the path its key names and not at all
 /// without one. A site run alone serves its sitemap under its prefix and no
 /// `robots.txt`, which only the origin's root may answer.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct CrawlSection {
@@ -1151,7 +1175,7 @@ pub struct CrawlSection {
 /// `[desktop]`. `name` leads the window's title, before the page's own.
 /// `serve` is how the window reaches the host and `cookies` where a scheme
 /// window keeps the cookies the host sets.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct DesktopSection {
@@ -1166,7 +1190,7 @@ pub struct DesktopSection {
 /// `loopback` listens on a local port the webview loads. `scheme` answers
 /// `app://localhost` in process with no port; a response arrives whole, so
 /// nothing streams.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DesktopServe {
   #[default]
@@ -1176,7 +1200,7 @@ pub enum DesktopServe {
 
 /// `memory` keeps a scheme window's cookies for one run; `disk` keeps them
 /// in the application's data directory across runs.
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DesktopCookies {
   #[default]
@@ -1211,7 +1235,7 @@ fn default_login() -> String {
   "/login".to_owned()
 }
 
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct StaticRoot {
@@ -1221,7 +1245,7 @@ pub struct StaticRoot {
 
 /// A route the application registers with `.route` rather than through the
 /// file tree. Boot refuses a declared pattern nothing registers.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct RouteDecl {
@@ -1333,6 +1357,9 @@ pub enum ValueState {
   Set,
   /// The value a scaffold writes for a person to replace.
   Placeholder,
+  /// Written as a secret this process could not decrypt; the deployment's
+  /// keys decrypt it when it starts.
+  Encrypted,
   Missing,
 }
 
@@ -1345,6 +1372,90 @@ pub fn env_name(key: &str) -> String {
 /// The top-level sections the host reads; any other is the application's.
 pub fn host_sections() -> &'static [&'static str] {
   SECTIONS
+}
+
+/// The configuration a deployment merges, as a JSON Schema (draft 2020-12)
+/// read off the types the host deserializes it into: one property per section
+/// the host reads, any other top-level table the application's own. A value
+/// the deployment's environment may set instead of a file carries
+/// `x-runtime`, the `C5_` variable that sets it. An editor validates
+/// `app.toml` and its overlays against it; nothing in the host reads it.
+pub fn config_schema() -> serde_json::Value {
+  use schemars::{JsonSchema, SchemaGenerator};
+  let mut generator = SchemaGenerator::default();
+  fn of<T: JsonSchema>(generator: &mut SchemaGenerator) -> serde_json::Value {
+    generator.subschema_for::<T>().to_value()
+  }
+  let public = serde_json::json!({
+    "type": "object",
+    "description": "Values a body reads as `ctx.config`, the same on every request and public: a page may render them.",
+    "additionalProperties": { "type": ["string", "integer", "number", "boolean"] }
+  });
+  let sections: Vec<(&str, serde_json::Value)> = vec![
+    ("app", of::<AppSection>(&mut generator)),
+    ("server", of::<ServerConfig>(&mut generator)),
+    ("document", of::<DocumentConfig>(&mut generator)),
+    ("session", of::<SessionSection>(&mut generator)),
+    ("cache", of::<CacheSection>(&mut generator)),
+    ("store", of::<StoreSection>(&mut generator)),
+    ("clients", serde_json::json!({ "type": "object", "additionalProperties": of::<ClientConfig>(&mut generator) })),
+    ("static", serde_json::json!({ "type": "array", "items": of::<StaticRoot>(&mut generator) })),
+    ("route", serde_json::json!({ "type": "array", "items": of::<RouteDecl>(&mut generator) })),
+    ("locales", of::<LocalesSection>(&mut generator)),
+    ("auth", of::<AuthSection>(&mut generator)),
+    ("typecheck", of::<TypecheckSection>(&mut generator)),
+    ("build", of::<BuildSection>(&mut generator)),
+    ("trace", of::<TraceSection>(&mut generator)),
+    ("crawl", of::<CrawlSection>(&mut generator)),
+    ("desktop", of::<DesktopSection>(&mut generator)),
+    ("mdx", serde_json::json!({
+      "type": "object",
+      "properties": {
+        "gfm": { "type": "boolean", "default": true },
+        "heading_ids": { "type": "boolean", "default": true },
+        "frontmatter": { "type": "boolean", "default": false },
+        "highlight": { "type": "boolean" },
+        "collections": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "additionalProperties": false
+    })),
+    ("site", of::<SiteSection>(&mut generator)),
+    ("sites", serde_json::json!({
+      "type": "object",
+      "properties": { "root": { "type": "string" }, "poll": { "type": "string" }, "store": { "type": "string" } },
+      "additionalProperties": of::<MountConfig>(&mut generator)
+    })),
+    ("public", public),
+    ("dirs", of::<DirsSection>(&mut generator)),
+    ("images", of::<ImagesSection>(&mut generator)),
+    ("media", of::<MediaSection>(&mut generator)),
+    ("fonts", serde_json::json!({
+      "type": "object",
+      "properties": { "base": { "type": "string" } },
+      "additionalProperties": of::<FontEntry>(&mut generator)
+    })),
+  ];
+  debug_assert_eq!(sections.iter().map(|(name, _)| *name).collect::<Vec<_>>(), SECTIONS);
+  let mut defs = serde_json::Map::new();
+  for (name, schema) in generator.take_definitions(true) {
+    defs.insert(name, schema);
+  }
+  for value in Config::default_runtime_keys() {
+    let (section, field) = value.split_once('.').expect("a runtime key names its section");
+    let def = sections.iter().find(|(name, _)| *name == section).and_then(|(_, schema)| schema.get("$ref")).and_then(|r| r.as_str()).and_then(|r| r.rsplit('/').next());
+    if let Some(property) = def.and_then(|def| defs.get_mut(def)).and_then(|def| def.pointer_mut(&format!("/properties/{field}"))).and_then(|p| p.as_object_mut()) {
+      property.insert("x-runtime".to_owned(), serde_json::Value::String(env_name(value)));
+    }
+  }
+  serde_json::json!({
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SnapFire FSR configuration",
+    "description": "app.toml and its overlays merged; a top-level table the host does not read is the application's own.",
+    "type": "object",
+    "properties": serde_json::Map::from_iter(sections.into_iter().map(|(name, schema)| (name.to_owned(), schema))),
+    "additionalProperties": true,
+    "$defs": defs,
+  })
 }
 
 /// The deployment axes, read from the environment: `RELEASE_ENV` (default `development`), `APP_ENV` (default `local`) and `APP_REGION` (no default).
@@ -1507,6 +1618,7 @@ pub struct Loader {
   deployment: Deployment,
   extras: Vec<PathBuf>,
   secrets: Option<SecretsHook>,
+  keep_undecrypted: bool,
 }
 
 impl std::fmt::Debug for Loader {
@@ -1534,7 +1646,16 @@ impl Loader {
       deployment: Deployment::from_env(),
       extras: Vec::new(),
       secrets: None,
+      keep_undecrypted: false,
     }
+  }
+
+  /// A secret this process cannot decrypt is listed in `Config::undecrypted`
+  /// rather than refused, for a check run on a machine that does not hold
+  /// the deployment's keys. The host never loads this way.
+  pub fn keep_undecrypted(mut self, keep: bool) -> Self {
+    self.keep_undecrypted = keep;
+    self
   }
 
   /// The deployment whose ladder is read, over the environment's.
@@ -1568,6 +1689,7 @@ impl Loader {
       deployment: self.deployment.clone(),
       extras: Vec::new(),
       secrets: self.secrets.clone(),
+      keep_undecrypted: self.keep_undecrypted,
     }
   }
 
@@ -1594,7 +1716,7 @@ impl Loader {
     options.secret_opts = self.secret_options(&located.dir);
     let (store, _mgr) = create_c5store(located.sources.clone(), Some(options))
       .map_err(|e| HostError::Config(located.sources[0].clone(), e.to_string()))?;
-    let mut config = Config::from_store(&store, located)?;
+    let mut config = Config::from_store_keeping(&store, located, self.keep_undecrypted)?;
     config.deployment = Some(self.deployment.clone());
     Ok(config)
   }
@@ -1654,15 +1776,19 @@ impl Config {
   /// Every path it returns exists, so it can be handed to a loader whole.
   pub fn from_store_at<S: C5Store>(store: &S, root: impl AsRef<Path>) -> Result<Self, HostError> {
     let root = root.as_ref();
-    Self::sections(store, root, root.to_path_buf())
+    Self::sections(store, root, root.to_path_buf(), false)
   }
 
   /// `from_store_at` over a store loaded from the files `located` names,
   /// which become the configuration's provenance and the path its errors
   /// report.
   pub fn from_store<S: C5Store>(store: &S, located: Located) -> Result<Self, HostError> {
+    Self::from_store_keeping(store, located, false)
+  }
+
+  fn from_store_keeping<S: C5Store>(store: &S, located: Located, keep_undecrypted: bool) -> Result<Self, HostError> {
     let at = located.sources.first().cloned().unwrap_or_else(|| located.root.clone());
-    let mut config = Self::sections(store, &located.root, at)?;
+    let mut config = Self::sections(store, &located.root, at, keep_undecrypted)?;
     if let Some(cache) = config.cache.as_mut() {
       if cache.data.is_none() && located.sources.iter().any(|file| declares_empty_table(file, &["cache", "data"])) {
         cache.data = Some(DataCacheSection::default());
@@ -1672,7 +1798,7 @@ impl Config {
     Ok(config)
   }
 
-  fn sections<S: C5Store>(store: &S, root: &Path, at: PathBuf) -> Result<Self, HostError> {
+  fn sections<S: C5Store>(store: &S, root: &Path, at: PathBuf, keep_undecrypted: bool) -> Result<Self, HostError> {
     let fail = |e: ConfigError| HostError::Config(at.clone(), e.to_string());
 
     let mut ignored: Vec<String> = Vec::new();
@@ -1752,7 +1878,10 @@ impl Config {
       false => SessionSection::default(),
     };
     // c5store stores a secret it could not decrypt as null, so the key path exists with no value.
-    if session.key.is_none() && store.path_exists("session.key") {
+    let mut undecrypted = Vec::new();
+    if session.key.is_none() && store.path_exists("session.key") && keep_undecrypted {
+      undecrypted.push("session.key".to_owned());
+    } else if session.key.is_none() && store.path_exists("session.key") {
       return Err(HostError::Config(
         at.clone(),
         "`session.key` is written but has no value: a secret that does not decrypt loads empty".to_owned(),
@@ -2482,6 +2611,7 @@ impl Config {
       inferred,
       ignored,
       deployment: None,
+      undecrypted,
     })
   }
 
@@ -2538,8 +2668,14 @@ impl Config {
   /// environment, each with the `C5_` variable that sets it. An absent
   /// session key is set in development, which mints one; a placeholder is
   /// one everywhere.
+  /// The keys `runtime_values` reports on, whatever their state.
+  pub fn default_runtime_keys() -> &'static [&'static str] {
+    &["session.key"]
+  }
+
   pub fn runtime_values(&self) -> Vec<RuntimeValue> {
     let state = match self.session.key.as_deref() {
+      None if self.undecrypted.iter().any(|key| key == "session.key") => ValueState::Encrypted,
       Some(SESSION_KEY_PLACEHOLDER) => ValueState::Placeholder,
       None if !self.dev() => ValueState::Missing,
       _ => ValueState::Set,
@@ -2556,7 +2692,7 @@ impl Config {
   }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, schemars::JsonSchema)]
 struct BuildFacts {
   #[serde(default, rename = "publicPath")]
   public_path: Option<String>,

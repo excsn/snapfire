@@ -1787,6 +1787,7 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     ("generated/services.d.ts".to_owned(), declarations),
     ("generated/elements.d.ts".to_owned(), types::element_declarations(app, &layout, &elements)?),
     ("generated/head.ts".to_owned(), HEAD_HELPERS.to_owned()),
+    ("generated/config.schema.json".to_owned(), serde_json::to_string_pretty(&snapfire_fsr_host::config::config_schema()).expect("a schema serializes") + "\n"),
     ("generated/fsr.ts".to_owned(), ctx_module(&routes.iter().chain(handler_routes.iter()).cloned().collect::<Vec<_>>(), session_import.as_deref(), &config, &report.themes)),
     ("generated/islands.ts".to_owned(), registry),
     ("generated/client.ts".to_owned(), client),

@@ -1,3 +1,4 @@
+#:schema ../app/generated/config.schema.json
 # Read when RELEASE_ENV or APP_ENV is production.
 [server]
 dev = false

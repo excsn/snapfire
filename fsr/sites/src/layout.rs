@@ -353,7 +353,9 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
       let name = file.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
       let stem = file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
       let deployment = Deployment::default().release_env(stem.clone()).app_env(stem).region(None);
-      let overlay = Loader::at(&config_dir).deployment(deployment).config().map_err(|e| LayoutError::Overlay(name.clone(), e.to_string()))?;
+      // Read for the paths it names, on a machine that need not hold the
+      // deployment's keys, so a secret it cannot decrypt is not a refusal.
+      let overlay = Loader::at(&config_dir).deployment(deployment).keep_undecrypted(true).config().map_err(|e| LayoutError::Overlay(name.clone(), e.to_string()))?;
       place_named(&overlay, &name, false, &mut placer, &mut layer)?;
     }
   }

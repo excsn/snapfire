@@ -16,7 +16,7 @@ use crate::{fill_pattern, Host, HostError, Incoming, RenderMode, Tables};
 /// One path a site asks a shell to render before a candidate holding the
 /// site swaps in: `"/billing"` anonymously or `{ path = "/billing/overdue",
 /// as = "probe" }` signed in as that subject with no claims.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 #[non_exhaustive]
 pub enum Probe {

@@ -7,7 +7,7 @@ use snapfire_fsr_runtime::Locale;
 
 /// The `[locales]` section. Tags are the application's own spelling and
 /// stay that way everywhere the application sees them.
-#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct LocalesSection {

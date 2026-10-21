@@ -806,6 +806,34 @@ fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
 }
 
 #[test]
+fn every_example_configuration_validates_against_the_schema_and_a_misspelt_key_does_not() {
+  use snapfire_fsr_host::config::{config_schema, host_sections};
+
+  let schema = config_schema();
+  let properties: Vec<&str> = schema["properties"].as_object().unwrap().keys().map(String::as_str).collect();
+  assert_eq!(properties, host_sections());
+  assert_eq!(schema["additionalProperties"], true, "a table the host does not read is the application's own");
+  let session = schema["properties"]["session"]["$ref"].as_str().unwrap().rsplit('/').next().unwrap();
+  assert_eq!(schema["$defs"][session]["properties"]["key"]["x-runtime"], "C5_SESSION__KEY");
+  let validator = jsonschema::validator_for(&schema).expect("a valid schema");
+
+  let examples = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../examples");
+  let mut checked = 0;
+  for entry in std::fs::read_dir(&examples).unwrap().flatten() {
+    let file = entry.path().join("config/app.toml");
+    let Ok(text) = std::fs::read_to_string(&file) else { continue };
+    let config: serde_json::Value = serde_json::to_value(toml::from_str::<toml::Value>(&text).unwrap()).unwrap();
+    let errors: Vec<String> = validator.iter_errors(&config).map(|e| format!("{} at {}", e, e.instance_path())).collect();
+    assert!(errors.is_empty(), "{}: {errors:?}", file.display());
+    checked += 1;
+  }
+  assert!(checked > 10, "{checked} example configurations");
+
+  let misspelt: serde_json::Value = serde_json::to_value(toml::from_str::<toml::Value>("[session]\nttll = \"1h\"\n").unwrap()).unwrap();
+  assert!(!validator.is_valid(&misspelt), "a key no section declares is refused, as the host refuses it");
+}
+
+#[test]
 fn a_section_the_host_reads_is_never_listed_as_left_to_the_application() {
   use snapfire_fsr_host::config::{Deployment, Loader};
 

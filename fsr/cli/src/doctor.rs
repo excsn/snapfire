@@ -144,7 +144,8 @@ pub fn run_with(app: &Path, options: &DoctorOptions) -> Result<Report, DoctorErr
   let loader = match &options.deployment {
     Some(deployment) => Loader::at(app).deployment(deployment.clone()),
     None => Loader::at(app),
-  };
+  }
+  .keep_undecrypted(!options.runtime);
   let config = loader.config().map_err(|e| DoctorError::Config(e.to_string()))?;
   let manifest = read_plan(&config)?;
   let prerenderable = prerenderable(&config);
@@ -189,6 +190,10 @@ fn runtime(config: &Config, at_runtime: bool, expected: &mut Vec<String>) -> Vec
   for value in config.runtime_values() {
     let what = match value.state {
       ValueState::Set => continue,
+      ValueState::Encrypted => {
+        expected.push(format!("{}: encrypted in the files; this deployment needs the key that decrypts it when it starts", value.key));
+        continue;
+      }
       ValueState::Placeholder => "the files hold the placeholder",
       _ => "no file sets it",
     };
