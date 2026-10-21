@@ -26,13 +26,19 @@ fn read_tree(dir: &Path, root: &Path, tree: &mut Tree) {
   }
 }
 
-/// `migrated` laid out over the corpus's React template.
-fn app_of(root: &Path, name: &str, migrated: &Tree, scratch: &Path) -> PathBuf {
+/// `migrated` laid out over the corpus's React template, the tables the
+/// migration asked for added to its configuration.
+fn app_of(root: &Path, name: &str, migrated: &Tree, config: &[String], scratch: &Path) -> PathBuf {
   let dir = scratch.join(name);
   let _ = std::fs::remove_dir_all(&dir);
   copy(&root.join("template/app"), &dir.join("app"));
   std::fs::create_dir_all(dir.join("config")).unwrap();
-  std::fs::copy(root.join("template/app.toml"), dir.join("config/app.toml")).unwrap();
+  let mut toml = std::fs::read_to_string(root.join("template/app.toml")).unwrap();
+  for table in config {
+    toml.push('\n');
+    toml.push_str(table);
+  }
+  std::fs::write(dir.join("config/app.toml"), toml).unwrap();
   for (path, bytes) in migrated.iter() {
     let target = dir.join(path);
     std::fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -104,7 +110,7 @@ fn every_next_example_migrates_and_builds_to_the_outcome_it_is_held_to() {
     }
     let outcome = match report.source {
       Some(Source::NextApp | Source::NextPages) => {
-        let app = app_of(root, &name.replace('/', "-"), &migrated, &scratch);
+        let app = app_of(root, &name.replace('/', "-"), &migrated, &report.config, &scratch);
         let outcome = outcome(&app);
         let _ = std::fs::remove_dir_all(app.parent().unwrap());
         outcome
