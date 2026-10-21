@@ -164,6 +164,16 @@ fn a_component_that_returns_early_moves_whole_whether_declared_or_an_arrow() {
 }
 
 #[test]
+fn what_the_lowerer_cannot_read_in_two_places_moves_with_the_markup_holding_both() {
+  let page = "import { Card } from \"react-bootstrap\";\n\nexport default function Home() {\n  return (\n    <main>\n      <section><Card>a</Card></section>\n      <section><Card>b</Card></section>\n    </main>\n  );\n}\n";
+  let mut set = set(&[("routes/page.jsx", page)]);
+  let extracted = set.lower_route("routes/page.jsx#default").unwrap().expect("the page falls back to an island");
+  assert!(extracted.source.contains("<Card>a</Card>") && extracted.source.contains("<Card>b</Card>"), "{}", extracted.source);
+  assert_eq!(extracted.page.1, "import SfIsland from \"./page.island0.tsx\";\nimport { Card } from \"react-bootstrap\";\n\nexport default function Home() {\n  return <SfIsland />;\n}\n");
+  assert!(!extracted.page.1.contains("<Card>"), "{}", extracted.page.1);
+}
+
+#[test]
 fn a_page_with_nothing_for_the_browser_is_left_alone() {
   let mut set = set(&[("routes/page.tsx", "export default function Plain({ n }: { n: number }) {\n  return <p>{n}</p>;\n}\n")]);
   assert!(set.extract_route("routes/page.tsx#default").unwrap().is_none());

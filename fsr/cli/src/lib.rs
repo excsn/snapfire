@@ -1295,10 +1295,14 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
       Err(why) => report.kept.push((module.clone(), why)),
     }
   }
+  let mut split_from: std::collections::HashMap<String, snapfire_fsr_lower::Residue> = std::collections::HashMap::new();
   for module in &islands {
     if module.starts_with("routes/") && !module.contains(".tera#") {
       match set.lower_route(module) {
         Ok(Some(extracted)) => {
+          if let Some(started) = extracted.started {
+            split_from.insert(extracted.island.clone(), started);
+          }
           report.extracted.push((module.clone(), extracted.island.clone(), extracted.holds));
           generated.retain(|(file, _)| *file != extracted.page.0);
           generated.push((extracted.file, extracted.source));
@@ -1443,6 +1447,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   for (module, residue) in std::mem::take(&mut set.browser_only) {
     let at = format!("{}:{}:{}", residue.file, residue.line, residue.column);
     if !uses_react {
+      let residue = split_from.remove(&module).unwrap_or(residue);
+      let at = format!("{}:{}:{}", residue.file, residue.line, residue.column);
       return Err(BuildError::NoJsxFramework { module, at, reason: residue.message });
     }
     let chain = residue.chain();

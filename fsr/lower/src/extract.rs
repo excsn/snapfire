@@ -255,7 +255,7 @@ pub(crate) fn page_offset(parsed: &Parsed, offset: usize) -> Option<usize> {
 /// Splits `file`'s default export, a page or a layout, into composition and
 /// an island. `None` when it holds nothing a framework has to run. `slots` are
 /// the layout's slot props, which composition fills and an island cannot take.
-pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Option<usize>) -> Result<Option<Extraction>, Kept> {
+pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Option<usize>, whole: bool) -> Result<Option<Extraction>, Kept> {
   let Some(source) = parsed.cm.files().first().map(|f| f.src.to_string()) else { return Ok(None) };
   let Some(found) = find_function(parsed, "default") else { return Ok(None) };
   let (params, stmts, ret): (Vec<js::Pat>, &[js::Stmt], &js::Expr) = match &found {
@@ -366,10 +366,10 @@ pub(crate) fn extract(parsed: &Parsed, file: &str, slots: &[String], residue: Op
 
   // The unit: the deepest cut every use sits in, that no function inside the
   // markup encloses and whose nearest element above admits an island; the
-  // whole tree when there is none or when an early return chooses between
-  // trees.
+  // whole tree when there is none, when an early return chooses between
+  // trees or when `whole` asks for it.
   let mut unit: Option<Cut> = None;
-  if !early && !uses.found.is_empty() {
+  if !early && !whole && !uses.found.is_empty() {
     let first = &uses.found[0];
     let common = (0..first.len()).take_while(|&i| uses.found.iter().all(|stack| stack.get(i).map(|cut| cut.span) == Some(first[i].span))).count();
     let shared = &first[..common];

@@ -60,7 +60,7 @@ mdx-pages	lowered	pages 0	notes 0
 next-forms	refused: routes/page.loader.ts:8:21: a tagged template	pages 1	notes 7
 panda-css	refused: routes/page.tsx:7:16: a call to `css`, which the build cannot follow	pages 1	notes 1
 prisma-postgres	refused: src/lib/prisma.ts:4:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 6	notes 7
-radix-ui	client: routes/page.island0.tsx:18:5 `DropdownMenu` comes from ``, which the build cannot follow | routes/page.island0.tsx:91:17 `ChevronRightIcon` comes from `@radix-ui/react-icons`, which the build cannot follow | routes/page.tsx:97:13 `HamburgerMenuIcon` comes from `@radix-ui/react-icons`, which the build cannot follow	pages 1	notes 1
+radix-ui	client: routes/page.island0.tsx:18:5 `DropdownMenu` comes from ``, which the build cannot follow | routes/page.island0.tsx:91:17 `ChevronRightIcon` comes from `@radix-ui/react-icons`, which the build cannot follow	pages 1	notes 1
 react-remove-properties	lowered	pages 1	notes 0
 remove-console	lowered	pages 1	notes 0
 reproduction-template	lowered	pages 1	notes 0
@@ -68,7 +68,7 @@ reproduction-template-pages	lowered	pages 1	notes 0
 with-ably	refused: routes/api/createTokenRequest/route.ts:5:8: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 6
 with-absolute-imports	lowered	pages 1	notes 0
 with-algolia-react-instantsearch	client: src/components/Search.tsx:30:22 a call to `algoliasearch`, which the build cannot follow	pages 1	notes 0
-with-ant-design	refused: routes/page.tsx:23:11: `SmileFilled` comes from `@ant-design/icons`, which the build cannot follow	pages 1	notes 1
+with-ant-design	client: routes/AntdRegistry.tsx:9:45 a call to `createCache`, which the build cannot follow | routes/page.island0.tsx:18:5 `SmileFilled` comes from `@ant-design/icons`, which the build cannot follow	pages 1	notes 1
 with-apivideo	client: routes/uploader/page.island0.tsx:21:18 `useRouter`, a hook the build cannot follow | routes/videos/[videoId]/page.island0.tsx:13:18 `useRouter`, a hook the build cannot follow	pages 4	notes 8
 with-apollo	client: src/components/ApolloClientProvider.tsx:42:5 `ApolloNextAppProvider` comes from `@apollo/experimental-nextjs-app-support/ssr`, which the build cannot follow | src/components/FiveRocketsClient.tsx:28:20 `useSuspenseQuery`, a hook the build cannot follow | src/components/LatestMissionName.tsx:19:8 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 2
 with-apollo-and-redux	refused: src/lib/redux.js:5:5: `store`, a module-level `let` a function writes; a body reads module state through the store	pages 3	notes 4
@@ -99,7 +99,7 @@ with-eslint	lowered	pages 1	notes 0
 with-expo-typescript	refused: routes/page.tsx:5:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 1	notes 1
 with-facebook-pixel	client: routes/components/FacebookPixel.js:10:20 `usePathname`, a hook the build cannot follow	pages 2	notes 4
 with-fela	client: routes/layout.island0.tsx:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:5:29 `renderer` is not bound here; an import the build cannot follow or a name from outside the body | routes/page.js:25:19 `useFela`, a hook the build cannot follow | routes/page.js:31:19 `useFela`, a hook the build cannot follow | routes/page.js:4:3 `FelaComponent` comes from `react-fela`, which the build cannot follow	pages 1	notes 2
-with-filbert	refused: routes/page.js:69:14: a tagged template	pages 1	notes 1
+with-filbert	client: routes/page.island0.tsx:69:14 a tagged template	pages 1	notes 1
 with-fingerprintjs-pro	client: routes/home/[cacheStrategy]/page.island0.tsx:10:26 `useContext` of something the build cannot follow to a `createContext` | routes/home/[cacheStrategy]/page.tsx:11:38 `useVisitorData`, a hook the build cannot follow | routes/layout.tsx:26:18 `useRouter`, a hook the build cannot follow | routes/signin/[cacheStrategy]/page.island0.tsx:11:47 `useVisitorData`, a hook the build cannot follow	pages 2	notes 8
 with-firebase	refused: src/fetchData/getProfileData.js:4:14: `admin` comes from `../firebase/nodeApp`, which the build cannot follow	pages 2	notes 14
 with-firebase-cloud-messaging	lowered	pages 1	notes 0
@@ -130,10 +130,10 @@ with-jotai	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1
 with-kea	client: routes/layout.island0.tsx:7:22 `store` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:7:22 `store` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 2
 with-knex	lowered	pages 1	notes 3
 with-linaria	lowered	pages 1	notes 0
-with-lingui	refused: routes/page.js:6:5: `Trans` comes from `@lingui/macro`, which the build cannot follow	pages 2	notes 2
+with-lingui	client: routes/layout.js:13:22 `useRouter`, a hook the build cannot follow | routes/page.island0.tsx:6:5 `Trans` comes from `@lingui/macro`, which the build cannot follow | routes/two/page.island0.tsx:6:5 `Trans` comes from `@lingui/macro`, which the build cannot follow	pages 2	notes 2
 with-magic	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot follow	pages 3	notes 10
-with-mantine	refused: routes/page.tsx:29:9: `Text` comes from `@mantine/core`, which the build cannot follow	pages 1	notes 2
-with-mdbreact	refused: routes/page.js:27:17: `MDBCardTitle` comes from `mdbreact`, which the build cannot follow	pages 1	notes 1
+with-mantine	client: routes/layout.island0.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/layout.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/page.island0.tsx:9:5 `Text` comes from `@mantine/core`, which the build cannot follow	pages 1	notes 2
+with-mdbreact	client: routes/page.island0.tsx:15:5 `MDBCardTitle` comes from `mdbreact`, which the build cannot follow	pages 1	notes 1
 with-meilisearch	client: routes/page.island0.tsx:76:25 `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 6
 with-mobx	refused: src/components/Page.js: no exported `default`	pages 4	notes 1
 with-mobx-state-tree	refused: src/store.ts:10:5: `store`, a module-level `let` a function writes; a body reads module state through the store	pages 4	notes 1
@@ -152,13 +152,13 @@ with-next-translate	client: routes/[lang]/page.island0.tsx:6:23 `useTranslation`
 with-next-ui	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 2
 with-nhost-auth-realtime-graphql	refused: src/utils/nhost.js:3:22: a call to `createClient`, which the build cannot follow	pages 3	notes 4
 with-opentelemetry	refused: src/shared/fetch-github-stars.ts:4:16: `trace` comes from `@opentelemetry/api`, which the build cannot follow	pages 1	notes 0
-with-orbit-components	refused: routes/page.tsx:6:7: `Alert` comes from `@kiwicom/orbit-components`, which the build cannot follow	pages 1	notes 2
+with-orbit-components	client: routes/page.island0.tsx:5:5 `Alert` comes from `@kiwicom/orbit-components`, which the build cannot follow	pages 1	notes 2
 with-overmind	refused: routes/layout.js: no exported `default`	pages 2	notes 1
 with-oxlint	lowered	pages 1	notes 0
 with-particles	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
 with-passport	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot follow	pages 4	notes 8
 with-passport-and-next-connect	client: routes/page.js:6:36 `useSWR`, a hook the build cannot follow | src/lib/hooks.jsx:6:39 `useSWR`, a hook the build cannot follow	pages 4	notes 8
-with-paste-typescript	refused: routes/page.tsx:15:9: `Anchor` comes from `@twilio-paste/core/anchor`, which the build cannot follow	pages 1	notes 1
+with-paste-typescript	client: routes/layout.island0.tsx:5:5 `<Theme.Provider>`: `Theme` is not a `createContext` value this file declares or imports | routes/layout.tsx:5:5 `<Theme.Provider>`: `Theme` is not a `createContext` value this file declares or imports | routes/page.island0.tsx:11:5 `Anchor` comes from `@twilio-paste/core/anchor`, which the build cannot follow	pages 1	notes 1
 with-plausible	client: routes/contact/page.island0.tsx:6:21 `usePlausible`, a hook the build cannot follow	pages 3	notes 2
 with-playwright	lowered	pages 2	notes 3
 with-polyfills	lowered	pages 1	notes 0
@@ -167,18 +167,18 @@ with-portals-ssr	client: routes/page.island0.tsx:11:7 `UniversalPortal` comes fr
 with-postgres	no application
 with-prefetching	client: src/components/Nav.tsx:5:18 `useRouter`, a hook the build cannot follow	pages 4	notes 1
 with-quill-js	refused: routes/page.js: no exported `QuillNoSSRWrapper`	pages 1	notes 1
-with-rbx-bulma-pro	refused: routes/page.js:12:15: `Title` comes from `rbx`, which the build cannot follow	pages 3	notes 1
-with-react-bootstrap	refused: routes/page.jsx:17:17: `Card` comes from `react-bootstrap`, which the build cannot follow	pages 1	notes 1
+with-rbx-bulma-pro	client: routes/about/page.island0.tsx:6:5 `Title` comes from `rbx`, which the build cannot follow | routes/contact/page.island0.tsx:15:5 `Title` comes from `rbx`, which the build cannot follow | routes/page.island0.tsx:7:5 `Title` comes from `rbx`, which the build cannot follow	pages 3	notes 1
+with-react-bootstrap	client: routes/page.island0.tsx:5:5 `Card` comes from `react-bootstrap`, which the build cannot follow	pages 1	notes 1
 with-react-ga4	client: routes/layout.js:6:18 `useRouter`, a hook the build cannot follow	pages 2	notes 1
 with-react-hook-form	client: src/styles/login.module.css 1:1: Expression expected	pages 1	notes 2
 with-react-intl	refused: src/helper/loadIntlMessages.ts:12:3: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`	pages 2	notes 6
-with-react-md-typescript	refused: routes/page.tsx:7:7: `Text` comes from `react-md`, which the build cannot follow	pages 2	notes 4
+with-react-md-typescript	client: routes/page.island0.tsx:6:5 `Text` comes from `react-md`, which the build cannot follow | routes/route-1/page.island0.tsx:6:5 `Text` comes from `react-md`, which the build cannot follow | src/components/Layout/Layout.tsx:47:24 `useRouter`, a hook the build cannot follow	pages 2	notes 4
 with-react-multi-carousel	client: routes/page.island0.tsx:22:5 `Carousel` comes from `react-multi-carousel`, which the build cannot follow	pages 1	notes 5
 with-react-native-web	refused: routes/page.js:3:16: `StyleSheet` comes from `react-native`, which the build cannot follow	pages 2	notes 2
 with-react-toolbox	client: routes/page.island0.tsx:7:27 `theme` comes from `../src/theme`, which the build cannot follow	pages 1	notes 0
-with-reactstrap	refused: routes/page.jsx:27:19: `CardTitle` comes from `reactstrap`, which the build cannot follow	pages 1	notes 1
+with-reactstrap	client: routes/page.island0.tsx:14:5 `CardTitle` comes from `reactstrap`, which the build cannot follow	pages 1	notes 1
 with-realm-web	client: routes/page.island0.tsx:20:20 `useSWR`, a hook the build cannot follow	pages 1	notes 2
-with-rebass	refused: routes/page.js:15:9: `children` as a prop; pass them between the tags	pages 1	notes 0
+with-rebass	client: routes/page.island0.tsx:7:9 `children` as a prop; pass them between the tags	pages 1	notes 0
 with-redis	refused: routes/page.loader.ts:7:3: a statement a straight-line body cannot hold; it holds `const`s, `let`s, writes to them, `if`, `switch`, `for…of` and `for (let i = a; i < b; i++)`	pages 1	notes 5
 with-redux	refused: routes/api/counter/route.ts:9:42: `ctx` as a value; read one of its fields	pages 3	notes 1
 with-reflexjs	client: routes/layout.island0.tsx:6:5 `ThemeProvider` comes from `reflexjs`, which the build cannot follow | routes/layout.tsx:6:5 `ThemeProvider` comes from `reflexjs`, which the build cannot follow	pages 1	notes 2
@@ -206,7 +206,7 @@ with-styled-components	refused: routes/_components/globalstyles.tsx: no exported
 with-styled-jsx	client: routes/registry.tsx:14:45 a call to `createStyleRegistry`, which the build cannot follow	pages 1	notes 0
 with-supabase	refused: routes/auth/confirm/route.ts:7:36: `url` is not a field of the context	pages 8	notes 22
 with-temporal	lowered	pages 2	notes 2
-with-three-js	refused: routes/birds/page.tsx:13:17: `Math.random`	pages 3	notes 0
+with-three-js	client: routes/_components/Box.js:11:3 `useFrame`, a hook the build cannot follow | routes/birds/page.island0.tsx:11:17 `Math.random` | routes/boxes/page.island0.tsx:7:5 `OrbitControls` comes from `@react-three/drei`, which the build cannot follow	pages 3	notes 0
 with-turbopack	client: routes/page.island0.tsx:4:3 a call for its effect, which a straight-line body cannot hold	pages 1	notes 0
 with-turbopack-loaders	client: routes/page.island0.tsx:6:5 `Vercel` is not a component this file declares or imports	pages 1	notes 2
 with-turso	client: routes/form.tsx:21:3 an expression statement other than a write to a local | routes/todo-list.tsx:19:8 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 7
@@ -225,7 +225,7 @@ with-webassembly	refused: routes/page.loader.ts:4:17: `query` as a whole; read o
 with-xata	refused: routes/layout.loader.ts:6:5: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 10
 with-xstate	client: routes/_components/Counter.tsx:6:25 `useMachine`, a hook the build cannot follow | routes/_components/Toggle.tsx:6:25 `useMachine`, a hook the build cannot follow	pages 1	notes 0
 with-yarn-workspaces	unmigrated: not a Next.js application	pages 0	notes 1
-with-yoga	refused: routes/page.tsx:6:7: `Text` comes from `@gympass/yoga`, which the build cannot follow	pages 1	notes 1
+with-yoga	client: routes/layout.island0.tsx:5:5 `ThemeProvider` comes from `@gympass/yoga`, which the build cannot follow | routes/layout.tsx:5:5 `ThemeProvider` comes from `@gympass/yoga`, which the build cannot follow | routes/page.island0.tsx:5:5 `Text` comes from `@gympass/yoga`, which the build cannot follow	pages 1	notes 1
 with-youtube-embed	lowered	pages 1	notes 0
 with-zones	unmigrated: not a Next.js application	pages 0	notes 1
 with-zustand	client: src/lib/StoreProvider.tsx:17:5 a write to `storeRef`, which this body did not declare | src/lib/store.ts:34:10 a call to `useZustandStore`, which the build cannot follow	pages 1	notes 0

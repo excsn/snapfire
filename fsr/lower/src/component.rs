@@ -676,12 +676,12 @@ impl ComponentSet {
       return Ok(None);
     }
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-    match crate::extract::extract(&parsed, &file, &slots, None) {
+    match crate::extract::extract(&parsed, &file, &slots, None, false) {
       Ok(Some(extraction)) => {
         self.forget(&file);
         self.provided.insert(file.clone(), extraction.page.clone());
         self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
-        Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds }))
+        Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds, started: None }))
       }
       Ok(None) => Ok(None),
       Err(crate::extract::Kept(why)) => Err(why),
@@ -713,15 +713,22 @@ impl ComponentSet {
     let Some(parsed) = self.parsed.get(&file).cloned() else { return Err(error) };
     let Some(offset) = parsed.offset(residue.line, residue.column).and_then(|offset| crate::extract::page_offset(&parsed, offset)) else { return Err(error) };
     let slots = self.slots.iter().find(|(m, _)| m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-    let Ok(Some(extraction)) = crate::extract::extract(&parsed, &file, &slots, Some(offset)) else { return Err(error) };
     let forget = |set: &mut Self| {
       set.failed.remove(module);
       set.forget(&file);
     };
-    forget(self);
-    let before = self.provided.insert(file.clone(), extraction.page.clone());
-    let island_before = self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
-    if self.lower(module).is_err() {
+    // The cut around the first residue first; the whole markup when the page
+    // still holds another one.
+    for whole in [false, true] {
+      let Ok(Some(extraction)) = crate::extract::extract(&parsed, &file, &slots, Some(offset), whole) else { return Err(error) };
+      forget(self);
+      let before = self.provided.insert(file.clone(), extraction.page.clone());
+      let island_before = self.provided.insert(extraction.island_file.clone(), extraction.island.clone());
+      let again = match self.lower(module) {
+        Ok(()) => return Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds, started: Some(residue.clone()) })),
+        Err(LowerError::Residue(left)) => left.file == file,
+        Err(_) => false,
+      };
       forget(self);
       self.forget(&extraction.island_file);
       match island_before {
@@ -732,9 +739,11 @@ impl ComponentSet {
         Some(source) => self.provided.insert(file.clone(), source),
         None => self.provided.remove(&file),
       };
-      return Err(error);
+      if !again {
+        break;
+      }
     }
-    Ok(Some(Extracted { island: format!("{}#default", extraction.island_file), file: extraction.island_file, source: extraction.island, page: (file, extraction.page), holds: extraction.holds }))
+    Err(error)
   }
 
   /// Settles which chunks keep their fallback once every component is
@@ -2858,6 +2867,8 @@ pub struct Extracted {
   pub page: (String, String),
   /// The names the island took from the page's body.
   pub holds: Vec<String>,
+  /// What the page stopped on that made the split, in the page as written.
+  pub started: Option<Residue>,
 }
 
 /// The span of `export default tree(...)` with `tree` from FSR's React
