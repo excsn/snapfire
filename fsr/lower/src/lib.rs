@@ -2911,6 +2911,14 @@ impl<'a> Lowerer<'a> {
             }
             return Ok(Expr::Builtin { name: Builtin::Math, args });
           }
+          "Number" if method == "parseInt" => {
+            let Some(first) = call.args.first() else { return Err(self.residue(call.span, "`Number.parseInt` takes a string and an optional radix")) };
+            let mut args = vec![self.expr(&first.expr)?];
+            if let Some(radix) = call.args.get(1) {
+              args.push(self.expr(&radix.expr)?);
+            }
+            return Ok(Expr::Builtin { name: Builtin::ParseInt, args });
+          }
           "Number" if matches!(method.as_str(), "isInteger" | "isSafeInteger" | "isFinite" | "isNaN") => {
             let Some(arg) = call.args.first() else { return Err(self.residue(call.span, format!("`Number.{method}` takes one argument"))) };
             let x = self.expr(&arg.expr)?;

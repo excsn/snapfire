@@ -112,3 +112,13 @@ fn every_spelling_of_a_loader_returns_what_the_plainest_returns() {
     .collect();
   assert!(failed.is_empty(), "{} of {} spellings, against {reference:?}:\n{}", failed.len(), LOADERS.len(), failed.join("\n"));
 }
+
+#[test]
+fn number_parse_int_returns_what_parse_int_returns() {
+  let loader = |call: &str| format!("export async function load({{ params }}) {{\n  return {{ n: {call} }};\n}}\n");
+  let reference = returned(&lower_loader("l.ts", &loader("parseInt(params.id, 10)")).unwrap()).unwrap();
+  for call in ["Number.parseInt(params.id, 10)", "Number.parseInt(params.id)"] {
+    let got = lower_loader("l.ts", &loader(call)).map_err(|e| e.to_string()).and_then(|body| returned(&body));
+    assert_eq!(got, Ok(reference.clone()), "{call}");
+  }
+}
