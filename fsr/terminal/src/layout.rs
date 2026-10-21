@@ -80,7 +80,7 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
         padding: cells(s.padding),
         margin: Rect { top: LengthPercentageAuto::length(s.margin[0] as f32), right: LengthPercentageAuto::length(s.margin[1] as f32), bottom: LengthPercentageAuto::length(s.margin[2] as f32), left: LengthPercentageAuto::length(s.margin[3] as f32) },
         border: Rect { top: length(edge), right: length(edge), bottom: length(edge), left: length(edge) },
-        size: Size { width: s.width.map_or(Dimension::auto(), |w| Dimension::length(w as f32)), height: s.height.map_or(Dimension::auto(), |h| Dimension::length(h as f32)) },
+        size: Size { width: dimension(s.width), height: dimension(s.height) },
         flex_grow: s.grow,
         flex_shrink: s.shrink.unwrap_or(1.0),
         justify_content: match s.justify {
@@ -143,6 +143,14 @@ fn draw(tree: &TaffyTree<usize>, id: NodeId, at: (f32, f32), kinds: &[(NodeId, K
     for child in children {
       draw(tree, child, (x, y), kinds, frame);
     }
+  }
+}
+
+fn dimension(extent: Option<crate::Extent>) -> Dimension {
+  match extent {
+    None => Dimension::auto(),
+    Some(crate::Extent::Cells(cells)) => Dimension::length(cells as f32),
+    Some(crate::Extent::Percent(percent)) => Dimension::percent(percent / 100.0),
   }
 }
 

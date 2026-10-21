@@ -8,6 +8,7 @@ Ink's `Box` and `Text` laid out with flexbox and drawn to a terminal as cells.
   * [Node](#node)
   * [Boxed](#boxed)
   * [BoxStyle](#boxstyle)
+  * [Extent](#extent)
   * [Text](#text)
   * [Inline](#inline)
   * [Direction, Justify, Align, Border and Wrap](#direction-justify-align-border-and-wrap)
@@ -40,6 +41,7 @@ Ink's `Box`.
 * `pub fn padding(self, cells: u16) -> Self`, `padding_x`, `padding_y`
 * `pub fn margin(self, cells: u16) -> Self`
 * `pub fn width(self, cells: u16) -> Self`, `height`
+* `pub fn width_percent(self, percent: f32) -> Self`, `height_percent`: `50.0` is half the parent
 * `pub fn grow(self, grow: f32) -> Self`
 * `pub fn justify(self, justify: Justify) -> Self`
 * `pub fn align(self, align: Align) -> Self`
@@ -48,7 +50,11 @@ Ink's `Box`.
 
 ### BoxStyle
 
-* `pub struct BoxStyle { pub direction: Direction, pub gap: u16, pub padding: [u16; 4], pub margin: [u16; 4], pub width: Option<u16>, pub height: Option<u16>, pub grow: f32, pub shrink: Option<f32>, pub justify: Option<Justify>, pub align: Option<Align>, pub border: Option<Border>, pub border_color: Option<Color> }`, `Default`. `padding` and `margin` are top, right, bottom and left in cells. `shrink` is 1 when `None`. A border takes one cell on each side.
+* `pub struct BoxStyle { pub direction: Direction, pub gap: u16, pub padding: [u16; 4], pub margin: [u16; 4], pub width: Option<Extent>, pub height: Option<Extent>, pub grow: f32, pub shrink: Option<f32>, pub justify: Option<Justify>, pub align: Option<Align>, pub border: Option<Border>, pub border_color: Option<Color> }`, `Default`. `padding` and `margin` are top, right, bottom and left in cells. `shrink` is 1 when `None`. A border takes one cell on each side.
+
+### Extent
+
+* `pub enum Extent { Cells(u16), Percent(f32) }`, `Copy`, `PartialEq`: a `Box`'s width or height. `Percent(50.0)` is half the parent's size. A parent with no definite size, such as the root's height, gives a percentage nothing to share, so the box sizes to its content, as Yoga does.
 
 ### Text
 
@@ -112,7 +118,7 @@ Ink's `Text`. A nested `Text` adds its style to the one around it.
 ### from_markup
 
 * `pub fn from_markup(markup: &str) -> Result<Node, String>`: reads `ink-box`, `ink-text`, `ink-spacer` and `ink-newline` with their props as kebab-case attributes, the form `snapfire_fsr_lower` lowers Ink's `Box`, `Text`, `Spacer` and `Newline` to. Several top-level elements become one column.
-* `ink-box` reads `flex-direction`, `gap`, `column-gap`, `row-gap`, `padding`, `padding-x`, `padding-y`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left`, the same `margin` forms, `width`, `height` (whole cells), `flex-grow`, `flex-shrink`, `justify-content`, `align-items`, `border-style` and `border-color`. Others are ignored.
+* `ink-box` reads `flex-direction`, `gap`, `column-gap`, `row-gap`, `padding`, `padding-x`, `padding-y`, `padding-top`, `padding-right`, `padding-bottom`, `padding-left`, the same `margin` forms, `width`, `height` (whole cells or a percentage, `50%`), `flex-grow`, `flex-shrink`, `justify-content`, `align-items`, `border-style` and `border-color`. Others are ignored.
 * `ink-text` reads `color`, `background-color`, `bold`, `dim-color`, `italic`, `underline`, `strikethrough`, `inverse` and `wrap` (`truncate…` truncates). A flag is on unless its value is `false`.
 * `ink-spacer` is a box with `flex-grow` 1. `ink-newline` is a `\n`.
 * `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;` and `&#x27;` are decoded. Comments are skipped.

@@ -3830,8 +3830,14 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         };
         match &read {
           js::Expr::Member(member) => {
-            let field = prop_name_of(member).ok_or_else(|| lowerer.residue(member.span, "a write at a computed index of a local"))?;
-            let value = Expr::Object(vec![Entry::Spread(current(lowerer, &name)), Entry::Field(field, value)]);
+            let value = match (prop_name_of(member), &member.prop) {
+              (Some(field), _) => Expr::Object(vec![Entry::Spread(current(lowerer, &name)), Entry::Field(field, value)]),
+              (None, js::MemberProp::Computed(key)) if lowerer.terminal => {
+                let key = lowerer.expr(&key.expr)?;
+                Expr::Builtin { name: Builtin::SetAt, args: vec![current(lowerer, &name), key, value] }
+              }
+              (None, _) => return Err(lowerer.residue(member.span, "a write at a computed index of a local")),
+            };
             write_field(lowerer, assign.span, &name, value, assigned)
           }
           _ => {

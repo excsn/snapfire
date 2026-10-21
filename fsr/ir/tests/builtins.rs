@@ -276,3 +276,34 @@ async fn a_string_spreads_into_an_array_as_its_code_points() {
   let spread = Expr::Array(vec![Entry::Spread(str("a👍🏽"))]);
   assert_eq!(interp.evaluate(&spread, Vec::new()).await.unwrap(), Value::Seq(vec![Value::str("a"), Value::str("👍"), Value::str("🏽")].into()));
 }
+
+#[tokio::test]
+async fn local_time_is_the_instant_shifted_by_this_machines_offset_as_to_locale_time_string_writes_it() {
+  let interp = Interpreter::default();
+  let ms = 1_726_011_440_123.0;
+  let offset = Expr::Builtin { name: Builtin::LocalOffset, args: vec![Expr::Lit(Lit::Float(ms))] };
+  let Value::F64(minutes) = interp.evaluate(&offset, Vec::new()).await.unwrap() else { panic!("a number") };
+  assert!(minutes.fract() == 0.0 && minutes.abs() <= 14.0 * 60.0, "{minutes}");
+  let seconds = ((ms - minutes * 60_000.0) / 1000.0).floor().rem_euclid(86_400.0) as u32;
+  let (hours, minute, second) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+  let expected = format!("{}:{minute:02}:{second:02}\u{202f}{}", if hours % 12 == 0 { 12 } else { hours % 12 }, if hours < 12 { "AM" } else { "PM" });
+  let time = |when: Lit| Expr::Builtin { name: Builtin::LocalTime, args: vec![Expr::Lit(when), str("en-US")] };
+  assert_eq!(interp.evaluate(&time(Lit::Float(ms)), Vec::new()).await.unwrap(), Value::str(&expected));
+  assert_eq!(interp.evaluate(&time(Lit::Float(f64::NAN)), Vec::new()).await.unwrap(), Value::str("Invalid Date"));
+  let nan = Expr::Builtin { name: Builtin::LocalOffset, args: vec![Expr::Lit(Lit::Float(f64::NAN))] };
+  assert!(matches!(interp.evaluate(&nan, Vec::new()).await.unwrap(), Value::F64(n) if n.is_nan()));
+}
+
+#[tokio::test]
+async fn set_at_copies_an_array_or_an_object_with_one_index_or_key_written() {
+  let interp = Interpreter::default();
+  let set = |x: Expr, key: Lit, value: &str| Expr::Builtin { name: Builtin::SetAt, args: vec![x, Expr::Lit(key), str(value)] };
+  assert_eq!(interp.evaluate(&set(over(&["a", "b"]), Lit::Int(1), "c"), Vec::new()).await.unwrap(), Value::Seq(vec![Value::str("a"), Value::str("c")].into()));
+  assert_eq!(interp.evaluate(&set(over(&["a"]), Lit::Float(1.0), "c"), Vec::new()).await.unwrap(), Value::Seq(vec![Value::str("a"), Value::str("c")].into()), "the length appends");
+  assert!(interp.evaluate(&set(over(&["a"]), Lit::Int(999_999_999), "c"), Vec::new()).await.is_err(), "past the length would be sparse");
+  let object = Expr::Object(vec![Entry::Field("1".to_owned(), str("x"))]);
+  let mut written = ValueMap::default();
+  written.insert("1".to_owned(), Value::str("y"));
+  assert_eq!(interp.evaluate(&set(object, Lit::Int(1), "y"), Vec::new()).await.unwrap(), Value::Map(written), "an object's key is String(key)");
+  assert!(interp.evaluate(&set(over(&["a"]), Lit::Float(-1.0), "c"), Vec::new()).await.is_err());
+}

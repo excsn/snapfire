@@ -1645,6 +1645,10 @@ impl<'a> Lowerer<'a> {
       return Ok(Stmt::Set { name, expr: value });
     };
     let Some(field) = self.member_name(member) else {
+      if let (true, js::MemberProp::Computed(key)) = (self.terminal, &member.prop) {
+        let key = self.expr(&key.expr)?;
+        return Ok(Stmt::Set { expr: Expr::Builtin { name: Builtin::SetAt, args: vec![Expr::Var(name.clone()), key, value] }, name });
+      }
       return Err(self.residue_with(member.span, "a write at a computed index of a local", "build the new value whole with `map` or a spread and assign that"));
     };
     let expr = Expr::Object(vec![Entry::Spread(Expr::Var(name.clone())), Entry::Field(field, value)]);
@@ -2580,6 +2584,32 @@ impl<'a> Lowerer<'a> {
           _ => "milliseconds",
         };
         Ok(Expr::Builtin { name: Builtin::DatePart, args: vec![*target, Expr::lit_str(part)] })
+      }
+      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" if self.terminal && call.args.is_empty() => {
+        let part = match method.as_str() {
+          "getFullYear" => "year",
+          "getMonth" => "month",
+          "getDate" => "date",
+          "getDay" => "day",
+          "getHours" => "hours",
+          "getMinutes" => "minutes",
+          _ => "seconds",
+        };
+        let at = self.temp();
+        let offset = Expr::Builtin { name: Builtin::LocalOffset, args: vec![Expr::Var(at.clone())] };
+        let local = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Int(60_000))))));
+        let body = Expr::Builtin { name: Builtin::DatePart, args: vec![local, Expr::lit_str(part)] };
+        Ok(Expr::Apply { f: Box::new(Expr::Lambda { params: vec![at], body: Box::new(body) }), args: vec![*target] })
+      }
+      "getTimezoneOffset" if self.terminal => Ok(Expr::Builtin { name: Builtin::LocalOffset, args: vec![*target] }),
+      "toLocaleTimeString" if self.terminal && call.args.len() <= 1 => {
+        let locale = match call.args.first().map(|a| strip_parens(&a.expr)) {
+          None => Expr::Lit(Lit::Null),
+          Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => Expr::Lit(Lit::Null),
+          Some(js::Expr::Lit(js::Lit::Str(tag))) => Expr::lit_str(tag.value.to_atom_lossy().to_string()),
+          Some(other) => return Err(self.residue_with(other.span(), "a locale that is not written in place", "write the locale, `\"en-US\"`; `undefined` takes the system's")),
+        };
+        Ok(Expr::Builtin { name: Builtin::LocalTime, args: vec![*target, locale] })
       }
       "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" | "getTimezoneOffset" | "toLocaleTimeString" | "toTimeString" | "toDateString" => {
         let utc = method.replacen("get", "getUTC", 1);

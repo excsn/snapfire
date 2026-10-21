@@ -195,3 +195,30 @@ fn a_write_through_at_reaches_the_element_and_a_body_arrow_renders() {
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>AA,B,A</ink-text>");
 }
+
+#[test]
+fn a_terminal_reads_local_time_in_this_machines_zone() {
+  let page = "import { Text } from \"ink\";\n\nexport default function Clock() {\n  const at = new Date(1726011440123);\n  const now = new Date().toLocaleTimeString();\n  return <Text>{at.getHours()} {at.getMinutes()} {at.getTimezoneOffset()} {at.toLocaleTimeString(\"en-US\")} {now.length > 0 ? \"now\" : \"\"}</Text>;\n}\n";
+  let library = library(page);
+  let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let text = first.rendered.html.trim_start_matches("<ink-text>").trim_end_matches("</ink-text>").to_owned();
+  let parts: Vec<&str> = text.split(' ').collect();
+  let offset: f64 = parts[2].parse().unwrap();
+  let seconds = ((1_726_011_440_123.0 - offset * 60_000.0) / 1000.0).floor().rem_euclid(86_400.0) as u32;
+  let (hours, minutes) = (seconds / 3600, seconds / 60 % 60);
+  assert_eq!((parts[0], parts[1]), (hours.to_string().as_str(), minutes.to_string().as_str()), "{text}");
+  let twelve = if hours % 12 == 0 { 12 } else { hours % 12 };
+  assert_eq!(parts[3], format!("{twelve}:{minutes:02}:{:02}\u{202f}{}", seconds % 60, if hours < 12 { "AM" } else { "PM" }), "{text}");
+  assert_eq!(parts[4], "now");
+}
+
+#[test]
+fn a_terminal_updater_writes_a_copy_at_a_computed_index() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Lines() {\n  const [lines, setLines] = useState([\"a\", \"b\", \"c\"]);\n  useInput((input) => {\n    setLines((previous) => {\n      const next = [...previous];\n      next[Number(input)] = \"x\";\n      return next;\n    });\n  });\n  return <Text>{lines.join(\"\")}</Text>;\n}\n";
+  let library = library(page);
+  let component = &library[MODULE];
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let pressed = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &key("1", &[]), &library).unwrap();
+  assert_eq!(pressed.rendered.html, "<ink-text>axc</ink-text>");
+}

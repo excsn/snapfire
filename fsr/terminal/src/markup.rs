@@ -1,4 +1,4 @@
-use crate::{Align, Border, Boxed, Color, Direction, Inline, Justify, Node, Text, Wrap};
+use crate::{Align, Border, Boxed, Color, Direction, Extent, Inline, Justify, Node, Text, Wrap};
 
 /// One parsed element: its tag, its attributes and what it holds.
 struct Element {
@@ -109,6 +109,10 @@ fn boxed(el: Element) -> Result<Boxed, String> {
   let mut out = Boxed::new();
   for (name, value) in &el.attrs {
     let cells = || value.parse::<u16>().map_err(|_| format!("`{name}` on a Box is a number of cells, not `{value}`"));
+    let extent = || match value.strip_suffix('%') {
+      Some(share) => share.trim().parse::<f32>().ok().filter(|p| p.is_finite() && *p >= 0.0).map(Extent::Percent).ok_or_else(|| format!("`{name}` on a Box is cells or a percentage, not `{value}`")),
+      None => cells().map(Extent::Cells),
+    };
     let s = &mut out.style;
     match name.as_str() {
       "flex-direction" => s.direction = if value.starts_with("column") { Direction::Column } else { Direction::Row },
@@ -127,8 +131,8 @@ fn boxed(el: Element) -> Result<Boxed, String> {
       "margin-right" => s.margin[1] = cells()?,
       "margin-bottom" => s.margin[2] = cells()?,
       "margin-left" => s.margin[3] = cells()?,
-      "width" => s.width = Some(cells()?),
-      "height" => s.height = Some(cells()?),
+      "width" => s.width = Some(extent()?),
+      "height" => s.height = Some(extent()?),
       "flex-grow" => s.grow = value.parse().map_err(|_| format!("`flex-grow` is a number, not `{value}`"))?,
       "flex-shrink" => s.shrink = Some(value.parse().map_err(|_| format!("`flex-shrink` is a number, not `{value}`"))?),
       "justify-content" => {

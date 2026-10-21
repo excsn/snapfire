@@ -80,6 +80,18 @@ pub fn clock_from_ms(ms: f64) -> (u32, u32, u32, u32) {
   ((of_day / 3_600_000) as u32, (of_day / 60_000 % 60) as u32, (of_day / 1_000 % 60) as u32, (of_day % 1_000) as u32)
 }
 
+/// `getTimezoneOffset()` of an instant in this machine's local time zone: minutes behind UTC, NaN for an invalid instant.
+pub fn local_offset(ms: f64) -> f64 {
+  use chrono::{Offset, TimeZone};
+  if !ms.is_finite() {
+    return f64::NAN;
+  }
+  match chrono::Local.timestamp_millis_opt(ms as i64) {
+    chrono::LocalResult::Single(at) | chrono::LocalResult::Ambiguous(at, _) => -f64::from(at.offset().fix().local_minus_utc()) / 60.0,
+    chrono::LocalResult::None => f64::NAN,
+  }
+}
+
 /// `time.format(when, pattern)`: `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and
 /// `SSS` replaced in UTC, every other character kept.
 fn format(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {

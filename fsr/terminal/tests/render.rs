@@ -76,3 +76,12 @@ fn text_keeps_its_spaces_as_ink_does() {
   let indented = Boxed::new().width(6).child(Text::plain("  ab cd"));
   assert_eq!(render(&indented.into(), 20).lines()[0], "  ab");
 }
+
+#[test]
+fn a_percentage_size_is_a_share_of_the_parent_and_of_an_unsized_height_nothing() {
+  let node = snapfire_fsr_terminal::from_markup("<ink-box width=\"10\"><ink-box width=\"50%\"><ink-text>hello world</ink-text></ink-box><ink-text>x</ink-text></ink-box>").unwrap();
+  assert_eq!(render(&node, 20).lines(), ["hellox", "world"]);
+  let tall = snapfire_fsr_terminal::from_markup("<ink-box height=\"100%\"><ink-text>a</ink-text></ink-box>").unwrap();
+  assert_eq!(render(&tall, 20).lines().len(), 1, "a root with no height gives a percentage nothing to share");
+  assert_eq!(render(&Boxed::new().width_percent(50.0).child(Text::plain("hello world")).into(), 10).lines(), ["hello", "world"]);
+}

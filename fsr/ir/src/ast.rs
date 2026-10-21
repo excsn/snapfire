@@ -279,6 +279,12 @@ pub enum Builtin {
   Radix,
   /// `new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(s)`: each extended grapheme cluster of `s` as `{ segment, index, input }`, `index` a UTF-16 offset. With an index as the second argument, `.containing(i)`: the cluster holding UTF-16 index `i`, null past either end.
   Graphemes,
+  /// `new Date(ms).getTimezoneOffset()` on this machine: minutes behind UTC at that instant in its local time zone, NaN for an invalid date. Only a terminal page lowers to it, since there the machine is the viewer.
+  LocalOffset,
+  /// `new Date(ms).toLocaleTimeString(locale?)` in this machine's local time zone: the time at ICU's medium length, `Invalid Date` for an invalid date. Without a locale, the one `LC_ALL`, `LC_TIME` or `LANG` names, as Node reads it. Only a terminal page lowers to it.
+  LocalTime,
+  /// `x[key] = value` on a local, as a copy: an array with the index set (its length appends) or an object with `String(key)` set. A key on an array that is not an index or lies past its length is an error, since the value model holds no sparse array.
+  SetAt,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is

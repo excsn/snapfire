@@ -3036,6 +3036,35 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         None => Value::seq(segments),
       }
     }
+    Builtin::LocalOffset => Value::F64(crate::std::time::local_offset(number(name, arg(0)?)?)),
+    Builtin::LocalTime => {
+      let locale = match args.get(1) {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(text(name, v)?),
+      };
+      Value::str(crate::std::intl::local_time(number(name, arg(0)?)?, locale)?)
+    }
+    Builtin::SetAt => {
+      let value = arg(2)?.clone();
+      match arg(0)? {
+        Value::Seq(items) => {
+          let index = to_number(arg(1)?).filter(|i| i.fract() == 0.0 && (0.0..=items.len() as f64).contains(i)).ok_or_else(|| Fail::internal(format!("{name:?}: `{}` is not an index up to the array's length {}", stringify(&args[1]).unwrap_or_default(), items.len())))? as usize;
+          let mut items = items.to_vec();
+          if index == items.len() {
+            items.push(value);
+          } else {
+            items[index] = value;
+          }
+          Value::seq(items)
+        }
+        Value::Map(map) => {
+          let mut map = map.clone();
+          map.insert(stringify(arg(1)?)?, value);
+          Value::Map(map)
+        }
+        other => return Err(Fail::internal(format!("{name:?}: a write at a key of {}, which is not an array or an object", snapfire_fsr_core::ext::kind_name(other)))),
+      }
+    }
     Builtin::Radix => {
       let radix = match args.get(1) {
         None | Some(Value::Null) => 10.0,

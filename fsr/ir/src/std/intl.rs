@@ -239,6 +239,35 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   Ok(Value::str(out))
 }
 
+/// `toLocaleTimeString(locale?)` of an instant in this machine's local time zone: ICU's medium time, `Invalid Date` for an invalid instant. Without a locale, the system's, read from `LC_ALL`, `LC_TIME` or `LANG` as Node's ICU reads it, else `en-US`.
+pub fn local_time(ms: f64, locale: Option<&str>) -> Result<String, Fail> {
+  let what = "toLocaleTimeString";
+  let offset = super::time::local_offset(ms);
+  if offset.is_nan() {
+    return Ok("Invalid Date".to_owned());
+  }
+  let (h, m, s, _) = super::time::clock_from_ms(ms - offset * 60_000.0);
+  let tag = match locale {
+    Some(tag) => tag.to_owned(),
+    None => system_locale(),
+  };
+  let locale: Locale = tag.parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale")))?;
+  let time = icu_datetime::input::Time::try_new(h as u8, m as u8, s as u8, 0).map_err(|e| data(what, e))?;
+  let formatter = icu_datetime::NoCalendarFormatter::try_new(locale.into(), icu_datetime::fieldsets::T::medium()).map_err(|e| data(what, e))?;
+  Ok(formatter.format(&time).to_string())
+}
+
+/// `en_US.UTF-8` from the environment as `en-US`; `C` and `POSIX` are `en-US`, as they are to Node.
+fn system_locale() -> String {
+  let named = ["LC_ALL", "LC_TIME", "LANG"].iter().find_map(|var| std::env::var(var).ok().filter(|v| !v.is_empty()));
+  let Some(named) = named else { return "en-US".to_owned() };
+  let tag = named.split(['.', '@']).next().unwrap_or_default().replace('_', "-");
+  match tag.as_str() {
+    "" | "C" | "POSIX" => "en-US".to_owned(),
+    _ => tag,
+  }
+}
+
 enum Length {
   Long,
   Medium,

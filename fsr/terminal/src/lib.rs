@@ -83,6 +83,14 @@ impl Border {
   }
 }
 
+/// A `Box`'s width or height.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Extent {
+  Cells(u16),
+  /// A share of the parent's size, `50%` as 50.0. A parent with no definite size gives it nothing to share, so it sizes to its content, as Yoga does.
+  Percent(f32),
+}
+
 /// Ink's `Box` props, in cells.
 #[derive(Debug, Clone, Default)]
 pub struct BoxStyle {
@@ -92,8 +100,8 @@ pub struct BoxStyle {
   pub padding: [u16; 4],
   /// Top, right, bottom, left.
   pub margin: [u16; 4],
-  pub width: Option<u16>,
-  pub height: Option<u16>,
+  pub width: Option<Extent>,
+  pub height: Option<Extent>,
   pub grow: f32,
   pub shrink: Option<f32>,
   pub justify: Option<Justify>,
@@ -152,12 +160,22 @@ impl Boxed {
   }
 
   pub fn width(mut self, cells: u16) -> Self {
-    self.style.width = Some(cells);
+    self.style.width = Some(Extent::Cells(cells));
+    self
+  }
+
+  pub fn width_percent(mut self, percent: f32) -> Self {
+    self.style.width = Some(Extent::Percent(percent));
     self
   }
 
   pub fn height(mut self, cells: u16) -> Self {
-    self.style.height = Some(cells);
+    self.style.height = Some(Extent::Cells(cells));
+    self
+  }
+
+  pub fn height_percent(mut self, percent: f32) -> Self {
+    self.style.height = Some(Extent::Percent(percent));
     self
   }
 
