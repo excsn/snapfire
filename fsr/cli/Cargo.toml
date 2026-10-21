@@ -68,7 +68,7 @@ snapfire_fsr_ogimage.workspace = true
 snapfire_fsr_payload.workspace = true
 snapfire_fsr_plan.workspace = true
 snapfire_fsr_runtime.workspace = true
-snapfire_fsr_service = { workspace = true, features = ["grpc"] }
+snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
 snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.3.0" }
 snapfire_tailwind = { path = "../../tailwind", version = "0.3.0" }
 tar = "0.4.46"

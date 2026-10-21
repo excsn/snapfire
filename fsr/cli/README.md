@@ -47,7 +47,7 @@ It depends on `snapfire_fsr_lower` for the recogniser, `snapfire_fsr_ir` for the
 | Fetch declarations for the editor and `tsc` | `fsr types <app>` |
 | Keep an xwpm application in step | an `xwpm.wmf` in the app; the same commands |
 | Name the document module or the slot pages land in | `--shell`, `--slot` |
-| Give bodies a typed `services` | `app/clients/<name>.openapi.json` or `app/clients/<name>.proto` |
+| Give bodies a typed `services` | `app/clients/<name>.openapi.json`, `app/clients/<name>.proto` or `app/clients/<name>.graphql` |
 | Give bodies a typed `session` or an action a typed input | an interface under `app/schemas/` |
 | Give a fresh session its starting values | `export const defaults` beside `Session` |
 | Register the page islands in the browser | `generated/islands.ts`, called from `main.ts` |

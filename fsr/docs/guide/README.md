@@ -71,7 +71,7 @@ And one appendix:
 
 **A frontend developer who would rather have no framework:** read 000, then 100 and 101, then 105. Your pages are templates, your interactive pieces are elements the browser defines and your regions are fragments; 003 says why the server can render all of it. The end of 105 is for the developer who would rather write those pages in Tera than in TSX.
 
-**A backend developer who owns the services:** read 000, then 001 and 202. Your service's OpenAPI or proto document is all fsr needs from you and the rest of the guide covers what the application does with it.
+**A backend developer who owns the services:** read 000, then 001 and 202. Your service's OpenAPI, proto or GraphQL document is all fsr needs from you and the rest of the guide covers what the application does with it.
 
 **A full-stack developer working in TypeScript:** read in order through the 100s, then 300, 301, 302, 303 and 304. Skip the 200s until you need to run something that is not the stock host.
 

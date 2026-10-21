@@ -6887,6 +6887,22 @@ fn a_client_credential_goes_out_as_the_header_or_the_query_parameter_it_names() 
 }
 
 #[test]
+fn a_graphql_client_posts_its_operation_to_the_endpoint_with_its_credential() {
+  let rt = tokio::runtime::Runtime::new().unwrap();
+  let (base, seen) = record(1, r#"{"data":{"items":["a","b"]}}"#);
+  let dir = credential_dir(&format!("{base}/graphql"), r#"{ secret = "shop", header = "x-api-key" }"#, "[secrets.shop]\nvalue = \"app-secret\"\n");
+  std::fs::remove_file(dir.join("clients/shop.openapi.json")).unwrap();
+  std::fs::write(dir.join("clients/shop.graphql"), "type Query {\n  items: [String!]!\n}\n\nquery List {\n  items\n}\n").unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  assert!(host.report().to_string().contains("graphql"), "{}", host.report());
+  let response = rt.block_on(host.handle(Request::get("/who").body(Bytes::new()).unwrap()));
+  assert_eq!(response.status(), StatusCode::OK);
+  let seen = seen.lock();
+  assert_eq!(seen[0].0.split(' ').take(2).collect::<Vec<_>>(), ["POST", "/graphql"], "{seen:?}");
+  assert!(seen[0].1.contains(&"x-api-key: app-secret".to_owned()), "{seen:?}");
+}
+
+#[test]
 fn a_credential_is_refused_at_load_when_it_cannot_be_sent_as_written() {
   use snapfire_fsr_host::config::{Deployment, Loader};
   let load = |credential: &str, secrets: &str, deployment: Deployment| {

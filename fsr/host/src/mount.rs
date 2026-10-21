@@ -210,6 +210,29 @@ pub(crate) fn clients_of(
       service_rows.push((named.clone(), "grpc".to_owned(), base_url));
       continue;
     }
+    if document.ends_with(".graphql") {
+      let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
+      let imported = snapfire_fsr_service::import_graphql(&text, name).map_err(|error| HostError::Import { document, error })?;
+      let site_contract = site_contract(&imported.contract, config);
+      contract.types.extend(site_contract.types.clone());
+      contract.services.extend(site_contract.services.clone());
+      if let Some((transport, file)) = mock_transport(config, name, client, &prefix)? {
+        transports.push((named.clone(), transport));
+        service_rows.push((named.clone(), "mock".to_owned(), file));
+        continue;
+      }
+      let endpoint = client.base_url.clone().unwrap_or_default();
+      let mut transport = snapfire_fsr_service::GraphqlTransport::new(&endpoint, &imported);
+      if let Some((header, value)) = credential_header(config, client) {
+        transport = transport.header(header, value);
+      }
+      if let Some((query, value)) = client.credential.as_ref().and_then(|c| Some((c.query.clone()?, secret_value(config, &c.secret)?))) {
+        transport = transport.query(query, value);
+      }
+      transports.push((named.clone(), Arc::new(transport)));
+      service_rows.push((named.clone(), "graphql".to_owned(), endpoint));
+      continue;
+    }
     let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path.clone(), e))?;
     let imported = snapfire_fsr_service::import(&text, name).map_err(|error| HostError::Import { document, error })?;
     let site_contract = site_contract(&imported.contract, config);

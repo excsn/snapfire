@@ -60,7 +60,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * **Artifact** is what was read: the configuration, the plan and the contracts. A `Mount` carries one and `Host::from_artifact` builds over one made in memory.
 * **Plan file** is `generated/plan.sexp`, written by `fsr build`, with routes and lowered bodies. A `plan.json` from an older build still reads: the reader tells the two apart by the file's first term.
 * **Contracts** are `generated/contracts/*.json`, the same build's output, one file per client document plus `schemas.json`; the host merges them at boot, refusing a type or service two files define, then checks a lowered action's input against the result.
-* **Client** is a `[clients.<name>]` entry: a document and a base URL, imported into one service registry with a transport per client, HTTP for an OpenAPI document and gRPC for a `.proto`.
+* **Client** is a `[clients.<name>]` entry: a document and a base URL, imported into one service registry with a transport per client, HTTP for an OpenAPI document, gRPC for a `.proto` and a GraphQL post to `base_url` for a `.graphql`.
 * **Shell** is the evaluator for the document module every route's root node names, `shell#document` by default; the stock one emits the doctype, the head and the mount point.
 * **Head** is what the stock shell puts in `<head>`: the title, a `<link>` per stylesheet, the inlined import map and the entry module from `[document]`.
 * **Static root** is a `[[static]]` entry, a route prefix served from a directory by `tower-http`'s `ServeDir`, checked before any route. A root at `/` answers only a path that names a file in it and lets every other path through to the routes.
@@ -249,7 +249,7 @@ From the app directory, each reported at boot under `inferred`:
 | the named theme sheets in `document.styles` | every `.css` the build facts list under the styles directory's `themes/`, which `fsr build` writes for the named themes, linked after the directory's own sheets in name order |
 
 The build facts are read from `dist/` or, failing that, from whichever directory a `[[static]]` root already points at, since an application that writes its own root for the browser tree keeps the bundle elsewhere: a project rendering through Tera has `js/dist`, whose component stylesheets would otherwise never reach the head. The report names the directory it read.
-| `clients.<name>.document` | `clients/<name>.openapi.json` or `clients/<name>.proto` when only that exists |
+| `clients.<name>.document` | `clients/<name>.openapi.json`; `clients/<name>.proto` or `clients/<name>.graphql` when only that exists |
 
 Anything written in the file wins over the inference. `[[static]]` entries add roots the conventions do not cover, with `dir` relative to the app directory.
 

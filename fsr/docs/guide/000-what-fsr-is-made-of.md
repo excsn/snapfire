@@ -16,7 +16,7 @@ Unlike a Node framework, fsr has no JavaScript engine in the serving path, no `n
 
 Two files describe an application completely and everything else is generated from them.
 
-The **contract** is the typed description of every service the application talks to and every schema it declares. It is imported from what the services already publish, an OpenAPI document or a `.proto` file, plus the interfaces the application writes under `schemas/`. TypeScript types are generated from it for the editor. The runtime checks every call's arguments and every response against it. Nobody writes a client, which [chapter 001](001-one-contract-no-client-code.md) explains.
+The **contract** is the typed description of every service the application talks to and every schema it declares. It is imported from what the services already publish, an OpenAPI document, a `.proto` file or a GraphQL schema with its operations, plus the interfaces the application writes under `schemas/`. TypeScript types are generated from it for the editor. The runtime checks every call's arguments and every response against it. Nobody writes a client, which [chapter 001](001-one-contract-no-client-code.md) explains.
 
 The **plan file** is what the build makes of `app/`: the routes, the lowered bodies, the declared actions and the render trees, in one file under `generated/`. The host reads it at boot and binds every row to something that answers it. Rust can take a row over, but the file always says who answers. The boot report prints it.
 

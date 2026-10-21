@@ -300,7 +300,7 @@ The classes for a stylesheet that imports Tailwind, read from the plan.
 ### Clients
 
 * Every `app/clients/<name>.openapi.json`, sorted by name, is imported with `snapfire_fsr_service::import` as service `<name>`. Its types and services are merged into one contract; a type name that two documents both define is `DuplicateType`.
-* Every `clients/*.proto`, in name order after the OpenAPI documents, is imported with `snapfire_fsr_service::import_proto` under its file stem the same way. `CONTRACTS_DIR` and `PLAN_FILE` name where the build writes.
+* Every `clients/*.proto`, in name order after the OpenAPI documents, is imported with `snapfire_fsr_service::import_proto` under its file stem the same way. Every `clients/*.graphql` follows, imported with `snapfire_fsr_service::import_graphql`. `CONTRACTS_DIR` and `PLAN_FILE` name where the build writes.
 
 ### Schemas
 

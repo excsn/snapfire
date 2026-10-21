@@ -725,6 +725,23 @@ fn a_page_loaders_paths_export_lowers_on_a_route_with_a_parameter_and_nowhere_el
 }
 
 #[test]
+fn a_graphql_document_under_clients_is_a_contract_a_loader_calls() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/[slug]/page.tsx", "import type { SlugProps } from \"@generated/client\";\nexport default function Page({ post }: SlugProps) {\n  return <h1>{post.post?.title}</h1>;\n}\n"),
+    ("routes/[slug]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params, services }: Ctx<\"/{slug}\">) {\n  return { post: await services.cms.postBySlug({ slug: params.slug }) };\n}\n"),
+    ("clients/cms.graphql", "type Query {\n  post(slug: String!): Post\n}\n\ntype Post {\n  title: String!\n}\n\nquery PostBySlug($slug: String!) {\n  post(slug: $slug) {\n    title\n  }\n}\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  assert!(built.contract.method("cms", "postBySlug").is_some(), "{:?}", built.contract.services.keys().collect::<Vec<_>>());
+  let file = |name: &str| built.files.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap();
+  assert!(file("generated/services.d.ts").contains("postBySlug(args: { slug: string; }): Promise<PostBySlugQuery>;"), "{}", file("generated/services.d.ts"));
+  assert!(file("generated/contracts/cms.json").contains("PostBySlugQueryPost"));
+  assert!(built.report.services.iter().any(|(s, d)| s == "cms" && d == "clients/cms.graphql"), "{:?}", built.report.services);
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_site_build_prefixes_every_id_and_puts_every_pattern_under_its_prefix() {
   let dir = app(&[
     ("routes/layout.tsx", LAYOUT),

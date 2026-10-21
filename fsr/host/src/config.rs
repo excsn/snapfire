@@ -998,8 +998,9 @@ fn default_cache_ttl() -> String {
 
 /// A service the application calls. `document` defaults to
 /// `clients/<name>.openapi.json` under the app directory, or
-/// `clients/<name>.proto` when that is the file present; a `.proto` document
-/// is reached over gRPC, anything else over HTTP.
+/// `clients/<name>.proto` or `clients/<name>.graphql` when that is the file
+/// present. A `.proto` document is reached over gRPC, a `.graphql` one by
+/// posting each operation to `base_url` and anything else over HTTP.
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
@@ -2667,11 +2668,10 @@ impl Config {
     for (name, client) in clients.iter_mut() {
       if client.document.is_none() {
         let openapi = format!("clients/{name}.openapi.json");
-        let proto = format!("clients/{name}.proto");
-        client.document = Some(if !app.join(&openapi).is_file() && app.join(&proto).is_file() {
-          proto
-        } else {
-          openapi
+        let others = [format!("clients/{name}.proto"), format!("clients/{name}.graphql")];
+        client.document = Some(match others.into_iter().find(|d| app.join(d).is_file()) {
+          Some(other) if !app.join(&openapi).is_file() => other,
+          _ => openapi,
         });
         inferred.push(format!("clients.{name}.document from clients/"));
       }

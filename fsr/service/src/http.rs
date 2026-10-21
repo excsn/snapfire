@@ -69,7 +69,7 @@ fn scalar_to_path(value: &Value) -> String {
 }
 
 /// `text` with every `\u` escape of an unpaired surrogate written as `�`, which is what a browser displays for one; JSON allows them and a Rust string cannot hold them.
-fn replace_lone_surrogates(text: &str) -> std::borrow::Cow<'_, str> {
+pub(crate) fn replace_lone_surrogates(text: &str) -> std::borrow::Cow<'_, str> {
   if !text.contains("\\u") {
     return std::borrow::Cow::Borrowed(text);
   }

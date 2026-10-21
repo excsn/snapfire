@@ -9,6 +9,8 @@ pub mod openapi;
 pub mod proto;
 #[cfg(feature = "grpc")]
 pub mod grpc;
+#[cfg(feature = "graphql")]
+pub mod graphql;
 pub mod registry;
 pub mod rust;
 pub mod transport;
@@ -24,6 +26,8 @@ pub use openapi::{import, ImportError, Imported};
 pub use proto::{fsr_proto_include, import_proto, import_proto_source, GrpcMethod, ImportedProto, FSR_PROTO, FSR_PROTO_NAME};
 #[cfg(feature = "grpc")]
 pub use grpc::GrpcTransport;
+#[cfg(feature = "graphql")]
+pub use graphql::{import_graphql, GraphqlOperation, GraphqlTransport, ImportedGraphql};
 pub use interceptor::{
   CredentialInterceptor, IdentityInterceptor, Interceptor, Next, TraceInterceptor,
 };

@@ -19,6 +19,7 @@ Every block in every crate, one line each, sorted by what you would be looking f
 
 - **`snapfire_fsr_service::import`**, an OpenAPI document into a contract plus the HTTP routes each method needs.
 - **`snapfire_fsr_service::import_proto`**, a `.proto` into a contract plus the descriptors and method paths a gRPC call needs, compiled without protoc.
+- **`snapfire_fsr_service::import_graphql`**, a GraphQL schema and its named operations into a contract, each operation a method, plus the operation text `GraphqlTransport` posts.
 - **`snapfire_fsr_lower::read_schema`** and **`read_session_defaults`**, the application's own interfaces and the session's defaults, from `schemas/`.
 
 ## I want to call a service

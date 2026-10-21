@@ -31,6 +31,9 @@ How to declare a contract, build the service registry, bind it to a request and 
 * [Importing a Proto and Calling over gRPC](#importing-a-proto-and-calling-over-grpc)
   * [What a Proto Becomes](#what-a-proto-becomes)
   * [Codes Become Failure Kinds](#codes-become-failure-kinds)
+* [Importing a GraphQL Document and Posting Its Operations](#importing-a-graphql-document-and-posting-its-operations)
+  * [What an Operation Becomes](#what-an-operation-becomes)
+  * [Errors Become Failure Kinds](#errors-become-failure-kinds)
 * [Adding an Interceptor](#adding-an-interceptor)
   * [The Built-In Three](#the-built-in-three)
   * [Writing Your Own](#writing-your-own)
@@ -658,6 +661,86 @@ On the wire the arguments become the request message field by field and the resp
 | anything else | `Internal` |
 
 An argument the message has no field for or one outside its width is `Invalid` before the call leaves; a method the import did not see is `NotFound`. Metadata entries with string values become request metadata, the same rule as headers over HTTP.
+
+## Importing a GraphQL Document and Posting Its Operations
+
+With the `graphql` feature, `import_graphql` reads one document holding the API's schema and the operations the application sends. Each operation is validated against the schema before anything else happens. `GraphqlTransport::new` takes the endpoint every operation is posted to.
+
+```rust
+use std::sync::Arc;
+
+use snapfire_fsr_service::{import_graphql, GraphqlTransport, Services};
+
+let source = r#"
+type Query {
+  post(slug: String!): Post
+}
+
+type Post {
+  title: String!
+  author: Author
+}
+
+type Author {
+  name: String!
+}
+
+query PostBySlug($slug: String!) {
+  post(slug: $slug) {
+    headline: title
+    author {
+      name
+    }
+  }
+}
+"#;
+
+let imported = import_graphql(source, "cms")?;
+let services = Services::builder()
+  .contract(imported.contract.clone())
+  .transport("cms", Arc::new(GraphqlTransport::new("https://cms.example/graphql", &imported).header("x-api-key", key)))
+  .build();
+let post = services.bind_anonymous().call("cms", "postBySlug", args).await?;
+```
+
+The call posts `{ "query", "variables", "operationName" }` and answers the body's `data`, here `{ post: { headline, author: { name } | null } | null }`.
+
+### What an Operation Becomes
+
+Each named query or mutation is a method named lowerCamel, so `PostBySlug` is `postBySlug`. Its variables are the parameters; a nullable one or one with a default may be left out. Its answer is a record named after the operation and its kind, with one record per nested selection named by the path to it:
+
+```text
+PostBySlugQuery            { post: PostBySlugQueryPost | null }
+PostBySlugQueryPost        { headline: str, author: PostBySlugQueryPostAuthor | null }
+PostBySlugQueryPostAuthor  { name: str }
+```
+
+| GraphQL | Contract |
+| --- | --- |
+| `Int` | `I32` |
+| `Float` | `F64` |
+| `String`, `ID`, a custom scalar | `Str` |
+| `Boolean` | `Bool` |
+| a nullable type | `Optional<..>`, present and `null` |
+| `[T]` | `List<T>` |
+| an enum | a union of unit variants under the enum's name, sent as the value's name |
+| an input object | a record under its name |
+
+A fragment spread on the selection's own type merges its fields. Only the fragments an operation spreads go out with it. A subscription, an anonymous operation and a selection on an interface or a union that picks fields by the answer's type are refused at import.
+
+### Errors Become Failure Kinds
+
+An answer carrying `errors` fails the call with the first error's message. Its kind comes from `extensions.code` where the server sets one:
+
+| `extensions.code` | Kind |
+| --- | --- |
+| `NOT_FOUND` | `NotFound` |
+| `UNAUTHENTICATED` | `Unauthorized` |
+| `FORBIDDEN` | `Forbidden` |
+| `BAD_USER_INPUT`, `BAD_REQUEST`, `GRAPHQL_VALIDATION_FAILED`, `GRAPHQL_PARSE_FAILED` | `Invalid` |
+| none or anything else | `Internal` |
+
+A non-2xx status without `errors` maps the way it does over HTTP.
 
 ## Adding an Interceptor
 

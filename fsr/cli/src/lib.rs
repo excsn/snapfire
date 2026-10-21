@@ -468,6 +468,8 @@ impl Report {
       let label = if i == 0 { "services" } else { "" };
       let kind = if document.ends_with(".proto") {
         "grpc"
+      } else if document.ends_with(".graphql") {
+        "graphql"
       } else if document.ends_with(".rs") {
         "rust"
       } else {
@@ -882,6 +884,18 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
     let file = document.file_name().unwrap_or_default().to_string_lossy().to_string();
     let name = file.trim_end_matches(".proto").to_owned();
     let imported = snapfire_fsr_service::import_proto(&document, &name)
+      .map_err(|error| BuildError::Import { document: format!("clients/{file}"), error })?;
+    for service in imported.contract.services.keys() {
+      report.services.push((service.clone(), format!("clients/{file}")));
+    }
+    contract.merge(imported.contract.clone(), &format!("clients/{file}"))?;
+    contracts.push((format!("{CONTRACTS_DIR}/{name}.json"), imported.contract));
+  }
+  for document in sorted_files(&app.join("clients"), ".graphql")? {
+    let file = document.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let name = file.trim_end_matches(".graphql").to_owned();
+    let text = std::fs::read_to_string(&document).map_err(|e| BuildError::Io(document.clone(), e))?;
+    let imported = snapfire_fsr_service::import_graphql(&text, &name)
       .map_err(|error| BuildError::Import { document: format!("clients/{file}"), error })?;
     for service in imported.contract.services.keys() {
       report.services.push((service.clone(), format!("clients/{file}")));

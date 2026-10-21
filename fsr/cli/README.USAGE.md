@@ -84,7 +84,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Loading module** is a route's `loading.tsx`; its presence marks the node deferred with that fallback.
 * **Not-found module** is `routes/not-found.tsx`, rendered with status 404 for a path no route matches; it receives `params.path`.
 * **Lowered** is the owner of every source and action the build emits; the host may override any of them in Rust.
-* **Client** is a document under `clients/`, `<name>.openapi.json` or `<name>.proto`, imported as the service `<name>`; the host reaches the first over HTTP and the second over gRPC.
+* **Client** is a document under `clients/`, `<name>.openapi.json`, `<name>.proto` or `<name>.graphql`, imported as the service `<name>`; the host reaches the first over HTTP, the second over gRPC and the third by posting each operation to the endpoint.
 * **Schema** is a TypeScript module under `schemas/` whose exported interfaces become contract types; one named `Session` types `ctx.session`.
 * **Generated** is `generated/`, rewritten on every build: `plan.sexp`, `services.d.ts`, `fsr.ts`, `contracts/`, `islands.ts` and `client.ts`, plus `tsconfig.json` and `tsconfig.build.json` beside it. All of it is build output, ignored by git and rebuilt by a `build.rs` that calls the library. The tsconfig maps `@snapfire/fsr` to `generated/fsr`, so a body imports `Ctx`, `action` and `fail` from that bare name and gets the app's own types.
 * **Vendor** is `vendor/`, committed: the runtime modules the browser loads, one directory per package, written by `fsr add` from esm.sh and named in `importmap.json`.

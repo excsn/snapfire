@@ -45,20 +45,24 @@ The typed service boundary for SnapFire FSR: the contract artifact, its checking
   * [ImportedProto](#importedproto)
   * [GrpcTransport](#grpctransport)
   * [kind_for_code](#kind_for_code)
-* [8. The Runtime Seam](#8-the-runtime-seam)
+* [8. GraphQL](#8-graphql)
+  * [import_graphql](#import_graphql)
+  * [ImportedGraphql](#importedgraphql)
+  * [GraphqlTransport](#graphqltransport)
+* [9. The Runtime Seam](#9-the-runtime-seam)
   * [ServiceHandle](#servicehandle)
   * [ServiceCaller](#servicecaller)
   * [Identity](#identity)
   * [FailureKind](#failurekind)
   * [ServiceError](#serviceerror)
-* [9. TypeScript Declarations](#9-typescript-declarations)
+* [10. TypeScript Declarations](#10-typescript-declarations)
   * [declarations](#declarations)
   * [type_name](#type_name)
-* [10. Services Written in Rust](#10-services-written-in-rust)
+* [11. Services Written in Rust](#11-services-written-in-rust)
   * [ContractType](#contracttype)
   * [DeclaredService](#declaredservice)
   * [Caller](#caller)
-* [11. Error Handling](#11-error-handling)
+* [12. Error Handling](#12-error-handling)
   * [ContractError](#contracterror)
 
 ## 1. The Contract Artifact
@@ -454,7 +458,32 @@ Modules `proto` and `grpc`, behind the `grpc` feature, re-exported at the crate 
 
 * `fn kind_for_code(code: tonic::Code) -> FailureKind`: `NotFound` to `NotFound`; `InvalidArgument`, `OutOfRange`, `FailedPrecondition` to `Invalid`; `Unauthenticated`, `PermissionDenied` to `Unauthorized`; `AlreadyExists`, `Aborted` to `Conflict`; `DeadlineExceeded` to `Timeout`; `Unavailable` to `Unavailable`; anything else to `Internal`.
 
-## 8. The Runtime Seam
+## 8. GraphQL
+
+Module `graphql`, behind the `graphql` feature, re-exported at the crate root. apollo-compiler parses and validates the document.
+
+### import_graphql
+
+* `fn import_graphql(source: &str, service: &str) -> Result<ImportedGraphql, ImportError>`: `source` is one document holding the schema's SDL and the named operations. Every operation is validated against the schema; a document that does not parse or validate is `Malformed` with the compiler's diagnostics.
+* Each named query or mutation is a method of `service` named lowerCamel. Its variables are the parameters: a nullable variable or one with a default is `Optional` and may be left out.
+* The answer is the record `<Operation>Query` or `<Operation>Mutation`, one field per response key with `present` set, an alias naming its field. A nested selection is the record named by appending the PascalCased key: `PostBySlugQuery`, `PostBySlugQueryPost`, `PostBySlugQueryPostAuthor`. A fragment spread or an inline fragment on the selection's own type merges its fields.
+* Types: `Int` to `I32`, `Float` to `F64`, `String` and `ID` to `Str`, `Boolean` to `Bool`, a custom scalar to `Str`; a nullable type to `Optional`; a list to `List`; an enum to a union of unit variants under the enum's name; an input object to a record under its name.
+* `ImportError::Unsupported`: a subscription, an anonymous operation and a selection on an interface or a union that picks fields by the answer's type.
+
+### ImportedGraphql
+
+* `pub struct ImportedGraphql { pub contract: Contract, pub service: String, pub operations: IndexMap<String, GraphqlOperation> }`, keyed by method name.
+* `pub struct GraphqlOperation { pub name: String, pub document: String }`: the operation's name and the text sent for it, the operation and the fragments it spreads directly or through another fragment.
+
+### GraphqlTransport
+
+* `fn new(endpoint: impl Into<String>, imported: &ImportedGraphql) -> Self`: a 30 second timeout.
+* `fn with_client(endpoint: impl Into<String>, imported: &ImportedGraphql, client: reqwest::Client) -> Self`
+* `fn header(self, name: impl Into<String>, value: impl Into<String>) -> Self` and `fn query(self, name: impl Into<String>, value: impl Into<String>) -> Self`: sent with every call.
+* `impl Transport`: a `POST` to `endpoint` with the JSON body `{ "query", "variables", "operationName" }`, the arguments as the variables and a unit variant as its tag. Metadata entries with string values become headers. The answer is the body's `data`.
+* Errors: a body carrying `errors` fails with the first one's `message`, its kind from `extensions.code`: `NOT_FOUND` to `NotFound`, `UNAUTHENTICATED` to `Unauthorized`, `FORBIDDEN` to `Forbidden`, `BAD_USER_INPUT`, `BAD_REQUEST`, `GRAPHQL_VALIDATION_FAILED` and `GRAPHQL_PARSE_FAILED` to `Invalid`, anything else `Internal`. Without `errors`, a non-2xx status maps through `kind_for_status`. A body without `data` is `Internal`. A method the document has no operation for is `Internal`.
+
+## 9. The Runtime Seam
 
 These types come from `snapfire_fsr_runtime` and are not re-exported here, but they appear in this crate's signatures.
 
@@ -499,7 +528,7 @@ The failure taxonomy every error at this boundary carries.
 
 `Display` reads `{service}.{method} failed ({kind}): {message}`.
 
-## 9. TypeScript Declarations
+## 10. TypeScript Declarations
 
 ### declarations
 
@@ -511,7 +540,7 @@ The failure taxonomy every error at this boundary carries.
 * `pub fn typescript::type_name(ty: &Type) -> String`
 * Every integer width is `bigint`; `F32` and `F64` are `number`; `Str` is `string`; `Bytes` is `Uint8Array`; `Array(kind)` is the matching typed array; `Optional(T)` is `T | null`; `List(T)` is `T[]`, parenthesised when `T` is optional; `Map(T)` is `Record<string, T>`; `Named(n)` is `n`.
 
-## 10. Services Written in Rust
+## 11. Services Written in Rust
 
 What `#[service]` and `#[derive(Record)]` from `snapfire_fsr_macros` expand against. A marked `impl` gains a `Transport` answering its own `pub` methods and a `DeclaredService` carrying its contract; the host takes both through `HostBuilder::service`.
 
@@ -540,7 +569,7 @@ Who called a `#[service]` method, as the call carries it. `Debug`, `Clone`. A me
 
 The call's `credentials` are not on it, since a method is application code and custody stays in the transport.
 
-## 11. Error Handling
+## 12. Error Handling
 
 ### ContractError
 

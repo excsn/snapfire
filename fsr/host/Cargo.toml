@@ -47,7 +47,7 @@ tera = { version = "2", features = ["fast", "preserve_order"], optional = true }
 snapfire_fsr_plan.workspace = true
 snapfire_fsr_ogimage.workspace = true
 snapfire_fsr_runtime.workspace = true
-snapfire_fsr_service = { workspace = true, features = ["grpc"] }
+snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
 snapfire_fsr_session.workspace = true
 snapfire_sitemap = { path = "../../sitemap", version = "0.2.0" }
 bytes = "1"

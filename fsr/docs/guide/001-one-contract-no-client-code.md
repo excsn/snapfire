@@ -6,9 +6,28 @@ The question this chapter answers: how does a loader call a service it has never
 
 ## The service's own document
 
-A service the application talks to already describes itself. An HTTP service publishes an OpenAPI document; a gRPC service publishes a `.proto`. fsr uses that document to integrate the service: drop it under `app/clients/` and the build imports it into the contract. The storefront has two, [`shopping.openapi.json`](../../examples/shopping_react_ts/app/clients/shopping.openapi.json) for the catalog and orders and [`inventory.proto`](../../examples/shopping_react_ts/app/clients/inventory.proto) for stock levels. Nothing under `app/` mentions HTTP or gRPC anywhere.
+A service the application talks to already describes itself. An HTTP service publishes an OpenAPI document; a gRPC service publishes a `.proto`; a GraphQL API publishes its schema. fsr uses that document to integrate the service: drop it under `app/clients/` and the build imports it into the contract. The storefront has two, [`shopping.openapi.json`](../../examples/shopping_react_ts/app/clients/shopping.openapi.json) for the catalog and orders and [`inventory.proto`](../../examples/shopping_react_ts/app/clients/inventory.proto) for stock levels. Nothing under `app/` mentions HTTP or gRPC anywhere.
 
 The name of the file is the name of the service. `shopping.openapi.json` is `services.shopping`; each operation's `operationId` is a method; each schema is a type. For a proto, the one service in the file takes the file's name, the messages become records and `int64` stays a 64-bit integer rather than becoming a JavaScript number, which is why the value model has a `bigint` and the generated types say so.
+
+A GraphQL API publishes a schema instead of a path per operation, so its document is `app/clients/<name>.graphql`: the schema's SDL followed by the named operations the application sends. Each operation is a method, its variables are the arguments and its selection is the answer's type:
+
+```graphql
+query PostBySlug($slug: String!) {
+  post(slug: $slug) {
+    title
+    author {
+      name
+    }
+  }
+}
+```
+
+```ts
+const { post } = await services.cms.postBySlug({ slug: params.slug });
+```
+
+`post` is `{ title: string; author: { name: string } | null } | null`, typed from the selection, so reading a field the operation did not ask for is a type error. The build validates every operation against the schema. `base_url` under `[clients.cms]` is the endpoint each operation is posted to.
 
 A backend is integrated as soon as its document matches what it serves. A backend developer only has to publish an accurate document and the frontend team needs nothing else. The storefront's HTTP backend goes further and includes its document from `app/clients/` at compile time, so the build imports exactly the bytes the server publishes.
 
