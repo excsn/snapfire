@@ -1184,6 +1184,9 @@ impl ComponentSet {
               if let Some(span) = class_component_span(&parsed, export) {
                 return Err(Lowerer::new(&parsed, &defaults).residue(span, CLASS_COMPONENT).into());
               }
+              if let Some((span, how)) = made_component(&parsed, export) {
+                return Err(Lowerer::new(&parsed, &defaults).residue(span, how).into());
+              }
               return Err(LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() });
             }
           },
@@ -2777,6 +2780,49 @@ fn class_component_span(parsed: &Parsed, export: &str) -> Option<Span> {
     if let js::Decl::Class(c) = decl {
       if c.ident.sym.as_ref() == export && react_base(&c.class) {
         return Some(c.class.span);
+      }
+    }
+  }
+  None
+}
+
+/// Where an export the build cannot read as a function is made and what made
+/// it: a call another library wraps a component in (`observer(...)`) or a
+/// tagged template (`styled.h1`).
+fn made_component(parsed: &Parsed, export: &str) -> Option<(Span, String)> {
+  let made = |e: &js::Expr| match crate::meaning::bare(e) {
+    js::Expr::Call(call) => {
+      let js::Callee::Expr(callee) = &call.callee else { return None };
+      let name = match crate::meaning::bare(callee) {
+        js::Expr::Ident(id) => id.sym.to_string(),
+        js::Expr::Member(m) => match (&*m.obj, &m.prop) {
+          (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) => format!("{}.{}", obj.sym, prop.sym),
+          _ => return None,
+        },
+        _ => return None,
+      };
+      Some((call.span, format!("a component made by `{name}`, which the build does not lower")))
+    }
+    js::Expr::TaggedTpl(t) => Some((t.span, "a component made by a tagged template, which the build does not lower".to_owned())),
+    _ => None,
+  };
+  for item in &parsed.module.body {
+    let var = match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) if export == "default" => {
+        return match crate::meaning::bare(&e.expr) {
+          js::Expr::Ident(id) => made_component(parsed, id.sym.as_ref()),
+          other => made(other),
+        };
+      }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) => var,
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(var))) => var,
+      _ => continue,
+    };
+    for decl in &var.decls {
+      if let (js::Pat::Ident(name), Some(init)) = (&decl.name, &decl.init) {
+        if name.id.sym.as_ref() == export {
+          return made(init);
+        }
       }
     }
   }

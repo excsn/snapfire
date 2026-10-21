@@ -78,7 +78,7 @@ with-babel-macros	refused: routes/page.tsx:3:16: a tagged template	pages 1	notes
 with-biome	lowered	pages 1	notes 0
 with-chakra-ui	refused: src/theme.tsx:12:15: a call to `extendTheme`, which the build cannot follow	pages 1	notes 2
 with-clerk	refused: routes/api/getAuthenticatedUserId/route.ts:5:33: a call to `auth`, which the build cannot follow	pages 4	notes 6
-with-compiled-css	refused: src/components/styled-button.js: no exported `Button`	pages 1	notes 0
+with-compiled-css	client: src/components/class-names-box.js:8:20 a tagged template | src/components/styled-button.js:3:23 a component made by a tagged template, which the build does not lower	pages 1	notes 0
 with-context-api	lowered	pages 2	notes 0
 with-cookies-next	refused: routes/ssr-cookies/page.loader.ts:4:3: a call to `setCookies`, which the build cannot follow	pages 2	notes 6
 with-couchbase	refused: src/util/couchbase.js:26:5: `cached`, a module-level `let` a function writes; a body reads module state through the store	pages 1	notes 7
@@ -89,7 +89,7 @@ with-docker	lowered	pages 1	notes 5
 with-docker-compose/next-app	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
 with-docker-export-output	lowered	pages 1	notes 5
 with-docker-multi-env	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 6
-with-dynamic-import	refused: routes/page.island0.tsx: no exported `DynamicComponent1`	pages 1	notes 0
+with-dynamic-import	client: routes/page.island0.tsx:13:27 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:14:27 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:4:27 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:5:44 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:9:36 a component made by `dynamic`, which the build does not lower	pages 1	notes 0
 with-edgedb	refused: routes/page.loader.ts:5:22: `e` comes from `../src/client`, which the build cannot follow	pages 4	notes 4
 with-elasticsearch	refused: src/lib/elasticsearch.ts:4:24: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 6
 with-electron	refused: no `routes/` directory under <app>	pages 0	notes 1
@@ -135,7 +135,7 @@ with-magic	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot foll
 with-mantine	client: routes/layout.island0.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/layout.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/page.island0.tsx:9:5 `Text` comes from `@mantine/core`, which the build cannot follow	pages 1	notes 2
 with-mdbreact	client: routes/page.island0.tsx:15:5 `MDBCardTitle` comes from `mdbreact`, which the build cannot follow	pages 1	notes 1
 with-meilisearch	client: routes/page.island0.tsx:76:25 `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 6
-with-mobx	refused: src/components/Page.js: no exported `default`	pages 4	notes 1
+with-mobx	client: routes/layout.island0.tsx:5:24 `pageProps` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:5:24 `pageProps` is not bound here; an import the build cannot follow or a name from outside the body | src/components/Page.js:7:14 a component made by `observer`, which the build does not lower	pages 4	notes 1
 with-mobx-state-tree	refused: src/store.ts:10:5: `store`, a module-level `let` a function writes; a body reads module state through the store	pages 4	notes 1
 with-mocha	lowered	pages 1	notes 0
 with-mongodb	refused: <app>/routes: holds `actions.ts` but no `page.tsx`; an action is named for the page beside it	pages 1	notes 6
@@ -166,7 +166,7 @@ with-portals	client: src/components/ClientOnlyPortal.js:13:20 a call to `createP
 with-portals-ssr	client: routes/page.island0.tsx:11:7 `UniversalPortal` comes from `@jesstelford/react-portal-universal`, which the build cannot follow	pages 1	notes 2
 with-postgres	no application
 with-prefetching	client: src/components/Nav.tsx:5:18 `useRouter`, a hook the build cannot follow	pages 4	notes 1
-with-quill-js	refused: routes/page.js: no exported `QuillNoSSRWrapper`	pages 1	notes 1
+with-quill-js	client: routes/page.js:3:27 a component made by `dynamic`, which the build does not lower	pages 1	notes 1
 with-rbx-bulma-pro	client: routes/about/page.island0.tsx:6:5 `Title` comes from `rbx`, which the build cannot follow | routes/contact/page.island0.tsx:15:5 `Title` comes from `rbx`, which the build cannot follow | routes/page.island0.tsx:7:5 `Title` comes from `rbx`, which the build cannot follow	pages 3	notes 1
 with-react-bootstrap	client: routes/page.island0.tsx:5:5 `Card` comes from `react-bootstrap`, which the build cannot follow	pages 1	notes 1
 with-react-ga4	client: routes/layout.js:6:18 `useRouter`, a hook the build cannot follow	pages 2	notes 1
@@ -198,11 +198,11 @@ with-sitemap	lowered	pages 2	notes 5
 with-slate	refused: routes/api/editor-state/route.ts:2:29: `ctx` as a value; read one of its fields	pages 1	notes 1
 with-static-export	lowered	pages 2	notes 0
 with-stencil	unmigrated: not a Next.js application	pages 0	notes 1
-with-stitches	refused: routes/page.tsx: no exported `Text`	pages 1	notes 1
+with-stitches	client: routes/page.tsx:11:14 a component made by `styled`, which the build does not lower | routes/page.tsx:17:19 a component made by `styled`, which the build does not lower | routes/page.tsx:4:13 a component made by `styled`, which the build does not lower | routes/page.tsx:6:14 a component made by `styled`, which the build does not lower	pages 1	notes 1
 with-storybook	refused: routes/page.module.css: 1:1: Expression expected	pages 2	notes 1
 with-strict-csp	refused: routes/page.loader.ts:5:29: a call to `headers`, which the build cannot follow	pages 1	notes 2
 with-stripe-typescript	refused: routes/actions.ts:14:26: a call to `headers`, which the build cannot follow	pages 7	notes 7
-with-styled-components	refused: routes/_components/globalstyles.tsx: no exported `default`	pages 2	notes 0
+with-styled-components	client: routes/_components/cards.tsx:13:14 a component made by a tagged template, which the build does not lower | routes/_components/cards.tsx:32:20 a component made by a tagged template, which the build does not lower | routes/_components/cards.tsx:4:23 a component made by a tagged template, which the build does not lower | routes/_components/globalstyles.tsx:3:21 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:12:14 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:21:15 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:39:21 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:3:19 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:44:17 a component made by a tagged template, which the build does not lower | src/lib/client-layout.tsx:16:5 `ThemeProvider` comes from `styled-components`, which the build cannot follow | src/lib/styled-components-registry.tsx:12:59 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 0
 with-styled-jsx	client: routes/registry.tsx:14:45 a call to `createStyleRegistry`, which the build cannot follow	pages 1	notes 0
 with-supabase	refused: routes/auth/confirm/route.ts:7:36: `url` is not a field of the context	pages 8	notes 22
 with-temporal	lowered	pages 2	notes 2

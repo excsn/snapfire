@@ -105,3 +105,15 @@ fn a_class_that_is_not_a_react_component_is_still_no_component() {
   let out = lowered("notreact", &[("src/Greeting.tsx", greeting), ("routes/page.tsx", PAGE)]);
   assert!(out.as_ref().is_err_and(|e| e.contains("no exported `default`")), "{:?}", out.err());
 }
+
+#[test]
+fn a_component_another_library_wraps_or_styles_is_residue_naming_how_it_was_made() {
+  let wrapped = "import { observer } from \"mobx-react-lite\";\nconst Greeting = observer(function Greeting({ name }) {\n  return <h1>Hello, {name}</h1>;\n});\nexport default Greeting;\n";
+  let styled = "import styled from \"styled-components\";\nexport default styled.h1`\n  color: red;\n`;\n";
+  for (tag, source, how) in [("observer", wrapped, "made by `observer`"), ("styled", styled, "made by a tagged template")] {
+    let set = lowered(tag, &[("src/Greeting.tsx", source), ("routes/page.tsx", PAGE)]).expect("the page lowers around the component it leaves to the browser");
+    let residue = set.browser_only.iter().find(|(module, _)| module == "src/Greeting.tsx#default").map(|(_, r)| r).unwrap_or_else(|| panic!("{tag}: {:?}", set.browser_only));
+    assert_eq!(residue.line, 2, "{tag}: {residue:?}");
+    assert!(residue.message.contains(how), "{tag}: {residue:?}");
+  }
+}
