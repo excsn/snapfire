@@ -114,13 +114,20 @@ impl Pass for AppShell {
     let Some(path) = ["tsx", "jsx", "js", "ts"].iter().map(|e| format!("app/routes/layout.{e}")).find(|p| tree.contains(p)) else { return };
     let Some(text) = tree.text(&path).map(str::to_owned) else { return };
     let Ok(parsed) = parse(&path, &text) else { return };
-    let Some(function) = default_function(&parsed.module) else {
+    let Some(app) = default_component(&parsed.module) else {
       report.note(&path, 0, "the default export of `_app` is not a function this pass can read, so it still takes `{ Component, pageProps }`");
       return;
     };
     let mut edits = Edits::default();
-    let Some(param) = function.params.first() else { return };
-    let js::Pat::Object(object) = &param.pat else {
+    if let Some((span, wrapper, inner)) = &app.wrapped {
+      edits.replace(parsed.range(*span), inner.clone());
+      report.note(&path, parsed.line(*span), format!("`{wrapper}` wrapped the app for Next and was dropped; a provider it set up goes in an island of the layout"));
+    }
+    let Some(param) = app.params.first() else {
+      tree.insert(path, edits.apply(&text));
+      return;
+    };
+    let js::Pat::Object(object) = param else {
       report.note(&path, parsed.line(param.span()), "`_app`'s props are not destructured, so they were not rewritten to `{ children }`");
       return;
     };
@@ -135,7 +142,7 @@ impl Pass for AppShell {
     let component = names.iter().find(|n| *n == "Component").cloned().unwrap_or_else(|| "Component".to_owned());
     edits.replace(parsed.range(param.span()), "{ children }");
     let mut finder = Placements { name: component.clone(), found: Vec::new(), other: Vec::new() };
-    function.visit_with(&mut finder);
+    app.body.visit_with(&mut finder);
     for span in finder.found {
       edits.replace(parsed.range(span), "<>{children}</>");
     }
@@ -146,28 +153,102 @@ impl Pass for AppShell {
     if let Some(stripped) = drop_named_import(&out, "next/app", "AppProps") {
       out = stripped;
     }
+    if let Some((_, wrapper, _)) = &app.wrapped {
+      out = tidy(&crate::items::prune(&path, &out, &[wrapper.clone()].into_iter().collect()));
+    }
     tree.insert(path, out);
   }
 }
 
-fn default_function(module: &js::Module) -> Option<&js::Function> {
+/// `_app`'s component: its parameters and its body. `wrapped` is set when
+/// the default export wraps it in a call: that call's span, the callee and
+/// the component's name.
+struct AppComponent<'a> {
+  params: Vec<&'a js::Pat>,
+  body: &'a dyn AppBody,
+  wrapped: Option<(swc_core::common::Span, String, String)>,
+}
+
+trait AppBody {
+  fn visit_with(&self, v: &mut Placements);
+}
+
+impl AppBody for js::Function {
+  fn visit_with(&self, v: &mut Placements) {
+    VisitWith::visit_with(self, v);
+  }
+}
+
+impl AppBody for js::ArrowExpr {
+  fn visit_with(&self, v: &mut Placements) {
+    VisitWith::visit_with(self, v);
+  }
+}
+
+fn default_component(module: &js::Module) -> Option<AppComponent<'_>> {
   let mut named = None;
+  let mut wrapped = None;
   for item in &module.body {
     match item {
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(js::ExportDefaultDecl { decl: js::DefaultDecl::Fn(f), .. })) => return Some(&f.function),
-      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => {
-        if let js::Expr::Ident(i) = &*e.expr {
-          named = Some(i.sym.to_string());
-        }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultDecl(js::ExportDefaultDecl { decl: js::DefaultDecl::Fn(f), .. })) => {
+        return Some(AppComponent { params: f.function.params.iter().map(|p| &p.pat).collect(), body: &*f.function, wrapped: None });
       }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => match &*e.expr {
+        js::Expr::Ident(i) => named = Some(i.sym.to_string()),
+        js::Expr::Call(call) => {
+          if let Some((callee, inner)) = wrapped_component(call, module) {
+            named = Some(inner.clone());
+            wrapped = Some((call.span, callee, inner));
+          }
+        }
+        _ => {}
+      },
       _ => {}
     }
   }
   let named = named?;
   module.body.iter().find_map(|item| match item {
-    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) if f.ident.sym == *named => Some(&*f.function),
+    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) if f.ident.sym == *named => {
+      Some(AppComponent { params: f.function.params.iter().map(|p| &p.pat).collect(), body: &*f.function, wrapped: wrapped.clone() })
+    }
+    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(v))) => v.decls.iter().find_map(|d| match (&d.name, d.init.as_deref()) {
+      (js::Pat::Ident(i), Some(js::Expr::Arrow(arrow))) if i.id.sym == *named => Some(AppComponent { params: arrow.params.iter().collect(), body: arrow, wrapped: wrapped.clone() }),
+      (js::Pat::Ident(i), Some(js::Expr::Fn(f))) if i.id.sym == *named => Some(AppComponent { params: f.function.params.iter().map(|p| &p.pat).collect(), body: &*f.function, wrapped: wrapped.clone() }),
+      _ => None,
+    }),
     _ => None,
   })
+}
+
+/// `hoc(App)`, `hoc(options)(App)` or `hoc(App, options)` with `App` a
+/// function the module declares: the outermost callee and `App`.
+fn wrapped_component(call: &js::CallExpr, module: &js::Module) -> Option<(String, String)> {
+  let declared = |name: &str| {
+    module.body.iter().any(|item| match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Fn(f))) => *f.ident.sym == *name,
+      js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::Var(v))) => v.decls.iter().any(|d| matches!(&d.name, js::Pat::Ident(i) if *i.id.sym == *name)),
+      _ => false,
+    })
+  };
+  let callee = match &call.callee {
+    js::Callee::Expr(e) => match &**e {
+      js::Expr::Ident(i) => i.sym.to_string(),
+      js::Expr::Call(inner) => match &inner.callee {
+        js::Callee::Expr(e) => match &**e {
+          js::Expr::Ident(i) => i.sym.to_string(),
+          _ => return None,
+        },
+        _ => return None,
+      },
+      _ => return None,
+    },
+    _ => return None,
+  };
+  let inner = call.args.iter().find_map(|a| match &*a.expr {
+    js::Expr::Ident(i) if declared(&i.sym) => Some(i.sym.to_string()),
+    _ => None,
+  })?;
+  Some((callee, inner))
 }
 
 struct Placements {
@@ -649,6 +730,20 @@ mod tests {
     );
     assert_eq!(out.text("app/routes/q/page.loader.ts").unwrap(), "export const load = async (context) => {\n  return { q: false ? 1 : 0 };\n};\n");
     assert_eq!(report.notes.iter().filter(|n| n.message.contains("`locales`")).count(), 1, "{:?}", report.notes);
+  }
+
+  #[test]
+  fn an_arrow_app_wrapped_in_a_library_hoc_becomes_the_layout_without_the_wrapper() {
+    let input = tree(&[
+      ("package.json", PACKAGE),
+      ("pages/_app.js", "import { withGraphQLApp } from \"next-graphql-react\";\n\nconst App = ({ Component, pageProps }) => (\n  <main>\n    <Component {...pageProps} />\n  </main>\n);\n\nexport default withGraphQLApp(App);\n"),
+    ]);
+    let (out, report) = migrate(&input);
+    assert_eq!(
+      out.text("app/routes/layout.js").unwrap(),
+      "const App = ({ children }) => (\n  <main>\n    <>{children}</>\n  </main>\n);\n\nexport default App;\n"
+    );
+    assert!(report.notes.iter().any(|n| n.message.starts_with("`withGraphQLApp` wrapped the app")), "{:?}", report.notes);
   }
 
   #[test]
