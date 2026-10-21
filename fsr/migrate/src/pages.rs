@@ -143,11 +143,39 @@ impl Pass for AppShell {
     edits.replace(parsed.range(param.span()), "{ children }");
     let mut finder = Placements { name: component.clone(), found: Vec::new(), other: Vec::new() };
     app.body.visit_with(&mut finder);
-    for span in finder.found {
-      edits.replace(parsed.range(span), "<>{children}</>");
+    for span in &finder.found {
+      edits.replace(parsed.range(*span), "<>{children}</>");
     }
-    for span in finder.other {
-      report.note(&path, parsed.line(span), format!("`{component}` is read other than placed; FSR's layout receives the page as `children`"));
+    for span in &finder.other {
+      report.note(&path, parsed.line(*span), format!("`{component}` is read other than placed; FSR's layout receives the page as `children`"));
+    }
+    let page_props = object.props.iter().find_map(|p| match p {
+      js::ObjectPatProp::Assign(a) if &*a.key.sym == "pageProps" => Some(a.key.sym.to_string()),
+      js::ObjectPatProp::KeyValue(js::KeyValuePatProp { key: js::PropName::Ident(key), value }) if &*key.sym == "pageProps" => match &**value {
+        js::Pat::Ident(i) => Some(i.id.sym.to_string()),
+        _ => None,
+      },
+      _ => None,
+    });
+    if let Some(name) = page_props {
+      let outside = |span: swc_core::common::Span| {
+        let at = parsed.range(span);
+        let param = parsed.range(param.span());
+        !(param.start <= at.start && at.end <= param.end) && finder.found.iter().all(|f| { let f = parsed.range(*f); !(f.start <= at.start && at.end <= f.end) })
+      };
+      let mut uses = PageProps { name, spreads: Vec::new(), reads: Vec::new() };
+      app.body.visit_page_props(&mut uses);
+      for dots in uses.spreads.into_iter().filter(|s| outside(*s)) {
+        let at = parsed.range(dots).start;
+        let (Some(open), Some(close)) = (text[..at].rfind('{'), text[at..].find('}').map(|i| at + i + 1)) else { continue };
+        let open = if text[..open].ends_with(' ') { open - 1 } else { open };
+        edits.replace(open..close, "");
+        report.note(&path, parsed.line(dots), format!("`{{...{}}}` was taken off this element: an FSR layout receives its own loader's data, not the page's props", uses.name));
+      }
+      for read in uses.reads.into_iter().filter(|s| outside(*s)) {
+        edits.replace(parsed.range(read), "({})");
+        report.note(&path, parsed.line(read), format!("`{}` reads the page's props, which an FSR layout does not receive, so it reads an empty object", uses.name));
+      }
     }
     let mut out = edits.apply(&text);
     if let Some(stripped) = drop_named_import(&out, "next/app", "AppProps") {
@@ -171,10 +199,15 @@ struct AppComponent<'a> {
 
 trait AppBody {
   fn visit_with(&self, v: &mut Placements);
+  fn visit_page_props(&self, v: &mut PageProps);
 }
 
 impl AppBody for js::Function {
   fn visit_with(&self, v: &mut Placements) {
+    VisitWith::visit_with(self, v);
+  }
+
+  fn visit_page_props(&self, v: &mut PageProps) {
     VisitWith::visit_with(self, v);
   }
 }
@@ -182,6 +215,36 @@ impl AppBody for js::Function {
 impl AppBody for js::ArrowExpr {
   fn visit_with(&self, v: &mut Placements) {
     VisitWith::visit_with(self, v);
+  }
+
+  fn visit_page_props(&self, v: &mut PageProps) {
+    VisitWith::visit_with(self, v);
+  }
+}
+
+/// The `...` of each `{...pageProps}` spread on an element and every other
+/// read of the name.
+struct PageProps {
+  name: String,
+  spreads: Vec<swc_core::common::Span>,
+  reads: Vec<swc_core::common::Span>,
+}
+
+impl Visit for PageProps {
+  fn visit_jsx_attr_or_spread(&mut self, n: &js::JSXAttrOrSpread) {
+    if let js::JSXAttrOrSpread::SpreadElement(spread) = n {
+      if matches!(&*spread.expr, js::Expr::Ident(i) if *i.sym == *self.name) {
+        self.spreads.push(spread.dot3_token);
+        return;
+      }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_ident(&mut self, n: &js::Ident) {
+    if *n.sym == *self.name {
+      self.reads.push(n.span);
+    }
   }
 }
 
@@ -782,6 +845,19 @@ mod tests {
       "import { Link } from \"@snapfire/fsr/components\";\nimport { formatDate } from \"../../../src/lib/posts\";\n\nexport default function Post({ post }) {\n  return <Link href=\"/\">{formatDate(post.date)}</Link>;\n}\n"
     );
     assert!(report.notes.iter().any(|n| n.message.contains("revalidate")), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn what_app_hands_on_from_page_props_is_dropped_with_a_note() {
+    let app = "import { StoreProvider } from \"../components/StoreProvider\";\n\nexport default function App({ Component, pageProps }) {\n  const initial = pageProps.initialState;\n  return (\n    <StoreProvider {...pageProps} initial={initial}>\n      <Component {...pageProps} />\n    </StoreProvider>\n  );\n}\n";
+    let (out, report) = migrate(&tree(&[("package.json", r#"{ "dependencies": { "next": "latest" } }"#), ("pages/_app.js", app), ("pages/index.js", "export default function P() {\n  return <p />;\n}\n")]));
+    let layout = out.text("app/routes/layout.js").unwrap();
+    assert!(layout.contains("<StoreProvider initial={initial}>"), "{layout}");
+    assert!(layout.contains("const initial = ({}).initialState;"), "{layout}");
+    assert!(layout.contains("<>{children}</>"), "{layout}");
+    assert!(!layout.contains("pageProps"), "{layout}");
+    let notes: Vec<String> = report.notes.iter().filter(|n| n.message.contains("pageProps")).map(|n| n.to_string()).collect();
+    assert_eq!(notes.len(), 2, "{notes:?}");
   }
 
   #[test]
