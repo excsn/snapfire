@@ -981,8 +981,6 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) cells: Vec<(String, Expr)>,
   /// One frame per open fold step or function path: the lets a declaration whose value reads the clock or randomness is bound by, so it is read once where it is declared.
   pub(crate) held: Vec<Vec<Stmt>>,
-  /// The locals Ink's `useCursor` gives `setCursorPosition` as; a call to one while rendering writes [`snapfire_fsr_ir::render::CURSOR`] as a local.
-  pub(crate) cursor_setters: Vec<String>,
   /// The names a terminal promise's executor binds its `resolve` and `reject` to, while it lowers.
   pub(crate) settlers: Vec<String>,
   /// The continuations a terminal page's async functions lowered to, each the rest of a function after an `await`, which the component that runs it holds as handlers.
@@ -1057,7 +1055,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), cursor_setters: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), suspenders: Vec::new(), spawned: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), suspenders: Vec::new(), spawned: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -2548,6 +2546,15 @@ impl<'a> Lowerer<'a> {
     }
     if self.terminal && self.spawns(call) {
       return self.spawn_value(call);
+    }
+    if let js::Callee::Expr(callee) = &call.callee {
+      if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::Emit)) {
+        let mut args = Vec::with_capacity(2);
+        for a in call.args.iter().take(2) {
+          args.push(self.expr(&a.expr)?);
+        }
+        return Ok(Expr::Builtin { name: Builtin::Emit, args });
+      }
     }
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));

@@ -1176,6 +1176,12 @@ impl Env {
             self.thrown = values.first().cloned();
             builtin(*name, values)
           }
+          Builtin::Emit => {
+            if let (true, Some(Value::Str(kind)), Some(value)) = (self.server_mode, values.first(), values.get(1)) {
+              self.emitted.push(crate::render::Emitted { path: self.component_path.clone(), kind: kind.to_string(), value: value.clone() });
+            }
+            Ok(Value::Null)
+          }
           _ => builtin(*name, values),
         }
       }
@@ -3064,6 +3070,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         None => Value::seq(segments),
       }
     }
+    Builtin::Emit => Value::Null,
     Builtin::SetAt => {
       let value = arg(2)?.clone();
       match arg(0)? {

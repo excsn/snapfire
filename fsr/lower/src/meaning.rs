@@ -48,6 +48,8 @@ pub(crate) enum Construct {
   ChildProcess(&'static str),
   /// `node:process`'s default export, whose `env` a terminal page reads through `terminal.env`.
   NodeProcess,
+  /// The terminal primitive `emit(kind, value)`, `Builtin::Emit`.
+  Emit,
   /// React's `Children`, of which the build reads the count of a component's own children.
   Children,
   /// React's `cloneElement`.
@@ -83,8 +85,9 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
     for module in TERMINAL_MODULES {
       rows.extend(TERMINAL_ELEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
       rows.push((module, "useInput", Construct::Hook("useInput")));
+      rows.push((module, "emit", Construct::Emit));
       rows.push((module, "useApp", Construct::Hook("useApp")));
-      for hook in ["useWindowSize", "useStdout", "useStderr", "useIsScreenReaderEnabled", "useAnimation", "useFocus", "useFocusManager", "useBoxMetrics", "useCursor"] {
+      for hook in ["useWindowSize", "useStdout", "useStderr", "useIsScreenReaderEnabled", "useAnimation", "useFocus", "useFocusManager", "useBoxMetrics"] {
         rows.push((module, hook, Construct::Hook(hook)));
       }
     }

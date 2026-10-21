@@ -841,9 +841,11 @@ fn render_component_body<'a>(env: &mut Env, component: &'a Component, library: &
 fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out: &mut Out) -> Result<(), Fail> {
   let mut next: Vec<(String, Value)> = Vec::new();
   let mut emitted = Vec::new();
+  let issued = env.emitted.len();
   for pass in 1.. {
     let mut asked = false;
     emitted.clear();
+    env.emitted.truncate(issued);
     for stmt in &component.body {
       let Stmt::Let { name, expr } = stmt else {
         return Err(Fail::internal("a component body is `let`s only"));

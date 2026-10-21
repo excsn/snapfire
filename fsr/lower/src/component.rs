@@ -4013,15 +4013,13 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
           },
           _ => None,
         };
-        if let js::Callee::Expr(callee) = &call.callee {
-          if matches!(crate::meaning::bare(callee), js::Expr::Ident(id) if lowerer.cursor_setters.iter().any(|s| *s == *id.sym)) {
-            let at = match call.args.first() {
-              Some(arg) => lowerer.expr(&arg.expr)?,
-              None => Expr::Lit(Lit::Null),
-            };
-            let cursor = crate::terminal::emit(crate::terminal::CURSOR);
-            lowerer.scope.push((cursor.clone(), at));
-            note(assigned, &cursor);
+        if lowerer.terminal && target.is_none() {
+          // A terminal page runs a render's side effects as JavaScript does, in order: a call that emits, acts or writes a cell is held where it stands.
+          let effect = lowerer.expr(&e.expr)?;
+          if effectful(&effect) {
+            let held = lowerer.temp();
+            lowerer.scope.push((held.clone(), effect));
+            note(assigned, &held);
             return Ok(());
           }
         }
@@ -4703,6 +4701,16 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       let value = block_to_expr_inner(lowerer, rest, floor)?;
       Ok(sequenced(vec![Stmt::Let { name: held, expr: effect }], value))
     }
+    js::Stmt::Expr(stmt) if lowerer.terminal && matches!(&*stmt.expr, js::Expr::Call(_)) && {
+      let depth = lowerer.scope.len();
+      let probed = lowerer.expr(&stmt.expr).map(|e| effectful(&e)).unwrap_or(false);
+      lowerer.scope.truncate(depth);
+      probed
+    } => {
+      let effect = lowerer.expr(&stmt.expr)?;
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(vec![Stmt::Expr(effect)], value))
+    }
     straight => {
       let writable = Writable { floor, frozen: &[], setters: &[] };
       lowerer.held.push(Vec::new());
@@ -4727,6 +4735,18 @@ fn writes_a_cell(lowerer: &Lowerer<'_>, expr: &js::Expr) -> bool {
     js::Expr::Call(_) => true,
     _ => false,
   }
+}
+
+/// Whether evaluating `expr` does something besides answer: it emits, issues an act or writes a cell.
+fn effectful(expr: &Expr) -> bool {
+  let mut found = false;
+  expr.visit(&mut |e| {
+    found |= matches!(e, Expr::Builtin { name: Builtin::Emit, .. } | Expr::WriteCell(..));
+    if let Expr::Block(body) = e {
+      found |= body.iter().any(|stmt| matches!(stmt, Stmt::Act { .. }));
+    }
+  });
+  found
 }
 
 /// Whether `stmt` holds a call that issues an act, [`Lowerer::issues_act`], outside a function of its own.
@@ -5259,7 +5279,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn bind_value(&mut self, pattern: &js::Pat, value: Expr) -> Lowered<()> {
-    if crate::terminal::act_ref(&value).is_some() {
+    if crate::terminal::act_ref(&value).is_some() || (self.lowerer.terminal && matches!(value, Expr::Lambda { .. })) {
       return bind_pattern(&mut self.lowerer, pattern, value);
     }
     let name = self.lowerer.temp();
@@ -6206,9 +6226,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if self.held_refs.contains(&name) {
         lets.push(Stmt::Let { name: format!("{}{name}", snapfire_fsr_ir::render::HOLD_PREFIX), expr: Expr::Var(fresh.clone()) });
       }
-      if name == crate::terminal::emit(crate::terminal::CURSOR) {
-        lets.push(Stmt::Let { name: name.clone(), expr: Expr::Var(fresh.clone()) });
-      }
       self.lowerer.scope.push((name, Expr::Var(fresh)));
     }
     Ok(())
@@ -6476,23 +6493,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     if let Some((hook @ ("useFocus" | "useFocusManager"), call)) = library_hook(&self.meanings(), init) {
       return self.focus_hook(hook, call, &decl.name, decl.span);
-    }
-    if let Some(("useCursor", _)) = library_hook(&self.meanings(), init) {
-      let js::Pat::Object(object) = &decl.name else { return Err(self.lowerer.residue(decl.span, "`useCursor` bound to one name; destructure `setCursorPosition`")) };
-      for prop in &object.props {
-        let local = match prop {
-          js::ObjectPatProp::Assign(assign) if assign.key.sym.as_ref() == "setCursorPosition" => assign.key.sym.to_string(),
-          js::ObjectPatProp::KeyValue(kv) => match (&kv.key, &*kv.value) {
-            (js::PropName::Ident(key), js::Pat::Ident(local)) if key.sym.as_ref() == "setCursorPosition" => local.id.sym.to_string(),
-            _ => return Err(self.lowerer.residue(decl.span, "a pattern from `useCursor` other than `setCursorPosition`")),
-          },
-          _ => return Err(self.lowerer.residue(decl.span, "a pattern from `useCursor` other than `setCursorPosition`")),
-        };
-        self.lowerer.cursor_setters.push(local.clone());
-        self.browser_function(local);
-      }
-      self.lowerer.scope.push((crate::terminal::emit(crate::terminal::CURSOR), Expr::Lit(Lit::Null)));
-      return Ok(None);
     }
     if let Some(("useBoxMetrics", call)) = library_hook(&self.meanings(), init) {
       let Some(target) = call.args.first() else { return Err(self.lowerer.residue(decl.span, "`useBoxMetrics` without a ref")) };

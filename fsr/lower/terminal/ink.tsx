@@ -4,6 +4,7 @@
 
 import { action } from "@snapfire/fsr-client";
 import { useStore } from "@snapfire/fsr-client/react";
+import { emit } from "@snapfire/fsr/terminal/core";
 
 /** The terminal's size, which the terminal keeps in the store. */
 export function useWindowSize() {
@@ -40,4 +41,14 @@ export function useFocusManager() {
     enableFocus: action("$focusEnable"),
     disableFocus: action("$focusDisable"),
   };
+}
+
+/** Puts the terminal's cursor at `{ x, y }` from the corner of the page; the last call a render makes holds, and a render that makes none hides it. */
+function setCursorPosition(position: { x: number; y: number } | undefined) {
+  emit("cursor", position ?? null);
+}
+
+/** Ink's cursor control. */
+export function useCursor() {
+  return { setCursorPosition };
 }

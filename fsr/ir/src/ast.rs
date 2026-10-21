@@ -281,6 +281,8 @@ pub enum Builtin {
   Graphemes,
   /// `x[key] = value` on a local, as a copy: an array with the index set (its length appends) or an object with `String(key)` set. A key on an array that is not an index or lies past its length is an error, since the value model holds no sparse array.
   SetAt,
+  /// `emit(kind, value)`: hands `value` to the step's host as an emitted value of `kind`, with the path of the component whose render or handler evaluated it; null. Only a step in server mode, a terminal's, emits; anywhere else it does nothing.
+  Emit,
 }
 
 /// A component's render tree. Elements and text are literal; `Expr` is
