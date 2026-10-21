@@ -39,6 +39,10 @@ const TOOLING: &[&str] = &[
 
 const TOOLING_STEMS: &[&str] = &["next.config", "postcss.config", "tailwind.config", "eslint.config", "prettier.config", "jest.config", "vitest.config", "playwright.config", "cypress.config", "babel.config", "docker-compose", "instrumentation", "sentry.client.config", "sentry.server.config", "sentry.edge.config"];
 
+/// A file at the source's root is carried over only when it is code or a
+/// stylesheet; the rest there configures something other than the application.
+const STYLESHEETS: &[&str] = &[".css", ".scss", ".sass"];
+
 const TEST_DIRS: &[&str] = &["__tests__", "tests", "test", "e2e", "cypress", "playwright"];
 
 /// Moves the App Router tree to `app/routes/`, `public/` to `app/public/`,
@@ -140,6 +144,9 @@ pub(crate) fn source_path(path: &str, root: &str, report: &mut Report) -> Option
     return None;
   }
   let inner = path.strip_prefix(root).unwrap_or(path);
+  if !inner.contains('/') && !crate::syntax::is_script(inner) && !inner.ends_with(".d.ts") && !STYLESHEETS.iter().any(|e| inner.ends_with(e)) {
+    return None;
+  }
   if inner.split('/').next().is_some_and(|d| TEST_DIRS.contains(&d)) && inner.contains('/') {
     return Some(format!("app/tests/{}", inner.split_once('/').map(|(_, r)| r).unwrap_or(inner)));
   }

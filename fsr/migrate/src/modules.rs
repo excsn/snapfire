@@ -14,7 +14,7 @@ use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(Links), Box::new(Images), Box::new(Fonts), Box::new(crate::head::Head)]
+  vec![Box::new(Links), Box::new(Images), Box::new(Fonts), Box::new(crate::head::Head), Box::new(Stylesheets)]
 }
 
 fn scripts(tree: &Tree) -> Vec<String> {
@@ -285,6 +285,69 @@ impl Pass for Fonts {
   }
 }
 
+/// A stylesheet imported for its effect, `import "./globals.css"`, which
+/// Next applies to every page: moved under `app/styles/`, which FSR compiles
+/// into every document, with the import taken out. A sheet whose relative
+/// `url()`s the move would break is a note.
+struct Stylesheets;
+
+impl Pass for Stylesheets {
+  fn name(&self) -> &'static str {
+    "next-stylesheets"
+  }
+
+  fn run(&self, tree: &mut Tree, report: &mut Report) {
+    let mut moved: BTreeMap<String, String> = BTreeMap::new();
+    for path in scripts(tree) {
+      let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
+      if !text.contains(".css") {
+        continue;
+      }
+      let Ok(parsed) = parse(&path, &text) else { continue };
+      let mut edits = Edits::default();
+      for item in &parsed.module.body {
+        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+        let spec = import.src.value.to_string_lossy().into_owned();
+        if !import.specifiers.is_empty() || !spec.ends_with(".css") || spec.ends_with(".module.css") {
+          continue;
+        }
+        let target = if let Some(rest) = spec.strip_prefix("@src/") {
+          Some(format!("app/src/{rest}"))
+        } else if spec.starts_with("./") || spec.starts_with("../") {
+          crate::relocate::normalize(crate::relocate::dirname(&path), &spec)
+        } else {
+          None
+        };
+        let Some(target) = target.filter(|t| tree.contains(t)) else { continue };
+        if !moved.contains_key(&target) {
+          let file = target.rsplit('/').next().unwrap_or(&target);
+          let mut to = format!("app/styles/{file}");
+          let mut n = 2;
+          while tree.contains(&to) || moved.values().any(|v| *v == to) {
+            to = format!("app/styles/{}-{n}.css", file.trim_end_matches(".css"));
+            n += 1;
+          }
+          moved.insert(target.clone(), to);
+        }
+        edits.replace(line_range(&text, parsed.range(import.span)), "");
+      }
+      if !edits.is_empty() {
+        tree.insert(path, crate::items::tidy(&edits.apply(&text)));
+      }
+    }
+    for (from, to) in moved {
+      let Some(bytes) = tree.remove(&from) else { continue };
+      if std::str::from_utf8(&bytes).is_ok_and(|css| css.split("url(").skip(1).any(|u| {
+        let u = u.trim_start_matches(['"', '\'', ' ']);
+        !u.starts_with("http") && !u.starts_with("data:") && !u.starts_with('/') && !u.starts_with("var(")
+      })) {
+        report.note(&to, 0, format!("moved from `{from}`; its relative `url()`s now resolve from `app/styles/`"));
+      }
+      tree.insert(to, bytes);
+    }
+  }
+}
+
 /// The weights a font loader's options name, `weight: "400"` or
 /// `weight: ["400", "700"]`.
 fn weights(options: &js::Expr) -> Vec<String> {
@@ -383,6 +446,22 @@ mod tests {
       "import { Picture as Image } from \"@snapfire/fsr/components\";\nimport hero from \"./hero.png\";\n\nexport default function Page() {\n  return <Image src={hero} alt=\"Hero\" priority />;\n}\n"
     );
     assert_eq!(report.notes.len(), 2, "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_stylesheet_imported_for_its_effect_moves_under_styles() {
+    let input = tree(&[
+      ("package.json", PACKAGE),
+      ("app/layout.tsx", "import \"./globals.css\";\nimport styles from \"./page.module.css\";\n\nexport default function Layout({ children }) {\n  return <div className={styles.x}>{children}</div>;\n}\n"),
+      ("app/globals.css", "@import \"tailwindcss\";\n"),
+      ("app/page.module.css", ".x {}\n"),
+      ("Dockerfile.bun", "FROM oven/bun\n"),
+      ("compose.yml", "services: {}\n"),
+    ]);
+    let (out, _) = migrate(&input);
+    let paths: Vec<&str> = out.paths().collect();
+    assert_eq!(paths, ["app/routes/layout.tsx", "app/routes/page.module.css", "app/styles/globals.css"]);
+    assert!(out.text("app/routes/layout.tsx").unwrap().starts_with("import styles from \"./page.module.css\";\n"));
   }
 
   #[test]
