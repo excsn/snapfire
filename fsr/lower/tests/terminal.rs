@@ -256,7 +256,7 @@ fn the_text_packages_ink_apps_import_run_natively_in_a_terminal() {
 }
 
 #[test]
-fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_is_refused() {
+fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_starting_a_timer_is_refused() {
   let stable = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s) => s + 1, 0);\n  const tick = useCallback(() => dispatch(), []);\n  useEffect(() => {\n    const timer = setInterval(tick, 100);\n    return () => clearInterval(timer);\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
   let library = library(stable);
   assert_eq!(library[MODULE].handlers.iter().map(|h| h.event.as_str()).collect::<Vec<_>>(), ["interval:100"]);
@@ -266,7 +266,7 @@ fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_is_
   std::fs::create_dir_all(dir.join("routes")).unwrap();
   std::fs::write(dir.join("routes/page.tsx"), changing).unwrap();
   let err = ComponentSet::new(&dir).for_terminal().lower(MODULE).unwrap_err().to_string();
-  assert!(err.contains("an effect whose dependencies change"), "{err}");
+  assert!(err.contains("a timer a handler starts on something other than a function its effect declares"), "{err}");
 }
 
 #[test]
@@ -294,7 +294,7 @@ fn set_cursor_position_while_rendering_hands_the_terminal_where_the_cursor_goes(
     map.insert("y".to_owned(), Value::F64(0.0));
     Some(Value::Map(map))
   };
-  let cursor = |stepped: &snapfire_fsr_ir::render::Stepped| stepped.emitted.iter().filter(|(kind, _)| kind == snapfire_fsr_lower::terminal::CURSOR).map(|(_, v)| v.clone()).last();
+  let cursor = |stepped: &snapfire_fsr_ir::render::Stepped| stepped.emitted.iter().filter(|e| e.kind == snapfire_fsr_lower::terminal::CURSOR).map(|e| e.value.clone()).last();
   assert_eq!(cursor(&first), at(2.0));
   let typed = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &key("ab", &[]), &library).unwrap();
   assert_eq!(cursor(&typed), at(4.0));

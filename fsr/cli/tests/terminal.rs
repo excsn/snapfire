@@ -240,3 +240,17 @@ fn a_spawned_process_is_handed_to_the_terminal_and_its_output_and_exit_step_the_
   failed.insert("message".to_owned(), Value::Str("spawn echo ENOENT".into()));
   assert_eq!(line(session.deliver(&spawns[0], Report::Error, &Value::Map(failed)).unwrap()), "spawn echo ENOENT|0");
 }
+
+#[test]
+fn an_effect_runs_again_after_a_render_that_changed_its_dependencies_and_not_otherwise() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Doubled() {\n  const [n, setN] = useState(1);\n  const [other, setOther] = useState(0);\n  const [doubled, setDoubled] = useState(0);\n  const [runs, setRuns] = useState(0);\n  useInput((input) => {\n    if (input === \"+\") setN((v) => v + 1);\n    if (input === \"o\") setOther((v) => v + 1);\n  });\n  useEffect(() => {\n    setDoubled(n * 2);\n    setRuns((r) => r + 1);\n  }, [n]);\n  return <Text>{n} {doubled} {runs} {other}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "1 2 1 0", "it runs after the first render");
+  let press = |c: char| {
+    let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    key
+  };
+  assert_eq!(line(session.press(&press('+')).unwrap()), "2 4 2 0");
+  assert_eq!(line(session.press(&press('o')).unwrap()), "2 4 2 1", "a render that left n alone does not run it");
+}

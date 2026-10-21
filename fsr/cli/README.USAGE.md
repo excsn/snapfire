@@ -1319,7 +1319,7 @@ useEffect(() => {
 }, []);
 ```
 
-Each `setInterval` or `setTimeout` in a mount effect steps the page when it is due, its callback lowered like a handler and its delay a number written out or a module constant. A mount effect has an empty dependency list or depends only on what never changes: setters, a `useReducer` dispatch, refs and `useCallback` functions whose own dependencies never change. An effect whose dependencies change is refused when it could change the page, since it would not run again yet.
+Each `setInterval` or `setTimeout` in a mount effect steps the page when it is due, its callback lowered like a handler and its delay a number written out or a module constant. A mount effect has an empty dependency list or depends only on what never changes: setters, a `useReducer` dispatch, refs and `useCallback` functions whose own dependencies never change. An effect whose dependencies change runs again after each render that changed them, the first render included; its body is lowered like a handler. A timer started in one is refused, since its cleanup is not run between runs. One that only a browser could run, writing `document.title` for one, is left out.
 
 Every component the page places runs in place with its own state, its own `useInput` and its own timers. A key reaches every `useInput`, as in Ink. `useFocus` makes a component focusable; Tab and Shift+Tab move the focus through them in the order they render and Esc clears it:
 
@@ -1390,7 +1390,7 @@ return (
 
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
-Effects whose dependencies change, `Transform`, `measureElement`, `Suspense` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
+A timer in an effect whose dependencies change, `Transform`, `measureElement`, `Suspense` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 

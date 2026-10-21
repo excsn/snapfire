@@ -3527,6 +3527,12 @@ pub(crate) fn bind_object(lowerer: &mut Lowerer<'_>, obj: &js::ObjectPat, target
   Ok(())
 }
 
+/// The globals only a browser holds.
+const BROWSER_GLOBALS: [&str; 7] = ["document", "window", "navigator", "location", "history", "localStorage", "sessionStorage"];
+
+/// The residue of a handler that sets no state and calls no action.
+const NO_EFFECT: &str = "a handler that sets no state and calls no action";
+
 /// A `switch` as its arms: the tests that select each body in order and the `default` body. A body ends with a `break` (dropped), a `return` or the end of the last arm; cases with no body share the next one's. A body written as one block is that block's statements.
 pub(crate) type SwitchArms<'s> = (Vec<(Vec<&'s js::Expr>, &'s [js::Stmt])>, Option<&'s [js::Stmt]>);
 
@@ -7621,8 +7627,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let [effect, deps] = &call.args[..] else { return Ok(()) };
     let js::Expr::Array(deps) = &*deps.expr else { return Ok(()) };
     if !deps.elems.iter().all(|d| self.never_changes(d)) {
-      if self.lowerer.terminal && self.shows_on_the_page(&effect.expr) {
-        return Err(self.lowerer.residue_with(deps.span, "an effect whose dependencies change, which a terminal page does not run again yet", "depend only on setters, refs and callbacks that never change; otherwise move the work into a handler"));
+      if self.lowerer.terminal {
+        return self.rerun_effect(&effect.expr, deps);
       }
       return Ok(());
     }
@@ -7754,23 +7760,44 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       || (self.lowerer.terminal && (self.dispatchers.iter().any(|(d, _, _)| d == name) || self.held_refs.iter().any(|r| r == name) || self.stable_callbacks.iter().any(|c| c == name)))
   }
 
-  /// Whether an effect could change what the page shows: it names a setter, a dispatch, a writer, a timer or one of the component's own functions.
-  fn shows_on_the_page(&self, effect: &js::Expr) -> bool {
-    struct Names(Vec<String>);
-    impl Visit for Names {
+  /// Whether `body` reads a browser global, the global itself rather than a local of that name: work for a browser, which a terminal page has none of.
+  fn reads_the_browser(&self, body: &js::ArrowFunctionBody) -> bool {
+    struct Browser(bool, swc_core::common::SyntaxContext);
+    impl Visit for Browser {
       fn visit_ident(&mut self, id: &js::Ident) {
-        self.0.push(id.sym.to_string());
+        self.0 |= id.ctxt == self.1 && BROWSER_GLOBALS.contains(&id.sym.as_ref());
       }
     }
-    let mut names = Names(Vec::new());
-    effect.visit_with(&mut names);
-    names.0.iter().any(|name| {
-      matches!(name.as_str(), "setInterval" | "setTimeout")
-        || self.setters.iter().any(|(setter, _)| setter == name)
-        || self.writers.iter().any(|(writer, _)| writer == name)
-        || self.dispatchers.iter().any(|(d, _, _)| d == name)
-        || self.handler_fns.contains_key(name)
-    })
+    let mut browser = Browser(false, self.meanings().unresolved);
+    body.visit_with(&mut browser);
+    browser.0
+  }
+
+  /// A terminal's effect whose dependencies change: its body a handler named [`crate::terminal::Event::Effect`] and a [`crate::terminal::EFFECT`] the body emits with the dependencies' values, which the terminal compares from one render to the next. An effect that sets no state and calls no action changes nothing the page shows and is left out, as is one that does not lower and reads a browser global: that is the browser's work. The cleanup it returns is left out too, so a timer it starts is refused as a handler's is.
+  fn rerun_effect(&mut self, effect: &'p js::Expr, deps: &'p js::ArrayLit) -> Lowered<()> {
+    let js::Expr::Arrow(arrow) = crate::meaning::bare(effect) else { return Err(self.lowerer.residue(effect.span(), "an effect that is not an arrow written in place")) };
+    let body = match arrow_body(arrow) {
+      FunctionBody::Block(stmts) => match stmts.split_last() {
+        Some((js::Stmt::Return(js::ReturnStmt { arg: Some(cleanup), .. }), before)) if matches!(crate::meaning::bare(cleanup), js::Expr::Arrow(_) | js::Expr::Fn(_)) => FunctionBody::Block(before),
+        _ => FunctionBody::Block(stmts),
+      },
+      expr => expr,
+    };
+    let event = crate::terminal::Event::Effect(self.lowered_handlers.len()).name();
+    let lowered = match self.handler_fn(&[], body, arrow.span) {
+      Ok(lowered) => lowered,
+      Err(residue) if residue.message == NO_EFFECT => return Ok(()),
+      Err(_) if self.reads_the_browser(&arrow.body) => return Ok(()),
+      Err(residue) => return Err(residue),
+    };
+    self.lowered_handlers.push(Handler { event: event.clone(), body: lowered });
+    let mut values = Vec::with_capacity(deps.elems.len());
+    for dep in deps.elems.iter().flatten() {
+      values.push(Entry::Item(self.lowerer.expr(&dep.expr)?));
+    }
+    let emitted = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("deps".to_owned(), Expr::Array(values))]);
+    self.pending_lets.push(Stmt::Let { name: crate::terminal::emit(crate::terminal::EFFECT), expr: emitted });
+    Ok(())
   }
 
   /// A terminal's mount effect, run as Ink runs it: each `let` it declares is
@@ -7964,7 +7991,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut walk = HandlerWalk::default();
     self.handler_fn_into(params, body, &mut walk)?;
     if walk.patch.is_empty() && !holds_act(&walk.out) {
-      return Err(self.lowerer.residue(span, "a handler that sets no state and calls no action"));
+      return Err(self.lowerer.residue(span, NO_EFFECT));
     }
     walk.out.push(Stmt::Return(Expr::Object(walk.patch)));
     Ok(walk.out)

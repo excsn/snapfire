@@ -238,8 +238,8 @@ pub struct Stepped {
   pub acts: Vec<(String, Value)>,
   /// Each component the render entered, by the path a `HandlerRef` addresses it with and its module, root first.
   pub components: Vec<(String, String)>,
-  /// Each value a body handed its host with an [`EMIT_PREFIX`] `let`, by kind, in render order.
-  pub emitted: Vec<(String, Value)>,
+  /// Each value a body handed its host with an [`EMIT_PREFIX`] `let`, in render order.
+  pub emitted: Vec<Emitted>,
 }
 
 /// The handler a step runs: an index into the handlers of the component at
@@ -347,6 +347,14 @@ pub const HOLD_PREFIX: &str = "$hold:";
 
 /// The start of a body `let` whose value the step hands its host: the prefix, then the kind, which the host reads it by. The renderer gives it no meaning of its own; a terminal reads a focusable and a cursor this way.
 pub const EMIT_PREFIX: &str = "$emit:";
+
+/// A value a body handed its host: the path of the component that emitted it, as a `HandlerRef` addresses it, its kind and the value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Emitted {
+  pub path: String,
+  pub kind: String,
+  pub value: Value,
+}
 
 /// What a body `let`'s name asks of the renderer besides binding it.
 enum Directive<'n> {
@@ -840,7 +848,7 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
         out.state.insert(state_key(path, name), value.clone());
       }
       if let (Some(Directive::Emit(kind)), true) = (directive(name), env.server_mode) {
-        emitted.push((kind.to_owned(), value.clone()));
+        emitted.push(Emitted { path: path.to_owned(), kind: kind.to_owned(), value: value.clone() });
       }
       env.scope.push((name.clone(), value));
     }

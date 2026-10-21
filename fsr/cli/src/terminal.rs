@@ -5,6 +5,7 @@
 //! that changed are written. A change under the app lowers the page again and
 //! keeps the state.
 
+use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -30,6 +31,9 @@ const WRITTEN: usize = 200;
 
 /// How many times a step runs the mount handlers of components a mount handler rendered.
 const MOUNT_PASSES: usize = 8;
+
+/// How many times a step runs the effects whose dependencies the render before changed.
+const EFFECT_PASSES: usize = 8;
 
 /// How many times a step renders again for a focus that moved while it rendered.
 const FOCUS_PASSES: usize = 3;
@@ -143,6 +147,8 @@ pub struct Session {
   metrics: ValueMap,
   cursor: Option<(u16, u16)>,
   spawns: Vec<Spawn>,
+  effects_seen: Vec<(String, String, Value)>,
+  effects_ran: HashMap<(String, String), Value>,
 }
 
 /// Ink's focus: the focusables the page rendered last, in order, the one
@@ -227,7 +233,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new() })
   }
 
   /// The page as it stands.
@@ -347,9 +353,27 @@ impl Session {
             Some(HandlerEvent::Mount) => html = self.render(Some(HandlerRef::at(path.clone(), index)), &Value::Null)?,
             Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true }),
             Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false }),
-            Some(HandlerEvent::Input | HandlerEvent::Call(_) | HandlerEvent::Process { .. }) | None => {}
+            Some(HandlerEvent::Input | HandlerEvent::Call(_) | HandlerEvent::Process { .. } | HandlerEvent::Effect(_)) | None => {}
           }
         }
+      }
+    }
+    for _ in 0..EFFECT_PASSES {
+      self.effects_ran.retain(|(path, _), _| self.components.iter().any(|(at, _)| at == path));
+      let seen = std::mem::take(&mut self.effects_seen);
+      let mut due = Vec::new();
+      for (path, event, deps) in seen {
+        if self.effects_ran.get(&(path.clone(), event.clone())) != Some(&deps) {
+          let index = self.handlers().find(|(at, _, named)| *at == path && *named == event).map(|(_, index, _)| index);
+          self.effects_ran.insert((path.clone(), event), deps);
+          due.extend(index.map(|index| HandlerRef::at(path, index)));
+        }
+      }
+      if due.is_empty() {
+        break;
+      }
+      for handler in due {
+        html = self.render(Some(handler), &Value::Null)?;
       }
     }
     for _ in 0..FOCUS_PASSES {
@@ -434,9 +458,21 @@ impl Session {
     self.written.drain(..excess);
     self.state = stepped.state;
     self.components = stepped.components;
-    use snapfire_fsr_lower::terminal::{CURSOR, FOCUSABLE};
-    self.focusables_seen = stepped.emitted.iter().filter(|(kind, _)| kind == FOCUSABLE).map(|(_, v)| v.clone()).collect();
-    self.cursor = stepped.emitted.iter().rev().find(|(kind, _)| kind == CURSOR).and_then(|(_, v)| cell_of(v));
+    use snapfire_fsr_lower::terminal::{CURSOR, EFFECT, FOCUSABLE};
+    self.effects_seen = stepped
+      .emitted
+      .iter()
+      .filter(|e| e.kind == EFFECT)
+      .filter_map(|e| match &e.value {
+        Value::Map(effect) => match (effect.get("event"), effect.get("deps")) {
+          (Some(Value::Str(event)), Some(deps)) => Some((e.path.clone(), event.to_string(), deps.clone())),
+          _ => None,
+        },
+        _ => None,
+      })
+      .collect();
+    self.focusables_seen = stepped.emitted.iter().filter(|e| e.kind == FOCUSABLE).map(|e| e.value.clone()).collect();
+    self.cursor = stepped.emitted.iter().rev().find(|e| e.kind == CURSOR).and_then(|e| cell_of(&e.value));
     Ok(stepped.rendered.html)
   }
 }

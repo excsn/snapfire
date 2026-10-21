@@ -350,7 +350,7 @@ pub(crate) struct Env {
   /// A step's record of each component it rendered, by path and module, root first.
   pub(crate) entered: Vec<(String, String)>,
   /// A step's record of each value its bodies emitted, by kind, in render order.
-  pub(crate) emitted: Vec<(String, Value)>,
+  pub(crate) emitted: Vec<crate::render::Emitted>,
   /// Rendering an island in server mode: handler markers print as attributes
   /// the browser binds, which a browser-mode render must never show React.
   pub(crate) server_mode: bool,

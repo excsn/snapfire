@@ -9,6 +9,9 @@ pub const FOCUSABLE: &str = "focusable";
 /// Where a terminal puts its cursor, `{ x, y }` from the corner of the output; null hides it. Ink's `setCursorPosition` sets it and the last one a step emits holds.
 pub const CURSOR: &str = "cursor";
 
+/// An effect whose dependencies change, `{ event, deps }`: the [`Event::Effect`] handler that runs it and the dependencies' values this render. A terminal runs the handler after a render whose values differ from the last ones it saw for that component, the first render included.
+pub const EFFECT: &str = "effect";
+
 /// The body `let` that emits a value of `kind`.
 pub fn emit(kind: &str) -> String {
   format!("{}{kind}", snapfire_fsr_ir::render::EMIT_PREFIX)
@@ -29,6 +32,8 @@ pub enum Event {
   Call(usize),
   /// A report from the process a mount effect spawned as `id`.
   Process { id: String, report: Report },
+  /// The effect in this place whose dependencies change, which a terminal runs after a render that changed them.
+  Effect(usize),
 }
 
 impl Event {
@@ -40,6 +45,7 @@ impl Event {
       Event::Timeout(ms) => format!("timeout:{ms}"),
       Event::Call(n) => format!("call:{n}"),
       Event::Process { id, report } => format!("spawn:{id}:{}", report.name()),
+      Event::Effect(n) => format!("effect:{n}"),
     }
   }
 
@@ -54,6 +60,7 @@ impl Event {
       "interval" => rest.parse().ok().map(Event::Interval),
       "timeout" => rest.parse().ok().map(Event::Timeout),
       "call" => rest.parse().ok().map(Event::Call),
+      "effect" => rest.parse().ok().map(Event::Effect),
       "spawn" => {
         let (id, report) = rest.rsplit_once(':')?;
         Some(Event::Process { id: id.to_owned(), report: Report::parse(report)? })
@@ -149,7 +156,7 @@ mod tests {
 
   #[test]
   fn each_event_reads_back_from_its_name() {
-    for event in [Event::Input, Event::Mount, Event::Interval(150), Event::Timeout(0), Event::Call(3), Event::Process { id: "41".to_owned(), report: Report::Stdout }, Event::Process { id: "41".to_owned(), report: Report::Close }] {
+    for event in [Event::Input, Event::Mount, Event::Interval(150), Event::Timeout(0), Event::Call(3), Event::Effect(2), Event::Process { id: "41".to_owned(), report: Report::Stdout }, Event::Process { id: "41".to_owned(), report: Report::Close }] {
       assert_eq!(Event::parse(&event.name()), Some(event));
     }
     assert_eq!(Event::parse("click"), None);
