@@ -54,13 +54,15 @@ FSR does not make you pick a mode per route. Each route gets whatever mix the bu
 
 Each corpus builds a framework's own published examples through FSR as one application per example and checks every component the server renders against that framework's own server renderer. A component the build cannot render yet still works: it renders in the browser and is missing from the first response.
 
-| Corpus | Examples | Rendered on the server | Left to the browser by design | Browser rendered, SSR pending |
-|---|---|---|---|---|
-| [react.dev](docs/corpus/react-dev.md) | 634 | 575 (90.7%) | 59 | 0 |
-| [svelte.dev](docs/corpus/svelte-dev.md) | 167 | 151 (90.4%) | 16 | 0 |
-| [vuejs.org](docs/corpus/vuejs-org.md) | 70 | 58 (82.9%) | 12 | 0 |
+| Corpus | Examples | Rendered on the server | Rendered on the server after migration | Left to the browser by design | Browser rendered, SSR pending |
+|---|---|---|---|---|---|
+| [react.dev](docs/corpus/react-dev.md) | 634 | 575 (90.7%) | 579 (91.3%) | 59 | 0 |
+| [svelte.dev](docs/corpus/svelte-dev.md) | 167 | 151 (90.4%) | 152 (91.0%) | 16 | 0 |
+| [vuejs.org](docs/corpus/vuejs-org.md) | 70 | 58 (82.9%) | 58 (82.9%) | 12 | 0 |
 
 The "by design" column counts examples that use something the server can't reproduce exactly: the current time, `Math.random`, a `fetch` during render or an npm package the build doesn't follow. Not counting those, the server renders 100% of the rest on all three.
+
+The migration column counts the by-design examples that render on the server once the rewrite a migration makes is applied: an awaited read moved into the route's loader and seeded into the store, a `<svelte:head>` moved into the loader's `meta`. The rewrites were applied by hand and each example built again. The rest load their data after a click, a navigation or typing, read the clock, or need a contract for a remote API.
 
 ## Desktop apps (experimental)
 
