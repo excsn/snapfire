@@ -169,6 +169,14 @@ fn an_imported_component_in_a_markup_prop_is_placed_by_its_module() {
 }
 
 #[test]
+fn children_passed_through_a_spread_render_inside_the_element() {
+  let page = "function Button({ label, ...rest }: any) {\n  return <button {...rest} aria-label={label} />;\n}\nexport default function Page() {\n  return <Button label=\"x\" type=\"button\">Hover over me</Button>;\n}\n";
+  assert_eq!(html("spread_children", page).as_deref(), Ok("<button type=\"button\" aria-label=\"x\">Hover over me</button>"));
+  let page = "function Button(props: any) {\n  return <button {...props} />;\n}\nfunction Own({ label, ...rest }: any) {\n  return <b {...rest}>{label}</b>;\n}\nexport default function Page() {\n  return <p><Button type=\"button\">Go</Button><Own label=\"mine\">theirs</Own></p>;\n}\n";
+  assert_eq!(html("spread_children_props", page).as_deref(), Ok("<p><button type=\"button\">Go</button><b>mine</b></p>"));
+}
+
+#[test]
 fn a_default_exported_value_is_read_where_it_is_imported() {
   let out = html_with("data_default", &[("src/quotes.ts", "export default [\"one\", \"two\"];\n"), ("routes/page.tsx", "import quotes from \"@src/quotes\";\nexport default function Page() {\n  return <p>{quotes[1]} of {quotes.length}</p>;\n}\n")]);
   assert_eq!(out.as_deref(), Ok("<p>two of 2</p>"));

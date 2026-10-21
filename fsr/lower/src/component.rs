@@ -1182,7 +1182,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -5057,6 +5057,8 @@ struct ComponentLowerer<'a, 'p> {
   select_value: Option<Expr>,
   /// The props parameter when bound whole, so `props.children` is the slot.
   props_name: Option<String>,
+  /// The rest of a destructured props parameter that leaves `children` in it.
+  props_rest: Option<String>,
   /// The local name `children` was destructured to.
   children_name: Option<String>,
   /// Whether the component is wrapped in `forwardRef`, so its second parameter is the `ref` prop.
@@ -5206,6 +5208,17 @@ impl ComponentLowerer<'_, '_> {
     let inner = Tmpl::If { cond: filled, then: Box::new(Tmpl::Slot(name.to_owned())), r#else: Some(Box::new(Tmpl::Fragment(fallback))) };
     let attrs = if name == "content" { Vec::new() } else { vec![Entry::Field("data-sf-name".to_owned(), Expr::lit_str(name))] };
     Tmpl::Element { tag: "sf-s".to_owned(), attrs, children: vec![inner] }
+  }
+
+  /// True when `attrs` spread the props, or their rest, which carry the caller's `children`.
+  fn spreads_props(&self, attrs: &[js::JSXAttrOrSpread]) -> bool {
+    attrs.iter().any(|attr| match attr {
+      js::JSXAttrOrSpread::SpreadElement(spread) => match &*spread.expr {
+        js::Expr::Ident(id) => [&self.props_name, &self.props_rest].iter().any(|name| name.as_deref() == Some(id.sym.as_ref())),
+        _ => false,
+      },
+      js::JSXAttrOrSpread::JSXAttr(_) => false,
+    })
   }
 
   /// The slot an expression stands for: `children` or `props.children` is
@@ -6061,6 +6074,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           },
           _ => None,
         });
+        self.props_rest = match (&self.children_name, obj.props.last()) {
+          (None, Some(js::ObjectPatProp::Rest(rest))) => match &*rest.arg {
+            js::Pat::Ident(local) => Some(local.id.sym.to_string()),
+            _ => None,
+          },
+          _ => None,
+        };
         if self.layout_root {
           for prop in &obj.props {
             let (local, key) = match prop {
@@ -6859,7 +6879,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let outer = if name == "select" { std::mem::replace(&mut self.select_value, select_value) } else { self.select_value.take() };
     let children = self.children(&el.children);
     self.select_value = outer;
-    let children = children?;
+    let mut children = children?;
+    if children.is_empty() && self.spreads_props(&el.opening.attrs) {
+      children.push(self.slot("content"));
+    }
     if bound {
       attrs.push(Entry::Field(hoist::BOUND_ATTR.to_owned(), Expr::Lit(Lit::Bool(true))));
     }
