@@ -1639,7 +1639,7 @@ impl<'a> Lowerer<'a> {
 
   /// `x = e`, `x += e` and their kin on a local; `x.field = e` rebinds `x` to a copy with that field.
   /// The handle of the cell an assignment writes, when it writes a name held in one.
-  fn cell_of_target(&self, target: &js::AssignTarget) -> Option<Expr> {
+  pub(crate) fn cell_of_target(&self, target: &js::AssignTarget) -> Option<Expr> {
     let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = target else { return None };
     self.cells.iter().rev().find(|(name, _)| *name == *id.id.sym).map(|(_, handle)| handle.clone())
   }

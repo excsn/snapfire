@@ -1129,6 +1129,15 @@ impl ComponentSet {
     let mut global_kinds = Vec::new();
     let mut global_formatters: Vec<(String, js::NewExpr)> = Vec::new();
     let mut module_bindings: Vec<(String, String, Expr)> = Vec::new();
+    if self.terminal {
+      let parsed = self.parsed[file].clone();
+      for (name, _, written) in module_lets_of(&parsed) {
+        if written {
+          let seed = self.module_init(file, &name)?;
+          module_bindings.push((name.clone(), format!("{file}#{name}"), seed));
+        }
+      }
+    }
     let mut unfollowed: Vec<(String, Option<LowerError>)> = Vec::new();
     let module = format!("{file}#{export}");
     // An element template has no browser half, so nothing would read what
@@ -1176,6 +1185,9 @@ impl ComponentSet {
         lowerer.global_formatters = global_formatters.clone();
         lowerer.unfollowed = unfollowed.iter().map(|(name, _)| name.clone()).collect();
         lowerer.natives = self.natives.clone();
+        if self.terminal {
+          lowerer.cells = module_bindings.iter().map(|(name, _, _)| (name.clone(), Expr::Var(name.clone()))).collect();
+        }
         // The browser half reads hoisted values through a hook, which a class's `render()` may not call.
         lowerer.hoisting = (!element_template && class.is_none()).then(Candidates::default);
         lowerer.meanings = Some(meanings);
@@ -1253,9 +1265,19 @@ impl ComponentSet {
           if let Some(made) = self.global_formatter(file, &name)? {
             global_formatters.push((name.clone(), made));
           }
-          if let Some((_, declared_file, declared_name)) = self.module_lets.iter().find(|(k, _, _)| *k == key).cloned() {
+          if let Some((_, declared_file, declared_name)) = self.module_lets.iter().find(|(k, _, _)| *k == key).cloned().filter(|_| !module_bindings.iter().any(|(n, _, _)| *n == name)) {
             let seed = self.module_init(&declared_file, &declared_name)?;
             module_bindings.push((name.clone(), key.clone(), seed));
+          }
+          if self.terminal {
+            let declared_file = key.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_default();
+            let parsed = self.parsed[&declared_file].clone();
+            for (cell, _, written) in module_lets_of(&parsed) {
+              if written && held_in_a_cell(&expr, &cell) && !module_bindings.iter().any(|(n, _, _)| *n == cell) {
+                let seed = self.module_init(&declared_file, &cell)?;
+                module_bindings.push((cell.clone(), format!("{declared_file}#{cell}"), seed));
+              }
+            }
           }
           if crate::writes_outer(&expr) {
             let declared_file = key.split_once('#').map(|(f, _)| f.to_owned()).unwrap_or_default();
@@ -2075,7 +2097,12 @@ impl ComponentSet {
       if !self.module_lets.iter().any(|(k, _, _)| *k == key) {
         self.module_lets.push((key.clone(), file.to_owned(), name.to_owned()));
       }
-      return Ok(Some((Expr::Var(name.to_owned()), key)));
+      // A terminal page holds the module `let` in a cell that lasts from one step to the next; a read is the cell's value.
+      let read = match self.terminal {
+        true => Expr::ReadCell(Box::new(Expr::Var(name.to_owned()))),
+        false => Expr::Var(name.to_owned()),
+      };
+      return Ok(Some((read, key)));
     }
     let Some(item) = find_value(&parsed, name) else { return Ok(None) };
     if matches!(item, Global::Function(..)) && name.starts_with(|c: char| c.is_ascii_uppercase()) {
@@ -2117,7 +2144,10 @@ impl ComponentSet {
     let parsed = self.parsed[file].clone();
     let mut body = Vec::new();
     for (name, init, written) in module_lets_of(&parsed) {
-      let expr = self.lower_global(file, Global::Const(init))?;
+      let expr = match init {
+        Some(init) => self.lower_global(file, Global::Const(init))?,
+        None => Expr::Lit(Lit::Null),
+      };
       body.push(Stmt::Let { name: name.clone(), expr });
       // A written `let` is what the whole initialisation leaves it at; a constant is fixed once bound.
       if name == upto && !written {
@@ -2189,6 +2219,9 @@ impl ComponentSet {
       lowerer.global_kinds = global_kinds.clone();
       lowerer.global_formatters = global_formatters.clone();
       lowerer.natives = self.natives.clone();
+      if self.terminal {
+        lowerer.cells = module_lets_of(&parsed).into_iter().filter(|(_, _, written)| *written).map(|(name, _, _)| (name.clone(), Expr::Var(name))).collect();
+      }
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
         Global::Function(params, body) => function_to_lambda(&mut lowerer, params, *body),
@@ -2883,7 +2916,7 @@ fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
 }
 
 /// The module's top-level `let` and `const` declarations with a value that is not a function, in order: each name, its initialiser and whether a function in the module writes it.
-fn module_lets_of(parsed: &Parsed) -> Vec<(String, &js::Expr, bool)> {
+fn module_lets_of(parsed: &Parsed) -> Vec<(String, Option<&js::Expr>, bool)> {
   let writes = module_writes(&parsed.module);
   let mut out = Vec::new();
   for item in &parsed.module.body {
@@ -2896,8 +2929,9 @@ fn module_lets_of(parsed: &Parsed) -> Vec<(String, &js::Expr, bool)> {
       _ => continue,
     };
     for decl in &var.decls {
-      let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) else { continue };
-      if matches!(init, js::Expr::Arrow(_) | js::Expr::Fn(_)) {
+      let js::Pat::Ident(id) = &decl.name else { continue };
+      let init = decl.init.as_deref();
+      if matches!(init, Some(js::Expr::Arrow(_) | js::Expr::Fn(_))) {
         continue;
       }
       let name = id.id.sym.to_string();
@@ -2906,6 +2940,17 @@ fn module_lets_of(parsed: &Parsed) -> Vec<(String, &js::Expr, bool)> {
     }
   }
   out
+}
+
+/// Whether `expr` reads or writes the cell bound to `name`.
+fn held_in_a_cell(expr: &Expr, name: &str) -> bool {
+  let mut found = false;
+  expr.visit(&mut |e| {
+    if let Expr::ReadCell(handle) | Expr::WriteCell(handle, _) = e {
+      found |= matches!(&**handle, Expr::Var(n) if n == name);
+    }
+  });
+  found
 }
 
 /// The declaration span of `name` when it is a module-level `let` or `var` that a function in the module writes.
@@ -4390,6 +4435,14 @@ pub(crate) struct HandlerWalk {
 }
 
 impl HandlerWalk {
+  /// `stmt`, a write to a cell or a call that makes one, run where the handler reaches it.
+  pub(crate) fn effect(&mut self, stmt: Stmt) {
+    match &self.reach {
+      None => self.out.push(stmt),
+      Some(reach) => self.out.push(Stmt::If { cond: reach.clone(), then: vec![stmt], r#else: Vec::new() }),
+    }
+  }
+
   pub(crate) fn set(&mut self, state: String, value: Expr) {
     let value = match &self.reach {
       None => value,
@@ -4423,6 +4476,15 @@ pub(crate) fn reach_under(outer: &Option<Expr>, cond: Expr) -> Expr {
     None => cond,
     Some(outer) => Expr::Logic(LogicOp::And, Box::new(outer.clone()), Box::new(cond)),
   }
+}
+
+/// Whether a handler's statements do something besides setting state: an act, or a write to a cell.
+fn holds_effect(stmts: &[Stmt]) -> bool {
+  stmts.iter().any(|stmt| match stmt {
+    Stmt::Act { .. } | Stmt::Expr(_) => true,
+    Stmt::If { then, r#else, .. } => holds_effect(then) || holds_effect(r#else),
+    _ => false,
+  })
 }
 
 pub(crate) fn holds_act(stmts: &[Stmt]) -> bool {
@@ -5845,6 +5907,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     // A module-level `let` a function writes is state the store holds per request, seeded by the module's own initialisation; a handler's write to it reaches the store as any store write does.
     let mut bound = Vec::new();
     for (name, key, seed) in std::mem::take(&mut self.module_lets) {
+      if self.lowerer.terminal {
+        bound.push(Stmt::Let { name, expr: Expr::ModuleCell { key, init: Box::new(seed) } });
+        continue;
+      }
       self.state.push(name.clone());
       self.state_bindings.push(name.clone());
       self.store_bindings.push((name.clone(), key.clone()));
@@ -7990,7 +8056,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn handler_fn_in(&mut self, params: &[js::Pat], body: FunctionBody<'p>, span: Span) -> Lowered<Vec<Stmt>> {
     let mut walk = HandlerWalk::default();
     self.handler_fn_into(params, body, &mut walk)?;
-    if walk.patch.is_empty() && !holds_act(&walk.out) {
+    if walk.patch.is_empty() && !holds_effect(&walk.out) {
       return Err(self.lowerer.residue(span, NO_EFFECT));
     }
     walk.out.push(Stmt::Return(Expr::Object(walk.patch)));
@@ -8121,6 +8187,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       js::Expr::Paren(p) => self.handler_stmt(&p.expr, walk),
       js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, walk),
       js::Expr::Await(a) => self.handler_stmt(&a.arg, walk),
+      js::Expr::Assign(assign) if self.lowerer.terminal && self.lowerer.cell_of_target(&assign.left).is_some() => {
+        let stmt = self.lowerer.effect(e)?;
+        walk.effect(stmt);
+        Ok(())
+      }
       js::Expr::Call(call) => {
         let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
         match &**callee {
@@ -8204,6 +8275,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
             if let Some(store_call) = self.meanings().of_expr(callee).and_then(|meant| meant.store_call()) {
               return self.store_call(store_call, call, walk);
+            }
+            if self.lowerer.terminal && !self.lowerer.cells.is_empty() {
+              let lowered = self.lowerer.expr(e)?;
+              if touches_cells(&lowered) {
+                walk.effect(Stmt::Expr(lowered));
+                return Ok(());
+              }
             }
             Err(self.lowerer.residue(id.span, format!("a call to `{name}`, which is not a state setter, a write to the store, an action or a handler this component declares")))
           }

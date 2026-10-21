@@ -259,6 +259,7 @@ impl Interpreter {
       closures: Some(Vec::new()),
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
+      module_seed: snapfire_fsr_core::ValueMap::default(),
       marks: Vec::new(),
       placed: Vec::new(),
       input: input.unwrap_or(Value::Null),
@@ -404,6 +405,8 @@ pub(crate) struct Env {
   pub(crate) cells: Option<Vec<Value>>,
   /// The render's named cells, `Expr::ModuleCell`, by key with their index in `cells`.
   pub(crate) module_cells: Vec<(String, usize)>,
+  /// The value a named cell starts from instead of its `init`, by key: a host that keeps module state from one step to the next hands it in as [`crate::render::CELLS_PROP`].
+  pub(crate) module_seed: snapfire_fsr_core::ValueMap,
 }
 
 /// A function value: its parameters, its body and the names it reads with their values where it was written.
@@ -624,6 +627,7 @@ impl Env {
       closures: Some(Vec::new()),
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
+      module_seed: snapfire_fsr_core::ValueMap::default(),
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -835,6 +839,7 @@ impl Env {
       closures: None,
       cells: None,
       module_cells: Vec::new(),
+      module_seed: snapfire_fsr_core::ValueMap::default(),
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -941,7 +946,10 @@ impl Env {
       Expr::ModuleCell { key, init } => match self.module_cells.iter().find(|(k, _)| k == key) {
         Some((_, index)) => Ok(cell_handle(*index)),
         None => {
-          let value = self.eval_sync(init)?;
+          let value = match self.module_seed.get(key) {
+            Some(seeded) => seeded.clone(),
+            None => self.eval_sync(init)?,
+          };
           let handle = self.new_cell(value)?;
           self.module_cells.push((key.clone(), cell_index(&handle).expect("a handle just made")));
           Ok(handle)
@@ -1414,7 +1422,10 @@ impl Env {
         Expr::ModuleCell { key, init } => match self.module_cells.iter().find(|(k, _)| k == key) {
           Some((_, index)) => Ok(cell_handle(*index)),
           None => {
-            let value = self.eval(init).await?;
+            let value = match self.module_seed.get(key) {
+              Some(seeded) => seeded.clone(),
+              None => self.eval(init).await?,
+            };
             let handle = self.new_cell(value)?;
             self.module_cells.push((key.clone(), cell_index(&handle).expect("a handle just made")));
             Ok(handle)

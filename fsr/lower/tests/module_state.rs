@@ -120,3 +120,10 @@ fn stmt_sets(stmt: &Stmt, out: &mut Vec<String>) {
     _ => {}
   }
 }
+
+#[test]
+fn a_module_let_declared_without_a_value_starts_undefined_and_a_function_may_write_it() {
+  let page = "let seen;\n\nfunction see() {\n  if (!seen) {\n    seen = \"first\";\n  }\n  return seen;\n}\n\nexport default function Page() {\n  return <p>{see()}</p>;\n}\n";
+  let out = lower("undeclared_value", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(out.html, "<p>first</p>");
+}

@@ -299,3 +299,17 @@ fn set_cursor_position_while_rendering_hands_the_terminal_where_the_cursor_goes(
   let typed = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &key("ab", &[]), &library).unwrap();
   assert_eq!(cursor(&typed), at(4.0));
 }
+
+#[test]
+fn a_module_let_a_function_writes_lasts_from_one_step_to_the_next_in_a_cell() {
+  let page = "import { Text, useInput } from \"ink\";\n\nlet count = 0;\nlet rendered = 0;\n\nfunction bump() {\n  count = count + 1;\n}\n\nfunction seen() {\n  rendered = rendered + 1;\n  return rendered;\n}\n\nexport default function Counter() {\n  useInput(() => bump());\n  return <Text>{count} {seen()}</Text>;\n}\n";
+  let library = library(page);
+  let component = &library[MODULE];
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>0 1</ink-text>");
+  let mut props = ValueMap::default();
+  props.insert(snapfire_fsr_ir::render::CELLS_PROP.to_owned(), Value::Map(first.cells.clone()));
+  let pressed = interpreter.island_step(MODULE, component, &props, &first.state, Some(HandlerRef::own(0)), &key("x", &[]), &library).unwrap();
+  assert_eq!(pressed.rendered.html, "<ink-text>1 2</ink-text>", "the handler's write and the render's own both last");
+}

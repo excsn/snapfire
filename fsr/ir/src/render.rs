@@ -240,6 +240,8 @@ pub struct Stepped {
   pub components: Vec<(String, String)>,
   /// Each value a body handed its host with an [`EMIT_PREFIX`] `let`, in render order.
   pub emitted: Vec<Emitted>,
+  /// Each module cell's value as the step left it, by key.
+  pub cells: ValueMap,
 }
 
 /// The handler a step runs: an index into the handlers of the component at
@@ -344,6 +346,9 @@ pub const RERUN_PREFIX: &str = "$rerun:";
 
 /// The start of a body `let` that holds a state binding's value from there on: the prefix, then the binding's name. The binding's held state after the render is that value, as a ref written while rendering keeps what was written.
 pub const HOLD_PREFIX: &str = "$hold:";
+
+/// The prop a host passes a step the module cells' values in, by key, as the last step left them; a step's [`Stepped::cells`] is what it leaves them at. A terminal keeps module state this way, so a write to a module-level `let` lasts from one step to the next as it does in JavaScript.
+pub const CELLS_PROP: &str = "$cells";
 
 /// The start of a body `let` whose value the step hands its host: the prefix, then the kind, which the host reads it by. The renderer gives it no meaning of its own; a terminal reads a focusable and a cursor this way.
 pub const EMIT_PREFIX: &str = "$emit:";
@@ -574,6 +579,9 @@ impl Interpreter {
     if let Some(Value::Map(store)) = props.get("$store") {
       env.store = store.clone();
     }
+    if let Some(Value::Map(cells)) = props.get(CELLS_PROP) {
+      env.module_seed = cells.clone();
+    }
     if let Some(Value::Seq(pending)) = props.get(snapfire_fsr_runtime::PENDING_PROP) {
       env.pending = pending.iter().filter_map(|key| match key {
         Value::Str(key) => Some(key.to_string()),
@@ -675,7 +683,8 @@ impl Interpreter {
     let acts = std::mem::take(&mut env.acts);
     let components = std::mem::take(&mut env.entered);
     let emitted = std::mem::take(&mut env.emitted);
-    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components, emitted })
+    let cells = env.module_cells.iter().filter_map(|(key, index)| env.cells.as_ref().and_then(|cells| cells.get(*index)).map(|value| (key.clone(), value.clone()))).collect();
+    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components, emitted, cells })
   }
 }
 
