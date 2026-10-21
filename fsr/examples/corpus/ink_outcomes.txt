@@ -15,7 +15,7 @@ router	refused: `src/router.tsx#Home` does not lower, so only a browser could re
 scroll	rendered
 select-input	rendered
 static	rendered
-subprocess-output	refused: `src/subprocess-output.tsx#SubprocessOutput` does not lower, so only a browser could render it: src/subprocess-output.tsx:10:28: `childProcess` comes from `node:child_process`, which the build cannot follow
+subprocess-output	rendered
 suspend-terminal	refused: `src/suspend-terminal.tsx#Example` does not lower, so only a browser could render it: src/suspend-terminal.tsx:28:11: `useApp` gives `exit` alone
 suspense	refused: `src/suspense.tsx#Example` does not lower, so only a browser could render it: src/suspense.tsx:9:10: `promise` is not bound here; an import the build cannot follow or a name from outside the body
 table	refused: `src/table.tsx#Table` does not lower, so only a browser could render it: src/table.tsx:7:11: `faker` comes from `@faker-js/faker`, which the build cannot follow

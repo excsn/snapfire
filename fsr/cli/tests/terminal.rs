@@ -220,3 +220,23 @@ fn the_cursor_goes_where_the_page_set_it_and_is_hidden_when_it_sets_none() {
   done.view().unwrap();
   assert_eq!(done.cursor(), None);
 }
+
+#[test]
+fn a_spawned_process_is_handed_to_the_terminal_and_its_output_and_exit_step_the_page() {
+  let page = "import childProcess from \"node:child_process\";\nimport { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Out() {\n  const [output, setOutput] = useState(\"\");\n  const [code, setCode] = useState(-1);\n  useEffect(() => {\n    const sub = childProcess.spawn(\"echo\", [\"hi\"]);\n    sub.on(\"error\", (error) => {\n      setOutput(error.message);\n    });\n    sub.stdout.setEncoding(\"utf8\");\n    sub.stdout.on(\"data\", (chunk: string) => {\n      setOutput((o) => o + chunk);\n    });\n    sub.on(\"exit\", (exitCode) => setCode(exitCode));\n  }, [setOutput]);\n  return <Text>{output}|{code}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "|-1");
+  let spawns = session.take_spawns();
+  assert_eq!(spawns.len(), 1);
+  assert_eq!((spawns[0].command.as_str(), spawns[0].args.clone()), ("echo", vec!["hi".to_owned()]));
+  assert!(session.take_spawns().is_empty(), "a process starts once");
+  assert_eq!(line(session.deliver(&spawns[0], "stdout", &Value::Str("hi".into())).unwrap()), "hi|-1");
+  let mut exit = snapfire_fsr_core::ValueMap::default();
+  exit.insert("code".to_owned(), Value::Int(0));
+  exit.insert("signal".to_owned(), Value::Null);
+  assert_eq!(line(session.deliver(&spawns[0], "exit", &Value::Map(exit)).unwrap()), "hi|0");
+  let mut failed = snapfire_fsr_core::ValueMap::default();
+  failed.insert("message".to_owned(), Value::Str("spawn echo ENOENT".into()));
+  assert_eq!(line(session.deliver(&spawns[0], "error", &Value::Map(failed)).unwrap()), "spawn echo ENOENT|0");
+}

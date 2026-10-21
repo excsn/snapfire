@@ -44,6 +44,8 @@ pub(crate) enum Construct {
   ClassNames,
   /// A text function of the npm packages Ink applications import, `ms`, `stripAnsi`, `stringWidth` or `wrapAnsi`, which a terminal page runs natively.
   TerminalText(&'static str),
+  /// `node:child_process`, its default export `module` or its `spawn`, whose processes a terminal page starts natively.
+  ChildProcess(&'static str),
   /// React's `Children`, of which the build reads the count of a component's own children.
   Children,
   /// React's `cloneElement`.
@@ -178,6 +180,10 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr/terminal", "stripAnsi", Construct::TerminalText("stripAnsi")),
   ("@snapfire/fsr/terminal", "stringWidth", Construct::TerminalText("stringWidth")),
   ("@snapfire/fsr/terminal", "wrapAnsi", Construct::TerminalText("wrapAnsi")),
+  ("node:child_process", "default", Construct::ChildProcess("module")),
+  ("node:child_process", "spawn", Construct::ChildProcess("spawn")),
+  ("child_process", "default", Construct::ChildProcess("module")),
+  ("child_process", "spawn", Construct::ChildProcess("spawn")),
   ("svelte/store", "writable", Construct::SvelteStore("writable")),
   ("svelte/store", "readable", Construct::SvelteStore("readable")),
   ("svelte/store", "readonly", Construct::SvelteStore("readonly")),

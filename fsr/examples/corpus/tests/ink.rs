@@ -1,6 +1,6 @@
 //! Every example of Ink run as a terminal application of its own, its outcome
 //! held against `ink_outcomes.txt`: `rendered` when its first frame draws and
-//! it steps on each of its timers and on a key, or the reason it does not. `CORPUS_BLESS=1` rewrites the file from this run;
+//! it steps on each of its timers and on a key, otherwise the reason it does not. Each process it spawns is handed output and an exit rather than started. `CORPUS_BLESS=1` rewrites the file from this run;
 //! `CORPUS_FRAMES=1` prints each first frame and `CORPUS_FRAMES=2` the frame after the timers fire too.
 
 use std::path::{Path, PathBuf};
@@ -96,6 +96,17 @@ fn outcome(example: &Path, scratch: &Path) -> String {
         match session.fire(&timer) {
           Ok(node) => stepped = Some(node),
           Err(why) => return first(format!("a timer's step fails: {why}")),
+        }
+      }
+      for spawn in session.take_spawns() {
+        let mut exit = snapfire_fsr_core::ValueMap::default();
+        exit.insert("code".to_owned(), snapfire_fsr_core::Value::Int(0));
+        exit.insert("signal".to_owned(), snapfire_fsr_core::Value::Null);
+        for (kind, event) in [("stdout", snapfire_fsr_core::Value::Str("output\n".into())), ("exit", snapfire_fsr_core::Value::Map(exit.clone())), ("close", snapfire_fsr_core::Value::Map(exit))] {
+          match session.deliver(&spawn, kind, &event) {
+            Ok(node) => stepped = Some(node),
+            Err(why) => return first(format!("a process's {kind} step fails: {why}")),
+          }
         }
       }
       if let (Some(node), true) = (stepped, std::env::var_os("CORPUS_FRAMES").is_some_and(|v| v == "2")) {

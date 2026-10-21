@@ -1182,7 +1182,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -5255,6 +5255,8 @@ struct ComponentLowerer<'a, 'p> {
   effect_fns: Vec<(String, String)>,
   /// The `useCallback` functions whose dependencies never change, which an effect may depend on as a mount effect.
   stable_callbacks: Vec<String>,
+  /// While a terminal effect lowers, each process it spawns: the local holding it and the id its handlers are named by.
+  spawns: Vec<(String, String)>,
 }
 
 /// Where the browser gets a function passed as a prop: the placement and prop it went to, the value the server holds and the module id `file#export` the browser imports it from or else why the browser cannot reach it. `needs` is what the rewrite and the bundle add for the id to resolve.
@@ -7668,6 +7670,77 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(())
   }
 
+  /// `childProcess.spawn(command, args, options)` or a `spawn` imported by name.
+  fn spawn_call(&self, e: &'p js::Expr) -> Option<&'p js::CallExpr> {
+    let js::Expr::Call(call) = crate::meaning::bare(e) else { return None };
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let meant = |e: &js::Expr| self.meanings().of_expr(e);
+    let spawns = match crate::meaning::bare(callee) {
+      js::Expr::Member(member) => meant(&member.obj) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::ChildProcess("module"))) && prop_name_of(member).as_deref() == Some("spawn"),
+      other => meant(other) == Some(crate::meaning::Meaning::Library(crate::meaning::Construct::ChildProcess("spawn"))),
+    };
+    spawns.then_some(call)
+  }
+
+  /// A mount handler that asks the terminal, with a `$spawn` act, to start `call`'s process as `id`.
+  fn spawn_start(&mut self, call: &'p js::CallExpr, id: &str) -> Lowered<()> {
+    let mut fields = vec![Entry::Field("id".to_owned(), Expr::lit_str(id))];
+    for (i, key) in ["command", "args", "options"].iter().enumerate() {
+      let value = match call.args.get(i) {
+        Some(arg) if arg.spread.is_some() => return Err(self.lowerer.residue(arg.expr.span(), "a spread into `spawn`")),
+        Some(arg) => self.lowerer.expr(&arg.expr)?,
+        None => Expr::Lit(Lit::Null),
+      };
+      fields.push(Entry::Field((*key).to_owned(), value));
+    }
+    let body = vec![Stmt::Act { action: "$spawn".to_owned(), input: Expr::Object(fields) }, Stmt::Return(Expr::Object(Vec::new()))];
+    self.lowered_handlers.push(Handler { event: "mount".to_owned(), body });
+    Ok(())
+  }
+
+  /// A listener on a process the effect spawned, `sub.on("exit", f)`, `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)`, as a handler named `spawn:<id>:<event>`; `setEncoding` is taken as read, since a terminal hands output over as text. False for anything else.
+  fn spawn_listener(&mut self, e: &'p js::Expr) -> Lowered<bool> {
+    let js::Expr::Call(call) = crate::meaning::bare(e) else { return Ok(false) };
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(false) };
+    let js::Expr::Member(method) = crate::meaning::bare(callee) else { return Ok(false) };
+    let (process, stream) = match crate::meaning::bare(&method.obj) {
+      js::Expr::Ident(id) => (id.sym.to_string(), None),
+      js::Expr::Member(inner) => match (crate::meaning::bare(&inner.obj), prop_name_of(inner).as_deref()) {
+        (js::Expr::Ident(id), Some("stdout")) => (id.sym.to_string(), Some("stdout")),
+        (js::Expr::Ident(id), Some("stderr")) => (id.sym.to_string(), Some("stderr")),
+        _ => return Ok(false),
+      },
+      _ => return Ok(false),
+    };
+    let Some((_, id)) = self.spawns.iter().find(|(name, _)| *name == process).cloned() else { return Ok(false) };
+    let event = match call.args.first().map(|a| crate::meaning::bare(&a.expr)) {
+      Some(js::Expr::Lit(js::Lit::Str(event))) => Some(event.value.to_string_lossy().into_owned()),
+      _ => None,
+    };
+    let kind = match (stream, prop_name_of(method).as_deref(), event.as_deref()) {
+      (Some(_), Some("setEncoding"), _) => return Ok(true),
+      (Some(stream), Some("on"), Some("data")) => stream.to_owned(),
+      (None, Some("on"), Some(event @ ("error" | "exit" | "close"))) => event.to_owned(),
+      _ => return Err(self.lowerer.residue(call.span, "a use of a spawned process other than `on(\"error\" | \"exit\" | \"close\", f)`, `stdout.on(\"data\", f)`, `stderr.on(\"data\", f)` and `setEncoding`")),
+    };
+    let Some(listener) = call.args.get(1) else { return Err(self.lowerer.residue(call.span, "a process listener without a function")) };
+    let (params, body) = match crate::meaning::bare(&listener.expr) {
+      js::Expr::Arrow(f) => (f.params.clone(), arrow_body(f)),
+      js::Expr::Fn(f) => match &f.function.body {
+        Some(body) => (patterns(&f.function), FunctionBody::Block(&body.stmts)),
+        None => return Err(self.lowerer.residue(listener.expr.span(), "a process listener without a body")),
+      },
+      other => return Err(self.lowerer.residue(other.span(), "a process listener that is not a function written in place")),
+    };
+    if kind == "exit" || kind == "close" {
+      let event = || Expr::Var("$event".to_owned());
+      self.event_binds = Some(vec![event().field("code".to_owned()), event().field("signal".to_owned())]);
+    }
+    let lowered = self.handler_fn(&params, body, call.span)?;
+    self.lowered_handlers.push(Handler { event: format!("spawn:{id}:{kind}"), body: lowered });
+    Ok(true)
+  }
+
   /// Whether an effect's dependency is the same on every render: a state setter or a writer; in a terminal also a `useReducer` dispatch, a held ref or a `useCallback` whose own dependencies never change.
   fn never_changes(&self, elem: &Option<js::ExprOrSpread>) -> bool {
     let Some(js::Expr::Ident(id)) = elem.as_ref().map(|e| &*e.expr) else { return false };
@@ -7705,11 +7778,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// it returns is left out, since a terminal stops every timer on exit.
   fn terminal_effect(&mut self, arrow: &'p js::ArrowExpr) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
-    let (locals, fns) = (self.effect_locals.len(), self.effect_fns.len());
+    let (locals, fns, spawns) = (self.effect_locals.len(), self.effect_fns.len(), self.spawns.len());
     let result = self.terminal_effect_in(arrow);
     self.lowerer.scope.truncate(depth);
     self.effect_locals.truncate(locals);
     self.effect_fns.truncate(fns);
+    self.spawns.truncate(spawns);
     result
   }
 
@@ -7744,6 +7818,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 self.effect_fn(&name, params, body);
               }
               Some(init) if timer_call(init).is_some() => {}
+              Some(init) if self.spawn_call(init).is_some() => self.spawns.push((name, decl.span.lo.0.to_string())),
               init => {
                 let value = match init {
                   Some(init) => self.lowerer.expr(init)?,
@@ -7770,11 +7845,16 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     for stmt in &stmts {
       match stmt {
+        js::Stmt::Expr(e) if self.spawn_listener(&e.expr)? => {}
         js::Stmt::Expr(e) => self.effect_start(&e.expr, e.span)?,
         js::Stmt::Decl(js::Decl::Var(var)) => {
-          for init in var.decls.iter().filter_map(|decl| decl.init.as_deref()) {
+          for decl in &var.decls {
+            let Some(init) = decl.init.as_deref() else { continue };
             if timer_call(init).is_some() {
               self.effect_start(init, init.span())?;
+            }
+            if let Some(call) = self.spawn_call(init) {
+              self.spawn_start(call, &decl.span.lo.0.to_string())?;
             }
           }
         }

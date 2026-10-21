@@ -38,6 +38,12 @@ const METRIC_PASSES: usize = 3;
 /// How long the loop waits for a key when no timer is due sooner.
 const IDLE: Duration = Duration::from_millis(100);
 
+/// How long the loop waits for a key while a process it started may still write.
+const RUNNING: Duration = Duration::from_millis(16);
+
+/// What a process the terminal started reports: the spawn, the kind [`Session::deliver`] takes and its event.
+type Reported = (Spawn, &'static str, Value);
+
 /// The flags Ink's `useInput` hands a handler beside the input text.
 const KEYS: [&str; 14] = ["upArrow", "downArrow", "leftArrow", "rightArrow", "pageUp", "pageDown", "return", "escape", "ctrl", "shift", "tab", "backspace", "delete", "meta"];
 
@@ -104,6 +110,19 @@ pub struct Timer {
   pub repeats: bool,
 }
 
+/// A process a mount effect spawned with `node:child_process`, which the
+/// terminal starts and whose output and exit it hands back through
+/// [`Session::deliver`]: the component that spawned it, the id its handlers
+/// are named by, the command, its arguments and the options as written.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spawn {
+  pub path: String,
+  pub id: String,
+  pub command: String,
+  pub args: Vec<String>,
+  pub options: Value,
+}
+
 /// The root page of a terminal application: lowered, with the state its
 /// handler has stepped it to.
 pub struct Session {
@@ -121,6 +140,7 @@ pub struct Session {
   started: Vec<Timer>,
   metrics: ValueMap,
   cursor: Option<(u16, u16)>,
+  spawns: Vec<Spawn>,
 }
 
 /// Ink's focus: the focusables the page rendered last, in order, the one
@@ -205,7 +225,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new() })
   }
 
   /// The page as it stands.
@@ -267,6 +287,21 @@ impl Session {
   /// The terminal's size, which the page reads through `useWindowSize` and `useStdout`.
   pub fn resize(&mut self, columns: u16, rows: u16) {
     self.size = (columns, rows);
+  }
+
+  /// The processes started since the last call, in the order the page spawned them.
+  pub fn take_spawns(&mut self) -> Vec<Spawn> {
+    std::mem::take(&mut self.spawns)
+  }
+
+  /// The page after `spawn` reports `kind`: `stdout` or `stderr` with a chunk of text, `exit` or `close` with `{ code, signal }`, `error` with `{ message }`. As it stands when the page does not listen for it or the component that spawned it is gone.
+  pub fn deliver(&mut self, spawn: &Spawn, kind: &str, event: &Value) -> Result<Node, String> {
+    let event_name = format!("spawn:{}:{kind}", spawn.id);
+    let listener = self.handlers().find(|(path, _, event)| *path == spawn.path && *event == event_name).map(|(path, index, _)| HandlerRef::at(path, index));
+    match listener {
+      Some(handler) => self.run(Some(handler), event),
+      None => self.run(None, &Value::Null),
+    }
   }
 
   /// Where the page last put the cursor with Ink's `setCursorPosition`, in cells from the corner of what it draws: `None` keeps it hidden.
@@ -382,6 +417,21 @@ impl Session {
           };
           self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)) });
         }
+        ("$spawn", Value::Map(spawn)) => {
+          let text = |v: Option<&Value>| match v {
+            Some(Value::Str(s)) => Some(s.to_string()),
+            Some(Value::Int(n)) => Some(n.to_string()),
+            Some(Value::F64(n)) if n.fract() == 0.0 && n.abs() < 1e15 => Some((*n as i64).to_string()),
+            Some(Value::F64(n)) => Some(n.to_string()),
+            _ => None,
+          };
+          let (Some(id), Some(command)) = (text(spawn.get("id")), text(spawn.get("command"))) else { continue };
+          let args = match spawn.get("args") {
+            Some(Value::Seq(args)) => args.iter().filter_map(|a| text(Some(a))).collect(),
+            _ => Vec::new(),
+          };
+          self.spawns.push(Spawn { path: path.clone(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
+        }
         (focus, _) if focus.starts_with("$focus") => self.focus_acts.push((action, value)),
         _ => {}
       }
@@ -477,8 +527,17 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   draw(&drawn, &mut shown, true, session.cursor()).map_err(fail)?;
   let schedule = |session: &mut Session| -> Vec<(Timer, Instant)> { session.take_started().into_iter().map(|timer| (Instant::now() + timer.every, timer)).map(|(at, timer)| (timer, at)).collect() };
   let mut timers = schedule(&mut session);
+  let (reports, reported) = std::sync::mpsc::channel::<Reported>();
+  let running = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+  let launch = |session: &mut Session| {
+    for spawn in session.take_spawns() {
+      start(spawn, reports.clone(), running.clone());
+    }
+  };
+  launch(&mut session);
   loop {
-    let wait = timers.iter().map(|(_, at)| at.saturating_duration_since(Instant::now())).min().unwrap_or(IDLE).min(IDLE);
+    let busy = running.load(std::sync::atomic::Ordering::Relaxed) > 0;
+    let wait = timers.iter().map(|(_, at)| at.saturating_duration_since(Instant::now())).min().unwrap_or(IDLE).min(if busy { RUNNING } else { IDLE });
     if crossterm::event::poll(wait).map_err(fail)? {
       match crossterm::event::read().map_err(fail)? {
         Event::Key(key) if key.kind != KeyEventKind::Release => match key_event(key) {
@@ -512,7 +571,12 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
       *at = now + timer.every;
       timer.repeats && session.holds(timer)
     });
+    while let Ok((spawn, kind, event)) = reported.try_recv() {
+      drawn = session.deliver(&spawn, kind, &event);
+      fired = true;
+    }
     timers.extend(schedule(&mut session));
+    launch(&mut session);
     if session.exited() {
       break;
     }
@@ -528,6 +592,130 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   }
   drop(screen);
   Ok(())
+}
+
+/// Starts `spawn`'s process with its output piped and reports each chunk it writes, then its exit and close, on `reports`; one that cannot start reports an error as Node words it, `spawn <command> ENOENT` for a command not found. `running` counts it while it may still report.
+fn start(spawn: Spawn, reports: std::sync::mpsc::Sender<Reported>, running: Arc<std::sync::atomic::AtomicUsize>) {
+  use std::process::{Command, Stdio};
+  let text = |key: &str| match &spawn.options {
+    Value::Map(options) => match options.get(key) {
+      Some(Value::Str(s)) => Some(s.to_string()),
+      _ => None,
+    },
+    _ => None,
+  };
+  let shell = matches!(&spawn.options, Value::Map(options) if matches!(options.get("shell"), Some(Value::Bool(true))));
+  let mut command = match shell {
+    true => {
+      let mut sh = Command::new("sh");
+      sh.arg("-c").arg(std::iter::once(spawn.command.clone()).chain(spawn.args.iter().cloned()).collect::<Vec<_>>().join(" "));
+      sh
+    }
+    false => {
+      let mut direct = Command::new(&spawn.command);
+      direct.args(&spawn.args);
+      direct
+    }
+  };
+  if let Some(cwd) = text("cwd") {
+    command.current_dir(cwd);
+  }
+  if let Value::Map(options) = &spawn.options {
+    if let Some(Value::Map(env)) = options.get("env") {
+      command.env_clear();
+      for (key, value) in env.iter() {
+        if let Value::Str(value) = value {
+          command.env(key, value.as_str());
+        }
+      }
+    }
+  }
+  command.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+  let mut child = match command.spawn() {
+    Ok(child) => child,
+    Err(e) => {
+      let code = match e.kind() {
+        std::io::ErrorKind::NotFound => "ENOENT".to_owned(),
+        std::io::ErrorKind::PermissionDenied => "EACCES".to_owned(),
+        _ => e.to_string(),
+      };
+      let mut error = ValueMap::default();
+      error.insert("message".to_owned(), Value::Str(format!("spawn {} {code}", spawn.command).into()));
+      let _ = reports.send((spawn, "error", Value::Map(error)));
+      return;
+    }
+  };
+  running.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+  let readers: Vec<std::thread::JoinHandle<()>> = [(child.stdout.take().map(|out| Box::new(out) as Box<dyn std::io::Read + Send>), "stdout"), (child.stderr.take().map(|err| Box::new(err) as Box<dyn std::io::Read + Send>), "stderr")]
+    .into_iter()
+    .filter_map(|(pipe, kind)| pipe.map(|pipe| (pipe, kind)))
+    .map(|(mut pipe, kind)| {
+      let (reports, spawn) = (reports.clone(), spawn.clone());
+      std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        let mut held = Vec::new();
+        loop {
+          match pipe.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+              held.extend_from_slice(&buf[..n]);
+              let whole = match std::str::from_utf8(&held) {
+                Ok(_) => held.len(),
+                Err(e) if e.error_len().is_none() => e.valid_up_to(),
+                Err(_) => held.len(),
+              };
+              let chunk: Vec<u8> = held.drain(..whole).collect();
+              if !chunk.is_empty() && reports.send((spawn.clone(), kind, Value::Str(String::from_utf8_lossy(&chunk).into_owned().into()))).is_err() {
+                break;
+              }
+            }
+          }
+        }
+        if !held.is_empty() {
+          let _ = reports.send((spawn, kind, Value::Str(String::from_utf8_lossy(&held).into_owned().into())));
+        }
+      })
+    })
+    .collect();
+  std::thread::spawn(move || {
+    for reader in readers {
+      let _ = reader.join();
+    }
+    let status = child.wait();
+    let mut exit = ValueMap::default();
+    let (code, signal) = match status {
+      Ok(status) => (status.code().map_or(Value::Null, |c| Value::Int(c.into())), signal_name(&status)),
+      Err(_) => (Value::Null, Value::Null),
+    };
+    exit.insert("code".to_owned(), code);
+    exit.insert("signal".to_owned(), signal);
+    let _ = reports.send((spawn.clone(), "exit", Value::Map(exit.clone())));
+    let _ = reports.send((spawn, "close", Value::Map(exit)));
+    running.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+  });
+}
+
+/// The signal that ended a process, named as Node names it, `SIGTERM`; null when it exited.
+fn signal_name(status: &std::process::ExitStatus) -> Value {
+  #[cfg(unix)]
+  {
+    use std::os::unix::process::ExitStatusExt;
+    if let Some(signal) = status.signal() {
+      let name = match signal {
+        1 => "SIGHUP".to_owned(),
+        2 => "SIGINT".to_owned(),
+        3 => "SIGQUIT".to_owned(),
+        6 => "SIGABRT".to_owned(),
+        9 => "SIGKILL".to_owned(),
+        13 => "SIGPIPE".to_owned(),
+        15 => "SIGTERM".to_owned(),
+        other => format!("SIG{other}"),
+      };
+      return Value::Str(name.into());
+    }
+  }
+  let _ = status;
+  Value::Null
 }
 
 /// The terminal's columns and rows: 80 by 24 when it reports none.
@@ -559,4 +747,31 @@ fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool, cursor: Opt
   out.flush()?;
   *shown = frame;
   Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn spawned(command: &str, args: &[&str]) -> Vec<(&'static str, Value)> {
+    let spawn = Spawn { path: String::new(), id: "1".to_owned(), command: command.to_owned(), args: args.iter().map(|a| (*a).to_owned()).collect(), options: Value::Null };
+    let (reports, reported) = std::sync::mpsc::channel();
+    start(spawn, reports, Arc::new(std::sync::atomic::AtomicUsize::new(0)));
+    reported.iter().map(|(_, kind, event)| (kind, event)).collect()
+  }
+
+  #[test]
+  fn a_started_process_reports_its_output_then_its_exit_and_close() {
+    let mut exit = ValueMap::default();
+    exit.insert("code".to_owned(), Value::Int(0));
+    exit.insert("signal".to_owned(), Value::Null);
+    assert_eq!(spawned("echo", &["hi"]), [("stdout", Value::Str("hi\n".into())), ("exit", Value::Map(exit.clone())), ("close", Value::Map(exit))]);
+  }
+
+  #[test]
+  fn a_command_that_is_not_there_reports_the_error_node_words() {
+    let mut error = ValueMap::default();
+    error.insert("message".to_owned(), Value::Str("spawn fsr-no-such-command ENOENT".into()));
+    assert_eq!(spawned("fsr-no-such-command", &[]), [("error", Value::Map(error))]);
+  }
 }
