@@ -1,5 +1,5 @@
 //! Next's own modules that FSR has a counterpart for, rewritten wherever an
-//! application imports them: `next/link` and `next/font/google`.
+//! application imports them: `next/link`, `next/image` and `next/font/google`.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -14,7 +14,7 @@ use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(Links), Box::new(Fonts), Box::new(crate::head::Head)]
+  vec![Box::new(Links), Box::new(Images), Box::new(Fonts), Box::new(crate::head::Head)]
 }
 
 fn scripts(tree: &Tree) -> Vec<String> {
@@ -127,6 +127,55 @@ impl Visit for Elements {
       }
     }
     n.visit_children_with(self);
+  }
+}
+
+/// `next/image`'s `Image` as FSR's `Picture`, from `@snapfire/fsr/components`,
+/// under the name the module gave it. `src`, `alt`, `width`, `height`,
+/// `priority`, `sizes` and `quality` mean the same. `placeholder`,
+/// `blurDataURL`, `unoptimized`, `fill`, `loader`, `layout`, `objectFit`
+/// and `objectPosition` are dropped with a note each.
+struct Images;
+
+impl Pass for Images {
+  fn name(&self) -> &'static str {
+    "next-image"
+  }
+
+  fn run(&self, tree: &mut Tree, report: &mut Report) {
+    for path in scripts(tree) {
+      let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
+      if !text.contains("next/image") {
+        continue;
+      }
+      let Ok(parsed) = parse(&path, &text) else { continue };
+      let Some((import, local)) = default_import(&parsed, "next/image").or_else(|| default_import(&parsed, "next/legacy/image")) else { continue };
+      let mut edits = Edits::default();
+      let clause = if local == "Picture" { "{ Picture }".to_owned() } else { format!("{{ Picture as {local} }}") };
+      edits.replace(parsed.range(import.span), format!("import {clause} from \"@snapfire/fsr/components\";"));
+      let mut found = Elements { name: local, found: Vec::new() };
+      parsed.module.visit_with(&mut found);
+      for opening in &found.found {
+        for attr in &opening.attrs {
+          let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { continue };
+          let js::JSXAttrName::Ident(name) = &attr.name else { continue };
+          let line = parsed.line(attr.span);
+          let range = with_space_before(&text, parsed.range(attr.span));
+          match &*name.sym {
+            "placeholder" | "blurDataURL" | "unoptimized" => {
+              edits.replace(range, "");
+              report.note(&path, line, format!("`{}` was dropped: FSR builds each image's variants itself", name.sym));
+            }
+            "fill" | "loader" | "layout" | "objectFit" | "objectPosition" => {
+              edits.replace(range, "");
+              report.note(&path, line, format!("`{}` was dropped: `Picture` has no such prop; size the image with CSS, an `[images.sources]` entry serves a remote one", name.sym));
+            }
+            _ => {}
+          }
+        }
+      }
+      tree.insert(path, edits.apply(&text));
+    }
   }
 }
 
@@ -320,6 +369,20 @@ mod tests {
       "import { Link as NextLink } from \"@snapfire/fsr/components\";\n\nexport default function Page() {\n  return <NextLink href=\"/a\" prefetch=\"none\">a</NextLink>;\n}\n"
     );
     assert_eq!(report.notes.len(), 1, "{:?}", report.notes);
+  }
+
+  #[test]
+  fn next_image_is_fsrs_picture_and_its_next_only_props_go() {
+    let input = tree(&[
+      ("package.json", PACKAGE),
+      ("app/page.tsx", "import Image from \"next/image\";\nimport hero from \"./hero.png\";\n\nexport default function Page() {\n  return <Image src={hero} alt=\"Hero\" priority placeholder=\"blur\" fill />;\n}\n"),
+    ]);
+    let (out, report) = migrate(&input);
+    assert_eq!(
+      out.text("app/routes/page.tsx").unwrap(),
+      "import { Picture as Image } from \"@snapfire/fsr/components\";\nimport hero from \"./hero.png\";\n\nexport default function Page() {\n  return <Image src={hero} alt=\"Hero\" priority />;\n}\n"
+    );
+    assert_eq!(report.notes.len(), 2, "{:?}", report.notes);
   }
 
   #[test]
