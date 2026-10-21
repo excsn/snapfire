@@ -97,6 +97,12 @@ fn a_numeric_property_name_is_read_back_by_number_or_by_string() {
 }
 
 #[test]
+fn a_loop_variable_named_like_a_markup_local_is_the_loop_variable() {
+  let page = "function Card({ cta }: { cta: any }) {\n  return <section>{cta}</section>;\n}\nfunction renderCta(cta: any, key: number) {\n  return <a key={key} href=\"/x\">{cta.label}</a>;\n}\nfunction renderCtas(ctas: any[]) {\n  return <div>{ctas.map((cta, index) => renderCta(cta, index))}</div>;\n}\nexport default function Page() {\n  const top = [{ label: \"Top\" }];\n  const cards = [{ ctas: [{ label: \"Buy\" }, { label: \"More\" }] }];\n  const cta = renderCtas(top);\n  return <main><Card cta={cta} />{cards.map((card, i) => <Card key={i} cta={renderCtas(card.ctas)} />)}</main>;\n}\n";
+  assert_eq!(html("loop_shadows_markup", page).as_deref(), Ok("<main><section><div><a href=\"/x\">Top</a></div></section><section><div><a href=\"/x\">Buy</a><a href=\"/x\">More</a></div></section></main>"));
+}
+
+#[test]
 fn bitwise_operators_answer_as_javascript_does() {
   let page = "function Text({ format }: { format: number }) {\n  const bold = (format & 1) !== 0 ? <strong>x</strong> : \"x\";\n  const italic = (format & 2) !== 0 ? <em>{bold}</em> : bold;\n  return (format & 8) !== 0 ? <u>{italic}</u> : italic;\n}\nexport default function Page() {\n  let mask = 0;\n  mask |= 4;\n  mask |= 1;\n  const values = [5 & 3, 5 | 3, 5 ^ 3, ~5, 1 << 31, -16 >> 2, -16 >>> 2, 1 << 33, 2.9 | 0, -2.9 | 0, 4294967297 | 0, (1 << 31) >>> 0, mask];\n  return <p>{[0, 1, 2, 3, 8, 11].map((format) => <span key={format}><Text format={format} /></span>)}<i>{values.join(\",\")}</i></p>;\n}\n";
   assert_eq!(

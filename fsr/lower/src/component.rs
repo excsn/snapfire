@@ -10066,9 +10066,20 @@ mod fills {
           place(e, held);
         }
       }
+      Tmpl::For { params, body, .. } if params.iter().any(|p| held.contains_key(p)) => place(body, &unheld(held, params.iter())),
+      Tmpl::Let { name, then, .. } if held.contains_key(name.as_str()) => place(then, &unheld(held, std::iter::once(&*name))),
       Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => place(body, held),
       Tmpl::Text(_) | Tmpl::Marker(_) | Tmpl::Outlet { .. } | Tmpl::Html(_) | Tmpl::Slot(_) => {}
     }
+  }
+
+  /// `held` without the names a binding inside it shadows.
+  fn unheld<'n>(held: &HashMap<String, Tmpl>, names: impl Iterator<Item = &'n String>) -> HashMap<String, Tmpl> {
+    let mut inner = held.clone();
+    for name in names {
+      inner.remove(name);
+    }
+    inner
   }
 
   /// Every (module, prop) a placement in `t` passes markup for.
