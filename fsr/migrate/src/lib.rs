@@ -5,7 +5,9 @@
 
 mod config;
 mod edit;
+mod items;
 mod next;
+mod pages;
 mod relocate;
 mod syntax;
 
@@ -162,7 +164,8 @@ pub trait Pass {
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
     Source::NextApp => next::app_passes(),
-    Source::NextPages | Source::SvelteKit | Source::Nuxt => Vec::new(),
+    Source::NextPages => pages::passes(),
+    Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }
 

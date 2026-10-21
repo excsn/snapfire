@@ -69,7 +69,7 @@ impl Pass for Layout {
   }
 }
 
-fn read_packages(tree: &Tree, report: &mut Report) {
+pub(crate) fn read_packages(tree: &Tree, report: &mut Report) {
   let Some(package) = tree.text("package.json").and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok()) else { return };
   let Some(deps) = package.get("dependencies").and_then(|d| d.as_object()) else { return };
   for (name, range) in deps {
@@ -84,6 +84,9 @@ fn read_packages(tree: &Tree, report: &mut Report) {
 fn route_path(path: &str, rest: &str, report: &mut Report) -> Option<String> {
   let (dirs, file) = rest.rsplit_once('/').map(|(d, f)| (d, f)).unwrap_or(("", rest));
   let stem = file.split('.').next().unwrap_or(file);
+  if file.contains(".test.") || file.contains(".spec.") {
+    return Some(format!("app/tests/{rest}"));
+  }
   if dirs.is_empty() && file == "favicon.ico" {
     return Some("app/icons/favicon.ico".to_owned());
   }
@@ -118,7 +121,7 @@ fn route_path(path: &str, rest: &str, report: &mut Report) -> Option<String> {
 
 /// Where `path`, outside the App Router directory and `public/`, goes:
 /// `None` for Next's own configuration and tooling.
-fn source_path(path: &str, root: &str, report: &mut Report) -> Option<String> {
+pub(crate) fn source_path(path: &str, root: &str, report: &mut Report) -> Option<String> {
   let file = path.rsplit('/').next().unwrap_or(path);
   let top_level = !path.contains('/');
   if top_level && (TOOLING.contains(&file) || TOOLING_STEMS.iter().any(|s| file.starts_with(&format!("{s}.")))) {
@@ -148,7 +151,7 @@ fn source_path(path: &str, root: &str, report: &mut Report) -> Option<String> {
 /// `<html>` becomes a fragment and `<body>` a `<div>` keeping its attributes.
 /// `<head>` is taken out with a note, since a route's head comes from its
 /// loader's `meta`.
-struct Document;
+pub(crate) struct Document;
 
 impl Pass for Document {
   fn name(&self) -> &'static str {
@@ -245,11 +248,12 @@ mod tests {
       ("app/blog/[slug]/page.tsx", "export default function P() { return null; }\n"),
       ("components/nav.tsx", "export default function Nav() { return <nav />; }\n"),
       ("public/logo.svg", "<svg/>"),
+      ("app/blog/[slug]/page.test.tsx", "test(\"renders\", () => {});\n"),
     ]);
     let (out, report) = migrate(&input);
     assert_eq!(report.source, Some(Source::NextApp));
     let paths: Vec<&str> = out.paths().collect();
-    assert_eq!(paths, ["app/public/logo.svg", "app/routes/blog/[slug]/page.tsx", "app/routes/page.tsx", "app/routes/slots/modal/page.tsx", "app/src/components/nav.tsx"]);
+    assert_eq!(paths, ["app/public/logo.svg", "app/routes/blog/[slug]/page.tsx", "app/routes/page.tsx", "app/routes/slots/modal/page.tsx", "app/src/components/nav.tsx", "app/tests/blog/[slug]/page.test.tsx"]);
     assert!(out.text("app/routes/page.tsx").unwrap().starts_with("import Nav from \"../src/components/nav\";"));
     assert_eq!(report.packages.keys().collect::<Vec<_>>(), ["clsx"]);
   }
