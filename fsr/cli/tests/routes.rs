@@ -565,6 +565,29 @@ fn route_files_written_in_javascript_are_read_like_their_typescript_forms() {
 }
 
 #[test]
+fn a_loader_exporting_meta_without_load_titles_its_route_and_loads_nothing() {
+  let dir = app(&[
+    ("routes/layout.tsx", "export default function Layout({ children }: { children: unknown }) {\n  return <main>{children as any}</main>;\n}\n"),
+    ("routes/layout.loader.ts", "export const meta = () => ({ title: \"Acme\" });\n"),
+    ("routes/about/page.tsx", PAGE),
+    ("routes/about/page.loader.ts", "export const meta = () => ({ title: \"About\", description: \"Who we are\" });\n"),
+  ]);
+  let built = build(&dir, &Options::default()).unwrap();
+  let about = built.manifest.sources.iter().find(|s| s.module.as_deref() == Some("routes/about/page.loader.ts")).expect("a source for the page loader");
+  assert!(about.meta.is_some());
+  let layout = built.manifest.sources.iter().find(|s| s.module.as_deref() == Some("routes/layout.loader.ts")).expect("a source for the layout loader");
+  assert!(layout.meta.is_some());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_loader_exporting_neither_load_nor_anything_of_its_data_is_refused() {
+  let dir = app(&[("routes/page.tsx", PAGE), ("routes/page.loader.ts", "export async function loda() {\n  return {};\n}\n")]);
+  assert!(fails(&dir).to_string().contains("no exported `load`"));
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn a_page_written_in_both_typescript_and_javascript_is_refused_naming_both() {
   let dir = app(&[("routes/page.tsx", PAGE), ("routes/page.jsx", PAGE)]);
   match fails(&dir) {

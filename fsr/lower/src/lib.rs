@@ -252,10 +252,12 @@ pub fn lower_loader_with(file: &str, source: &str, defaults: &SessionDefaults) -
 
 pub(crate) fn lower_loader_in(parsed: &Parsed, defaults: &SessionDefaults, resolved: &Resolved) -> Result<Body, Unresolved> {
   let file = &parsed.file;
-  let function = parsed
-    .exports()
-    .find_map(|(name, decl)| (name == "load").then_some(decl))
-    .ok_or_else(|| (LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None))?;
+  let Some(function) = parsed.exports().find_map(|(name, decl)| (name == "load").then_some(decl)) else {
+    if parsed.exports().any(|(name, _)| ["meta", "store", "defaults", "paths"].contains(&name)) {
+      return Ok(vec![Stmt::Return(Expr::Object(Vec::new()))]);
+    }
+    return Err((LowerError::MissingExport { file: file.to_owned(), export: "load".to_owned() }, None));
+  };
   let (first, body) = match function {
     Exported::Function(first, body) => (first, FunctionBody::Block(body)),
     Exported::Expr(first, e) => (first, FunctionBody::Expr(e)),
