@@ -6,6 +6,7 @@
 mod config;
 mod edit;
 mod items;
+mod modules;
 mod next;
 mod pages;
 mod relocate;
@@ -146,11 +147,22 @@ pub struct Report {
   /// Packages the input depends on that the output still imports, by name
   /// and the version range `package.json` asked for.
   pub packages: BTreeMap<String, String>,
+  /// Commands to run in the migrated project, in order, each once.
+  pub commands: Vec<String>,
+  /// TOML tables for `config/app.toml`, each written whole.
+  pub config: Vec<String>,
 }
 
 impl Report {
   pub fn note(&mut self, file: &str, line: usize, message: impl Into<String>) {
     self.notes.push(Note { file: file.to_owned(), line, message: message.into() });
+  }
+
+  pub fn command(&mut self, command: impl Into<String>) {
+    let command = command.into();
+    if !self.commands.contains(&command) {
+      self.commands.push(command);
+    }
   }
 }
 
@@ -163,8 +175,8 @@ pub trait Pass {
 /// The passes for `source`, in the order they run.
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
-    Source::NextApp => next::app_passes(),
-    Source::NextPages => pages::passes(),
+    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).collect(),
+    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }

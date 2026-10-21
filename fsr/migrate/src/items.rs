@@ -67,3 +67,24 @@ pub(crate) fn line_range(text: &str, range: Range<usize>) -> Range<usize> {
     range
   }
 }
+
+/// `text` with no blank lines before its first line, no run of more than
+/// one blank line and one newline at the end, for a module a pass took
+/// declarations out of.
+pub(crate) fn tidy(text: &str) -> String {
+  let mut out = String::with_capacity(text.len());
+  let mut blank = 0;
+  for line in text.lines() {
+    if line.trim().is_empty() {
+      blank += 1;
+      continue;
+    }
+    if blank > 0 && !out.is_empty() {
+      out.push('\n');
+    }
+    blank = 0;
+    out.push_str(line);
+    out.push('\n');
+  }
+  out
+}

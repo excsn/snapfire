@@ -9,7 +9,7 @@ use swc_core::ecma::ast as js;
 use swc_core::ecma::visit::{Visit, VisitWith};
 
 use crate::edit::Edits;
-use crate::items::{drop_named_import, import_text, line_range, local};
+use crate::items::{drop_named_import, import_text, line_range, local, tidy};
 use crate::next::{read_packages, source_path};
 use crate::relocate::{relocate, Aliases};
 use crate::syntax::{is_script, parse, Parsed};
@@ -326,7 +326,7 @@ fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) 
       page_edits.replace(line_range(text, parsed.range(import.span)), if kept.is_empty() { String::new() } else { import_text(text, parsed, import, &kept) });
     }
   }
-  Some(Moved { loader: loader.trim_start().to_owned(), page: page_edits.apply(text) })
+  Some(Moved { loader: loader.trim_start().to_owned(), page: tidy(&page_edits.apply(text)) })
 }
 
 fn describe(item: &js::ModuleItem, parsed: &Parsed) -> Item {
@@ -634,7 +634,7 @@ mod tests {
     );
     assert_eq!(
       out.text("app/routes/blog/[slug]/page.js").unwrap(),
-      "import Link from \"next/link\";\nimport { formatDate } from \"../../../src/lib/posts\";\n\n\nexport default function Post({ post }) {\n  return <Link href=\"/\">{formatDate(post.date)}</Link>;\n}\n\n\n"
+      "import { Link } from \"@snapfire/fsr/components\";\nimport { formatDate } from \"../../../src/lib/posts\";\n\nexport default function Post({ post }) {\n  return <Link href=\"/\">{formatDate(post.date)}</Link>;\n}\n"
     );
     assert!(report.notes.iter().any(|n| n.message.contains("revalidate")), "{:?}", report.notes);
   }
