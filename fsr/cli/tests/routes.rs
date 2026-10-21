@@ -1231,6 +1231,26 @@ fn a_record_field_named_by_its_attribute_keeps_that_name_in_the_contract_and_the
 }
 
 #[test]
+fn a_record_option_is_nullable_and_only_an_optional_one_may_be_absent() {
+  let project = app(&[]);
+  let dir = project.join("app");
+  std::fs::create_dir_all(dir.join("routes/index")).unwrap();
+  std::fs::rename(project.join("importmap.json"), dir.join("importmap.json")).unwrap();
+  std::fs::rename(project.join("vendor"), dir.join("vendor")).unwrap();
+  std::fs::write(dir.join("routes/index/page.tsx"), PAGE).unwrap();
+  std::fs::create_dir_all(project.join("src")).unwrap();
+  std::fs::write(
+    project.join("src/services.rs"),
+    "#[derive(Record)]\npub struct Product {\n  pub category: Option<String>,\n  #[record(optional)]\n  pub tag: Option<String>,\n}\n\n#[derive(Clone)]\npub struct Db;\n\n#[service]\nimpl Db {\n  pub fn products(&self) -> Vec<Product> {\n    todo!()\n  }\n}\n",
+  )
+  .unwrap();
+  let built = build(&dir, &Options::default()).unwrap();
+  let declarations = built.files.iter().find(|(n, _)| n == "generated/services.d.ts").map(|(_, t)| t.clone()).unwrap();
+  assert!(declarations.contains("export interface Product {\n  category: string | null;\n  tag?: string | null;\n}"), "{declarations}");
+  std::fs::remove_dir_all(&project).unwrap();
+}
+
+#[test]
 fn a_service_method_naming_a_type_outside_the_value_model_fails_the_build() {
   let project = app(&[]);
   let dir = project.join("app");

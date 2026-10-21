@@ -117,6 +117,8 @@ export async function load({ params, services }: Ctx<"/dash/{section}">) {
 
 A record's fields reach TypeScript camelCased, `load_avg` as `loadAvg`. A field whose data keeps another spelling, a hash field written `created_at` by the backend and read under that name by the components, says so: `#[record(name = "created_at")] pub created_at: String`. The derive and the build read the same attribute, so the contract and the generated types agree.
 
+An `Option` field is in every value the record makes, `null` when it is `None`, so TypeScript sees `category: string | null`. Mark it `#[record(optional)]` to leave the key out on `None` instead; it is then `tag?: string | null`, the way a field an OpenAPI backend may omit reads.
+
 Unlike a native call, a service call crosses the contract, so its arguments and its answer are checked, the interceptors run, a `#[cache]` policy is honoured and a `Result<T, ServiceError>` reaches the body as the failure it names. A method that takes a parameter typed `Caller` is told who is calling, the identity the session resolved and the metadata the interceptors added, without the body passing anything and without the contract listing it; `caller.require()?` refuses an anonymous call. `fsr build` reads the block the way it reads a native one and writes the contract to `generated/contracts/rust.json`, which is what types `services.fleet` in TypeScript; the host merges the contract the attribute wrote over that file and refuses a disagreement at boot, so a build that fell behind the Rust is a boot failure rather than a call that fails later.
 
 ## The lab

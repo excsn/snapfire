@@ -181,7 +181,11 @@ fn read_file(
       if !matches!(field.vis, syn::Visibility::Public(_)) {
         continue;
       }
-      fields.push((field_key(field, ident), ts_type(&field.ty, &mut wanted)));
+      let key = match record_attrs(field).1 {
+        true => format!("{}?", field_key(field, ident)),
+        false => field_key(field, ident),
+      };
+      fields.push((key, ts_type(&field.ty, &mut wanted)));
     }
     out.types.push(NativeType { name, fields });
   }
@@ -255,7 +259,7 @@ fn read_service(
       }
       let key = field_key(field, ident);
       let ty = contract_type(&field.ty, &mut wanted).map_err(|t| refused(format!("`{record}.{key}` is `{t}`, which is outside the value model")))?;
-      fields.push(Field::new(key, ty));
+      fields.push(Field::new(key, ty).present(!record_attrs(field).1));
     }
     contract.types.insert(record, TypeDef::Record { fields });
   }
@@ -445,16 +449,25 @@ pub fn declarations(found: &Natives) -> String {
 /// A record field's key: `#[record(name = "...")]` when written, the field
 /// camelCased otherwise, as the `Record` derive keys it.
 fn field_key(field: &syn::Field, ident: &syn::Ident) -> String {
+  record_attrs(field).0.unwrap_or_else(|| camel(&ident.to_string()))
+}
+
+/// `#[record(...)]` on a field: the key `name` gives it and whether
+/// `optional` leaves the key out on `None`, read as the derive reads them.
+fn record_attrs(field: &syn::Field) -> (Option<String>, bool) {
   let mut named = None;
+  let mut optional = false;
   for attr in field.attrs.iter().filter(|a| a.path().is_ident("record")) {
     let _ = attr.parse_nested_meta(|meta| {
       if meta.path.is_ident("name") {
         named = Some(meta.value()?.parse::<syn::LitStr>()?.value());
+      } else if meta.path.is_ident("optional") {
+        optional = true;
       }
       Ok(())
     });
   }
-  named.unwrap_or_else(|| camel(&ident.to_string()))
+  (named, optional)
 }
 
 fn camel(name: &str) -> String {

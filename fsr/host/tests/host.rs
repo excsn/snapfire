@@ -6954,3 +6954,22 @@ fn a_record_field_named_by_its_attribute_crosses_under_that_name_both_ways() {
   assert_eq!(Feature::from_native_value(value.clone()).unwrap(), Feature { feature_id: "f1".to_owned(), created_at: "2026-10-21".to_owned() });
 }
 
+#[test]
+fn a_record_writes_a_none_as_null_unless_the_field_is_optional() {
+  use snapfire_fsr_runtime::{FromNativeValue, IntoNativeValue};
+
+  #[derive(snapfire_fsr_macros::Record, Debug, PartialEq)]
+  pub struct Product {
+    pub category: Option<String>,
+    #[record(optional)]
+    pub tag: Option<String>,
+  }
+
+  let value = Product { category: None, tag: None }.into_native_value();
+  let Value::Map(map) = &value else { panic!("{value:?}") };
+  assert_eq!(map.iter().map(|(k, v)| (k.as_str(), v.clone())).collect::<Vec<_>>(), [("category", Value::Null)]);
+  assert_eq!(Product::from_native_value(value).unwrap(), Product { category: None, tag: None });
+  let full = Product { category: Some("hats".to_owned()), tag: Some("new".to_owned()) }.into_native_value();
+  assert_eq!(Product::from_native_value(full).unwrap(), Product { category: Some("hats".to_owned()), tag: Some("new".to_owned()) });
+}
+

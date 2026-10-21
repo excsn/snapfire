@@ -424,20 +424,28 @@ fn is_result(ty: &syn::Type) -> bool {
   is_named(ty, "Result")
 }
 
-/// The key `#[record(name = "...")]` gives a field, when it carries one.
-fn record_name(field: &syn::Field) -> syn::Result<Option<String>> {
+/// What `#[record(...)]` says of a field: the key `name = "..."` gives it and
+/// whether `optional` leaves the key out on `None`.
+fn record_attrs(field: &syn::Field) -> syn::Result<(Option<String>, bool)> {
   let mut named = None;
+  let mut optional = false;
   for attr in field.attrs.iter().filter(|a| a.path().is_ident("record")) {
     attr.parse_nested_meta(|meta| {
       if meta.path.is_ident("name") {
         named = Some(meta.value()?.parse::<syn::LitStr>()?.value());
         Ok(())
+      } else if meta.path.is_ident("optional") {
+        optional = true;
+        Ok(())
       } else {
-        Err(meta.error("a record field takes `name = \"...\"`"))
+        Err(meta.error("a record field takes `name = \"...\"` and `optional`"))
       }
     })?;
   }
-  Ok(named)
+  if optional && !is_named(&field.ty, "Option") {
+    return Err(syn::Error::new_spanned(&field.ty, "`optional` is for an `Option` field, whose key it leaves out on `None`"));
+  }
+  Ok((named, optional))
 }
 
 fn is_named(ty: &syn::Type, name: &str) -> bool {
@@ -467,16 +475,18 @@ pub fn record(item: TokenStream) -> TokenStream {
   let mut idents = Vec::new();
   let mut keys = Vec::new();
   let mut types = Vec::new();
+  let mut optionals = Vec::new();
   for field in &fields.named {
     if !matches!(field.vis, syn::Visibility::Public(_)) {
       return err(field, "a record's fields are all `pub`; a private field cannot cross");
     }
     let ident = field.ident.clone().expect("named");
-    let named = match record_name(field) {
-      Ok(named) => named,
+    let (named, optional) = match record_attrs(field) {
+      Ok(attrs) => attrs,
       Err(e) => return e.to_compile_error().into(),
     };
     keys.push(named.unwrap_or_else(|| camel(&ident.to_string())));
+    optionals.push(optional);
     idents.push(ident);
     types.push(field.ty.clone());
   }
@@ -485,7 +495,12 @@ pub fn record(item: TokenStream) -> TokenStream {
     impl ::snapfire_fsr_runtime::IntoNativeValue for #ident {
       fn into_native_value(self) -> ::snapfire_fsr_core::Value {
         let mut map = ::snapfire_fsr_core::ValueMap::default();
-        #( map.insert(::std::string::String::from(#keys), ::snapfire_fsr_runtime::IntoNativeValue::into_native_value(self.#idents)); )*
+        #(
+          let value = ::snapfire_fsr_runtime::IntoNativeValue::into_native_value(self.#idents);
+          if !(#optionals && ::std::matches!(value, ::snapfire_fsr_core::Value::Null)) {
+            map.insert(::std::string::String::from(#keys), value);
+          }
+        )*
         ::snapfire_fsr_core::Value::Map(map)
       }
     }
@@ -513,7 +528,7 @@ pub fn record(item: TokenStream) -> TokenStream {
         contract.types.insert(
           ::std::string::String::from(#name),
           ::snapfire_fsr_service::TypeDef::Record {
-            fields: ::std::vec![#(::snapfire_fsr_service::Field::new(#keys, <#types as ::snapfire_fsr_service::ContractType>::contract_type())),*],
+            fields: ::std::vec![#(::snapfire_fsr_service::Field::new(#keys, <#types as ::snapfire_fsr_service::ContractType>::contract_type()).present(!#optionals)),*],
           },
         );
         #( <#types as ::snapfire_fsr_service::ContractType>::define(contract); )*

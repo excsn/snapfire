@@ -73,6 +73,7 @@ fn field_line(field: &Field) -> String {
 
 fn field_line_for(field: &Field, flavour: Flavour) -> String {
   match &field.ty {
+    Type::Optional(inner) if field.present => format!("{}: {} | null;", property(&field.name), type_name_for(inner, flavour)),
     Type::Optional(inner) => format!("{}?: {} | null;", property(&field.name), type_name_for(inner, flavour)),
     ty => format!("{}: {};", property(&field.name), type_name_for(ty, flavour)),
   }

@@ -4,7 +4,7 @@
 [![Docs.rs](https://docs.rs/snapfire_fsr_macros/badge.svg)](https://docs.rs/snapfire_fsr_macros)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL%202.0-brightgreen.svg)](https://opensource.org/licenses/MPL-2.0)
 
-Two attributes and a derive. `#[native]` on an `impl` block marks the methods a lowered TypeScript body may reach as `ctx.native.<module>.<method>()`. `#[service]` on an `impl` block declares a service a body calls as `ctx.services.<name>.<method>()`, served in process with its contract written from the signatures. `#[derive(Record)]` on a struct makes it a record either may name, each `pub` field keyed camelCased or as `#[record(name = "...")]` names it.
+Two attributes and a derive. `#[native]` on an `impl` block marks the methods a lowered TypeScript body may reach as `ctx.native.<module>.<method>()`. `#[service]` on an `impl` block declares a service a body calls as `ctx.services.<name>.<method>()`, served in process with its contract written from the signatures. `#[derive(Record)]` on a struct makes it a record either may name, each `pub` field keyed camelCased or as `#[record(name = "...")]` names it. An `Option` field is written as `null` on `None`; `#[record(optional)]` leaves its key out instead.
 
 Each attribute writes its dispatcher and emits the block unchanged, so the methods stay ordinary Rust. A module holds another and calls it directly and only what the block declares `pub` ever crosses into TypeScript.
 

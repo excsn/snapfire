@@ -106,11 +106,21 @@ pub struct Field {
   pub name: String,
   #[serde(rename = "type")]
   pub ty: Type,
+  /// The key is in every value: an `Optional` field is then `null` rather
+  /// than absent. A Rust record's fields are; an OpenAPI or proto field the
+  /// backend may leave out is not.
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  pub present: bool,
 }
 
 impl Field {
   pub fn new(name: impl Into<String>, ty: Type) -> Self {
-    Self { name: name.into(), ty }
+    Self { name: name.into(), ty, present: false }
+  }
+
+  pub fn present(mut self, present: bool) -> Self {
+    self.present = present;
+    self
   }
 }
 
