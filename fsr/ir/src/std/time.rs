@@ -13,6 +13,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("time.diff", Reach::Render, diff);
   extensions.register("time.parse", Reach::Render, |_, args| Ok(parse_iso(text("time.parse", args, 0)?).map(Value::F64).unwrap_or(Value::Null)));
   extensions.register("time.now", Reach::Body, |ambient, _| Ok(Value::Int(ambient.now)));
+  extensions.register("time.localOffset", Reach::Terminal, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?))));
 }
 
 const MS_PER_DAY: f64 = 86_400_000.0;

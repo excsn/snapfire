@@ -217,3 +217,66 @@ fn to_fixed_prints_from_an_integer_exactly_as_the_float_formatter_would() {
   }
   assert!(checked > 300, "the sweep covered {checked} cases");
 }
+
+#[test]
+fn local_time_is_the_instant_shifted_by_this_machines_offset_as_to_locale_time_string_writes_it() {
+  let ms = 1_726_011_440_123.0;
+  let Ok(Value::F64(minutes)) = call("", "time.localOffset", vec![n(ms)]) else { panic!("a number") };
+  assert!(minutes.fract() == 0.0 && minutes.abs() <= 14.0 * 60.0, "{minutes}");
+  let seconds = ((ms - minutes * 60_000.0) / 1000.0).floor().rem_euclid(86_400.0) as u32;
+  let (hours, minute, second) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
+  let expected = format!("{}:{minute:02}:{second:02}\u{202f}{}", if hours % 12 == 0 { 12 } else { hours % 12 }, if hours < 12 { "AM" } else { "PM" });
+  assert_eq!(call("", "intl.localTime", vec![n(ms), s("en-US")]), Ok(s(&expected)));
+  assert_eq!(call("", "intl.localTime", vec![n(f64::NAN), s("en-US")]), Ok(s("Invalid Date")));
+  assert!(matches!(call("", "time.localOffset", vec![n(f64::NAN)]), Ok(Value::F64(m)) if m.is_nan()));
+}
+
+#[test]
+fn strip_ansi_removes_escape_codes_as_ansi_regex_matches_them() {
+  assert_eq!(call("", "terminal.stripAnsi", vec![s("\u{1b}[4m\u{1b}[42mcake\u{1b}[49m\u{1b}[24m")]), Ok(s("cake")));
+  assert_eq!(call("", "terminal.stripAnsi", vec![s("\u{1b}]8;;https://x.dev\u{7}link\u{1b}]8;;\u{7} plain")]), Ok(s("link plain")), "an OSC hyperlink");
+}
+
+#[test]
+fn string_width_counts_terminal_columns_as_string_width_does() {
+  for (text, columns) in [("abc", 3.0), ("古", 2.0), ("안녕", 4.0), ("\u{1b}[1municorn\u{1b}[22m", 7.0), ("👍🏽", 2.0), ("👨‍👩‍👧", 2.0), ("e\u{301}", 1.0), ("", 0.0)] {
+    assert_eq!(call("", "terminal.stringWidth", vec![s(text)]), Ok(n(columns)), "{text:?}");
+  }
+}
+
+#[test]
+fn wrap_ansi_wraps_at_columns_as_wrap_ansi_does() {
+  let options = |hard: bool, trim: bool| {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("hard".to_owned(), Value::Bool(hard));
+    map.insert("trim".to_owned(), Value::Bool(trim));
+    Value::Map(map)
+  };
+  let wrap = |text: &str, columns: f64, opts: Option<Value>| {
+    let mut args = vec![s(text), n(columns)];
+    args.extend(opts);
+    call("", "terminal.wrapAnsi", args)
+  };
+  assert_eq!(wrap("The quick brown fox jumped", 10.0, None), Ok(s("The quick\nbrown fox\njumped")));
+  assert_eq!(wrap("unicorns", 3.0, Some(options(true, true))), Ok(s("uni\ncor\nns")));
+  assert_eq!(wrap("unicorns", 3.0, None), Ok(s("unicorns")), "soft wrapping leaves a long word whole");
+  assert_eq!(wrap("Type:\n> ab ", 4.0, Some(options(true, false))), Ok(s("Type\n:\n> ab\n ")));
+  assert_eq!(wrap("   ", 4.0, None), Ok(s("")));
+}
+
+#[test]
+fn ms_formats_and_parses_as_the_ms_package_does() {
+  let long = || {
+    let mut map = snapfire_fsr_core::ValueMap::default();
+    map.insert("long".to_owned(), Value::Bool(true));
+    Value::Map(map)
+  };
+  for (ms, short, words) in [(500.0, "500ms", "500 ms"), (1000.0, "1s", "1 second"), (1500.0, "2s", "2 seconds"), (60_000.0, "1m", "1 minute"), (-3_600_000.0, "-1h", "-1 hour"), (2.0 * 86_400_000.0, "2d", "2 days")] {
+    assert_eq!(call("", "terminal.ms", vec![n(ms)]), Ok(s(short)), "{ms}");
+    assert_eq!(call("", "terminal.ms", vec![n(ms), long()]), Ok(s(words)), "{ms}");
+  }
+  for (text, ms) in [("2 days", 172_800_000.0), ("1h", 3_600_000.0), ("-.5h", -1_800_000.0), ("100", 100.0), ("1y", 31_557_600_000.0)] {
+    assert_eq!(call("", "terminal.ms", vec![s(text)]), Ok(n(ms)), "{text}");
+  }
+  assert_eq!(call("", "terminal.ms", vec![s("soon")]), Ok(Value::Null), "undefined for what it cannot read");
+}

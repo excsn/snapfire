@@ -139,11 +139,14 @@ impl std::error::Error for Fail {}
 
 /// Where an extension may run. `Render`: pure, both sides, callable from
 /// every site. `Body`: server only, callable from a loader, an action, a
-/// handler or middleware, refused on a component's render path.
+/// handler or middleware, refused on a component's render path. `Terminal`:
+/// a terminal page only, where the machine running the page is the viewer;
+/// it has no browser half and is refused everywhere else.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reach {
   Render,
   Body,
+  Terminal,
 }
 
 impl Reach {
@@ -151,6 +154,7 @@ impl Reach {
     match self {
       Reach::Render => "render",
       Reach::Body => "body",
+      Reach::Terminal => "terminal",
     }
   }
 }

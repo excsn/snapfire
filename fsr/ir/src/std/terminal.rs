@@ -1,4 +1,35 @@
-//! Terminal text as the npm packages Ink applications use measure and cut it: `strip-ansi`, `string-width` and `wrap-ansi`.
+//! `terminal`: the text functions of the npm packages Ink applications import, `ms`, `strip-ansi`, `string-width` and `wrap-ansi`, run natively. Terminal reach: a terminal page calls them where it runs and there is no browser half.
+
+use crate::ext::{number, option, text, Ambient, Extensions, Reach};
+use crate::interp::Fail;
+use snapfire_fsr_core::Value;
+
+pub fn register(extensions: &mut Extensions) {
+  extensions.register("terminal.ms", Reach::Terminal, ms);
+  extensions.register("terminal.stripAnsi", Reach::Terminal, |_, args| Ok(Value::str(strip(text("terminal.stripAnsi", args, 0)?))));
+  extensions.register("terminal.stringWidth", Reach::Terminal, |_, args| Ok(Value::F64(width(text("terminal.stringWidth", args, 0)?) as f64)));
+  extensions.register("terminal.wrapAnsi", Reach::Terminal, wrap_ansi);
+}
+
+/// `ms(x, { long })`: a number of milliseconds as `1m` or `1 minute`, a string such as `2 days` as milliseconds, null for one it cannot read.
+fn ms(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "terminal.ms";
+  let long = option(what, args, 1, "long")?.is_some_and(crate::interp::truthy);
+  match args.first() {
+    Some(Value::Str(s)) if !s.is_empty() => Ok(parse_ms(s).map_or(Value::Null, Value::F64)),
+    Some(Value::Int(_) | Value::UInt(_) | Value::F64(_) | Value::F32(_)) if number(what, args, 0)?.is_finite() => Ok(Value::str(format_ms(number(what, args, 0)?, long))),
+    other => Err(Fail::internal(format!("{what}: val is not a non-empty string or a valid number. val={}", other.map(|v| crate::interp::stringify(v).unwrap_or_default()).unwrap_or_default()))),
+  }
+}
+
+/// `wrapAnsi(s, columns, { hard, trim, wordWrap })`.
+fn wrap_ansi(_: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let what = "terminal.wrapAnsi";
+  let flag = |key: &str, default: bool| -> Result<bool, Fail> { Ok(option(what, args, 2, key)?.map_or(default, crate::interp::truthy)) };
+  let columns = number(what, args, 1)?.max(0.0) as usize;
+  Ok(Value::str(wrap(text(what, args, 0)?, columns, flag("hard", false)?, flag("trim", true)?, flag("wordWrap", true)?)))
+}
+
 
 use std::sync::OnceLock;
 
@@ -156,3 +187,60 @@ fn trim_spaces_right(row: &str) -> String {
 fn is_js_space(c: char) -> bool {
   c.is_whitespace() || c == '\u{feff}'
 }
+
+/// The `ms` package's `parse`: a number with an optional unit, `2 days`, `-.5h`, `100`.
+fn parse_ms(s: &str) -> Option<f64> {
+  if s.encode_utf16().count() > 100 {
+    return None;
+  }
+  let lower = s.to_ascii_lowercase();
+  let digits = lower.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-')).unwrap_or(lower.len());
+  let (value, rest) = lower.split_at(digits);
+  let number_shape = {
+    let unsigned = value.strip_prefix('-').unwrap_or(value);
+    let (whole, fraction) = unsigned.split_once('.').map_or((unsigned, None), |(w, f)| (w, Some(f)));
+    whole.chars().all(|c| c.is_ascii_digit()) && match fraction {
+      Some(f) => !f.is_empty() && f.chars().all(|c| c.is_ascii_digit()),
+      None => !whole.is_empty(),
+    }
+  };
+  if !number_shape {
+    return None;
+  }
+  let n: f64 = value.parse().ok()?;
+  const S: f64 = 1000.0;
+  const M: f64 = S * 60.0;
+  const H: f64 = M * 60.0;
+  const D: f64 = H * 24.0;
+  let unit = match rest.trim_start_matches(' ') {
+    "years" | "year" | "yrs" | "yr" | "y" => D * 365.25,
+    "weeks" | "week" | "w" => D * 7.0,
+    "days" | "day" | "d" => D,
+    "hours" | "hour" | "hrs" | "hr" | "h" => H,
+    "minutes" | "minute" | "mins" | "min" | "m" => M,
+    "seconds" | "second" | "secs" | "sec" | "s" => S,
+    "milliseconds" | "millisecond" | "msecs" | "msec" | "ms" | "" => 1.0,
+    _ => return None,
+  };
+  Some(n * unit)
+}
+
+/// The `ms` package's `format`: the largest unit the magnitude reaches, rounded as `Math.round` rounds.
+fn format_ms(ms: f64, long: bool) -> String {
+  const UNITS: [(f64, &str, &str); 4] = [(86_400_000.0, "d", "day"), (3_600_000.0, "h", "hour"), (60_000.0, "m", "minute"), (1000.0, "s", "second")];
+  let round = |x: f64| (x + 0.5).floor();
+  for (size, short, name) in UNITS {
+    if ms.abs() >= size {
+      let n = crate::interp::number_text(round(ms / size));
+      return match long {
+        true => format!("{n} {name}{}", if ms.abs() >= size * 1.5 { "s" } else { "" }),
+        false => format!("{n}{short}"),
+      };
+    }
+  }
+  match long {
+    true => format!("{} ms", crate::interp::number_text(ms)),
+    false => format!("{}ms", crate::interp::number_text(ms)),
+  }
+}
+

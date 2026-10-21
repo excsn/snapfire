@@ -42,8 +42,8 @@ pub(crate) enum Construct {
   AsyncComponent,
   /// `clsx` or `classnames`, which join class names.
   ClassNames,
-  /// A text function of the npm packages Ink applications import, `ms`, `stripAnsi`, `stringWidth` or `wrapAnsi`, which a terminal page runs natively.
-  TerminalText(&'static str),
+  /// A package export the build answers with a member of the standard library, `terminal.ms` for `ms`'s default export: a call to it is a call to that member, under the member's reach.
+  Extension(&'static str),
   /// `node:child_process`, its default export `module` or its `spawn`, whose processes a terminal page starts natively.
   ChildProcess(&'static str),
   /// React's `Children`, of which the build reads the count of a component's own children.
@@ -172,14 +172,14 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("clsx", "clsx", Construct::ClassNames),
   ("clsx", "default", Construct::ClassNames),
   ("classnames", "default", Construct::ClassNames),
-  ("ms", "default", Construct::TerminalText("ms")),
-  ("strip-ansi", "default", Construct::TerminalText("stripAnsi")),
-  ("string-width", "default", Construct::TerminalText("stringWidth")),
-  ("wrap-ansi", "default", Construct::TerminalText("wrapAnsi")),
-  ("@snapfire/fsr/terminal", "ms", Construct::TerminalText("ms")),
-  ("@snapfire/fsr/terminal", "stripAnsi", Construct::TerminalText("stripAnsi")),
-  ("@snapfire/fsr/terminal", "stringWidth", Construct::TerminalText("stringWidth")),
-  ("@snapfire/fsr/terminal", "wrapAnsi", Construct::TerminalText("wrapAnsi")),
+  ("ms", "default", Construct::Extension("terminal.ms")),
+  ("strip-ansi", "default", Construct::Extension("terminal.stripAnsi")),
+  ("string-width", "default", Construct::Extension("terminal.stringWidth")),
+  ("wrap-ansi", "default", Construct::Extension("terminal.wrapAnsi")),
+  ("@snapfire/fsr/terminal", "ms", Construct::Extension("terminal.ms")),
+  ("@snapfire/fsr/terminal", "stripAnsi", Construct::Extension("terminal.stripAnsi")),
+  ("@snapfire/fsr/terminal", "stringWidth", Construct::Extension("terminal.stringWidth")),
+  ("@snapfire/fsr/terminal", "wrapAnsi", Construct::Extension("terminal.wrapAnsi")),
   ("node:child_process", "default", Construct::ChildProcess("module")),
   ("node:child_process", "spawn", Construct::ChildProcess("spawn")),
   ("child_process", "default", Construct::ChildProcess("module")),

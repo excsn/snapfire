@@ -1065,11 +1065,14 @@ impl<'a> Lowerer<'a> {
     (self.render_path || self.hoisting.is_some()) && !self.in_handler
   }
 
-  /// Refuses a `body` extension on a render path.
+  /// Refuses a `body` extension on a render path and a `terminal` one outside a terminal page.
   fn check_reach(&mut self, span: Span, key: &str, reach: Reach) -> Lowered<()> {
     if reach == Reach::Body && self.on_render_path() && !self.terminal {
       self.reach_violation = true;
       return Err(self.residue(span, format!("`{key}` on a render path")));
+    }
+    if reach == Reach::Terminal && !self.terminal {
+      return Err(self.residue(span, format!("`{key}`, which runs in a terminal page only")));
     }
     Ok(())
   }
@@ -2192,28 +2195,25 @@ impl<'a> Lowerer<'a> {
     if let Some(meaning::Meaning::Library(meaning::Construct::SvelteStore(store))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
       return self.svelte_store(store, call);
     }
-    if let Some(meaning::Meaning::Library(meaning::Construct::TerminalText(which))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
-      if !self.terminal {
+    if let Some(meaning::Meaning::Library(meaning::Construct::Extension(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
+      let (module, member) = key.split_once('.').expect("an extension is `module.member`");
+      let reach = standard_reach(module, member).expect("a package maps to a standard member");
+      if reach == Reach::Terminal && !self.terminal {
         let named = match &**callee {
           js::Expr::Ident(id) => id.sym.to_string(),
-          _ => which.to_owned(),
+          _ => key.to_owned(),
         };
         return Err(self.residue(call.span, format!("a call to `{named}`, which the build cannot follow")));
       }
-      let name = match which {
-        "ms" => Builtin::Ms,
-        "stripAnsi" => Builtin::StripAnsi,
-        "stringWidth" => Builtin::StringWidth,
-        _ => Builtin::WrapAnsi,
-      };
+      self.check_reach(call.span, key, reach)?;
       let mut args = Vec::with_capacity(call.args.len());
       for a in &call.args {
         if a.spread.is_some() {
-          return Err(self.residue(a.expr.span(), format!("a spread into `{which}`")));
+          return Err(self.residue(a.expr.span(), format!("a spread into `{key}`")));
         }
         args.push(self.expr(&a.expr)?);
       }
-      return Ok(Expr::Builtin { name, args });
+      return Ok(Expr::Ext { module: module.to_owned(), name: member.to_owned(), args });
     }
     if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClassNames)) {
       let mut items = Vec::with_capacity(call.args.len());
@@ -2630,12 +2630,12 @@ impl<'a> Lowerer<'a> {
           _ => "seconds",
         };
         let at = self.temp();
-        let offset = Expr::Builtin { name: Builtin::LocalOffset, args: vec![Expr::Var(at.clone())] };
+        let offset = Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![Expr::Var(at.clone())] };
         let local = Expr::Arith(ArithOp::Sub, Box::new(Expr::Var(at.clone())), Box::new(Expr::Arith(ArithOp::Mul, Box::new(offset), Box::new(Expr::Lit(Lit::Int(60_000))))));
         let body = Expr::Builtin { name: Builtin::DatePart, args: vec![local, Expr::lit_str(part)] };
         Ok(Expr::Apply { f: Box::new(Expr::Lambda { params: vec![at], body: Box::new(body) }), args: vec![*target] })
       }
-      "getTimezoneOffset" if self.terminal => Ok(Expr::Builtin { name: Builtin::LocalOffset, args: vec![*target] }),
+      "getTimezoneOffset" if self.terminal => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
       "toLocaleTimeString" if self.terminal && call.args.len() <= 1 => {
         let locale = match call.args.first().map(|a| strip_parens(&a.expr)) {
           None => Expr::Lit(Lit::Null),
@@ -2643,7 +2643,7 @@ impl<'a> Lowerer<'a> {
           Some(js::Expr::Lit(js::Lit::Str(tag))) => Expr::lit_str(tag.value.to_atom_lossy().to_string()),
           Some(other) => return Err(self.residue_with(other.span(), "a locale that is not written in place", "write the locale, `\"en-US\"`; `undefined` takes the system's")),
         };
-        Ok(Expr::Builtin { name: Builtin::LocalTime, args: vec![*target, locale] })
+        Ok(Expr::Ext { module: "intl".to_owned(), name: "localTime".to_owned(), args: vec![*target, locale] })
       }
       "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" | "getTimezoneOffset" | "toLocaleTimeString" | "toTimeString" | "toDateString" => {
         let utc = method.replacen("get", "getUTC", 1);

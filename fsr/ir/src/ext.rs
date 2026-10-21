@@ -1,7 +1,8 @@
 //! Extensions: the named synchronous functions an `Expr::Ext` calls, the
 //! standard library and whatever a host registers beside it. Each carries a
 //! reach: `render` runs on both sides of a render and must agree byte for
-//! byte with its browser half; `body` runs on the server only.
+//! byte with its browser half; `body` runs on the server only; `terminal` runs
+//! in a terminal page only.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -47,6 +48,12 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("crypto", "random", Reach::Body),
   ("id", "new", Reach::Body),
   ("i18n", "t", Reach::Render),
+  ("intl", "localTime", Reach::Terminal),
+  ("time", "localOffset", Reach::Terminal),
+  ("terminal", "ms", Reach::Terminal),
+  ("terminal", "stripAnsi", Reach::Terminal),
+  ("terminal", "stringWidth", Reach::Terminal),
+  ("terminal", "wrapAnsi", Reach::Terminal),
 ];
 
 /// The reach of a standard member or `None` when no such member exists.

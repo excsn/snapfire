@@ -3037,35 +3037,6 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         None => Value::seq(segments),
       }
     }
-    Builtin::LocalOffset => Value::F64(crate::std::time::local_offset(number(name, arg(0)?)?)),
-    Builtin::LocalTime => {
-      let locale = match args.get(1) {
-        None | Some(Value::Null) => None,
-        Some(v) => Some(text(name, v)?),
-      };
-      Value::str(crate::std::intl::local_time(number(name, arg(0)?)?, locale)?)
-    }
-    Builtin::StripAnsi => Value::str(crate::ansi::strip(text(name, arg(0)?)?)),
-    Builtin::StringWidth => Value::F64(crate::ansi::width(text(name, arg(0)?)?) as f64),
-    Builtin::WrapAnsi => {
-      let columns = number(name, arg(1)?)?;
-      let option = |key: &str, default: bool| match args.get(2) {
-        Some(Value::Map(options)) => match options.get(key) {
-          None | Some(Value::Null) => default,
-          Some(v) => truthy(v),
-        },
-        _ => default,
-      };
-      Value::str(crate::ansi::wrap(text(name, arg(0)?)?, columns.max(0.0) as usize, option("hard", false), option("trim", true), option("wordWrap", true)))
-    }
-    Builtin::Ms => {
-      let long = matches!(args.get(1), Some(Value::Map(options)) if options.get("long").is_some_and(truthy));
-      match arg(0)? {
-        Value::Str(s) if !s.is_empty() => ms_parse(s).map_or(Value::Null, Value::F64),
-        v if is_number(v) && number(name, v)?.is_finite() => Value::str(ms_format(number(name, v)?, long)),
-        v => return Err(Fail::internal(format!("{name:?}: val is not a non-empty string or a valid number. val={}", stringify(v).unwrap_or_default()))),
-      }
-    }
     Builtin::SetAt => {
       let value = arg(2)?.clone();
       match arg(0)? {
@@ -3174,63 +3145,7 @@ fn split_limit(args: &[Value]) -> usize {
   }
 }
 
-/// The `ms` package's `parse`: a number with an optional unit, `2 days`, `-.5h`, `100`.
-fn ms_parse(s: &str) -> Option<f64> {
-  if s.encode_utf16().count() > 100 {
-    return None;
-  }
-  let lower = s.to_ascii_lowercase();
-  let digits = lower.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-')).unwrap_or(lower.len());
-  let (value, rest) = lower.split_at(digits);
-  let number_shape = {
-    let unsigned = value.strip_prefix('-').unwrap_or(value);
-    let (whole, fraction) = unsigned.split_once('.').map_or((unsigned, None), |(w, f)| (w, Some(f)));
-    whole.chars().all(|c| c.is_ascii_digit()) && match fraction {
-      Some(f) => !f.is_empty() && f.chars().all(|c| c.is_ascii_digit()),
-      None => !whole.is_empty(),
-    }
-  };
-  if !number_shape {
-    return None;
-  }
-  let n: f64 = value.parse().ok()?;
-  const S: f64 = 1000.0;
-  const M: f64 = S * 60.0;
-  const H: f64 = M * 60.0;
-  const D: f64 = H * 24.0;
-  let unit = match rest.trim_start_matches(' ') {
-    "years" | "year" | "yrs" | "yr" | "y" => D * 365.25,
-    "weeks" | "week" | "w" => D * 7.0,
-    "days" | "day" | "d" => D,
-    "hours" | "hour" | "hrs" | "hr" | "h" => H,
-    "minutes" | "minute" | "mins" | "min" | "m" => M,
-    "seconds" | "second" | "secs" | "sec" | "s" => S,
-    "milliseconds" | "millisecond" | "msecs" | "msec" | "ms" | "" => 1.0,
-    _ => return None,
-  };
-  Some(n * unit)
-}
-
-/// The `ms` package's `format`: the largest unit the magnitude reaches, rounded as `Math.round` rounds.
-fn ms_format(ms: f64, long: bool) -> String {
-  const UNITS: [(f64, &str, &str); 4] = [(86_400_000.0, "d", "day"), (3_600_000.0, "h", "hour"), (60_000.0, "m", "minute"), (1000.0, "s", "second")];
-  let round = |x: f64| (x + 0.5).floor();
-  for (size, short, name) in UNITS {
-    if ms.abs() >= size {
-      let n = number_text(round(ms / size));
-      return match long {
-        true => format!("{n} {name}{}", if ms.abs() >= size * 1.5 { "s" } else { "" }),
-        false => format!("{n}{short}"),
-      };
-    }
-  }
-  match long {
-    true => format!("{} ms", number_text(ms)),
-    false => format!("{}ms", number_text(ms)),
-  }
-}
-
-fn number_text(n: f64) -> String {
+pub(crate) fn number_text(n: f64) -> String {
   if n.is_nan() {
     return "NaN".to_owned();
   }
