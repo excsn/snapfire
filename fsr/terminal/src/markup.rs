@@ -107,7 +107,8 @@ fn node(piece: Piece) -> Result<Node, String> {
 
 fn boxed(el: Element) -> Result<Boxed, String> {
   let mut out = Boxed::new();
-  for (name, value) in &el.attrs {
+  for (written, value) in &el.attrs {
+    let name = &kebab(written);
     let cells = || value.parse::<u16>().map_err(|_| format!("`{name}` on a Box is a number of cells, not `{value}`"));
     let extent = || match value.strip_suffix('%') {
       Some(share) => share.trim().parse::<f32>().ok().filter(|p| p.is_finite() && *p >= 0.0).map(Extent::Percent).ok_or_else(|| format!("`{name}` on a Box is cells or a percentage, not `{value}`")),
@@ -178,12 +179,27 @@ fn boxed(el: Element) -> Result<Boxed, String> {
   Ok(out)
 }
 
+/// `paddingLeft` as `padding-left`: a prop a spread carries keeps the name it was written with.
+fn kebab(name: &str) -> String {
+  let mut out = String::with_capacity(name.len() + 4);
+  for ch in name.chars() {
+    if ch.is_ascii_uppercase() {
+      out.push('-');
+      out.push(ch.to_ascii_lowercase());
+    } else {
+      out.push(ch);
+    }
+  }
+  out
+}
+
 fn text(el: Element) -> Result<Text, String> {
   let mut out = Text::new();
   if el.tag == "ink-newline" {
     return Ok(out.str("\n"));
   }
-  for (name, value) in &el.attrs {
+  for (written, value) in &el.attrs {
+    let name = &kebab(written);
     let on = value != "false";
     match name.as_str() {
       "color" => out.style.color = Color::parse(value),

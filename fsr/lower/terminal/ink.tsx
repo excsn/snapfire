@@ -5,7 +5,7 @@
 import { useId } from "react";
 import { action } from "@snapfire/fsr-client";
 import { useStore } from "@snapfire/fsr-client/react";
-import { emit } from "@snapfire/fsr/terminal/core";
+import { Box, emit } from "@snapfire/fsr/terminal/core";
 
 /** The terminal's size, which the terminal keeps in the store. */
 export function useWindowSize() {
@@ -70,4 +70,13 @@ export function useBoxMetrics(ref: { $id?: string }) {
   const [measured] = useStore("$terminal.metrics", {});
   const found = measured[ref.$id];
   return found ? { ...found, hasMeasured: true } : unmeasured;
+}
+
+/** Ink's `Static`: its items in a column above the rest of the page, each drawn by the function it holds; `style` holds Box props. */
+export function Static<T>({ items, style, children }: { items: T[]; style?: Record<string, unknown>; children: (item: T, index: number) => unknown }) {
+  return (
+    <Box flexDirection="column" {...style}>
+      {items.map((item, index) => children(item, index))}
+    </Box>
+  );
 }

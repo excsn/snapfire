@@ -6908,50 +6908,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// `<Static items style>{fn}</Static>`: a column Box over the items, each drawn by `fn`; `style` holds Box props.
-  fn static_element(&mut self, el: &'p js::JSXElement) -> Lowered<Tmpl> {
-    let at = At::Span(el.span);
-    let mut items = None;
-    let mut attrs = vec![Attr { name: "flexDirection".to_owned(), value: Value::Text("column".to_owned()), at }];
-    for attr in &el.opening.attrs {
-      let js::JSXAttrOrSpread::JSXAttr(attr) = attr else { return Err(self.lowerer.residue(el.opening.span, "a spread on `Static`")) };
-      let name = attr_name(&attr.name);
-      let expr = match &attr.value {
-        Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) => Some(&**e),
-        _ => None,
-      };
-      match (name.as_str(), expr) {
-        ("key", _) => {}
-        ("items", Some(e)) => items = Some(e),
-        ("style", Some(js::Expr::Object(object))) => {
-          for prop in &object.props {
-            let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(object.span, "a spread in `Static`'s `style`")) };
-            let js::Prop::KeyValue(kv) = &**prop else { return Err(self.lowerer.residue(object.span, "`Static`'s `style` holds only `key: value` entries")) };
-            let key = match &kv.key {
-              js::PropName::Ident(id) => id.sym.to_string(),
-              js::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
-              _ => return Err(self.lowerer.residue(object.span, "a computed key in `Static`'s `style`")),
-            };
-            attrs.push(Attr { name: key, value: Value::Script(Cow::Borrowed(&*kv.value)), at: At::Span(kv.value.span()) });
-          }
-        }
-        _ => return Err(self.lowerer.residue(attr.span, format!("`{name}` on `Static`"))),
-      }
-    }
-    let Some(items) = items else { return Err(self.lowerer.residue(el.opening.span, "`Static` without `items`")) };
-    let mut draws = el.children.iter().filter(|c| !matches!(c, js::JSXElementChild::JSXText(t) if jsx_text(&t.value.to_atom_lossy()).is_empty()));
-    let (Some(js::JSXElementChild::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(child), .. })), None) = (draws.next(), draws.next()) else {
-      return Err(self.lowerer.residue(el.span, "`Static` holds one function child"));
-    };
-    let inner = match &**child {
-      js::Expr::Paren(paren) => &*paren.expr,
-      other => other,
-    };
-    let js::Expr::Arrow(arrow) = inner else { return Err(self.lowerer.residue(child.span(), "`Static`'s child is an arrow function")) };
-    let each = self.map_tree(items, arrow)?;
-    placements::terminal(self, "Box", &attrs, vec![each])
-  }
-
   /// `over.map(arrow)` where `arrow` returns markup: a `Tmpl::For` over the items.
   fn map_tree(&mut self, over: &'p js::Expr, arrow: &'p js::ArrowExpr) -> Lowered<Tmpl> {
     let over = self.lowerer.expr(over)?;
@@ -8701,7 +8657,6 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some("Link") => return self.link_element(el),
       Some("Picture") => return self.picture_element(el, false),
       Some("Mount") => return self.mount_element(el),
-      Some("Static") => return self.static_element(el),
       Some(which @ ("Box" | "Text" | "Newline" | "Spacer")) => {
         let attrs = self.jsx_attrs(el)?;
         let children = self.children(&el.children)?;
