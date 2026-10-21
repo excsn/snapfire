@@ -143,8 +143,8 @@ pub enum Expr {
   Handler(u32),
   /// A cell for one render: a fresh one holding `init`, evaluating to a handle that `ReadCell` and `WriteCell` take and a closure captures like any value. A body that makes one makes a fresh one each time it runs, which is a cell per component instance.
   Cell(Box<Expr>),
-  /// The render's cell named `key`, made from `init` the first time it is reached in the render and the same cell every time after: module state, shared by the instances of one render (its islands among them, as the browser shares a module across a page's islands) and fresh in the next.
-  ModuleCell { key: String, init: Box<Expr> },
+  /// The render's cell named by the string `key` evaluates to, made from `init` the first time it is reached in the render and the same cell every time after: module state, shared by the instances of one render (its islands among them, as the browser shares a module across a page's islands) and fresh in the next.
+  ModuleCell { key: Box<Expr>, init: Box<Expr> },
   /// What the cell a handle names holds.
   ReadCell(Box<Expr>),
   /// Writes `value` into the cell a handle names and evaluates to `value`.
@@ -907,8 +907,8 @@ impl Expr {
         }
       }
       Expr::Hoist { expr, .. } => expr.free_vars(out),
-      Expr::Cell(e) | Expr::ModuleCell { init: e, .. } | Expr::ReadCell(e) => e.free_vars(out),
-      Expr::WriteCell(a, b) => {
+      Expr::Cell(e) | Expr::ReadCell(e) => e.free_vars(out),
+      Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
         a.free_vars(out);
         b.free_vars(out);
       }
@@ -952,8 +952,8 @@ impl Expr {
       Expr::Lambda { body, .. } => body.visit(f),
       Expr::Block(body) => body_visit(body, f),
       Expr::Hoist { expr, .. } => expr.visit(f),
-      Expr::Cell(e) | Expr::ModuleCell { init: e, .. } | Expr::ReadCell(e) => e.visit(f),
-      Expr::WriteCell(a, b) => {
+      Expr::Cell(e) | Expr::ReadCell(e) => e.visit(f),
+      Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
         a.visit(f);
         b.visit(f);
       }
@@ -990,8 +990,8 @@ impl Expr {
       Expr::Lambda { body, .. } => body.visit_mut(f),
       Expr::Block(body) => body_visit_mut(body, f),
       Expr::Hoist { expr, .. } => expr.visit_mut(f),
-      Expr::Cell(e) | Expr::ModuleCell { init: e, .. } | Expr::ReadCell(e) => e.visit_mut(f),
-      Expr::WriteCell(a, b) => {
+      Expr::Cell(e) | Expr::ReadCell(e) => e.visit_mut(f),
+      Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
         a.visit_mut(f);
         b.visit_mut(f);
       }
@@ -1031,8 +1031,8 @@ impl Expr {
       Expr::Lambda { body, .. } => body.reads_request(),
       Expr::Block(body) => body_reads_request(body),
       Expr::Hoist { expr, .. } => expr.reads_request(),
-      Expr::Cell(e) | Expr::ModuleCell { init: e, .. } | Expr::ReadCell(e) => e.reads_request(),
-      Expr::WriteCell(a, b) => a.reads_request() || b.reads_request(),
+      Expr::Cell(e) | Expr::ReadCell(e) => e.reads_request(),
+      Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => a.reads_request() || b.reads_request(),
     }
   }
 
@@ -1066,8 +1066,8 @@ impl Expr {
         any
       }
       Expr::Hoist { expr, .. } => expr.has_call(),
-      Expr::Cell(e) | Expr::ModuleCell { init: e, .. } | Expr::ReadCell(e) => e.has_call(),
-      Expr::WriteCell(a, b) => a.has_call() || b.has_call(),
+      Expr::Cell(e) | Expr::ReadCell(e) => e.has_call(),
+      Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => a.has_call() || b.has_call(),
     }
   }
 }

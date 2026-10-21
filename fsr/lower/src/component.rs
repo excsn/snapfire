@@ -6108,7 +6108,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let mut bound = Vec::new();
     for (name, key, seed) in std::mem::take(&mut self.module_lets) {
       if self.lowerer.terminal {
-        bound.push(Stmt::Let { name, expr: Expr::ModuleCell { key, init: Box::new(seed) } });
+        bound.push(Stmt::Let { name, expr: Expr::ModuleCell { key: Box::new(Expr::lit_str(key)), init: Box::new(seed) } });
         continue;
       }
       self.state.push(name.clone());
@@ -8054,17 +8054,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let js::Pat::Ident(id) = param else { return Err(self.lowerer.residue(param.span(), "a handler's event parameter must be a name")) };
       self.lowerer.scope.push((id.id.sym.to_string(), bind));
     }
+    let (spawned, cells) = (self.lowerer.spawned.len(), self.lowerer.cells.len());
     let result = match body {
       FunctionBody::Expr(e) => self.handler_stmt(e, walk),
       FunctionBody::Block(stmts) => self.handler_block(stmts, walk).map(|_| ()),
     };
     self.lowerer.scope.truncate(depth);
+    self.lowerer.spawned.truncate(spawned);
+    self.lowerer.cells.truncate(cells);
     result
   }
 
   /// Statements of a handler or of one of its branches. True when the block ended in a bare `return`, which makes what follows the branch reachable only when the branch was not taken.
   fn handler_block(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk) -> Lowered<bool> {
-    for stmt in stmts {
+    for (at, stmt) in stmts.iter().enumerate() {
       match stmt {
         js::Stmt::Expr(e) => self.handler_stmt(&e.expr, walk)?,
         js::Stmt::Decl(js::Decl::Var(var)) => {
@@ -8075,6 +8078,21 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               None => Expr::Lit(Lit::Null),
             };
             let local = name.id.sym.to_string();
+            if let Some(js::Expr::Call(call)) = decl.init.as_deref().map(crate::meaning::bare) {
+              if self.lowerer.terminal && self.lowerer.spawns(call) {
+                self.lowerer.spawned.push(local.clone());
+              }
+            }
+            // A local a listener or a continuation writes lasts past this step, so it is a cell under a key fresh to this run.
+            if self.lowerer.terminal && walk.reach.is_none() && var.kind != js::VarDeclKind::Const && written_names(&stmts[at + 1..], true).contains(&local) {
+              let key = self.lowerer.temp();
+              walk.out.push(Stmt::Let { name: key.clone(), expr: Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] } });
+              let handle = Expr::ModuleCell { key: Box::new(Expr::Var(key)), init: Box::new(Expr::Lit(Lit::Null)) };
+              walk.out.push(Stmt::Expr(Expr::WriteCell(Box::new(handle.clone()), Box::new(expr))));
+              self.lowerer.cells.push((local.clone(), handle.clone()));
+              self.lowerer.scope.push((local, Expr::ReadCell(Box::new(handle))));
+              continue;
+            }
             let (name, expr) = match &walk.reach {
               None => (local.clone(), expr),
               Some(reach) => {
@@ -8215,6 +8233,44 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Some(Join { event, carry }))
   }
 
+  /// A listener on a process the handler spawned as the act [`crate::terminal::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report, or the promise's `resolve` or `reject` it settles.
+  fn handler_listen(&mut self, call: &'p js::CallExpr, walk: &mut HandlerWalk) -> Lowered<()> {
+    let (process, report, callback) = self.lowerer.listener(call).expect("checked");
+    let Some(report) = report else { return Ok(()) };
+    let Some(callback) = callback else { return Err(self.lowerer.residue(call.span, "a process listener without a function")) };
+    let mut fields = vec![Entry::Field("process".to_owned(), self.lowerer.expr(process)?), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
+    if matches!(crate::meaning::bare(callback), js::Expr::Ident(id) if self.lowerer.settlers.iter().any(|s| *s == *id.sym)) {
+      fields.push(Entry::Field("settle".to_owned(), self.lowerer.expr(callback)?));
+      walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
+      return Ok(());
+    }
+    let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(callback.span(), "a process listener that is not an arrow written in place or a promise's `resolve` or `reject`")) };
+    let exits = matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close);
+    let value = Expr::Var(RESUME.to_owned()).field("value");
+    let depth = self.lowerer.scope.len();
+    for (i, param) in arrow.params.iter().enumerate() {
+      let js::Pat::Ident(name) = param else { return Err(self.lowerer.residue(param.span(), "a process listener's parameter that is not a name")) };
+      let bound = match (exits, i) {
+        (true, 0) => value.clone().field("code"),
+        (true, _) => value.clone().field("signal"),
+        (false, _) => value.clone(),
+      };
+      self.lowerer.scope.push((name.id.sym.to_string(), bound));
+    }
+    let mut cw = HandlerWalk::default();
+    let lowered = match &*arrow.body {
+      js::ArrowFunctionBody::FunctionBody(b) => self.async_within(&b.stmts, &mut cw, &Within::default()),
+      js::ArrowFunctionBody::Expr(e) => self.handler_stmt(e, &mut cw),
+    };
+    self.lowerer.scope.truncate(depth);
+    lowered?;
+    let (event, carry) = self.continuation_handler(call.span, cw);
+    fields.push(Entry::Field("event".to_owned(), Expr::lit_str(event)));
+    fields.push(Entry::Field("carry".to_owned(), carry));
+    walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
+    Ok(())
+  }
+
   /// `walk` as a handler of the component named [`crate::terminal::Event::Resume`] for `at`: what it was run with bound as [`RESUME`], every name it reads that the component does not hold carried in. Returns the event and the carry the act that runs it passes.
   fn continuation_handler(&mut self, at: Span, walk: HandlerWalk) -> (String, Expr) {
     let mut body = walk.out;
@@ -8314,6 +8370,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         walk.effect(stmt);
         Ok(())
       }
+      js::Expr::Call(call) if self.lowerer.listens(call) => self.handler_listen(call, walk),
       js::Expr::Call(call) => {
         let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
         match &**callee {

@@ -111,7 +111,7 @@ fn every_expr() -> Vec<Expr> {
     Expr::BigInt(v("n")),
     Expr::Hoist { id: 7, expr: v("n") },
     Expr::Cell(v("n")),
-    Expr::ModuleCell { key: "src/C.svelte#made".to_owned(), init: v("n") },
+    Expr::ModuleCell { key: Box::new(Expr::lit_str("src/C.svelte#made")), init: v("n") },
     Expr::ReadCell(v("n")),
     Expr::WriteCell(v("n"), v("n")),
   ]

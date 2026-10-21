@@ -1,6 +1,6 @@
 # FSR examples
 
-Twenty-six applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
+Twenty-seven applications. They are one cargo workspace of their own, separate from the workspace that builds the framework, so every crate here resolves the way a crate outside this repository would.
 
 Each has a `README.md` saying what it shows and where. They are grouped by what renders in the browser. Within a group, read in order: each carries the part the ones before it do not reach.
 
@@ -25,6 +25,7 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | [tasks_terminal_ts](tasks_terminal_ts/README.md) | A task list in the terminal | A reducer, a prompt with its cursor placed by `useCursor`, rows `useFocus` makes focusable, a log `Static` prints above the page and percentage columns, all from `ink` with no Node |
 | [log_terminal_ts](log_terminal_ts/README.md) | A scrolling `git log` viewer in the terminal | A process a mount effect spawns and streams, `strip-ansi`, a spinner from `useAnimation`, a clock on its own timer and a scroll view `useBoxMetrics` measures |
 | [launcher_terminal_ts](launcher_terminal_ts/README.md) | A command launcher in the terminal | Async handlers awaiting in branches of a `try`, `suspendTerminal` handing the terminal to an editor or a pager, piped commands, `ms`, and a `Suspense` boundary over a promise chained with `then` |
+| [monitor_terminal_ts](monitor_terminal_ts/README.md) | A system monitor in the terminal | An effect on the chosen tab that spawns a command and reads it through listeners writing a local, a `useAnimation` spinner while it runs, panels sized in percentages of `useWindowSize` that stack when narrow and the width `useBoxMetrics` measured |
 
 ### Vue
 

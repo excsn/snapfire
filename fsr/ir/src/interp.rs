@@ -426,6 +426,14 @@ pub const FUNCTION_VALUE: &str = "$fn";
 /// The tag of a cell's handle, a `Value::Variant` whose payload is the cell's index in the render's table.
 pub const CELL_VALUE: &str = "$cell";
 
+/// The name a named cell's key evaluated to.
+fn cell_key(key: Value) -> Result<String, Fail> {
+  match key {
+    Value::Str(key) => Ok(key.to_string()),
+    other => Err(Fail::internal(format!("a named cell's key that is not a string: {other:?}"))),
+  }
+}
+
 fn cell_handle(index: usize) -> Value {
   Value::Variant { tag: CELL_VALUE.to_owned(), payload: Some(Box::new(Value::Int(index as i128))) }
 }
@@ -955,18 +963,19 @@ impl Env {
         let value = self.eval_sync(init)?;
         self.new_cell(value)
       }
-      Expr::ModuleCell { key, init } => match self.module_cells.iter().find(|(k, _)| k == key) {
-        Some((_, index)) => Ok(cell_handle(*index)),
-        None => {
-          let value = match self.module_seed.get(key) {
-            Some(seeded) => seeded.clone(),
-            None => self.eval_sync(init)?,
-          };
-          let handle = self.new_cell(value)?;
-          self.module_cells.push((key.clone(), cell_index(&handle).expect("a handle just made")));
-          Ok(handle)
+      Expr::ModuleCell { key, init } => {
+        let key = cell_key(self.eval_sync(key)?)?;
+        if let Some((_, index)) = self.module_cells.iter().find(|(k, _)| *k == key) {
+          return Ok(cell_handle(*index));
         }
-      },
+        let value = match self.module_seed.get(&key) {
+          Some(seeded) => seeded.clone(),
+          None => self.eval_sync(init)?,
+        };
+        let handle = self.new_cell(value)?;
+        self.module_cells.push((key, cell_index(&handle).expect("a handle just made")));
+        Ok(handle)
+      }
       Expr::ReadCell(handle) => {
         let handle = self.eval_sync(handle)?;
         self.read_cell(&handle)
@@ -1441,18 +1450,19 @@ impl Env {
           let value = self.eval(init).await?;
           self.new_cell(value)
         }
-        Expr::ModuleCell { key, init } => match self.module_cells.iter().find(|(k, _)| k == key) {
-          Some((_, index)) => Ok(cell_handle(*index)),
-          None => {
-            let value = match self.module_seed.get(key) {
-              Some(seeded) => seeded.clone(),
-              None => self.eval(init).await?,
-            };
-            let handle = self.new_cell(value)?;
-            self.module_cells.push((key.clone(), cell_index(&handle).expect("a handle just made")));
-            Ok(handle)
+        Expr::ModuleCell { key, init } => {
+          let key = cell_key(self.eval(key).await?)?;
+          if let Some((_, index)) = self.module_cells.iter().find(|(k, _)| *k == key) {
+            return Ok(cell_handle(*index));
           }
-        },
+          let value = match self.module_seed.get(&key) {
+            Some(seeded) => seeded.clone(),
+            None => self.eval(init).await?,
+          };
+          let handle = self.new_cell(value)?;
+          self.module_cells.push((key, cell_index(&handle).expect("a handle just made")));
+          Ok(handle)
+        }
         Expr::ReadCell(handle) => {
           let handle = self.eval(handle).await?;
           self.read_cell(&handle)

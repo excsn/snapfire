@@ -95,7 +95,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::HoistId(id) => form("hoist-id", vec![Sx::Sym(id.to_string())]),
     Expr::Handler(index) => form("handler", vec![Sx::Sym(index.to_string())]),
     Expr::Cell(init) => one("cell", init),
-    Expr::ModuleCell { key, init } => form("module-cell", vec![Sx::Str(key.clone()), expr_to_sx(init)]),
+    Expr::ModuleCell { key, init } => form("module-cell", vec![expr_to_sx(key), expr_to_sx(init)]),
     Expr::ReadCell(handle) => one("read-cell", handle),
     Expr::WriteCell(handle, value) => form("write-cell", vec![expr_to_sx(handle), expr_to_sx(value)]),
   }
@@ -300,7 +300,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "cell" => Expr::Cell(boxed(&args(items, head, 1)?[0])?),
     "module-cell" => {
       let a = args(items, head, 2)?;
-      Expr::ModuleCell { key: str_of(&a[0])?, init: boxed(&a[1])? }
+      Expr::ModuleCell { key: boxed(&a[0])?, init: boxed(&a[1])? }
     }
     "read-cell" => Expr::ReadCell(boxed(&args(items, head, 1)?[0])?),
     "write-cell" => {

@@ -823,7 +823,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
             },
             "$effect.tracking" => Expr::Lit(Lit::Bool(false)),
             "$props.id" => {
-              let counter = Expr::ModuleCell { key: PROPS_ID_COUNTER.to_owned(), init: Box::new(Expr::Lit(Lit::Int(0))) };
+              let counter = Expr::ModuleCell { key: Box::new(Expr::lit_str(PROPS_ID_COUNTER)), init: Box::new(Expr::Lit(Lit::Int(0))) };
               let next = Expr::WriteCell(Box::new(counter.clone()), Box::new(Expr::Arith(ArithOp::Add, Box::new(Expr::ReadCell(Box::new(counter))), Box::new(Expr::Lit(Lit::Int(1))))));
               self.props_ids.push(name.clone());
               Expr::Arith(ArithOp::Add, Box::new(Expr::lit_str("s")), Box::new(next))
@@ -906,7 +906,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     })?;
     if self.function_writes.contains(&name) {
       let cell = match self.in_module {
-        true => Expr::ModuleCell { key: format!("{}#{name}", self.lowerer.parsed.file), init: Box::new(expr) },
+        true => Expr::ModuleCell { key: Box::new(Expr::lit_str(format!("{}#{name}", self.lowerer.parsed.file))), init: Box::new(expr) },
         false => Expr::Cell(Box::new(expr)),
       };
       self.lets.push(Stmt::Let { name: name.clone(), expr: cell });

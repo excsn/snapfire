@@ -108,3 +108,42 @@ fn launcher_runs_a_command_piped_or_with_the_terminal_and_reads_the_system_under
   assert!(session.wants_screen());
   assert!(failed.iter().any(|l| l == "Page through the README failed: exited with 1"), "{failed:?}");
 }
+
+#[test]
+fn monitor_reruns_its_command_when_the_tab_changes_spins_while_it_runs_and_stacks_when_narrow() {
+  use snapfire_fsr_cli::terminal::Report;
+  let exit = |code: i128| {
+    let mut exit = snapfire_fsr_core::ValueMap::default();
+    exit.insert("code".to_owned(), Value::Int(code));
+    exit.insert("signal".to_owned(), Value::Null);
+    Value::Map(exit)
+  };
+  let mut session = open("monitor_terminal_ts");
+  session.resize(100, 30);
+  let first = lines(session.view().unwrap(), 100);
+  assert!(first[0].starts_with("Monitor") && first[0].ends_with("100 columns"), "{first:?}");
+  assert!(first.iter().any(|l| l.contains("⠋ running uptime")), "{first:?}");
+  let spinner = session.timers().into_iter().find(|t| t.every.as_millis() == 80).expect("the spinner's interval");
+  let spun = lines(session.fire(&spinner).unwrap(), 100);
+  assert!(spun.iter().any(|l| l.contains("⠙ running uptime")), "{spun:?}");
+  let uptime = session.take_spawns();
+  assert_eq!(uptime[0].args, ["-c", "uptime"]);
+  session.deliver(&uptime[0], Report::Stdout, &Value::Str("10:00  up 3 days, load averages: 1.20 1.10 1.00\n".into())).unwrap();
+  let read = lines(session.deliver(&uptime[0], Report::Exit, &exit(0)).unwrap(), 100);
+  assert!(read.iter().any(|l| l.contains("load averages: 1.20")), "{read:?}");
+  assert!(read.iter().any(|l| l.contains("1 run")), "{read:?}");
+  assert!(!read.iter().any(|l| l.contains("running uptime")), "{read:?}");
+  assert!(read.last().unwrap().ends_with("panel 70 wide"), "{read:?}");
+  session.press(&key(KeyCode::Right)).unwrap();
+  let df = session.take_spawns();
+  assert_eq!(df[0].args, ["-c", "df -h"], "the effect runs again when the tab changes");
+  let failed = lines(session.deliver(&df[0], Report::Exit, &exit(1)).unwrap(), 100);
+  assert!(failed.iter().any(|l| l.contains("df -h exited with 1")), "{failed:?}");
+  assert!(failed.iter().any(|l| l.contains("2 runs")), "{failed:?}");
+  session.resize(50, 30);
+  let narrow = lines(session.press(&key(KeyCode::Char('3'))).unwrap(), 50);
+  assert!(session.take_spawns()[0].args[1].starts_with("ps "), "{narrow:?}");
+  assert!(narrow.last().unwrap().ends_with("panel 50 wide"), "the panel takes the whole width: {narrow:?}");
+  session.press(&key(KeyCode::Char('q'))).unwrap();
+  assert!(session.exited());
+}

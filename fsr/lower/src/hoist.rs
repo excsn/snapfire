@@ -354,8 +354,8 @@ fn strip(expr: &mut Expr, tainted: &[String], kept: &mut Vec<u32>, in_lambda: bo
         strip(v, tainted, kept, in_lambda, in_hoist);
       }
     }),
-    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Cell(e) | Expr::ModuleCell { init: e, .. } | Expr::ReadCell(e) => strip(e, tainted, kept, in_lambda, in_hoist),
-    Expr::WriteCell(a, b) => {
+    Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e) | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) | Expr::Cell(e) | Expr::ReadCell(e) => strip(e, tainted, kept, in_lambda, in_hoist),
+    Expr::WriteCell(a, b) | Expr::ModuleCell { key: a, init: b } => {
       strip(a, tainted, kept, in_lambda, in_hoist);
       strip(b, tainted, kept, in_lambda, in_hoist);
     }
