@@ -2,7 +2,7 @@ import { Link } from "@snapfire/fsr/components";
 
 import type { ToolIdProps } from "@generated/client";
 
-export default function ToolPage({ tool, sameCategory, reserved, days, csrf_token }: ToolIdProps & { csrf_token?: string }) {
+export default function ToolPage({ tool, sameCategory, reserved, days, csrf_token }: ToolIdProps) {
   const verb = reserved ? "release" : "reserve";
   return (
     <article className="page tool">

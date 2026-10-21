@@ -654,7 +654,7 @@ A `.svelte` file is read the same way through `snapfirec-svelte`, from `cargo in
 
 ## Typing Pages and Calling Actions
 
-`generated/client.ts` is what a page imports. It holds the contract's types as the browser sees them, integers as `bigint | number`, one `<Route>Props` type per page inferred from the loader's return and `actions`, one typed callable per action nested by route id.
+`generated/client.ts` is what a page imports. It holds the contract's types as the browser sees them (integers as `bigint | number`), one `<Route>Props` type per page and layout and `actions`, one typed callable per action nested by route id. A props type is inferred from the loader's return and joined with `HostProps`. `HostProps` is what the host gives every page and layout: `params`, `locale`, `identity`, `csrf_token` and `action_failure`.
 
 ```tsx
 import { actions, type CartProps } from "../../generated/client";

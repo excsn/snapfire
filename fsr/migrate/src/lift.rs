@@ -596,9 +596,7 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   let mut prop_names: Vec<String> = fields.iter().map(|f| f.split(':').next().unwrap_or(f).trim().to_owned()).collect();
   prop_names.extend(param_names.iter().filter(|p| !["params", "searchParams"].contains(&p.as_str())).cloned());
   let props_type = (route_kind(path) == Some("page") && (path.ends_with(".tsx") || path.ends_with(".ts"))).then(|| props_name(&route_id(path)));
-  let reads_csrf = prop_names.iter().any(|p| p == "csrf_token") || (props.is_some() && function_text.contains("csrf_token"));
-  let host_props = if reads_csrf { " & { csrf_token?: string }" } else { "" };
-  let typed = props_type.as_deref().map(|t| format!(": {t}{host_props}")).unwrap_or_default();
+  let typed = props_type.as_deref().map(|t| format!(": {t}")).unwrap_or_default();
   let new_param = if prop_names.is_empty() { String::new() } else { format!("{{ {} }}{typed}", prop_names.join(", ")) };
   match (function.params.first(), &props) {
     (Some(param), Some(name)) => {

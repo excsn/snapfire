@@ -34,7 +34,7 @@ fn client(tag: &str, files: &[(&str, &str)]) -> String {
 #[test]
 fn a_route_whose_directory_starts_with_a_digit_gets_a_props_type_that_starts_with_a_letter() {
   let client = client("digit", &[("routes/030-intro/page.tsx", PAGE), ("routes/030-intro/page.loader.ts", LOADER)]);
-  assert!(client.contains("export type Route030IntroProps = { title: string };"), "{client}");
+  assert!(client.contains("export type Route030IntroProps = { title: string } & HostProps;"), "{client}");
   let bad: Vec<&str> = client.lines().filter(|line| line.strip_prefix("export type ").is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))).collect();
   assert!(bad.is_empty(), "{bad:#?}");
 }

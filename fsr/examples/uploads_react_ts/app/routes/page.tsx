@@ -8,7 +8,7 @@ export default function Page({
   error,
   csrf_token,
   action_failure,
-}: RootProps & { csrf_token?: string; action_failure?: { kind: string; message: string } }) {
+}: RootProps) {
   return (
     <main className="mx-auto max-w-4xl px-4 py-12 sm:px-6">
       <header className="mb-8">

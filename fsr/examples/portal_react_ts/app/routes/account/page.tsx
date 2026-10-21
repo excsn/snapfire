@@ -16,7 +16,7 @@ const schemes = [
 const field = "grid gap-1 text-[13px] text-ink-soft";
 const select = "rounded-md border border-line bg-card px-2.5 py-1.5 text-[15px] text-ink";
 
-export default function AccountPage({ subject, role, theme, scheme, csrf_token }: AccountProps & { csrf_token?: string }) {
+export default function AccountPage({ subject, role, theme, scheme, csrf_token }: AccountProps) {
   return (
     <div className="grid gap-8">
       <section>

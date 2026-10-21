@@ -154,7 +154,7 @@ export default async function Post({ params }) {
 
 ```tsx
 // app/routes/posts/[id]/page.tsx, after
-export default function Post({ postId, csrf_token }: PostsIdProps & { csrf_token?: string }) {
+export default function Post({ postId, csrf_token }: PostsIdProps) {
   return <form method="post" action="/_sf/action/posts.$id.deletePost">
     <input type="hidden" name="_csrf" value={csrf_token ?? ""} />
     <input type="hidden" name="postId" value={postId} />

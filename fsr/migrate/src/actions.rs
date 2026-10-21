@@ -913,11 +913,11 @@ mod tests {
     for expected in [
       "<form method=\"post\" action=\"/_sf/action/posts.$id.deletePost\">\n      <input type=\"hidden\" name=\"_csrf\" value={csrf_token ?? \"\"} />\n      <input type=\"hidden\" name=\"postId\" value={postId} />\n      <input name=\"reason\" />",
       "      <button type=\"submit\">Delete {post.title}</button>\n    </form>",
-      ": PostsIdProps & { csrf_token?: string }",
+      ": PostsIdProps)",
     ] {
       assert!(page.contains(expected), "missing {expected} in {page}");
     }
-    for gone in ["use server", "async function deletePost", "Server action", "next/form", "next/navigation", "Form"] {
+    for gone in ["use server", "async function deletePost", "Server action", "next/form", "next/navigation", "Form", "csrf_token?: string"] {
       assert!(!page.contains(gone), "{gone} in {page}");
     }
     let notes: Vec<&str> = report.notes.iter().filter(|n| n.message.contains("deletePost")).map(|n| n.message.as_str()).collect();
