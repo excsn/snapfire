@@ -330,3 +330,24 @@ fn an_async_helper_catches_a_rejected_await_inside_its_try_and_runs_what_follows
   let spawns = session.take_spawns();
   assert_eq!(line(session.deliver(&spawns[0], Report::Exit, &exit(2)).unwrap()), "b failed: exited with 2");
 }
+
+#[test]
+fn an_interval_an_effect_starts_without_a_cleanup_keeps_ticking_after_the_effect_runs_again() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Page() {\n  const [running, setRunning] = useState(false);\n  const [n, setN] = useState(0);\n  useEffect(() => {\n    if (!running) return;\n    setInterval(() => {\n      setN((n) => n + 1);\n    }, 1000);\n  }, [running]);\n  useInput(() => setRunning(!running));\n  return <Text>{n} {running ? \"running\" : \"paused\"}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  let space = || {
+    let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE)) else { panic!("space is input") };
+    key
+  };
+  session.view().unwrap();
+  session.take_started();
+  session.press(&space()).unwrap();
+  let first = session.take_started();
+  session.press(&space()).unwrap();
+  assert_eq!(line(session.fire(&first[0]).unwrap()), "1 paused", "nothing cleared the interval");
+  session.press(&space()).unwrap();
+  let second = session.take_started();
+  session.fire(&first[0]).unwrap();
+  assert_eq!(line(session.fire(&second[0]).unwrap()), "3 running", "a second interval runs beside the first");
+}

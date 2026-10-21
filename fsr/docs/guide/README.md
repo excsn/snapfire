@@ -59,6 +59,10 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 - [305. Third-party scripts](305-third-party-scripts.md), the fixed head rows as layout meta, a library as a module the entry imports, a consent banner that loads a vendor from its callback and the deployment's own values under `[public]`. App developers.
 - [306. What a page asks other origins for](306-what-a-page-asks-other-origins-for.md), every request a page sends to a host other than yours, the video embed that loads its player only on a click and the settings that keep a request on your origin. App developers.
 
+**The terminal:**
+
+- [400. Terminal apps with Ink](400-terminal-apps-with-ink.md), an Ink application run by `fsr dev --terminal` with no Node, Ink's hooks written in TypeScript over a few primitives, effects with their timers and cleanups, the processes a page starts, promises and the terminal handed to another program, then how much of Ink runs. App developers.
+
 And one appendix:
 
 - [900. The parts bin](900-the-parts-bin.md), every block in every crate, one line each, grouped by what you are trying to do.
@@ -74,6 +78,8 @@ And one appendix:
 **A backend developer who owns the services:** read 000, then 001 and 202. Your service's OpenAPI, proto or GraphQL document is all fsr needs from you and the rest of the guide covers what the application does with it.
 
 **A full-stack developer working in TypeScript:** read in order through the 100s, then 300, 301, 302, 303 and 304. Skip the 200s until you need to run something that is not the stock host.
+
+**A developer who writes terminal tools with Ink:** read 000 for the vocabulary, then 400. Chapters 002, 003 and 102 explain the lowering 400 builds on. The terminal examples under `examples/` are complete applications to start from.
 
 **A Rust developer extending the platform:** read 000, 002 and 003 for the contract you are extending, then the 200s in order, then the parts bin.
 
