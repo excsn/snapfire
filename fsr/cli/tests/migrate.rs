@@ -29,7 +29,7 @@ fn a_next_app_becomes_a_project_whose_routes_are_its_own() {
     &[
       ("package.json", r#"{ "dependencies": { "next": "15", "react": "19", "clsx": "^2" } }"#),
       ("app/layout.tsx", "import { Inter } from \"next/font/google\";\n\nconst inter = Inter({ subsets: [\"latin\"] });\n\nexport default function RootLayout({ children }) {\n  return (\n    <html lang=\"en\">\n      <body className={inter.className}>{children}</body>\n    </html>\n  );\n}\n"),
-      ("app/page.tsx", "import Link from \"next/link\";\n\nexport const metadata = { title: \"Home\" };\n\nexport default function Page() {\n  return <Link href=\"/about\">About</Link>;\n}\n"),
+      ("app/page.tsx", "import Link from \"next/link\";\nimport clsx from \"clsx\";\n\nexport const metadata = { title: \"Home\" };\n\nexport default function Page() {\n  return <Link className={clsx(\"nav\")} href=\"/about\">About</Link>;\n}\n"),
       ("node_modules/next/index.js", "module.exports = {};\n"),
       (".next/cache/x", "built\n"),
     ],

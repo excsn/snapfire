@@ -96,6 +96,44 @@ export default function Home({ products }) {
 
 A component further down that awaits a read known before it renders, one whose arguments come from no prop or state, has the read moved to the loader of each page that places it. The loader seeds the result in the store and the component reads it with `useStore`, from a key the migration declares in `app/src/store.ts`. A read only a later render makes, a component placed under `tab === "posts" &&`, moves the same way and is noted, since its data now loads with the page.
 
+## Prisma
+
+An application with a `schema.prisma` gets a Rust service in place of the Prisma client. Each model becomes a record in `src/db.rs` and each distinct call a loader makes becomes a method on `Db`, holding the call in its doc comment and a `todo!()` for its query:
+
+```rust
+/// `model Product` from `schema.prisma`.
+#[derive(Record, Clone)]
+pub struct Product {
+  pub id: i32,
+  pub name: String,
+  /// A `Decimal`: the value model has no decimal, so it travels as its text.
+  pub price: String,
+  pub category: Option<Category>,
+  pub category_id: i32,
+}
+
+#[service]
+impl Db {
+  /// `prisma.product.findMany({ include: { category: true } })`
+  pub fn product_find_many_with_category(&self) -> Result<Vec<Product>, ServiceError> {
+    todo!("the query the doc comment names")
+  }
+}
+```
+
+A relation is an `Option` or a `Vec`, empty unless the call includes it. The loader calls the method through `services`:
+
+```ts
+import type { Ctx } from "@snapfire/fsr";
+
+export async function load({ services }: Ctx<"/">) {
+  const products = await services.db.productFindManyWithCategory();
+  return { products };
+}
+```
+
+A type imported from `@prisma/client` is imported from `@generated/client`, which `fsr build` writes from the records. The schema, the client module and `prisma.config.ts` are removed. `src/main.rs` and `Cargo.toml` start the host with the service; write each query with sqlx or the database crate of your choice, then `cargo run`.
+
 ## What is left for you
 
 Each of these is a note naming the line:

@@ -70,6 +70,34 @@ pub(crate) fn route_id(path: &str) -> String {
   if parts.is_empty() { "$root".to_owned() } else { parts.join(".") }
 }
 
+/// The context type a loader at `path` takes: `Ctx<"/product/{id}">` for a
+/// page's loader, whose pattern types `params`; `Ctx` for a layout's or one
+/// under a catch-all.
+pub(crate) fn ctx_type(path: &str) -> String {
+  if !path.rsplit('/').next().is_some_and(|f| f.starts_with("page.")) {
+    return "Ctx".to_owned();
+  }
+  let dir = dirname(path.strip_prefix("app/routes/").unwrap_or(path));
+  let mut pattern = String::new();
+  for part in dir.split('/').filter(|p| !p.is_empty()) {
+    if part.starts_with('(') && part.ends_with(')') {
+      continue;
+    }
+    if part.starts_with("[...") || part.starts_with("[[") {
+      return "Ctx".to_owned();
+    }
+    pattern.push('/');
+    match part.strip_prefix('[').and_then(|p| p.strip_suffix(']')) {
+      Some(param) => pattern.push_str(&format!("{{{param}}}")),
+      None => pattern.push_str(part),
+    }
+  }
+  if pattern.is_empty() {
+    pattern.push('/');
+  }
+  format!("Ctx<{pattern:?}>")
+}
+
 /// The props type `fsr build` generates for a source id, as `props_name` in
 /// `cli/src/lib.rs` names it: `product.$id` is `ProductIdProps`.
 pub(crate) fn props_name(id: &str) -> String {
@@ -546,11 +574,13 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   if reads_query {
     ctx.push("query");
   }
-  let ctx = if ctx.is_empty() { String::new() } else { format!("{{ {} }}", ctx.join(", ")) };
+  let typed_ctx = !ctx.is_empty();
+  let ctx = if ctx.is_empty() { String::new() } else { format!("{{ {} }}: {}", ctx.join(", "), ctx_type(loader_path)) };
   let (inlined_imports, inlined) = inline_memoized(tree, parsed, &mut needed, path, loader_path, report);
   let decls = format!("{inlined}{}", copied(text, parsed, &items, &taken, path, report));
   let body_text = format!("{decls}export async function load({ctx}) {{\n{statements}  return {{ {} }};\n}}\n", fields.join(", "));
-  let imports = format!("{inlined_imports}{}", imports_for(text, parsed, &needed, path, loader_path));
+  let ctx_import = if typed_ctx { "import type { Ctx } from \"@snapfire/fsr\";\n" } else { "" };
+  let imports = format!("{ctx_import}{inlined_imports}{}", imports_for(text, parsed, &needed, path, loader_path));
 
   let mut page = Edits::default();
   for stmt in &moved {
@@ -1064,7 +1094,7 @@ mod tests {
     let (out, report) = lift(&input);
     assert_eq!(
       out.text("app/routes/page.loader.ts").unwrap(),
-      "import { fail } from \"@snapfire/fsr\";\nimport prisma from \"../src/lib/prisma\";\n\nexport async function load({ query }) {\n  const { q } = query;\n  const products = await prisma.product.findMany({ where: { q } });\n  if (!products) fail(\"not_found\", \"not found\");\n  return { products };\n}\n"
+      "import { fail } from \"@snapfire/fsr\";\nimport type { Ctx } from \"@snapfire/fsr\";\nimport prisma from \"../src/lib/prisma\";\n\nexport async function load({ query }: Ctx<\"/\">) {\n  const { q } = query;\n  const products = await prisma.product.findMany({ where: { q } });\n  if (!products) fail(\"not_found\", \"not found\");\n  return { products };\n}\n"
     );
     assert_eq!(
       out.text("app/routes/page.tsx").unwrap(),
@@ -1104,7 +1134,7 @@ mod tests {
     let (out, report) = lift(&input);
     assert_eq!(
       out.text("app/routes/[lang]/layout.loader.ts").unwrap(),
-      "import { getDictionary } from \"../../src/dictionaries\";\n\nexport async function load({ params }) {\n  const dict = await getDictionary(params.lang);\n  return { params, dict };\n}\n"
+      "import type { Ctx } from \"@snapfire/fsr\";\nimport { getDictionary } from \"../../src/dictionaries\";\n\nexport async function load({ params }: Ctx) {\n  const dict = await getDictionary(params.lang);\n  return { params, dict };\n}\n"
     );
     assert_eq!(
       out.text("app/routes/[lang]/layout.tsx").unwrap(),

@@ -378,7 +378,7 @@ mod tests {
       ("app/page.tsx", "import Nav from \"../components/nav\";\nexport default function Page() { return <Nav />; }\n"),
       ("app/@modal/page.tsx", "export default function M() { return null; }\n"),
       ("app/blog/[slug]/page.tsx", "export default function P() { return null; }\n"),
-      ("components/nav.tsx", "export default function Nav() { return <nav />; }\n"),
+      ("components/nav.tsx", "import clsx from \"clsx\";\nexport default function Nav() { return <nav className={clsx(\"a\")} />; }\n"),
       ("public/logo.svg", "<svg/>"),
       ("app/blog/[slug]/page.test.tsx", "test(\"renders\", () => {});\n"),
     ]);

@@ -12,6 +12,7 @@ mod lift;
 mod modules;
 mod next;
 mod pages;
+mod prisma;
 mod relocate;
 mod syntax;
 
@@ -178,10 +179,27 @@ pub trait Pass {
 /// The passes for `source`, in the order they run.
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
-    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).chain(lift::passes()).collect(),
-    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).chain(lift::passes()).collect(),
+    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).collect(),
+    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
+}
+
+/// Every bare specifier a script of the migrated application imports.
+fn imported_packages(tree: &Tree) -> Vec<String> {
+  let mut out = Vec::new();
+  for (path, _) in tree.iter().filter(|(p, _)| p.starts_with("app/") && syntax::is_script(p)) {
+    let Some(text) = tree.text(path) else { continue };
+    let Ok(parsed) = syntax::parse(path, text) else { continue };
+    const ALIASES: &[&str] = &["@src/", "@generated/", "@schemas/", "@routes/", "@snapfire/"];
+    let bare = |s: &String| !s.starts_with('.') && !s.starts_with('/') && !ALIASES.iter().any(|a| s.starts_with(a));
+    out.extend(syntax::specifiers(&parsed).into_iter().map(|s| s.value).filter(bare));
+  }
+  out
+}
+
+fn prisma_pass() -> Vec<Box<dyn Pass>> {
+  vec![Box::new(prisma::Prisma)]
 }
 
 /// `input` rewritten as an FSR project tree: the application under `app/`.
@@ -199,6 +217,8 @@ pub fn migrate(input: &Tree) -> (Tree, Report) {
         report.passes.push(pass.name());
         pass.run(&mut tree, &mut report);
       }
+      let imported = imported_packages(&tree);
+      report.packages.retain(|name, _| imported.iter().any(|spec| spec == name || spec.starts_with(&format!("{name}/"))));
     }
   }
   (tree, report)
