@@ -2398,7 +2398,17 @@ fn refs_by_module(modules: &HashMap<String, String>, module: &str, refs: &[(Stri
 }
 
 fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
-  let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_modules(c, modules, islands)).collect();
+  let mut tmpl = rewrite_tree(tmpl, modules, islands);
+  tmpl.visit_mut(&mut |e| {
+    if let Expr::Markup(markup) = e {
+      *markup = std::sync::Arc::new(rewrite_tree((**markup).clone(), modules, islands));
+    }
+  });
+  tmpl
+}
+
+fn rewrite_tree(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &HashMap<String, IslandTiming>) -> Tmpl {
+  let walk = |children: Vec<Tmpl>| children.into_iter().map(|c| rewrite_tree(c, modules, islands)).collect();
   match tmpl {
     Tmpl::Component { module, props, children, id, keyed } => match islands.get(&module) {
       Some((when, mode)) => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when: when.clone(), mode: mode.clone(), id, define: false },
@@ -2407,9 +2417,9 @@ fn rewrite_modules(tmpl: Tmpl, modules: &HashMap<String, String>, islands: &Hash
     Tmpl::Island { module, props, children, when, mode, id, define } => Tmpl::Island { module: modules.get(&module).cloned().unwrap_or(module), props, children: walk(children), when, mode, id, define },
     Tmpl::Element { tag, attrs, children } => Tmpl::Element { tag, attrs, children: walk(children) },
     Tmpl::Fragment(children) => Tmpl::Fragment(walk(children)),
-    Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_modules(*then, modules, islands)), r#else: r#else.map(|e| Box::new(rewrite_modules(*e, modules, islands))) },
-    Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(rewrite_modules(*body, modules, islands)) },
-    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(rewrite_modules(*then, modules, islands)) },
+    Tmpl::If { cond, then, r#else } => Tmpl::If { cond, then: Box::new(rewrite_tree(*then, modules, islands)), r#else: r#else.map(|e| Box::new(rewrite_tree(*e, modules, islands))) },
+    Tmpl::For { over, params, body } => Tmpl::For { over, params, body: Box::new(rewrite_tree(*body, modules, islands)) },
+    Tmpl::Let { name, expr, then } => Tmpl::Let { name, expr, then: Box::new(rewrite_tree(*then, modules, islands)) },
     other => other,
   }
 }

@@ -132,6 +132,43 @@ fn a_bare_return_renders_nothing() {
 }
 
 #[test]
+fn an_imported_component_in_a_markup_prop_is_placed_by_its_module() {
+  use snapfire_fsr_ir::ast::{Expr, Tmpl};
+  fn placed(t: &Tmpl, out: &mut Vec<String>) {
+    match t {
+      Tmpl::Component { module, children, .. } | Tmpl::Island { module, children, .. } => {
+        out.push(module.clone());
+        children.iter().for_each(|c| placed(c, out));
+      }
+      Tmpl::Element { children, .. } | Tmpl::Fragment(children) | Tmpl::Baked { children, .. } | Tmpl::Place { children, .. } => children.iter().for_each(|c| placed(c, out)),
+      Tmpl::If { then, r#else, .. } => {
+        placed(then, out);
+        if let Some(e) = r#else {
+          placed(e, out);
+        }
+      }
+      Tmpl::For { body, .. } | Tmpl::Let { then: body, .. } => placed(body, out),
+      _ => {}
+    }
+  }
+  let rich = "export default function Rich({ value }: { value: string }) {\n  return <p>{value}</p>;\n}\n";
+  let page = "import Rich from \"./Rich\";\nfunction Card({ body }: { body: any }) {\n  return <section>{body}</section>;\n}\nexport default function Page({ blocks }: { blocks: string[] }) {\n  return <main>{blocks.map((b, i) => <Card key={i} body={<Rich value={b} />} />)}</main>;\n}\n";
+  let dir = app("markup_prop_import", &[("routes/Rich.tsx", rich), ("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default");
+  std::fs::remove_dir_all(&dir).unwrap();
+  result.unwrap_or_else(|e| panic!("{e}"));
+  let (_, component) = set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").expect("the page lowered");
+  let mut modules = Vec::new();
+  component.render.visit(&mut |e| {
+    if let Expr::Markup(t) = e {
+      placed(t, &mut modules);
+    }
+  });
+  assert_eq!(modules, ["routes/Rich.tsx#default"], "{:?}", component.render);
+}
+
+#[test]
 fn a_default_exported_value_is_read_where_it_is_imported() {
   let out = html_with("data_default", &[("src/quotes.ts", "export default [\"one\", \"two\"];\n"), ("routes/page.tsx", "import quotes from \"@src/quotes\";\nexport default function Page() {\n  return <p>{quotes[1]} of {quotes.length}</p>;\n}\n")]);
   assert_eq!(out.as_deref(), Ok("<p>two of 2</p>"));
