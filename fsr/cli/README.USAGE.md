@@ -1360,6 +1360,37 @@ useEffect(() => {
 
 `stdout` and `stderr` give `data`; the process gives `exit` and `close` with the code and signal. It gives `error` when it cannot start. The options read are `cwd`, `env` and `shell`.
 
+A promise runs as it does in Node. `new Promise((resolve, reject) => …)` makes one whose `resolve` and `reject` settle it, `setTimeout(resolve, ms)` among them. An `await`, in an async function called where it is written, runs the rest of the function once the promise settles. A module-level `let` keeps what a function writes from one step to the next. A component that throws a pending promise under `Suspense` shows the fallback until it settles:
+
+```tsx
+let message: string | undefined;
+let waiting: Promise<void> | undefined;
+
+const read = () => {
+  if (!waiting) {
+    waiting = new Promise((resolve) => setTimeout(resolve, 500));
+    (async () => {
+      await waiting;
+      message = "Hello World";
+    })();
+  }
+  if (message === undefined) throw waiting;
+  return message;
+};
+
+function Message() {
+  return <Text>{read()}</Text>;
+}
+
+export default function Page() {
+  return (
+    <Suspense fallback={<Text>Loading...</Text>}>
+      <Message />
+    </Suspense>
+  );
+}
+```
+
 `useCursor().setCursorPosition({ x, y })`, called while rendering, puts the terminal's cursor at that cell from the corner of the page; a render that sets none hides it.
 
 `useBoxMetrics(ref)` reads the layout of the Box that `ref` is on: `width`, `height`, `left`, `top`, `clientWidth`, `clientHeight` and `hasMeasured`, zeros until the first layout. With `overflow="hidden"` a Box cuts its children at its border and `contentOffsetY` scrolls them:
@@ -1390,7 +1421,7 @@ return (
 
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
-A timer in an effect whose dependencies change, `Transform`, `measureElement`, `Suspense` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
+A timer in an effect whose dependencies change, `try` around an `await`, `Transform`, `measureElement` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
 

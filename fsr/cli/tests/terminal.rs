@@ -68,7 +68,7 @@ fn a_session_lists_the_timers_its_page_started_and_a_fired_one_steps_the_state()
   use std::time::Duration;
   let clock = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 100);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setTicks(100), 2000);\n  }, []);\n  return <Text>ticks {ticks}</Text>;\n}\n";
   let mut session = Session::open(&app(clock)).unwrap();
-  assert_eq!(session.timers(), [Timer { path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true }, Timer { path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false }]);
+  assert_eq!(session.timers(), [Timer { path: String::new(), handler: 0, every: Duration::from_millis(100), repeats: true, settles: None }, Timer { path: String::new(), handler: 1, every: Duration::from_millis(2000), repeats: false, settles: None }]);
   let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
   assert_eq!(line(session.view().unwrap()), "ticks 0");
   let timers = session.timers();
@@ -253,4 +253,18 @@ fn an_effect_runs_again_after_a_render_that_changed_its_dependencies_and_not_oth
   };
   assert_eq!(line(session.press(&press('+')).unwrap()), "2 4 2 0");
   assert_eq!(line(session.press(&press('o')).unwrap()), "2 4 2 1", "a render that left n alone does not run it");
+}
+
+#[test]
+fn a_component_that_throws_a_pending_promise_shows_its_suspense_fallback_until_the_promise_settles() {
+  let page = "import { Suspense } from \"react\";\nimport { Text } from \"ink\";\n\nlet promise: Promise<void> | undefined;\nlet state: string | undefined;\nlet value: string | undefined;\n\nconst read = () => {\n  if (!promise) {\n    promise = new Promise((resolve) => {\n      setTimeout(resolve, 500);\n    });\n    state = \"pending\";\n    (async () => {\n      await promise;\n      state = \"done\";\n      value = \"Hello World\";\n    })();\n  }\n  if (state === \"pending\") {\n    throw promise;\n  }\n  if (state === \"done\") {\n    return value;\n  }\n};\n\nfunction Example() {\n  const message = read();\n  return <Text>{message}</Text>;\n}\n\nfunction Fallback() {\n  return <Text>Loading...</Text>;\n}\n\nexport default function Root() {\n  return (\n    <Suspense fallback={<Fallback />}>\n      <Example />\n    </Suspense>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "Loading...");
+  let started = session.take_started();
+  assert_eq!(started.len(), 1, "the promise's timer: {started:?}");
+  assert_eq!(started[0].every, std::time::Duration::from_millis(500));
+  assert_eq!(line(session.fire(&started[0]).unwrap()), "Hello World");
+  assert!(session.take_started().is_empty(), "the promise is made once");
+  assert_eq!(line(session.view().unwrap()), "Hello World");
 }

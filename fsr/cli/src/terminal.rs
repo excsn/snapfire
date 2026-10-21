@@ -32,6 +32,9 @@ const WRITTEN: usize = 200;
 /// How many times a step runs the mount handlers of components a mount handler rendered.
 const MOUNT_PASSES: usize = 8;
 
+/// How many rounds of continuations a step runs for promises that settled while it ran.
+const CONTINUATION_PASSES: usize = 16;
+
 /// How many times a step runs the effects whose dependencies the render before changed.
 const EFFECT_PASSES: usize = 8;
 
@@ -107,13 +110,31 @@ pub fn key_event(event: KeyEvent) -> Option<Press> {
 
 /// A timer a component's mount effects start: the component, by its path
 /// in the page, the handler it steps, how often and whether it fires again
-/// after the first time.
+/// after the first time. One that `settles` a promise, its deferred and
+/// whether it resolves, runs no handler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Timer {
   pub path: String,
   pub handler: usize,
   pub every: Duration,
   pub repeats: bool,
+  pub settles: Option<(String, bool)>,
+}
+
+/// A promise the page made: what it settled to, whether it resolved, and
+/// the continuations waiting on it until then.
+#[derive(Default)]
+struct Deferred {
+  settled: Option<(bool, Value)>,
+  waiting: Vec<Waiting>,
+}
+
+/// A continuation: the handler `event` names on the component at `path`,
+/// run with `{ value, ok, carry }` once its promise settles.
+struct Waiting {
+  path: String,
+  event: String,
+  carry: Value,
 }
 
 /// A process a mount effect spawned with `node:child_process`, which the
@@ -149,6 +170,9 @@ pub struct Session {
   spawns: Vec<Spawn>,
   effects_seen: Vec<(String, String, Value)>,
   effects_ran: HashMap<(String, String), Value>,
+  cells: ValueMap,
+  deferreds: HashMap<String, Deferred>,
+  ready: Vec<(Waiting, bool, Value)>,
 }
 
 /// Ink's focus: the focusables the page rendered last, in order, the one
@@ -215,7 +239,7 @@ impl Focus {
       Act::FocusPrevious => self.step(true),
       Act::FocusEnable => self.disabled = false,
       Act::FocusDisable => self.disabled = true,
-      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn => return false,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then => return false,
     }
     true
   }
@@ -233,7 +257,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new() })
   }
 
   /// The page as it stands.
@@ -281,8 +305,8 @@ impl Session {
     self
       .handlers()
       .filter_map(|(path, handler, event)| match HandlerEvent::parse(&event)? {
-        HandlerEvent::Interval(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: true }),
-        HandlerEvent::Timeout(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: false }),
+        HandlerEvent::Interval(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: true, settles: None }),
+        HandlerEvent::Timeout(ms) => Some(Timer { path, handler, every: Duration::from_millis(ms), repeats: false, settles: None }),
         _ => None,
       })
       .collect()
@@ -321,6 +345,10 @@ impl Session {
 
   /// The page after `timer` fires; as it stands when the component that started it is gone.
   pub fn fire(&mut self, timer: &Timer) -> Result<Node, String> {
+    if let Some((deferred, ok)) = &timer.settles {
+      self.settle(deferred, *ok, Value::Null);
+      return self.run(None, &Value::Null);
+    }
     if !self.holds(timer) {
       return self.run(None, &Value::Null);
     }
@@ -351,11 +379,25 @@ impl Session {
         for (index, handler) in component.handlers.iter().enumerate() {
           match HandlerEvent::parse(&handler.event) {
             Some(HandlerEvent::Mount) => html = self.render(Some(HandlerRef::at(path.clone(), index)), &Value::Null)?,
-            Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true }),
-            Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false }),
-            Some(HandlerEvent::Input | HandlerEvent::Call(_) | HandlerEvent::Process { .. } | HandlerEvent::Effect(_)) | None => {}
+            Some(HandlerEvent::Interval(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: true, settles: None }),
+            Some(HandlerEvent::Timeout(ms)) => self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: false, settles: None }),
+            Some(HandlerEvent::Input | HandlerEvent::Call(_) | HandlerEvent::Process { .. } | HandlerEvent::Effect(_) | HandlerEvent::Resume(_)) | None => {}
           }
         }
+      }
+    }
+    for _ in 0..CONTINUATION_PASSES {
+      let ready = std::mem::take(&mut self.ready);
+      if ready.is_empty() {
+        break;
+      }
+      for (waiting, ok, value) in ready {
+        let Some(index) = self.handlers().find(|(at, _, named)| *at == waiting.path && *named == waiting.event).map(|(_, index, _)| index) else { continue };
+        let mut event = ValueMap::default();
+        event.insert("value".to_owned(), value);
+        event.insert("ok".to_owned(), Value::Bool(ok));
+        event.insert("carry".to_owned(), waiting.carry);
+        html = self.render(Some(HandlerRef::at(waiting.path, index)), &Value::Map(event))?;
       }
     }
     for _ in 0..EFFECT_PASSES {
@@ -408,6 +450,80 @@ impl Session {
     Ok(Node::Box(Boxed::new().column().child(Text::plain(&self.written.join("\n"))).child(page)))
   }
 
+  /// An act a handler or a block of `path`'s component issued, `components` the step's.
+  fn take_act(&mut self, path: &str, components: &[(String, String)], action: &str, value: Value) {
+    match (Act::parse(action), &value) {
+      (Some(Act::Stdout | Act::Stderr), Value::Str(text)) => self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned)),
+      (Some(Act::Timer), Value::Map(timer)) if timer.contains_key("settle") => {
+        let ms = match timer.get("ms") {
+          Some(Value::F64(ms)) => *ms as u64,
+          Some(Value::Int(ms)) => *ms as u64,
+          _ => 0,
+        };
+        if let Some(settles) = timer.get("settle").and_then(settle_of) {
+          self.started.push(Timer { path: path.to_owned(), handler: 0, every: Duration::from_millis(ms), repeats: false, settles: Some(settles) });
+        }
+      }
+      (Some(Act::Settle), Value::Map(settle)) => {
+        if let Some((deferred, ok)) = settle.get("settle").and_then(settle_of) {
+          self.settle(&deferred, ok, settle.get("value").cloned().unwrap_or(Value::Null));
+        }
+      }
+      (Some(Act::Then), Value::Map(then)) => {
+        let (Some(deferred), Some(Value::Str(event))) = (then.get("deferred").and_then(deferred_of), then.get("event")) else { return };
+        let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: then.get("carry").cloned().unwrap_or(Value::Null) };
+        match self.deferreds.entry(deferred).or_default() {
+          Deferred { settled: Some((ok, value)), .. } => {
+            let (ok, value) = (*ok, value.clone());
+            self.ready.push((waiting, ok, value));
+          }
+          pending => pending.waiting.push(waiting),
+        }
+      }
+      (Some(Act::Timer), Value::Map(timer)) => {
+        let module = components.iter().find(|(at, _)| at == path).map(|(_, module)| module.clone());
+        let component = module.and_then(|module| self.library.get(&module).cloned());
+        let (Some(component), Some(Value::Str(event))) = (component, timer.get("event")) else { return };
+        let Some(index) = component.handlers.iter().position(|h| h.event == **event) else { return };
+        let ms = match timer.get("ms") {
+          Some(Value::F64(ms)) => *ms as u64,
+          Some(Value::Int(ms)) => *ms as u64,
+          _ => 0,
+        };
+        self.started.push(Timer { path: path.to_owned(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)), settles: None });
+      }
+      (Some(Act::Spawn), Value::Map(spawn)) => {
+        let text = |v: Option<&Value>| match v {
+          Some(Value::Str(s)) => Some(s.to_string()),
+          Some(Value::Int(n)) => Some(n.to_string()),
+          Some(Value::F64(n)) if n.fract() == 0.0 && n.abs() < 1e15 => Some((*n as i64).to_string()),
+          Some(Value::F64(n)) => Some(n.to_string()),
+          _ => None,
+        };
+        let (Some(id), Some(command)) = (text(spawn.get("id")), text(spawn.get("command"))) else { return };
+        let args = match spawn.get("args") {
+          Some(Value::Seq(args)) => args.iter().filter_map(|a| text(Some(a))).collect(),
+          _ => Vec::new(),
+        };
+        self.spawns.push(Spawn { path: path.to_owned(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
+      }
+      (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
+      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn | Act::Settle | Act::Then), _) | (None, _) => {}
+    }
+  }
+
+  /// Settles `deferred` once, queueing every continuation waiting on it.
+  fn settle(&mut self, deferred: &str, ok: bool, value: Value) {
+    let entry = self.deferreds.entry(deferred.to_owned()).or_default();
+    if entry.settled.is_some() {
+      return;
+    }
+    entry.settled = Some((ok, value.clone()));
+    for waiting in std::mem::take(&mut entry.waiting) {
+      self.ready.push((waiting, ok, value.clone()));
+    }
+  }
+
   /// One step of the page: its acts taken, its state held and its markup.
   fn render(&mut self, handler: Option<HandlerRef>, event: &Value) -> Result<String, String> {
     let component = self.library.get(&self.module).ok_or_else(|| format!("{} did not lower", self.module))?.clone();
@@ -419,40 +535,19 @@ impl Session {
     let mut props = ValueMap::default();
     props.insert("$store".to_owned(), Value::Map(store));
     let path = handler.as_ref().map(|handler| handler.path.clone()).unwrap_or_default();
+    props.insert(snapfire_fsr_ir::render::CELLS_PROP.to_owned(), Value::Map(self.cells.clone()));
     let stepped = Interpreter::default().island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
-    for (action, value) in stepped.acts {
-      match (Act::parse(&action), &value) {
-        (Some(Act::Stdout | Act::Stderr), Value::Str(text)) => self.written.extend(text.trim_end_matches('\n').split('\n').map(str::to_owned)),
-        (Some(Act::Timer), Value::Map(timer)) => {
-          let module = stepped.components.iter().find(|(at, _)| *at == path).map(|(_, module)| module.clone());
-          let component = module.and_then(|module| self.library.get(&module).cloned());
-          let (Some(component), Some(Value::Str(event))) = (component, timer.get("event")) else { continue };
-          let Some(index) = component.handlers.iter().position(|h| h.event == **event) else { continue };
-          let ms = match timer.get("ms") {
-            Some(Value::F64(ms)) => *ms as u64,
-            Some(Value::Int(ms)) => *ms as u64,
-            _ => 0,
-          };
-          self.started.push(Timer { path: path.clone(), handler: index, every: Duration::from_millis(ms), repeats: timer.get("repeats") == Some(&Value::Bool(true)) });
-        }
-        (Some(Act::Spawn), Value::Map(spawn)) => {
-          let text = |v: Option<&Value>| match v {
-            Some(Value::Str(s)) => Some(s.to_string()),
-            Some(Value::Int(n)) => Some(n.to_string()),
-            Some(Value::F64(n)) if n.fract() == 0.0 && n.abs() < 1e15 => Some((*n as i64).to_string()),
-            Some(Value::F64(n)) => Some(n.to_string()),
-            _ => None,
-          };
-          let (Some(id), Some(command)) = (text(spawn.get("id")), text(spawn.get("command"))) else { continue };
-          let args = match spawn.get("args") {
-            Some(Value::Seq(args)) => args.iter().filter_map(|a| text(Some(a))).collect(),
-            _ => Vec::new(),
-          };
-          self.spawns.push(Spawn { path: path.clone(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
-        }
-        (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
-        (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::Spawn), _) | (None, _) => {}
-      }
+    self.cells.extend(stepped.cells.clone());
+    let issued = stepped.emitted.iter().filter(|e| e.kind == snapfire_fsr_ir::render::ACT).filter_map(|e| match &e.value {
+      Value::Map(act) => match (act.get("action"), act.get("input")) {
+        (Some(Value::Str(action)), Some(input)) => Some((e.path.clone(), action.to_string(), input.clone())),
+        _ => None,
+      },
+      _ => None,
+    });
+    let acts: Vec<(String, String, Value)> = stepped.acts.iter().map(|(action, value)| (path.clone(), action.clone(), value.clone())).chain(issued).collect();
+    for (path, action, value) in acts {
+      self.take_act(&path, &stepped.components, &action, value);
     }
     let excess = self.written.len().saturating_sub(WRITTEN);
     self.written.drain(..excess);
@@ -475,6 +570,24 @@ impl Session {
     self.cursor = stepped.emitted.iter().rev().find(|e| e.kind == CURSOR).and_then(|e| cell_of(&e.value));
     Ok(stepped.rendered.html)
   }
+}
+
+/// A deferred's id, `{ "$deferred": id }`.
+fn deferred_of(value: &Value) -> Option<String> {
+  match value {
+    Value::Map(map) => match map.get(snapfire_fsr_ir::render::DEFERRED) {
+      Some(Value::Str(id)) => Some(id.to_string()),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
+/// The deferred a `resolve` or `reject` settles and whether it resolves.
+fn settle_of(value: &Value) -> Option<(String, bool)> {
+  let Value::Map(map) = value else { return None };
+  let deferred = deferred_of(map.get(snapfire_fsr_lower::terminal::SETTLES)?)?;
+  Some((deferred, !matches!(map.get("ok"), Some(Value::Bool(false)))))
 }
 
 /// `{ x, y }` as the cell it names; anything else hides the cursor.

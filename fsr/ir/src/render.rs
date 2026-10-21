@@ -80,7 +80,7 @@ fn escape_attr(input: &str, out: &mut String) {
 
 /// The output and whether the last thing written was text, which decides
 /// whether the next text under React's rules needs `<!-- -->` between them.
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Out {
   html: String,
   text_open: bool,
@@ -361,6 +361,18 @@ pub struct Emitted {
   pub value: Value,
 }
 
+/// The key a deferred is held under: a promise a terminal page made is `{ "$deferred": id }`, the host holding what it settles to. A Suspense boundary reads a thrown one as a child that is not ready.
+pub const DEFERRED: &str = "$deferred";
+
+/// A terminal page's Suspense boundary: an element of this tag holds the content and the fallback, in that order. The content renders unless it throws a deferred, [`DEFERRED`], in which case the fallback renders in its place and the step emits [`SUSPENDED`] with the deferred.
+pub const SUSPENSE_TAG: &str = "$suspense";
+
+/// The kind of value a step emits for each deferred a Suspense boundary is waiting on.
+pub const SUSPENDED: &str = "suspended";
+
+/// The kind of value a block in a step emits for an act it issues, `{ action, input }`, with the path of the component whose body or handler ran it: a terminal page starts work while rendering this way, which a host on the web never sees, since a web render issues no act.
+pub const ACT: &str = "act";
+
 /// What a body `let`'s name asks of the renderer besides binding it.
 enum Directive<'n> {
   /// [`RERUN_PREFIX`] and the state binding's name.
@@ -617,6 +629,7 @@ impl Interpreter {
     env.in_framework = true;
     let mut state = state.clone();
     let mut written = ValueMap::default();
+    env.emitted.clear();
     if let Some(handler) = handler {
       let (target, own_props, path): (&Component, Option<ValueMap>, String) = if handler.path.is_empty() {
         (component, None, String::new())
@@ -626,6 +639,7 @@ impl Interpreter {
         let mut scratch = Out::default();
         let mut slots = Vec::new();
         render_component(&mut env, component, library, &mut slots, &mut scratch)?;
+        env.emitted.clear();
         env.hoists = Some(Hoists::new(module));
         let Some((found, found_props)) = env.probe.take().and_then(|p| p.found) else {
           return Err(Fail::new(FailureKind::NotFound, format!("`{module}` renders nothing at `{}`", handler.path)));
@@ -645,10 +659,16 @@ impl Interpreter {
         let Stmt::Let { name, expr } = stmt else { continue };
         let value = match state.get(&state_key(&path, name)) {
           Some(held) => held.clone(),
-          None => env.eval_sync(expr)?,
+          // A `let` whose render is suspended, a Suspense boundary waiting on what it threw, is not there for the handler; one that reads it fails on the name.
+          None => match env.eval_sync(expr) {
+            Ok(value) => value,
+            Err(_) if env.thrown.take().is_some() => continue,
+            Err(fail) => return Err(fail),
+          },
         };
         env.scope.push((name.clone(), value));
       }
+      env.emitted.clear();
       let mut own_state: ValueMap = if path.is_empty() { state.clone() } else { target.state.iter().filter_map(|name| state.get(&state_key(&path, name)).map(|value| (name.clone(), value.clone()))).collect() };
       for (name, _) in &target.stores {
         if let Some((_, value)) = env.scope.iter().rev().find(|(bound, _)| bound == name) {
@@ -657,7 +677,10 @@ impl Interpreter {
       }
       env.scope.push(("$state".to_owned(), Value::Map(own_state)));
       env.scope.push(("$event".to_owned(), event.clone()));
-      let patch = eval_body_sync(&mut env, &body.body)?;
+      let outer_path = std::mem::replace(&mut env.component_path, path.clone());
+      let patch = eval_body_sync(&mut env, &body.body);
+      env.component_path = outer_path;
+      let patch = patch?;
       env.scope.truncate(depth);
       if let Value::Map(patch) = patch {
         for (name, value) in patch {
@@ -677,7 +700,6 @@ impl Interpreter {
     let mut out = Out::default();
     let mut slots = Vec::new();
     env.entered.clear();
-    env.emitted.clear();
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
@@ -1749,6 +1771,20 @@ fn render_stamped_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], childre
   if tag == CHOSEN_TAG {
     return render_chosen(env, attrs, children, library, slots, out);
   }
+  if tag == SUSPENSE_TAG {
+    let [content, fallback] = children else { return Err(Fail::internal("a Suspense boundary holds its content and its fallback")) };
+    let saved = out.clone();
+    let depth = env.scope.len();
+    env.thrown = None;
+    let rendered = render(env, content, library, slots, out);
+    let Err(fail) = rendered else { return Ok(()) };
+    let deferred = env.thrown.take().filter(|thrown| matches!(thrown, Value::Map(map) if map.contains_key(DEFERRED)));
+    let Some(deferred) = deferred else { return Err(fail) };
+    *out = saved;
+    env.scope.truncate(depth);
+    env.emitted.push(Emitted { path: env.component_path.clone(), kind: SUSPENDED.to_owned(), value: deferred });
+    return render(env, fallback, library, slots, out);
+  }
   if tag == BOUNDARY_TAG {
     let kind = attrs.iter().find_map(|entry| match entry {
       Entry::Field(name, kind) if name == "kind" => Some(kind),
@@ -2466,7 +2502,7 @@ pub fn prepare(component: &Component) -> Component {
 /// `tmpl` with its literal open tags baked and every constant expression folded.
 fn prepare_tmpl(tmpl: &Tmpl) -> Tmpl {
   match tmpl {
-    Tmpl::Element { tag, attrs, children } if tag == CHOSEN_TAG || tag == BOUNDARY_TAG => {
+    Tmpl::Element { tag, attrs, children } if tag == CHOSEN_TAG || tag == BOUNDARY_TAG || tag == SUSPENSE_TAG => {
       let mut attrs = attrs.clone();
       fold_entries(&mut attrs);
       Tmpl::Element { tag: tag.clone(), attrs, children: children.iter().map(prepare_tmpl).collect() }

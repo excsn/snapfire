@@ -12,6 +12,9 @@ pub const CURSOR: &str = "cursor";
 /// An effect whose dependencies change, `{ event, deps }`: the [`Event::Effect`] handler that runs it and the dependencies' values this render. A terminal runs the handler after a render whose values differ from the last ones it saw for that component, the first render included.
 pub const EFFECT: &str = "effect";
 
+/// The key a promise's `resolve` or `reject` is held under: `{ "$settles": deferred, ok }`, `ok` false for `reject`. Calling one is an [`Act::Settle`]; a timer on one settles the deferred when it is due.
+pub const SETTLES: &str = "$settles";
+
 /// The body `let` that emits a value of `kind`.
 pub fn emit(kind: &str) -> String {
   format!("{}{kind}", snapfire_fsr_ir::render::EMIT_PREFIX)
@@ -34,6 +37,8 @@ pub enum Event {
   Process { id: String, report: Report },
   /// The effect in this place whose dependencies change, which a terminal runs after a render that changed them.
   Effect(usize),
+  /// The rest of an async function after the `await` the key names, `file@offset`, run when the awaited promise settles with `{ value, ok, carry }`.
+  Resume(String),
 }
 
 impl Event {
@@ -46,6 +51,7 @@ impl Event {
       Event::Call(n) => format!("call:{n}"),
       Event::Process { id, report } => format!("spawn:{id}:{}", report.name()),
       Event::Effect(n) => format!("effect:{n}"),
+      Event::Resume(at) => format!("resume:{at}"),
     }
   }
 
@@ -61,6 +67,7 @@ impl Event {
       "timeout" => rest.parse().ok().map(Event::Timeout),
       "call" => rest.parse().ok().map(Event::Call),
       "effect" => rest.parse().ok().map(Event::Effect),
+      "resume" => Some(Event::Resume(rest.to_owned())),
       "spawn" => {
         let (id, report) = rest.rsplit_once(':')?;
         Some(Event::Process { id: id.to_owned(), report: Report::parse(report)? })
@@ -110,10 +117,14 @@ pub enum Act {
   Stdout,
   /// The same through `useStderr().write`.
   Stderr,
-  /// `{ event, ms, repeats }`: a timer on the handler [`Event::Call`] names.
+  /// `{ event, ms, repeats }`: a timer on the handler [`Event::Call`] names; `{ settle, ms }`, one that settles a promise, [`SETTLES`].
   Timer,
   /// `{ id, command, args, options }`: a process to start, whose reports are [`Event::Process`].
   Spawn,
+  /// `{ settle, value }`: a promise's `resolve` or `reject`, [`SETTLES`], called with `value`.
+  Settle,
+  /// `{ deferred, event, carry }`: run the handler `event` names when `deferred` settles, with `{ value, ok, carry }`.
+  Then,
   /// `focus(id)`.
   Focus,
   FocusNext,
@@ -129,6 +140,8 @@ impl Act {
       Act::Stderr => "$stderr",
       Act::Timer => "$timer",
       Act::Spawn => "$spawn",
+      Act::Settle => "$settle",
+      Act::Then => "$then",
       Act::Focus => "$focus",
       Act::FocusNext => "$focusNext",
       Act::FocusPrevious => "$focusPrevious",
@@ -138,7 +151,7 @@ impl Act {
   }
 
   pub fn parse(name: &str) -> Option<Act> {
-    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
+    [Act::Stdout, Act::Stderr, Act::Timer, Act::Spawn, Act::Settle, Act::Then, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
   }
 }
 
@@ -156,7 +169,7 @@ mod tests {
 
   #[test]
   fn each_event_reads_back_from_its_name() {
-    for event in [Event::Input, Event::Mount, Event::Interval(150), Event::Timeout(0), Event::Call(3), Event::Effect(2), Event::Process { id: "41".to_owned(), report: Report::Stdout }, Event::Process { id: "41".to_owned(), report: Report::Close }] {
+    for event in [Event::Input, Event::Mount, Event::Interval(150), Event::Timeout(0), Event::Call(3), Event::Effect(2), Event::Resume("routes/page.tsx@41".to_owned()), Event::Process { id: "41".to_owned(), report: Report::Stdout }, Event::Process { id: "41".to_owned(), report: Report::Close }] {
       assert_eq!(Event::parse(&event.name()), Some(event));
     }
     assert_eq!(Event::parse("click"), None);

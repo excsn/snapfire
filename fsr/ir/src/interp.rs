@@ -260,6 +260,7 @@ impl Interpreter {
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
+      thrown: None,
       marks: Vec::new(),
       placed: Vec::new(),
       input: input.unwrap_or(Value::Null),
@@ -407,6 +408,8 @@ pub(crate) struct Env {
   pub(crate) module_cells: Vec<(String, usize)>,
   /// The value a named cell starts from instead of its `init`, by key: a host that keeps module state from one step to the next hands it in as [`crate::render::CELLS_PROP`].
   pub(crate) module_seed: snapfire_fsr_core::ValueMap,
+  /// What the last `throw` threw, which a Suspense boundary reads when its children fail.
+  pub(crate) thrown: Option<Value>,
 }
 
 /// A function value: its parameters, its body and the names it reads with their values where it was written.
@@ -628,6 +631,7 @@ impl Env {
       cells: Some(Vec::new()),
       module_cells: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
+      thrown: None,
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -745,6 +749,13 @@ impl Env {
         Stmt::Expr(expr) => {
           self.eval_sync(expr)?;
         }
+        Stmt::Act { action, input } if self.server_mode => {
+          let input = self.eval_sync(input)?;
+          let mut act = ValueMap::default();
+          act.insert("action".to_owned(), Value::str(action));
+          act.insert("input".to_owned(), input);
+          self.emitted.push(crate::render::Emitted { path: self.component_path.clone(), kind: crate::render::ACT.to_owned(), value: Value::Map(act) });
+        }
         Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => return Err(Fail::internal("a guard, a session write or a dispatch inside a block, which runs where no request is")),
       }
     }
@@ -840,6 +851,7 @@ impl Env {
       cells: None,
       module_cells: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
+      thrown: None,
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -1160,6 +1172,10 @@ impl Env {
         }
         match name {
           Builtin::CloneElement => self.clone_element(values),
+          Builtin::Throw => {
+            self.thrown = values.first().cloned();
+            builtin(*name, values)
+          }
           _ => builtin(*name, values),
         }
       }
@@ -2856,7 +2872,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
-    Builtin::Throw => return Err(Fail::internal(stringify(arg(0)?)?)),
+    Builtin::Throw => return Err(Fail::internal(stringify(arg(0)?).unwrap_or_else(|_| "an object thrown".to_owned()))),
     Builtin::Log => {
       let line = || args.iter().skip(1).map(console_text).collect::<Vec<_>>().join(" ");
       match args.first() {

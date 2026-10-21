@@ -99,6 +99,8 @@ pub struct ComponentSet {
   lowering_component: bool,
   /// Each module-level `let` a function writes that a component read: its store key, `file#name`, with the file and name declaring it.
   module_lets: Vec<(String, String, String)>,
+  /// The continuations of a terminal page's module helpers as they lower, which the component being lowered takes as handlers.
+  continuations: Vec<Handler>,
   /// Each arrow passed as a prop to a component that renders in the browser: its file, its byte range and the name the rewrite exports it under.
   fn_exports: Vec<(String, std::ops::Range<usize>, String)>,
   /// Each function a file declares without exporting that was passed as a prop to a component that renders in the browser: file and name, which the rewrite exports.
@@ -195,7 +197,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
+    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -1128,6 +1130,7 @@ impl ComponentSet {
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
     let mut global_formatters: Vec<(String, js::NewExpr)> = Vec::new();
+    let continued = self.continuations.len();
     let mut module_bindings: Vec<(String, String, Expr)> = Vec::new();
     if self.terminal {
       let parsed = self.parsed[file].clone();
@@ -1508,6 +1511,12 @@ impl ComponentSet {
       }
     } else {
       self.keys.insert(module.clone(), false);
+    }
+    let mut component = component;
+    for handler in self.continuations.drain(continued..).collect::<Vec<_>>() {
+      if !component.handlers.iter().any(|held| held.event == handler.event) {
+        component.handlers.push(handler);
+      }
     }
     Ok(component)
   }
@@ -2227,7 +2236,10 @@ impl ComponentSet {
         Global::Function(params, body) => function_to_lambda(&mut lowerer, params, *body),
       };
       match result {
-        Ok(expr) => return Ok(expr),
+        Ok(expr) => {
+          self.continuations.append(&mut lowerer.continuations);
+          return Ok(expr);
+        }
         Err(residue) => {
           let Some(name) = lowerer.unbound.take() else { return Err(residue.into()) };
           if globals.iter().any(|(n, _)| *n == name) {
@@ -3621,7 +3633,7 @@ pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStmt) -> 
 }
 
 /// `throw Error(message)`, `throw new Error(message)` or `throw value` as a render that fails with the message.
-fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStmt) -> Lowered<Expr> {
+pub(crate) fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStmt) -> Lowered<Expr> {
   let error_message = |callee: &js::Expr, args: &[js::ExprOrSpread]| match crate::meaning::bare(callee) {
     js::Expr::Ident(id) if id.sym.as_ref() == "Error" && id.ctxt == lowerer.meanings.as_ref().map(|m| m.unresolved).unwrap_or(id.ctxt) => Some(args.first().map(|a| (*a.expr).clone())),
     _ => None,
@@ -4599,6 +4611,11 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       Ok(value)
     }
     js::Stmt::For(_) | js::Stmt::ForOf(_) | js::Stmt::While(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
+    js::Stmt::Expr(stmt) if matches!(&*stmt.expr, js::Expr::Call(call) if lowerer.issues_act(call)) => {
+      let act = lowerer.effect(&stmt.expr)?;
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(vec![act], value))
+    }
     js::Stmt::Expr(stmt) if writes_a_cell(lowerer, &stmt.expr) => {
       let Stmt::Expr(effect) = lowerer.effect(&stmt.expr)? else { return Err(lowerer.residue(stmt.span, "a write to a cell the build cannot order")) };
       let held = lowerer.temp();
@@ -5919,6 +5936,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     bound.extend(lets);
     let mut lets = bound;
     lets.extend(std::mem::take(&mut self.store_lets));
+    self.lowered_handlers.append(&mut self.lowerer.continuations);
     Ok((Component { body: lets, render, state: std::mem::take(&mut self.state_bindings), stores: std::mem::take(&mut self.store_bindings), handlers: std::mem::take(&mut self.lowered_handlers), owner: Owner::React, shadow: None, scope: None }, std::mem::take(&mut self.refs)))
   }
 
@@ -8520,6 +8538,20 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// `<Suspense>` as its children inside React's completed boundary, the fallback left out since nothing on the server waits; `<Activity>` as its children inside an Activity boundary unless `mode` is `"hidden"`, which React's server renders as nothing.
   fn boundary(&mut self, which: &str, el: &'p js::JSXElement) -> Lowered<Tmpl> {
     let children = Tmpl::Fragment(self.children(&el.children)?);
+    if which == "Suspense" && self.lowerer.terminal {
+      let fallback = el.opening.attrs.iter().find_map(|attr| match attr {
+        js::JSXAttrOrSpread::JSXAttr(attr) if attr_name(&attr.name) == "fallback" => match &attr.value {
+          Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) => Some(&**e),
+          _ => None,
+        },
+        _ => None,
+      });
+      let fallback = match fallback {
+        Some(e) => self.child_expr(e)?,
+        None => Tmpl::Fragment(Vec::new()),
+      };
+      return Ok(Tmpl::Element { tag: snapfire_fsr_ir::render::SUSPENSE_TAG.to_owned(), attrs: Vec::new(), children: vec![children, fallback] });
+    }
     let kind = if which == "Suspense" { "$" } else { "&" };
     let boundary = Tmpl::Element { tag: snapfire_fsr_ir::render::BOUNDARY_TAG.to_owned(), attrs: vec![Entry::Field("kind".to_owned(), Expr::lit_str(kind))], children: vec![children] };
     if which == "Suspense" {
