@@ -5259,6 +5259,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn bind_value(&mut self, pattern: &js::Pat, value: Expr) -> Lowered<()> {
+    if crate::terminal::act_ref(&value).is_some() {
+      return bind_pattern(&mut self.lowerer, pattern, value);
+    }
     let name = self.lowerer.temp();
     self.pending_lets.push(Stmt::Let { name: name.clone(), expr: value });
     bind_pattern(&mut self.lowerer, pattern, Expr::Var(name))
@@ -7959,13 +7962,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(true)
   }
 
+  /// The act a local refers to in a terminal page, bound to an [`crate::terminal::ACT_REF`].
+  fn act_bound(&self, name: &str) -> Option<String> {
+    if !self.lowerer.terminal {
+      return None;
+    }
+    let (_, bound) = self.lowerer.scope.iter().rev().find(|(n, _)| n == name)?;
+    crate::terminal::act_ref(bound)
+  }
+
   /// Whether an effect's dependency is the same on every render: a state setter or a writer; in a terminal also a `useReducer` dispatch, a held ref or a `useCallback` whose own dependencies never change.
   fn never_changes(&self, elem: &Option<js::ExprOrSpread>) -> bool {
     let Some(js::Expr::Ident(id)) = elem.as_ref().map(|e| &*e.expr) else { return false };
     let name = id.sym.as_ref();
     self.setters.iter().any(|(setter, _)| setter == name)
       || self.writers.iter().any(|(writer, _)| writer == name)
-      || (self.lowerer.terminal && (self.dispatchers.iter().any(|(d, _, _)| d == name) || self.held_refs.iter().any(|r| r == name) || self.stable_callbacks.iter().any(|c| c == name)))
+      || (self.lowerer.terminal && (self.dispatchers.iter().any(|(d, _, _)| d == name) || self.held_refs.iter().any(|r| r == name) || self.stable_callbacks.iter().any(|c| c == name) || self.act_bound(name).is_some()))
   }
 
   /// Whether `body` reads a browser global, the global itself rather than a local of that name: work for a browser, which a terminal page has none of.
@@ -8510,6 +8522,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               if walk.out.len() == before.0 && walk.patch == before.1 {
                 return Err(self.lowerer.residue(call.span, "a handler that sets no state and calls no action"));
               }
+              return Ok(());
+            }
+            if let Some(action) = self.act_bound(&name) {
+              let input = match call.args.first() {
+                Some(arg) => self.lowerer.expr(&arg.expr)?,
+                None => Expr::lit_str(String::new()),
+              };
+              walk.act(action, input);
               return Ok(());
             }
             if let Some(action) = action_alias_of(self.lowerer.parsed, &name) {

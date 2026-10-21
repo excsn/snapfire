@@ -24,6 +24,28 @@ pub const EFFECT: &str = "effect";
 /// The key a promise's `resolve` or `reject` is held under: `{ "$settles": deferred, ok }`, `ok` false for `reject`. Calling one is an [`Act::Settle`]; a timer on one settles the deferred when it is due.
 pub const SETTLES: &str = "$settles";
 
+/// The key an act reference is held under, `{ "$act": action }`: what `action("$stdout")` is in a terminal page. A handler's call to one issues the act with what it was called with.
+pub const ACT_REF: &str = "$act";
+
+/// The act a value refers to: `{ "$act": action }`, read through any field of an object written out that holds one.
+pub fn act_ref(expr: &snapfire_fsr_ir::Expr) -> Option<String> {
+  use snapfire_fsr_ir::ast::{Entry, Expr, Lit};
+  match expr {
+    Expr::Object(entries) => entries.iter().find_map(|entry| match entry {
+      Entry::Field(key, Expr::Lit(Lit::Str(action))) if key == ACT_REF => Some(action.clone()),
+      _ => None,
+    }),
+    Expr::Field(object, name) => match &**object {
+      Expr::Object(entries) => entries.iter().rev().find_map(|entry| match entry {
+        Entry::Field(key, value) if key == name => act_ref(value),
+        _ => None,
+      }),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
 /// The key a process a block spawned is held under, `{ "$process": id }`, the id its [`Act::Spawn`] and its listeners name.
 pub const PROCESS: &str = "$process";
 

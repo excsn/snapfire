@@ -2541,6 +2541,11 @@ impl<'a> Lowerer<'a> {
     if let Some(suspended) = self.suspend_call(call)? {
       return Ok(suspended);
     }
+    if let (true, js::Callee::Expr(callee), Some(js::Expr::Lit(js::Lit::Str(id)))) = (self.terminal, &call.callee, call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
+      if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClientAction)) {
+        return Ok(Expr::Object(vec![Entry::Field(crate::terminal::ACT_REF.to_owned(), Expr::lit_str(id.value.to_string_lossy().into_owned()))]));
+      }
+    }
     if self.terminal && self.spawns(call) {
       return self.spawn_value(call);
     }
