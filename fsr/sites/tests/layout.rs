@@ -265,11 +265,7 @@ fn the_tree_carries_every_client_module_the_host_would_serve() {
     let path = format!("{under}/{name}");
     let body = placed.get(&path).unwrap_or_else(|| panic!("{path} is not in the tree"));
     let served = client::get(&name, minified).expect("the client carries it");
-    assert_eq!(
-      body.lines().next(),
-      served.lines().next(),
-      "{path} is not the build the host serves"
-    );
+    assert_eq!(body.as_str(), served, "{path} is not the build the host serves");
     for import in client::imports(&name, minified) {
       if let Some(sibling) = import.strip_prefix("./") {
         queue.push(sibling.to_owned());

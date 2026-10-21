@@ -418,9 +418,10 @@ pub fn layout(root: &Path, config: &Config) -> Result<Layout, LayoutError> {
       placer.place(format!("{SERVE}/{under}/{name}"), Source::Text(body.to_owned()), false, &base)?;
     }
     if minified {
-      for (name, body) in client::MINIFIED {
+      for (name, _) in client::MINIFIED {
+        let body = client::get(name, true).unwrap_or_default();
         let name = name.replace(".js", ".min.js");
-        placer.place(format!("{SERVE}/{under}/{name}"), Source::Text((*body).to_owned()), false, &base)?;
+        placer.place(format!("{SERVE}/{under}/{name}"), Source::Text(body.to_owned()), false, &base)?;
       }
     }
   }
