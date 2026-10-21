@@ -31,7 +31,7 @@ cms-keystonejs-embedded	no application
 cms-kontent-ai	refused: src/lib/api.ts:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 24
 cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 7
 cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 22
-cms-plasmic	refused: routes/[[...catchall]]/page.loader.ts: 31:26: Expected '>', got 'ident'	pages 1	notes 9
+cms-plasmic	refused: src/plasmic-init.ts:21:32: a call to `initPlasmicLoader`, which the build cannot follow	pages 1	notes 9
 cms-prepr	refused: src/lib/api.js:2:26: a call to `fetch`, which the build cannot follow	pages 2	notes 24
 cms-prismic	refused: src/lib/prismic.ts:32:18: `prismic` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 21
 cms-sanity	refused: src/sanity/lib/fetch.ts:30:28: a call to `draftMode`, which the build cannot follow	pages 3	notes 15

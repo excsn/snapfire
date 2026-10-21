@@ -315,6 +315,19 @@ struct Moved {
   page: String,
 }
 
+/// Whether a node holds a JSX element or fragment.
+struct Jsx(bool);
+
+impl Visit for Jsx {
+  fn visit_jsx_element(&mut self, _: &js::JSXElement) {
+    self.0 = true;
+  }
+
+  fn visit_jsx_fragment(&mut self, _: &js::JSXFragment) {
+    self.0 = true;
+  }
+}
+
 pub(crate) const DATA_FUNCTIONS: &[&str] = &["getStaticProps", "getServerSideProps", "getStaticPaths"];
 
 fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) -> Option<Moved> {
@@ -334,6 +347,14 @@ fn data_functions(path: &str, text: &str, parsed: &Parsed, report: &mut Report) 
     if moved_items.len() == before {
       break;
     }
+  }
+  if let Some(n) = moved_items.iter().copied().find(|n| {
+    let mut found = Jsx(false);
+    parsed.module.body[*n].visit_with(&mut found);
+    found.0
+  }) {
+    report.note(path, parsed.line(parsed.module.body[n].span()), "the data functions render JSX, which a loader cannot, since it returns data; they were left in place");
+    return None;
   }
 
   let mut loader = String::new();
@@ -761,5 +782,14 @@ mod tests {
       "import { Link } from \"@snapfire/fsr/components\";\nimport { formatDate } from \"../../../src/lib/posts\";\n\nexport default function Post({ post }) {\n  return <Link href=\"/\">{formatDate(post.date)}</Link>;\n}\n"
     );
     assert!(report.notes.iter().any(|n| n.message.contains("revalidate")), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_data_function_that_renders_jsx_stays_in_the_page_with_a_note() {
+    let page = "import { render } from \"cms\";\n\nexport default function P({ data }) {\n  return <p>{data}</p>;\n}\n\nexport async function getStaticProps() {\n  const data = await render(<Root />);\n  return { props: { data } };\n}\n";
+    let (out, report) = migrate(&tree(&[("package.json", r#"{ "dependencies": { "next": "latest" } }"#), ("pages/index.js", page)]));
+    assert!(!out.contains("app/routes/page.loader.ts"), "{:?}", out.paths().collect::<Vec<_>>());
+    assert!(out.text("app/routes/page.js").unwrap().contains("getStaticProps"));
+    assert!(report.notes.iter().any(|n| n.file == "app/routes/page.js" && n.message.contains("render JSX")), "{:?}", report.notes);
   }
 }
