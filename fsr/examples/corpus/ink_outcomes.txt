@@ -6,7 +6,7 @@ box-backgrounds	rendered
 chat	rendered
 concurrent-suspense	refused: `src/concurrent-suspense.tsx#DataItem` does not lower, so only a browser could render it: src/concurrent-suspense.tsx:24:9: a call for its effect, which a straight-line body cannot hold
 counter	rendered
-cursor-ime	refused: `src/cursor-ime.tsx#App` does not lower, so only a browser could render it: src/cursor-ime.tsx:17:33: `useCursor`, a hook the build cannot follow
+cursor-ime	rendered
 incremental-rendering	rendered
 jest	refused: `src/jest.tsx#Jest` does not lower, so only a browser could render it: src/jest.tsx:54:27: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
 justify-content	rendered

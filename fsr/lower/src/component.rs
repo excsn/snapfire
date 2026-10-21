@@ -3919,6 +3919,17 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
           },
           _ => None,
         };
+        if let js::Callee::Expr(callee) = &call.callee {
+          if matches!(crate::meaning::bare(callee), js::Expr::Ident(id) if lowerer.cursor_setters.iter().any(|s| *s == *id.sym)) {
+            let at = match call.args.first() {
+              Some(arg) => lowerer.expr(&arg.expr)?,
+              None => Expr::Lit(Lit::Null),
+            };
+            lowerer.scope.push((snapfire_fsr_ir::render::CURSOR.to_owned(), at));
+            note(assigned, snapfire_fsr_ir::render::CURSOR);
+            return Ok(());
+          }
+        }
         let Some((name, field, at_end)) = target else { return Err(lowerer.residue(call.span, "a call for its effect, which a straight-line body cannot hold")) };
         let mut items = Vec::with_capacity(call.args.len() + 1);
         for arg in &call.args {
@@ -5984,6 +5995,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       if self.held_refs.contains(&name) {
         lets.push(Stmt::Let { name: format!("{}{name}", snapfire_fsr_ir::render::HOLD_PREFIX), expr: Expr::Var(fresh.clone()) });
       }
+      if name == snapfire_fsr_ir::render::CURSOR {
+        lets.push(Stmt::Let { name: name.clone(), expr: Expr::Var(fresh.clone()) });
+      }
       self.lowerer.scope.push((name, Expr::Var(fresh)));
     }
     Ok(())
@@ -6251,6 +6265,23 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
     if let Some((hook @ ("useFocus" | "useFocusManager"), call)) = hook_call(&self.meanings(), init) {
       return self.focus_hook(hook, call, &decl.name, decl.span);
+    }
+    if let Some(("useCursor", _)) = hook_call(&self.meanings(), init) {
+      let js::Pat::Object(object) = &decl.name else { return Err(self.lowerer.residue(decl.span, "`useCursor` bound to one name; destructure `setCursorPosition`")) };
+      for prop in &object.props {
+        let local = match prop {
+          js::ObjectPatProp::Assign(assign) if assign.key.sym.as_ref() == "setCursorPosition" => assign.key.sym.to_string(),
+          js::ObjectPatProp::KeyValue(kv) => match (&kv.key, &*kv.value) {
+            (js::PropName::Ident(key), js::Pat::Ident(local)) if key.sym.as_ref() == "setCursorPosition" => local.id.sym.to_string(),
+            _ => return Err(self.lowerer.residue(decl.span, "a pattern from `useCursor` other than `setCursorPosition`")),
+          },
+          _ => return Err(self.lowerer.residue(decl.span, "a pattern from `useCursor` other than `setCursorPosition`")),
+        };
+        self.lowerer.cursor_setters.push(local.clone());
+        self.browser_function(local);
+      }
+      self.lowerer.scope.push((snapfire_fsr_ir::render::CURSOR.to_owned(), Expr::Lit(Lit::Null)));
+      return Ok(None);
     }
     if let Some(("useBoxMetrics", call)) = hook_call(&self.meanings(), init) {
       let Some(target) = call.args.first() else { return Err(self.lowerer.residue(decl.span, "`useBoxMetrics` without a ref")) };

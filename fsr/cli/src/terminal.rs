@@ -120,6 +120,7 @@ pub struct Session {
   mounted: std::collections::HashSet<String>,
   started: Vec<Timer>,
   metrics: ValueMap,
+  cursor: Option<(u16, u16)>,
 }
 
 /// Ink's focus: the focusables the page rendered last, in order, the one
@@ -204,7 +205,7 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default() })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None })
   }
 
   /// The page as it stands.
@@ -266,6 +267,12 @@ impl Session {
   /// The terminal's size, which the page reads through `useWindowSize` and `useStdout`.
   pub fn resize(&mut self, columns: u16, rows: u16) {
     self.size = (columns, rows);
+  }
+
+  /// Where the page last put the cursor with Ink's `setCursorPosition`, in cells from the corner of what it draws: `None` keeps it hidden.
+  pub fn cursor(&self) -> Option<(u16, u16)> {
+    let (x, y) = self.cursor?;
+    Some((x, y.saturating_add(self.written.len().min(usize::from(u16::MAX)) as u16)))
   }
 
   /// Whether the page has called Ink's `useApp().exit()`.
@@ -384,8 +391,20 @@ impl Session {
     self.state = stepped.state;
     self.components = stepped.components;
     self.focusables_seen = stepped.focusables;
+    self.cursor = stepped.cursor.as_ref().and_then(cell_of);
     Ok(stepped.rendered.html)
   }
+}
+
+/// `{ x, y }` as the cell it names; anything else hides the cursor.
+fn cell_of(at: &Value) -> Option<(u16, u16)> {
+  let Value::Map(at) = at else { return None };
+  let cell = |key: &str| match at.get(key) {
+    Some(Value::Int(n)) => u16::try_from(*n).ok(),
+    Some(Value::F64(n)) if n.is_finite() && *n >= 0.0 => Some(n.trunc().min(f64::from(u16::MAX)) as u16),
+    _ => None,
+  };
+  Some((cell("x")?, cell("y")?))
 }
 
 /// Each box a ref is on, by the ref's id, as `useBoxMetrics` reads it once `page` is laid out across `columns`.
@@ -455,7 +474,7 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
   session.resize(columns, rows);
   let mut shown = Frame::new(0, 0);
   let mut drawn = session.view();
-  draw(&drawn, &mut shown, true).map_err(fail)?;
+  draw(&drawn, &mut shown, true, session.cursor()).map_err(fail)?;
   let schedule = |session: &mut Session| -> Vec<(Timer, Instant)> { session.take_started().into_iter().map(|timer| (Instant::now() + timer.every, timer)).map(|(at, timer)| (timer, at)).collect() };
   let mut timers = schedule(&mut session);
   loop {
@@ -469,7 +488,7 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
             if session.exited() {
               break;
             }
-            draw(&drawn, &mut shown, false).map_err(fail)?;
+            draw(&drawn, &mut shown, false, session.cursor()).map_err(fail)?;
           }
           None => {}
         },
@@ -477,7 +496,7 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
           let (columns, rows) = terminal_size();
           session.resize(columns, rows);
           drawn = session.view();
-          draw(&drawn, &mut shown, true).map_err(fail)?;
+          draw(&drawn, &mut shown, true, session.cursor()).map_err(fail)?;
         }
         _ => {}
       }
@@ -498,13 +517,13 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
       break;
     }
     if fired {
-      draw(&drawn, &mut shown, false).map_err(fail)?;
+      draw(&drawn, &mut shown, false, session.cursor()).map_err(fail)?;
     }
     if rx.try_recv().is_ok() {
       while rx.try_recv().is_ok() {}
       drawn = session.reload().and_then(|()| session.view());
       timers = schedule(&mut session);
-      draw(&drawn, &mut shown, false).map_err(fail)?;
+      draw(&drawn, &mut shown, false, session.cursor()).map_err(fail)?;
     }
   }
   drop(screen);
@@ -520,8 +539,8 @@ fn terminal_size() -> (u16, u16) {
 }
 
 /// Draws `node` or the error in its place, writing what changed since
-/// `shown`; `whole` clears the screen and writes every cell.
-fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool) -> std::io::Result<()> {
+/// `shown`; `whole` clears the screen and writes every cell. The cursor shows at `cursor` and is hidden without one.
+fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool, cursor: Option<(u16, u16)>) -> std::io::Result<()> {
   let (columns, _) = terminal_size();
   let frame = match node {
     Ok(node) => render(node, columns),
@@ -533,6 +552,10 @@ fn draw(node: &Result<Node, String>, shown: &mut Frame, whole: bool) -> std::io:
     *shown = Frame::new(0, 0);
   }
   out.write_all(frame.diff(shown).as_bytes())?;
+  match cursor {
+    Some((x, y)) => write!(out, "\x1b[{};{}H\x1b[?25h", u32::from(y) + 1, u32::from(x) + 1)?,
+    None => out.write_all(b"\x1b[?25l")?,
+  }
   out.flush()?;
   *shown = frame;
   Ok(())

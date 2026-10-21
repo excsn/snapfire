@@ -240,6 +240,8 @@ pub struct Stepped {
   pub components: Vec<(String, String)>,
   /// The value of each [`FOCUSABLE`] the render bound, in render order.
   pub focusables: Vec<Value>,
+  /// The last [`CURSOR`] the render bound; `None` when it bound none.
+  pub cursor: Option<Value>,
 }
 
 /// The handler a step runs: an index into the handlers of the component at
@@ -347,6 +349,9 @@ pub const HOLD_PREFIX: &str = "$hold:";
 
 /// A body `let` of this name holds a focusable a terminal can move focus to, `{ id, autoFocus, isActive }`; a step lists each one it rendered in order.
 pub const FOCUSABLE: &str = "$focusable";
+
+/// A body `let` of this name holds where a terminal puts its cursor, `{ x, y }` from the corner of the output; null hides it. Ink's `setCursorPosition` sets it and a step returns the last one bound.
+pub const CURSOR: &str = "$cursor";
 
 /// How many passes a body may take, React's limit for a component that keeps setting its own state while rendering.
 pub const RERUN_LIMIT: usize = 25;
@@ -642,12 +647,14 @@ impl Interpreter {
     let mut slots = Vec::new();
     env.entered.clear();
     env.focusables.clear();
+    env.cursor = None;
     render_component(&mut env, component, library, &mut slots, &mut out)?;
     let hoisted = env.hoists.take().map(|h| h.table).unwrap_or_default();
     let acts = std::mem::take(&mut env.acts);
     let components = std::mem::take(&mut env.entered);
     let focusables = std::mem::take(&mut env.focusables);
-    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components, focusables })
+    let cursor = env.cursor.take();
+    Ok(Stepped { state: out.state, store: written, rendered: Rendered { html: out.html, islands: out.islands, places: out.places, hoisted, whole: !env.unrendered }, acts, components, focusables, cursor })
   }
 }
 
@@ -818,6 +825,9 @@ fn bind_body(env: &mut Env, component: &Component, path: &str, depth: usize, out
       }
       if name == FOCUSABLE && env.server_mode {
         focusables.push(value.clone());
+      }
+      if name == CURSOR && env.server_mode {
+        env.cursor = Some(value.clone());
       }
       env.scope.push((name.clone(), value));
     }

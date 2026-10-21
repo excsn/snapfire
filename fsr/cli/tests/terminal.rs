@@ -206,3 +206,17 @@ fn use_box_metrics_reads_the_layout_and_a_content_offset_scrolls_a_hidden_overfl
   assert_eq!(lines(session.press(&key).unwrap()), ["╭────╮", "│b   │", "│c   │", "╰────╯", "1/1"]);
   assert_eq!(lines(session.press(&key).unwrap())[4], "1/1", "clamped at the bottom");
 }
+
+#[test]
+fn the_cursor_goes_where_the_page_set_it_and_is_hidden_when_it_sets_none() {
+  let page = "import { useState } from \"react\";\nimport { Text, useCursor, useInput } from \"ink\";\n\nexport default function Prompt() {\n  const [text, setText] = useState(\"\");\n  const { setCursorPosition } = useCursor();\n  useInput((input) => setText((t) => t + input));\n  if (text !== \"done\") {\n    setCursorPosition({ x: 2 + text.length, y: 0 });\n  }\n  return <Text>&gt; {text}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  session.view().unwrap();
+  assert_eq!(session.cursor(), Some((2, 0)));
+  let Some(Press::Input(key)) = key_event(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)) else { panic!("a is input") };
+  session.press(&key).unwrap();
+  assert_eq!(session.cursor(), Some((3, 0)));
+  let mut done = Session::open(&app(&page.replace("useState(\"\")", "useState(\"done\")"))).unwrap();
+  done.view().unwrap();
+  assert_eq!(done.cursor(), None);
+}

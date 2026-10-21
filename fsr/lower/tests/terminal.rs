@@ -280,3 +280,21 @@ fn a_timer_reads_its_delay_from_a_module_constant_and_runs_a_named_callback() {
   let tick = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &Value::Null, &library).unwrap();
   assert_eq!(tick.rendered.html, "<ink-text>1</ink-text>");
 }
+
+#[test]
+fn set_cursor_position_while_rendering_hands_the_terminal_where_the_cursor_goes() {
+  let page = "import { useState } from \"react\";\nimport { Text, useCursor, useInput } from \"ink\";\n\nexport default function Prompt() {\n  const [text, setText] = useState(\"\");\n  const { setCursorPosition } = useCursor();\n  useInput((input) => setText((t) => t + input));\n  setCursorPosition({ x: 2 + text.length, y: 0 });\n  return <Text>&gt; {text}</Text>;\n}\n";
+  let library = library(page);
+  let component = &library[MODULE];
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let at = |x: f64| {
+    let mut map = ValueMap::default();
+    map.insert("x".to_owned(), Value::F64(x));
+    map.insert("y".to_owned(), Value::F64(0.0));
+    Some(Value::Map(map))
+  };
+  assert_eq!(first.cursor, at(2.0));
+  let typed = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(0)), &key("ab", &[]), &library).unwrap();
+  assert_eq!(typed.cursor, at(4.0));
+}

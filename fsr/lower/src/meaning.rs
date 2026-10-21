@@ -80,7 +80,7 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
       rows.extend(TERMINAL_ELEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
       rows.push((module, "useInput", Construct::Hook("useInput")));
       rows.push((module, "useApp", Construct::Hook("useApp")));
-      for hook in ["useWindowSize", "useStdout", "useStderr", "useIsScreenReaderEnabled", "useAnimation", "useFocus", "useFocusManager", "useBoxMetrics"] {
+      for hook in ["useWindowSize", "useStdout", "useStderr", "useIsScreenReaderEnabled", "useAnimation", "useFocus", "useFocusManager", "useBoxMetrics", "useCursor"] {
         rows.push((module, hook, Construct::Hook(hook)));
       }
     }

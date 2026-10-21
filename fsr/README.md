@@ -102,15 +102,15 @@ cargo install snapfire_fsr_cli --features terminal
 fsr dev app --terminal
 ```
 
-Terminal mode is experimental. Today it runs the app's root page `routes/page.tsx` with every component it places, each with its own state, keys and timers. It reads React's `useState`, `useReducer` and `useRef` with Ink's `useInput`, `useFocus`, `useFocusManager`, `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr`, `useAnimation`, `useBoxMetrics` and `Static`; Tab, Shift+Tab and Esc move the focus as Ink's do. A mount effect may start `setInterval` and `setTimeout` timers. Local time reads this machine's time zone. A Box may be sized in percentages. `ms`, `strip-ansi`, `string-width` and `wrap-ansi` run natively. A handler or a timer sets state, dispatches or calls an action. `Transform`, `measureElement`, `Suspense` and other effects are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
+Terminal mode is experimental. Today it runs the app's root page `routes/page.tsx` with every component it places, each with its own state, keys and timers. It reads React's `useState`, `useReducer` and `useRef` with Ink's `useInput`, `useFocus`, `useFocusManager`, `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr`, `useAnimation`, `useBoxMetrics`, `useCursor` and `Static`; Tab, Shift+Tab and Esc move the focus as Ink's do. A mount effect may start `setInterval` and `setTimeout` timers. Local time reads this machine's time zone. A Box may be sized in percentages. `ms`, `strip-ansi`, `string-width` and `wrap-ansi` run natively. A handler or a timer sets state, dispatches or calls an action. `Transform`, `measureElement`, `Suspense` and other effects are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
 
 The corpus runs Ink's own examples through terminal mode as one application each:
 
 | Corpus | Examples | Runs in the terminal | Not run by design | Refused |
 |---|---|---|---|---|
-| [Ink](docs/corpus/ink.md) | 29 | 21 (72.4%) | 3 | 5 |
+| [Ink](docs/corpus/ink.md) | 29 | 22 (75.9%) | 3 | 4 |
 
-The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `@faker-js/faker` and `p-queue` with `delay`. Not counting those, 21 of the 26 run (80.8%). A refused example uses something terminal mode cannot run yet, such as `Suspense`, `useCursor` or `node:child_process`. The corpus page lists each cause.
+The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `@faker-js/faker` and `p-queue` with `delay`. Not counting those, 22 of the 26 run (84.6%). A refused example uses something terminal mode cannot run yet, such as `Suspense` or `node:child_process`. The corpus page lists each cause.
 
 ## Architecture
 

@@ -237,6 +237,7 @@ impl Interpreter {
       probe: None,
       entered: Vec::new(),
       focusables: Vec::new(),
+      cursor: None,
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
@@ -351,6 +352,8 @@ pub(crate) struct Env {
   pub(crate) entered: Vec<(String, String)>,
   /// A step's record of each focusable it bound, in render order.
   pub(crate) focusables: Vec<Value>,
+  /// The last [`crate::render::CURSOR`] a step bound.
+  pub(crate) cursor: Option<Value>,
   /// Rendering an island in server mode: handler markers print as attributes
   /// the browser binds, which a browser-mode render must never show React.
   pub(crate) server_mode: bool,
@@ -602,6 +605,7 @@ impl Env {
       probe: None,
       entered: Vec::new(),
       focusables: Vec::new(),
+      cursor: None,
       server_mode: false,
       acts: Vec::new(),
       calls: 0,
@@ -813,6 +817,7 @@ impl Env {
       probe: None,
       entered: Vec::new(),
       focusables: Vec::new(),
+      cursor: None,
       server_mode: false,
       acts: Vec::new(),
       calls: self.calls,
