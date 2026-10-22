@@ -48,7 +48,7 @@ pub fn run(from: &Path, to: &Path, fetch: bool, map: Option<&Path>) -> Result<Mi
   }
   let (tree, report) = migrate(&input);
   let Some(source) = report.source else {
-    return Err(BuildError::Dev(format!("{}: its package.json names neither next, @sveltejs/kit nor nuxt, so nothing says what it was written for", from.display())));
+    return Err(BuildError::Dev(format!("{}: its package.json names neither next, @sveltejs/kit, nuxt nor ink, so nothing says what it was written for", from.display())));
   };
   if report.passes.is_empty() {
     return Err(BuildError::Dev(format!("{}: {} is not migrated yet", from.display(), source.name())));

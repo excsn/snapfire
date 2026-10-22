@@ -102,6 +102,26 @@ useEffect(() => {
 
 `useApp().suspendTerminal(fn)` gives up the screen while the promise `fn` returns is pending. A process spawned inside it with `stdio: "inherit"` owns the terminal, which is how an Ink tool opens an editor. [`examples/launcher_terminal_ts`](../../examples/launcher_terminal_ts/README.md) runs `$EDITOR`, `less` and a shell this way. It pipes the commands that do not need the terminal into a panel.
 
+## Bringing an Ink application in
+
+`fsr migrate` reads an application whose `package.json` depends on `ink` and writes it as an FSR project:
+
+```sh
+fsr migrate ./my-ink-tool ./my-fsr-tool
+```
+
+The sources under `source/` or `src/` go to `app/src/` and a top-level `test.ts` or a `*.test.*` file to `app/tests/`. The entry that calls Ink's `render` is left behind, since `app/routes/page.tsx` renders the same component instead.
+
+```tsx
+import Ui from "@src/ui";
+
+export default function Page() {
+  return <Ui />;
+}
+```
+
+An import written through the application's own `tsconfig.json` `paths`, `~/core/init` or `@/ui/Board`, is rewritten to `@src/core/init`, FSR's alias for that directory. A file next door is reached by a relative path instead. The alias map itself is not carried over: the project's tsconfig is FSR's, which chapter [302](302-imports-and-aliases.md) describes. What the entry read from the command line and passed as props, `render(<Ui limit={cli.flags.limit} />)`, is a note naming the props; `page.tsx` renders the component without them. `ink`, `react` and the packages FSR provides are not listed in the report; the rest of `dependencies` that a kept file imports are, for `fsr add`.
+
 ## How much of Ink runs
 
 Ink's own 29 examples are the measure. 26 run in the terminal with no change: they lower, draw their first frame and step on their timers and keys as they do under Ink. None is refused. Three are not run by design. `jest` is built on `p-queue` with `delay` and `table` on `@faker-js/faker`, npm packages the build does not follow. `router` is built on `react-router`, whose routes FSR's own routes stand in for ([chapter 100](100-routes-loaders-and-pages.md)). [The Ink corpus](../corpus/ink.md) lists every example and how it is run, and says how to [run an Ink application of your own](../corpus/ink.md#running-an-ink-application-outside-the-corpus) to see its first frame or the first thing it needs. The [terminal examples](../../examples/README.md) are six applications written to exercise what the corpus does not: [counter](../../examples/counter_terminal_ts/README.md), [tasks](../../examples/tasks_terminal_ts/README.md), [log](../../examples/log_terminal_ts/README.md), [launcher](../../examples/launcher_terminal_ts/README.md), [monitor](../../examples/monitor_terminal_ts/README.md) and [pomodoro](../../examples/pomodoro_terminal_ts/README.md).

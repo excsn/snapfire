@@ -61,7 +61,7 @@ A chapter marked **everyone** is one both need. Nothing in the app developer cha
 
 **The terminal:**
 
-- [400. Terminal apps with Ink](400-terminal-apps-with-ink.md), an Ink application run by `fsr dev --terminal` with no Node, Ink's hooks written in TypeScript over a few primitives, effects with their timers and cleanups, the processes a page starts, promises and the terminal handed to another program, then how much of Ink runs. App developers.
+- [400. Terminal apps with Ink](400-terminal-apps-with-ink.md), an Ink application run by `fsr dev --terminal` with no Node, Ink's hooks written in TypeScript over a few primitives, effects with their timers and cleanups, the processes a page starts, promises and the terminal handed to another program, `fsr migrate` for an application written against Ink, then how much of Ink runs. App developers.
 
 And one appendix:
 

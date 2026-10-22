@@ -53,7 +53,7 @@ fn an_application_no_package_json_names_a_framework_for_is_refused() {
   write(&from, &[("package.json", r#"{ "dependencies": { "express": "4" } }"#), ("index.js", "\n")]);
   let to = dir.join("fsr");
   let error = run(&from, &to, false, None).unwrap_err().to_string();
-  assert!(error.contains("names neither next, @sveltejs/kit nor nuxt"), "{error}");
+  assert!(error.contains("names neither next, @sveltejs/kit, nuxt nor ink"), "{error}");
   assert!(!to.exists(), "nothing is written for a source migrate cannot read");
   std::fs::remove_dir_all(&dir).unwrap();
 }

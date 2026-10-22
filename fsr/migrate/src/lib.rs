@@ -8,6 +8,7 @@ mod config;
 mod env;
 mod edit;
 mod head;
+mod ink;
 mod items;
 mod lift;
 mod map;
@@ -87,6 +88,8 @@ pub enum Source {
   NextPages,
   SvelteKit,
   Nuxt,
+  /// A terminal application on Ink.
+  Ink,
 }
 
 impl Source {
@@ -96,6 +99,7 @@ impl Source {
       Source::NextPages => "Next.js Pages Router",
       Source::SvelteKit => "SvelteKit",
       Source::Nuxt => "Nuxt",
+      Source::Ink => "Ink",
     }
   }
 
@@ -105,6 +109,7 @@ impl Source {
       Source::NextApp | Source::NextPages => "react",
       Source::SvelteKit => "svelte",
       Source::Nuxt => "vue",
+      Source::Ink => "react",
     }
   }
 }
@@ -127,6 +132,9 @@ pub fn detect(tree: &Tree) -> Option<Source> {
   }
   if depends("nuxt") || tree.paths().any(|p| p.starts_with("nuxt.config.")) {
     return Some(Source::Nuxt);
+  }
+  if depends("ink") {
+    return Some(Source::Ink);
   }
   None
 }
@@ -192,6 +200,7 @@ pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
     Source::NextApp => workspace_pass().into_iter().chain(next::app_passes()).chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
     Source::NextPages => workspace_pass().into_iter().chain(pages::passes()).chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::Ink => workspace_pass().into_iter().chain(ink::passes()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }
@@ -226,7 +235,7 @@ pub fn migrate(input: &Tree) -> (Tree, Report) {
   let mut report = Report { source: detect(input), ..Report::default() };
   let mut tree = input.clone();
   match report.source {
-    None => report.note("package.json", 0, "names neither next, @sveltejs/kit nor nuxt, so nothing says what this application was written for"),
+    None => report.note("package.json", 0, "names neither next, @sveltejs/kit, nuxt nor ink, so nothing says what this application was written for"),
     Some(source) => {
       let passes = passes(source);
       if passes.is_empty() {

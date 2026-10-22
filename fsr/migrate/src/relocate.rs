@@ -33,7 +33,7 @@ impl Aliases {
   }
 
   /// The paths, without extension, that `spec` may name.
-  fn candidates(&self, spec: &str) -> Vec<String> {
+  pub(crate) fn candidates(&self, spec: &str) -> Vec<String> {
     let mut out = Vec::new();
     for (pattern, targets) in &self.paths {
       let matched = match pattern.split_once('*') {
@@ -137,8 +137,8 @@ fn restyle(spec: String, reached: &Reached) -> String {
 }
 
 /// `old` with each file moved as `moves` says (old path to new) and every
-/// relative or aliased specifier in a moved script rewritten to reach the
-/// same file at its new path. A file `moves` leaves out is not in the result.
+/// relative or aliased specifier in a moved script or `.d.ts` rewritten to
+/// reach the same file at its new path. A file `moves` leaves out is not in the result.
 /// A specifier reaching under `app/src/` through an alias is written as
 /// `@src/...`, FSR's alias for that directory.
 pub(crate) fn relocate(old: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, report: &mut Report) -> Tree {
@@ -146,7 +146,7 @@ pub(crate) fn relocate(old: &Tree, moves: &BTreeMap<String, String>, aliases: &A
   for (from, to) in moves {
     let Some(bytes) = old.get(from) else { continue };
     let rewritten = match old.text(from) {
-      Some(text) if is_script(from) => rewrite(old, moves, aliases, from, to, text, report).map(String::into_bytes),
+      Some(text) if is_script(from) || from.ends_with(".d.ts") => rewrite(old, moves, aliases, from, to, text, report).map(String::into_bytes),
       _ => None,
     };
     out.insert(to.clone(), rewritten.unwrap_or_else(|| bytes.to_vec()));

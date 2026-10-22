@@ -76,10 +76,15 @@ impl Pass for Layout {
 }
 
 pub(crate) fn read_packages(tree: &Tree, report: &mut Report) {
+  read_packages_but(tree, report, &["next", "react", "react-dom"]);
+}
+
+/// The input's `dependencies` into the report, leaving out `provided`, what FSR supplies itself, and tooling.
+pub(crate) fn read_packages_but(tree: &Tree, report: &mut Report, provided: &[&str]) {
   let Some(package) = tree.text("package.json").and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok()) else { return };
   let Some(deps) = package.get("dependencies").and_then(|d| d.as_object()) else { return };
   for (name, range) in deps {
-    if ["next", "react", "react-dom"].contains(&name.as_str()) || is_tooling(name) {
+    if provided.contains(&name.as_str()) || is_tooling(name) {
       continue;
     }
     report.packages.insert(name.clone(), range.as_str().unwrap_or_default().to_owned());
