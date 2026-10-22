@@ -94,7 +94,7 @@ useEffect(() => {
 }, [chosen]);
 ```
 
-`strip-ansi`, `string-width`, `wrap-ansi` and `ms` run natively, since a terminal tool reaches for them constantly. `ink-spinner` and the `cli-spinners` it reads are provided as TypeScript modules written as the packages are, so `<Spinner />` runs on the same timers as any other component. Other npm packages are not followed; [chapter 301](301-dependencies-without-npm.md) covers how an application gets its dependencies without npm.
+`strip-ansi`, `string-width`, `wrap-ansi` and `ms` run natively, since a terminal tool reaches for them constantly. `ink-spinner` with the `cli-spinners` it reads and `ink-text-input` are provided as TypeScript modules written as the packages are, so `<Spinner />` runs on the same timers as any other component and `<TextInput />` reads keys with `useInput` as any other component does. Other npm packages are not followed; [chapter 301](301-dependencies-without-npm.md) covers how an application gets its dependencies without npm.
 
 ## Promises and handing over the terminal
 

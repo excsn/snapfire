@@ -480,6 +480,23 @@ fn a_let_declared_without_a_value_is_undefined() {
 }
 
 #[test]
+fn ink_text_input_edits_its_value_at_the_cursor_and_submits_it() {
+  let page = "import { useState } from \"react\";\nimport { Box, Text } from \"ink\";\nimport TextInput, { UncontrolledTextInput } from \"ink-text-input\";\n\nexport default function Ask() {\n  const [query, setQuery] = useState(\"\");\n  const [sent, setSent] = useState(\"\");\n  return (\n    <Box flexDirection=\"column\">\n      <TextInput value={query} onChange={setQuery} onSubmit={setSent} placeholder=\"Search\" />\n      <Text>sent {sent}</Text>\n      <UncontrolledTextInput focus={false} initialValue=\"kept\" />\n    </Box>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let press = |code: KeyCode| {
+    let Some(Press::Input(press)) = key_event(KeyEvent::new(code, KeyModifiers::NONE)) else { panic!("{code:?} is input") };
+    press
+  };
+  let lines = |node| snapfire_fsr_terminal::render(&node, 12).lines()[..3].iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(lines(session.view().unwrap()), ["Search", "sent", "kept"]);
+  session.press(&press(KeyCode::Char('h'))).unwrap();
+  assert_eq!(lines(session.press(&press(KeyCode::Char('i'))).unwrap()), ["hi", "sent", "kept"]);
+  session.press(&press(KeyCode::Left)).unwrap();
+  assert_eq!(lines(session.press(&press(KeyCode::Char('x'))).unwrap()), ["hxi", "sent", "kept"]);
+  assert_eq!(lines(session.press(&press(KeyCode::Enter)).unwrap()), ["hxi", "sent hxi", "kept"]);
+}
+
+#[test]
 fn a_handler_writes_its_own_let_in_a_branch_and_after_it() {
   let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Count() {\n  const [count, setCount] = useState(1);\n  useInput((input) => {\n    let next = count;\n    if (input === \"+\") {\n      next += 2;\n    } else {\n      next--;\n    }\n    next = next * 10;\n    setCount(next);\n  });\n  return <Text>{count}</Text>;\n}\n";
   let mut session = Session::open(&app(page)).unwrap();

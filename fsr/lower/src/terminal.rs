@@ -13,9 +13,10 @@ pub const INK_SOURCE: &str = include_str!("../terminal/ink.tsx");
 pub const INK_MODULES: [&str; 2] = ["ink", "@snapfire/fsr/terminal"];
 
 /// The npm packages around Ink a terminal page may import, each with the file the build provides in its place and that file's source: `(specifier, file, source)`.
-pub const COMPANIONS: [(&str, &str, &str); 2] = [
+pub const COMPANIONS: [(&str, &str, &str); 3] = [
   ("cli-spinners", "$fsr/terminal/cli-spinners.ts", include_str!("../terminal/cli-spinners.ts")),
   ("ink-spinner", "$fsr/terminal/ink-spinner.tsx", include_str!("../terminal/ink-spinner.tsx")),
+  ("ink-text-input", "$fsr/terminal/ink-text-input.tsx", include_str!("../terminal/ink-text-input.tsx")),
 ];
 
 /// A focusable a terminal can move focus to, `{ id, autoFocus, isActive }`, one per `useFocus`, in render order.
