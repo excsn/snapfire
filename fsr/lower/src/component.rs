@@ -8821,11 +8821,31 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         return Ok(());
       }
     }
+    let active = match call.args.get(1).map(|options| &*options.expr) {
+      None => None,
+      Some(js::Expr::Object(object)) => {
+        let mut active = None;
+        for prop in &object.props {
+          let js::PropOrSpread::Prop(prop) = prop else { return Err(self.lowerer.residue(call.span, "a spread in `useInput`'s options")) };
+          let js::Prop::KeyValue(kv) = &**prop else { return Err(self.lowerer.residue(call.span, "a `useInput` option that is not `key: value`")) };
+          match prop_name(&kv.key).as_deref() {
+            Some("isActive") => active = Some(self.lowerer.expr(&kv.value)?),
+            other => return Err(self.lowerer.residue(call.span, format!("`{}` in `useInput`'s options", other.unwrap_or("a computed key")))),
+          }
+        }
+        active
+      }
+      Some(_) => return Err(self.lowerer.residue(call.span, "`useInput` options that are not an object written out")),
+    };
     let event = Expr::Var("$event".to_owned());
     self.event_binds = Some(vec![Expr::Field(Box::new(event.clone()), "input".to_owned()), Expr::Field(Box::new(event), "key".to_owned())]);
     let body = self.handler_body(&arg.expr);
     self.event_binds = None;
-    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Input.name(), body: body? });
+    let body = match active {
+      Some(cond) => vec![Stmt::If { cond, then: body?, r#else: Vec::new() }],
+      None => body?,
+    };
+    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Input.name(), body });
     Ok(())
   }
 

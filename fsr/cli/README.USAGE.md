@@ -1335,7 +1335,7 @@ useEffect(() => {
 
 Each `setInterval` or `setTimeout` in a mount effect steps the page when it is due, its callback lowered like a handler and its delay a number written out or a module constant. A mount effect has an empty dependency list or depends only on what never changes: setters, a `useReducer` dispatch, refs and `useCallback` functions whose own dependencies never change. An effect whose dependencies change runs again after each render that changed them, the first render included; its body is lowered like a handler. A `setInterval` or `setTimeout` it starts on an arrow runs that arrow when due and `clearInterval` or `clearTimeout` stops it. The function it returns is its cleanup, run before the effect runs again. One that only a browser could run, writing `document.title` for one, is left out.
 
-Every component the page places runs in place with its own state, its own `useInput` and its own timers. A key reaches every `useInput`, as in Ink. `useFocus` makes a component focusable; Tab and Shift+Tab move the focus through them in the order they render and Esc clears it:
+Every component the page places runs in place with its own state, its own `useInput` and its own timers. A key reaches every `useInput` whose `isActive` option is not false, as in Ink: `useInput(handler, { isActive: focused })`. `useFocus` makes a component focusable; Tab and Shift+Tab move the focus through them in the order they render and Esc clears it:
 
 ```tsx
 import { Box, Text, useFocus, useFocusManager, useInput } from "ink";

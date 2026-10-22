@@ -455,3 +455,13 @@ fn a_let_declared_without_a_value_is_undefined() {
   let mut session = Session::open(&app(page)).unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0], "unset undefined");
 }
+
+#[test]
+fn use_input_runs_only_while_its_is_active_option_holds() {
+  let page = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Field({ name, active }: { name: string; active: boolean }) {\n  const [value, setValue] = useState(\"\");\n  useInput((input) => setValue(value + input), { isActive: active });\n  return <Text>{name}:{value}</Text>;\n}\n\nexport default function Fields() {\n  return (\n    <Box flexDirection=\"column\">\n      <Field name=\"a\" active={true} />\n      <Field name=\"b\" active={false} />\n    </Box>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let lines = |node| snapfire_fsr_terminal::render(&node, 10).lines()[..2].to_vec();
+  assert_eq!(lines(session.view().unwrap()), ["a:", "b:"]);
+  assert_eq!(lines(session.press(&x).unwrap()), ["a:x", "b:"]);
+}
