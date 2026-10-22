@@ -3438,7 +3438,26 @@ impl<'a> Lowerer<'a> {
           Some(arrow) => Box::new(self.lambda(&arrow)?),
           None => lambda(self, 0)?,
         };
-        let init = call.args.get(1).ok_or_else(|| self.residue(call.span, "`reduce` needs an initial value"))?;
+        let Some(init) = call.args.get(1) else {
+          let items = self.temp();
+          let whole = Expr::Var(items.clone());
+          let f = match *f {
+            Expr::Lambda { params, body } if params.len() > 2 => {
+              let (index, array) = (self.temp(), self.temp());
+              let mut binds = vec![Stmt::Let { name: params[2].clone(), expr: Expr::Arith(ArithOp::Add, Box::new(Expr::Var(index.clone())), Box::new(Expr::Lit(Lit::Int(1)))) }];
+              if let Some(all) = params.get(3) {
+                binds.push(Stmt::Let { name: all.clone(), expr: whole.clone() });
+              }
+              binds.push(Stmt::Return(*body));
+              Box::new(Expr::Lambda { params: vec![params[0].clone(), params[1].clone(), index, array], body: Box::new(Expr::Block(binds)) })
+            }
+            f => Box::new(f),
+          };
+          let rest = Expr::Builtin { name: Builtin::Slice, args: vec![whole.clone(), Expr::Lit(Lit::Int(1))] };
+          let reduced = Expr::Reduce(Box::new(rest), Box::new(Expr::Index(Box::new(whole.clone()), Box::new(Expr::Lit(Lit::Int(0))))), f);
+          let empty = Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str("Reduce of empty array with no initial value")] };
+          return Ok(Expr::Block(vec![Stmt::Let { name: items, expr: *target }, Stmt::Return(Expr::Ternary(Box::new(Expr::Length(Box::new(whole))), Box::new(reduced), Box::new(empty)))]));
+        };
         let init = Box::new(self.expr(&init.expr)?);
         Ok(Expr::Reduce(target, init, f))
       }

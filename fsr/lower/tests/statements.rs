@@ -274,3 +274,12 @@ fn array_from_a_string_is_its_code_points() {
   let page = "export default function Page() {\n  const letters = Array.from(\"ab👍\");\n  return <p>{letters.length}:{letters.map((c) => `[${c}]`).join(\"\")}</p>;\n}\n";
   assert_eq!(html("array_from_string", page).as_deref(), Ok("<p>3:[a][b][👍]</p>"));
 }
+
+#[test]
+fn reduce_without_an_initial_value_starts_from_the_first_item_and_throws_on_an_empty_array() {
+  let page = "const stringSum = (s: string) =>\n  Array.from(s)\n    .map((c) => c.charCodeAt(0))\n    .reduce((a, b) => a + b);\n\nexport default function Page() {\n  const indexed = [\"a\", \"b\", \"c\"].reduce((acc, x, i, all) => acc + i + x + all.length);\n  return <p>{stringSum(\"AB\")}|{indexed}</p>;\n}\n";
+  assert_eq!(html("reduce_no_init", page).as_deref(), Ok("<p>131|a1b32c3</p>"));
+  let empty = "export default function Page() {\n  const none: number[] = [];\n  return <p>{none.reduce((a, b) => a + b)}</p>;\n}\n";
+  let failed = html("reduce_empty", empty).unwrap_err();
+  assert!(failed.contains("Reduce of empty array with no initial value"), "{failed}");
+}
