@@ -180,7 +180,7 @@ fn typed_value(tag: &str, value: &Value) -> Value {
   let payload = match (tag, value) {
     (_, Value::Null | Value::Undefined) => return Value::Null,
     (typed::MAP, Value::Map(map)) => Value::Seq(map.iter().map(|(k, v)| Value::seq(vec![Value::str(k.clone()), v.clone()])).collect()),
-    (typed::SET, Value::Seq(_)) | (typed::DATE | typed::BIGINT, Value::Int(_) | Value::UInt(_) | Value::F64(_) | Value::F32(_)) => value.clone(),
+    (typed::SET, Value::Seq(_)) | (typed::DATE | typed::BIGINT, Value::Int(_) | Value::UInt(_) | Value::F64(_) | Value::F32(_)) | (typed::URL, Value::Str(_)) => value.clone(),
     _ => return value.clone(),
   };
   Value::Variant { tag: tag.to_owned(), payload: Some(Box::new(payload)) }

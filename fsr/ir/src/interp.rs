@@ -2246,6 +2246,12 @@ fn with_array(mut args: Vec<Value>, whole: &Option<Value>) -> Vec<Value> {
   args
 }
 
+/// The URL a `UrlParse` href holds.
+fn href(value: &Value) -> Result<url::Url, Fail> {
+  let text = stringify(value)?;
+  url::Url::parse(&text).map_err(|_| Fail::internal(format!("Invalid URL: {text}")))
+}
+
 /// `application/x-www-form-urlencoded` as `URLSearchParams` writes it: letters, digits and `*-._` as they are, a space as `+`, every other byte `%XX`.
 fn form_encode(s: &str) -> String {
   let mut out = String::with_capacity(s.len());
@@ -3043,6 +3049,102 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Builtin::FormHas => Value::Bool(!values.is_empty()),
         _ => Value::Seq(values.into_iter().collect()),
       }
+    }
+    Builtin::FormSet | Builtin::FormAppend | Builtin::FormDelete => {
+      let mut pairs: Vec<(String, String)> = match arg(0)? {
+        Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes()).map(|(k, v)| (k.into_owned(), v.into_owned())).collect(),
+        Value::Null | Value::Undefined => Vec::new(),
+        other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
+      };
+      let key = stringify(arg(1)?)?;
+      match name {
+        Builtin::FormAppend => pairs.push((key, stringify(arg(2)?)?)),
+        Builtin::FormDelete => pairs.retain(|(k, _)| *k != key),
+        _ => {
+          let value = stringify(arg(2)?)?;
+          match pairs.iter().position(|(k, _)| *k == key) {
+            Some(at) => {
+              pairs[at].1 = value;
+              let mut seen = 0;
+              pairs.retain(|(k, _)| *k != key || { seen += 1; seen == 1 });
+            }
+            None => pairs.push((key, value)),
+          }
+        }
+      }
+      Value::str(pairs.iter().map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v))).collect::<Vec<_>>().join("&"))
+    }
+    Builtin::UrlParse => {
+      let text = stringify(arg(0)?)?;
+      let parsed = match args.get(1) {
+        None | Some(Value::Undefined) => url::Url::parse(&text),
+        Some(base) => url::Url::parse(&stringify(base)?).and_then(|base| base.join(&text)),
+      };
+      match parsed {
+        Ok(url) => Value::str(url.to_string()),
+        Err(_) => return Err(Fail::internal(format!("Invalid URL: {text}"))),
+      }
+    }
+    Builtin::UrlPart => {
+      let url = href(arg(0)?)?;
+      let part = stringify(arg(1)?)?;
+      Value::str(match part.as_str() {
+        "href" => url.to_string(),
+        "origin" => url.origin().ascii_serialization(),
+        "protocol" => format!("{}:", url.scheme()),
+        "username" => url.username().to_owned(),
+        "password" => url.password().unwrap_or_default().to_owned(),
+        "host" => match (url.host_str(), url.port()) {
+          (Some(host), Some(port)) => format!("{host}:{port}"),
+          (host, None) => host.unwrap_or_default().to_owned(),
+          (None, Some(_)) => String::new(),
+        },
+        "hostname" => url.host_str().unwrap_or_default().to_owned(),
+        "port" => url.port().map(|p| p.to_string()).unwrap_or_default(),
+        "pathname" => url.path().to_owned(),
+        "search" => url.query().filter(|q| !q.is_empty()).map(|q| format!("?{q}")).unwrap_or_default(),
+        "hash" => url.fragment().filter(|f| !f.is_empty()).map(|f| format!("#{f}")).unwrap_or_default(),
+        other => return Err(Fail::internal(format!("`{other}` is not a part of a URL"))),
+      })
+    }
+    Builtin::UrlSet => {
+      let mut url = href(arg(0)?)?;
+      let part = stringify(arg(1)?)?;
+      let value = stringify(arg(2)?)?;
+      let _: Result<(), ()> = match part.as_str() {
+        "href" => match url::Url::parse(&value) {
+          Ok(next) => {
+            url = next;
+            Ok(())
+          }
+          Err(_) => return Err(Fail::internal(format!("Invalid URL: {value}"))),
+        },
+        "protocol" => url.set_scheme(value.trim_end_matches(':')),
+        "username" => url.set_username(&value),
+        "password" => url.set_password(Some(&value).filter(|v| !v.is_empty()).map(String::as_str)),
+        "host" => match value.rsplit_once(':') {
+          Some((host, port)) if port.parse::<u16>().is_ok() => url.set_host(Some(host)).map_err(|_| ()).and_then(|()| url.set_port(port.parse().ok())),
+          _ => url.set_host(Some(&value)).map_err(|_| ()),
+        },
+        "hostname" => url.set_host(Some(&value)).map_err(|_| ()),
+        "port" => url.set_port(if value.is_empty() { None } else { value.parse().ok() }),
+        "pathname" => {
+          url.set_path(&value);
+          Ok(())
+        }
+        "search" => {
+          let query = value.strip_prefix('?').unwrap_or(&value);
+          url.set_query(Some(query).filter(|q| !q.is_empty()));
+          Ok(())
+        }
+        "hash" => {
+          let fragment = value.strip_prefix('#').unwrap_or(&value);
+          url.set_fragment(Some(fragment).filter(|f| !f.is_empty()));
+          Ok(())
+        }
+        other => return Err(Fail::internal(format!("`{other}` is not a part of a URL"))),
+      };
+      Value::str(url.to_string())
     }
     Builtin::LooseMatch => {
       let wanted = stringify(args.get(1).unwrap_or(&Value::Null))?;

@@ -260,6 +260,18 @@ pub enum Builtin {
   FormHas,
   /// `.getAll(key)` over the same string: every value under `key`, in order.
   FormGetAll,
+  /// `.set(key, value)` over the same string: the string with the first value under `key` replaced and the rest removed; the pair appended when there is none.
+  FormSet,
+  /// `.append(key, value)` over the same string: the string with the pair added at the end.
+  FormAppend,
+  /// `.delete(key)` over the same string: the string without any value under `key`.
+  FormDelete,
+  /// `new URL(url, base)`: the href, parsed against `base` when given and normalised as the URL standard does; an invalid URL fails as `new URL` throws.
+  UrlParse,
+  /// `url.pathname` and the other parts of a href: `href`, `origin`, `protocol`, `username`, `password`, `host`, `hostname`, `port`, `pathname`, `search` and `hash`, each as `URL` reads it.
+  UrlPart,
+  /// `url.pathname = value` and the other settable parts: the href with that part replaced as `URL`'s setter replaces it.
+  UrlSet,
   /// `re.test(s)`.
   RegexTest,
   /// `s.match(re)`: the first match and its groups, every match with `g`, null for none.

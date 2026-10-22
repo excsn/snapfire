@@ -400,6 +400,8 @@ impl<'a> Inferer<'a> {
         Builtin::Range => Ts::List(Box::new(Ts::Big)),
         Builtin::Split => Ts::List(Box::new(Ts::Str)),
         Builtin::FormGet => Ts::Union(vec![Ts::Str, Ts::Null]),
+        Builtin::FormHas => Ts::Bool,
+        Builtin::FormGetAll => Ts::List(Box::new(Ts::Str)),
         Builtin::ClassNames | Builtin::TypeOf => Ts::Str,
         _ => Ts::Str,
       },

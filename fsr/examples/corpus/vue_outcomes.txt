@@ -50,8 +50,8 @@ tutorial-step-13-composition	lowered
 tutorial-step-13-options	lowered
 tutorial-step-14-composition	lowered
 tutorial-step-14-options	lowered
-tutorial-step-15-composition	client: src/App.vue:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
-tutorial-step-15-options	client: src/App.vue:4:22 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+tutorial-step-15-composition	client: src/App.vue:4:22 `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`
+tutorial-step-15-options	client: src/App.vue:4:22 `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`
 tutorial-step-2-composition	lowered
 tutorial-step-2-options	lowered
 tutorial-step-3-composition	lowered

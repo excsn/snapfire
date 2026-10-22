@@ -3987,6 +3987,50 @@ fn alias_of(lowerer: &Lowerer<'_>, name: &str) -> Alias {
 
 /// Rebinds the local `name` to `value` after a write to one of its fields,
 /// and the array element it aliases with it.
+/// The kind `name` had while bound to `from`, noted for it bound to `to`.
+fn keep_kind(lowerer: &mut Lowerer<'_>, name: &str, from: &Expr, to: Expr) {
+  if let Some(kind) = lowerer.kinds.iter().rev().find(|(n, held, _)| n == name && held == from).map(|(_, _, kind)| *kind) {
+    lowerer.kinds.push((name.to_owned(), to, kind));
+  }
+}
+
+/// `name` rebound to `value`, which keeps the kind `name` had.
+fn rebind_kind(lowerer: &mut Lowerer<'_>, name: &str, value: Expr, kind: crate::Kind) {
+  lowerer.scope.push((name.to_owned(), value.clone()));
+  lowerer.kinds.push((name.to_owned(), value, kind));
+}
+
+/// `q.set(k, v)`, `q.append(k, v)` or `q.delete(k)` with `q` a local `URLSearchParams` (or the same on `url.searchParams` with `url` a local `URL`): the local, what it holds after the write and its kind.
+fn search_params_write(lowerer: &mut Lowerer<'_>, call: &js::CallExpr, writable: &Writable<'_>) -> Lowered<Option<(String, Expr, crate::Kind)>> {
+  let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+  let js::Expr::Member(m) = &**callee else { return Ok(None) };
+  let method = match prop_name_of(m).as_deref() {
+    Some(method @ ("set" | "append" | "delete")) => method.to_owned(),
+    _ => return Ok(None),
+  };
+  let (name, kind) = match &*m.obj {
+    js::Expr::Ident(id) if lowerer.kind_of(&m.obj) == Some(crate::Kind::Query) => (id.sym.to_string(), crate::Kind::Query),
+    js::Expr::Member(params) => match (&*params.obj, prop_name_of(params).as_deref()) {
+      (js::Expr::Ident(id), Some("searchParams")) if lowerer.kind_of(&params.obj) == Some(crate::Kind::Url) => (id.sym.to_string(), crate::Kind::Url),
+      _ => return Ok(None),
+    },
+    _ => return Ok(None),
+  };
+  if !writable.local(lowerer, &name) {
+    return Ok(None);
+  }
+  let held = current(lowerer, &name);
+  let search = match kind {
+    crate::Kind::Url => Expr::Builtin { name: Builtin::UrlPart, args: vec![held.clone(), Expr::lit_str("search")] },
+    _ => held.clone(),
+  };
+  let written = lowerer.collection_written(call, crate::Kind::Query, &method, search)?;
+  Ok(Some(match kind {
+    crate::Kind::Url => (name, Expr::Builtin { name: Builtin::UrlSet, args: vec![held, Expr::lit_str("search"), written] }, crate::Kind::Url),
+    _ => (name, written, crate::Kind::Query),
+  }))
+}
+
 fn write_field(lowerer: &mut Lowerer<'_>, span: Span, name: &str, value: Expr, assigned: &mut Vec<String>) -> Lowered<()> {
   let alias = alias_of(lowerer, name);
   if let Alias::Stale(array) = &alias {
@@ -4060,6 +4104,17 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
           Some(op) => lowerer.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(read.clone()), right: assign.right.clone() }))?,
         };
         match &read {
+          js::Expr::Member(member) if matches!(&*member.obj, js::Expr::Ident(_)) && lowerer.kind_of(&member.obj) == Some(crate::Kind::Url) => {
+            let js::MemberProp::Ident(part) = &member.prop else { return Err(lowerer.residue(member.span, "a computed part of a `URL`")) };
+            let part = part.sym.to_string();
+            if part == "origin" || !crate::URL_PARTS.contains(&part.as_str()) && part != "href" {
+              return Err(lowerer.residue(member.span, format!("a write to `.{part}` of a `URL`")));
+            }
+            let value = Expr::Builtin { name: Builtin::UrlSet, args: vec![current(lowerer, &name), Expr::lit_str(&part), value] };
+            rebind_kind(lowerer, &name, value, crate::Kind::Url);
+            note(assigned, &name);
+            Ok(())
+          }
           js::Expr::Member(member) => {
             let (_, path) = crate::write_root(member).expect("the root found above");
             let value = lowerer.written_at(current(lowerer, &name), &path, value)?;
@@ -4126,6 +4181,11 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
               }
             }
           }
+        }
+        if let Some((name, value, kind)) = search_params_write(lowerer, call, writable)? {
+          rebind_kind(lowerer, &name, value, kind);
+          note(assigned, &name);
+          return Ok(());
         }
         let target = match &call.callee {
           js::Callee::Expr(callee) => match &**callee {
@@ -6361,6 +6421,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         for name in assigned {
           let value = current(&self.lowerer, &name);
           let fresh = self.lowerer.temp();
+          keep_kind(&mut self.lowerer, &name, &value, Expr::Var(fresh.clone()));
           self.lowerer.scope.push((name, Expr::Var(fresh.clone())));
           lets.push((fresh, value));
         }
@@ -6385,6 +6446,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     for name in assigned {
       let value = current(&self.lowerer, &name);
       let fresh = self.lowerer.temp();
+      keep_kind(&mut self.lowerer, &name, &value, Expr::Var(fresh.clone()));
       lets.push(Stmt::Let { name: fresh.clone(), expr: guarded(early, value) });
       if self.held_refs.contains(&name) {
         lets.push(Stmt::Let { name: format!("{}{name}", snapfire_fsr_ir::render::HOLD_PREFIX), expr: Expr::Var(fresh.clone()) });

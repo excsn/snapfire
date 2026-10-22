@@ -8,7 +8,7 @@ concurrent-suspense	rendered
 counter	rendered
 cursor-ime	rendered
 incremental-rendering	rendered
-jest	refused: `src/jest.tsx#Jest` does not lower, so only a browser could render it: src/jest.tsx:54:27: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`
+jest	refused: `src/jest.tsx#Jest` does not lower, so only a browser could render it: src/jest.tsx:54:27: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`
 justify-content	rendered
 render-throttle	rendered
 router	refused: `src/router.tsx#Home` does not lower, so only a browser could render it: src/router.tsx:7:22: `useNavigate`, a hook the build cannot follow

@@ -171,7 +171,7 @@ pub fn value_to_json(value: &Value) -> Json {
   }
 }
 
-/// The plain value a typed variant's payload stands for: a `$map` as the object its pairs key by `String(key)`, a `$set` as its array, a `$date` as its milliseconds and a `$bigint` as its integer.
+/// The plain value a typed variant's payload stands for: a `$map` as the object its pairs key by `String(key)`, a `$set` as its array, a `$date` as its milliseconds, a `$url` as its href and a `$bigint` as its integer.
 fn typed_payload(tag: &str, payload: &Json) -> Result<Value, DecodeError> {
   let value = json_to_value(payload)?;
   match tag {
@@ -206,6 +206,10 @@ fn typed_payload(tag: &str, payload: &Json) -> Result<Value, DecodeError> {
       v @ (Value::Int(_) | Value::UInt(_)) => Ok(v),
       Value::Str(s) => s.parse::<i128>().map(Value::Int).map_err(|_| err("tag `$bigint` field `p` must be an integer")),
       _ => Err(err("tag `$bigint` field `p` must be an integer")),
+    },
+    typed::URL => match value {
+      v @ Value::Str(_) => Ok(v),
+      _ => Err(err("tag `$url` field `p` must be a string")),
     },
     _ => unreachable!("typed_payload takes a typed tag"),
   }

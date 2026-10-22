@@ -109,3 +109,42 @@ fn a_placement_passing_another_kind_for_a_prop_the_component_relies_on_is_report
   let out = html("conflict", &[("src/Viewer.js", viewer), ("src/First.tsx", first), ("src/Second.tsx", second), ("routes/page.tsx", page)]);
   assert!(out.as_ref().is_err_and(|e| e.starts_with("src/Second.tsx#default: ") && e.contains("`Viewer` reads its `v` prop as a `Set` and this placement passes a `Map`")), "{out:?}");
 }
+
+#[test]
+fn a_url_is_built_read_and_written_as_url_does() {
+  let page = "export default function Page() {\n  const url = new URL(\"/plus-referral?x=1#top\", \"https://www.example.com\");\n  url.searchParams.set(\"code\", \"a b\");\n  url.searchParams.append(\"next\", \"z\");\n  url.searchParams.delete(\"x\");\n  url.pathname = \"/p\";\n  return <a href={url.href}>{url.origin} {url.pathname}{url.search}{url.hash} {url.searchParams.get(\"code\")} {String(url)} {typeof url}</a>;\n}\n";
+  assert_eq!(html("url", &[("routes/page.tsx", page)]).as_deref(), Ok("<a href=\"https://www.example.com/p?code=a+b&amp;next=z#top\">https://www.example.com /p?code=a+b&amp;next=z#top a b https://www.example.com/p?code=a+b&amp;next=z#top object</a>"));
+}
+
+#[test]
+fn a_local_url_search_params_is_written_by_set_append_and_delete() {
+  let page = "export default function Page() {\n  const q = new URLSearchParams(\"a=1&b=2&a=5\");\n  q.set(\"a\", \"3\");\n  q.delete(\"b\");\n  q.append(\"c\", \"4\");\n  return <p>{q.toString()} {q.getAll(\"a\").length}</p>;\n}\n";
+  assert_eq!(html("query_writes", &[("routes/page.tsx", page)]).as_deref(), Ok("<p>a=3&amp;c=4 1</p>"));
+}
+
+#[test]
+fn an_invalid_url_fails_the_render_as_new_url_throws() {
+  let out = html("bad_url", &[("routes/page.tsx", "export default function Page() {\n  const url = new URL(\"not a url\");\n  return <p>{url.href}</p>;\n}\n")]);
+  assert!(out.as_ref().is_err_and(|e| e.contains("Invalid URL")), "{out:?}");
+}
+
+#[test]
+fn an_island_mounts_with_a_url_prop_as_a_url() {
+  let island = "import { useState } from \"react\";\nexport default function Viewer({ url }: { url: URL }) {\n  const [n, setN] = useState(0);\n  return <button onClick={() => setN(n + 1)}>{url.hostname}{n}</button>;\n}\n";
+  let page = "import Viewer from \"@src/Viewer\";\nexport default function Page() {\n  return <Viewer url={new URL(\"https://a.example/x?y=1\")} />;\n}\n";
+  let rendered = render("island_url", &[("src/Viewer.tsx", island), ("routes/page.tsx", page)]).unwrap();
+  assert_eq!(rendered.islands[0].body.html, "<button>a.example0</button>");
+  assert_eq!(rendered.islands[0].mount_props().get("url"), Some(&Value::Variant { tag: typed::URL.to_owned(), payload: Some(Box::new(Value::str("https://a.example/x?y=1"))) }));
+}
+
+#[test]
+fn a_loader_builds_a_url_from_the_query() {
+  let loader = "export async function load({ query }: Ctx) {\n  const url = new URL(\"https://www.example.com/plus-referral\");\n  url.searchParams.set(\"code\", query.code);\n  url.hash = \"top\";\n  return { link: url.href, path: url.pathname };\n}\n";
+  let body = snapfire_fsr_lower::lower_loader("page.loader.ts", loader).unwrap_or_else(|e| panic!("{e}"));
+  let mut ctx = snapfire_fsr_runtime::RequestCtx::anonymous(Default::default());
+  ctx.query.insert("code".to_owned(), "a&b".to_owned());
+  let out = futures::executor::block_on(Interpreter::default().run(&body, &ctx, None)).map(|outcome| outcome.value).unwrap_or_else(|e| panic!("{}", e.message));
+  let Value::Map(fields) = out else { panic!("{out:?}") };
+  assert_eq!(fields.get("link"), Some(&Value::str("https://www.example.com/plus-referral?code=a%26b#top")));
+  assert_eq!(fields.get("path"), Some(&Value::str("/plus-referral")));
+}

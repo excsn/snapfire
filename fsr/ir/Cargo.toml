@@ -22,6 +22,7 @@ snapfire_fsr_core.workspace = true
 snapfire_fsr_runtime.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 form_urlencoded = "1"
+url = "2"
 fixed_decimal = { version = "0.7", features = ["ryu"] }
 futures-util = "0.3"
 getrandom = "0.3"

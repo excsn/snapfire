@@ -995,12 +995,13 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) unfollowed: Vec<String>,
 }
 
-/// A JavaScript type the value model has no arm for and what it lowered to: a `Map` as an object keyed by `String(key)`, a `Set` as an array without repeats, a `URLSearchParams` as the encoded string, a `Date` as milliseconds since the epoch and a `BigInt` as an integer.
+/// A JavaScript type the value model has no arm for and what it lowered to: a `Map` as an object keyed by `String(key)`, a `Set` as an array without repeats, a `URLSearchParams` as the encoded string, a `URL` as its href, a `Date` as milliseconds since the epoch and a `BigInt` as an integer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kind {
   Map,
   Set,
   Query,
+  Url,
   Date,
   BigInt,
   /// A value only the browser knows, the viewer's clock for one: null on the server, read as an error the sites that can leave it to the browser catch.
@@ -1013,6 +1014,7 @@ impl Kind {
       Kind::Map => "Map",
       Kind::Set => "Set",
       Kind::Query => "URLSearchParams",
+      Kind::Url => "URL",
       Kind::Date => "Date",
       Kind::BigInt => "BigInt",
       Kind::Browser => "value only the browser knows",
@@ -1026,12 +1028,13 @@ impl Kind {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
       Kind::Query | Kind::Browser => None,
+      Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),
     }
   }
 
-  /// The kind a type annotation names: `Map<K, V>`, `Set<T>`, `Date`, `URLSearchParams` or `bigint`.
+  /// The kind a type annotation names: `Map<K, V>`, `Set<T>`, `Date`, `URLSearchParams`, `URL` or `bigint`.
   pub(crate) fn of_type(ty: &js::TsType) -> Option<Kind> {
     match ty {
       js::TsType::TsParenthesizedType(p) => Kind::of_type(&p.type_ann),
@@ -1042,6 +1045,7 @@ impl Kind {
           "Set" | "ReadonlySet" => Some(Kind::Set),
           "Date" => Some(Kind::Date),
           "URLSearchParams" => Some(Kind::Query),
+          "URL" => Some(Kind::Url),
           _ => None,
         },
         _ => None,
@@ -1050,6 +1054,9 @@ impl Kind {
     }
   }
 }
+
+/// The parts of a `URL` read through `UrlPart` and written through `UrlSet`.
+pub(crate) const URL_PARTS: [&str; 10] = ["origin", "protocol", "username", "password", "host", "hostname", "port", "pathname", "search", "hash"];
 
 pub(crate) type Lowered<T> = Result<T, Residue>;
 
@@ -1332,6 +1339,7 @@ impl<'a> Lowerer<'a> {
         _ => None,
       },
       js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Browser) => Some(Kind::Browser),
+      js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Url) && matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "searchParams") => Some(Kind::Query),
       js::Expr::Member(m) => {
         let js::Expr::Ident(obj) = &*m.obj else { return None };
         let js::MemberProp::Ident(prop) = &m.prop else { return None };
@@ -1584,6 +1592,12 @@ impl<'a> Lowerer<'a> {
         let (handle, kind, method) = self.cell_collection_write(call).expect("checked");
         let expr = self.collection_written(call, kind, &method, Expr::ReadCell(Box::new(handle.clone())))?;
         Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(expr))))
+      }
+      js::Expr::Call(call) if self.local_url_search_write(call).is_some() => {
+        let (name, method) = self.local_url_search_write(call).expect("checked");
+        let search = Expr::Builtin { name: Builtin::UrlPart, args: vec![Expr::Var(name.clone()), Expr::lit_str("search")] };
+        let written = self.collection_written(call, Kind::Query, &method, search)?;
+        Ok(Stmt::Set { expr: Expr::Builtin { name: Builtin::UrlSet, args: vec![Expr::Var(name.clone()), Expr::lit_str("search"), written] }, name })
       }
       js::Expr::Call(call) if self.local_collection_write(call).is_some() => {
         let (name, kind, method) = self.local_collection_write(call).expect("checked");
@@ -2142,6 +2156,13 @@ impl<'a> Lowerer<'a> {
     let js::Expr::Member(member) = &read else {
       return Ok(Stmt::Set { name, expr: value });
     };
+    if let (Some(Kind::Url), js::Expr::Ident(_), js::MemberProp::Ident(part)) = (self.kind_of(&member.obj), &*member.obj, &member.prop) {
+      let part = part.sym.to_string();
+      if part == "origin" || !URL_PARTS.contains(&part.as_str()) && part != "href" {
+        return Err(self.residue(member.span, format!("a write to `.{part}` of a `URL`")));
+      }
+      return Ok(Stmt::Set { expr: Expr::Builtin { name: Builtin::UrlSet, args: vec![Expr::Var(name.clone()), Expr::lit_str(&part), value] }, name });
+    }
     let (_, path) = write_root(member).expect("local_target found the root");
     let expr = self.written_at(Expr::Var(name.clone()), &path, value)?;
     Ok(Stmt::Set { name, expr })
@@ -2149,7 +2170,7 @@ impl<'a> Lowerer<'a> {
 
   /// `m.set(k, v)`, `m.delete(k)` or `s.add(x)` with `m` or `s` a local collection: the local, which kind it is and the method.
   /// `held` after `call` changes it, a collection of `kind`.
-  fn collection_written(&mut self, call: &js::CallExpr, kind: Kind, method: &str, held: Expr) -> Lowered<Expr> {
+  pub(crate) fn collection_written(&mut self, call: &js::CallExpr, kind: Kind, method: &str, held: Expr) -> Lowered<Expr> {
     let arg = |this: &mut Self, i: usize| -> Lowered<Expr> {
       let a = call.args.get(i).ok_or_else(|| this.residue(call.span, format!("`{method}` takes {} argument{}", i + 1, if i == 0 { "" } else { "s" })))?;
       this.expr(&a.expr)
@@ -2158,6 +2179,8 @@ impl<'a> Lowerer<'a> {
       (Kind::Map, "set") => Expr::Object(vec![Entry::Spread(held), Entry::Computed(Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?)]),
       (Kind::Map, "delete") => Expr::Builtin { name: Builtin::Omit, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
       (Kind::Set, "add") => Expr::Builtin { name: Builtin::Unique, args: vec![Expr::Array(vec![Entry::Spread(held), Entry::Item(arg(self, 0)?)])] },
+      (Kind::Query, "set" | "append") => Expr::Builtin { name: if method == "set" { Builtin::FormSet } else { Builtin::FormAppend }, args: vec![held, Expr::Str(Box::new(arg(self, 0)?)), arg(self, 1)?] },
+      (Kind::Query, "delete") => Expr::Builtin { name: Builtin::FormDelete, args: vec![held, Expr::Str(Box::new(arg(self, 0)?))] },
       (_, other) => return Err(self.residue(call.span, format!("`.{other}()` of a local `{}` as a statement", kind.name()))),
     })
   }
@@ -2170,7 +2193,17 @@ impl<'a> Lowerer<'a> {
     let handle = self.cells.iter().rev().find(|(name, _)| *name == *obj.sym).map(|(_, handle)| handle.clone())?;
     let kind = self.kind_of(&member.obj)?;
     let method = self.member_name(member)?;
-    matches!(method.as_str(), "set" | "delete" | "add" | "clear").then_some((handle, kind, method))
+    matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear").then_some((handle, kind, method))
+  }
+
+  /// `url.searchParams.set(k, v)`, `.append(k, v)` or `.delete(k)` with `url` a local `URL`: the local and the method.
+  fn local_url_search_write(&self, call: &js::CallExpr) -> Option<(String, String)> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(member) = &**callee else { return None };
+    let js::Expr::Member(params) = &*member.obj else { return None };
+    let (js::Expr::Ident(url), js::MemberProp::Ident(prop)) = (&*params.obj, &params.prop) else { return None };
+    let method = self.member_name(member)?;
+    (&*prop.sym == "searchParams" && self.kind_of(&params.obj) == Some(Kind::Url) && self.is_local(url.sym.as_ref()) && matches!(method.as_str(), "set" | "append" | "delete")).then(|| (url.sym.to_string(), method))
   }
 
   fn local_collection_write(&self, call: &js::CallExpr) -> Option<(String, Kind, String)> {
@@ -2179,7 +2212,7 @@ impl<'a> Lowerer<'a> {
     let js::Expr::Ident(obj) = &*member.obj else { return None };
     let kind = self.kind_of(&member.obj)?;
     let method = self.member_name(member)?;
-    (matches!(method.as_str(), "set" | "delete" | "add" | "clear") && self.is_local(obj.sym.as_ref())).then(|| (obj.sym.to_string(), kind, method))
+    (matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear") && self.is_local(obj.sym.as_ref())).then(|| (obj.sym.to_string(), kind, method))
   }
 
   /// `x.push(...)` or `x.unshift(...)` with `x` a local: the local and the method.
@@ -2368,7 +2401,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.arg)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
@@ -2623,6 +2656,15 @@ impl<'a> Lowerer<'a> {
     }
     let collection = self.kind_of(&member.obj);
     let target = self.expr(&member.obj)?;
+    if collection == Some(Kind::Url) {
+      return match prop(self)? {
+        Ok(name) if name == "href" => Ok(target),
+        Ok(name) if name == "searchParams" => Ok(Expr::Builtin { name: Builtin::UrlPart, args: vec![target, Expr::lit_str("search")] }),
+        Ok(name) if URL_PARTS.contains(&name.as_str()) => Ok(Expr::Builtin { name: Builtin::UrlPart, args: vec![target, Expr::lit_str(&name)] }),
+        Ok(name) => Err(self.residue(member.span, format!("`.{name}` of a `URL`"))),
+        Err(_) => Err(self.residue(member.span, "a computed part of a `URL`")),
+      };
+    }
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
       Ok(name) if name == "size" && collection.is_some_and(|kind| kind != Kind::Query) => Ok(Expr::Length(Box::new(target))),
@@ -3527,7 +3569,7 @@ impl<'a> Lowerer<'a> {
       _ if svelte.is_some() => svelte.expect("checked").to_owned(),
       js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
       _ if intl_formatter(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
-      other => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`")),
+      other => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`")),
     };
     let first = match args.first() {
       Some(a) => Some(self.expr(&a.expr)?),
@@ -3543,6 +3585,13 @@ impl<'a> Lowerer<'a> {
       ("Set", Some(items)) => Ok(Expr::Builtin { name: Builtin::Unique, args: vec![items] }),
       ("URLSearchParams", None) => Ok(Expr::lit_str("")),
       ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
+      ("URL", Some(x)) => {
+        let mut args = vec![x];
+        if let Some(base) = n.args.as_deref().and_then(|a| a.get(1)) {
+          args.push(self.expr(&base.expr)?);
+        }
+        Ok(Expr::Builtin { name: Builtin::UrlParse, args })
+      }
       ("RegExp", Some(_)) if matches!(&*args[0].expr, js::Expr::Lit(js::Lit::Regex(_))) => Err(self.residue(n.span, "`new RegExp` of a regular expression")),
       ("RegExp", Some(pattern)) => {
         let flags = match args.get(1) {
@@ -3813,7 +3862,7 @@ fn strip_optional(e: &js::Expr, guards: &mut Vec<js::Expr>) -> js::Expr {
   }
 }
 
-/// The kind `e` makes in place: a `new Map(...)`, `new Set(...)`, `new URLSearchParams(...)` or `new Date(...)`, a bigint literal or `BigInt(...)`.
+/// The kind `e` makes in place: a `new Map(...)`, `new Set(...)`, `new URLSearchParams(...)`, `new URL(...)` or `new Date(...)`, a bigint literal or `BigInt(...)`.
 pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
   match e {
     js::Expr::Paren(p) => made_kind(&p.expr),
@@ -3823,6 +3872,7 @@ pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Map" | "SvelteMap") => Some(Kind::Map),
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Set" | "SvelteSet") => Some(Kind::Set),
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URLSearchParams" | "SvelteURLSearchParams") => Some(Kind::Query),
+      js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URL" | "SvelteURL") => Some(Kind::Url),
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Date" | "SvelteDate") => Some(Kind::Date),
       _ => None,
     },

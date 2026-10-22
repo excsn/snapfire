@@ -59,6 +59,7 @@ export type SfValue =
   | Float64Array
   | SfValue[]
   | Date
+  | URL
   | Map<SfValue, SfValue>
   | Set<SfValue>
   | RefValue
@@ -66,11 +67,12 @@ export type SfValue =
   | DoubleValue
   | { [key: string]: SfValue };
 
-/** The variant tags a `Date`, a `Map`, a `Set` and a `bigint` travel under. The server reads the payload as the plain value it lowers the type to; the browser makes the real type. */
+/** The variant tags a `Date`, a `Map`, a `Set`, a `URL` and a `bigint` travel under. The server reads the payload as the plain value it lowers the type to; the browser makes the real type. */
 const DATE_TAG = "$date";
 const MAP_TAG = "$map";
 const SET_TAG = "$set";
 const BIGINT_TAG = "$bigint";
+const URL_TAG = "$url";
 
 const TYPED_ARRAYS: Record<string, new (buf: ArrayBuffer) => SfValue> = {
   i8: Int8Array,
@@ -143,6 +145,8 @@ function decodeTagged(obj: { [key: string]: unknown }): SfValue {
           return new Set((payload as unknown[]).map(decodeValue));
         case BIGINT_TAG:
           return BigInt(decodeValue(payload) as number | bigint | string);
+        case URL_TAG:
+          return new URL(decodeValue(payload) as string);
       }
       return payload === undefined ? variant(t) : variant(t, decodeValue(payload));
     }
@@ -228,6 +232,7 @@ export function encodeValue(v: SfValue): unknown {
   if (v instanceof Date) return { $: "var", t: DATE_TAG, p: encodeValue(v.getTime()) };
   if (v instanceof Map) return { $: "var", t: MAP_TAG, p: Array.from(v, ([k, val]) => [encodeValue(k), encodeValue(val)]) };
   if (v instanceof Set) return { $: "var", t: SET_TAG, p: Array.from(v, encodeValue) };
+  if (v instanceof URL) return { $: "var", t: URL_TAG, p: v.href };
   if (isDouble(v)) {
     const n = v.value;
     if (Number.isNaN(n)) return { $: "f", v: "nan" };

@@ -1,7 +1,7 @@
 active-class-name	client: routes/[slug]/page.island0.tsx:5:20 `usePathname`, a hook the build cannot follow | src/components/ActiveLink.tsx:25:20 `usePathname`, a hook the build cannot follow	pages 4	notes 0
 api-routes-apollo-server	refused: src/shared/query-graphql/index.ts:6:26: a call to `graphql`, which the build cannot follow	pages 2	notes 1
 api-routes-apollo-server-and-client	refused: src/apollo/client.tsx:7:5: `apolloClient`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 3
-api-routes-apollo-server-and-client-auth	client: routes/page.island0.tsx:15:18 `useRouter`, a hook the build cannot follow | routes/signin/page.island0.tsx:20:18 `useApolloClient`, a hook the build cannot follow | routes/signout/page.island0.tsx:11:18 `useApolloClient`, a hook the build cannot follow | routes/signup/page.island0.tsx:19:20 `useMutation`, a hook the build cannot follow | src/apollo/client.tsx:21:14 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 5	notes 6
+api-routes-apollo-server-and-client-auth	client: routes/page.island0.tsx:15:18 `useRouter`, a hook the build cannot follow | routes/signin/page.island0.tsx:20:18 `useApolloClient`, a hook the build cannot follow | routes/signout/page.island0.tsx:11:18 `useApolloClient`, a hook the build cannot follow | routes/signup/page.island0.tsx:19:20 `useMutation`, a hook the build cannot follow | src/apollo/client.tsx:21:14 `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 5	notes 6
 api-routes-cors	lowered	pages 1	notes 1
 api-routes-graphql	client: routes/page.island0.tsx:19:38 `useSWR`, a hook the build cannot follow	pages 1	notes 1
 api-routes-middleware	client: routes/page.island0.tsx:5:38 `useSWR`, a hook the build cannot follow	pages 1	notes 1
@@ -11,7 +11,7 @@ auth-with-stytch	no application
 auth0	refused: routes/advanced/ssr-profile/page.loader.ts:3:21: `load` is a call the build does not recognise	pages 5	notes 6
 basic-css	refused: src/styles.module.css: 1:1: Expression expected	pages 1	notes 0
 blog	lowered	pages 0	notes 4
-blog-starter	refused: src/lib/api.ts:9:10: `fs` comes from `fs`, which the build cannot follow	pages 2	notes 8
+blog-starter	refused: src/lib/api.ts:14:20: a call to `join`, which the build cannot follow	pages 2	notes 7
 blog-with-comment	refused: src/lib/getPost.ts:9:10: `fs` comes from `fs`, which the build cannot follow	pages 3	notes 9
 cache-handler-redis	refused: routes/[timezone]/page.loader.ts:25:3: an expression statement other than a write to a local	pages 1	notes 12
 cache-handler-redis-turbo	refused: routes/use-cache/page.loader.ts:10:3: an expression statement other than a write to a local	pages 3	notes 4
@@ -25,17 +25,17 @@ cms-datocms	refused: src/lib/api.js:22:21: a call to `fetch`, which the build ca
 cms-dotcms	refused: src/lib/api.ts:10:21: a call to `fetch`, which the build cannot follow	pages 2	notes 25
 cms-drupal	refused: routes/page.loader.ts:5:23: a call to `getResourceCollectionFromContext`, which the build cannot follow	pages 2	notes 20
 cms-enterspeed	refused: src/lib/api.ts:7:26: a call to `fetch`, which the build cannot follow	pages 2	notes 20
-cms-ghost	refused: src/lib/api.js:7:17: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 23
+cms-ghost	refused: src/lib/api.js:7:17: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 2	notes 23
 cms-graphcms	refused: src/lib/graphcms.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 24
 cms-keystonejs-embedded	no application
-cms-kontent-ai	refused: src/lib/api.ts:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 24
-cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 7
+cms-kontent-ai	refused: src/lib/api.ts:9:20: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 2	notes 24
+cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 1	notes 7
 cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 23
 cms-plasmic	refused: src/plasmic-init.ts:21:32: a call to `initPlasmicLoader`, which the build cannot follow	pages 1	notes 9
 cms-prepr	refused: src/lib/api.js:2:26: a call to `fetch`, which the build cannot follow	pages 2	notes 24
 cms-prismic	refused: src/lib/prismic.ts:32:18: `prismic` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 21
 cms-sanity	refused: src/sanity/lib/fetch.ts:30:28: a call to `draftMode`, which the build cannot follow	pages 3	notes 17
-cms-sitecore-xmcloud	refused: src/lib/page-props-factory/index.ts:53:45: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 29
+cms-sitecore-xmcloud	refused: src/lib/page-props-factory/index.ts:53:45: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 1	notes 29
 cms-sitefinity	refused: src/lib/api.ts:6:30: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 17
 cms-storyblok	refused: src/lib/api.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 21
 cms-strapi	no application
@@ -45,7 +45,7 @@ cms-umbraco	refused: src/lib/api.ts:10:26: a call to `fetch`, which the build ca
 cms-umbraco-heartcore	refused: src/lib/umbraco-heartcore.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 22
 cms-webiny	refused: src/lib/api.ts:7:10: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 22
 cms-wordpress	refused: routes/api/exit-preview/route.ts:5:36: `url` is not a field of the context	pages 1	notes 35
-convex	refused: routes/layout.tsx:7:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 2
+convex	refused: routes/layout.tsx:7:20: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 1	notes 2
 custom-server	lowered	pages 1	notes 3
 github-pages	lowered	pages 2	notes 1
 hello-world	lowered	pages 1	notes 0
@@ -53,13 +53,13 @@ i18n-routing	refused: src/get-dictionary.ts:13:3: an optional call of a function
 i18n-routing-pages	refused: routes/gsp/page.loader.ts:11:7: `locales` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 7
 image-component	refused: src/styles.module.css: 1:1: Expression expected	pages 8	notes 11
 image-secure-compute	refused: routes/image-api/[...path]/route.ts:5:8: `headers` is not a field of the context	pages 2	notes 1
-inngest	refused: src/inngest/inngest.config.ts:14:28: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 1
+inngest	refused: src/inngest/inngest.config.ts:14:28: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 1	notes 1
 markdoc	lowered	pages 0	notes 1
 mdx	refused: routes/page.module.css: 1:1: Expression expected	pages 3	notes 1
 mdx-pages	lowered	pages 0	notes 0
 next-forms	refused: routes/page.loader.ts:8:21: a tagged template	pages 1	notes 7
 panda-css	refused: routes/page.tsx:7:16: a call to `css`, which the build cannot follow	pages 1	notes 1
-prisma-postgres	refused: src/lib/prisma.ts:4:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 6	notes 7
+prisma-postgres	refused: src/lib/prisma.ts:4:20: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 6	notes 7
 radix-ui	client: routes/page.island0.tsx:18:5 `DropdownMenu` comes from ``, which the build cannot follow | routes/page.island0.tsx:91:17 `ChevronRightIcon` comes from `@radix-ui/react-icons`, which the build cannot follow	pages 1	notes 1
 react-remove-properties	lowered	pages 1	notes 0
 remove-console	lowered	pages 1	notes 0
@@ -111,7 +111,7 @@ with-goober	refused: routes/layout.tsx:16:15: a call to `extractCss`, which the 
 with-google-analytics	client: routes/layout.island0.tsx:6:5 `GoogleAnalytics` comes from `@next/third-parties/google`, which the build cannot follow | routes/layout.tsx:12:7 `GoogleAnalytics` comes from `@next/third-parties/google`, which the build cannot follow	pages 3	notes 1
 with-google-maps-embed	lowered	pages 1	notes 1
 with-google-tag-manager	client: routes/layout.island0.tsx:6:5 `GoogleTagManager` comes from `@next/third-parties/google`, which the build cannot follow | routes/layout.tsx:13:7 `GoogleTagManager` comes from `@next/third-parties/google`, which the build cannot follow	pages 1	notes 1
-with-grafbase	refused: src/lib/grafbase.ts:4:29: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 7
+with-grafbase	refused: src/lib/grafbase.ts:4:29: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 2	notes 7
 with-graphql-gateway	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 2
 with-graphql-hooks	client: src/client-components/client-context-provider.tsx:13:5 `<ClientContext.Provider>`: `ClientContext` is not a `createContext` value this file declares or imports | src/client-components/repo-list.tsx:12:36 `useQuery`, a hook the build cannot follow	pages 1	notes 1
 with-graphql-react	client: routes/layout.island0.tsx:5:31 `graphql` is not bound here; an import the build cannot follow or a name from outside the body | routes/layout.js:4:29 `graphql` is not bound here; an import the build cannot follow or a name from outside the body | routes/page.island0.tsx:4:50 `useGraphQL`, a hook the build cannot follow	pages 1	notes 2
@@ -123,7 +123,7 @@ with-i18n-rosetta	refused: routes/[lng]/page.loader.ts:4:43: `super` or `import(
 with-ionic	lowered	pages 1	notes 0
 with-iron-session	no application
 with-iron-session-cache-components	refused: src/lib/session.ts:42:3: a call for its effect, which a straight-line body cannot hold	pages 3	notes 6
-with-jest	lowered	pages 2	notes 3
+with-jest	lowered	pages 2	notes 2
 with-jest-babel	refused: routes/index.module.css: 1:1: Expression expected	pages 1	notes 1
 with-joi	lowered	pages 0	notes 3
 with-jotai	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
@@ -135,14 +135,14 @@ with-magic	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot foll
 with-mantine	client: routes/layout.island0.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/layout.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/page.island0.tsx:9:5 `Text` comes from `@mantine/core`, which the build cannot follow	pages 1	notes 2
 with-mdbreact	client: routes/page.island0.tsx:15:5 `MDBCardTitle` comes from `mdbreact`, which the build cannot follow	pages 1	notes 1
 with-meilisearch	client: routes/page.island0.tsx:76:25 `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 5
-with-mobx	client: src/components/Page.js:7:14 a component made by `observer`, which the build does not lower | src/components/StoreProvider.js:17:31 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 4	notes 2
+with-mobx	client: src/components/Page.js:7:14 a component made by `observer`, which the build does not lower | src/components/StoreProvider.js:17:31 `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 4	notes 2
 with-mobx-state-tree	refused: src/store.ts:10:5: `store`, a module-level `let` a function writes; a body reads module state through the store	pages 4	notes 2
 with-mocha	lowered	pages 1	notes 0
 with-mongodb	refused: <app>/routes: holds `actions.ts` but no `page.tsx`; an action is named for the page beside it	pages 1	notes 6
 with-mongodb-mongoose	refused: src/lib/dbConnect.ts:13:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 8
 with-mqtt-js	client: routes/page.island0.tsx:18:9 a call for its effect, which a straight-line body cannot hold	pages 1	notes 1
 with-msw	refused: routes/page.loader.ts:3:21: a call to `fetch`, which the build cannot follow	pages 1	notes 4
-with-mux-video	refused: routes/(upload)/page.loader.ts:3:17: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 3	notes 9
+with-mux-video	refused: routes/(upload)/page.loader.ts:3:17: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 3	notes 9
 with-mysql	lowered	pages 1	notes 2
 with-neo4j	refused: src/styles/global.js:3:16: a tagged template	pages 3	notes 8
 with-next-page-transitions	client: routes/layout.island0.tsx:7:5 `PageTransition` comes from `next-page-transitions`, which the build cannot follow | routes/layout.js:10:7 `PageTransition` comes from `next-page-transitions`, which the build cannot follow	pages 2	notes 2
@@ -202,7 +202,7 @@ with-stitches	client: routes/page.tsx:11:14 a component made by `styled`, which 
 with-storybook	refused: routes/page.module.css: 1:1: Expression expected	pages 2	notes 1
 with-strict-csp	refused: routes/page.loader.ts:5:29: a call to `headers`, which the build cannot follow	pages 1	notes 2
 with-stripe-typescript	refused: routes/actions.ts:14:26: a call to `headers`, which the build cannot follow	pages 7	notes 7
-with-styled-components	client: routes/_components/cards.tsx:13:14 a component made by a tagged template, which the build does not lower | routes/_components/cards.tsx:32:20 a component made by a tagged template, which the build does not lower | routes/_components/cards.tsx:4:23 a component made by a tagged template, which the build does not lower | routes/_components/globalstyles.tsx:3:21 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:12:14 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:21:15 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:39:21 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:3:19 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:44:17 a component made by a tagged template, which the build does not lower | src/lib/client-layout.tsx:16:5 `ThemeProvider` comes from `styled-components`, which the build cannot follow | src/lib/styled-components-registry.tsx:12:59 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 0
+with-styled-components	client: routes/_components/cards.tsx:13:14 a component made by a tagged template, which the build does not lower | routes/_components/cards.tsx:32:20 a component made by a tagged template, which the build does not lower | routes/_components/cards.tsx:4:23 a component made by a tagged template, which the build does not lower | routes/_components/globalstyles.tsx:3:21 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:12:14 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:21:15 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:39:21 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:3:19 a component made by a tagged template, which the build does not lower | routes/_components/sharedstyles.tsx:44:17 a component made by a tagged template, which the build does not lower | src/lib/client-layout.tsx:16:5 `ThemeProvider` comes from `styled-components`, which the build cannot follow | src/lib/styled-components-registry.tsx:12:59 `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`	pages 2	notes 0
 with-styled-jsx	client: routes/registry.tsx:14:45 a call to `createStyleRegistry`, which the build cannot follow	pages 1	notes 0
 with-supabase	refused: routes/auth/confirm/route.ts:7:36: `url` is not a field of the context	pages 8	notes 22
 with-temporal	lowered	pages 2	notes 2
@@ -219,7 +219,7 @@ with-userbase	lowered	pages 1	notes 3
 with-vanilla-extract	refused: <app>/routes: `page.css.ts` names slot `css`, which no layout above it declares	pages 2	notes 0
 with-vercel-blob	refused: src/utils/cachedImages.ts:5:5: `cached`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 10
 with-videojs	lowered	pages 1	notes 0
-with-vitest	lowered	pages 2	notes 4
+with-vitest	lowered	pages 2	notes 3
 with-web-worker	lowered	pages 1	notes 0
 with-webassembly	refused: routes/page.loader.ts:6:44: `super` or `import()`	pages 1	notes 1
 with-xata	refused: routes/layout.loader.ts:6:5: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 10
