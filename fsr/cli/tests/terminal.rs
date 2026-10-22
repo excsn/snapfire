@@ -438,3 +438,13 @@ fn a_resize_runs_the_listeners_stdout_on_added_and_off_removes_the_one_an_effect
   session.resize(90, 30);
   assert_eq!(line(session.view().unwrap()), "90x30 heard 2", "the listener the first run added is gone");
 }
+
+#[test]
+fn a_large_constant_another_module_exports_reads_in_the_terminal() {
+  let page = "import { Text } from \"ink\";\nimport WORDS from \"../src/words\";\n\nexport default function Word() {\n  return <Text>{WORDS[3]} of {WORDS.length}</Text>;\n}\n";
+  let app = app(page);
+  std::fs::create_dir_all(app.join("src")).unwrap();
+  std::fs::write(app.join("src/words.ts"), "const WORDS = [\"alpha\", \"bravo\", \"charlie\", \"delta\", \"echo\", \"foxtrot\", \"golf\", \"hotel\", \"india\", \"juliet\", \"kilo\", \"lima\", \"mike\", \"november\", \"oscar\", \"papa\", \"quebec\", \"romeo\", \"sierra\", \"tango\", \"uniform\", \"victor\", \"whiskey\", \"xray\", \"yankee\", \"zulu\", \"one\", \"two\", \"three\", \"four\", \"five\", \"six\", \"seven\", \"eight\", \"nine\", \"ten\", \"eleven\", \"twelve\", \"thirteen\", \"fourteen\"];\n\nexport default WORDS;\n").unwrap();
+  let mut session = Session::open(&app).unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0], "delta of 40");
+}

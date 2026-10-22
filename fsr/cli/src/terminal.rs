@@ -160,6 +160,7 @@ pub struct Session {
   app: PathBuf,
   module: String,
   library: Components,
+  consts: Arc<snapfire_fsr_ir::ast::Consts>,
   state: ValueMap,
   size: (u16, u16),
   written: Vec<String>,
@@ -278,7 +279,8 @@ impl Session {
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library: lower(app, module)?, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
+    let (library, consts) = lower(app, module)?;
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
   }
 
   /// The page as it stands.
@@ -315,7 +317,7 @@ impl Session {
 
   /// Lowers the page again from disk, keeping the state.
   pub fn reload(&mut self) -> Result<(), String> {
-    self.library = lower(&self.app, &self.module)?;
+    (self.library, self.consts) = lower(&self.app, &self.module)?;
     self.mounted.clear();
     self.started.clear();
     Ok(())
@@ -696,7 +698,7 @@ impl Session {
     props.insert("$store".to_owned(), Value::Map(store));
     let path = handler.as_ref().map(|handler| handler.path.clone()).unwrap_or_default();
     props.insert(snapfire_fsr_ir::render::CELLS_PROP.to_owned(), Value::Map(self.cells.clone()));
-    let stepped = Interpreter::default().island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
+    let stepped = Interpreter::default().with_consts(Some(self.consts.clone())).island_step(&self.module, &component, &props, &self.state, handler, event, &self.library).map_err(|fail| fail.message)?;
     self.cells.extend(stepped.cells.clone());
     self.store.extend(stepped.store.clone());
     let issued = stepped.emitted.iter().filter(|e| e.kind == snapfire_fsr_ir::render::ACT).filter_map(|e| match &e.value {
@@ -775,15 +777,16 @@ fn measured(page: &Node, columns: u16) -> ValueMap {
   out
 }
 
-/// The library `module` lowers to. A component it places that does not lower
+/// The library `module` lowers to, with the module constants its bodies name. A component it places that does not lower
 /// refuses it, since a terminal has no browser to render that one in.
-fn lower(app: &Path, module: &str) -> Result<Components, String> {
+fn lower(app: &Path, module: &str) -> Result<(Components, Arc<snapfire_fsr_ir::ast::Consts>), String> {
   let mut set = ComponentSet::new(app).for_terminal();
   set.lower(module).map_err(|e| e.to_string())?;
   if let Some((placed, why)) = set.browser_only.first() {
     return Err(format!("`{placed}` does not lower, so only a browser could render it: {why}"));
   }
-  Ok(set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect())
+  let library = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  Ok((library, Arc::new(set.consts.clone())))
 }
 
 /// The terminal held in raw mode on the alternate screen, put back on drop.
