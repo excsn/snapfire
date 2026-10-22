@@ -115,6 +115,8 @@ pub struct ComponentSet {
   class_graphs: HashSet<String>,
   /// What each type alias resolved so far stands for as a kind, by `file#name`.
   aliases: HashMap<String, Option<crate::AliasKind>>,
+  /// The markup helpers placed by their own recursion, by `file#name`, whose props are their arguments by position.
+  positional: HashSet<String>,
   /// Components of another framework a React component renders inline, as
   /// `file#export`: lowered to the empty region `Mount` writes, which the
   /// browser fills through the module's registry entry.
@@ -205,7 +207,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new() }
+    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new(), positional: HashSet::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -1296,6 +1298,7 @@ impl ComponentSet {
     let mut relied: Vec<String>;
     let mut browser_texts: Vec<BrowserText>;
     let mut fn_refs: Vec<FnRef>;
+    let mut positional_refs: Vec<String>;
     let ((component, refs, providers, own_heads), hoisting) = loop {
       let meanings = self.meanings(file);
       let hook_sources: Vec<(String, _, String)> = hook_files.iter().map(|(name, at, export)| (name.clone(), self.parsed[at].clone(), export.clone())).collect();
@@ -1359,7 +1362,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None, hook_renames: Vec::new(), named_listeners: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None, hook_renames: Vec::new(), named_listeners: Vec::new(), positional: self.positional.contains(&module), positional_refs: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -1381,6 +1384,7 @@ impl ComponentSet {
         placed_kinds = std::mem::take(&mut cl.placed_kinds);
         browser_texts = std::mem::take(&mut cl.browser_texts);
         fn_refs = std::mem::take(&mut cl.fn_refs);
+        positional_refs = std::mem::take(&mut cl.positional_refs);
         prop_kinds = std::mem::take(&mut cl.lowerer.prop_kinds);
         relied = std::mem::take(&mut *cl.lowerer.consulted.borrow_mut());
         if leaves_to_browser {
@@ -1467,6 +1471,9 @@ impl ComponentSet {
         }
       }
     };
+    for name in &positional_refs {
+      self.positional.insert(format!("{file}#{name}"));
+    }
     for (variant, base, overrides) in variants {
       self.variants.insert(variant, (base, overrides));
     }
@@ -6192,8 +6199,12 @@ struct ComponentLowerer<'a, 'p> {
   hook_calls: usize,
   /// The file a name the lowerer could not bind was met in, when that is a hook's rather than the component's.
   unbound_in: Option<String>,
-  /// The functions returning markup being inlined, innermost last, so one that calls itself is refused rather than unrolled for ever.
+  /// The functions returning markup being inlined, innermost last, so one that calls itself is placed as a component rather than unrolled for ever.
   inlining: Vec<String>,
+  /// Whether this is a markup helper placed by its own recursion, its props its arguments by position.
+  positional: bool,
+  /// The module-level markup helpers this component placed by their own recursion with positional props.
+  positional_refs: Vec<String>,
   /// The functions [`Self::markup_call`] is reading the body of, so helpers calling each other end.
   checking: std::cell::RefCell<Vec<String>>,
   /// The child counts the component reads, `render::CHILD_COUNT` and `render::CHILD_ITEMS`, which its body then opens with.
@@ -7178,6 +7189,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn bind_props(&mut self, params: &[js::Pat]) -> Lowered<()> {
+    if self.positional {
+      for (i, param) in params.iter().enumerate() {
+        bind_pattern(&mut self.lowerer, param, Expr::Field(Box::new(Expr::Var("$props".to_owned())), i.to_string()))?;
+      }
+      return Ok(());
+    }
     let Some(first) = params.first() else { return Ok(()) };
     for (key, kind) in prop_kinds_of(self.lowerer.parsed, first) {
       match self.lowerer.prop_kinds.iter_mut().find(|(k, _)| *k == key) {
@@ -7867,10 +7884,38 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     markup.then_some((call, name, params, body))
   }
 
+  /// A call of a markup helper inside its own body, as a placement of the helper: a helper taking one object pattern is handed the argument as its props, any other its arguments by position. A helper declared inside the component closes over its locals and is refused.
+  fn place_recursion(&mut self, call: &'p js::CallExpr, name: String, params: &[js::Pat]) -> Lowered<Tmpl> {
+    if self.handler_fns.contains_key(&name) {
+      return Err(self.lowerer.residue(call.span, format!("`{name}` returns markup by calling itself inside the component; declare it at module level so the build can place it")));
+    }
+    if let Some(spread) = call.args.iter().find(|a| a.spread.is_some()) {
+      return Err(self.lowerer.residue(spread.expr.span(), format!("a spread argument to `{name}`, which returns markup")));
+    }
+    let by_props = matches!(params, [js::Pat::Object(_)]);
+    let mut props = Vec::with_capacity(params.len());
+    for i in 0..params.len() {
+      let value = match call.args.get(i) {
+        Some(arg) => self.lowerer.expr(&arg.expr)?,
+        None => Expr::Lit(Lit::Undefined),
+      };
+      props.push(match by_props {
+        true => Entry::Spread(value),
+        false => Entry::Field(i.to_string(), value),
+      });
+    }
+    if !by_props && !self.positional_refs.contains(&name) {
+      self.positional_refs.push(name.clone());
+    }
+    let loc = self.lowerer.parsed.loc(call.span.lo);
+    self.refs.push((name.clone(), loc));
+    Ok(Tmpl::Component { module: format!("{}#{name}", self.file), props, children: Vec::new(), id: 0, keyed: false })
+  }
+
   /// A function returning markup, inlined where it is called: each argument is lowered in the caller's scope and bound to its parameter by a `Tmpl::Let` around the function's tree.
   fn inline_markup_fn(&mut self, call: &'p js::CallExpr, name: String, params: &[js::Pat], body: FunctionBody<'p>) -> Lowered<Tmpl> {
     if self.inlining.contains(&name) {
-      return Err(self.lowerer.residue(call.span, format!("`{name}` returns markup by calling itself, which the build cannot unroll")));
+      return self.place_recursion(call, name, params);
     }
     if let Some(spread) = call.args.iter().find(|a| a.spread.is_some()) {
       return Err(self.lowerer.residue(spread.expr.span(), format!("a spread argument to `{name}`, which returns markup")));
