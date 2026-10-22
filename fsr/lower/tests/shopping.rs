@@ -459,3 +459,11 @@ export const via = action(async (ctx) => {
   let r = residue(lower_actions("actions.ts", "export const touch = action(async ({ session }) => {\n  session.extend();\n  return null;\n});\n").unwrap_err());
   assert!(r.message.contains("one number"), "{r}");
 }
+
+#[test]
+fn a_loader_awaits_promise_all_as_each_of_its_values() {
+  let src = "export async function load({ params, services }: Ctx<\"/{tag}\">) {\n  const [tag, products] = await Promise.all([params.tag, services.shopping.listProducts({})]);\n  return { tag, products };\n}\n";
+  let body = lower_loader("page.loader.ts", src).unwrap_or_else(|e| panic!("{e}"));
+  let text = format!("{body:?}");
+  assert!(text.contains("Param(\"tag\")") && text.contains("listProducts") && !text.contains("Promise"), "{text}");
+}
