@@ -10,7 +10,7 @@ The question this chapter answers: you have a Next.js application, App Router or
 fsr migrate ./my-next-app ./my-fsr-app
 ```
 
-The first directory is the one holding the Next application's `package.json`; it is read and never written. The second is a new project, scaffolded the way `fsr new --with react` scaffolds one, with the migrated application written over its `app/`. `node_modules`, `.next` and version control are not read. `--no-fetch` skips vendoring React and fetching declarations, as it does for `fsr new`.
+The first directory is the one holding the Next application's `package.json`; it is read and never written. The second is a new project, scaffolded the way `fsr new --with react` scaffolds one, with the migrated application written over its `app/`. `node_modules`, `.next` and version control are not read. `--no-fetch` skips vendoring React and fetching declarations, as it does for `fsr new`. `--map <file>` names a migration map, below.
 
 The command prints what it wrote, a note for each line it could not rewrite and the commands to run next:
 
@@ -47,6 +47,7 @@ Every import follows the file it names. A relative specifier is rewritten for bo
 | Next.js | FSR |
 | --- | --- |
 | `export const metadata = { title, description }` | `meta` in the route's loader |
+| `generateMetadata` awaiting what `load` already returns | `meta` in the route's loader, reading those values from `data` and returning `fromNextMetadata(...)` of the same object |
 | `<Head><title>…</title></Head>` in a page | `meta` in the route's loader, reading the page's props from `data` |
 | an `async` page or layout | its awaits in `load` in the route's loader, the page receiving what its markup reads as props |
 | `await params`, `searchParams` | `params`, `query` |
@@ -97,6 +98,59 @@ export default function Home({ products }) {
 ```
 
 A component further down that awaits a read known before it renders, one whose arguments come from no prop or state, has the read moved to the loader of each page that places it. The loader seeds the result in the store and the component reads it with `useStore`, from a key the migration declares in `app/src/store.ts`. A read only a later render makes, a component placed under `tab === "posts" &&`, moves the same way and is noted, since its data now loads with the page.
+
+`fromNextMetadata`, from `@snapfire/fsr/head`, writes a Next `Metadata` object as the head: the title (`{ absolute }` as an absolute title), the description, `alternates` as the canonical and one alternate per language, `openGraph` and `twitter` as their properties and images, `robots` and `authors`. Fields with no head element, `icons` and the title template among them, are left out. A `generateMetadata` that reads the route's `params` or awaits something `load` does not return stays in the page with a note.
+
+## Workspace packages
+
+An application in a pnpm, npm or yarn workspace often imports packages of the same workspace by a `workspace:` range: a shell that wraps Next, a component library, utilities. Those are source, so `fsr migrate` brings them in rather than leaving bare imports the build cannot follow. It finds the workspace root above the application (`pnpm-workspace.yaml` or the `workspaces` field of a `package.json`), follows the application's `workspace:` dependencies and theirs, then follows the application's imports through each package's `exports`: exact subpaths, `*` patterns and condition objects, where the `import`, `default` or `browser` entry is taken, with a note when `node` names another file. Only the files the application reaches are copied, under `app/src/packages/<name>/`. Every import of them is rewritten to follow, so the rest of the migration rewrites them too. An alias in the application's own `tsconfig.json` that points into a package, a shim standing in for one of its modules, wins over that package's `exports` as it does for TypeScript. The packages' own npm dependencies join the `fsr add` line.
+
+## The migration map
+
+A codebase that wraps Next in its own shell calls the wrapper everywhere, `getLocale()` from the shell instead of reading the locale off the route, the shell's `Link` and `notFound`. The rules above match Next's modules, so they would miss every one of those calls. A migration map says what the wrapper stands for. `fsr migrate` then rewrites each call as it rewrites the framework's own. It is a handwritten file, `migrate.toml`, read by `fsr migrate` alone: nothing at build or run time reads it. It can be deleted once the migration is done.
+
+```toml
+#:schema ./migrate.schema.json
+
+# The shell's notFound is Next's: the rewrite to `fail` applies.
+[map."@shell/navigation/server#notFound"]
+to = "next/navigation#notFound"
+
+# A module stands for a module: every export of it is imported from there.
+[map."@shell/navigation/client"]
+to = "next/navigation"
+
+# Its Link is FSR's.
+[map."@shell/navigation#Link"]
+to = "@snapfire/fsr/components#Link"
+
+# A locale read off the URL, in the route's loader.
+[map."@shell/i18n/server#getLocale"]
+call = "params.locale"
+
+# A call with arguments: $0, $1 and onward are what the call passed.
+[map."@shell/flags#flag"]
+call = "(config[$0] ?? $1)"
+
+# Setup FSR does itself.
+[map."@shell/telemetry#initTelemetry"]
+drop = true
+
+# Something a person rewrites, named wherever it is imported.
+[map."@shell/i18n/server#getTranslations"]
+note = "translations move to the locale catalogs"
+```
+
+Each key under `map` is a module or one export of it after `#`, with `#default` for a default export; an export's entry wins over its module's. An entry gives exactly one of these. `note` may go with any of them or stand alone:
+
+| Field | What it does |
+| --- | --- |
+| `to` | the import is rewritten to the module or export named, so whatever applies to that export applies here: a Next export is then rewritten by the rules above, an FSR export is used as it is. A module's entry takes a module |
+| `call` | a call to the export or an `await` of it becomes the expression in a route module, where the route's loader runs it with the request in reach. A call anywhere else is left with a note |
+| `drop` | each statement that only calls the export is removed with its import. A call inside an expression is left with a note |
+| `note` | the text is noted at each import of the module or export |
+
+`fsr migrate` reads `migrate.toml` from the application's root and from the root of each workspace package it brings in, so a shell can ship the map for itself and every application using it migrates the same way; the application's entries win over a package's. `--map <file>` reads that file in place of the application's own. `fsr migrate --schema` prints the file's JSON Schema; save it beside the map and name it on the first line, as above, for completion and checking in an editor. An entry that gives more than one of `to`, `call` and `drop` is noted and not applied. So is a module that stands for an export.
 
 ## Server actions
 

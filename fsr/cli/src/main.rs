@@ -103,12 +103,20 @@ enum IrCommand {
 #[derive(Args)]
 struct Migrate {
   /// The application to migrate: the directory holding its package.json.
-  from: PathBuf,
+  #[arg(required_unless_present = "schema")]
+  from: Option<PathBuf>,
   /// The directory to create the project in.
-  project_dir: PathBuf,
+  #[arg(required_unless_present = "schema")]
+  project_dir: Option<PathBuf>,
   /// Skips vendoring packages and fetching declarations.
   #[arg(long)]
   no_fetch: bool,
+  /// The migration map to read in place of the application's own `migrate.toml`.
+  #[arg(long, value_name = "FILE")]
+  map: Option<PathBuf>,
+  /// Prints the JSON Schema of `migrate.toml` and exits.
+  #[arg(long, conflicts_with_all = ["from", "project_dir", "map"])]
+  schema: bool,
 }
 
 #[derive(Args)]
@@ -816,19 +824,24 @@ fn doctor_options(args: &Doctor) -> doctor::DoctorOptions {
 }
 
 fn run_migrate(args: Migrate) -> ExitCode {
-  match snapfire_fsr_cli::migrate::run(&args.from, &args.project_dir, !args.no_fetch) {
+  if args.schema {
+    println!("{}", serde_json::to_string_pretty(&snapfire_fsr_migrate::map_schema()).expect("a schema serializes"));
+    return ExitCode::SUCCESS;
+  }
+  let (Some(from), Some(project_dir)) = (args.from.as_deref(), args.project_dir.clone()) else { return ExitCode::FAILURE };
+  match snapfire_fsr_cli::migrate::run(from, &project_dir, !args.no_fetch, args.map.as_deref()) {
     Ok(migrated) => {
       if let Some(source) = migrated.report.source {
         println!("from      {}", source.name());
       }
-      println!("wrote     {} files under {}", migrated.written.len(), args.project_dir.display());
+      println!("wrote     {} files under {}", migrated.written.len(), project_dir.display());
       for (specifier, file, bytes) in &migrated.created.vendored {
         println!("added     {specifier:<28} {file}  {bytes} bytes");
       }
       for note in &migrated.report.notes {
         eprintln!("note      {note}");
       }
-      let app = args.project_dir.join("app");
+      let app = project_dir.join("app");
       if !migrated.report.packages.is_empty() {
         let specs: Vec<String> = migrated
           .report

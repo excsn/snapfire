@@ -35,7 +35,7 @@ fn a_next_app_becomes_a_project_whose_routes_are_its_own() {
     ],
   );
   let to = dir.join("fsr");
-  let migrated = run(&from, &to, false).unwrap();
+  let migrated = run(&from, &to, false, None).unwrap();
   let mut routes: Vec<String> = std::fs::read_dir(to.join("app/routes")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
   routes.sort();
   assert_eq!(routes, ["layout.tsx", "page.loader.ts", "page.tsx"]);
@@ -52,8 +52,37 @@ fn an_application_no_package_json_names_a_framework_for_is_refused() {
   let from = dir.join("plain");
   write(&from, &[("package.json", r#"{ "dependencies": { "express": "4" } }"#), ("index.js", "\n")]);
   let to = dir.join("fsr");
-  let error = run(&from, &to, false).unwrap_err().to_string();
+  let error = run(&from, &to, false, None).unwrap_err().to_string();
   assert!(error.contains("names neither next, @sveltejs/kit nor nuxt"), "{error}");
   assert!(!to.exists(), "nothing is written for a source migrate cannot read");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_shell_package_in_the_workspace_moves_in_and_its_map_applies_unless_one_is_named() {
+  let dir = scratch();
+  write(
+    &dir,
+    &[
+      ("pnpm-workspace.yaml", "packages:\n  - apps/*\n  - packages/*\ncatalog:\n  react: 19\n"),
+      ("apps/web/package.json", r#"{ "dependencies": { "next": "15", "@acme/shell": "workspace:*" } }"#),
+      ("apps/web/app/page.tsx", "import { getLocale } from \"@acme/shell/i18n\";\n\nexport default async function Page() {\n  const locale = await getLocale();\n  return <p>{locale}</p>;\n}\n"),
+      ("packages/shell/package.json", r#"{ "name": "@acme/shell", "exports": { "./i18n": "./src/i18n.ts" } }"#),
+      ("packages/shell/src/i18n.ts", "export const getLocale = async () => \"en\";\n"),
+      ("packages/shell/migrate.toml", "[map.\"@acme/shell/i18n#getLocale\"]\ncall = \"params.locale\"\n"),
+    ],
+  );
+  let to = dir.join("fsr");
+  run(&dir.join("apps/web"), &to, false, None).unwrap();
+  let loader = std::fs::read_to_string(to.join("app/routes/page.loader.ts")).unwrap();
+  assert!(loader.contains("const locale = params.locale;"), "the shell's own map applies: {loader}");
+  let named = dir.join("other.toml");
+  std::fs::write(&named, "[map.\"@acme/shell/i18n#getLocale\"]\nnote = \"by hand\"\n").unwrap();
+  let to = dir.join("fsr-named");
+  let migrated = run(&dir.join("apps/web"), &to, false, Some(&named)).unwrap();
+  let loader = std::fs::read_to_string(to.join("app/routes/page.loader.ts")).unwrap();
+  assert!(loader.contains("from \"@src/packages/@acme/shell/src/i18n\"") && loader.contains("await getLocale()"), "a named map wins over the shell's: {loader}");
+  assert!(to.join("app/src/packages/@acme/shell/src/i18n.ts").is_file());
+  assert!(migrated.report.notes.iter().any(|n| n.message.ends_with("by hand")), "{:?}", migrated.report.notes);
   std::fs::remove_dir_all(&dir).unwrap();
 }

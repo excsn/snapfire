@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_migrate::{migrate, Report, Tree, WORKSPACE_DIR};
+use snapfire_fsr_migrate::{migrate, Report, Tree, MAP_FILE, WORKSPACE_DIR};
 
 use crate::new::{self, Created, NewOptions};
 use crate::BuildError;
@@ -27,9 +27,13 @@ pub struct Migrated {
 /// Reads the application at `from` and writes it, migrated, as a new
 /// project at `to`. `fetch` is `fsr new`'s: whether the scaffold vendors
 /// what its direction pins.
-pub fn run(from: &Path, to: &Path, fetch: bool) -> Result<Migrated, BuildError> {
+pub fn run(from: &Path, to: &Path, fetch: bool, map: Option<&Path>) -> Result<Migrated, BuildError> {
   let mut input = Tree::new();
   read(from, from, &mut input)?;
+  if let Some(map) = map {
+    let text = std::fs::read(map).map_err(|e| BuildError::Io(map.to_path_buf(), e))?;
+    input.insert(MAP_FILE, text);
+  }
   let mut dirs = serde_json::Map::new();
   for (name, dir) in workspace_dependencies(from) {
     let mut package = Tree::new();

@@ -10,6 +10,7 @@ mod edit;
 mod head;
 mod items;
 mod lift;
+mod map;
 mod meta;
 mod modules;
 mod next;
@@ -20,6 +21,7 @@ mod scripts;
 mod syntax;
 mod workspace;
 
+pub use map::{schema as map_schema, Entry, MigrationMap, MAP_FILE};
 pub use workspace::WORKSPACE_DIR;
 
 use std::collections::BTreeMap;
@@ -208,7 +210,7 @@ fn imported_packages(tree: &Tree) -> Vec<String> {
 }
 
 fn workspace_pass() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(workspace::Workspace)]
+  vec![Box::new(map::Map), Box::new(workspace::Workspace)]
 }
 
 fn prisma_pass() -> Vec<Box<dyn Pass>> {
