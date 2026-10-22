@@ -41,6 +41,7 @@ const DATE_TAG = "$date";
 const MAP_TAG = "$map";
 const SET_TAG = "$set";
 const BIGINT_TAG = "$bigint";
+const URL_TAG = "$url";
 const TYPED_ARRAYS = {
     i8: Int8Array,
     u8: Uint8Array,
@@ -116,11 +117,15 @@ function decodeTagged(obj) {
                         return new Set(payload.map(decodeValue));
                     case BIGINT_TAG:
                         return BigInt(decodeValue(payload));
+                    case URL_TAG:
+                        return new URL(decodeValue(payload));
                 }
                 return payload === undefined ? variant(t) : variant(t, decodeValue(payload));
             }
         case "ref":
             return ref(obj["k"], obj["id"]);
+        case "undef":
+            return undefined;
         default:
             throw new Error(`unknown value tag: ${tag}`);
     }
@@ -190,6 +195,9 @@ const I128_MAX = (1n << 127n) - 1n;
 const I128_MIN = -(1n << 127n);
 const U128_MAX = (1n << 128n) - 1n;
 export function encodeValue(v) {
+    if (v === undefined) return {
+        $: "undef"
+    };
     if (v === null || typeof v === "boolean" || typeof v === "string") return v;
     if (typeof v === "number") {
         if (Number.isNaN(v)) return {
@@ -257,6 +265,11 @@ export function encodeValue(v) {
         t: SET_TAG,
         p: Array.from(v, encodeValue)
     };
+    if (v instanceof URL) return {
+        $: "var",
+        t: URL_TAG,
+        p: v.href
+    };
     if (isDouble(v)) {
         const n = v.value;
         if (Number.isNaN(n)) return {
@@ -295,7 +308,7 @@ export function encodeValue(v) {
     if (Object.prototype.hasOwnProperty.call(obj, "$")) {
         return {
             $: "m",
-            v: Object.keys(obj).map((k)=>[
+            v: Object.keys(obj).filter((k)=>obj[k] !== undefined).map((k)=>[
                     k,
                     encodeValue(obj[k])
                 ])
@@ -303,7 +316,7 @@ export function encodeValue(v) {
     }
     const out = {};
     for (const key of Object.keys(obj)){
-        out[key] = encodeValue(obj[key]);
+        if (obj[key] !== undefined) out[key] = encodeValue(obj[key]);
     }
     return out;
 }

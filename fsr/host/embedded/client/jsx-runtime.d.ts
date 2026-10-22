@@ -4,9 +4,9 @@
 * dialect's placements as plain elements. An element is a description;
 * nothing here mounts or renders one, since FSR is no JSX framework.
 */
-import type { LinkOptions } from "./link.js";
-import type { PictureOptions } from "./picture.js";
-import type { EmbedOptions } from "./embed.js";
+import { type LinkOptions } from "./link.js";
+import { type PictureOptions } from "./picture.js";
+import { type EmbedOptions } from "./embed.js";
 export declare const Fragment: unique symbol;
 export type FsrComponent = (props: Record<string, unknown>) => FsrNode;
 export interface FsrElement {

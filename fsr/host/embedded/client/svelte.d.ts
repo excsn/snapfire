@@ -1,7 +1,7 @@
 import { type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
-import type { StoreKey } from "./store.js";
-import type { LinkOptions } from "./link.js";
-import type { PictureOptions } from "./picture.js";
+import { type StoreKey } from "./store.js";
+import { type LinkOptions } from "./link.js";
+import { type PictureOptions } from "./picture.js";
 import { embedParts, type EmbedOptions } from "./embed.js";
 export declare const svelteMounter: Mounter;
 export declare const sveltePatcher: Patcher;
