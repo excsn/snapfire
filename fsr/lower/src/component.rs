@@ -3808,6 +3808,28 @@ fn function_writes(stmts: &[&js::Stmt]) -> Vec<(String, swc_core::common::Syntax
   writes.found
 }
 
+/// The bare names `stmts` call as a statement of their own, `f()`, `void f()` or `await f()`.
+fn called_names(stmts: &[js::Stmt]) -> Vec<String> {
+  stmts
+    .iter()
+    .filter_map(|stmt| {
+      let js::Stmt::Expr(e) = stmt else { return None };
+      let mut called = crate::meaning::bare(&e.expr);
+      loop {
+        match called {
+          js::Expr::Unary(u) if u.op == js::UnaryOp::Void => called = crate::meaning::bare(&u.arg),
+          js::Expr::Await(a) => called = crate::meaning::bare(&a.arg),
+          _ => break,
+        }
+      }
+      let js::Expr::Call(call) = called else { return None };
+      let js::Callee::Expr(callee) = &call.callee else { return None };
+      let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return None };
+      Some(id.sym.to_string())
+    })
+    .collect()
+}
+
 /// The bare names `stmts` pass as the function of a `.on(event, f)` or `.off(event, f)` call, nested arrows included.
 fn listened_names(stmts: &[js::Stmt]) -> Vec<String> {
   struct Listened(Vec<String>);
@@ -8913,6 +8935,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let (spawned, cells) = (self.lowerer.spawned.len(), self.lowerer.cells.len());
     let result = match body {
       FunctionBody::Expr(e) => self.handler_stmt(e, walk),
+      FunctionBody::Block(stmts) if self.lowerer.terminal && stmts.iter().any(crate::awaits) => self.handler_async(stmts, walk),
       FunctionBody::Block(stmts) => self.handler_block(stmts, walk).map(|_| ()),
     };
     self.lowerer.scope.truncate(depth);
@@ -8923,6 +8946,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// Statements of a handler or of one of its branches. True when the block ended in a bare `return`, which makes what follows the branch reachable only when the branch was not taken.
   fn handler_block(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk) -> Lowered<bool> {
+    let mut declared: Vec<(String, Option<(Vec<js::Pat>, FunctionBody<'p>)>)> = Vec::new();
+    let result = self.handler_stmts(stmts, walk, &mut declared);
+    for (name, outer) in declared.into_iter().rev() {
+      match outer {
+        Some(f) => self.handler_fns.insert(name, f),
+        None => self.handler_fns.remove(&name),
+      };
+    }
+    result
+  }
+
+  /// [`Self::handler_block`]'s statements; a `const` arrow the rest calls by name is a function the calls inline, recorded in `declared` with what it shadowed.
+  fn handler_stmts(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk, declared: &mut Vec<(String, Option<(Vec<js::Pat>, FunctionBody<'p>)>)>) -> Lowered<bool> {
     for (at, stmt) in stmts.iter().enumerate() {
       match stmt {
         js::Stmt::Expr(e) => self.handler_stmt(&e.expr, walk)?,
@@ -8930,6 +8966,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           for decl in &var.decls {
             let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
             let local = name.id.sym.to_string();
+            if let Some(js::Expr::Arrow(arrow)) = decl.init.as_deref().map(crate::meaning::bare) {
+              if var.kind == js::VarDeclKind::Const && called_names(&stmts[at + 1..]).contains(&local) && !listened_names(&stmts[at + 1..]).contains(&local) {
+                let outer = self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
+                declared.push((local, outer));
+                continue;
+              }
+            }
             let listener = match decl.init.as_deref().map(crate::meaning::bare) {
               Some(js::Expr::Arrow(arrow)) if self.lowerer.terminal && listened_names(&stmts[at + 1..]).contains(&local) => Some(arrow),
               _ => None,

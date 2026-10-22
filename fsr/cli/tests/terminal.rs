@@ -519,3 +519,12 @@ fn a_state_setter_passed_as_a_prop_sets_the_parents_state_when_the_child_calls_i
   assert_eq!(lines(session.view().unwrap()), ["typed", "query"]);
   assert_eq!(lines(session.press(&h).unwrap()), ["typed h", "query h"]);
 }
+
+#[test]
+fn an_effect_calls_an_async_function_it_declares_and_sets_state_when_it_settles() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nconst lookup = async (query: string) => query.toUpperCase();\n\nexport default function Found() {\n  const [query] = useState(\"ab\");\n  const [found, setFound] = useState(\"none\");\n  useEffect(() => {\n    let isCanceled = false;\n    const run = async () => {\n      const value = await lookup(query);\n      if (!isCanceled) {\n        setFound(value);\n      }\n    };\n    run();\n    return () => {\n      isCanceled = true;\n    };\n  }, [query]);\n  return <Text>{found}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "AB");
+}

@@ -98,7 +98,7 @@ useEffect(() => {
 
 ## Promises and handing over the terminal
 
-`new Promise`, `await`, `try` and `catch` run as they do in Node. An async function runs to its first `await`; the rest of it is a continuation the terminal runs when the promise settles. A rejected promise inside a `try` runs the `catch`, then what follows the `try`. A component that throws a pending promise under `Suspense` shows the fallback until the promise settles.
+`new Promise`, `await`, `try` and `catch` run as they do in Node. An async function runs to its first `await`; the rest of it is a continuation the terminal runs when the promise settles. That holds for one an effect or a handler declares as a `const` and calls by name, `const run = async () => { … }; run();`, as for one called where it is written. A rejected promise inside a `try` runs the `catch`, then what follows the `try`. A component that throws a pending promise under `Suspense` shows the fallback until the promise settles.
 
 `useApp().suspendTerminal(fn)` gives up the screen while the promise `fn` returns is pending. A process spawned inside it with `stdio: "inherit"` owns the terminal, which is how an Ink tool opens an editor. [`examples/launcher_terminal_ts`](../../examples/launcher_terminal_ts/README.md) runs `$EDITOR`, `less` and a shell this way. It pipes the commands that do not need the terminal into a panel.
 
