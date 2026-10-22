@@ -40,6 +40,7 @@ Then run it from `fsr/examples`, naming the `app/` directory:
 ```sh
 INK_APP=/path/to/app cargo nextest run -p corpus --test ink_app --no-capture
 INK_APP=/path/to/app INK_KEYS=hjk INK_COLUMNS=80 INK_ROWS=24 cargo nextest run -p corpus --test ink_app --no-capture
+INK_APP=/path/to/app INK_KEYS=cat INK_WAIT=300 cargo nextest run -p corpus --test ink_app --no-capture
 ```
 
-It prints the first frame at `INK_COLUMNS` by `INK_ROWS` (100 by 30 when unset), then the frame after each character of `INK_KEYS`; a newline in it is Enter and an escape character is Esc, `INK_KEYS=$'q\e'` in a shell. A refused application fails the test with the first cause, as the corpus records it. With `INK_APP` unset the test says so and passes, so it never changes a normal run.
+It prints the first frame at `INK_COLUMNS` by `INK_ROWS` (100 by 30 when unset), then the frame after each character of `INK_KEYS`; a newline in it is Enter and an escape character is Esc, `INK_KEYS=$'q\e'` in a shell. With `INK_WAIT` set to a number of milliseconds, each key is followed by that long on a clock of the test's own: the timers the page started fire in the order they fall due, a debounce or a spinner among them, and the frame printed is the one after the wait. A refused application fails the test with the first cause, as the corpus records it. With `INK_APP` unset the test says so and passes, so it never changes a normal run.
