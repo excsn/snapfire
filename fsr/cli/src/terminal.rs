@@ -468,7 +468,7 @@ impl Session {
       }
       for (path, effect, handler) in due {
         if let Some(cleanup) = self.cleanups.remove(&(path, effect)) {
-          html = self.resume(cleanup)?;
+          self.resume(cleanup)?;
         }
         html = self.render(Some(handler), &Value::Null)?;
       }
