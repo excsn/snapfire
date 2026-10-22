@@ -77,6 +77,8 @@ none = "Rien ne brûle."
 open = "ouvrir"
 open_title = "Ouvrir l'agent"
 ack = "acquitter"
+down = "La flotte n'a pas répondu pour les alertes : {why}"
+export = "Télécharger en CSV"
 
 [settings]
 title = "Réglages"

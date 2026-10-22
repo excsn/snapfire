@@ -6,7 +6,7 @@ import { actions, type LayoutAlertsProps } from "@generated/client";
 import { openAlerts } from "@src/store";
 import { level } from "@src/ui/level";
 
-export default function Alerts({ alerts }: LayoutAlertsProps) {
+export default function Alerts({ alerts, down }: LayoutAlertsProps) {
   async function ack(id: bigint | number, open: number): Promise<void> {
     await optimistic(openAlerts, open - 1, () => actions.layout.alerts.ackAlert({ alert_id: id }));
   }
@@ -14,7 +14,7 @@ export default function Alerts({ alerts }: LayoutAlertsProps) {
   return (
     <div className="alerts">
       <h2>{t("alerts.title")}</h2>
-      {alerts.length === 0 ? <p className="quiet">{t("alerts.none")}</p> : null}
+      {down ? <p className="quiet">{t("alerts.down", { why: down })}</p> : alerts.length === 0 ? <p className="quiet">{t("alerts.none")}</p> : null}
       <ul>
         {alerts.map((a) => (
           <li key={String(a.id)} className={level(a.level)}>
@@ -29,6 +29,11 @@ export default function Alerts({ alerts }: LayoutAlertsProps) {
           </li>
         ))}
       </ul>
+      <p>
+        <a href="/api/alerts.csv" download>
+          {t("alerts.export")}
+        </a>
+      </p>
     </div>
   );
 }

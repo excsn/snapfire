@@ -5,7 +5,7 @@ use futures::executor::block_on;
 use futures::StreamExt;
 use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::{Config, Host, RenderMode};
-use snapfire_fsr_runtime::SessionCell;
+use snapfire_fsr_runtime::{FailureKind, HttpResponse, SessionCell};
 use snapfire_fsr_service::MockTransport;
 use snapfire_fsr_session::MemorySessionStore;
 
@@ -299,4 +299,41 @@ fn a_session_signs_in_through_the_host_and_its_fleet_call_carries_the_token() {
 
   let response = block_on(app.handle(Request::get("/account").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()));
   assert_eq!(response.status(), 307, "signed out, the guard is back");
+}
+
+fn answered(app: &Host, path: &str) -> HttpResponse {
+  let value = block_on(app.call_handler("GET", path, SessionCell::default(), Value::Null)).unwrap();
+  HttpResponse::from_value(&value).expect("a response").unwrap()
+}
+
+#[test]
+fn route_handlers_answer_text_a_csv_export_and_a_short_link() {
+  let app = console(fleet());
+  let robots = answered(&app, "/robots.txt");
+  assert_eq!((robots.status, robots.header("content-type")), (200, Some("text/plain; charset=utf-8")));
+  assert_eq!(robots.body, b"User-agent: *\nDisallow: /\n");
+  let csv = answered(&app, "/api/alerts.csv");
+  assert_eq!((csv.status, csv.header("content-type")), (200, Some("text/csv; charset=utf-8")));
+  assert_eq!(csv.header("content-disposition"), Some("attachment; filename=alerts.csv"));
+  assert_eq!(String::from_utf8(csv.body).unwrap(), "id,agent,level,text\n21,3,page,\"builder-us-1 stopped answering\"\n22,1,warn,\"queue over 3\"\n");
+  let go = answered(&app, "/go/3");
+  assert_eq!((go.status, go.location()), (308, Some("/agents/3")));
+}
+
+#[test]
+fn with_the_alerts_down_the_console_still_renders_and_says_so() {
+  let down = Arc::new(
+    MockTransport::new()
+      .returns("fleet.listAgents", Value::seq(vec![agent(1, "builder-eu-1", "eu", "up", 3)]))
+      .fails("fleet.listAlerts", FailureKind::Unavailable, "the fleet is restarting"),
+  );
+  let app = console(down);
+  let parts: Vec<String> = block_on(async { app.render("/", RenderMode::Html, SessionCell::default()).await.unwrap().collect().await });
+  let whole = parts.concat();
+  assert!(whole.contains("The fleet did not answer for alerts: the fleet is restarting"), "the alerts slot's catch: {whole}");
+  let fleet = answered(&app, "/api/fleet");
+  assert_eq!((fleet.status, fleet.header("retry-after")), (503, Some("30")));
+  assert_eq!(String::from_utf8(fleet.body).unwrap(), r#"{"error":"the fleet is restarting"}"#);
+  let csv = answered(&app, "/api/alerts.csv");
+  assert_eq!((csv.status, csv.header("content-type")), (503, Some("text/plain; charset=utf-8")));
 }

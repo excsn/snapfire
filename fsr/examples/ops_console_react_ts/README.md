@@ -24,6 +24,8 @@ Where the storefront is the first thing to read, this is the second: it exercise
 | An error boundary on a nested segment | `routes/agents/[id]/error.tsx` |
 | Two locales, the default unprefixed and French under `/fr_FR/`, remembered in a cookie once chosen | `[locales]` in `config/app.toml`, the picker in `src/ui/LanguagePicker.tsx`, `useLocale()` in `routes/help/page.tsx` |
 | A login the host serves over a users file, a guarded route, the identity and the CSRF token as layout props, a loader whose backend call carries the session's token | `[auth]` in `config/app.toml`, `config/auth.toml`, `routes/login/`, `routes/account/`, the guard in `middleware.ts`, `src/ui/Header.tsx` |
+| A console that stays up when the fleet's alerts do not answer: the header counts none and the alerts slot says why | `try` and `catch` in `routes/layout.loader.ts` and `routes/slots/alerts/page.loader.ts`, `tests/console.rs`, `app/tests/slots/alerts.test.ts` |
+| Route handlers that answer more than JSON: text, a CSV download with `finally` logging how it went, a 503 with `Retry-After` and a permanent short link | `routes/robots.txt/`, `routes/api/alerts.csv/`, `routes/api/fleet/`, `routes/go/[id]/` |
 
 Nothing here is prerendered: the root layout reads the session for the header, so every route is dynamic. The storefront's `/about` is the example of a prerendered page.
 
@@ -48,7 +50,7 @@ Open the summary, then `Agents`. Click a name: its page renders under the list a
 
 Open the gear: the settings route renders into a drawer over the console. Switch the rows to compact and the list behind the drawer changes before the server has answered; reload and it is still compact, because the setting lives in the session and the root layout seeds it back into the store. `watch` an agent from the list and the header's count moves the same way, then the settings drawer lists it.
 
-Acknowledge an alert in the right column: the count in the header and the headline beside it move at once and the revalidation that follows agrees. From the agent list, `open` on an alert peeks at that agent; from the summary, where the agents layout is not on the page, the same link navigates.
+`Download as CSV` under the alerts saves them as a file; `/go/3` opens agent 3; `/robots.txt` is text. Acknowledge an alert in the right column: the count in the header and the headline beside it move at once and the revalidation that follows agrees. From the agent list, `open` on an alert peeks at that agent; from the summary, where the agents layout is not on the page, the same link navigates.
 
 ## Tests
 

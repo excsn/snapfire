@@ -1,8 +1,11 @@
 import type { Ctx } from "@snapfire/fsr";
 
 export async function load({ session, services }: Ctx) {
-  const alerts = await services.fleet.listAlerts();
-  return { open: BigInt(alerts.length), watching: BigInt(Object.keys(session.watching).length), density: session.density };
+  let open = 0n;
+  try {
+    open = BigInt((await services.fleet.listAlerts()).length);
+  } catch {}
+  return { open, watching: BigInt(Object.keys(session.watching).length), density: session.density };
 }
 
 export const store = ({ data }: { data: { open: bigint; watching: bigint; density: string } }) => ({

@@ -74,6 +74,8 @@ none = "Nothing is on fire."
 open = "open"
 open_title = "Open the agent"
 ack = "ack"
+down = "The fleet did not answer for alerts: {why}"
+export = "Download as CSV"
 
 [settings]
 title = "Settings"
