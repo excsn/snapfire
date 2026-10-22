@@ -5355,6 +5355,8 @@ pub(crate) struct HandlerWalk {
   pub(crate) patch: Vec<Entry>,
   pub(crate) reach: Option<Expr>,
   pub(crate) locals: usize,
+  /// Inside a `try`: each state key set there, the variable its value is written to where the set runs and what that variable starts from. The patch then reads the variable.
+  pub(crate) in_place: Option<Vec<(String, String, Expr)>>,
 }
 
 impl HandlerWalk {
@@ -5367,6 +5369,28 @@ impl HandlerWalk {
   }
 
   pub(crate) fn set(&mut self, state: String, value: Expr) {
+    if let Some(in_place) = &mut self.in_place {
+      let var = match in_place.iter().find(|(key, _, _)| *key == state) {
+        Some((_, var, _)) => var.clone(),
+        None => {
+          let var = format!("$set{}${state}", in_place.len());
+          let start = self.patch.iter().find_map(|entry| match entry {
+            Entry::Field(name, held) if *name == state => Some(held.clone()),
+            _ => None,
+          });
+          in_place.push((state.clone(), var.clone(), start.unwrap_or_else(|| Expr::Var(state.clone()))));
+          var
+        }
+      };
+      let value = match &self.reach {
+        None => value,
+        Some(reach) => Expr::Ternary(Box::new(reach.clone()), Box::new(value), Box::new(Expr::Var(var.clone()))),
+      };
+      self.out.push(Stmt::Set { name: var.clone(), expr: value });
+      self.patch.retain(|entry| !matches!(entry, Entry::Field(name, _) if *name == state));
+      self.patch.push(Entry::Field(state, Expr::Var(var)));
+      return;
+    }
     let value = match &self.reach {
       None => value,
       Some(reach) => {
@@ -9285,10 +9309,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
         js::Stmt::If(branch) => self.handler_if(branch, walk)?,
         js::Stmt::Try(t) => {
-          if t.finalizer.is_some() {
-            return Err(self.lowerer.residue(t.span, "a `finally` in a handler"));
-          }
-          if self.handler_block(&t.block.stmts, walk)? {
+          if self.handler_try(t, walk)? {
             return Ok(true);
           }
         }
@@ -9594,6 +9615,67 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
+  /// A `try` in a handler. Its block runs inside a `Try` whose `catch` notes that it failed and what was thrown; the `catch` block runs where it failed, inside a `Try` of its own; the `finally` block runs either way and then what failed and was not caught fails the handler. A state key set inside either block is written where the set runs, so a failure after it keeps it. True when the `finally` ended in a bare `return`.
+  fn handler_try(&mut self, t: &'p js::TryStmt, walk: &mut HandlerWalk) -> Lowered<bool> {
+    let (failed, thrown) = (self.lowerer.temp(), self.lowerer.temp());
+    let noted = |caught: &str| vec![Stmt::Set { name: failed.clone(), expr: Expr::Lit(Lit::Bool(true)) }, Stmt::Set { name: thrown.clone(), expr: Expr::Var(caught.to_owned()) }];
+    let mut run = vec![Stmt::Let { name: failed.clone(), expr: Expr::Lit(Lit::Bool(false)) }, Stmt::Let { name: thrown.clone(), expr: Expr::Lit(Lit::Undefined) }];
+    let mut in_place: Vec<(String, String, Expr)> = Vec::new();
+    let mut guarded = |this: &mut Self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk, in_place: &mut Vec<(String, String, Expr)>| -> Lowered<Vec<Stmt>> {
+      let mut inner = HandlerWalk { patch: walk.patch.clone(), locals: walk.locals, in_place: Some(std::mem::take(in_place)), ..HandlerWalk::default() };
+      let depth = this.lowerer.scope.len();
+      let returned = this.handler_block(stmts, &mut inner);
+      this.lowerer.scope.truncate(depth);
+      walk.locals = inner.locals;
+      *in_place = inner.in_place.take().unwrap_or_default();
+      if returned? {
+        return Err(this.lowerer.residue(t.span, "a `return` inside a handler's `try` or `catch`"));
+      }
+      let caught = this.lowerer.temp();
+      Ok(vec![Stmt::Try { body: inner.out, name: Some(caught.clone()), handler: Some(noted(&caught)), finally: Vec::new() }])
+    };
+    let tried = guarded(self, &t.block.stmts, walk, &mut in_place)?;
+    run.extend(tried);
+    if let Some(catch) = &t.handler {
+      let depth = self.lowerer.scope.len();
+      let bound = match &catch.param {
+        None => Ok(()),
+        Some(js::Pat::Ident(id)) => {
+          self.lowerer.scope.push((id.id.sym.to_string(), Expr::Var(thrown.clone())));
+          Ok(())
+        }
+        Some(pattern) => bind_pattern(&mut self.lowerer, pattern, Expr::Var(thrown.clone())),
+      };
+      let handled = bound.and_then(|_| guarded(self, &catch.body.stmts, walk, &mut in_place));
+      self.lowerer.scope.truncate(depth);
+      let mut handled = handled?;
+      handled.insert(0, Stmt::Set { name: failed.clone(), expr: Expr::Lit(Lit::Bool(false)) });
+      run.push(Stmt::If { cond: Expr::Var(failed.clone()), then: handled, r#else: Vec::new() });
+    }
+    for (_, var, start) in in_place.iter().rev() {
+      run.insert(0, Stmt::Let { name: var.clone(), expr: start.clone() });
+    }
+    match &walk.reach {
+      None => walk.out.extend(run),
+      Some(reach) => {
+        let (lets, rest): (Vec<Stmt>, Vec<Stmt>) = run.into_iter().partition(|stmt| matches!(stmt, Stmt::Let { .. }));
+        walk.out.extend(lets);
+        walk.out.push(Stmt::If { cond: reach.clone(), then: rest, r#else: Vec::new() });
+      }
+    }
+    for (state, var, _) in in_place {
+      walk.set(state, Expr::Var(var));
+    }
+    let returned = match &t.finalizer {
+      Some(finalizer) => self.handler_block(&finalizer.stmts, walk)?,
+      None => false,
+    };
+    let message = Expr::Coalesce(Box::new(Expr::Field(Box::new(Expr::Var(thrown.clone())), "message".to_owned())), Box::new(Expr::Var(thrown.clone())));
+    let rethrow = Stmt::Expr(Expr::Builtin { name: Builtin::Throw, args: vec![message, Expr::Var(thrown.clone())] });
+    walk.effect(Stmt::If { cond: Expr::Var(failed), then: vec![rethrow], r#else: Vec::new() });
+    Ok(returned)
+  }
+
   fn handler_branch(&mut self, stmt: &'p js::Stmt, walk: &mut HandlerWalk) -> Lowered<bool> {
     match stmt {
       js::Stmt::Block(block) => self.handler_block(&block.stmts, walk),
@@ -9629,6 +9711,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         Ok(())
       }
       js::Expr::Call(call) if self.lowerer.listens(call) => self.handler_listen(call, walk),
+      js::Expr::Call(call) if console_call(&mut self.lowerer, call)?.is_some() => {
+        let logged = console_call(&mut self.lowerer, call)?.expect("checked");
+        walk.effect(Stmt::Expr(logged));
+        Ok(())
+      }
       js::Expr::Call(call) => {
         let js::Callee::Expr(callee) = &call.callee else { return Err(self.lowerer.residue(call.span, "a call a handler cannot make")) };
         match &**callee {
@@ -10902,7 +10989,14 @@ export function Stepper() {
     let up = Expr::Arith(snapfire_fsr_ir::ArithOp::Add, Box::new(Expr::var("count")), Box::new(Expr::Lit(Lit::Float(1.0))));
     assert_eq!(stepper.handlers[0].body, vec![Stmt::Act { action: "order.setQty".to_owned(), input: Expr::Object(vec![Entry::Field("qty".to_owned(), up.clone())]) }, Stmt::Return(Expr::Object(vec![Entry::Field("count".to_owned(), up)]))]);
     let down = Expr::Arith(snapfire_fsr_ir::ArithOp::Sub, Box::new(Expr::var("count")), Box::new(Expr::Lit(Lit::Float(1.0))));
-    assert_eq!(stepper.handlers[1].body, vec![Stmt::Act { action: "order.setQty".to_owned(), input: Expr::Object(vec![Entry::Field("qty".to_owned(), down.clone())]) }, Stmt::Return(Expr::Object(vec![Entry::Field("count".to_owned(), down)]))], "the try's catch is the browser's; the server refuses the patch when the action fails");
+    let body = &stepper.handlers[1].body;
+    let act = Stmt::Act { action: "order.setQty".to_owned(), input: Expr::Object(vec![Entry::Field("qty".to_owned(), down.clone())]) };
+    let tried = body.iter().find_map(|stmt| match stmt {
+      Stmt::Try { body, .. } => Some(body),
+      _ => None,
+    });
+    assert!(tried.is_some_and(|tried| tried.contains(&act)), "the action is dispatched inside the try: {body:?}");
+    assert!(matches!(body.last(), Some(Stmt::Return(Expr::Object(fields))) if matches!(fields.as_slice(), [Entry::Field(name, Expr::Var(_))] if name == "count")), "the patch sets the count the try set: {body:?}");
   }
 
   #[test]

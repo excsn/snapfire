@@ -1097,13 +1097,13 @@ fn a_loader_reads_the_navigations_own_request_as_the_address() {
 
 #[test]
 fn a_handler_the_browser_runs_as_written_is_a_browser_row() {
-  let page = "export default function Page() {\n  return <button onClick={() => console.log(\"hi\")}>hi</button>;\n}\n";
+  let page = "export default function Page() {\n  return <button onClick={() => window.alert(\"hi\")}>hi</button>;\n}\n";
   let dir = app(&[("routes/layout.tsx", LAYOUT), ("routes/index/page.tsx", page)]);
   let built = build(&dir, &Options::default()).unwrap();
   assert_eq!(built.report.browser.len(), 1, "{}", built.report);
   let (module, site) = &built.report.browser[0];
   assert_eq!(module, "routes/index/page.island0.tsx#default", "the handler moved into the island beside the page");
-  assert!(site.starts_with("routes/index/page.island0.tsx:") && site.contains("`.log()` in a handler"), "{site}");
+  assert!(site.starts_with("routes/index/page.island0.tsx:") && site.contains("`.alert()` in a handler"), "{site}");
   assert!(built.report.to_string().contains("browser   routes/index/page.island0.tsx#default"), "{}", built.report);
   std::fs::remove_dir_all(&dir).unwrap();
 }

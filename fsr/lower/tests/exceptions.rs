@@ -158,3 +158,41 @@ fn a_component_try_that_returns_markup_renders_the_return_it_reached() {
   assert_eq!(html("markup_ok", &page("https://a.example/x")).as_deref(), Ok("<p>a.example</p>"));
   assert_eq!(html("markup_caught", &page("nope")).as_deref(), Ok("<p>bad Error</p>"));
 }
+
+fn stepped(tag: &str, page: &str, handler: usize) -> Result<String, String> {
+  let dir: PathBuf = std::env::temp_dir().join(format!("fsr_exceptions_step_{}_{tag}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&dir);
+  std::fs::create_dir_all(dir.join("routes")).unwrap();
+  std::fs::write(dir.join("routes/page.tsx"), page).unwrap();
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());
+  std::fs::remove_dir_all(&dir).unwrap();
+  result?;
+  set.settle_fills();
+  if let Some((module, residue)) = set.browser_only.first() {
+    return Err(format!("{module}: {}", residue.message));
+  }
+  let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(set.consts.clone())));
+  interpreter.island_step(module, &library[module], &ValueMap::default(), &ValueMap::default(), Some(snapfire_fsr_ir::render::HandlerRef::own(handler)), &Value::Null, &library).map(|step| step.rendered.html).map_err(|e| format!("{e:?}"))
+}
+
+fn checker(url: &str) -> String {
+  format!("import {{ useState }} from \"react\";\nexport default function Page() {{\n  const [host, setHost] = useState(\"none\");\n  const [tries, setTries] = useState(0);\n  return <div><button onClick={{() => {{\n    try {{\n      setHost(new URL(\"{url}\").hostname);\n    }} catch (e) {{\n      setHost(\"bad \" + e.name);\n    }} finally {{\n      setTries(tries + 1);\n    }}\n  }}}}>{{tries}}</button><p>{{host}}</p></div>;\n}}\n")
+}
+
+#[test]
+fn a_handler_runs_its_catch_when_its_try_fails_and_its_finally_either_way() {
+  let ok = stepped("handler_ok", &checker("https://a.example/x"), 0);
+  assert!(ok.as_ref().is_ok_and(|html| html.contains(">1</button><p>a.example</p>")), "{ok:?}");
+  let caught = stepped("handler_caught", &checker("nope"), 0);
+  assert!(caught.as_ref().is_ok_and(|html| html.contains(">1</button><p>bad Error</p>")), "{caught:?}");
+}
+
+#[test]
+fn a_handler_try_without_a_catch_runs_its_finally_and_fails() {
+  let page = "import { useState } from \"react\";\nexport default function Page() {\n  const [tries, setTries] = useState(0);\n  return <button onClick={() => {\n    try {\n      setTries(new URL(\"nope\").port);\n    } finally {\n      setTries(tries + 1);\n    }\n  }}>{tries}</button>;\n}\n";
+  let failed = stepped("handler_uncaught", page, 0);
+  assert!(failed.as_ref().is_err_and(|e| e.contains("Invalid URL")), "{failed:?}");
+}

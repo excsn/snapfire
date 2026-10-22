@@ -462,7 +462,7 @@ fn a_handler_passed_as_a_prop_is_bound_where_the_child_places_it() {
 
 #[test]
 fn a_handler_prop_that_does_not_lower_leaves_its_reason_on_the_placement() {
-  let panel = "import Row from \"./Row\";\nexport default function Panel() {\n  return <div><Row label=\"a\" shown={false} toggle={(e: unknown) => console.log(e)} /></div>;\n}\n";
+  let panel = "import Row from \"./Row\";\nexport default function Panel() {\n  return <div><Row label=\"a\" shown={false} toggle={(e: unknown) => window.alert(e)} /></div>;\n}\n";
   let set = lower(&[("src/ui/Panel.tsx", panel), ("src/ui/Row.tsx", ROW)], "src/ui/Panel.tsx#default");
   let Tmpl::Element { children, .. } = render_of(&set, "src/ui/Panel.tsx#default") else { panic!() };
   let Tmpl::Component { props, .. } = &children[0] else { panic!("{children:?}") };

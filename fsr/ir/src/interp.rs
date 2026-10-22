@@ -256,6 +256,7 @@ impl Interpreter {
       emitted: Vec::new(),
       server_mode: false,
       acts: Vec::new(),
+      handling: false,
       calls: 0,
       frameworks: self.frameworks,
       island_reads: self.island_reads.clone(),
@@ -387,6 +388,8 @@ pub(crate) struct Env {
   /// The actions a handler asked for, in order, with their inputs evaluated.
   /// The host dispatches them once the step is done.
   pub(crate) acts: Vec<(String, Value)>,
+  /// Set while a handler's body runs in a step: an action it dispatches is one of the step's `acts`.
+  pub(crate) handling: bool,
   /// Components entered and not yet left, which bounds a render that recurses.
   pub(crate) calls: usize,
   /// The frameworks the application vendors, read on entering each component.
@@ -645,6 +648,7 @@ impl Env {
       emitted: Vec::new(),
       server_mode: false,
       acts: Vec::new(),
+      handling: false,
       calls: 0,
       frameworks: interpreter.frameworks,
       island_reads: interpreter.island_reads.clone(),
@@ -783,22 +787,7 @@ impl Env {
           return Ok(Flow::Return(value));
         }
         Stmt::Try { body, name, handler, finally } => {
-          let at = self.scope.len();
-          let mut flow = self.block_sync(body);
-          self.scope.truncate(at);
-          if let (Some(handler), Err(fail)) = (handler, &flow) {
-            if let Some(caught) = caught(fail) {
-              self.scope.extend(name.iter().map(|name| (name.clone(), caught.clone())));
-              flow = self.block_sync(handler);
-              self.scope.truncate(at);
-            }
-          }
-          if !finally.is_empty() {
-            let after = self.block_sync(finally);
-            self.scope.truncate(at);
-            flow = after_finally(flow, after);
-          }
-          if let Flow::Return(v) = flow? {
+          if let Flow::Return(v) = self.try_sync(body, name.as_deref(), handler.as_ref(), finally)? {
             self.scope.truncate(depth);
             return Ok(Flow::Return(v));
           }
@@ -806,18 +795,43 @@ impl Env {
         Stmt::Expr(expr) => {
           self.eval_sync(expr)?;
         }
-        Stmt::Act { action, input } if self.server_mode => {
+        Stmt::Act { action, input } if self.server_mode && !self.handling => {
           let input = self.eval_sync(input)?;
           let mut act = ValueMap::default();
           act.insert("action".to_owned(), Value::str(action));
           act.insert("input".to_owned(), input);
           self.emitted.push(crate::render::Emitted { path: self.component_path.clone(), kind: crate::render::ACT.to_owned(), value: Value::Map(act) });
         }
+        Stmt::Act { action, input } if self.handling => {
+          let input = self.eval_sync(input)?;
+          self.acts.push((action.clone(), input));
+        }
         Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => return Err(Fail::internal("a guard, a session write, a redirect or a dispatch inside a block, which runs where no request is")),
       }
     }
     self.scope.truncate(depth);
     Ok(Flow::Next)
+  }
+
+  /// A `Try` under `block_sync`, in a frame of its own so the frame `block_sync` takes for every statement stays small.
+  #[inline(never)]
+  fn try_sync(&mut self, body: &Body, name: Option<&str>, handler: Option<&Body>, finally: &Body) -> Result<Flow, Fail> {
+    let at = self.scope.len();
+    let mut flow = self.block_sync(body);
+    self.scope.truncate(at);
+    if let (Some(handler), Err(fail)) = (handler, &flow) {
+      if let Some(caught) = caught(fail) {
+        self.scope.extend(name.map(|name| (name.to_owned(), caught)));
+        flow = self.block_sync(handler);
+        self.scope.truncate(at);
+      }
+    }
+    if !finally.is_empty() {
+      let after = self.block_sync(finally);
+      self.scope.truncate(at);
+      flow = after_finally(flow, after);
+    }
+    flow
   }
 
   pub(crate) fn block<'a>(&'a mut self, body: &'a Body) -> BoxFuture<'a, Result<Flow, Fail>> {
@@ -888,6 +902,7 @@ impl Env {
       emitted: Vec::new(),
       server_mode: false,
       acts: Vec::new(),
+      handling: false,
       calls: self.calls,
       frameworks: self.frameworks,
       island_reads: self.island_reads.clone(),
@@ -1112,50 +1127,8 @@ impl Env {
         Lit::Float(f) => Value::F64(*f),
         Lit::Str(s) => Value::str(s.clone()),
       }),
-      Expr::Object(entries) => {
-        let mut map = ValueMap::default();
-        for entry in entries {
-          match entry {
-            Entry::Baked(_) => {}
-            Entry::Field(name, e) => {
-              let v = self.eval_sync(e)?;
-              map.insert(name.clone(), v);
-            }
-            Entry::Computed(k, e) => {
-              let key = match self.eval_sync(k)? {
-                Value::Str(s) => s.to_string(),
-                other => return Err(type_error("a computed key", "a string", &other)),
-              };
-              let v = self.eval_sync(e)?;
-              map.insert(key, v);
-            }
-            Entry::Spread(e) => match self.eval_sync(e)? {
-              Value::Map(inner) => map.extend(inner),
-              Value::Null | Value::Undefined => {}
-              other => return Err(type_error("spread into an object", "an object", &other)),
-            },
-            Entry::Item(_) => return Err(Fail::internal("an object literal has no positional entries")),
-          }
-        }
-        Ok(Value::Map(map))
-      }
-      Expr::Array(entries) => {
-        let mut items = Vec::new();
-        for entry in entries {
-          match entry {
-            Entry::Baked(_) => {}
-            Entry::Item(e) => items.push(self.eval_sync(e)?),
-            Entry::Spread(e) => match self.eval_sync(e)? {
-              Value::Seq(inner) => items.extend(inner),
-              Value::Null | Value::Undefined => {}
-              Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
-              other => return Err(type_error("spread into an array", "an array", &other)),
-            },
-            Entry::Field(..) | Entry::Computed(..) => return Err(Fail::internal("an array literal has no named entries")),
-          }
-        }
-        Ok(Value::seq(items))
-      }
+      Expr::Object(entries) => self.object_sync(entries),
+      Expr::Array(entries) => self.array_sync(entries),
       Expr::Field(target, name) => Ok(get_field(&self.eval_sync(target)?, name)),
       Expr::Index(target, key) => {
         if self.place(target).is_some() {
@@ -1217,24 +1190,7 @@ impl Env {
         Ok(Value::str(out))
       }
       Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
-      Expr::NativeCall { module, method, args, sync } => {
-        if !sync {
-          return Err(Fail::internal("an async native call in an expression that cannot suspend"));
-        }
-        let mut map = ValueMap::default();
-        for (name, e) in args {
-          match self.eval_sync(e)? {
-            Value::Null | Value::Undefined => {}
-            v => {
-              map.insert(name.clone(), v);
-            }
-          }
-        }
-        match self.ctx.natives.call_sync(module, method, map) {
-          Some(answer) => answer.map_err(|e| Fail::new(e.kind, e.message)),
-          None => Err(Fail::internal(format!("`{module}.{method}` is not a synchronous native"))),
-        }
-      }
+      Expr::NativeCall { module, method, args, sync } => self.native_sync(module, method, args, *sync),
       Expr::Lambda { params, body } => self.close(params, body),
       Expr::Block(body) => {
         let depth = self.scope.len();
@@ -1261,35 +1217,7 @@ impl Env {
         }
         self.apply_sync(f, values)
       }
-      Expr::Builtin { name, args } => {
-        let mut values = Vec::with_capacity(args.len());
-        for arg in args {
-          values.push(self.eval_sync(arg)?);
-        }
-        match name {
-          Builtin::CloneElement => self.clone_element(values),
-          Builtin::CallMethod | Builtin::GetMember => {
-            let (target, member) = (values.first().cloned().unwrap_or(Value::Undefined), match values.get(1) { Some(Value::Str(name)) => name.to_string(), _ => String::new() });
-            let getter = *name == Builtin::GetMember;
-            match instance_class(&target).and_then(|class| class_member(self.consts.as_deref(), &class, &member, getter)) {
-              Some(key) => {
-                let mut called = vec![target];
-                called.extend(values.into_iter().skip(2));
-                self.apply_sync(&Expr::Const(key), called)
-              }
-              None if getter => Ok(get_field(&target, &member)),
-              None => Err(Fail::internal(format!("`{member}` is not a method of {}", instance_class(&target).unwrap_or_else(|| "this value".to_owned())))),
-            }
-          }
-          Builtin::Emit => {
-            if let (true, Some(Value::Str(kind)), Some(value)) = (self.server_mode, values.first(), values.get(1)) {
-              self.emitted.push(crate::render::Emitted { path: self.component_path.clone(), kind: kind.to_string(), value: value.clone() });
-            }
-            Ok(Value::Null)
-          }
-          _ => builtin(*name, values),
-        }
-      }
+      Expr::Builtin { name, args } => self.builtin_sync(name, args),
       Expr::Ext { module, name, args } => {
         let mut values = Vec::with_capacity(args.len());
         for arg in args {
@@ -1305,20 +1233,7 @@ impl Env {
         }
         Ok(Value::seq(out))
       }
-      Expr::ReplaceWith(subject, pattern, f) => {
-        let subject = self.eval_sync(subject)?;
-        let pattern = self.eval_sync(pattern)?;
-        let (s, found) = replacements(&subject, &pattern)?;
-        let mut out = String::with_capacity(s.len());
-        let mut last = 0;
-        for (start, end, args) in found {
-          out.push_str(&s[last..start]);
-          out.push_str(&stringify(&self.apply_sync(f, args)?)?);
-          last = end;
-        }
-        out.push_str(&s[last..]);
-        Ok(Value::str(out))
-      }
+      Expr::ReplaceWith(subject, pattern, f) => self.replace_sync(subject, pattern, f),
       Expr::FlatMap(over, f) => {
         let items = self.seq_sync(over, "flatMap")?; let whole = array_arg(f, &items);
         let mut out = Vec::with_capacity(items.len());
@@ -1330,38 +1245,7 @@ impl Env {
         }
         Ok(Value::seq(out))
       }
-      Expr::Sort(over, f) => {
-        let mut items = self.seq_sync(over, "toSorted")?;
-        let mut width = 1;
-        while width < items.len() {
-          let mut merged = Vec::with_capacity(items.len());
-          let mut start = 0;
-          while start < items.len() {
-            let mid = (start + width).min(items.len());
-            let end = (start + 2 * width).min(items.len());
-            let (mut a, mut b) = (start, mid);
-            while a < mid && b < end {
-              let order = match &**f {
-                Expr::Lit(Lit::Null) | Expr::Folded(Value::Null) => default_order(&items[a], &items[b])?,
-                f => comparator_order(&self.apply_sync(f, vec![items[a].clone(), items[b].clone()])?),
-              };
-              if order > 0.0 {
-                merged.push(items[b].clone());
-                b += 1;
-              } else {
-                merged.push(items[a].clone());
-                a += 1;
-              }
-            }
-            merged.extend_from_slice(&items[a..mid]);
-            merged.extend_from_slice(&items[b..end]);
-            start = end;
-          }
-          items = merged;
-          width *= 2;
-        }
-        Ok(Value::seq(items))
-      }
+      Expr::Sort(over, f) => self.sort_sync(over, f),
       Expr::Filter(over, f) => {
         let items = self.seq_sync(over, "filter")?; let whole = array_arg(f, &items);
         let mut out = Vec::new();
@@ -1456,6 +1340,161 @@ impl Env {
       },
     }
   }
+  /// A literal object under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
+  #[inline(never)]
+  fn object_sync(&mut self, entries: &[Entry]) -> Result<Value, Fail> {
+    let mut map = ValueMap::default();
+    for entry in entries {
+      match entry {
+        Entry::Baked(_) => {}
+        Entry::Field(name, e) => {
+          let v = self.eval_sync(e)?;
+          map.insert(name.clone(), v);
+        }
+        Entry::Computed(k, e) => {
+          let key = match self.eval_sync(k)? {
+            Value::Str(s) => s.to_string(),
+            other => return Err(type_error("a computed key", "a string", &other)),
+          };
+          let v = self.eval_sync(e)?;
+          map.insert(key, v);
+        }
+        Entry::Spread(e) => match self.eval_sync(e)? {
+          Value::Map(inner) => map.extend(inner),
+          Value::Null | Value::Undefined => {}
+          other => return Err(type_error("spread into an object", "an object", &other)),
+        },
+        Entry::Item(_) => return Err(Fail::internal("an object literal has no positional entries")),
+      }
+    }
+    Ok(Value::Map(map))
+  }
+
+  /// A literal array under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
+  #[inline(never)]
+  fn array_sync(&mut self, entries: &[Entry]) -> Result<Value, Fail> {
+    let mut items = Vec::new();
+    for entry in entries {
+      match entry {
+        Entry::Baked(_) => {}
+        Entry::Item(e) => items.push(self.eval_sync(e)?),
+        Entry::Spread(e) => match self.eval_sync(e)? {
+          Value::Seq(inner) => items.extend(inner),
+          Value::Null | Value::Undefined => {}
+          Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
+          other => return Err(type_error("spread into an array", "an array", &other)),
+        },
+        Entry::Field(..) | Entry::Computed(..) => return Err(Fail::internal("an array literal has no named entries")),
+      }
+    }
+    Ok(Value::seq(items))
+  }
+
+  /// A native call under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
+  #[inline(never)]
+  fn native_sync(&mut self, module: &str, method: &str, args: &[(String, Expr)], sync: bool) -> Result<Value, Fail> {
+    if !sync {
+      return Err(Fail::internal("an async native call in an expression that cannot suspend"));
+    }
+    let mut map = ValueMap::default();
+    for (name, e) in args {
+      match self.eval_sync(e)? {
+        Value::Null | Value::Undefined => {}
+        v => {
+          map.insert(name.clone(), v);
+        }
+      }
+    }
+    match self.ctx.natives.call_sync(module, method, map) {
+      Some(answer) => answer.map_err(|e| Fail::new(e.kind, e.message)),
+      None => Err(Fail::internal(format!("`{module}.{method}` is not a synchronous native"))),
+    }
+  }
+
+  /// A builtin call under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
+  #[inline(never)]
+  fn builtin_sync(&mut self, name: &Builtin, args: &[Expr]) -> Result<Value, Fail> {
+    let mut values = Vec::with_capacity(args.len());
+    for arg in args {
+      values.push(self.eval_sync(arg)?);
+    }
+    match name {
+      Builtin::CloneElement => self.clone_element(values),
+      Builtin::CallMethod | Builtin::GetMember => {
+        let (target, member) = (values.first().cloned().unwrap_or(Value::Undefined), match values.get(1) { Some(Value::Str(name)) => name.to_string(), _ => String::new() });
+        let getter = *name == Builtin::GetMember;
+        match instance_class(&target).and_then(|class| class_member(self.consts.as_deref(), &class, &member, getter)) {
+          Some(key) => {
+            let mut called = vec![target];
+            called.extend(values.into_iter().skip(2));
+            self.apply_sync(&Expr::Const(key), called)
+          }
+          None if getter => Ok(get_field(&target, &member)),
+          None => Err(Fail::internal(format!("`{member}` is not a method of {}", instance_class(&target).unwrap_or_else(|| "this value".to_owned())))),
+        }
+      }
+      Builtin::Emit => {
+        if let (true, Some(Value::Str(kind)), Some(value)) = (self.server_mode, values.first(), values.get(1)) {
+          self.emitted.push(crate::render::Emitted { path: self.component_path.clone(), kind: kind.to_string(), value: value.clone() });
+        }
+        Ok(Value::Null)
+      }
+      _ => builtin(*name, values),
+    }
+  }
+
+  /// `replace` with a function under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
+  #[inline(never)]
+  fn replace_sync(&mut self, subject: &Expr, pattern: &Expr, f: &Expr) -> Result<Value, Fail> {
+    let subject = self.eval_sync(subject)?;
+    let pattern = self.eval_sync(pattern)?;
+    let (s, found) = replacements(&subject, &pattern)?;
+    let mut out = String::with_capacity(s.len());
+    let mut last = 0;
+    for (start, end, args) in found {
+      out.push_str(&s[last..start]);
+      out.push_str(&stringify(&self.apply_sync(f, args)?)?);
+      last = end;
+    }
+    out.push_str(&s[last..]);
+    Ok(Value::str(out))
+  }
+
+  /// `toSorted` under `eval_sync`. A function of its own, so the frame `eval_sync` takes at every level of a render stays small.
+  #[inline(never)]
+  fn sort_sync(&mut self, over: &Expr, f: &Expr) -> Result<Value, Fail> {
+    let mut items = self.seq_sync(over, "toSorted")?;
+    let mut width = 1;
+    while width < items.len() {
+      let mut merged = Vec::with_capacity(items.len());
+      let mut start = 0;
+      while start < items.len() {
+        let mid = (start + width).min(items.len());
+        let end = (start + 2 * width).min(items.len());
+        let (mut a, mut b) = (start, mid);
+        while a < mid && b < end {
+          let order = match f {
+            Expr::Lit(Lit::Null) | Expr::Folded(Value::Null) => default_order(&items[a], &items[b])?,
+            f => comparator_order(&self.apply_sync(f, vec![items[a].clone(), items[b].clone()])?),
+          };
+          if order > 0.0 {
+            merged.push(items[b].clone());
+            b += 1;
+          } else {
+            merged.push(items[a].clone());
+            a += 1;
+          }
+        }
+        merged.extend_from_slice(&items[a..mid]);
+        merged.extend_from_slice(&items[b..end]);
+        start = end;
+      }
+      items = merged;
+      width *= 2;
+    }
+    Ok(Value::seq(items))
+  }
+
 
   fn seq_sync(&mut self, over: &Expr, what: &str) -> Result<Vec<Value>, Fail> {
     match self.eval_sync(over)? {
@@ -2398,6 +2437,21 @@ fn caught(fail: &Fail) -> Option<Value> {
   }
 }
 
+/// The failure a `throw` is: `args` are the message and, when there is one, the value thrown. A thrown value whose `kind` names a failure kind fails with that kind, so a `catch` that throws what it caught fails as the original did.
+#[inline(never)]
+fn thrown_fail(args: &[Value]) -> Fail {
+  let thrown = args.get(1).or(args.first()).cloned().unwrap_or(Value::Undefined);
+  let kind = match &thrown {
+    Value::Map(fields) => fields.get("kind").and_then(|kind| match kind {
+      Value::Str(kind) => FailureKind::from_name(kind.as_str()),
+      _ => None,
+    }),
+    _ => None,
+  };
+  let message = args.first().map(|message| stringify(message).unwrap_or_else(|_| "an object thrown".to_owned())).unwrap_or_default();
+  Fail::new(kind.unwrap_or(FailureKind::Internal), message).with_thrown(thrown)
+}
+
 /// How a `try` ends once its `finally` has run: `after` when the `finally` returned or failed, `before` when it ran to its end.
 fn after_finally(before: Result<Flow, Fail>, after: Result<Flow, Fail>) -> Result<Flow, Fail> {
   match after {
@@ -3125,18 +3179,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
-    Builtin::Throw => {
-      let thrown = args.get(1).or(args.first()).cloned().unwrap_or(Value::Undefined);
-      let kind = match &thrown {
-        Value::Map(fields) => fields.get("kind").and_then(|kind| match kind {
-          Value::Str(kind) => FailureKind::from_name(kind.as_str()),
-          _ => None,
-        }),
-        _ => None,
-      };
-      let message = stringify(arg(0)?).unwrap_or_else(|_| "an object thrown".to_owned());
-      return Err(Fail::new(kind.unwrap_or(FailureKind::Internal), message).with_thrown(thrown));
-    }
+    Builtin::Throw => return Err(thrown_fail(&args)),
     Builtin::Log => {
       let line = || args.iter().skip(1).map(console_text).collect::<Vec<_>>().join(" ");
       match args.first() {

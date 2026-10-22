@@ -684,7 +684,12 @@ impl Interpreter {
       env.scope.push(("$event".to_owned(), event.clone()));
       env.store_written.clear();
       let outer_path = std::mem::replace(&mut env.component_path, path.clone());
-      let patch = eval_body_sync(&mut env, &body.body);
+      env.handling = true;
+      let patch = env.block_sync(&body.body).map(|flow| match flow {
+        crate::interp::Flow::Return(patch) => patch,
+        crate::interp::Flow::Next => Value::Null,
+      });
+      env.handling = false;
       env.component_path = outer_path;
       let patch = patch?;
       env.scope.truncate(depth);
@@ -718,45 +723,6 @@ impl Interpreter {
   }
 }
 
-/// A handler body under the sync evaluator: `let`s bind, `if` branches, the
-/// first `return` answers; anything that suspends is an error.
-fn eval_body_sync(env: &mut Env, body: &[Stmt]) -> Result<Value, Fail> {
-  for stmt in body {
-    match stmt {
-      Stmt::Let { name, expr } => {
-        let value = env.eval_sync(expr)?;
-        env.scope.push((name.clone(), value));
-      }
-      Stmt::Set { name, expr } => {
-        let value = env.eval_sync(expr)?;
-        let Some(slot) = env.scope.iter_mut().rev().find(|(n, _)| n == name) else {
-          return Err(Fail::internal(format!("`{name}` is set before it is bound")));
-        };
-        slot.1 = value;
-      }
-      Stmt::Return(expr) => return env.eval_sync(expr),
-      Stmt::Expr(expr) => {
-        env.eval_sync(expr)?;
-      }
-      Stmt::Act { action, input } => {
-        let input = env.eval_sync(input)?;
-        env.acts.push((action.clone(), input));
-      }
-      Stmt::If { cond, then, r#else } => {
-        let branch = if truthy(&env.eval_sync(cond)?) { then } else { r#else };
-        let depth = env.scope.len();
-        let value = eval_body_sync(env, branch)?;
-        env.scope.truncate(depth);
-        if !matches!(value, Value::Null | Value::Undefined) {
-          return Ok(value);
-        }
-      }
-      other => return Err(Fail::internal(format!("a handler cannot hold {other:?}"))),
-    }
-  }
-  Ok(Value::Null)
-}
-
 /// Runs `f` with the hoist path extended by `step`: the position of the
 /// iteration whose values are recorded inside or the keyed placement that
 /// rendered the component.
@@ -785,10 +751,11 @@ fn in_module<T>(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> T) -> T
 /// How deep components may nest in one render. Past it a component that
 /// renders itself without a case that stops would overflow the thread's
 /// stack, which takes the host down rather than failing the request. A small
-/// recursive component takes about 14 KB of stack per level in a debug build
-/// and about 2.6 KB in a release build. The limit follows the build profile
-/// rather than the host's dev setting, since the frames are the profile's.
-pub const MAX_CALLS: usize = if cfg!(debug_assertions) { 96 } else { 512 };
+/// recursive component takes about 23 KB of stack per level in a debug build
+/// and about 3.7 KB in a release build, measured on 2026-10-22, so each limit
+/// fits a 2 MB thread. The limit follows the build profile rather than the
+/// host's dev setting, since the frames are the profile's.
+pub const MAX_CALLS: usize = if cfg!(debug_assertions) { 64 } else { 512 };
 
 fn call(env: &mut Env, module: &str, f: impl FnOnce(&mut Env) -> Result<(), Fail>) -> Result<(), Fail> {
   if env.calls == MAX_CALLS {
