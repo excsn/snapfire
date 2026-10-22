@@ -17,6 +17,9 @@ mod prisma;
 mod relocate;
 mod scripts;
 mod syntax;
+mod workspace;
+
+pub use workspace::WORKSPACE_DIR;
 
 use std::collections::BTreeMap;
 
@@ -184,8 +187,8 @@ pub trait Pass {
 /// The passes for `source`, in the order they run.
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
-    Source::NextApp => next::app_passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
-    Source::NextPages => pages::passes().into_iter().chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::NextApp => workspace_pass().into_iter().chain(next::app_passes()).chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::NextPages => workspace_pass().into_iter().chain(pages::passes()).chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }
@@ -201,6 +204,10 @@ fn imported_packages(tree: &Tree) -> Vec<String> {
     out.extend(syntax::specifiers(&parsed).into_iter().map(|s| s.value).filter(bare));
   }
   out
+}
+
+fn workspace_pass() -> Vec<Box<dyn Pass>> {
+  vec![Box::new(workspace::Workspace)]
 }
 
 fn prisma_pass() -> Vec<Box<dyn Pass>> {

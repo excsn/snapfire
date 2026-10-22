@@ -57,14 +57,14 @@ impl Aliases {
 }
 
 /// How a specifier reached its file, so the rewritten one reads the same way.
-enum Reached {
+pub(crate) enum Reached {
   Exact,
   Appended(String),
   /// `./x.js` naming `x.ts`: the specifier's extension, put back.
   Swapped(String),
 }
 
-fn find(tree: &Tree, path: &str) -> Option<(String, Reached)> {
+pub(crate) fn find(tree: &Tree, path: &str) -> Option<(String, Reached)> {
   if tree.contains(path) {
     return Some((path.to_owned(), Reached::Exact));
   }
