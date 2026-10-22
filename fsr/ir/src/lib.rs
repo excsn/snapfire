@@ -5,6 +5,7 @@ pub mod ast;
 pub mod bind;
 pub mod catalog;
 pub mod ext;
+pub mod host;
 pub mod interp;
 pub mod jsmath;
 pub mod jsregex;

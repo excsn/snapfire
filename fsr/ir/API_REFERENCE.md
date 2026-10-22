@@ -56,7 +56,12 @@ The lowered form of a loader or action body and the interpreter that runs it ove
   * [IrPaths](#irpaths)
   * [IrStore](#irstore)
   * [IrAction](#iraction)
-* [7. Error Handling](#7-error-handling)
+* [7. The Host](#7-the-host)
+  * [Event](#event)
+  * [Report](#report)
+  * [Act](#act)
+  * [Keys](#keys)
+* [8. Error Handling](#8-error-handling)
   * [Fail](#fail)
   * [ParseError](#parseerror)
   * [ShadowRootError](#shadowrooterror)
@@ -508,7 +513,35 @@ A body answering an action id. Implements `snapfire_fsr_runtime::ActionHandler`.
 * `IrAction::with_interpreter(self, interpreter: Interpreter) -> IrAction`
 * `call` runs the body with the submitted value as `Input` and returns what it returned. A `Fail` is an `ActionError` with the kind preserved.
 
-## 7. Error Handling
+## 7. The Host
+
+What a page and the host that runs it agree on, in `snapfire_fsr_ir::host`: the events a handler is named for, the acts a handler asks for and what a process reports. Both sides build and read these names only through these types. A terminal implements all of it. A host that lacks a reach, `Later` or `Process`, never sees the acts behind it, since the lowerer refuses them on its pages.
+
+### Event
+
+* `pub enum Event { Input, Mount, Interval(u64), Timeout(u64), Call(usize), Process { id: String, report: Report }, Effect(usize), Resume(String) }`, `Clone`, `Eq`: what a host runs a handler on, the event its `Handler::event` names. `Input` is a key, `{ input, key }`; `Mount` the component's first render; `Interval(ms)` every so many milliseconds while it renders and `Timeout(ms)` once after; `Call(n)` the function a mount effect declares in place `n`; `Process { id, report }` a report from the process spawned as `id`; `Effect(n)` the effect in place `n` whose dependencies changed; `Resume(at)` the rest of an async function after the `await` at `at`, `file@offset`, run when the awaited promise settles with `{ value, ok, carry }`.
+* `name(&self) -> String` is `input`, `mount`, `interval:<ms>`, `timeout:<ms>`, `call:<n>`, `spawn:<id>:<report>`, `effect:<n>` or `resume:<at>`; `parse(name: &str) -> Option<Event>` reads one back.
+* `timer(repeats: bool, ms: u64) -> Event` is the event a mount timer's handler is named for, `Interval` when it repeats.
+
+### Report
+
+* `pub enum Report { Stdout, Stderr, Exit, Close, Error, Resize }`, `Copy`, `Eq`: what a spawned process reports, a chunk of `stdout` or `stderr` as text, `exit` and `close` with `{ code, signal }`, `error` with `{ message }` and `resize` with `null`, which only `TERMINAL_OUTPUT` reports.
+* `name(self) -> &'static str` and `parse(name: &str) -> Option<Report>`.
+
+### Act
+
+* `pub enum Act { Stdout, Stderr, Timer, ClearTimer, Cleanup, Spawn, Settle, Then, Listen, Unlisten, Run, Suspend, Exit, Focus, FocusNext, FocusPrevious, FocusEnable, FocusDisable }`, `Copy`, `Eq`: what a handler asks its host for, the action a `Stmt::Act` names. Each variant's doc gives its input: `Timer` `{ event, ms, repeats }` or `{ id, event, carry, ms, repeats }` or `{ settle, ms }`; `ClearTimer` `{ timer }`; `Cleanup` `{ effect, event, carry }`; `Spawn` `{ id, command, args, options }`; `Settle` `{ settle, value }`; `Then` `{ deferred, event, carry }`; `Listen` `{ process, report, event, carry }` or `{ process, report, settle }`; `Unlisten` `{ process, report, event }`; `Run` `{ event, carry }`; `Suspend` `{ until, settles }`; `Stdout` and `Stderr` a line of text; `Exit` and the focus acts what Ink's calls pass.
+* `name(self) -> &'static str` is the action's name, `$stdout`, `$timer`, `$spawn` and so on; `parse(name: &str) -> Option<Act>` reads one back.
+
+### Keys
+
+* `SETTLES`, `$settles`: a promise's `resolve` or `reject` is held under `{ "$settles": deferred, ok }`, `ok` false for `reject`.
+* `ACT_REF`, `$act`: an act as a value, `{ "$act": action }`; `act_ref(expr: &Expr) -> Option<String>` reads the act a lowered value refers to, through any field of an object written out that holds one.
+* `TIMER`, `$timer`: a timer a handler started, `{ "$timer": id }`, what `setInterval` and `setTimeout` return in a handler.
+* `PROCESS`, `$process`: a process a block spawned, `{ "$process": id }`.
+* `TERMINAL_OUTPUT`, `$terminal`: the id `PROCESS` names on the terminal's own output, which reports `Resize`.
+
+## 8. Error Handling
 
 ### Fail
 

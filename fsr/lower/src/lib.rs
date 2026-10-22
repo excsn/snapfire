@@ -1911,7 +1911,7 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// `spawn(command, args, options)` in a terminal block: a fresh process id and the act [`crate::terminal::Act::Spawn`] starting it, whose value is the process, [`crate::terminal::PROCESS`].
+  /// `spawn(command, args, options)` in a terminal block: a fresh process id and the act [`snapfire_fsr_ir::host::Act::Spawn`] starting it, whose value is the process, [`snapfire_fsr_ir::host::PROCESS`].
   fn spawn_value(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
     let id = self.temp();
     let mut fields = vec![Entry::Field("id".to_owned(), Expr::Var(id.clone()))];
@@ -1924,13 +1924,13 @@ impl<'a> Lowerer<'a> {
       fields.push(Entry::Field((*key).to_owned(), value));
     }
     let random = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] };
-    let spawn = Stmt::Act { action: crate::terminal::Act::Spawn.name().to_owned(), input: Expr::Object(fields) };
-    Ok(Expr::Block(vec![Stmt::Let { name: id.clone(), expr: random }, spawn, Stmt::Return(Expr::Object(vec![Entry::Field(crate::terminal::PROCESS.to_owned(), Expr::Var(id))]))]))
+    let spawn = Stmt::Act { action: snapfire_fsr_ir::host::Act::Spawn.name().to_owned(), input: Expr::Object(fields) };
+    Ok(Expr::Block(vec![Stmt::Let { name: id.clone(), expr: random }, spawn, Stmt::Return(Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::PROCESS.to_owned(), Expr::Var(id))]))]))
   }
 
   /// The process, the report and the listener of `sub.on(event, f)`, `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)` on a local a block bound to a spawn; also `stdout.on("resize", f)` and `stdout.off("resize", f)` on the terminal's output, `true` for `off`; the report `None` for `setEncoding`, which a terminal takes as read.
-  fn listener<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, Option<crate::terminal::Report>, Option<&'c js::Expr>, bool)> {
-    use crate::terminal::Report;
+  fn listener<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, Option<snapfire_fsr_ir::host::Report>, Option<&'c js::Expr>, bool)> {
+    use snapfire_fsr_ir::host::Report;
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
     if let (Some(on @ ("on" | "off")), Some(js::Expr::Lit(js::Lit::Str(event)))) = (self.member_name(method).as_deref(), call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
@@ -1964,7 +1964,7 @@ impl<'a> Lowerer<'a> {
     self.reaches(Reach::Process) && self.listener(call).is_some()
   }
 
-  /// A listener on a spawned process as the act [`crate::terminal::Act::Listen`]. Its callback is a continuation with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` settles the promise instead. `None` for any other call.
+  /// A listener on a spawned process as the act [`snapfire_fsr_ir::host::Act::Listen`]. Its callback is a continuation with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` settles the promise instead. `None` for any other call.
   fn listening(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
     if !self.reaches(Reach::Process) {
       return Ok(None);
@@ -1979,14 +1979,14 @@ impl<'a> Lowerer<'a> {
     let mut fields = vec![Entry::Field("process".to_owned(), process), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
     if matches!(crate::meaning::bare(callback), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym)) {
       fields.push(Entry::Field("settle".to_owned(), self.expr(callback)?));
-      return Ok(Some(Stmt::Act { action: crate::terminal::Act::Listen.name().to_owned(), input: Expr::Object(fields) }));
+      return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Listen.name().to_owned(), input: Expr::Object(fields) }));
     }
     let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.residue(callback.span(), "a process listener that is not an arrow written in place or a promise's `resolve` or `reject`")) };
     let params: Vec<String> = arrow.params.iter().map(|p| match p {
       js::Pat::Ident(name) => Ok(name.id.sym.to_string()),
       other => Err(self.residue(other.span(), "a process listener's parameter that is not a name")),
     }).collect::<Lowered<_>>()?;
-    let exits = matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close);
+    let exits = matches!(report, snapfire_fsr_ir::host::Report::Exit | snapfire_fsr_ir::host::Report::Close);
     let (event, carry) = self.continuation(call.span, None, |this| {
       let value = Expr::Var("$resume".to_owned()).field("value");
       for (i, param) in params.iter().enumerate() {
@@ -2004,7 +2004,7 @@ impl<'a> Lowerer<'a> {
     })?;
     fields.push(Entry::Field("event".to_owned(), Expr::lit_str(event)));
     fields.push(Entry::Field("carry".to_owned(), carry));
-    Ok(Some(Stmt::Act { action: crate::terminal::Act::Listen.name().to_owned(), input: Expr::Object(fields) }))
+    Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Listen.name().to_owned(), input: Expr::Object(fields) }))
   }
 
   /// `p.then(f)` in a terminal page: a fresh promise and a continuation on `p` running `f` with what `p` resolved to, which settles the fresh one with what `f` returns; one `p` rejects rejects it as well.
@@ -2030,10 +2030,10 @@ impl<'a> Lowerer<'a> {
       };
       let ran = this.async_to(&stmts, Some(finished.clone()))?;
       let resumed = Expr::Var("$resume".to_owned());
-      let rejected = Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(crate::terminal::SETTLES.to_owned(), finished.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(false)))])), Entry::Field("value".to_owned(), resumed.clone().field("value"))]) };
+      let rejected = Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), finished.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(false)))])), Entry::Field("value".to_owned(), resumed.clone().field("value"))]) };
       Ok(Expr::Ternary(Box::new(resumed.field("ok")), Box::new(ran), Box::new(Expr::Block(vec![rejected]))))
     })?;
-    let then = Stmt::Act { action: crate::terminal::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), awaited), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
+    let then = Stmt::Act { action: snapfire_fsr_ir::host::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), awaited), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
     Ok(Some(Expr::Block(vec![Stmt::Let { name: done.clone(), expr: self.new_deferred() }, then, Stmt::Return(Expr::Var(done))])))
   }
 
@@ -2043,7 +2043,7 @@ impl<'a> Lowerer<'a> {
     Expr::Object(vec![Entry::Field(snapfire_fsr_ir::render::DEFERRED.to_owned(), id)])
   }
 
-  /// Ink's `suspendTerminal(f)` in a terminal page: `f` run as an async function, then a [`crate::terminal::Act::Suspend`] asking the terminal to give up the screen until `f`'s promise settles. The call's own promise settles as `f`'s does once the screen is back.
+  /// Ink's `suspendTerminal(f)` in a terminal page: `f` run as an async function, then a [`snapfire_fsr_ir::host::Act::Suspend`] asking the terminal to give up the screen until `f`'s promise settles. The call's own promise settles as `f`'s does once the screen is back.
   fn suspend_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
     let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
     let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return Ok(None) };
@@ -2060,7 +2060,7 @@ impl<'a> Lowerer<'a> {
     let Some(js::Expr::Arrow(f)) = call.args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.residue(call.span, "`suspendTerminal` of something other than an arrow written in place")) };
     let inner = self.async_value(f)?;
     let (until, settles) = (self.temp(), self.temp());
-    let suspend = Stmt::Act { action: crate::terminal::Act::Suspend.name().to_owned(), input: Expr::Object(vec![Entry::Field("until".to_owned(), Expr::Var(until.clone())), Entry::Field("settles".to_owned(), Expr::Var(settles.clone()))]) };
+    let suspend = Stmt::Act { action: snapfire_fsr_ir::host::Act::Suspend.name().to_owned(), input: Expr::Object(vec![Entry::Field("until".to_owned(), Expr::Var(until.clone())), Entry::Field("settles".to_owned(), Expr::Var(settles.clone()))]) };
     Ok(Some(Expr::Block(vec![Stmt::Let { name: until, expr: inner }, Stmt::Let { name: settles.clone(), expr: self.new_deferred() }, suspend, Stmt::Return(Expr::Var(settles))])))
   }
 
@@ -2083,7 +2083,7 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// An async function's statements run as far as its first `await`, which hands the awaited promise a continuation, [`crate::terminal::Act::Then`], holding the rest. The rest lowers as a handler named [`crate::terminal::Event::Resume`] in [`Lowerer::continuations`]; the names it reads that are not module cells are carried to it with the act.
+  /// An async function's statements run as far as its first `await`, which hands the awaited promise a continuation, [`snapfire_fsr_ir::host::Act::Then`], holding the rest. The rest lowers as a handler named [`snapfire_fsr_ir::host::Event::Resume`] in [`Lowerer::continuations`]; the names it reads that are not module cells are carried to it with the act.
   pub(crate) fn async_stmts(&mut self, stmts: &[js::Stmt]) -> Lowered<Expr> {
     self.async_to(stmts, None)
   }
@@ -2114,7 +2114,7 @@ impl<'a> Lowerer<'a> {
   }
 
   fn async_to_in(&mut self, stmts: &[js::Stmt], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
-    let settle = |done: &Expr, ok: bool, value: Expr| Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(crate::terminal::SETTLES.to_owned(), done.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))])), Entry::Field("value".to_owned(), value)]) };
+    let settle = |done: &Expr, ok: bool, value: Expr| Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), done.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))])), Entry::Field("value".to_owned(), value)]) };
     let Some(at) = stmts.iter().position(awaits) else {
       let floor = self.async_floor.unwrap_or(self.scope.len());
       let value = crate::component::block_to_expr_from(self, stmts, floor)?;
@@ -2200,11 +2200,11 @@ impl<'a> Lowerer<'a> {
       };
       Ok(Expr::Ternary(Box::new(resumed.field("ok")), Box::new(ran), Box::new(rejected)))
     })?;
-    let then = Stmt::Act { action: crate::terminal::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
+    let then = Stmt::Act { action: snapfire_fsr_ir::host::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
     Ok(Expr::Block(vec![Stmt::Expr(before), then]))
   }
 
-  /// Code the host runs later, the rest of an async function or a timer's callback, as a handler named [`crate::terminal::Event::Resume`] for `at` in [`Lowerer::continuations`]. `bound` names the settled value it is handed. Every other name it reads that is not a module cell is carried to it. Returns the event and the carry the act that schedules it passes.
+  /// Code the host runs later, the rest of an async function or a timer's callback, as a handler named [`snapfire_fsr_ir::host::Event::Resume`] for `at` in [`Lowerer::continuations`]. `bound` names the settled value it is handed. Every other name it reads that is not a module cell is carried to it. Returns the event and the carry the act that schedules it passes.
   fn continuation(&mut self, at: Span, bound: Option<String>, lower: impl FnOnce(&mut Self) -> Lowered<Expr>) -> Lowered<(String, Expr)> {
     let resume = "$resume".to_owned();
     let depth = self.scope.len();
@@ -2225,7 +2225,7 @@ impl<'a> Lowerer<'a> {
     }
     body.push(Stmt::Expr(rest));
     body.push(Stmt::Return(Expr::Object(Vec::new())));
-    let event = crate::terminal::Event::Resume(format!("{}@{}", self.parsed.file, at.lo.0)).name();
+    let event = snapfire_fsr_ir::host::Event::Resume(format!("{}@{}", self.parsed.file, at.lo.0)).name();
     if !self.continuations.iter().any(|held| held.event == event) {
       self.continuations.push(snapfire_fsr_ir::ast::Handler { event: event.clone(), body });
     }
@@ -2233,7 +2233,7 @@ impl<'a> Lowerer<'a> {
     Ok((event, carry))
   }
 
-  /// In a promise's executor, `resolve(v)` or `reject(e)` as an [`crate::terminal::Act::Settle`] and `setTimeout(resolve, ms)` as a timer that settles; `None` for any other call.
+  /// In a promise's executor, `resolve(v)` or `reject(e)` as an [`snapfire_fsr_ir::host::Act::Settle`] and `setTimeout(resolve, ms)` as a timer that settles; `None` for any other call.
   fn settling(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
     let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
     let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return Ok(None) };
@@ -2245,13 +2245,13 @@ impl<'a> Lowerer<'a> {
       };
       let settle = self.expr(callee)?;
       let input = Expr::Object(vec![Entry::Field("settle".to_owned(), settle), Entry::Field("value".to_owned(), value)]);
-      return Ok(Some(Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input }));
+      return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input }));
     }
     if id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && self.reaches(Reach::Later) {
       if let [callback, delay] = call.args.as_slice() {
         if settler(self, &callback.expr) {
           let input = Expr::Object(vec![Entry::Field("settle".to_owned(), self.expr(&callback.expr)?), Entry::Field("ms".to_owned(), self.expr(&delay.expr)?)]);
-          return Ok(Some(Stmt::Act { action: crate::terminal::Act::Timer.name().to_owned(), input }));
+          return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Timer.name().to_owned(), input }));
         }
         if let js::Expr::Arrow(arrow) = crate::meaning::bare(&callback.expr) {
           let ms = self.expr(&delay.expr)?;
@@ -2260,7 +2260,7 @@ impl<'a> Lowerer<'a> {
             js::ArrowFunctionBody::Expr(e) => this.async_stmts(&[js::Stmt::Expr(js::ExprStmt { span: e.span(), expr: e.clone() })]),
           })?;
           let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), ms), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(false))), Entry::Field("carry".to_owned(), carry)]);
-          return Ok(Some(Stmt::Act { action: crate::terminal::Act::Timer.name().to_owned(), input }));
+          return Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Timer.name().to_owned(), input }));
         }
       }
     }
@@ -2911,7 +2911,7 @@ impl<'a> Lowerer<'a> {
     }
     if let (true, js::Callee::Expr(callee), Some(js::Expr::Lit(js::Lit::Str(id)))) = (self.reaches(Reach::Process), &call.callee, call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
       if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClientAction)) {
-        return Ok(Expr::Object(vec![Entry::Field(crate::terminal::ACT_REF.to_owned(), Expr::lit_str(id.value.to_string_lossy().into_owned()))]));
+        return Ok(Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::ACT_REF.to_owned(), Expr::lit_str(id.value.to_string_lossy().into_owned()))]));
       }
     }
     if self.reaches(Reach::Process) && self.spawns(call) {
@@ -3704,7 +3704,7 @@ impl<'a> Lowerer<'a> {
   /// block that only returns one. Destructured parameters read as fields and
   /// indexes of the positional parameter.
   /// `new Date(x)`, `new Map(pairs)`, `new Set(items)` and `new URLSearchParams(x)`; anything else made with `new` is residue.
-  /// `new Promise((resolve, reject) => …)` in a terminal page: a fresh deferred, the executor run at once with `resolve` and `reject` held as [`crate::terminal::SETTLES`] values on it, then the deferred.
+  /// `new Promise((resolve, reject) => …)` in a terminal page: a fresh deferred, the executor run at once with `resolve` and `reject` held as [`snapfire_fsr_ir::host::SETTLES`] values on it, then the deferred.
   fn terminal_promise(&mut self, n: &js::NewExpr, args: &[js::ExprOrSpread]) -> Lowered<Expr> {
     let Some(js::Expr::Arrow(executor)) = args.first().map(|a| crate::meaning::bare(&a.expr)) else { return Err(self.residue(n.span, "a `Promise` whose executor is not an arrow written in place")) };
     let deferred = self.temp();
@@ -3714,7 +3714,7 @@ impl<'a> Lowerer<'a> {
     let settlers = self.settlers.len();
     for (param, ok) in executor.params.iter().zip([true, false]) {
       let js::Pat::Ident(name) = param else { return Err(self.residue(param.span(), "a `Promise` executor's parameter that is not a name")) };
-      let settle = Expr::Object(vec![Entry::Field(crate::terminal::SETTLES.to_owned(), Expr::Var(deferred.clone())), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))]);
+      let settle = Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), Expr::Var(deferred.clone())), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))]);
       self.scope.push((name.id.sym.to_string(), settle));
       self.settlers.push(name.id.sym.to_string());
     }

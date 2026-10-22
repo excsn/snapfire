@@ -17,8 +17,8 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_ir::render::{prepare, Components, HandlerRef};
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
-use snapfire_fsr_lower::terminal::{Act, Event as HandlerEvent};
-pub use snapfire_fsr_lower::terminal::Report;
+use snapfire_fsr_ir::host::{Act, Event as HandlerEvent};
+pub use snapfire_fsr_ir::host::Report;
 use snapfire_fsr_terminal::{from_markup, render, render_measured, Boxed, Color, Frame, Node, Text};
 
 use crate::BuildError;
@@ -342,7 +342,7 @@ impl Session {
     }
     self.size = (columns, rows);
     for (id, report, listener) in &self.listeners {
-      if let (true, Report::Resize, Listener::Run(waiting)) = (id == snapfire_fsr_lower::terminal::TERMINAL_OUTPUT, report, listener) {
+      if let (true, Report::Resize, Listener::Run(waiting)) = (id == snapfire_fsr_ir::host::TERMINAL_OUTPUT, report, listener) {
         self.ready.push((Waiting { path: waiting.path.clone(), event: waiting.event.clone(), carry: waiting.carry.clone() }, true, Value::Null));
       }
     }
@@ -527,7 +527,7 @@ impl Session {
   fn live(&self, carry: Value) -> Value {
     match carry {
       Value::Map(mut map) => {
-        if matches!(map.get(snapfire_fsr_lower::terminal::PROCESS), Some(Value::Str(id)) if &**id == snapfire_fsr_lower::terminal::TERMINAL_OUTPUT) {
+        if matches!(map.get(snapfire_fsr_ir::host::PROCESS), Some(Value::Str(id)) if &**id == snapfire_fsr_ir::host::TERMINAL_OUTPUT) {
           map.insert("columns".to_owned(), Value::Int(self.size.0.into()));
           map.insert("rows".to_owned(), Value::Int(self.size.1.into()));
           return Value::Map(map);
@@ -560,7 +560,7 @@ impl Session {
       (Some(Act::Exit), _) => self.exiting = true,
       (Some(Act::ClearTimer), Value::Map(clear)) => {
         if let Some(Value::Map(timer)) = clear.get("timer") {
-          if let Some(Value::Str(id)) = timer.get(snapfire_fsr_lower::terminal::TIMER) {
+          if let Some(Value::Str(id)) = timer.get(snapfire_fsr_ir::host::TIMER) {
             self.cleared.insert(id.to_string());
           }
         }
@@ -577,7 +577,7 @@ impl Session {
       }
       (Some(Act::Listen), Value::Map(listen)) => {
         let process = match listen.get("process") {
-          Some(Value::Map(process)) => match process.get(snapfire_fsr_lower::terminal::PROCESS) {
+          Some(Value::Map(process)) => match process.get(snapfire_fsr_ir::host::PROCESS) {
             Some(Value::Str(id)) => id.to_string(),
             _ => return,
           },
@@ -596,7 +596,7 @@ impl Session {
       }
       (Some(Act::Unlisten), Value::Map(unlisten)) => {
         let (Some(Value::Map(process)), Some(Value::Str(report)), Some(Value::Str(event))) = (unlisten.get("process"), unlisten.get("report"), unlisten.get("event")) else { return };
-        let (Some(Value::Str(process)), Some(report)) = (process.get(snapfire_fsr_lower::terminal::PROCESS), Report::parse(report)) else { return };
+        let (Some(Value::Str(process)), Some(report)) = (process.get(snapfire_fsr_ir::host::PROCESS), Report::parse(report)) else { return };
         self.listeners.retain(|(id, heard, listener)| !(id == &**process && *heard == report && matches!(listener, Listener::Run(waiting) if waiting.path == path && waiting.event == **event)));
       }
       (Some(Act::Suspend), Value::Map(suspend)) => {
@@ -749,7 +749,7 @@ fn deferred_of(value: &Value) -> Option<String> {
 /// The deferred a `resolve` or `reject` settles and whether it resolves.
 fn settle_of(value: &Value) -> Option<(String, bool)> {
   let Value::Map(map) = value else { return None };
-  let deferred = deferred_of(map.get(snapfire_fsr_lower::terminal::SETTLES)?)?;
+  let deferred = deferred_of(map.get(snapfire_fsr_ir::host::SETTLES)?)?;
   Some((deferred, !matches!(map.get("ok"), Some(Value::Bool(false)))))
 }
 

@@ -88,7 +88,7 @@ fn use_app_exit_is_the_act_the_terminal_quits_on() {
   let component = &library[MODULE];
   let input = component.handlers.iter().position(|handler| handler.event == "input").unwrap();
   let interpreter = Interpreter::default();
-  let exits = |stepped: &snapfire_fsr_ir::render::Stepped| stepped.acts.iter().any(|(action, _)| action == snapfire_fsr_lower::terminal::Act::Exit.name());
+  let exits = |stepped: &snapfire_fsr_ir::render::Stepped| stepped.acts.iter().any(|(action, _)| action == snapfire_fsr_ir::host::Act::Exit.name());
   let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert!(!exits(&first));
   let other = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(input)), &key("x", &[]), &library).unwrap();

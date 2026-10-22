@@ -4279,7 +4279,7 @@ struct Join {
 /// The act running `join`, when there is one.
 fn run_join(join: Option<&Join>, walk: &mut HandlerWalk) {
   if let Some(join) = join {
-    walk.act(crate::terminal::Act::Run.name().to_owned(), Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(join.event.clone())), Entry::Field("carry".to_owned(), join.carry.clone())]));
+    walk.act(snapfire_fsr_ir::host::Act::Run.name().to_owned(), Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(join.event.clone())), Entry::Field("carry".to_owned(), join.carry.clone())]));
   }
 }
 
@@ -6297,7 +6297,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn bind_value(&mut self, pattern: &js::Pat, value: Expr) -> Lowered<()> {
-    if crate::terminal::act_ref(&value).is_some() || crate::terminal::primitive_ref(&value).is_some() || (self.lowerer.reaches(Reach::Terminal) && matches!(value, Expr::Lambda { .. })) {
+    if snapfire_fsr_ir::host::act_ref(&value).is_some() || crate::terminal::primitive_ref(&value).is_some() || (self.lowerer.reaches(Reach::Terminal) && matches!(value, Expr::Lambda { .. })) {
       return bind_pattern(&mut self.lowerer, pattern, value);
     }
     let name = self.lowerer.temp();
@@ -6496,7 +6496,7 @@ struct ComponentLowerer<'a, 'p> {
   stable_callbacks: Vec<String>,
   /// While a terminal effect lowers, each process it spawns: the local holding it and the id its handlers are named by.
   spawns: Vec<(String, String)>,
-  /// While a terminal effect whose dependencies change lowers, its event: a function it returns is its cleanup, [`crate::terminal::Act::Cleanup`].
+  /// While a terminal effect whose dependencies change lowers, its event: a function it returns is its cleanup, [`snapfire_fsr_ir::host::Act::Cleanup`].
   cleanup_for: Option<String>,
   /// While an effect or an input handler of an inlined custom hook lowers, each name the hook declared and what the inlining renamed it to.
   hook_renames: Vec<(String, String)>,
@@ -8742,7 +8742,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.state.push(state.clone());
     self.state_bindings.push(state.clone());
     let next = Expr::Ternary(Box::new(active), Box::new(Expr::Arith(ArithOp::Add, Box::new(Expr::Var(state.clone())), Box::new(Expr::Lit(Lit::Int(1))))), Box::new(Expr::Var(state.clone())));
-    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Interval(interval).name(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(state.clone(), next)]))] });
+    self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Interval(interval).name(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(state.clone(), next)]))] });
     Ok(Stmt::Let { name: state, expr: Expr::Lit(Lit::Int(0)) })
   }
 
@@ -8800,7 +8800,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let js::Expr::Lit(js::Lit::Num(delay)) = &*delay.expr else { continue };
       let held = self.lowered_handlers.len();
       match self.handler_body(&callback.expr) {
-        Ok(body) => self.lowered_handlers.push(Handler { event: crate::terminal::timer(repeats, delay.value.max(0.0) as u64).name(), body }),
+        Ok(body) => self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::timer(repeats, delay.value.max(0.0) as u64).name(), body }),
         Err(_) => self.lowered_handlers.truncate(held),
       }
     }
@@ -8830,8 +8830,8 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       };
       fields.push(Entry::Field((*key).to_owned(), value));
     }
-    let body = vec![Stmt::Act { action: crate::terminal::Act::Spawn.name().to_owned(), input: Expr::Object(fields) }, Stmt::Return(Expr::Object(Vec::new()))];
-    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Mount.name(), body });
+    let body = vec![Stmt::Act { action: snapfire_fsr_ir::host::Act::Spawn.name().to_owned(), input: Expr::Object(fields) }, Stmt::Return(Expr::Object(Vec::new()))];
+    self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Mount.name(), body });
     Ok(())
   }
 
@@ -8856,11 +8856,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let report = match (stream, prop_name_of(method).as_deref(), event.as_deref()) {
       (Some(_), Some("setEncoding"), _) => return Ok(true),
-      (Some("stdout"), Some("on"), Some("data")) => crate::terminal::Report::Stdout,
-      (Some(_), Some("on"), Some("data")) => crate::terminal::Report::Stderr,
-      (None, Some("on"), Some("error")) => crate::terminal::Report::Error,
-      (None, Some("on"), Some("exit")) => crate::terminal::Report::Exit,
-      (None, Some("on"), Some("close")) => crate::terminal::Report::Close,
+      (Some("stdout"), Some("on"), Some("data")) => snapfire_fsr_ir::host::Report::Stdout,
+      (Some(_), Some("on"), Some("data")) => snapfire_fsr_ir::host::Report::Stderr,
+      (None, Some("on"), Some("error")) => snapfire_fsr_ir::host::Report::Error,
+      (None, Some("on"), Some("exit")) => snapfire_fsr_ir::host::Report::Exit,
+      (None, Some("on"), Some("close")) => snapfire_fsr_ir::host::Report::Close,
       _ => return Err(self.lowerer.residue(call.span, "a use of a spawned process other than `on(\"error\" | \"exit\" | \"close\", f)`, `stdout.on(\"data\", f)`, `stderr.on(\"data\", f)` and `setEncoding`")),
     };
     let Some(listener) = call.args.get(1) else { return Err(self.lowerer.residue(call.span, "a process listener without a function")) };
@@ -8872,22 +8872,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       },
       other => return Err(self.lowerer.residue(other.span(), "a process listener that is not a function written in place")),
     };
-    if matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close) {
+    if matches!(report, snapfire_fsr_ir::host::Report::Exit | snapfire_fsr_ir::host::Report::Close) {
       let event = || Expr::Var("$event".to_owned());
       self.event_binds = Some(vec![event().field("code".to_owned()), event().field("signal".to_owned())]);
     }
     let lowered = self.handler_fn(&params, body, call.span)?;
-    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Process { id, report }.name(), body: lowered });
+    self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Process { id, report }.name(), body: lowered });
     Ok(true)
   }
 
-  /// The act a local refers to in a terminal page, bound to an [`crate::terminal::ACT_REF`].
+  /// The act a local refers to in a terminal page, bound to an [`snapfire_fsr_ir::host::ACT_REF`].
   fn act_bound(&self, name: &str) -> Option<String> {
     if !self.lowerer.reaches(Reach::Terminal) {
       return None;
     }
     let (_, bound) = self.lowerer.scope.iter().rev().find(|(n, _)| n == name)?;
-    crate::terminal::act_ref(bound)
+    snapfire_fsr_ir::host::act_ref(bound)
   }
 
   /// Whether an effect's dependency is the same on every render: a state setter or a writer; in a terminal also a `useReducer` dispatch, a held ref or a `useCallback` whose own dependencies never change.
@@ -8912,10 +8912,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     browser.0
   }
 
-  /// A terminal's effect whose dependencies change: its body a handler named [`crate::terminal::Event::Effect`] and a [`crate::terminal::EFFECT`] the body emits with the dependencies' values, which the terminal compares from one render to the next. An effect that sets no state and calls no action changes nothing the page shows and is left out, as is one that does not lower and reads a browser global: that is the browser's work. An arrow it returns is its cleanup, [`crate::terminal::Act::Cleanup`].
+  /// A terminal's effect whose dependencies change: its body a handler named [`snapfire_fsr_ir::host::Event::Effect`] and a [`crate::terminal::EFFECT`] the body emits with the dependencies' values, which the terminal compares from one render to the next. An effect that sets no state and calls no action changes nothing the page shows and is left out, as is one that does not lower and reads a browser global: that is the browser's work. An arrow it returns is its cleanup, [`snapfire_fsr_ir::host::Act::Cleanup`].
   fn rerun_effect(&mut self, effect: &'p js::Expr, deps: &'p js::ArrayLit) -> Lowered<()> {
     let js::Expr::Arrow(arrow) = crate::meaning::bare(effect) else { return Err(self.lowerer.residue(effect.span(), "an effect that is not an arrow written in place")) };
-    let event = crate::terminal::Event::Effect(self.lowered_handlers.len()).name();
+    let event = snapfire_fsr_ir::host::Event::Effect(self.lowered_handlers.len()).name();
     let cleanup_for = self.cleanup_for.replace(event.clone());
     let lowered = self.handler_fn(&[], arrow_body(arrow), arrow.span);
     self.cleanup_for = cleanup_for;
@@ -9034,7 +9034,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// An effect's function as a handler the terminal can call, `call:<n>`, and a function the effect's other handlers inline.
   fn effect_fn(&mut self, name: &str, params: Vec<js::Pat>, body: FunctionBody<'p>) {
-    let event = crate::terminal::Event::Call(self.lowered_handlers.len() + self.effect_fns.len()).name();
+    let event = snapfire_fsr_ir::host::Event::Call(self.lowered_handlers.len() + self.effect_fns.len()).name();
     self.handler_fns.insert(name.to_owned(), (params, body));
     self.effect_fns.push((name.to_owned(), event));
   }
@@ -9053,7 +9053,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if let Some((repeats, callback, delay)) = timer_call(e) {
       let delay = self.timer_delay(delay)?;
       let body = self.handler_body(callback)?;
-      self.lowered_handlers.push(Handler { event: crate::terminal::timer(repeats, delay).name(), body });
+      self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::timer(repeats, delay).name(), body });
       return Ok(());
     }
     if let js::Expr::Call(call) = crate::meaning::bare(e) {
@@ -9061,7 +9061,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         if let js::Expr::Ident(id) = crate::meaning::bare(callee) {
           if self.effect_fns.iter().any(|(name, _)| *name == *id.sym) {
             let body = self.handler_body(callee)?;
-            self.lowered_handlers.push(Handler { event: crate::terminal::Event::Mount.name(), body });
+            self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Mount.name(), body });
             return Ok(());
           }
         }
@@ -9070,7 +9070,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     match e {
       js::Expr::Call(_) => {
         let body = self.handler_fn(&[], FunctionBody::Expr(e), span)?;
-        self.lowered_handlers.push(Handler { event: crate::terminal::Event::Mount.name(), body });
+        self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Mount.name(), body });
         Ok(())
       }
       _ => Err(self.lowerer.residue(span, "an expression a terminal effect cannot run")),
@@ -9111,7 +9111,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       Some(cond) => vec![Stmt::If { cond, then: body?, r#else: Vec::new() }],
       None => body?,
     };
-    self.lowered_handlers.push(Handler { event: crate::terminal::Event::Input.name(), body });
+    self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Input.name(), body });
     Ok(())
   }
 
@@ -9276,7 +9276,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           let effect = self.cleanup_for.clone().expect("checked");
           let js::Expr::Arrow(arrow) = crate::meaning::bare(cleanup) else { return Err(self.lowerer.residue(*span, "an effect's cleanup that is not an arrow written in place")) };
           let (event, carry) = self.arrow_continuation(arrow, Vec::new(), *span)?;
-          walk.act(crate::terminal::Act::Cleanup.name().to_owned(), Expr::Object(vec![Entry::Field("effect".to_owned(), Expr::lit_str(effect)), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
+          walk.act(snapfire_fsr_ir::host::Act::Cleanup.name().to_owned(), Expr::Object(vec![Entry::Field("effect".to_owned(), Expr::lit_str(effect)), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
           return Ok(true);
         }
         js::Stmt::If(branch) => self.handler_if(branch, walk)?,
@@ -9294,7 +9294,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(false)
   }
 
-  /// An async function a terminal handler runs, `void (async () => { … })()`: its statements run in the handler as far as the first `await`, which hands the awaited promise a continuation, a handler of the component named [`crate::terminal::Event::Resume`] holding the rest. The names the rest reads that the component does not hold itself are carried to it, the handler's own `$event` among them.
+  /// An async function a terminal handler runs, `void (async () => { … })()`: its statements run in the handler as far as the first `await`, which hands the awaited promise a continuation, a handler of the component named [`snapfire_fsr_ir::host::Event::Resume`] holding the rest. The names the rest reads that the component does not hold itself are carried to it, the handler's own `$event` among them.
   fn handler_async(&mut self, stmts: &'p [js::Stmt], walk: &mut HandlerWalk) -> Lowered<()> {
     self.async_within(stmts, walk, &Within::default())
   }
@@ -9388,7 +9388,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         self.lowerer.scope.truncate(depth);
         lowered?;
         let (event, carry) = self.continuation_handler(stmt.span(), cw);
-        walk.act(crate::terminal::Act::Then.name().to_owned(), Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
+        walk.act(snapfire_fsr_ir::host::Act::Then.name().to_owned(), Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]));
         Ok(())
       }
     }
@@ -9408,13 +9408,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Some(Join { event, carry }))
   }
 
-  /// A listener on a process the handler spawned as the act [`crate::terminal::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report, or the promise's `resolve` or `reject` it settles.
+  /// A listener on a process the handler spawned as the act [`snapfire_fsr_ir::host::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report, or the promise's `resolve` or `reject` it settles.
   fn handler_listen(&mut self, call: &'p js::CallExpr, walk: &mut HandlerWalk) -> Lowered<()> {
     let (process, report, callback, removes) = self.lowerer.listener(call).expect("checked");
     let Some(report) = report else { return Ok(()) };
     let Some(callback) = callback else { return Err(self.lowerer.residue(call.span, "a process listener without a function")) };
     let mut fields = vec![Entry::Field("process".to_owned(), self.lowerer.expr(process)?), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
-    let exits = matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close);
+    let exits = matches!(report, snapfire_fsr_ir::host::Report::Exit | snapfire_fsr_ir::host::Report::Close);
     let named = match crate::meaning::bare(callback) {
       js::Expr::Ident(_) => match self.lowerer.expr(callback)? {
         Expr::Var(var) => self.named_listeners.iter().find(|(name, _)| *name == var).map(|(_, takes)| (Expr::Var(var.clone()), *takes)),
@@ -9425,7 +9425,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     if removes {
       let Some((named, _)) = named else { return Err(self.lowerer.residue(callback.span(), "an `off` whose function is not a `const` arrow of the handler that passes it to `on`")) };
       fields.push(Entry::Field("event".to_owned(), named.field("event")));
-      walk.act(crate::terminal::Act::Unlisten.name().to_owned(), Expr::Object(fields));
+      walk.act(snapfire_fsr_ir::host::Act::Unlisten.name().to_owned(), Expr::Object(fields));
       return Ok(());
     }
     if let Some((named, takes)) = named {
@@ -9434,12 +9434,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       fields.push(Entry::Field("event".to_owned(), named.clone().field("event")));
       fields.push(Entry::Field("carry".to_owned(), named.field("carry")));
-      walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
+      walk.act(snapfire_fsr_ir::host::Act::Listen.name().to_owned(), Expr::Object(fields));
       return Ok(());
     }
     if matches!(crate::meaning::bare(callback), js::Expr::Ident(id) if self.lowerer.settlers.iter().any(|s| *s == *id.sym)) {
       fields.push(Entry::Field("settle".to_owned(), self.lowerer.expr(callback)?));
-      walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
+      walk.act(snapfire_fsr_ir::host::Act::Listen.name().to_owned(), Expr::Object(fields));
       return Ok(());
     }
     let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(callback.span(), "a process listener that is not an arrow written in place, an arrow a `const` names or a promise's `resolve` or `reject`")) };
@@ -9457,7 +9457,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let (event, carry) = self.arrow_continuation(arrow, binds, call.span)?;
     fields.push(Entry::Field("event".to_owned(), Expr::lit_str(event)));
     fields.push(Entry::Field("carry".to_owned(), carry));
-    walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
+    walk.act(snapfire_fsr_ir::host::Act::Listen.name().to_owned(), Expr::Object(fields));
     Ok(())
   }
 
@@ -9498,18 +9498,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// A timer a handler starts on an arrow, [`Self::arrow_timer`]: the act [`crate::terminal::Act::Timer`] with a fresh id and the arrow as a continuation. Its value is `{ "$timer": id }`, [`crate::terminal::TIMER`].
+  /// A timer a handler starts on an arrow, [`Self::arrow_timer`]: the act [`snapfire_fsr_ir::host::Act::Timer`] with a fresh id and the arrow as a continuation. Its value is `{ "$timer": id }`, [`snapfire_fsr_ir::host::TIMER`].
   fn handler_timer(&mut self, repeats: bool, callback: &'p js::ArrowExpr, delay: &'p js::Expr, at: Span, walk: &mut HandlerWalk) -> Lowered<Expr> {
     let id = self.lowerer.temp();
     walk.out.push(Stmt::Let { name: id.clone(), expr: Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] } });
     let ms = self.lowerer.expr(delay)?;
     let (event, carry) = self.arrow_continuation(callback, Vec::new(), at)?;
     let input = vec![("id", Expr::Var(id.clone())), ("event", Expr::lit_str(event)), ("carry", carry), ("ms", ms), ("repeats", Expr::Lit(Lit::Bool(repeats)))];
-    walk.act(crate::terminal::Act::Timer.name().to_owned(), Expr::Object(input.into_iter().map(|(key, value)| Entry::Field(key.to_owned(), value)).collect()));
-    Ok(Expr::Object(vec![Entry::Field(crate::terminal::TIMER.to_owned(), Expr::Var(id))]))
+    walk.act(snapfire_fsr_ir::host::Act::Timer.name().to_owned(), Expr::Object(input.into_iter().map(|(key, value)| Entry::Field(key.to_owned(), value)).collect()));
+    Ok(Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::TIMER.to_owned(), Expr::Var(id))]))
   }
 
-  /// `walk` as a handler of the component named [`crate::terminal::Event::Resume`] for `at`: what it was run with bound as [`RESUME`], every name it reads that the component does not hold carried in. Returns the event and the carry the act that runs it passes.
+  /// `walk` as a handler of the component named [`snapfire_fsr_ir::host::Event::Resume`] for `at`: what it was run with bound as [`RESUME`], every name it reads that the component does not hold carried in. Returns the event and the carry the act that runs it passes.
   fn continuation_handler(&mut self, at: Span, walk: HandlerWalk) -> (String, Expr) {
     let mut body = walk.out;
     body.push(Stmt::Return(Expr::Object(walk.patch)));
@@ -9521,7 +9521,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       handler.push(Stmt::Let { name: name.clone(), expr: resumed.clone().field("carry").field(name.clone()) });
     }
     handler.extend(body);
-    let event = crate::terminal::Event::Resume(format!("{}@{}", self.lowerer.parsed.file, at.lo.0)).name();
+    let event = snapfire_fsr_ir::host::Event::Resume(format!("{}@{}", self.lowerer.parsed.file, at.lo.0)).name();
     if !self.lowered_handlers.iter().any(|held| held.event == event) {
       self.lowered_handlers.push(Handler { event: event.clone(), body: handler });
     }
@@ -9647,14 +9647,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 Some(arg) => self.lowerer.expr(&arg.expr)?,
                 None => Expr::Lit(Lit::Null),
               };
-              walk.act(crate::terminal::Act::ClearTimer.name().to_owned(), Expr::Object(vec![Entry::Field("timer".to_owned(), timer)]));
+              walk.act(snapfire_fsr_ir::host::Act::ClearTimer.name().to_owned(), Expr::Object(vec![Entry::Field("timer".to_owned(), timer)]));
               return Ok(());
             }
             if let Some((repeats, callback, delay)) = timer_call(e) {
               let js::Expr::Ident(target) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(call.span, "a timer a handler starts on something other than a function its effect declares")) };
               let Some((_, event)) = self.effect_fns.iter().find(|(f, _)| *f == *target.sym).cloned() else { return Err(self.lowerer.residue(call.span, format!("a timer on `{}`, which is not a function its effect declares", target.sym))) };
               let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("ms".to_owned(), self.lowerer.expr(delay)?), Entry::Field("repeats".to_owned(), Expr::Lit(Lit::Bool(repeats)))]);
-              walk.act(crate::terminal::Act::Timer.name().to_owned(), input);
+              walk.act(snapfire_fsr_ir::host::Act::Timer.name().to_owned(), input);
               return Ok(());
             }
             if self.transitions.contains(&name) {
