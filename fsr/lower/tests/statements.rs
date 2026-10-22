@@ -262,3 +262,9 @@ fn undefined_and_null_compare_and_type_as_javascript_has_them() {
   let page = "function Show({ v }: { v?: number | null }) {\n  return <i>{v === undefined ? \"u\" : v === null ? \"n\" : \"v\"}{v == null ? \"!\" : \".\"}{typeof v}{String(v)}</i>;\n}\nexport default function Page() {\n  const o: { a: null; b?: number } = { a: null };\n  return <p><Show v={o.a} /><Show v={o.b} /><Show v={1} /></p>;\n}\n";
   assert_eq!(html("undefined_null", page).as_deref(), Ok("<p><i>n!objectnull</i><i>u!undefinedundefined</i><i>v.number1</i></p>"));
 }
+
+#[test]
+fn array_from_a_string_is_its_code_points() {
+  let page = "export default function Page() {\n  const letters = Array.from(\"ab👍\");\n  return <p>{letters.length}:{letters.map((c) => `[${c}]`).join(\"\")}</p>;\n}\n";
+  assert_eq!(html("array_from_string", page).as_deref(), Ok("<p>3:[a][b][👍]</p>"));
+}

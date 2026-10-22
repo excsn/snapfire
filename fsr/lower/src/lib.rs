@@ -3130,7 +3130,7 @@ impl<'a> Lowerer<'a> {
             let mut items = self.expr(source)?;
             items = match self.kind_of(source) {
               Some(Kind::Map) => Expr::Entries(Box::new(items)),
-              _ => Expr::Builtin { name: Builtin::Slice, args: vec![items] },
+              _ => Expr::Array(vec![Entry::Spread(items)]),
             };
             return match call.args.get(1) {
               None => Ok(items),
