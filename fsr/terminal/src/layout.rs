@@ -106,7 +106,7 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
       let children: Vec<NodeId> = boxed.children.iter().map(|child| add(tree, kinds, child)).collect();
       let s = &boxed.style;
       let edge = if s.border.is_some() { 1.0 } else { 0.0 };
-      let cells = |v: [u16; 4]| Rect { top: length(v[0] as f32), right: length(v[1] as f32), bottom: length(v[2] as f32), left: length(v[3] as f32) };
+      let cells = |v: [f32; 4]| Rect { top: length(v[0]), right: length(v[1]), bottom: length(v[2]), left: length(v[3]) };
       let style = Style {
         flex_direction: match s.direction {
           Direction::Row => FlexDirection::Row,
@@ -114,7 +114,7 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
         },
         gap: Size { width: length(s.gap as f32), height: length(s.gap as f32) },
         padding: cells(s.padding),
-        margin: Rect { top: LengthPercentageAuto::length(s.margin[0] as f32), right: LengthPercentageAuto::length(s.margin[1] as f32), bottom: LengthPercentageAuto::length(s.margin[2] as f32), left: LengthPercentageAuto::length(s.margin[3] as f32) },
+        margin: Rect { top: LengthPercentageAuto::length(s.margin[0]), right: LengthPercentageAuto::length(s.margin[1]), bottom: LengthPercentageAuto::length(s.margin[2]), left: LengthPercentageAuto::length(s.margin[3]) },
         border: Rect { top: length(edge), right: length(edge), bottom: length(edge), left: length(edge) },
         size: Size { width: dimension(s.width), height: dimension(s.height) },
         flex_grow: s.grow,

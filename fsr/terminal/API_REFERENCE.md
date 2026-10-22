@@ -53,7 +53,7 @@ Ink's `Box`.
 
 ### BoxStyle
 
-* `pub struct BoxStyle { pub direction: Direction, pub gap: u16, pub padding: [u16; 4], pub margin: [u16; 4], pub width: Option<Extent>, pub height: Option<Extent>, pub grow: f32, pub shrink: Option<f32>, pub justify: Option<Justify>, pub align: Option<Align>, pub border: Option<Border>, pub border_color: Option<Color>, pub overflow_x: bool, pub overflow_y: bool, pub content_offset: (i32, i32) }`, `Default`. With `overflow_x` or `overflow_y` set, what the children draw past the inner border edge on that axis is cut, as Ink's `overflow="hidden"`. `content_offset` draws the children that many cells left and up, as Ink's `contentOffsetX` and `contentOffsetY`. `padding` and `margin` are top, right, bottom and left in cells. `shrink` is 1 when `None`. A border takes one cell on each side.
+* `pub struct BoxStyle { pub direction: Direction, pub gap: u16, pub padding: [f32; 4], pub margin: [f32; 4], pub width: Option<Extent>, pub height: Option<Extent>, pub grow: f32, pub shrink: Option<f32>, pub justify: Option<Justify>, pub align: Option<Align>, pub border: Option<Border>, pub border_color: Option<Color>, pub overflow_x: bool, pub overflow_y: bool, pub content_offset: (i32, i32) }`, `Default`. With `overflow_x` or `overflow_y` set, what the children draw past the inner border edge on that axis is cut, as Ink's `overflow="hidden"`. `content_offset` draws the children that many cells left and up, as Ink's `contentOffsetX` and `contentOffsetY`. `padding` and `margin` are top, right, bottom and left in cells, a fraction among them; the layout rounds where each box lands to whole cells, as Yoga does for Ink. `shrink` is 1 when `None`. A border takes one cell on each side.
 
 ### Extent
 

@@ -97,9 +97,9 @@ pub struct BoxStyle {
   pub direction: Direction,
   pub gap: u16,
   /// Top, right, bottom, left.
-  pub padding: [u16; 4],
+  pub padding: [f32; 4],
   /// Top, right, bottom, left.
-  pub margin: [u16; 4],
+  pub margin: [f32; 4],
   pub width: Option<Extent>,
   pub height: Option<Extent>,
   pub grow: f32,
@@ -150,24 +150,24 @@ impl Boxed {
   }
 
   pub fn padding(mut self, cells: u16) -> Self {
-    self.style.padding = [cells; 4];
+    self.style.padding = [f32::from(cells); 4];
     self
   }
 
   pub fn padding_x(mut self, cells: u16) -> Self {
-    self.style.padding[1] = cells;
-    self.style.padding[3] = cells;
+    self.style.padding[1] = f32::from(cells);
+    self.style.padding[3] = f32::from(cells);
     self
   }
 
   pub fn padding_y(mut self, cells: u16) -> Self {
-    self.style.padding[0] = cells;
-    self.style.padding[2] = cells;
+    self.style.padding[0] = f32::from(cells);
+    self.style.padding[2] = f32::from(cells);
     self
   }
 
   pub fn margin(mut self, cells: u16) -> Self {
-    self.style.margin = [cells; 4];
+    self.style.margin = [f32::from(cells); 4];
     self
   }
 

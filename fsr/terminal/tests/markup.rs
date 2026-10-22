@@ -38,3 +38,10 @@ fn markup_that_is_not_ink_is_refused() {
   assert!(from_markup("<div>x</div>").unwrap_err().contains("div"));
   assert!(from_markup("<ink-box><ink-text>x</ink-box>").is_err());
 }
+
+#[test]
+fn a_fractional_margin_lays_out_and_rounds_to_cells_as_yoga_does() {
+  let row = r#"<ink-box flex-direction="row"><ink-box margin-x="0.5"><ink-text>A</ink-text></ink-box><ink-box margin-x="0.5"><ink-text>B</ink-text></ink-box><ink-box margin-x="0.5"><ink-text>C</ink-text></ink-box></ink-box>"#;
+  let node = from_markup(row).unwrap();
+  assert_eq!(render(&node, 10).lines()[0].trim_end(), " A B C");
+}
