@@ -163,10 +163,6 @@ The [guide](docs/guide/README.md) is the learning layer, one question per chapte
 
 Each crate under this directory carries a `README.md`, a `README.USAGE.md` and an `API_REFERENCE.md`.
 
-*Designed to be your unstoppable, high-performance daily driver*
-
-Most modern full-stack frameworks are JavaScript wrappers trying to solve systems-level performance problems with duct tape.
-
 ## Special thanks
 
 FSR stands on the work of these projects and the people who maintain them:
@@ -185,5 +181,9 @@ FSR stands on the work of these projects and the people who maintain them:
 - [syntect](https://github.com/trishume/syntect) highlights code blocks.
 - [Tokio](https://tokio.rs), [hyper](https://hyper.rs), [axum](https://github.com/tokio-rs/axum) and [tower](https://github.com/tower-rs/tower) serve every request.
 - [Tera](https://keats.github.io/tera/) renders the Tera evaluator's templates.
+
+*Designed to be your unstoppable, high-performance daily driver*
+
+Most modern full-stack frameworks are JavaScript wrappers trying to solve systems-level performance problems with duct tape.
 
 [Excerion Sun LLC](https://www.excsn.com)
