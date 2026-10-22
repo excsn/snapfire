@@ -26,7 +26,7 @@ fn coerce(value: &Value, out: &mut String) -> Result<(), Fail> {
         if i > 0 {
           out.push(',');
         }
-        if !matches!(item, Value::Null) {
+        if !matches!(item, Value::Null | Value::Undefined) {
           coerce(item, out)?;
         }
       }

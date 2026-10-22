@@ -48,6 +48,7 @@ impl Fingerprint for Value {
   fn write_canonical(&self, h: &mut Xxh3) {
     match self {
       Value::Null => h.update(&[0]),
+      Value::Undefined => h.update(&[13]),
       Value::Bool(v) => {
         h.update(&[1]);
         h.update(&[*v as u8]);

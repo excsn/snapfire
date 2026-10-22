@@ -38,7 +38,7 @@ pub(super) fn may_hoist(tag: &str) -> bool {
 /// moves when it has a `rel`, a non-empty `href` and no load or error
 /// handler; a stylesheet moves only with a `precedence` and no `disabled`.
 pub(super) fn hoists(tag: &str, attrs: &[(Cow<'_, str>, Value)]) -> bool {
-  let get = |name: &str| attrs.iter().find(|(n, v)| n.as_ref() == name && !matches!(v, Value::Null)).map(|(_, v)| v);
+  let get = |name: &str| attrs.iter().find(|(n, v)| n.as_ref() == name && !matches!(v, Value::Null | Value::Undefined)).map(|(_, v)| v);
   if get("itemProp").is_some() {
     return false;
   }

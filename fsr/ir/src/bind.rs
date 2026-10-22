@@ -149,17 +149,17 @@ impl Metadata for IrMeta {
       };
       let text = |key: &str| match map.get(key) {
         Some(Value::Str(s)) => Ok(Some(s.to_string())),
-        None | Some(Value::Null) => Ok(None),
+        None | Some(Value::Null | Value::Undefined) => Ok(None),
         Some(other) => Err(LoadError::new(id.clone(), format!("meta.{key} must be a string, got {}", kind_name(other))).with_kind(FailureKind::Internal)),
       };
       let head = match map.get("head") {
-        None | Some(Value::Null) => Vec::new(),
+        None | Some(Value::Null | Value::Undefined) => Vec::new(),
         Some(Value::Seq(items)) => items.iter().map(|item| head_element(&id, item)).collect::<Result<Vec<_>, _>>()?,
         Some(other) => return Err(LoadError::new(id, format!("meta.head must be a list, got {}", kind_name(other))).with_kind(FailureKind::Internal)),
       };
       let absolute = match map.get("absolute") {
         Some(Value::Bool(absolute)) => *absolute,
-        None | Some(Value::Null) => false,
+        None | Some(Value::Null | Value::Undefined) => false,
         Some(other) => return Err(LoadError::new(id, format!("meta.absolute must be a boolean, got {}", kind_name(other))).with_kind(FailureKind::Internal)),
       };
       Ok(Meta::default().title(text("title")?).absolute(absolute).description(text("description")?).head(head))
@@ -189,7 +189,7 @@ fn head_element(source_id: &str, item: &Value) -> Result<HeadEl, LoadError> {
       continue;
     }
     let text = match value {
-      Value::Null => continue,
+      Value::Null | Value::Undefined => continue,
       Value::Str(s) => s.to_string(),
       Value::F64(n) => n.to_string(),
       Value::Int(n) => n.to_string(),

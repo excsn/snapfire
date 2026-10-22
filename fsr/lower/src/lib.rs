@@ -2386,6 +2386,11 @@ impl<'a> Lowerer<'a> {
           js::BinaryOp::Div => Expr::Arith(ArithOp::Div, l, r),
           js::BinaryOp::Mod => Expr::Arith(ArithOp::Rem, l, r),
           js::BinaryOp::Exp => Expr::Arith(ArithOp::Pow, l, r),
+          js::BinaryOp::EqEq | js::BinaryOp::NotEq if matches!(*r, Expr::Lit(Lit::Null | Lit::Undefined)) || matches!(*l, Expr::Lit(Lit::Null | Lit::Undefined)) => {
+            let other = if matches!(*r, Expr::Lit(Lit::Null | Lit::Undefined)) { l } else { r };
+            let nullish = Expr::Builtin { name: Builtin::IsNullish, args: vec![*other] };
+            if bin.op == js::BinaryOp::EqEq { nullish } else { Expr::Not(Box::new(nullish)) }
+          }
           js::BinaryOp::EqEqEq | js::BinaryOp::EqEq => Expr::Compare(CompareOp::Eq, l, r),
           js::BinaryOp::NotEqEq | js::BinaryOp::NotEq => Expr::Compare(CompareOp::Ne, l, r),
           js::BinaryOp::Lt => Expr::Compare(CompareOp::Lt, l, r),
@@ -2470,7 +2475,7 @@ impl<'a> Lowerer<'a> {
       Some(Root::Native) => Err(self.residue(id.span, "`native` as a value; call a method on it")),
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
       None => match name {
-        "undefined" => Ok(Expr::Lit(Lit::Null)),
+        "undefined" => Ok(Expr::Lit(Lit::Undefined)),
         "Infinity" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(1.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
         "NaN" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(0.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
         _ if self.browser_functions.iter().any(|f| f == name) => Ok(Expr::Handler(snapfire_fsr_ir::render::BROWSER_HANDLER)),
@@ -3719,8 +3724,8 @@ impl<'a> Lowerer<'a> {
     let mut out = self.call(&plain)?;
     for guard in guards.iter().rev() {
       let object = self.expr(guard)?;
-      let missing = Expr::Compare(CompareOp::Eq, Box::new(object), Box::new(Expr::Lit(Lit::Null)));
-      out = Expr::Ternary(Box::new(missing), Box::new(Expr::Lit(Lit::Null)), Box::new(out));
+      let missing = Expr::Builtin { name: Builtin::IsNullish, args: vec![object] };
+      out = Expr::Ternary(Box::new(missing), Box::new(Expr::Lit(Lit::Undefined)), Box::new(out));
     }
     Ok(out)
   }

@@ -7039,7 +7039,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       }
       js::Expr::OptChain(_) if optional_map(expr).is_some_and(|(_, arrow)| self.arrow_markup(arrow)) => {
         let (over, arrow) = optional_map(expr).expect("checked by the guard");
-        let missing = Expr::Compare(CompareOp::Eq, Box::new(self.lowerer.expr(over)?), Box::new(Expr::Lit(Lit::Null)));
+        let missing = Expr::Builtin { name: snapfire_fsr_ir::ast::Builtin::IsNullish, args: vec![self.lowerer.expr(over)?] };
         let each = self.map_tree(over, arrow)?;
         Ok(Tmpl::If { cond: missing, then: Box::new(Tmpl::Fragment(Vec::new())), r#else: Some(Box::new(each)) })
       }

@@ -256,3 +256,9 @@ fn a_page_whose_default_export_is_an_imported_component_renders_that_component()
   let page = "import { Card } from \"@src/Card\";\nexport default Card;\n";
   assert_eq!(html_with("default_reexport", &[("src/Card.tsx", card), ("routes/page.tsx", page)]).as_deref(), Ok("<h1>t</h1>"));
 }
+
+#[test]
+fn undefined_and_null_compare_and_type_as_javascript_has_them() {
+  let page = "function Show({ v }: { v?: number | null }) {\n  return <i>{v === undefined ? \"u\" : v === null ? \"n\" : \"v\"}{v == null ? \"!\" : \".\"}{typeof v}{String(v)}</i>;\n}\nexport default function Page() {\n  const o: { a: null; b?: number } = { a: null };\n  return <p><Show v={o.a} /><Show v={o.b} /><Show v={1} /></p>;\n}\n";
+  assert_eq!(html("undefined_null", page).as_deref(), Ok("<p><i>n!objectnull</i><i>u!undefinedundefined</i><i>v.number1</i></p>"));
+}

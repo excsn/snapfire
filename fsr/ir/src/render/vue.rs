@@ -68,7 +68,7 @@ pub(super) fn escape(input: &str, out: &mut String) {
 /// `toDisplayString`: what an interpolation shows for a value.
 pub(super) fn display(value: &Value) -> Result<String, Fail> {
   Ok(match value {
-    Value::Null => String::new(),
+    Value::Null | Value::Undefined => String::new(),
     Value::Seq(_) | Value::Map(_) => {
       let mut out = String::new();
       json(value, 0, &mut out)?;
@@ -81,7 +81,7 @@ pub(super) fn display(value: &Value) -> Result<String, Fail> {
 /// `JSON.stringify(value, null, 2)`.
 fn json(value: &Value, depth: usize, out: &mut String) -> Result<(), Fail> {
   match value {
-    Value::Null => out.push_str("null"),
+    Value::Null | Value::Undefined => out.push_str("null"),
     Value::Str(s) => json_string(s, out),
     Value::Seq(items) => {
       if items.is_empty() {
@@ -107,7 +107,7 @@ fn json(value: &Value, depth: usize, out: &mut String) -> Result<(), Fail> {
         return Ok(());
       }
       out.push('{');
-      for (i, (key, item)) in map.iter().enumerate() {
+      for (i, (key, item)) in map.iter().filter(|(_, item)| !matches!(item, Value::Undefined)).enumerate() {
         if i > 0 {
           out.push(',');
         }
@@ -303,7 +303,7 @@ pub(super) fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(
     return Ok(());
   }
   match value {
-    Value::Null | Value::Bool(false) => {}
+    Value::Null | Value::Undefined | Value::Bool(false) => {}
     Value::Bool(true) => {
       out.push(' ');
       out.push_str(name);

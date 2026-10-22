@@ -304,6 +304,8 @@ pub mod typed {
 #[derive(Debug, Clone)]
 pub enum Value {
   Null,
+  /// JavaScript's `undefined`: what a missing field, a missing argument or a function with no `return` reads as. A field holding it is left out where the value is written as JSON.
+  Undefined,
   Bool(bool),
   /// Integers up to i128; unsigned values that fit are normalized here.
   Int(i128),
@@ -323,7 +325,7 @@ pub enum Value {
 impl PartialEq for Value {
   fn eq(&self, other: &Self) -> bool {
     match (self, other) {
-      (Value::Null, Value::Null) => true,
+      (Value::Null, Value::Null) | (Value::Undefined, Value::Undefined) => true,
       (Value::Bool(a), Value::Bool(b)) => a == b,
       (Value::Int(a), Value::Int(b)) => a == b,
       (Value::UInt(a), Value::UInt(b)) => a == b,

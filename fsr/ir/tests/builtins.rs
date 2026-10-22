@@ -151,7 +151,8 @@ async fn query_strings_encode_the_way_url_search_params_does() {
     (Expr::Lit(Lit::Bool(false)), "boolean"),
     (Expr::Array(Vec::new()), "object"),
     (Expr::Object(Vec::new()), "object"),
-    (Expr::Lit(Lit::Null), "undefined"),
+    (Expr::Lit(Lit::Null), "object"),
+    (Expr::Lit(Lit::Undefined), "undefined"),
   ] {
     assert_eq!(run(type_of(value)).await, Value::str(want), "{want}");
   }

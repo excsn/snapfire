@@ -30,6 +30,7 @@ pub enum ContractError {
 fn kind_of(value: &Value) -> String {
   match value {
     Value::Null => "null".to_owned(),
+    Value::Undefined => "undefined".to_owned(),
     Value::Bool(_) => "bool".to_owned(),
     Value::Int(v) => format!("int {v}"),
     Value::UInt(v) => format!("uint {v}"),
@@ -154,7 +155,7 @@ impl Contract {
       Type::Array(kind) => matches!(value, Value::TypedArray(a) if array_kind(a) == *kind),
       Type::Optional(inner) => {
         return match value {
-          Value::Null => Ok(()),
+          Value::Null | Value::Undefined => Ok(()),
           _ => self.check_value(inner, value, path),
         }
       }
@@ -301,7 +302,7 @@ impl Contract {
         }
       }
       Type::Optional(inner) => {
-        if !matches!(value, Value::Null) {
+        if !matches!(value, Value::Null | Value::Undefined) {
           self.conform(inner, value);
         }
       }

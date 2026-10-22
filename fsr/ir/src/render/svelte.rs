@@ -73,10 +73,10 @@ fn escape(input: &str, attr: bool, out: &mut String) {
 /// `String(value ?? '')`, what an expression tag shows.
 pub(super) fn display(value: &Value) -> Result<String, Fail> {
   Ok(match value {
-    Value::Null => String::new(),
+    Value::Null | Value::Undefined => String::new(),
     Value::Bool(b) => b.to_string(),
     Value::Seq(items) => items.iter().map(|item| match item {
-      Value::Null => Ok(String::new()),
+      Value::Null | Value::Undefined => Ok(String::new()),
       other => display(other),
     }).collect::<Result<Vec<_>, _>>()?.join(","),
     Value::Map(_) => "[object Object]".to_owned(),
@@ -100,7 +100,7 @@ pub(super) fn attribute(name: &str, value: &Value, out: &mut String) -> Result<(
 fn attr(name: &str, value: &Value, boolean: bool, out: &mut String) -> Result<(), Fail> {
   let boolean = boolean || (name == "hidden" && !matches!(value, Value::Str(s) if s.as_ref() == "until-found"));
   let empty = matches!(value, Value::Str(s) if s.is_empty());
-  if matches!(value, Value::Null) || (boolean && !truthy(value) && !empty) {
+  if matches!(value, Value::Null | Value::Undefined) || (boolean && !truthy(value) && !empty) {
     return Ok(());
   }
   out.push(' ');

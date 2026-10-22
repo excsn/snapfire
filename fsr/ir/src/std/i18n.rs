@@ -56,7 +56,7 @@ fn t(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let key = text(what, args, 0)?;
   let options = match args.get(1) {
     Some(Value::Map(map)) => Some(map),
-    None | Some(Value::Null) => None,
+    None | Some(Value::Null | Value::Undefined) => None,
     Some(other) => return Err(crate::interp::type_error(what, "an arguments object", other)),
   };
   let category = match options.and_then(|o| o.get("count")) {

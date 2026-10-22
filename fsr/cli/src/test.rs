@@ -1361,6 +1361,7 @@ pub fn show(value: &Value) -> String {
 fn write_value(value: &Value, out: &mut String) {
   match value {
     Value::Null => out.push_str("null"),
+    Value::Undefined => out.push_str("undefined"),
     Value::Bool(b) => {
       let _ = write!(out, "{b}");
     }

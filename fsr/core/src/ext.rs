@@ -266,6 +266,7 @@ impl Catalogs {
 pub fn kind_name(value: &Value) -> &'static str {
   match value {
     Value::Null => "null",
+    Value::Undefined => "undefined",
     Value::Bool(_) => "bool",
     Value::Int(_) => "int",
     Value::UInt(_) => "uint",
@@ -310,7 +311,7 @@ pub fn text<'a>(what: &str, args: &'a [Value], i: usize) -> Result<&'a str, Fail
 /// An optional string argument: absent or `null` is `None`.
 pub fn text_opt<'a>(what: &str, args: &'a [Value], i: usize) -> Result<Option<&'a str>, Fail> {
   match args.get(i) {
-    None | Some(Value::Null) => Ok(None),
+    None | Some(Value::Null | Value::Undefined) => Ok(None),
     Some(Value::Str(s)) => Ok(Some(s)),
     Some(other) => Err(type_error(what, "a string", other)),
   }
@@ -320,8 +321,8 @@ pub fn text_opt<'a>(what: &str, args: &'a [Value], i: usize) -> Result<Option<&'
 /// field is absent.
 pub fn option<'a>(what: &str, args: &'a [Value], i: usize, field: &str) -> Result<Option<&'a Value>, Fail> {
   match args.get(i) {
-    None | Some(Value::Null) => Ok(None),
-    Some(Value::Map(map)) => Ok(map.get(field).filter(|v| !matches!(v, Value::Null))),
+    None | Some(Value::Null | Value::Undefined) => Ok(None),
+    Some(Value::Map(map)) => Ok(map.get(field).filter(|v| !matches!(v, Value::Null | Value::Undefined))),
     Some(other) => Err(type_error(what, "an options object", other)),
   }
 }

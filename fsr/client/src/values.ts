@@ -42,6 +42,7 @@ export function isDouble(v: unknown): v is DoubleValue {
 
 export type SfValue =
   | null
+  | undefined
   | boolean
   | number
   | bigint
@@ -147,6 +148,8 @@ function decodeTagged(obj: { [key: string]: unknown }): SfValue {
     }
     case "ref":
       return ref(obj["k"] as "action" | "module", obj["id"] as string);
+    case "undef":
+      return undefined;
     default:
       throw new Error(`unknown value tag: ${tag}`);
   }
@@ -198,6 +201,7 @@ const U128_MAX = (1n << 128n) - 1n;
 
 /** Encodes JS values into the JSON pair's tagged form for the server. JS has one number type, so an integral number arrives as an Int; Uint8Array arrives as bytes. */
 export function encodeValue(v: SfValue): unknown {
+  if (v === undefined) return { $: "undef" };
   if (v === null || typeof v === "boolean" || typeof v === "string") return v;
   if (typeof v === "number") {
     if (Number.isNaN(v)) return { $: "f", v: "nan" };
@@ -237,11 +241,11 @@ export function encodeValue(v: SfValue): unknown {
   }
   const obj = v as { [key: string]: SfValue };
   if (Object.prototype.hasOwnProperty.call(obj, "$")) {
-    return { $: "m", v: Object.keys(obj).map((k) => [k, encodeValue(obj[k])]) };
+    return { $: "m", v: Object.keys(obj).filter((k) => obj[k] !== undefined).map((k) => [k, encodeValue(obj[k])]) };
   }
   const out: { [key: string]: unknown } = {};
   for (const key of Object.keys(obj)) {
-    out[key] = encodeValue(obj[key]);
+    if (obj[key] !== undefined) out[key] = encodeValue(obj[key]);
   }
   return out;
 }

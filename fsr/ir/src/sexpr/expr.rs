@@ -379,6 +379,7 @@ pub(super) fn boxed(sx: &Sx) -> Res<Box<Expr>> {
 pub(super) fn atom_to_expr(s: &str) -> Expr {
   match s {
     "nil" => Expr::Lit(Lit::Null),
+    "undefined" => Expr::Lit(Lit::Undefined),
     "#t" => Expr::Lit(Lit::Bool(true)),
     "#f" => Expr::Lit(Lit::Bool(false)),
     _ => {

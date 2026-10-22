@@ -139,3 +139,19 @@ fn a_typed_variant_decodes_to_the_plain_value_its_payload_stands_for() {
   assert!(decode(r#"{"$":"var","t":"$date"}"#).is_err());
   assert_eq!(decode(r#"{"$":"var","t":"Down"}"#).unwrap(), Value::Variant { tag: "Down".to_owned(), payload: None });
 }
+
+#[test]
+fn undefined_is_left_out_of_an_object_and_tagged_anywhere_else() {
+  let mut props = ValueMap::default();
+  props.insert("policy".to_owned(), Value::Undefined);
+  props.insert("none".to_owned(), Value::Null);
+  let json = value_to_json(&Value::Map(props));
+  assert_eq!(json.to_string(), r#"{"none":null}"#);
+  let decoded = json_to_value(&json).unwrap();
+  let Value::Map(decoded) = decoded else { panic!("{decoded:?}") };
+  assert_eq!(decoded.get("policy"), None);
+  assert_eq!(decoded.get("none"), Some(&Value::Null));
+  assert_value_round_trips(Value::Undefined);
+  assert_value_round_trips(Value::seq(vec![Value::Undefined, Value::Null]));
+  assert_eq!(value_to_json(&Value::seq(vec![Value::Undefined, Value::Null])).to_string(), r#"[{"$":"undef"},null]"#);
+}

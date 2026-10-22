@@ -111,6 +111,7 @@ fn typed_array_from_le_bytes(kind: &str, bytes: &[u8]) -> Result<TypedArray, Dec
 pub fn value_to_json(value: &Value) -> Json {
   match value {
     Value::Null => Json::Null,
+    Value::Undefined => tag("undef", vec![]),
     Value::Bool(v) => json!(v),
     Value::Int(v) => {
       if (-JSON_SAFE_INT..=JSON_SAFE_INT).contains(v) {
@@ -144,12 +145,14 @@ pub fn value_to_json(value: &Value) -> Json {
     Value::Seq(items) => Json::Array(items.iter().map(value_to_json).collect()),
     Value::Map(map) => {
       if map.contains_key("$") {
-        let entries: Vec<Json> = map.iter().map(|(k, v)| json!([k, value_to_json(v)])).collect();
+        let entries: Vec<Json> = map.iter().filter(|(_, v)| !matches!(v, Value::Undefined)).map(|(k, v)| json!([k, value_to_json(v)])).collect();
         tag("m", vec![("v", Json::Array(entries))])
       } else {
         let mut out = JsonMap::new();
         for (k, v) in map {
-          out.insert(k.clone(), value_to_json(v));
+          if !matches!(v, Value::Undefined) {
+            out.insert(k.clone(), value_to_json(v));
+          }
         }
         Json::Object(out)
       }
@@ -184,6 +187,7 @@ fn typed_payload(tag: &str, payload: &Json) -> Result<Value, DecodeError> {
           Value::UInt(n) => n.to_string(),
           Value::Bool(b) => b.to_string(),
           Value::Null => "null".to_owned(),
+          Value::Undefined => "undefined".to_owned(),
           _ => return Err(err("tag `$map` keys must be strings, integers, booleans or null")),
         };
         out.insert(key, value.clone());
@@ -281,6 +285,7 @@ fn decode_tagged(name: &str, map: &JsonMap<String, Json>) -> Result<Value, Decod
       };
       Ok(Value::Ref { kind, id: str_field(map, "id", name)?.to_owned() })
     }
+    "undef" => Ok(Value::Undefined),
     other => Err(err(format!("unknown tag `{other}`"))),
   }
 }

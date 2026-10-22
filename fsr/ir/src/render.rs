@@ -178,7 +178,7 @@ pub use snapfire_fsr_core::value::typed;
 /// `value` wrapped in the typed variant `tag` names, when its shape is the one that tag carries: a `$map` takes an object and sends its pairs, the others send the value as it is. A null prop stays null.
 fn typed_value(tag: &str, value: &Value) -> Value {
   let payload = match (tag, value) {
-    (_, Value::Null) => return Value::Null,
+    (_, Value::Null | Value::Undefined) => return Value::Null,
     (typed::MAP, Value::Map(map)) => Value::Seq(map.iter().map(|(k, v)| Value::seq(vec![Value::str(k.clone()), v.clone()])).collect()),
     (typed::SET, Value::Seq(_)) | (typed::DATE | typed::BIGINT, Value::Int(_) | Value::UInt(_) | Value::F64(_) | Value::F32(_)) => value.clone(),
     _ => return value.clone(),
@@ -744,7 +744,7 @@ fn eval_body_sync(env: &mut Env, body: &[Stmt]) -> Result<Value, Fail> {
         let depth = env.scope.len();
         let value = eval_body_sync(env, branch)?;
         env.scope.truncate(depth);
-        if !matches!(value, Value::Null) {
+        if !matches!(value, Value::Null | Value::Undefined) {
           return Ok(value);
         }
       }
@@ -920,7 +920,7 @@ fn props(env: &mut Env, entries: &[Entry]) -> Result<ValueMap, Fail> {
             }
           }
         }
-        Value::Null => {}
+        Value::Null | Value::Undefined => {}
         other => return Err(crate::interp::type_error("spread", "an object", &other)),
       },
       Entry::Computed(key, expr) => {
@@ -970,7 +970,7 @@ fn entries<'a>(env: &mut Env, entries: &'a [Entry], attrs: bool) -> Result<(Vec<
             }
           }
         }
-        Value::Null => {}
+        Value::Null | Value::Undefined => {}
         other => return Err(crate::interp::type_error("spread", "an object", &other)),
       },
       Entry::Computed(key, expr) => {
@@ -1069,7 +1069,7 @@ fn render_aside<'a>(env: &mut Env, tmpl: &'a Tmpl, library: &'a Components, slot
 
 fn render_html(env: &mut Env, expr: &crate::ast::Expr, out: &mut Out) -> Result<(), Fail> {
   match env.eval_sync(expr)? {
-    Value::Null => {}
+    Value::Null | Value::Undefined => {}
     value if env.markup.is_svelte() => out.markup(&svelte::display(&value)?),
     value => out.markup(&stringify(&value)?),
   }
@@ -1156,7 +1156,7 @@ fn render_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], children: &'a [
     }
     if name == RAW_ATTR {
       raw = Some(match value {
-        Value::Null => String::new(),
+        Value::Null | Value::Undefined => String::new(),
         value => stringify(&value)?,
       });
       continue;
@@ -1585,7 +1585,7 @@ fn child_value(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, out: &
 
 fn flatten_child(value: Value, out: &mut Vec<Value>) {
   match value {
-    Value::Null | Value::Bool(_) => {}
+    Value::Null | Value::Undefined | Value::Bool(_) => {}
     Value::Seq(items) => items.into_items().into_iter().for_each(|item| flatten_child(item, out)),
     other => out.push(other),
   }
@@ -1731,7 +1731,7 @@ fn count_child(env: &mut Env, t: &Tmpl, slots: &[Slot<'_>], frame: usize, emptie
 
 fn count_value(value: &Value, empties: bool) -> usize {
   match value {
-    Value::Null | Value::Bool(_) => usize::from(empties),
+    Value::Null | Value::Undefined | Value::Bool(_) => usize::from(empties),
     Value::Seq(items) => items.iter().map(|item| count_value(item, empties)).sum(),
     _ => 1,
   }
@@ -2418,7 +2418,7 @@ fn style_text(map: &ValueMap) -> Result<String, Fail> {
     let unitless = name.starts_with("--") || is_unitless(name);
     let name = &css_name(name);
     let text = match value {
-      Value::Null | Value::Bool(_) => continue,
+      Value::Null | Value::Undefined | Value::Bool(_) => continue,
       Value::Str(s) if s.trim().is_empty() => continue,
       Value::Str(s) => s.trim().to_owned(),
       Value::Int(0) => "0".to_owned(),
@@ -2564,6 +2564,7 @@ fn lit_value(lit: &crate::ast::Lit) -> Value {
   use crate::ast::Lit;
   match lit {
     Lit::Null => Value::Null,
+    Lit::Undefined => Value::Undefined,
     Lit::Bool(b) => Value::Bool(*b),
     Lit::Int(n) => Value::Int(*n),
     Lit::Float(f) => Value::F64(*f),
@@ -2676,6 +2677,7 @@ fn baked_open(tag: &str, attrs: &[Entry]) -> Option<String> {
     }
     let value = match lit {
       crate::ast::Lit::Null => Value::Null,
+      crate::ast::Lit::Undefined => Value::Undefined,
       crate::ast::Lit::Bool(b) => Value::Bool(*b),
       crate::ast::Lit::Int(n) => Value::Int(*n),
       crate::ast::Lit::Float(f) => Value::F64(*f),
@@ -2723,6 +2725,7 @@ fn baked_attrs(tag: &str, attrs: &[Entry]) -> Vec<Entry> {
     } else {
       let value = match lit {
         crate::ast::Lit::Null => Value::Null,
+        crate::ast::Lit::Undefined => Value::Undefined,
         crate::ast::Lit::Bool(b) => Value::Bool(*b),
         crate::ast::Lit::Int(n) => Value::Int(*n),
         crate::ast::Lit::Float(f) => Value::F64(*f),
@@ -2979,7 +2982,7 @@ fn interpolate(value: &Value, out: &mut Out, markup: Markup) -> Result<(), Fail>
     return Ok(());
   }
   match value {
-    Value::Null | Value::Bool(_) => Ok(()),
+    Value::Null | Value::Undefined | Value::Bool(_) => Ok(()),
     _ if handler_token(value).is_some() => Ok(()),
     Value::Seq(items) => {
       for item in items {
@@ -3039,7 +3042,7 @@ fn attribute(markup: Markup, tag: &str, name: &str, value: &Value, out: &mut Str
   if markup.is_svelte() {
     return svelte::attribute(name, value, out);
   }
-  if matches!(value, Value::Null) {
+  if matches!(value, Value::Null | Value::Undefined) {
     return Ok(());
   }
   if name != "style" && is_custom_element(tag) {
@@ -3115,7 +3118,7 @@ fn is_javascript_url(url: &str) -> bool {
 }
 
 fn is_scalar(value: &Value) -> bool {
-  matches!(value, Value::Null | Value::Bool(_) | Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) | Value::Str(_))
+  matches!(value, Value::Null | Value::Undefined | Value::Bool(_) | Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) | Value::Str(_))
 }
 
 /// A non-scalar on a custom element in markup no framework hydrates. Nothing

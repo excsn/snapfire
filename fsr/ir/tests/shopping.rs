@@ -379,14 +379,14 @@ fn the_identity_whole_is_null_for_nobody_and_not_null_for_a_signed_in_visitor() 
 }
 
 #[test]
-fn a_query_read_is_a_string_or_null() {
+fn a_query_read_is_a_string_or_undefined() {
   let mock = Arc::new(Mock::default());
   let mut c = ctx(mock, &[], ValueMap::default());
   c.query.insert("tag".into(), "printing".into());
   let body = vec![Stmt::Return(Expr::object(vec![("tag", Expr::Query("tag".into())), ("missing", Expr::Query("other".into()))]))];
   let Value::Map(out) = run(&body, &c, None).unwrap() else { panic!() };
   assert_eq!(out.get("tag"), Some(&Value::str("printing")));
-  assert_eq!(out.get("missing"), Some(&Value::Null));
+  assert_eq!(out.get("missing"), Some(&Value::Undefined));
 }
 
 #[test]
@@ -403,7 +403,7 @@ fn the_whole_query_and_params_read_as_objects_of_strings() {
   assert_eq!(out.get("q"), Some(&Value::Map(q)));
   assert_eq!(out.get("p"), Some(&Value::Map(p)));
   assert_eq!(out.get("r"), Some(&Value::str("app")));
-  assert_eq!(out.get("none"), Some(&Value::Null));
+  assert_eq!(out.get("none"), Some(&Value::Undefined));
 }
 
 #[test]

@@ -20,6 +20,7 @@ pub(super) fn reserved_atom(s: &str) -> bool {
 pub(super) fn lit_to_sx(lit: &Lit) -> Sx {
   match lit {
     Lit::Null => Sx::sym("nil"),
+    Lit::Undefined => Sx::sym("undefined"),
     Lit::Bool(true) => Sx::sym("#t"),
     Lit::Bool(false) => Sx::sym("#f"),
     Lit::Int(n) => Sx::Sym(n.to_string()),
@@ -153,6 +154,7 @@ pub(super) fn builtin_sym(b: Builtin) -> &'static str {
     Builtin::Checked => "checked",
     Builtin::LooseMatch => "loose-match",
     Builtin::IsNaN => "is-nan",
+    Builtin::IsNullish => "nullish?",
     Builtin::ParseInt => "parse-int",
     Builtin::LastIndexOf => "last-index-of",
     Builtin::CharAt => "char-at",
@@ -230,6 +232,7 @@ pub(super) fn builtin_of(s: &str) -> Option<Builtin> {
     "checked" => Builtin::Checked,
     "loose-match" => Builtin::LooseMatch,
     "is-nan" => Builtin::IsNaN,
+    "nullish?" => Builtin::IsNullish,
     "parse-int" => Builtin::ParseInt,
     "last-index-of" => Builtin::LastIndexOf,
     "char-at" => Builtin::CharAt,

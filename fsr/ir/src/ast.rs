@@ -238,7 +238,7 @@ pub enum Builtin {
   HasKey,
   /// `clsx(...)` and `classnames(...)` over its arguments as one array: each non-empty string and non-zero number, an array's items in turn and an object's keys whose values are truthy, joined by a space.
   ClassNames,
-  /// `typeof x`: `"string"`, `"number"`, `"boolean"`, `"function"` for a handler or an action and `"object"` for an object or an array. Null is `"undefined"`, since the server holds one null for both.
+  /// `typeof x`: `"string"`, `"number"`, `"boolean"`, `"function"` for a handler or an action and `"object"` for null, an object or an array and `"undefined"` for undefined.
   TypeOf,
   /// `Array.isArray(x)`.
   IsArray,
@@ -276,6 +276,8 @@ pub enum Builtin {
   LooseMatch,
   /// The global `isNaN(x)`: whether `Number(x)` is NaN.
   IsNaN,
+  /// `x == null`: whether `x` is null or undefined.
+  IsNullish,
   /// `parseInt(s, radix)` over `String(s)`: a radix of 0 or none reads 10 (16 after `0x`); one outside 2 to 36 is NaN.
   ParseInt,
   /// `x.lastIndexOf(v, from)` of an array by strict equality and of a string by its text.
@@ -750,6 +752,7 @@ pub enum Entry {
 #[serde(rename_all = "snake_case")]
 pub enum Lit {
   Null,
+  Undefined,
   Bool(bool),
   Int(i128),
   Float(f64),

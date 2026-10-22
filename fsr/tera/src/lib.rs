@@ -245,7 +245,7 @@ fn eval_err(module: &ModuleId, message: impl Into<String>) -> EvalError {
 /// keeps the payload's tagged form, which is the only spelling it has.
 fn context_json(value: &Value) -> Json {
   match value {
-    Value::Null => Json::Null,
+    Value::Null | Value::Undefined => Json::Null,
     Value::Bool(b) => Json::Bool(*b),
     Value::Int(n) => i64::try_from(*n).map(Json::from).unwrap_or_else(|_| Json::String(n.to_string())),
     Value::UInt(n) => u64::try_from(*n).map(Json::from).unwrap_or_else(|_| Json::String(n.to_string())),
@@ -254,7 +254,7 @@ fn context_json(value: &Value) -> Json {
     Value::Str(s) => Json::String(s.to_string()),
     Value::Bytes(bytes) => Json::String(B64.encode(bytes)),
     Value::Seq(items) => Json::Array(items.iter().map(context_json).collect()),
-    Value::Map(map) => Json::Object(map.iter().map(|(k, v)| (k.clone(), context_json(v))).collect()),
+    Value::Map(map) => Json::Object(map.iter().filter(|(_, v)| !matches!(v, Value::Undefined)).map(|(k, v)| (k.clone(), context_json(v))).collect()),
     Value::TypedArray(_) | Value::Variant { .. } | Value::Ref { .. } => value_to_json(value),
   }
 }

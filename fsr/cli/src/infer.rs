@@ -12,6 +12,7 @@ use crate::native::NativeModule;
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum Ts {
+  Undefined,
   Str,
   Num,
   Big,
@@ -42,6 +43,7 @@ impl Ts {
       },
       Ts::Bool => "boolean".into(),
       Ts::Null => "null".into(),
+      Ts::Undefined => "undefined".into(),
       Ts::Unknown => "unknown".into(),
       Ts::Named(n) => n.clone(),
       Ts::TsExpr(t) => t.clone(),
@@ -127,7 +129,7 @@ fn narrow(cond: &Expr, env: &mut Vec<(String, Ts)>) {
   }
 }
 
-/// The names `cond` is true for when they are null: `!x`, `x == null` and either side of `||`.
+/// The names `cond` is true for when they are null or undefined: `!x`, `x == null`, `x === undefined` and either side of `||`.
 fn ruled_out(cond: &Expr, out: &mut Vec<String>) {
   match cond {
     Expr::Not(inner) => {
@@ -136,9 +138,14 @@ fn ruled_out(cond: &Expr, out: &mut Vec<String>) {
       }
     }
     Expr::Compare(CompareOp::Eq, a, b) => match (&**a, &**b) {
-      (Expr::Var(name), Expr::Lit(Lit::Null)) | (Expr::Lit(Lit::Null), Expr::Var(name)) => out.push(name.clone()),
+      (Expr::Var(name), Expr::Lit(Lit::Null | Lit::Undefined)) | (Expr::Lit(Lit::Null | Lit::Undefined), Expr::Var(name)) => out.push(name.clone()),
       _ => {}
     },
+    Expr::Builtin { name: Builtin::IsNullish, args } => {
+      if let [Expr::Var(name)] = args.as_slice() {
+        out.push(name.clone());
+      }
+    }
     Expr::Logic(LogicOp::Or, a, b) => {
       ruled_out(a, out);
       ruled_out(b, out);
@@ -154,8 +161,8 @@ fn never_falls_through(body: &Body) -> bool {
 
 fn non_null(t: Ts) -> Ts {
   match t {
-    Ts::Union(arms) => union(arms.into_iter().filter(|a| *a != Ts::Null).collect()),
-    Ts::Null => Ts::Unknown,
+    Ts::Union(arms) => union(arms.into_iter().filter(|a| !matches!(a, Ts::Null | Ts::Undefined)).collect()),
+    Ts::Null | Ts::Undefined => Ts::Unknown,
     other => other,
   }
 }
@@ -265,6 +272,7 @@ impl<'a> Inferer<'a> {
       Expr::Var(name) => env.iter().rev().find(|(n, _)| n == name).map(|(_, t)| t.clone()).unwrap_or(Ts::Unknown),
       Expr::Lit(lit) => match lit {
         Lit::Null => Ts::Null,
+        Lit::Undefined => Ts::Undefined,
         Lit::Bool(_) => Ts::Bool,
         Lit::Int(_) => Ts::Big,
         Lit::Float(_) => Ts::Num,

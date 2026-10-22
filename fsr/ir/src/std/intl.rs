@@ -39,7 +39,7 @@ fn locale_for(what: &str, ambient: &Ambient, options: Option<&Value>) -> Result<
   match options {
     Some(Value::Map(map)) => match map.get("locale") {
       Some(Value::Str(tag)) => tag.as_str().parse().map_err(|_| Fail::internal(format!("{what}: `{tag}` is not a locale"))),
-      Some(Value::Null) | None => Ok(locale_of(ambient)),
+      Some(Value::Null | Value::Undefined) | None => Ok(locale_of(ambient)),
       Some(other) => Err(Fail::internal(format!("{what}: `locale` wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
     },
     _ => Ok(locale_of(ambient)),
@@ -167,7 +167,7 @@ fn date(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let part = |name: &str| -> Result<Option<String>, Fail> {
     let Some(Value::Map(options)) = args.get(1) else { return Ok(None) };
     match options.get(name) {
-      None | Some(Value::Null) => Ok(None),
+      None | Some(Value::Null | Value::Undefined) => Ok(None),
       Some(Value::Str(s)) => Ok(Some(s.to_string())),
       Some(other) => Err(Fail::internal(format!("{what}: `{name}` wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
     }
@@ -307,7 +307,7 @@ fn list(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let read = |key: &str| match options {
     Some(Value::Map(map)) => match map.get(key) {
       Some(Value::Str(s)) => Ok(Some(s.to_string())),
-      Some(Value::Null) | None => Ok(None),
+      Some(Value::Null | Value::Undefined) | None => Ok(None),
       Some(other) => Err(Fail::internal(format!("{what}: `{key}` wants a string, got {}", snapfire_fsr_core::ext::kind_name(other)))),
     },
     _ => Ok(None),

@@ -1029,8 +1029,8 @@ impl Env {
         self.held.hold(key, &value);
         Ok(value)
       }
-      Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
-      Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
+      Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
+      Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
       Expr::ParamsAll => Ok(Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
       Expr::QueryAll => Ok(Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
@@ -1056,6 +1056,7 @@ impl Env {
       Expr::Folded(value) => Ok(value.clone()),
       Expr::Lit(lit) => Ok(match lit {
         Lit::Null => Value::Null,
+        Lit::Undefined => Value::Undefined,
         Lit::Bool(b) => Value::Bool(*b),
         Lit::Int(n) => Value::Int(*n),
         Lit::Float(f) => Value::F64(*f),
@@ -1080,7 +1081,7 @@ impl Env {
             }
             Entry::Spread(e) => match self.eval_sync(e)? {
               Value::Map(inner) => map.extend(inner),
-              Value::Null => {}
+              Value::Null | Value::Undefined => {}
               other => return Err(type_error("spread into an object", "an object", &other)),
             },
             Entry::Item(_) => return Err(Fail::internal("an object literal has no positional entries")),
@@ -1096,7 +1097,7 @@ impl Env {
             Entry::Item(e) => items.push(self.eval_sync(e)?),
             Entry::Spread(e) => match self.eval_sync(e)? {
               Value::Seq(inner) => items.extend(inner),
-              Value::Null => {}
+              Value::Null | Value::Undefined => {}
               Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
               other => return Err(type_error("spread into an array", "an array", &other)),
             },
@@ -1145,7 +1146,7 @@ impl Env {
       }
       Expr::Not(e) => Ok(Value::Bool(!self.truth_of(e)?)),
       Expr::Coalesce(l, r) => match self.eval_sync(l)? {
-        Value::Null => self.eval_sync(r),
+        Value::Null | Value::Undefined => self.eval_sync(r),
         v => Ok(v),
       },
       Expr::Ternary(c, t, e) => {
@@ -1173,7 +1174,7 @@ impl Env {
         let mut map = ValueMap::default();
         for (name, e) in args {
           match self.eval_sync(e)? {
-            Value::Null => {}
+            Value::Null | Value::Undefined => {}
             v => {
               map.insert(name.clone(), v);
             }
@@ -1468,7 +1469,7 @@ impl Env {
       let mut scope = closure.scope;
       let mut args = args.into_iter();
       for param in &closure.params {
-        scope.push((param.clone(), args.next().unwrap_or(Value::Null)));
+        scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
       }
       let outer = std::mem::replace(&mut self.scope, scope);
       let result = self.eval_sync(&closure.body);
@@ -1478,7 +1479,7 @@ impl Env {
     let depth = self.scope.len();
     let mut args = args.into_iter();
     for param in params {
-      self.scope.push((param.clone(), args.next().unwrap_or(Value::Null)));
+      self.scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
     }
     let result = self.eval_sync(body);
     self.scope.truncate(depth);
@@ -1530,8 +1531,8 @@ impl Env {
           let Some(expr) = consts.get(key) else { return Err(undeclared(key)) };
           self.eval(expr).await
         }
-        Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
-        Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
+        Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
+        Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Undefined)),
       Expr::ParamsAll => Ok(Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
       Expr::QueryAll => Ok(Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
@@ -1557,6 +1558,7 @@ impl Env {
         Expr::Folded(value) => Ok(value.clone()),
         Expr::Lit(lit) => Ok(match lit {
           Lit::Null => Value::Null,
+          Lit::Undefined => Value::Undefined,
           Lit::Bool(b) => Value::Bool(*b),
           Lit::Int(n) => Value::Int(*n),
           Lit::Float(f) => Value::F64(*f),
@@ -1581,7 +1583,7 @@ impl Env {
               }
               Entry::Spread(e) => match self.eval(e).await? {
                 Value::Map(inner) => map.extend(inner),
-                Value::Null => {}
+                Value::Null | Value::Undefined => {}
                 other => return Err(type_error("spread into an object", "an object", &other)),
               },
               Entry::Item(_) => return Err(Fail::internal("an object literal has no positional entries")),
@@ -1597,7 +1599,7 @@ impl Env {
               Entry::Item(e) => items.push(self.eval(e).await?),
               Entry::Spread(e) => match self.eval(e).await? {
                 Value::Seq(inner) => items.extend(inner),
-                Value::Null => {}
+                Value::Null | Value::Undefined => {}
                 Value::Str(text) => items.extend(text.chars().map(|c| Value::str(c.to_string()))),
                 other => return Err(type_error("spread into an array", "an array", &other)),
               },
@@ -1631,7 +1633,7 @@ impl Env {
         }
         Expr::Not(e) => Ok(Value::Bool(!truthy(&self.eval(e).await?))),
         Expr::Coalesce(l, r) => match self.eval(l).await? {
-          Value::Null => self.eval(r).await,
+          Value::Null | Value::Undefined => self.eval(r).await,
           v => Ok(v),
         },
         Expr::Ternary(c, t, e) => {
@@ -1652,7 +1654,7 @@ impl Env {
           let mut map = ValueMap::default();
           for (name, e) in args {
             match self.eval(e).await? {
-              Value::Null => {}
+              Value::Null | Value::Undefined => {}
               v => {
                 map.insert(name.clone(), v);
               }
@@ -1664,7 +1666,7 @@ impl Env {
           let mut map = ValueMap::default();
           for (name, e) in args {
             match self.eval(e).await? {
-              Value::Null => {}
+              Value::Null | Value::Undefined => {}
               v => {
                 map.insert(name.clone(), v);
               }
@@ -1888,7 +1890,7 @@ impl Env {
     let depth = self.scope.len();
     let mut args = args.into_iter();
     for param in params {
-      self.scope.push((param.clone(), args.next().unwrap_or(Value::Null)));
+      self.scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
     }
     let result = self.eval(body).await;
     self.scope.truncate(depth);
@@ -1923,7 +1925,7 @@ pub(crate) use snapfire_fsr_core::ext::type_error;
 
 pub(crate) fn truthy(value: &Value) -> bool {
   match value {
-    Value::Null => false,
+    Value::Null | Value::Undefined => false,
     Value::Bool(b) => *b,
     Value::Int(n) => *n != 0,
     Value::UInt(n) => *n != 0,
@@ -1936,20 +1938,20 @@ pub(crate) fn truthy(value: &Value) -> bool {
 
 fn get_field(target: &Value, name: &str) -> Value {
   match target {
-    Value::Map(map) => map.get(name).cloned().unwrap_or(Value::Null),
-    _ => Value::Null,
+    Value::Map(map) => map.get(name).cloned().unwrap_or(Value::Undefined),
+    _ => Value::Undefined,
   }
 }
 
 fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
   match (target, key) {
-    (Value::Map(map), Value::Str(k)) => Ok(map.get(k.as_str()).cloned().unwrap_or(Value::Null)),
-    (Value::Seq(items), Value::Int(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Null)),
-    (Value::Seq(items), Value::UInt(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Null)),
-    (Value::Seq(items), Value::F64(f)) => Ok(if f.fract() == 0.0 && *f >= 0.0 { items.get(*f as usize).cloned().unwrap_or(Value::Null) } else { Value::Null }),
-    (Value::Seq(items), Value::F32(f)) => Ok(if f.fract() == 0.0 && *f >= 0.0 { items.get(*f as usize).cloned().unwrap_or(Value::Null) } else { Value::Null }),
-    (Value::Null, _) => Ok(Value::Null),
-    (Value::Map(map), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => Ok(map.get(stringify(key)?.as_str()).cloned().unwrap_or(Value::Null)),
+    (Value::Map(map), Value::Str(k)) => Ok(map.get(k.as_str()).cloned().unwrap_or(Value::Undefined)),
+    (Value::Seq(items), Value::Int(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Undefined)),
+    (Value::Seq(items), Value::UInt(i)) => Ok(usize::try_from(*i).ok().and_then(|i| items.get(i)).cloned().unwrap_or(Value::Undefined)),
+    (Value::Seq(items), Value::F64(f)) => Ok(if f.fract() == 0.0 && *f >= 0.0 { items.get(*f as usize).cloned().unwrap_or(Value::Undefined) } else { Value::Undefined }),
+    (Value::Seq(items), Value::F32(f)) => Ok(if f.fract() == 0.0 && *f >= 0.0 { items.get(*f as usize).cloned().unwrap_or(Value::Undefined) } else { Value::Undefined }),
+    (Value::Null | Value::Undefined, _) => Ok(Value::Undefined),
+    (Value::Map(map), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => Ok(map.get(stringify(key)?.as_str()).cloned().unwrap_or(Value::Undefined)),
     (Value::Map(_), other) => Err(type_error("indexing an object", "a string key", other)),
     (Value::Seq(_), other) => Err(type_error("indexing an array", "an integer", other)),
     (other, _) => Err(type_error("indexing", "an object or an array", other)),
@@ -2040,10 +2042,11 @@ fn is_number(value: &Value) -> bool {
   matches!(value, Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_))
 }
 
-/// JavaScript's `ToNumber` of a scalar: null is 0, a boolean 0 or 1 and a string its numeric literal or NaN. `None` for anything else.
+/// JavaScript's `ToNumber` of a scalar: null is 0, undefined NaN, a boolean 0 or 1 and a string its numeric literal or NaN. `None` for anything else.
 fn to_number(value: &Value) -> Option<f64> {
   match value {
     Value::Null => Some(0.0),
+    Value::Undefined => Some(f64::NAN),
     Value::Bool(b) => Some(if *b { 1.0 } else { 0.0 }),
     Value::Int(n) => Some(*n as f64),
     Value::UInt(n) => Some(*n as f64),
@@ -2179,7 +2182,7 @@ fn compare(op: CompareOp, l: &Value, r: &Value) -> Result<bool, Fail> {
     (Value::F64(a), Value::F64(b)) => a.partial_cmp(b),
     (Value::Str(a), Value::Str(b)) => Some(a.cmp(b)),
     (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
-    (Value::Null, Value::Null) => Some(Ordering::Equal),
+    (Value::Null, Value::Null) | (Value::Undefined, Value::Undefined) => Some(Ordering::Equal),
     (l, r) if is_number(l) && is_number(r) => to_number(l).zip(to_number(r)).and_then(|(a, b)| a.partial_cmp(&b)),
     (l, r) if matches!(op, CompareOp::Eq | CompareOp::Ne) && kind_name(l) != kind_name(r) => return Ok(op == CompareOp::Ne),
     (l, r) => match (to_number(l), to_number(r)) {
@@ -2268,7 +2271,7 @@ fn js_pow(a: f64, b: f64) -> f64 {
 /// JavaScript's `ToIntegerOrInfinity` of an argument; absent is 0.
 fn integer(what: Builtin, value: Option<&Value>) -> Result<f64, Fail> {
   match value {
-    None | Some(Value::Null) => Ok(0.0),
+    None | Some(Value::Null | Value::Undefined) => Ok(0.0),
     Some(Value::Bool(b)) => Ok(if *b { 1.0 } else { 0.0 }),
     Some(v) => {
       let n = number(what, v)?;
@@ -2290,7 +2293,7 @@ fn relative(i: f64, len: usize) -> usize {
 fn span_of(what: Builtin, args: &[Value], len: usize) -> Result<(usize, usize), Fail> {
   let from = relative(integer(what, args.get(1))?, len);
   let to = match args.get(2) {
-    None | Some(Value::Null) => len,
+    None | Some(Value::Null | Value::Undefined) => len,
     Some(v) => relative(integer(what, Some(v))?, len),
   };
   Ok((from, to))
@@ -2370,7 +2373,7 @@ fn json_into(out: &mut String, value: &Value, indent: &str, depth: usize) -> Res
     }
   };
   match value {
-    Value::Null => out.push_str("null"),
+    Value::Null | Value::Undefined => out.push_str("null"),
     Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
     Value::F64(f) if !f.is_finite() => out.push_str("null"),
     Value::F32(f) if !f.is_finite() => out.push_str("null"),
@@ -2399,7 +2402,7 @@ fn json_into(out: &mut String, value: &Value, indent: &str, depth: usize) -> Res
         return Ok(());
       }
       out.push('{');
-      for (i, (key, item)) in map.iter().enumerate() {
+      for (i, (key, item)) in map.iter().filter(|(_, item)| !matches!(item, Value::Undefined)).enumerate() {
         if i > 0 {
           out.push(',');
         }
@@ -2569,7 +2572,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Some(v) => text(name, v)?.to_owned(),
         None => ",".to_owned(),
       };
-      let parts: Result<Vec<String>, Fail> = items.iter().map(|v| if matches!(v, Value::Null) { Ok(String::new()) } else { stringify(v) }).collect();
+      let parts: Result<Vec<String>, Fail> = items.iter().map(|v| if matches!(v, Value::Null | Value::Undefined) { Ok(String::new()) } else { stringify(v) }).collect();
       Value::str(parts?.join(&sep))
     }
     Builtin::Trim => {
@@ -2595,7 +2598,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let s = text(name, arg(0)?)?;
       let search = text(name, arg(1)?)?;
       match args.get(2) {
-        None | Some(Value::Null) => Value::Bool(s.starts_with(search)),
+        None | Some(Value::Null | Value::Undefined) => Value::Bool(s.starts_with(search)),
         Some(position) => {
           let units: Vec<u16> = s.encode_utf16().collect();
           let from = (integer(name, Some(position))?.max(0.0) as usize).min(units.len());
@@ -2840,7 +2843,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let s = text(name, arg(0)?)?;
       let length = integer(name, args.get(1))?;
       let fill = match args.get(2) {
-        None | Some(Value::Null) => " ".to_owned(),
+        None | Some(Value::Null | Value::Undefined) => " ".to_owned(),
         Some(v) => stringify(v)?,
       };
       let have = s.encode_utf16().count();
@@ -2862,7 +2865,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let clamp = |v: f64| if v.is_nan() { 0 } else { v.clamp(0.0, units.len() as f64) as usize };
       let start = clamp(integer(name, args.get(1))?);
       let end = match args.get(2) {
-        None | Some(Value::Null) => units.len(),
+        None | Some(Value::Null | Value::Undefined) => units.len(),
         Some(v) => clamp(integer(name, Some(v))?),
       };
       let (from, to) = (start.min(end), start.max(end));
@@ -2870,7 +2873,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }
     Builtin::Json => {
       let indent = match args.get(2) {
-        None | Some(Value::Null) => String::new(),
+        None | Some(Value::Null | Value::Undefined) => String::new(),
         Some(Value::Str(s)) => s.chars().take(10).collect(),
         Some(v) => " ".repeat(number(name, v)?.clamp(0.0, 10.0) as usize),
       };
@@ -2890,7 +2893,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::DateMs => {
       let ms = match arg(0)? {
         Value::Str(s) => crate::std::time::parse_iso(s).unwrap_or(f64::NAN),
-        Value::Null => f64::NAN,
+        Value::Null | Value::Undefined => f64::NAN,
         other => number(name, other)?,
       };
       whole(if ms.abs() <= MAX_DATE_MS { ms.trunc() } else { f64::NAN })
@@ -2933,7 +2936,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Value::Map(out)
       }
       Value::Map(map) => Value::Map(map.clone()),
-      Value::Null => Value::Map(ValueMap::default()),
+      Value::Null | Value::Undefined => Value::Map(ValueMap::default()),
       other => return Err(type_error(&format!("{name:?}"), "an array of pairs", other)),
     },
     Builtin::Unique => match arg(0)? {
@@ -2946,7 +2949,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         }
         Value::seq(out)
       }
-      Value::Null => Value::seq(Vec::<Value>::new()),
+      Value::Null | Value::Undefined => Value::seq(Vec::<Value>::new()),
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
@@ -2965,7 +2968,8 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::CloneElement => return Err(Fail::internal("cloneElement is evaluated in a render")),
     Builtin::ComponentRef => Value::Variant { tag: crate::render::COMPONENT_VALUE.to_owned(), payload: Some(Box::new(arg(0)?.clone())) },
     Builtin::TypeOf => Value::str(match arg(0)? {
-      Value::Null => "undefined",
+      Value::Undefined => "undefined",
+      Value::Null => "object",
       Value::Bool(_) => "boolean",
       Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_) => "number",
       Value::Str(_) => "string",
@@ -3015,7 +3019,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes())
           .map(|(k, v)| (k.into_owned(), v.into_owned()))
           .collect(),
-        Value::Null => Vec::new(),
+        Value::Null | Value::Undefined => Vec::new(),
         other => return Err(type_error(&format!("{name:?}"), "an object, pairs or a query string", other)),
       };
       Value::str(pairs.iter().map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v))).collect::<Vec<_>>().join("&"))
@@ -3024,7 +3028,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let key = stringify(arg(1)?)?;
       match arg(0)? {
         Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes()).find(|(k, _)| *k == key.as_str()).map_or(Value::Null, |(_, v)| Value::str(v.into_owned())),
-        Value::Null => Value::Null,
+        Value::Null | Value::Undefined => Value::Null,
         other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
       }
     }
@@ -3032,7 +3036,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let key = stringify(arg(1)?)?;
       let values: Vec<Value> = match arg(0)? {
         Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes()).filter(|(k, _)| *k == key.as_str()).map(|(_, v)| Value::str(v.into_owned())).collect(),
-        Value::Null => Vec::new(),
+        Value::Null | Value::Undefined => Vec::new(),
         other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
       };
       match name {
@@ -3054,6 +3058,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       other => Value::Bool(truthy(other)),
     },
+    Builtin::IsNullish => Value::Bool(matches!(arg(0)?, Value::Null | Value::Undefined)),
     Builtin::IsNaN => Value::Bool(match arg(0)? {
       Value::Map(_) => true,
       Value::Seq(_) => string_number(&stringify(arg(0)?)?).is_nan(),
@@ -3061,7 +3066,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }),
     Builtin::ParseInt => {
       let radix = match args.get(1) {
-        None | Some(Value::Null) => 0.0,
+        None | Some(Value::Null | Value::Undefined) => 0.0,
         Some(v) => to_number(v).ok_or_else(|| type_error(&format!("{name:?}"), "a number", v))?,
       };
       whole(parse_int(&stringify(arg(0)?)?, int32(radix)))
@@ -3084,7 +3089,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         let units: Vec<u16> = s.encode_utf16().collect();
         let wanted: Vec<u16> = stringify(arg(1)?)?.encode_utf16().collect();
         let from = match args.get(2) {
-          None | Some(Value::Null) => f64::INFINITY,
+          None | Some(Value::Null | Value::Undefined) => f64::INFINITY,
           Some(v) => {
             let n = to_number(v).ok_or_else(|| type_error(&format!("{name:?}"), "a number", v))?;
             if n.is_nan() { f64::INFINITY } else { n.trunc() }
@@ -3178,7 +3183,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     }
     Builtin::Radix => {
       let radix = match args.get(1) {
-        None | Some(Value::Null) => 10.0,
+        None | Some(Value::Null | Value::Undefined) => 10.0,
         v => integer(name, v)?,
       };
       if !(2.0..=36.0).contains(&radix) {
@@ -3225,7 +3230,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     Builtin::Omit => {
       let mut map = match arg(0)? {
         Value::Map(map) => map.clone(),
-        Value::Null => ValueMap::default(),
+        Value::Null | Value::Undefined => ValueMap::default(),
         other => return Err(type_error(&format!("{name:?}"), "an object", other)),
       };
       for key in args.iter().skip(1) {
@@ -3241,6 +3246,7 @@ pub(crate) fn scalar_str(value: &Value) -> Result<std::borrow::Cow<'_, str>, Fai
   Ok(match value {
     Value::Str(s) => Cow::Borrowed(s.as_str()),
     Value::Null => Cow::Borrowed("null"),
+    Value::Undefined => Cow::Borrowed("undefined"),
     Value::Bool(true) => Cow::Borrowed("true"),
     Value::Bool(false) => Cow::Borrowed("false"),
     Value::F64(f) if *f == 0.0 => Cow::Borrowed("0"),
@@ -3258,7 +3264,7 @@ pub fn number_key(n: f64) -> String {
 /// `split`'s `limit` as `ToUint32` reads it; no limit when it is undefined.
 fn split_limit(args: &[Value]) -> usize {
   match args.get(2) {
-    None | Some(Value::Null) => usize::MAX,
+    None | Some(Value::Null | Value::Undefined) => usize::MAX,
     Some(limit) => to_number(limit).filter(|n| n.is_finite()).map_or(0.0, |n| n.trunc().rem_euclid(4_294_967_296.0)) as usize,
   }
 }
@@ -3302,6 +3308,7 @@ pub(crate) fn number_text(n: f64) -> String {
 pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
   Ok(match value {
     Value::Null => "null".to_owned(),
+    Value::Undefined => "undefined".to_owned(),
     Value::Bool(b) => b.to_string(),
     Value::Int(n) => n.to_string(),
     Value::UInt(n) => n.to_string(),
@@ -3317,7 +3324,7 @@ fn set_path(root: &mut Value, steps: &[Value], value: Value) -> Result<(), Fail>
     *root = value;
     return Ok(());
   };
-  if matches!(root, Value::Null) {
+  if matches!(root, Value::Null | Value::Undefined) {
     *root = Value::Map(ValueMap::default());
   }
   match (root, first) {
@@ -3354,7 +3361,7 @@ fn delete_path(root: &mut Value, steps: &[Value]) -> Result<(), Fail> {
         Ok(())
       }
     }
-    (Value::Null, _) => Ok(()),
+    (Value::Null | Value::Undefined, _) => Ok(()),
     (root, key) => Err(type_error("session delete", "an object with a string key", if matches!(root, Value::Map(_)) { key } else { root })),
   }
 }

@@ -433,7 +433,7 @@ reference-react-children-6	same
 reference-react-children-7	same
 reference-react-children-8	react fails: prepare: compiling the spec files into <scratch>/reference-react-children-8/app/.fsr/test: snapfirec failed:
 reference-react-children-9	equivalent
-reference-react-cloneelement-1	ir fails: map wants an array, got null
+reference-react-cloneelement-1	ir fails: map wants an array, got undefined
 reference-react-cloneelement-2	same
 reference-react-cloneelement-3	same
 reference-react-cloneelement-4	ir fails: comparing object with object is not defined

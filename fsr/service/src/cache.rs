@@ -67,6 +67,7 @@ impl Hash for CallKey {
 pub fn canonical(value: &Value, out: &mut String) {
   match value {
     Value::Null => out.push_str("null"),
+    Value::Undefined => out.push_str("undefined"),
     Value::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
     Value::Int(n) => out.push_str(&n.to_string()),
     Value::UInt(n) => out.push_str(&n.to_string()),

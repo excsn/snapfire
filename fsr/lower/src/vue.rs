@@ -2199,7 +2199,7 @@ fn bound_attr(boolean: bool, value: Expr) -> Expr {
     let present = Expr::Logic(LogicOp::Or, Box::new(value), Box::new(empty));
     return Expr::Ternary(Box::new(present), Box::new(Expr::Lit(Lit::Bool(true))), Box::new(Expr::Lit(Lit::Null)));
   }
-  let absent = Expr::Compare(CompareOp::Eq, Box::new(value.clone()), Box::new(Expr::Lit(Lit::Null)));
+  let absent = Expr::Builtin { name: Builtin::IsNullish, args: vec![value.clone()] };
   Expr::Ternary(Box::new(absent), Box::new(Expr::Lit(Lit::Null)), Box::new(Expr::Str(Box::new(value))))
 }
 
