@@ -45,3 +45,10 @@ fn a_fractional_margin_lays_out_and_rounds_to_cells_as_yoga_does() {
   let node = from_markup(row).unwrap();
   assert_eq!(render(&node, 10).lines()[0].trim_end(), " A B C");
 }
+
+#[test]
+fn a_text_that_starts_with_a_newline_keeps_its_empty_first_line() {
+  let rows = r#"<ink-text><ink-text></ink-text><ink-newline></ink-newline><ink-text>a</ink-text><ink-newline></ink-newline><ink-text>b</ink-text></ink-text>"#;
+  let node = from_markup(rows).unwrap();
+  assert_eq!(render(&node, 10).lines(), ["", "a", "b"]);
+}

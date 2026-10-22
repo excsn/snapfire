@@ -223,11 +223,16 @@ impl Leaf {
   /// only when the word alone is wider and at every newline. Spaces are kept
   /// as written, as Ink's `wrap-ansi` with `trim: false` keeps them, except
   /// the run a line breaks at. Under
-  /// [`Wrap::Truncate`] it is one line ending in `…`.
+  /// [`Wrap::Truncate`] it is one line ending in `…`. An empty text is no
+  /// line, and every paragraph of another is at least one, as Ink measures.
   fn lines(&self, max: Option<usize>) -> Vec<Cells> {
     let max = max.unwrap_or(usize::MAX).max(1);
     let mut out = Vec::new();
+    if self.cells.is_empty() {
+      return out;
+    }
     for paragraph in self.cells.split(|(ch, _)| *ch == '\n') {
+      let start = out.len();
       if self.wrap == Wrap::Truncate {
         out.push(truncate(paragraph, max));
         continue;
@@ -267,7 +272,7 @@ impl Leaf {
           used += cw;
         }
       }
-      if !line.is_empty() || out.is_empty() && !paragraph.is_empty() {
+      if !line.is_empty() || out.len() == start {
         out.push(line);
       }
     }
