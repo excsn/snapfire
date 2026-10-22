@@ -362,6 +362,8 @@ struct Tables {
   /// The `Cache-Control` a static answer carries, from `server.static_max_age`.
   /// Absent when that is `0` or when `dev` is on, which sends `no-cache` instead.
   static_cache: Option<HeaderValue>,
+  /// Per bundle route served outside development, each hashed name against the output it names.
+  hashed_names: Vec<(String, HashMap<String, String>)>,
   /// Whether [`client::ROUTE`] is answered out of the binary, which it is
   /// unless a static root claims the prefix.
   client: bool,

@@ -6724,6 +6724,67 @@ async fn a_development_host_or_an_unminified_bundle_serves_the_readable_one() {
   }
 }
 
+fn hashed_app(dev: bool) -> PathBuf {
+  let dir = minified_app(dev, true);
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), toml.replace("[server]\n", "[server]\nstatic_max_age = 3600\n")).unwrap();
+  for (path, body) in [
+    ("src/main.js", "import './shared.js';"),
+    ("src/main.min.js", "import'./shared.min.js';"),
+    ("src/shared.js", "export const a = 1;"),
+    ("src/shared.min.js", "export const a=1;"),
+    ("generated/islands.js", "export {};"),
+    ("generated/islands.min.js", "export{};"),
+    ("src/ui/Card.vue.css", ".card { color: red; }"),
+    ("src/ui/Card.vue.min.css", ".card{color:red}"),
+    ("src/ui/Late.js", "export const late = 1;"),
+  ] {
+    let file = dir.join("dist").join(path);
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(file, body).unwrap();
+  }
+  dir
+}
+
+fn content_hash(body: &str) -> String {
+  use sha2::Digest;
+  sha2::Sha256::digest(body.as_bytes()).iter().take(4).map(|b| format!("{b:02x}")).collect()
+}
+
+#[tokio::test]
+async fn a_host_outside_development_names_the_bundle_s_modules_by_their_content() {
+  let host = tuned_host(&hashed_app(false));
+  let main = format!("/static/js/app/src/main.min.{}.js", content_hash("import'./shared.min.js';"));
+  let shared = format!("/static/js/app/src/shared.min.{}.js", content_hash("export const a=1;"));
+  let islands = format!("/static/js/app/generated/islands.min.{}.js", content_hash("export{};"));
+  let card = format!("/static/js/app/src/ui/Card.vue.min.{}.css", content_hash(".card{color:red}"));
+  let late = format!("/static/js/app/src/ui/Late.{}.js", content_hash("export const late = 1;"));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(&format!(r#"src="{main}""#)), "the entry: {html}");
+  assert!(html.contains(&format!(r#"modulepreload" href="{islands}""#)), "the preload: {html}");
+  assert!(html.contains(&format!(r#"href="{card}""#)), "the component stylesheet: {html}");
+  assert!(html.contains(&format!(r#""@app/shared":"{shared}""#)), "a bare specifier: {html}");
+  assert!(html.contains(&format!(r#""/static/js/app/src/shared.min.js":"{shared}""#)), "a relative import resolves through the map: {html}");
+  assert!(html.contains(&format!(r#""@app/late":"{late}""#)), "an output with no twin: {html}");
+
+  let response = host.handle(Request::get(shared.as_str()).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("cache-control").unwrap(), "public, max-age=31536000, immutable");
+  assert_eq!(body_of(response).await, "export const a=1;");
+  let stale = host.handle(Request::get("/static/js/app/src/shared.min.00000000.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(stale.status(), StatusCode::NOT_FOUND, "a name for content the build no longer holds");
+  assert_eq!(header_of(&host, "/static/js/app/src/shared.min.js", "cache-control").await.as_deref(), Some("no-cache"), "a module by its own name is revalidated whatever static_max_age says");
+  assert_eq!(header_of(&host, "/static/app.js", "cache-control").await.as_deref(), Some("public, max-age=3600"), "a file outside the bundle keeps the lifetime");
+}
+
+#[tokio::test]
+async fn a_development_host_names_the_bundle_s_modules_as_written() {
+  let host = tuned_host(&hashed_app(true));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"src="/static/js/app/src/main.js""#), "{html}");
+  assert!(!html.contains("\"/static/js/app/src/shared.js\":"), "{html}");
+}
+
 #[tokio::test]
 async fn a_mounted_site_s_minified_bundle_is_served_by_a_shell_outside_development() {
   let site = site_dir();

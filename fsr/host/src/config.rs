@@ -2398,6 +2398,8 @@ impl Config {
           externals: facts.externals.clone(),
           minified: facts.minified.clone(),
           outputs: facts.outputs.iter().cloned().collect(),
+          dir: app.join(&dir),
+          hashed: Default::default(),
         });
         if !statics.iter().any(|s| s.route == route) {
           statics.push(StaticRoot {
@@ -2882,9 +2884,59 @@ pub struct Bundle {
   pub minified: Option<String>,
   /// Every file the compiler wrote, relative to the bundle's directory.
   pub outputs: BTreeSet<String>,
+  /// The directory the outputs are in.
+  pub dir: PathBuf,
+  hashed: std::sync::OnceLock<BTreeMap<String, String>>,
 }
 
 impl Bundle {
+  /// Each module and stylesheet output against its name carrying the first eight hex digits of its
+  /// content's SHA-256, `src/main.3f2a91c0.js` for `src/main.js`. Read from `dir` on the first
+  /// call; an output that cannot be read is left out.
+  pub fn hashed(&self) -> &BTreeMap<String, String> {
+    self.hashed.get_or_init(|| {
+      use sha2::Digest;
+      self
+        .outputs
+        .iter()
+        .filter_map(|output| {
+          let (stem, ext) = output.rsplit_once('.').filter(|(_, ext)| *ext == "js" || *ext == "css")?;
+          let bytes = std::fs::read(self.dir.join(output)).ok()?;
+          let hash: String = sha2::Sha256::digest(&bytes).iter().take(4).map(|b| format!("{b:02x}")).collect();
+          Some((output.clone(), format!("{stem}.{hash}.{ext}")))
+        })
+        .collect()
+    })
+  }
+
+  /// `url` as a host outside development names it: its minified twin when there is one, then its
+  /// hashed name.
+  pub fn served_url(&self, url: &str) -> String {
+    let twin = self.minified_url(url);
+    let Some(relative) = twin.strip_prefix(&format!("{}/", self.route)) else { return twin };
+    let (path, rest) = match relative.find(['?', '#']) {
+      Some(at) => relative.split_at(at),
+      None => (relative, ""),
+    };
+    match self.hashed().get(path) {
+      Some(hashed) => format!("{}/{hashed}{rest}", self.route),
+      None => twin,
+    }
+  }
+
+  /// Every module the host serves by its hashed name, its own URL against that name's, for the
+  /// import map: a module importing a sibling by relative path resolves to the plain URL and the
+  /// map turns it into the hashed one.
+  pub fn hashed_modules(&self) -> Vec<(String, String)> {
+    self
+      .hashed()
+      .iter()
+      .filter(|(output, _)| output.ends_with(".js"))
+      .map(|(output, hashed)| (format!("{}/{output}", self.route), format!("{}/{hashed}", self.route)))
+      .filter(|(plain, _)| self.minified_url(plain) == *plain)
+      .collect()
+  }
+
   /// `url`'s minified twin, `/static/js/app/src/main.min.js` for `/static/js/app/src/main.js`, when
   /// `url` is under this bundle and the compiler wrote the twin; `url` as given otherwise. A
   /// minified module imports its siblings by their twins' names, so a page that loads one module of

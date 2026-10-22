@@ -609,14 +609,15 @@ impl HostBuilder {
       Some(rel) => {
         let path = config.resolve(rel);
         let text = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
-        Some(bundle_urls(&client_urls(&text, serve_client && client_minified), minified_bundle(&config)))
+        Some(bundle_urls(&client_urls(&text, serve_client && client_minified), served_bundle(&config)))
       }
       None => None,
     };
     let preload = match config.document.module_preload {
-      true => preload_set(&config, import_map.as_deref(), minified_bundle(&config)),
+      true => preload_set(&config, import_map.as_deref(), served_bundle(&config)),
       false => Vec::new(),
     };
+    let mut hashed_names: Vec<(String, HashMap<String, String>)> = served_bundle(&config).map(hashed_names_of).into_iter().collect();
     let mounted: Vec<(String, PathBuf)> = self.mounts.iter().map(|mount| (mount.artifact.plan.clone(), mount.artifact.config.app.clone())).collect();
     let site_apps: Vec<(String, PathBuf)> = self.mounts.iter().map(|mount| (mount.name.clone(), mount.artifact.config.app.clone())).collect();
     for mount in std::mem::take(&mut self.mounts) {
@@ -725,7 +726,7 @@ impl HostBuilder {
         let path = mount.artifact.config.resolve(rel);
         let theirs = std::fs::read_to_string(&path).map_err(|e| HostError::Io(path, e))?;
         let merged = merge_import_maps(import_map.as_deref(), &theirs);
-        let merged = bundle_urls(&merged, minified_under(mount.artifact.config.bundle.as_ref(), config.dev()));
+        let merged = bundle_urls(&merged, served_under(mount.artifact.config.bundle.as_ref(), config.dev()));
         import_map = Some(client_urls(&merged, serve_client && client_minified));
       }
       site_reports.push(SiteReport {
@@ -736,15 +737,16 @@ impl HostBuilder {
         hash: mount.hash.clone(),
         ignored,
       });
-      let site_bundle = minified_under(mount.artifact.config.bundle.as_ref(), config.dev());
+      let site_bundle = served_under(mount.artifact.config.bundle.as_ref(), config.dev());
+      hashed_names.extend(site_bundle.map(hashed_names_of));
       probes.extend(site.probe.iter().cloned().map(|probe| (mount.name.clone(), probe)));
       sites.push(SiteTables {
         name: mount.name.clone(),
         at: site.at.clone(),
         middleware: None,
         theme: None,
-        styles: minified_urls(mount.artifact.config.document.styles.clone().unwrap_or_default(), site_bundle),
-        entry: mount.artifact.config.document.entry.as_deref().map(|entry| minified_url(entry, site_bundle)),
+        styles: served_urls(mount.artifact.config.document.styles.clone().unwrap_or_default(), site_bundle),
+        entry: mount.artifact.config.document.entry.as_deref().map(|entry| served_url(entry, site_bundle)),
         preload: match config.document.module_preload {
           true => {
             let mut theirs = preload_set(&mount.artifact.config, import_map.as_deref(), site_bundle);
@@ -893,8 +895,8 @@ impl HostBuilder {
       templates_answered(plan, &app.runtime.evaluators, stock_templates.as_deref())?;
     }
 
-    let styles = minified_urls(config.document.styles.clone().unwrap_or_default(), minified_bundle(&config));
-    let entry = config.document.entry.as_deref().map(|entry| minified_url(entry, minified_bundle(&config)));
+    let styles = served_urls(config.document.styles.clone().unwrap_or_default(), served_bundle(&config));
+    let entry = config.document.entry.as_deref().map(|entry| served_url(entry, served_bundle(&config)));
     let mut head = shell::head(
       config.document.title.literal(),
       &styles,
@@ -1156,6 +1158,7 @@ impl HostBuilder {
         statics,
         favicon: config.favicon.clone(),
         static_cache,
+        hashed_names,
         client: serve_client,
         client_minified,
         csp,

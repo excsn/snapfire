@@ -12,27 +12,33 @@ use super::*;
 /// The import map names the build the host serves. A minified module imports its siblings by
 /// their `.min.js` names, so a specifier resolved to a plain name would be a second copy of that
 /// module, holding its own store.
-/// The application's bundle, when the facts say the compiler wrote its minified twins and the host
-/// is not a development one.
-pub(crate) fn minified_bundle(config: &Config) -> Option<&config::Bundle> {
-  minified_under(config.bundle.as_ref(), config.dev())
+/// The application's bundle when the host is not a development one, which serves its modules by
+/// their minified twins and hashed names.
+pub(crate) fn served_bundle(config: &Config) -> Option<&config::Bundle> {
+  served_under(config.bundle.as_ref(), config.dev())
 }
 
-/// A bundle served minified under a host whose `dev` is given: a mounted site's follows the shell.
-pub(crate) fn minified_under(bundle: Option<&config::Bundle>, dev: bool) -> Option<&config::Bundle> {
-  bundle.filter(|bundle| bundle.minified.is_some() && !dev)
+/// A bundle under a host whose `dev` is given: a mounted site's follows the shell.
+pub(crate) fn served_under(bundle: Option<&config::Bundle>, dev: bool) -> Option<&config::Bundle> {
+  bundle.filter(|_| !dev)
 }
 
-pub(crate) fn minified_url(url: &str, bundle: Option<&config::Bundle>) -> String {
-  bundle.map_or_else(|| url.to_owned(), |bundle| bundle.minified_url(url))
+/// The bundle's route against each hashed name the host answers under it, with the output it names.
+pub(crate) fn hashed_names_of(bundle: &config::Bundle) -> (String, HashMap<String, String>) {
+  (bundle.route.clone(), bundle.hashed().iter().map(|(output, hashed)| (hashed.clone(), output.clone())).collect())
 }
 
-pub(crate) fn minified_urls(urls: Vec<String>, bundle: Option<&config::Bundle>) -> Vec<String> {
-  urls.into_iter().map(|url| minified_url(&url, bundle)).collect()
+pub(crate) fn served_url(url: &str, bundle: Option<&config::Bundle>) -> String {
+  bundle.map_or_else(|| url.to_owned(), |bundle| bundle.served_url(url))
 }
 
-/// The import map with every URL under `bundle` naming its minified twin, for a specifier the
-/// application maps to one of its own modules.
+pub(crate) fn served_urls(urls: Vec<String>, bundle: Option<&config::Bundle>) -> Vec<String> {
+  urls.into_iter().map(|url| served_url(&url, bundle)).collect()
+}
+
+/// The import map with every URL under `bundle` naming what the host serves for it, for a
+/// specifier the application maps to one of its own modules, plus a row from each module's own URL
+/// to its hashed one.
 pub(crate) fn bundle_urls(text: &str, bundle: Option<&config::Bundle>) -> String {
   let Some(bundle) = bundle else { return text.to_owned() };
   let Ok(mut value) = serde_json::from_str::<serde_json::Value>(text) else {
@@ -40,6 +46,18 @@ pub(crate) fn bundle_urls(text: &str, bundle: Option<&config::Bundle>) -> String
   };
   let mut changed = false;
   minify_bundle_urls(&mut value, bundle, &mut changed);
+  let modules = bundle.hashed_modules();
+  if !modules.is_empty() {
+    if let Some(map) = value.as_object_mut() {
+      let imports = map.entry("imports").or_insert_with(|| serde_json::Value::Object(Default::default()));
+      if let Some(imports) = imports.as_object_mut() {
+        for (plain, hashed) in modules {
+          imports.entry(plain).or_insert(serde_json::Value::String(hashed));
+        }
+        changed = true;
+      }
+    }
+  }
   match changed {
     true => serde_json::to_string(&value).unwrap_or_else(|_| text.to_owned()),
     false => text.to_owned(),
@@ -59,7 +77,7 @@ pub(crate) fn minify_bundle_urls(value: &mut serde_json::Value, bundle: &config:
       }
     }
     serde_json::Value::String(url) => {
-      let twin = bundle.minified_url(url);
+      let twin = bundle.served_url(url);
       if twin != *url {
         *url = twin;
         *changed = true;
@@ -134,7 +152,7 @@ pub(crate) fn preload_set(config: &Config, import_map: Option<&str>, twins: Opti
   };
 
   for module in bundle.graph.get(relative).into_iter().flatten() {
-    push(&mut urls, minified_url(&format!("{}/{module}", bundle.route), twins));
+    push(&mut urls, served_url(&format!("{}/{module}", bundle.route), twins));
   }
 
   let prefix = format!("{}/", client::ROUTE);

@@ -328,9 +328,15 @@ impl Host {
           continue;
         }
         if rest.is_empty() || rest.starts_with('/') {
+          let names = t.hashed_names.iter().find(|(at, _)| at == route).map(|(_, names)| names);
+          let output = names.and_then(|names| names.get(&rest[1.min(rest.len())..])).map(|output| format!("/{output}"));
           let mut inner = Request::builder()
             .method(req.method().clone())
-            .uri(if rest.is_empty() { "/" } else { rest });
+            .uri(match &output {
+              Some(output) => output.as_str(),
+              None if rest.is_empty() => "/",
+              None => rest,
+            });
           for (name, value) in req.headers() {
             inner = inner.header(name, value);
           }
@@ -356,6 +362,11 @@ impl Host {
                   .headers_mut()
                   .entry(header::CACHE_CONTROL)
                   .or_insert(HeaderValue::from_static("public, max-age=31536000, immutable"));
+              } else if t.static_cache.is_some() && names.is_some() {
+                response
+                  .headers_mut()
+                  .entry(header::CACHE_CONTROL)
+                  .or_insert(HeaderValue::from_static("no-cache"));
               } else if let Some(cache) = &t.static_cache {
                 response.headers_mut().entry(header::CACHE_CONTROL).or_insert(cache.clone());
               }
