@@ -67,6 +67,18 @@ fn a_next_metadata_object_is_written_as_the_head_it_describes() {
 }
 
 #[test]
+fn facebook_and_other_are_written_as_their_meta_rows() {
+  let loader = "import { fromNextMetadata } from \"@snapfire/fsr/head\";\nexport const meta = () => fromNextMetadata({ facebook: { appId: \"1234\", admins: [\"a1\", \"a2\"] }, other: { \"apple-itunes-app\": \"app-id=1\", rank: 3, tag: [\"x\", \"y\"] } });\n";
+  let root = project(&[("routes/page.tsx", "export default function Page() {\n  return <main>page</main>;\n}\n"), ("routes/page.loader.ts", loader)]);
+  let html = document(&root, "/");
+  let head = html.split("</head>").next().unwrap_or_default();
+  for row in ["property=\"fb:app_id\" content=\"1234\"", "property=\"fb:admins\" content=\"a1\"", "property=\"fb:admins\" content=\"a2\"", "name=\"apple-itunes-app\" content=\"app-id=1\"", "name=\"rank\" content=\"3\"", "name=\"tag\" content=\"x\"", "name=\"tag\" content=\"y\""] {
+    assert!(head.contains(row), "{row}: {head}");
+  }
+  std::fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn meta_reads_the_routes_params_and_query() {
   let loader = "import { fromNextMetadata } from \"@snapfire/fsr/head\";\nexport const meta = ({ params, query }) => fromNextMetadata({ title: { absolute: `${params.locale} ${query.code ?? \"none\"}` } });\n";
   let root = project(&[("routes/[locale]/page.tsx", "export default function Page() {\n  return <main>page</main>;\n}\n"), ("routes/[locale]/page.loader.ts", loader)]);

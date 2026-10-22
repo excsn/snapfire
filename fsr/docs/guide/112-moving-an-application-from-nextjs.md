@@ -46,7 +46,7 @@ Every import follows the file it names. A relative specifier is rewritten for bo
 
 | Next.js | FSR |
 | --- | --- |
-| `export const metadata = { title, description }` | `meta` in the route's loader |
+| `export const metadata = { title, description }` | `meta` in the route's loader. `alternates`, `openGraph`, `twitter`, `robots`, `authors`, `facebook` and `other` written out whole go through `fromNextMetadata(...)`; one that reads a value from the module is a note |
 | `generateMetadata` awaiting what `load` already returns, `params` or `searchParams` | `meta` in the route's loader, reading those values from `data`, `params` and `query` and returning `fromNextMetadata(...)` of the same object |
 | `<Head><title>…</title></Head>` in a page | `meta` in the route's loader, reading the page's props from `data` |
 | an `async` page or layout | its awaits in `load` in the route's loader, the page receiving what its markup reads as props |
@@ -99,7 +99,7 @@ export default function Home({ products }) {
 
 A component further down that awaits a read known before it renders, one whose arguments come from no prop or state, has the read moved to the loader of each page that places it. The loader seeds the result in the store and the component reads it with `useStore`, from a key the migration declares in `app/src/store.ts`. A read only a later render makes, a component placed under `tab === "posts" &&`, moves the same way and is noted, since its data now loads with the page.
 
-`fromNextMetadata`, from `@snapfire/fsr/head`, writes a Next `Metadata` object as the head: the title (`{ absolute }` as an absolute title), the description, `alternates` as the canonical and one alternate per language, `openGraph` and `twitter` as their properties and images, `robots` and `authors`. Fields with no head element, `icons` and the title template among them, are left out. A `generateMetadata` that awaits something `load` does not return stays in the page with a note. So does one that awaits inside the object it returns.
+`fromNextMetadata`, from `@snapfire/fsr/head`, writes a Next `Metadata` object as the head: the title (`{ absolute }` as an absolute title), the description, `alternates` as the canonical and one alternate per language, `openGraph` and `twitter` as their properties and images, `robots`, `authors`, `facebook` as `fb:app_id` and `fb:admins` and `other` as one `<meta name>` per value. Fields with no head element, `icons` and the title template among them, are left out. A `generateMetadata` that awaits something `load` does not return stays in the page with a note. So does one that awaits inside the object it returns.
 
 ## Workspace packages
 

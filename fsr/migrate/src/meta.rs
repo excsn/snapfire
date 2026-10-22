@@ -332,7 +332,7 @@ fn declared_in(path: &str, loader: &str) -> BTreeSet<String> {
 }
 
 /// `loader` importing `fromNextMetadata` beside any head helper it already imports.
-fn with_head_import(loader: &str) -> String {
+pub(crate) fn with_head_import(loader: &str) -> String {
   if loader.lines().any(|l| l.starts_with("import") && l.contains("fromNextMetadata")) {
     return loader.to_owned();
   }

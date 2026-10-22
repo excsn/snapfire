@@ -2184,7 +2184,7 @@ function cardRows(rows: [string, string | null | undefined][], make: (name: stri
   return rows.filter(([, content]) => content != null && content !== "").map(([name, content]) => make(name, String(content)));
 }
 
-/** A Next.js `Metadata` object, the value `generateMetadata` returns, as `meta` returns it: `title` (a string or `{ absolute }`, `{ default }`), `description`, `alternates` as the canonical and one alternate per language, `openGraph` and `twitter` as their properties and images, `robots` (a string or `{ index, follow }`) and `authors`. Fields with no head element, `icons`, `manifest` and the title template among them, are left out. */
+/** A Next.js `Metadata` object, the value `generateMetadata` returns, as `meta` returns it: `title` (a string or `{ absolute }`, `{ default }`), `description`, `alternates` as the canonical and one alternate per language, `openGraph` and `twitter` as their properties and images, `robots` (a string or `{ index, follow }`), `authors`, `facebook` as `fb:app_id` and `fb:admins` and `other` as one `<meta name>` per value. Fields with no head element, `icons`, `manifest` and the title template among them, are left out. */
 export function fromNextMetadata(metadata: { [field: string]: any }): MetaOf {
   const title = metadata.title;
   const absolute = title != null && typeof title === "object" && title.absolute != null;
@@ -2195,6 +2195,8 @@ export function fromNextMetadata(metadata: { [field: string]: any }): MetaOf {
   const shown = metadata.robots;
   const robotsText = shown == null ? null : typeof shown === "string" ? shown : `${shown.index === false ? "noindex" : "index"}, ${shown.follow === false ? "nofollow" : "follow"}`;
   const authors = metadata.authors == null ? [] : Array.isArray(metadata.authors) ? metadata.authors : [metadata.authors];
+  const facebook = metadata.facebook ?? {};
+  const admins: unknown[] = facebook.admins == null ? [] : Array.isArray(facebook.admins) ? facebook.admins : [facebook.admins];
   const head: HeadEl[] = [
     ...(alternates.canonical == null ? [] : [canonical(String(alternates.canonical))]),
     ...Object.entries(alternates.languages ?? {}).map(([language, href]) => alternate(String(href), language)),
@@ -2204,6 +2206,9 @@ export function fromNextMetadata(metadata: { [field: string]: any }): MetaOf {
     ...nextImages(card.images).flatMap((image) => cardRows([["image", image.url], ["image:alt", image.alt]], twitter)),
     ...(robotsText == null ? [] : [robots(robotsText)]),
     ...authors.filter((author) => author != null && author.name != null).map((author) => metaTag("author", String(author.name))),
+    ...(facebook.appId == null ? [] : [{ tag: "meta", property: "fb:app_id", content: String(facebook.appId) }]),
+    ...admins.map((admin) => ({ tag: "meta", property: "fb:admins", content: String(admin) })),
+    ...Object.entries(metadata.other ?? {}).flatMap(([name, value]) => (Array.isArray(value) ? value : [value]).filter((each) => each != null).map((each) => metaTag(name, String(each)))),
   ];
   return { ...(titled == null ? {} : { title: titled }), ...(absolute ? { absolute: true } : {}), ...(metadata.description == null ? {} : { description: metadata.description }), head };
 }

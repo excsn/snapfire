@@ -256,6 +256,7 @@ impl Pass for Metadata {
           continue;
         };
         let mut fields = Vec::new();
+        let mut written = false;
         for prop in &object.props {
           let js::PropOrSpread::Prop(prop) = prop else {
             report.note(&path, line, "a spread in `metadata` was not carried over");
@@ -282,19 +283,31 @@ impl Pass for Metadata {
                 }
               }
             }
+            ("alternates" | "openGraph" | "twitter" | "robots" | "authors" | "facebook" | "other", value) if constant(value) => {
+              written = true;
+              fields.push(format!("{key}: {}", &text[parsed.range(value.span())]));
+            }
+            ("alternates" | "openGraph" | "twitter" | "robots" | "authors" | "facebook" | "other", _) => {
+              report.note(&path, line, format!("`metadata.{key}` reads a value from the module, so it was not carried over; `meta` can write it through `fromNextMetadata` once the loader has the value"));
+            }
             _ => report.note(&path, line, format!("`metadata.{key}` was not carried over; `meta` writes other head elements through `head` and the helpers in `@snapfire/fsr/head`")),
           }
         }
         let (dir, file) = path.rsplit_once('/').unwrap_or(("", &path));
         let kind = if file.starts_with("page.") { "page" } else { "layout" };
         let loader = format!("{dir}/{kind}.loader.ts");
-        let meta = format!("export const meta = () => ({{ {} }});\n", fields.join(", "));
+        let meta = match written {
+          true => format!("export const meta = () => fromNextMetadata({{ {} }});\n", fields.join(", ")),
+          false => format!("export const meta = () => ({{ {} }});\n", fields.join(", ")),
+        };
         let loader_text = match tree.text(&loader) {
           Some(existing) if existing.contains("export const meta") => {
             report.note(&path, line, "the loader already exports `meta`, so `metadata` was left in place");
             continue;
           }
+          Some(existing) if written => crate::meta::with_head_import(&format!("{}\n{meta}", existing.trim_end_matches('\n').to_owned() + "\n")),
           Some(existing) => format!("{}\n{meta}", existing.trim_end_matches('\n').to_owned() + "\n"),
+          None if written => format!("import {{ fromNextMetadata }} from \"@snapfire/fsr/head\";\n\n{meta}"),
           None => meta,
         };
         let mut edits = Edits::default();
@@ -318,6 +331,24 @@ fn strip(e: &js::Expr) -> &js::Expr {
     js::Expr::TsSatisfies(s) => strip(&s.expr),
     js::Expr::TsConstAssertion(c) => strip(&c.expr),
     other => other,
+  }
+}
+
+/// A value written out whole: literals, templates with no holes and arrays and objects of them.
+fn constant(e: &js::Expr) -> bool {
+  match strip(e) {
+    js::Expr::Lit(js::Lit::Str(_) | js::Lit::Num(_) | js::Lit::Bool(_) | js::Lit::Null(_)) => true,
+    js::Expr::Tpl(t) => t.exprs.is_empty(),
+    js::Expr::Unary(u) if u.op == js::UnaryOp::Minus => matches!(strip(&u.arg), js::Expr::Lit(js::Lit::Num(_))),
+    js::Expr::Array(a) => a.elems.iter().all(|e| e.as_ref().is_some_and(|e| e.spread.is_none() && constant(&e.expr))),
+    js::Expr::Object(o) => o.props.iter().all(|p| match p {
+      js::PropOrSpread::Prop(p) => match &**p {
+        js::Prop::KeyValue(kv) => matches!(kv.key, js::PropName::Ident(_) | js::PropName::Str(_) | js::PropName::Num(_)) && constant(&kv.value),
+        _ => false,
+      },
+      js::PropOrSpread::Spread(_) => false,
+    }),
+    _ => false,
   }
 }
 
@@ -435,10 +466,27 @@ mod tests {
       ),
     ]);
     let (out, report) = migrate(&input);
-    assert_eq!(out.text("app/routes/about/page.loader.ts").unwrap(), "export const meta = () => ({ title: \"About\", description: \"Who we are\" });\n");
+    assert_eq!(out.text("app/routes/about/page.loader.ts").unwrap(), "import { fromNextMetadata } from \"@snapfire/fsr/head\";\n\nexport const meta = () => fromNextMetadata({ title: \"About\", description: \"Who we are\", openGraph: { title: \"About\" } });\n");
     assert_eq!(out.text("app/routes/about/page.tsx").unwrap(), "export default function About() {\n  return <p>about</p>;\n}\n");
     let notes: Vec<String> = report.notes.iter().map(|n| n.message.clone()).collect();
-    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert_eq!(notes.len(), 1, "{notes:?}");
+  }
+
+  #[test]
+  fn a_literal_metadata_s_head_fields_are_written_through_from_next_metadata_and_a_value_read_from_the_module_is_a_note() {
+    let input = tree(&[
+      ("package.json", r#"{ "dependencies": { "next": "latest" } }"#),
+      (
+        "app/page.tsx",
+        "import cover from \"./cover.png\";\n\nexport const metadata = {\n  title: \"Home\",\n  robots: { index: false, follow: true },\n  facebook: { appId: \"12\" },\n  other: { rank: 3 },\n  twitter: { images: [cover.src] },\n  icons: { icon: \"/i.png\" },\n};\n\nexport default function Home() {\n  return <p>home</p>;\n}\n",
+      ),
+    ]);
+    let (out, report) = migrate(&input);
+    assert_eq!(out.text("app/routes/page.loader.ts").unwrap(), "import { fromNextMetadata } from \"@snapfire/fsr/head\";\n\nexport const meta = () => fromNextMetadata({ title: \"Home\", robots: { index: false, follow: true }, facebook: { appId: \"12\" }, other: { rank: 3 } });\n");
+    let notes: Vec<String> = report.notes.iter().map(|n| n.message.clone()).collect();
+    assert!(notes.iter().any(|n| n.contains("`metadata.twitter` reads a value from the module")), "{notes:?}");
+    assert!(notes.iter().any(|n| n.contains("`metadata.icons` was not carried over")), "{notes:?}");
+    assert!(!notes.iter().any(|n| n.contains("robots")), "{notes:?}");
   }
 
   #[test]
