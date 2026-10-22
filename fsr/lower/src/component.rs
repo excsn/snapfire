@@ -8928,9 +8928,13 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn handler_fn_into(&mut self, params: &[js::Pat], body: FunctionBody<'p>, walk: &mut HandlerWalk) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
     let binds = self.event_binds.take().unwrap_or_else(|| vec![Expr::Var("$event".to_owned())]);
-    for (param, bind) in params.iter().zip(binds) {
-      let js::Pat::Ident(id) = param else { return Err(self.lowerer.residue(param.span(), "a handler's event parameter must be a name")) };
-      self.lowerer.scope.push((id.id.sym.to_string(), bind));
+    for (at, param) in params.iter().enumerate() {
+      let bind = binds.get(at).cloned().unwrap_or(Expr::Lit(Lit::Undefined));
+      match param {
+        js::Pat::Ident(id) => self.lowerer.scope.push((id.id.sym.to_string(), bind)),
+        js::Pat::Assign(_) => bind_pattern(&mut self.lowerer, param, bind)?,
+        _ => return Err(self.lowerer.residue(param.span(), "a handler's event parameter must be a name")),
+      }
     }
     let (spawned, cells) = (self.lowerer.spawned.len(), self.lowerer.cells.len());
     let result = match body {
@@ -9429,6 +9433,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             if let Some((params, body)) = self.handler_fns.get(&name).cloned() {
               let before = (walk.out.len(), walk.patch.clone());
               let hoisting = self.lowerer.hoisting.take();
+              let mut args = Vec::with_capacity(call.args.len());
+              for arg in &call.args {
+                args.push(self.lowerer.expr(&arg.expr)?);
+              }
+              self.event_binds = Some(args);
               let result = self.handler_fn_into(&params, body, walk);
               self.lowerer.hoisting = hoisting;
               result?;

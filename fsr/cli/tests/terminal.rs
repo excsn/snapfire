@@ -528,3 +528,17 @@ fn an_effect_calls_an_async_function_it_declares_and_sets_state_when_it_settles(
   session.view().unwrap();
   assert_eq!(line(session.view().unwrap()), "AB");
 }
+
+#[test]
+fn a_function_a_handler_calls_takes_the_arguments_of_the_call_and_its_defaults() {
+  let page = "import { useCallback, useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Log() {\n  const [log, setLog] = useState(\"\");\n  const add = useCallback((word: string, twice = false) => {\n    setLog(log + (twice ? word + word : word));\n  }, [log]);\n  useInput((input) => {\n    if (input === \"a\") {\n      add(\"x\");\n    } else {\n      add(\"y\", true);\n    }\n  });\n  return <Text>log {log}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let press = |c: char| {
+    let Some(Press::Input(press)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    press
+  };
+  let line = |node| snapfire_fsr_terminal::render(&node, 12).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.press(&press('a')).unwrap()), "log x");
+  assert_eq!(line(session.press(&press('b')).unwrap()), "log xyy");
+}
