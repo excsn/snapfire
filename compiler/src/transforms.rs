@@ -374,7 +374,11 @@ impl Fold for ImportRewriter {
         let ModuleItem::ModuleDecl(ModuleDecl::Import(import)) = &item else {
           return item;
         };
-        let specifier = import.src.value.to_string_lossy();
+        let written = import.src.value.to_string_lossy();
+        let specifier = match self.aliases.expand(&written) {
+          Some(target) if !written.starts_with('.') => relative_specifier(&self.dir, &target),
+          _ => written.into_owned(),
+        };
         if !specifier.starts_with('.') || import.specifiers.len() != 1 {
           return item;
         }

@@ -23,6 +23,20 @@ fn a_paths_alias_is_rewritten_to_the_relative_output_path() {
 }
 
 #[test]
+fn an_asset_imported_through_an_alias_is_bound_to_its_url() {
+  let fixture = Fixture::new("aliases");
+  fs::create_dir_all(fixture.root().join("src/img")).unwrap();
+  fs::write(fixture.root().join("src/img/logo.svg"), "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"4\" height=\"2\"></svg>").unwrap();
+  fs::write(fixture.root().join("pages/logo.ts"), "import logo from \"@src/img/logo.svg\";\nexport const src = logo.src;\n").unwrap();
+  let mut cmd = get_snapfirec_cmd();
+  cmd.arg("--root").arg(fixture.root()).assert().success();
+
+  let module = fs::read_to_string(fixture.root().join("dist/pages/logo.js")).unwrap();
+  assert!(!module.contains("import "), "the import became a binding: {module}");
+  assert!(module.contains("logo.") && module.contains(".svg"), "{module}");
+}
+
+#[test]
 fn an_alias_that_names_nothing_is_a_dangling_import() {
   let fixture = Fixture::new("aliases");
   fs::write(fixture.root().join("pages/broken.ts"), "import { x } from \"@src/nope\";\nexport const y = x;\n").unwrap();
