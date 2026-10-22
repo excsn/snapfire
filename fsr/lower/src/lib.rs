@@ -1606,10 +1606,21 @@ impl<'a> Lowerer<'a> {
     match expr {
       js::Expr::Assign(assign) if self.cell_of_target(&assign.left).is_some() => {
         let handle = self.cell_of_target(&assign.left).expect("checked");
-        let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = &assign.left else { unreachable!("cell_of_target answers for a name") };
+        let read = match &assign.left {
+          js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => js::Expr::Ident(id.id.clone()),
+          js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) => js::Expr::Member(member.clone()),
+          _ => unreachable!("cell_of_target answers for a name or a path"),
+        };
         let value = match assign.op.to_update() {
           None => self.expr(&assign.right)?,
-          Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(js::Expr::Ident(id.id.clone())), right: assign.right.clone() }))?,
+          Some(op) => self.expr(&js::Expr::Bin(js::BinExpr { span: assign.span, op, left: Box::new(read.clone()), right: assign.right.clone() }))?,
+        };
+        let value = match &read {
+          js::Expr::Member(member) => {
+            let (_, path) = write_root(member).expect("cell_of_target found the root");
+            self.written_at(Expr::ReadCell(Box::new(handle.clone())), &path, value)?
+          }
+          _ => value,
         };
         Ok(Stmt::Expr(Expr::WriteCell(Box::new(handle), Box::new(value))))
       }
@@ -2205,10 +2216,14 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `x = e`, `x += e` and their kin on a local; `x.field = e` rebinds `x` to a copy with that field.
-  /// The handle of the cell an assignment writes, when it writes a name held in one.
+  /// The handle of the cell an assignment writes, when it writes a name held in one or a path into one.
   pub(crate) fn cell_of_target(&self, target: &js::AssignTarget) -> Option<Expr> {
-    let js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) = target else { return None };
-    self.cells.iter().rev().find(|(name, _)| *name == *id.id.sym).map(|(_, handle)| handle.clone())
+    let id = match target {
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => &id.id,
+      js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) => write_root(member)?.0,
+      _ => return None,
+    };
+    self.cells.iter().rev().find(|(name, _)| *name == *id.sym).map(|(_, handle)| handle.clone())
   }
 
   fn local_assign(&mut self, assign: &js::AssignExpr) -> Lowered<Stmt> {

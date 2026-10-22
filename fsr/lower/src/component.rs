@@ -3700,6 +3700,54 @@ pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], 
   Ok(Expr::Lambda { params: names, body: Box::new(result?) })
 }
 
+/// The locals declared outside a function that an arrow or a function inside `stmts` writes, by name and syntax context: a bare name, a path into one or an update.
+fn function_writes(stmts: &[&js::Stmt]) -> Vec<(String, swc_core::common::SyntaxContext)> {
+  struct Writes {
+    depth: usize,
+    found: Vec<(String, swc_core::common::SyntaxContext)>,
+  }
+  impl Writes {
+    fn note(&mut self, id: &js::Ident) {
+      if self.depth > 0 && !self.found.iter().any(|(name, ctxt)| *name == *id.sym && *ctxt == id.ctxt) {
+        self.found.push((id.sym.to_string(), id.ctxt));
+      }
+    }
+  }
+  impl Visit for Writes {
+    fn visit_assign_expr(&mut self, assign: &js::AssignExpr) {
+      match &assign.left {
+        js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) => self.note(&id.id),
+        js::AssignTarget::Simple(js::SimpleAssignTarget::Member(member)) => {
+          if let Some((id, _)) = crate::write_root(member) {
+            self.note(id);
+          }
+        }
+        _ => {}
+      }
+      assign.visit_children_with(self);
+    }
+    fn visit_update_expr(&mut self, update: &js::UpdateExpr) {
+      if let js::Expr::Ident(id) = &*update.arg {
+        self.note(id);
+      }
+      update.visit_children_with(self);
+    }
+    fn visit_arrow_expr(&mut self, arrow: &js::ArrowExpr) {
+      self.depth += 1;
+      arrow.visit_children_with(self);
+      self.depth -= 1;
+    }
+    fn visit_function(&mut self, function: &js::Function) {
+      self.depth += 1;
+      function.visit_children_with(self);
+      self.depth -= 1;
+    }
+  }
+  let mut writes = Writes { depth: 0, found: Vec::new() };
+  stmts.iter().for_each(|stmt| stmt.visit_with(&mut writes));
+  writes.found
+}
+
 /// The bare names `stmts` pass as the function of a `.on(event, f)` or `.off(event, f)` call, nested arrows included.
 fn listened_names(stmts: &[js::Stmt]) -> Vec<String> {
   struct Listened(Vec<String>);
@@ -5149,10 +5197,11 @@ pub(crate) fn block_to_expr(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt]) -> Lo
 
 /// `block_to_expr` with the names bound at or above `floor` writable, a function's parameters among them.
 pub(crate) fn block_to_expr_from(lowerer: &mut Lowerer<'_>, stmts: &[js::Stmt], floor: usize) -> Lowered<Expr> {
-  let depth = lowerer.scope.len();
+  let (depth, cells) = (lowerer.scope.len(), lowerer.cells.len());
   let refs: Vec<&js::Stmt> = stmts.iter().collect();
   let result = block_to_expr_inner(lowerer, &refs, floor);
   lowerer.scope.truncate(depth);
+  lowerer.cells.truncate(cells);
   result
 }
 
@@ -5177,6 +5226,38 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
     value
   };
   match first {
+    js::Stmt::Decl(js::Decl::Var(var)) if { let written = function_writes(rest); var.decls.iter().any(|decl| matches!(&decl.name, js::Pat::Ident(id) if written.contains(&(id.id.sym.to_string(), id.id.ctxt)))) } => {
+      let written = function_writes(rest);
+      let mut lets = Vec::new();
+      for decl in &var.decls {
+        let mut expr = match decl.init.as_deref() {
+          Some(init) => lowerer.expr(init)?,
+          None => Expr::Lit(Lit::Null),
+        };
+        match &decl.name {
+          js::Pat::Ident(id) if written.contains(&(id.id.sym.to_string(), id.id.ctxt)) => {
+            let handle = lowerer.temp();
+            let name = id.id.sym.to_string();
+            lets.push(Stmt::Let { name: handle.clone(), expr: Expr::Cell(Box::new(expr)) });
+            lowerer.cells.push((name.clone(), Expr::Var(handle.clone())));
+            lowerer.scope.push((name.clone(), Expr::ReadCell(Box::new(Expr::Var(handle)))));
+            if let Some(init) = decl.init.as_deref() {
+              lowerer.note_kind(&name, init);
+            }
+          }
+          pattern => {
+            if computed_once(lowerer, &expr) {
+              let held = lowerer.temp();
+              lets.push(Stmt::Let { name: held.clone(), expr });
+              expr = Expr::Var(held);
+            }
+            bind_pattern(lowerer, pattern, expr)?;
+          }
+        }
+      }
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(lets, value))
+    }
     js::Stmt::Decl(js::Decl::Var(var)) if !lowerer.cells.is_empty() => {
       let mut lets = Vec::new();
       for decl in &var.decls {
@@ -5359,7 +5440,7 @@ fn writes_a_cell(lowerer: &Lowerer<'_>, expr: &js::Expr) -> bool {
   }
   let held = |name: &str| lowerer.cells.iter().any(|(cell, _)| cell == name);
   match expr {
-    js::Expr::Assign(assign) => matches!(&assign.left, js::AssignTarget::Simple(js::SimpleAssignTarget::Ident(id)) if held(id.id.sym.as_ref())),
+    js::Expr::Assign(assign) => lowerer.cell_of_target(&assign.left).is_some(),
     js::Expr::Update(update) => matches!(&*update.arg, js::Expr::Ident(id) if held(id.sym.as_ref())),
     js::Expr::Call(_) => true,
     _ => false,

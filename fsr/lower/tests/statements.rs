@@ -264,6 +264,12 @@ fn undefined_and_null_compare_and_type_as_javascript_has_them() {
 }
 
 #[test]
+fn a_local_an_array_callback_writes_holds_each_write_for_the_next_call_and_after_the_call() {
+  let page = "function colorGuess(solution: string, _guess: string) {\n  const remainingSolution = Array.from(solution);\n\n  const letters = Array.from(_guess)\n    .map((c, i) => {\n      if (remainingSolution[i] == c) {\n        remainingSolution[i] = \"_\";\n        return { color: \"green\" as const, letter: c };\n      } else {\n        return { color: \"not-green\" as const, letter: c };\n      }\n    })\n    .map((c) => {\n      switch (c.color) {\n        case \"green\":\n          return c;\n        case \"not-green\": {\n          const n = remainingSolution.indexOf(c.letter);\n          if (n == -1) {\n            return { color: \"gray\" as const, letter: c.letter };\n          } else {\n            remainingSolution[n] = \"_\";\n            return { color: \"yellow\" as const, letter: c.letter };\n          }\n        }\n      }\n    });\n\n  return { letters };\n}\n\nfunction total(ns: number[]) {\n  let sum = 0;\n  const doubled = ns.map((n) => {\n    sum += n;\n    return n * 2;\n  });\n  return `${doubled.join(\",\")}=${sum}`;\n}\n\nexport default function Page() {\n  const { letters } = colorGuess(\"ABBEY\", \"BABES\");\n  return <p>{letters.map((l) => `${l.letter}:${l.color}`).join(\" \")}|{total([1, 2, 3])}</p>;\n}\n";
+  assert_eq!(html("callback_writes", page).as_deref(), Ok("<p>B:yellow A:yellow B:green E:green S:gray|2,4,6=6</p>"));
+}
+
+#[test]
 fn array_from_a_string_is_its_code_points() {
   let page = "export default function Page() {\n  const letters = Array.from(\"ab👍\");\n  return <p>{letters.length}:{letters.map((c) => `[${c}]`).join(\"\")}</p>;\n}\n";
   assert_eq!(html("array_from_string", page).as_deref(), Ok("<p>3:[a][b][👍]</p>"));
