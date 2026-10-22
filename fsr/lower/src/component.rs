@@ -1319,6 +1319,16 @@ impl ComponentSet {
                   return self.lower_loaded(&declared, &declared_name);
                 }
               }
+              if let Some((source, orig, span)) = reexported(&parsed, export) {
+                let declared = self.resolve_import(file, &source);
+                match declared {
+                  Some(declared) if !is_foreign(&declared) && declared != file => {
+                    self.load(&declared)?;
+                    return self.lower_loaded(&declared, &orig);
+                  }
+                  _ => return Err(Lowerer::new(&parsed, &defaults).residue(span, format!("`{export}` comes from `{source}`, which the build cannot follow")).into()),
+                }
+              }
               if let Some(id) = default_ident(&parsed).filter(|id| export == "default" && matches!(meanings.bindings.get(id.sym.as_ref()), Some(crate::meaning::Meaning::Foreign))) {
                 let source = find_import(&parsed, id.sym.as_ref()).map(|(source, _)| source).unwrap_or_default();
                 return Err(Lowerer::new(&parsed, &defaults).residue(id.span, format!("`{}` comes from `{source}`, which the build cannot follow", id.sym)).into());
@@ -2964,6 +2974,24 @@ fn default_ident(parsed: &Parsed) -> Option<&js::Ident> {
       js::Expr::Ident(id) => Some(id),
       _ => None,
     },
+    _ => None,
+  })
+}
+
+/// `export { orig as export } from "source"`: the source, the name it exports there and the specifier's span.
+fn reexported(parsed: &Parsed, export: &str) -> Option<(String, String, Span)> {
+  let name = |n: &js::ModuleExportName| match n {
+    js::ModuleExportName::Ident(id) => id.sym.to_string(),
+    js::ModuleExportName::Str(s) => s.value.to_atom_lossy().to_string(),
+  };
+  parsed.module.body.iter().find_map(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(e)) => {
+      let source = e.src.as_ref()?.value.to_atom_lossy().to_string();
+      e.specifiers.iter().find_map(|spec| match spec {
+        js::ExportSpecifier::Named(n) if name(n.exported.as_ref().unwrap_or(&n.orig)) == export => Some((source.clone(), name(&n.orig), n.span)),
+        _ => None,
+      })
+    }
     _ => None,
   })
 }

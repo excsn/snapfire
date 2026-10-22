@@ -28,4 +28,19 @@ fn a_component_destructured_from_an_unread_call_is_left_to_the_browser_and_the_p
   lowered.unwrap_or_else(|e| panic!("the build is refused: {e}"));
   set.settle_fills();
   assert!(set.browser_only.iter().any(|(module, residue)| module == "src/navigation.ts#Link" && residue.message.contains("createNavigation")), "{:?}", set.browser_only);
+  assert!(set.components.iter().any(|(module, _)| module == "routes/page.tsx#default"), "the page lowers around the island");
+}
+
+#[test]
+fn a_route_layout_re_exporting_an_app_component_lowers_as_that_component() {
+  let base = "export default function BaseLayout({ children }: { children: any }) {\n  return <div className=\"shell\">{children}</div>;\n}\n";
+  for (tag, layout) in [("imported", "import BaseLayout from \"@src/BaseLayout\";\nexport default BaseLayout;\n"), ("re_exported", "export { default } from \"@src/BaseLayout\";\n")] {
+    let dir = app(tag, &[("src/BaseLayout.tsx", base), ("routes/layout.tsx", layout)]);
+    let mut set = ComponentSet::new(&dir);
+    let lowered = set.lower("routes/layout.tsx#default");
+    std::fs::remove_dir_all(&dir).unwrap();
+    lowered.unwrap_or_else(|e| panic!("{tag}: {e}"));
+    assert!(set.browser_only.is_empty(), "{tag}: {:?}", set.browser_only);
+    assert!(set.components.iter().any(|(module, _)| module == "routes/layout.tsx#default"), "{tag}: {:?}", set.components.iter().map(|(module, _)| module).collect::<Vec<_>>());
+  }
 }
