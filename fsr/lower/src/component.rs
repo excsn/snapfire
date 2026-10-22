@@ -5766,6 +5766,21 @@ fn early_return(branch: &js::IfStmt) -> Option<&js::ReturnStmt> {
   }
 }
 
+/// The `return` or `throw` an `if` with no `else` ends in when it holds nothing else: a hook's early exit.
+fn early_exit(branch: &js::IfStmt) -> Option<&js::Stmt> {
+  if branch.alt.is_some() {
+    return None;
+  }
+  let only = match &*branch.cons {
+    js::Stmt::Block(block) => match block.stmts.as_slice() {
+      [only] => only,
+      _ => return None,
+    },
+    other => other,
+  };
+  matches!(only, js::Stmt::Return(_) | js::Stmt::Throw(_)).then_some(only)
+}
+
 /// What an inlined custom hook returned: a value, a handler the browser runs or an object or array literal of either, part by part.
 enum Returned {
   Value(Expr),
@@ -5860,11 +5875,22 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let floor = self.lowerer.scope.len();
     let mut renames: Vec<(String, String)> = Vec::new();
+    let mut early: Vec<(Expr, Expr)> = Vec::new();
+    let guard = |early: &[(Expr, Expr)], expr: Expr| match early.iter().map(|(cond, _)| cond.clone()).reduce(|a, b| Expr::Logic(LogicOp::Or, Box::new(a), Box::new(b))) {
+      None => expr,
+      Some(fired) => Expr::Ternary(Box::new(fired), Box::new(Expr::Lit(Lit::Null)), Box::new(expr)),
+    };
     for stmt in stmts {
       match stmt {
         js::Stmt::Decl(js::Decl::Var(var)) => {
           for decl in &var.decls {
+            let from = self.pending_lets.len();
             self.hook_let(decl, prefix, &mut renames)?;
+            for pending in &mut self.pending_lets[from..] {
+              if let Stmt::Let { expr, .. } = pending {
+                *expr = guard(&early, std::mem::replace(expr, Expr::Lit(Lit::Null)));
+              }
+            }
           }
         }
         js::Stmt::Decl(js::Decl::Fn(f)) => {
@@ -5899,24 +5925,51 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           self.inline_hook(hook, call, None)?;
         }
         js::Stmt::Return(ret) => {
-          return match ret.arg.as_deref() {
-            Some(arg) => self.returned(arg, &renames),
-            None => Ok(Returned::Value(Expr::Lit(Lit::Null))),
+          let returned = match ret.arg.as_deref() {
+            Some(arg) => self.returned(arg, &renames)?,
+            None => Returned::Value(Expr::Lit(Lit::Null)),
           };
+          return self.after_early(early, returned, ret.span);
+        }
+        js::Stmt::If(branch) if early_exit(branch).is_some() => {
+          let cond = guard(&early, self.lowerer.expr(&branch.test)?);
+          let then = match early_exit(branch).expect("checked") {
+            js::Stmt::Throw(thrown) => throw_expr(&mut self.lowerer, thrown)?,
+            js::Stmt::Return(ret) => match ret.arg.as_deref() {
+              None => Expr::Lit(Lit::Null),
+              Some(arg) => match self.returned(arg, &renames)? {
+                Returned::Value(value) => value,
+                _ => return Err(self.lowerer.residue(ret.span, "an early `return` of handlers from a custom hook")),
+              },
+            },
+            _ => unreachable!("an early exit is a `return` or a `throw`"),
+          };
+          early.push((cond, then));
         }
         js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) if holds_return(stmt) => {
           return Err(self.lowerer.residue(stmt.span(), "a `return` inside a branch of a custom hook"));
         }
         js::Stmt::Expr(_) | js::Stmt::If(_) | js::Stmt::Switch(_) | js::Stmt::Block(_) => {
           let mut held = std::mem::take(&mut self.pending_lets);
-          let result = self.rebound(stmt, floor, &[], &mut held, &|_, expr| expr);
+          let result = self.rebound(stmt, floor, &[], &mut held, &|_, expr| guard(&early, expr));
           self.pending_lets = held;
           result?;
         }
         other => return Err(self.lowerer.residue(other.span(), "a statement a custom hook cannot hold; it holds hooks, `const`s, `let`s, functions and a `return`")),
       }
     }
-    Ok(Returned::Value(Expr::Lit(Lit::Null)))
+    self.after_early(early, Returned::Value(Expr::Lit(Lit::Null)), Span::default())
+  }
+
+  /// A hook's return taken when none of its early exits fired, each `(cond, value)` checked in order before it.
+  fn after_early(&mut self, early: Vec<(Expr, Expr)>, returned: Returned, span: Span) -> Lowered<Returned> {
+    if early.is_empty() {
+      return Ok(returned);
+    }
+    let Returned::Value(last) = returned else {
+      return Err(self.lowerer.residue(span, "a custom hook that returns handlers after an early `return`"));
+    };
+    Ok(Returned::Value(early.into_iter().rev().fold(last, |r#else, (cond, then)| Expr::Ternary(Box::new(cond), Box::new(then), Box::new(r#else)))))
   }
 
   /// One declaration inside a hook: lowered as the component's are, then every name it bound renamed under the call's prefix.

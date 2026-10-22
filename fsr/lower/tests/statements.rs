@@ -292,3 +292,12 @@ fn split_on_an_empty_separator_is_the_characters_and_an_astral_one_fails() {
   let failed = html("split_astral", astral).unwrap_err();
   assert!(failed.contains("outside the Basic Multilingual Plane"), "{failed}");
 }
+
+#[test]
+fn a_custom_hook_returns_or_throws_early_from_a_branch() {
+  let page = "import { createContext, useContext } from \"react\";\n\nconst Count = createContext<{ n: number } | null>({ n: 2 });\n\nfunction useCount() {\n  const count = useContext(Count);\n  if (!count) {\n    throw new Error(\"useCount must be used within a provider\");\n  }\n  return count.n;\n}\n\nfunction useLabel(n: number) {\n  if (n > 5) return \"big\";\n  const doubled = n * 2;\n  return `small ${doubled}`;\n}\n\nexport default function Page() {\n  const n = useCount();\n  const small = useLabel(n);\n  const big = useLabel(9);\n  return <p>{n}|{small}|{big}</p>;\n}\n";
+  assert_eq!(html("hook_early", page).as_deref(), Ok("<p>2|small 4|big</p>"));
+  let missing = page.replace("({ n: 2 })", "(null)");
+  let failed = html("hook_early_throw", &missing).unwrap_err();
+  assert!(failed.contains("useCount must be used within a provider"), "{failed}");
+}
