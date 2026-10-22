@@ -1047,6 +1047,7 @@ impl ComponentSet {
     }
     .and_then(|source: String| match is_transformed(file) {
       true => self.transformed(file, &source, &[]),
+      false if file.ends_with(".json") => parse_with(file, &format!("export default {source};"), false),
       false => parse_with(file, &source, crate::jsx_parses(file)),
     });
     match parsed {

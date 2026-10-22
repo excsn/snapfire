@@ -21,7 +21,11 @@ fn app(tag: &str, files: &[(&str, &str)]) -> PathBuf {
 }
 
 fn html(tag: &str, page: &str) -> Result<String, String> {
-  let dir = app(tag, &[("routes/page.tsx", page)]);
+  html_files(tag, &[("routes/page.tsx", page)])
+}
+
+fn html_files(tag: &str, files: &[(&str, &str)]) -> Result<String, String> {
+  let dir = app(tag, files);
   let mut set = ComponentSet::new(&dir);
   let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());
   std::fs::remove_dir_all(&dir).unwrap();
@@ -315,4 +319,11 @@ fn a_string_indexed_by_a_number_is_the_character_there() {
   let astral = "export default function Page() {\n  const face = \"a\u{1F600}\";\n  return <p>{face[1]}</p>;\n}\n";
   let failed = html("string_index_astral", astral).unwrap_err();
   assert!(failed.contains("surrogate"), "{failed}");
+}
+
+#[test]
+fn a_json_file_imports_as_its_value() {
+  let page = "import words from \"./words.json\";\nimport pkg from \"../package.json\";\n\nexport default function Page() {\n  return <p>{words.greeting[1]}|{pkg.version}</p>;\n}\n";
+  let files = [("routes/page.tsx", page), ("routes/words.json", "{\n  \"greeting\": [\"hello\", \"bonjour\"]\n}\n"), ("package.json", "{ \"name\": \"app\", \"version\": \"1.2.0\" }\n")];
+  assert_eq!(html_files("json_import", &files).as_deref(), Ok("<p>bonjour|1.2.0</p>"));
 }
