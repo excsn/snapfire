@@ -37,6 +37,18 @@ fn an_asset_imported_through_an_alias_is_bound_to_its_url() {
 }
 
 #[test]
+fn a_file_whose_name_holds_a_dot_is_imported_without_its_extension() {
+  let fixture = Fixture::new("aliases");
+  fs::write(fixture.root().join("src/util/transport.nextjs.ts"), "export const sent = 1;\n").unwrap();
+  fs::write(fixture.root().join("pages/send.ts"), "import { sent } from \"../src/util/transport.nextjs\";\nexport const s = sent;\n").unwrap();
+  let mut cmd = get_snapfirec_cmd();
+  cmd.arg("--root").arg(fixture.root()).assert().success();
+
+  let module = fs::read_to_string(fixture.root().join("dist/pages/send.js")).unwrap();
+  assert!(module.contains("from \"../src/util/transport.nextjs.js\""), "{module}");
+}
+
+#[test]
 fn an_alias_that_names_nothing_is_a_dangling_import() {
   let fixture = Fixture::new("aliases");
   fs::write(fixture.root().join("pages/broken.ts"), "import { x } from \"@src/nope\";\nexport const y = x;\n").unwrap();

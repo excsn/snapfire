@@ -262,6 +262,8 @@ pub fn resolve_specifier(dir: &Path, specifier: &str) -> String {
     // import of one names the `.js` beside it rather than the source.
     Some(ext) if crate::plugin::claimed(ext).is_some() => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
     Some(ext) if BROWSER_READY.contains(&ext) => specifier.to_string(),
+    // `./transport.nextjs` beside `transport.nextjs.ts`: the dot is part of the name, not an extension.
+    Some(_) if !dir.join(specifier).is_file() && COMPILED_TO_JS.iter().any(|ext| dir.join(format!("{specifier}.{ext}")).is_file()) => format!("{specifier}.js"),
     Some(_) => specifier.to_string(),
     None => {
       let trimmed = specifier.trim_end_matches('/');
