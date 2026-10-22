@@ -118,7 +118,7 @@ pub enum LowerError {
 
 pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, UPLOAD};
 
-/// JavaScript's error constructors, which a `throw` and, in a terminal page, a `new` read as `{ name, message }`.
+/// JavaScript's error constructors, which a `throw` and a `new` read as `{ name, message }`.
 pub(crate) const ERROR_CONSTRUCTORS: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
 
 /// The import aliases every fsr application has, each a prefix and the app
@@ -1704,6 +1704,11 @@ impl<'a> Lowerer<'a> {
         let expr = self.collection_written(call, kind, &method, Expr::Var(name.clone()))?;
         Ok(Stmt::Set { name, expr })
       }
+      js::Expr::Call(call) if self.unbound_collection_write(call).is_some() => {
+        let (name, span) = self.unbound_collection_write(call).expect("checked");
+        self.unbound = Some(name.clone());
+        Err(self.residue(span, format!("`{name}` is not bound here; an import the build cannot follow or a name from outside the body")))
+      }
       js::Expr::Call(call) if self.local_push(call).is_some() => {
         let (name, method) = self.local_push(call).expect("checked");
         let mut items = Vec::with_capacity(call.args.len() + 1);
@@ -2330,6 +2335,20 @@ impl<'a> Lowerer<'a> {
     let (js::Expr::Ident(url), js::MemberProp::Ident(prop)) = (&*params.obj, &params.prop) else { return None };
     let method = self.member_name(member)?;
     (&*prop.sym == "searchParams" && self.kind_of(&params.obj) == Some(Kind::Url) && self.is_local(url.sym.as_ref()) && matches!(method.as_str(), "set" | "append" | "delete")).then(|| (url.sym.to_string(), method))
+  }
+
+  /// `m.set(k, v)` and its kin on a name bound nowhere here, which may be a module-level collection the set binds and retries with: the name and its span.
+  fn unbound_collection_write(&self, call: &js::CallExpr) -> Option<(String, Span)> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(member) = &**callee else { return None };
+    let js::Expr::Ident(obj) = &*member.obj else { return None };
+    let method = self.member_name(member)?;
+    if !matches!(method.as_str(), "set" | "delete" | "add" | "append" | "clear") || obj.ctxt == self.parsed.unresolved {
+      return None;
+    }
+    let name = obj.sym.as_ref();
+    let bound = self.scope.iter().any(|(n, _)| n == name) || self.globals.iter().any(|(n, _)| n == name) || self.cells.iter().any(|(n, _)| n == name);
+    (!bound).then(|| (name.to_owned(), obj.span))
   }
 
   fn local_collection_write(&self, call: &js::CallExpr) -> Option<(String, Kind, String)> {
@@ -3725,7 +3744,7 @@ impl<'a> Lowerer<'a> {
       return self.terminal_promise(n, &args);
     }
     if let js::Expr::Ident(id) = &*n.callee {
-      if self.terminal && id.ctxt == self.parsed.unresolved && ERROR_CONSTRUCTORS.contains(&id.sym.as_ref()) {
+      if id.ctxt == self.parsed.unresolved && ERROR_CONSTRUCTORS.contains(&id.sym.as_ref()) {
         let message = match args.first() {
           Some(a) => Expr::Str(Box::new(self.expr(&a.expr)?)),
           None => Expr::lit_str(""),
@@ -4061,8 +4080,13 @@ pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
 
 /// Whether `f` is a lambda whose block body writes a name it neither takes nor declares: a helper writing a module-level `let`.
 pub(crate) fn writes_outer(f: &Expr) -> bool {
-  let Expr::Lambda { params, body } = f else { return false };
-  let Expr::Block(body) = &**body else { return false };
+  !outer_set_targets(f).is_empty()
+}
+
+/// The names a lambda sets that it neither takes nor declares, module-level `let`s.
+pub(crate) fn outer_set_targets(f: &Expr) -> Vec<String> {
+  let Expr::Lambda { params, body } = f else { return Vec::new() };
+  let Expr::Block(body) = &**body else { return Vec::new() };
   let mut declared: Vec<String> = Vec::new();
   fn lets(body: &[Stmt], out: &mut Vec<String>) {
     for stmt in body {
@@ -4081,7 +4105,7 @@ pub(crate) fn writes_outer(f: &Expr) -> bool {
     }
   }
   lets(body, &mut declared);
-  snapfire_fsr_ir::ast::set_targets(body).iter().any(|name| !params.contains(name) && !declared.contains(name))
+  snapfire_fsr_ir::ast::set_targets(body).into_iter().filter(|name| !params.contains(name) && !declared.contains(name)).collect()
 }
 
 /// The prop a component binding reads, `$props.key` or that with a default, so a kind read through it is a kind relied on.

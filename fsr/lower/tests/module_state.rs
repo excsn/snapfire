@@ -152,3 +152,33 @@ fn a_write_through_a_path_of_indexes_and_fields_on_a_local_rebinds_it_with_that_
   let out = lower("path_write", &[("routes/page.tsx", page)]).unwrap();
   assert_eq!(out.html, "<p>.9 #3</p>");
 }
+
+#[test]
+fn a_module_collection_a_function_changes_in_place_is_module_state() {
+  let cache = "const seen = new Map();\n\nexport function remember(key, value) {\n  seen.set(key, value);\n  return seen.size;\n}\n\nexport function recall(key) {\n  return seen.get(key) ?? \"nothing\";\n}\n";
+  let page = "import { useState } from \"react\";\nimport { recall, remember } from \"@src/cache\";\nexport default function Page() {\n  const [n, setN] = useState(0);\n  return <div><button onClick={() => setN(remember(\"a\", \"apple\"))}>{n}</button><p>{recall(\"a\")}</p></div>;\n}\n";
+  let out = lower("mutated", &[("src/cache.js", cache), ("routes/page.tsx", page)]).unwrap();
+  assert!(out.html.contains("<p>nothing</p>"), "{}", out.html);
+  let (_, page) = out.set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap();
+  assert_eq!(page.stores, vec![("seen".to_owned(), "src/cache.js#seen".to_owned())], "the collection the handler changes is a store key");
+  let library: Components = out.set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(out.set.consts.clone())));
+  let remembered = interpreter.island_step(module, &library[module], &ValueMap::default(), &ValueMap::default(), Some(snapfire_fsr_ir::render::HandlerRef::own(0)), &snapfire_fsr_core::Value::Null, &library).unwrap();
+  assert!(remembered.rendered.html.contains(">1</button><p>apple</p>"), "{}", remembered.rendered.html);
+}
+
+#[test]
+fn a_helper_a_handler_calls_advances_the_module_let_in_the_store() {
+  let page = "import { useState } from \"react\";\nimport { createTodo, initialTodos } from \"@src/todos\";\nexport default function Page() {\n  const [todos, setTodos] = useState(initialTodos);\n  return <div><button onClick={() => setTodos([...todos, createTodo(\"new\")])}>add</button><ul>{todos.map(t => <li key={t.id}>{t.id}:{t.text}</li>)}</ul></div>;\n}\n";
+  let out = lower("advances", &[("src/todos.js", TODOS), ("routes/page.tsx", page)]).unwrap();
+  let library: Components = out.set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let interpreter = Interpreter::default().with_consts(Some(Arc::new(out.set.consts.clone())));
+  let first = interpreter.island_step(module, &library[module], &ValueMap::default(), &ValueMap::default(), Some(snapfire_fsr_ir::render::HandlerRef::own(0)), &snapfire_fsr_core::Value::Null, &library).unwrap();
+  assert_eq!(first.store.get("src/todos.js#nextId"), Some(&snapfire_fsr_core::Value::F64(4.0)), "{:?}", first.store);
+  let mut props = ValueMap::default();
+  props.insert("$store".to_owned(), snapfire_fsr_core::Value::Map(first.store.clone()));
+  let second = interpreter.island_step(module, &library[module], &props, &first.state, Some(snapfire_fsr_ir::render::HandlerRef::own(0)), &snapfire_fsr_core::Value::Null, &library).unwrap();
+  assert!(second.rendered.html.contains("<li data-sf-key=\"3\">3:new</li><li data-sf-key=\"4\">4:new</li>"), "{}", second.rendered.html);
+}

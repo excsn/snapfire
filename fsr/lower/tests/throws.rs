@@ -69,3 +69,10 @@ fn a_helper_catches_what_its_try_throws() {
   let page = "const host = (s: string) => {\n  try {\n    return new URL(s).hostname;\n  } catch (e) {\n    return `bad ${e.name}`;\n  }\n};\nconst checked = (n: number) => {\n  try {\n    if (n > 1) throw new Error(\"big\");\n    return \"small\";\n  } catch (e) {\n    return e.message;\n  }\n};\nexport default function Page() {\n  return <p>{host(\"https://a.example/x\")} {host(\"nope\")} {checked(1)} {checked(2)}</p>;\n}\n";
   assert_eq!(html("try_catch", &[("routes/page.tsx", page)]).as_deref(), Ok("<p>a.example bad Error small big</p>"));
 }
+
+#[test]
+fn an_error_made_as_a_value_has_its_name_and_message() {
+  let page = "const describe = (n: number) => {\n  const e = n < 0 ? new RangeError(\"below zero\") : new TypeError(\"not a count\");\n  return `${e.name}: ${e.message}`;\n};\nexport default function Page() {\n  return <p>{describe(-1)} / {describe(2)}</p>;\n}\n";
+  let html = html("error_value", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html, "<p>RangeError: below zero / TypeError: not a count</p>");
+}

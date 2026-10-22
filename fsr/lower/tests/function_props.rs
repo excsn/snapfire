@@ -133,3 +133,32 @@ fn a_childs_handler_calling_a_function_prop_its_parent_passed_runs_the_parents_h
   let again = interpreter.island_step(module, &library[module], &ValueMap::default(), &picked.state, Some(snapfire_fsr_ir::render::HandlerRef::at(picker.clone(), 0)), &Value::Null, &library).unwrap();
   assert!(again.rendered.html.contains("<p>6</p>"), "{}", again.rendered.html);
 }
+
+#[test]
+fn a_state_setter_passed_as_a_prop_sets_the_parents_state_when_the_child_calls_it() {
+  let page = "import { useState } from 'react';\n\nfunction Typer({ value, onChange }) {\n  return <button onClick={() => onChange(value + 'h')}>typed {value}</button>;\n}\n\nexport default function Page() {\n  const [query, setQuery] = useState('');\n  return <div><Typer value={query} onChange={setQuery} /><p>query {query}</p></div>;\n}\n";
+  let out = lower("setter_prop", &[("routes/page.tsx", page)]).unwrap();
+  let library: Components = out.set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(module, &library[module], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  let (typer, _) = first.components.iter().find(|(_, m)| m == "routes/page.tsx#Typer").expect("the typer renders");
+  let typed = interpreter.island_step(module, &library[module], &ValueMap::default(), &first.state, Some(snapfire_fsr_ir::render::HandlerRef::at(typer.clone(), 0)), &Value::Null, &library).unwrap();
+  assert!(typed.rendered.html.contains("<p>query h</p>"), "{}", typed.rendered.html);
+  let again = interpreter.island_step(module, &library[module], &ValueMap::default(), &typed.state, Some(snapfire_fsr_ir::render::HandlerRef::at(typer.clone(), 0)), &Value::Null, &library).unwrap();
+  assert!(again.rendered.html.contains("<p>query hh</p>"), "{}", again.rendered.html);
+}
+
+#[test]
+fn a_handler_prop_a_component_hands_on_to_the_one_it_places_reaches_the_parents_handler() {
+  let page = "import { useCallback, useState } from 'react';\n\nfunction Keys({ onKey }) {\n  return <button onClick={() => onKey('q')}>keys</button>;\n}\n\nfunction Middle({ onKey }) {\n  return <Keys onKey={onKey} />;\n}\n\nexport default function Page() {\n  const [last, setLast] = useState('none');\n  const heard = useCallback((key) => {\n    setLast(key);\n  }, []);\n  return <div><Middle onKey={heard} /><p>last {last}</p></div>;\n}\n";
+  let out = lower("handed_on", &[("routes/page.tsx", page)]).unwrap();
+  let library: Components = out.set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(module, &library[module], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert!(first.rendered.html.contains("<p>last none</p>"), "{}", first.rendered.html);
+  let (keys, _) = first.components.iter().find(|(_, m)| m == "routes/page.tsx#Keys").expect("the keys render");
+  let heard = interpreter.island_step(module, &library[module], &ValueMap::default(), &first.state, Some(snapfire_fsr_ir::render::HandlerRef::at(keys.clone(), 0)), &Value::Null, &library).unwrap();
+  assert!(heard.rendered.html.contains("<p>last q</p>"), "{}", heard.rendered.html);
+}
