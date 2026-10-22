@@ -340,3 +340,9 @@ fn a_spread_of_an_array_of_a_length_is_that_many_undefineds() {
   let page = "export default function Page() {\n  const n = 3;\n  const blanks = [...Array(n)].map(() => \"_\");\n  const made = [...new Array(2)];\n  return <p>{blanks.join(\"\")}|{made.length}|{made[0] === undefined ? \"undefined\" : \"null\"}</p>;\n}\n";
   assert_eq!(html("spread_array_length", page).as_deref(), Ok("<p>___|2|undefined</p>"));
 }
+
+#[test]
+fn an_array_added_to_a_value_is_its_items_joined_by_commas() {
+  let page = "export default function Page() {\n  const letters = [\"c\", \"d\"];\n  const nested = [1, [2, null]];\n  const none: string[] = [];\n  return <p>{\"ab\" + letters}|{nested + 1}|{none + \"\"}|{letters + letters}</p>;\n}\n";
+  assert_eq!(html("array_plus", page).as_deref(), Ok("<p>abc,d|1,2,1||c,dc,d</p>"));
+}

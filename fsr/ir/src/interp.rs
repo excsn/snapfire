@@ -2115,6 +2115,13 @@ fn arith(op: ArithOp, l: Value, r: Value) -> Result<Value, Fail> {
     (Value::UInt(a), Value::F64(b)) => Ok(Value::F64(float(op, a as f64, b))),
     (Value::F64(a), Value::UInt(b)) => Ok(Value::F64(float(op, a, b as f64))),
     (Value::Str(a), Value::Str(b)) if op == ArithOp::Add => Ok(Value::str(format!("{a}{b}"))),
+    (l @ Value::Seq(_), r) | (l, r @ Value::Seq(_)) if op == ArithOp::Add && !matches!(l, Value::Map(_)) && !matches!(r, Value::Map(_)) => {
+      let text = |v: &Value| match v {
+        Value::Seq(items) => array_text(items),
+        other => stringify(other),
+      };
+      Ok(Value::str(format!("{}{}", text(&l)?, text(&r)?)))
+    }
     // `+` with a string on either side concatenates the other as `String(x)` does.
     (Value::Str(a), other) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{a}{}", stringify(&other)?))),
     (other, Value::Str(b)) if op == ArithOp::Add && !matches!(other, Value::Seq(_) | Value::Map(_)) => Ok(Value::str(format!("{}{b}", stringify(&other)?))),
@@ -3562,6 +3569,22 @@ pub(crate) fn number_text(n: f64) -> String {
     }
   };
   format!("{sign}{body}")
+}
+
+/// An array as JavaScript's `+` reads it, `Array.prototype.join(",")`: an item that is null or undefined is empty and a nested array is joined the same way.
+fn array_text(items: &[Value]) -> Result<String, Fail> {
+  let mut out = String::new();
+  for (at, item) in items.iter().enumerate() {
+    if at > 0 {
+      out.push(',');
+    }
+    match item {
+      Value::Null | Value::Undefined => {}
+      Value::Seq(inner) => out.push_str(&array_text(inner)?),
+      other => out.push_str(&stringify(other)?),
+    }
+  }
+  Ok(out)
 }
 
 pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
