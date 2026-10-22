@@ -13,6 +13,7 @@ Each has a `README.md` saying what it shows and where. They are grouped by what 
 | [portal_react_ts](portal_react_ts/README.md) | A company shell with a header, a directory and a sign-in | Three **sites** mounted under it, sharing one session, one store and one navigation: one a linked working tree, one installed from an archive, one fetched from an HTTP store |
 | [billing_site_react_ts](portal_react_ts/sites/billing/README.md) | The site the portal mounts and an application in its own right | The `[site]` section: every id prefixed `billing:`, every route under `/billing`, all built against the shell's contract; plus the same artifact running alone |
 | [gallery_react_ts](gallery_react_ts/README.md) | Four phone photos on a wall | Every image and font path on two pages: photos stored on their side and shown upright, a priority lead with its preload, a keyed record, an SVG served as it is, `data-sf-raw`, the plain `img` rewrite, a remote image source, a stylesheet under `src/` naming an image and a font, an import only the browser's build sees, a family vendored from a provider with its ranges, a family linked from one and a second origin standing in for a CDN |
+| [trails_pwa_react_ts](trails_pwa_react_ts/README.md) | Four walking trails to read on the way | `[pwa]`: the manifest written from config, the host's worker keeping what a visitor opened for when the network fails, an offline route, the `online` and `updateReady` store keys a header island reads |
 | [handbook_react_ts](handbook_react_ts/README.md) | A documentation site with no server at all | A different build of the same framework: every route is fixed, so the binary writes the whole site to `site/` and exits and anything can serve it |
 | [arrivals_react_ts](arrivals_react_ts/README.md) | An arrivals board over services that stall on purpose | Streaming where you can see it: the board goes out rendered with a skeleton per panel and each parallel slot fills as its service answers |
 | [chat_react_ts](chat_react_ts/README.md) | Rooms, messages and who said what | The server talking to a page nobody asked: an action keeps a message, the host publishes the room's topic and every window following it revalidates, with the topic itself behind an authorisation rule |
@@ -113,6 +114,7 @@ The storefront and the tera application both take 8080, so run one at a time or 
 | 8180 | `uni` |
 | 8190 | `noticeboard_tera`, which has no binary of its own |
 | 8199 | the portal's site store, a file server over `portal_react_ts/deploy/store` |
+| 8205 | `trails_pwa_react_ts` |
 | 8210 | `conformance/adapters_react18` |
 | 8220 | `conformance/adapters_react19` |
 | 8230 | `conformance/lowering` |

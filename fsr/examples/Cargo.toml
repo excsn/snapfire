@@ -15,6 +15,7 @@ members = [
   "patterns",
   "portal_react_ts",
   "shopping_react_ts",
+  "trails_pwa_react_ts",
   "uni",
   "wave_react_ts",
 ]

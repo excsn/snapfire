@@ -1,0 +1,22 @@
+[app]
+dir = "app"
+
+[server]
+listen = "127.0.0.1:8205"
+
+[document]
+title = "Trails"
+
+[session]
+ttl = "1h"
+
+[typecheck]
+version = "7.0.2"
+
+[pwa]
+name = "Trails"
+short_name = "Trails"
+description = "Four trails to read on the way, kept for when the signal goes."
+theme_color = "#2f5d3a"
+background_color = "#f4f1ea"
+offline = "/offline"

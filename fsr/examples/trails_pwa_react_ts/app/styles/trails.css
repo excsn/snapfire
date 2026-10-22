@@ -1,0 +1,66 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f4f1ea;
+  color: #1f2a1f;
+}
+
+.trails {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.wordmark {
+  font-weight: 700;
+  font-size: 1.4rem;
+  color: #2f5d3a;
+  text-decoration: none;
+}
+
+.offline,
+.update {
+  margin: 0;
+  padding: 0.4rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.offline {
+  background: #5d4a2f;
+  color: #fff;
+}
+
+.update {
+  background: #2f5d3a;
+  color: #fff;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+}
+
+.list li {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid #d8d2c4;
+}
+
+.facts {
+  color: #5a5a4a;
+}
+
+footer {
+  margin-top: 2rem;
+  font-size: 0.85rem;
+  color: #6a6a5a;
+}
