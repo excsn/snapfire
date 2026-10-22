@@ -301,3 +301,9 @@ fn a_custom_hook_returns_or_throws_early_from_a_branch() {
   let failed = html("hook_early_throw", &missing).unwrap_err();
   assert!(failed.contains("useCount must be used within a provider"), "{failed}");
 }
+
+#[test]
+fn a_let_declared_without_a_value_is_undefined() {
+  let page = "export default function Page() {\n  let local: number | undefined;\n  let set: number | undefined;\n  set = 1;\n  return <p>{local === undefined ? \"undefined\" : \"null\"}|{set}</p>;\n}\n";
+  assert_eq!(html("let_undefined", page).as_deref(), Ok("<p>undefined|1</p>"));
+}

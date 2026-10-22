@@ -448,3 +448,10 @@ fn a_large_constant_another_module_exports_reads_in_the_terminal() {
   let mut session = Session::open(&app).unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0], "delta of 40");
 }
+
+#[test]
+fn a_let_declared_without_a_value_is_undefined() {
+  let page = "import { Text } from \"ink\";\n\nlet described: string | undefined;\n\nconst describe = (): string => {\n  if (described !== undefined) {\n    return described;\n  }\n  described = \"set\";\n  return \"unset\";\n};\n\nexport default function Page() {\n  let local: number | undefined;\n  return <Text>{describe()} {local === undefined ? \"undefined\" : \"null\"}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0], "unset undefined");
+}

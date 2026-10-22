@@ -2347,7 +2347,7 @@ impl ComponentSet {
     for (name, init, written) in module_lets_of(&parsed, self.terminal) {
       let expr = match init {
         Some(init) => self.lower_global(file, Global::Const(init))?,
-        None => Expr::Lit(Lit::Null),
+        None => Expr::Lit(Lit::Undefined),
       };
       body.push(Stmt::Let { name: name.clone(), expr });
       // A written `let` is what the whole initialisation leaves it at; a constant is fixed once bound.
@@ -4567,7 +4567,7 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
       for decl in &var.decls {
         let mut expr = match decl.init.as_deref() {
           Some(init) => lowerer.expr(init)?,
-          None => Expr::Lit(Lit::Null),
+          None => Expr::Lit(Lit::Undefined),
         };
         if !lowerer.held.is_empty() && lowerer.body_extension_in(&expr).is_some() {
           let name = lowerer.temp();
@@ -5283,7 +5283,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       for decl in &var.decls {
         let mut expr = match decl.init.as_deref() {
           Some(init) => lowerer.expr(init)?,
-          None => Expr::Lit(Lit::Null),
+          None => Expr::Lit(Lit::Undefined),
         };
         match &decl.name {
           js::Pat::Ident(id) if written.contains(&(id.id.sym.to_string(), id.id.ctxt)) => {
@@ -5314,7 +5314,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       for decl in &var.decls {
         let mut expr = match decl.init.as_deref() {
           Some(init) => lowerer.expr(init)?,
-          None => Expr::Lit(Lit::Null),
+          None => Expr::Lit(Lit::Undefined),
         };
         if let (js::Pat::Ident(id), Some(js::Expr::Call(call))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) {
           if lowerer.terminal && lowerer.spawns(call) {
@@ -5336,7 +5336,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       for decl in &var.decls {
         let mut expr = match decl.init.as_deref() {
           Some(init) => lowerer.expr(init)?,
-          None => Expr::Lit(Lit::Null),
+          None => Expr::Lit(Lit::Undefined),
         };
         if let (js::Pat::Ident(id), Some(js::Expr::Call(call))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) {
           if lowerer.terminal && lowerer.spawns(call) {
@@ -5360,7 +5360,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       for decl in &var.decls {
         let expr = match decl.init.as_deref() {
           Some(init) => lowerer.expr(init)?,
-          None => Expr::Lit(Lit::Null),
+          None => Expr::Lit(Lit::Undefined),
         };
         bind_pattern(lowerer, &decl.name, expr)?;
         if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
@@ -6648,7 +6648,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         for decl in &var.decls {
           let value = match decl.init.as_deref() {
             Some(init) => self.lowerer.expr(init)?,
-            None => Expr::Lit(Lit::Null),
+            None => Expr::Lit(Lit::Undefined),
           };
           bind_pattern(&mut self.lowerer, &decl.name, value)?;
         }
@@ -6675,7 +6675,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         for decl in &var.decls {
           let value = match decl.init.as_deref() {
             Some(init) => self.lowerer.expr(init)?,
-            None => Expr::Lit(Lit::Null),
+            None => Expr::Lit(Lit::Undefined),
           };
           bind_pattern(&mut self.lowerer, &decl.name, value)?;
         }
@@ -6992,7 +6992,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           }
           let expr = match decl.init.as_deref() {
             Some(init) => self.lowerer.expr(init)?,
-            None => Expr::Lit(Lit::Null),
+            None => Expr::Lit(Lit::Undefined),
           };
           let name = match &decl.name {
             js::Pat::Ident(id) => {
@@ -7321,7 +7321,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring without a value")) };
       let local = name.id.sym.to_string();
       self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
-      return Ok(Some(Stmt::Let { name: local, expr: Expr::Lit(Lit::Null) }));
+      return Ok(Some(Stmt::Let { name: local, expr: Expr::Lit(Lit::Undefined) }));
     };
     if let Some(call) = awaited_import(init) {
       self.template_import(decl, call)?;
@@ -8723,7 +8723,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               init => {
                 let value = match init {
                   Some(init) => self.lowerer.expr(init)?,
-                  None => Expr::Lit(Lit::Null),
+                  None => Expr::Lit(Lit::Undefined),
                 };
                 let hidden = format!("$fx{}:{name}", decl.span.lo.0);
                 self.state.push(hidden.clone());
