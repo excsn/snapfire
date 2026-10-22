@@ -1658,6 +1658,9 @@ impl<'a> Lowerer<'a> {
       if let Some(listen) = self.listening(call)? {
         return Ok(listen);
       }
+      if let Some(exit) = self.process_exit(call)? {
+        return Ok(exit);
+      }
       if let Some(arrow) = self.async_iife(call) {
         let ran = match &*arrow.body {
           js::ArrowFunctionBody::FunctionBody(b) => self.async_stmts(&b.stmts)?,
@@ -1884,7 +1887,7 @@ impl<'a> Lowerer<'a> {
   }
 
   /// Whether `e` is Node's `process`, the global or the default import of `node:process`.
-  fn is_process(&self, e: &js::Expr) -> bool {
+  pub(crate) fn is_process(&self, e: &js::Expr) -> bool {
     match crate::meaning::bare(e) {
       js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.as_ref() == "process",
       other => self.meanings.as_ref().and_then(|meanings| meanings.of_expr(other)) == Some(meaning::Meaning::Library(meaning::Construct::NodeProcess)),
@@ -1909,6 +1912,20 @@ impl<'a> Lowerer<'a> {
       js::MemberProp::PrivateName(_) => return Ok(None),
     };
     Ok(Some(Expr::Ext { module: "terminal".to_owned(), name: "env".to_owned(), args: vec![name] }))
+  }
+
+  /// `process.exit(code?)` in a terminal page: the act [`snapfire_fsr_ir::host::Act::Exit`] with the code, null when none is given.
+  pub(crate) fn process_exit(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
+    let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
+    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return Ok(None) };
+    if !self.reaches(Reach::Process) || !self.is_process(&member.obj) || self.member_name(member).as_deref() != Some("exit") {
+      return Ok(None);
+    }
+    let code = match call.args.first() {
+      Some(arg) => self.expr(&arg.expr)?,
+      None => Expr::Lit(Lit::Null),
+    };
+    Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Exit.name().to_owned(), input: code }))
   }
 
   /// `process.cwd()` in a terminal page: the member `process.cwd`.

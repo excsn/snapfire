@@ -619,3 +619,17 @@ fn an_await_of_a_value_that_is_not_a_promise_continues_with_it() {
   session.view().unwrap();
   assert_eq!(line(session.view().unwrap()), "6");
 }
+
+#[test]
+fn process_exit_in_a_handler_ends_the_session_with_its_code() {
+  let page = "import { Text, useInput } from \"ink\";\n\nexport default function Quits() {\n  useInput((input) => {\n    if (input === \"q\") process.exit(3);\n  });\n  return <Text>running</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  session.view().unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  session.press(&x).unwrap();
+  assert!(!session.exited());
+  let Some(Press::Input(q)) = key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)) else { panic!("q is input") };
+  session.press(&q).unwrap();
+  assert!(session.exited());
+  assert_eq!(session.exit_code(), Some(3));
+}

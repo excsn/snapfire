@@ -189,6 +189,8 @@ pub struct Session {
   /// The cleanup each effect returned the last time it ran, by the component's path and the effect's event, run before it runs again.
   cleanups: HashMap<(String, String), Waiting>,
   exiting: bool,
+  /// The code `process.exit(code)` gave; `None` for Ink's `exit()` or no exit yet.
+  exit_code: Option<i32>,
 }
 
 /// What a page asked to happen when a process it spawned reports: a continuation to run or a promise to settle.
@@ -280,7 +282,7 @@ impl Session {
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
     let (library, consts) = lower(app, module)?;
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false })
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false, exit_code: None })
   }
 
   /// The page as it stands.
@@ -382,9 +384,14 @@ impl Session {
     Some((x, y.saturating_add(self.written.len().min(usize::from(u16::MAX)) as u16)))
   }
 
-  /// Whether the page has called Ink's `useApp().exit()`.
+  /// Whether the page has called Ink's `useApp().exit()` or `process.exit()`.
   pub fn exited(&self) -> bool {
     self.exiting
+  }
+
+  /// The code `process.exit(code)` gave; `None` for Ink's `exit()` or no exit yet.
+  pub fn exit_code(&self) -> Option<i32> {
+    self.exit_code
   }
 
   /// The page after `timer` fires; as it stands when the component that started it is gone.
@@ -557,7 +564,14 @@ impl Session {
           self.settle(&deferred, ok, settle.get("value").cloned().unwrap_or(Value::Null));
         }
       }
-      (Some(Act::Exit), _) => self.exiting = true,
+      (Some(Act::Exit), code) => {
+        self.exiting = true;
+        self.exit_code = match code {
+          Value::Int(n) => i32::try_from(*n).ok(),
+          Value::F64(n) if n.is_finite() => Some(*n as i32),
+          _ => None,
+        };
+      }
       (Some(Act::ClearTimer), Value::Map(clear)) => {
         if let Some(Value::Map(timer)) = clear.get("timer") {
           if let Some(Value::Str(id)) = timer.get(snapfire_fsr_ir::host::TIMER) {
@@ -918,6 +932,9 @@ pub fn run(app: &Path) -> Result<(), BuildError> {
     }
   }
   drop(screen);
+  if let Some(code) = session.exit_code().filter(|code| *code != 0) {
+    std::process::exit(code);
+  }
   Ok(())
 }
 

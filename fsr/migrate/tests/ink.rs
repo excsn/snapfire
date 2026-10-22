@@ -74,3 +74,15 @@ fn what_the_entry_passed_the_component_is_a_note() {
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import Ui from \"@src/ui\";\n\nexport default function Page() {\n  return <Ui />;\n}\n");
   assert_eq!(report.notes.iter().map(ToString::to_string).collect::<Vec<_>>(), ["source/cli.tsx:8: `render` passed `Ui` the props `limit` and `skinNumber`, read from the command line; `routes/page.tsx` renders it without them"]);
 }
+
+#[test]
+fn an_entry_that_declares_the_component_it_renders_is_kept_and_exports_it() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("lrn.tsx", "import React, { useState } from 'react';\nimport { render, Text, useInput } from 'ink';\nimport { readFileSync } from 'node:fs';\n\nconst cards = readFileSync('cards.txt', 'utf8');\n\nfunction AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n\nrender(<AppMatch />);\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React, { useState } from 'react';\nimport { Text, useInput } from 'ink';\nimport { readFileSync } from 'node:fs';\n\nconst cards = readFileSync('cards.txt', 'utf8');\n\nexport function AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
+  assert!(report.notes.is_empty(), "{:?}", report.notes);
+}

@@ -34,9 +34,14 @@ impl Pass for Layout {
     read_packages_but(tree, report, PROVIDED);
     let root = ["source/", "src/"].into_iter().find(|r| tree.paths().any(|p| p.starts_with(r))).unwrap_or("");
     let entry = entry(tree, root);
+    // An entry that declares the component it renders stays, exporting it, with the `render` call taken out.
+    let kept_entry = entry.as_ref().and_then(|e| keep_entry(tree, e));
+    if let (Some(e), Some(text)) = (&entry, &kept_entry) {
+      tree.insert(e.path.clone(), text.clone());
+    }
     let mut moves = BTreeMap::new();
     for path in tree.paths() {
-      if entry.as_ref().is_some_and(|e| e.path == path) {
+      if kept_entry.is_none() && entry.as_ref().is_some_and(|e| e.path == path) {
         continue;
       }
       let inner = path.strip_prefix(root).unwrap_or(path);
@@ -50,7 +55,7 @@ impl Pass for Layout {
     }
     let aliases = Aliases::read(tree);
     let page = match &entry {
-      Some(entry) => page_for(tree, &moves, &aliases, entry, report),
+      Some(entry) => page_for(tree, &moves, &aliases, entry, kept_entry.is_some(), report),
       None => {
         report.note("package.json", 0, "no file imports `render` from `ink`, so `routes/page.tsx` was not written");
         None
@@ -163,11 +168,79 @@ fn rendered(e: &js::Expr) -> Option<(String, Passed)> {
   }
 }
 
-/// `app/routes/page.tsx` rendering `entry.component` with no props, imported from where the entry imported it; `None` with a note when that import cannot be followed.
-fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entry: &Entry, report: &mut Report) -> Option<String> {
+/// The entry's text with the component it renders exported, the `render` call taken out and `render` dropped from its `ink` import, when the entry declares that component itself; `None` when it imports it.
+fn keep_entry(tree: &Tree, entry: &Entry) -> Option<String> {
+  let text = tree.text(&entry.path)?;
+  let parsed = parse(&entry.path, text).ok()?;
+  let mut edits = crate::edit::Edits::default();
+  let mut declared = false;
+  for item in &parsed.module.body {
+    match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => {
+        let (name, span) = match decl {
+          js::Decl::Fn(f) => (f.ident.sym.to_string(), f.span()),
+          js::Decl::Class(c) => (c.ident.sym.to_string(), c.span()),
+          js::Decl::Var(v) => match v.decls.first().map(|d| &d.name) {
+            Some(js::Pat::Ident(id)) if v.decls.len() == 1 => (id.id.sym.to_string(), v.span()),
+            _ => continue,
+          },
+          _ => continue,
+        };
+        if name == entry.component {
+          let start = parsed.range(span).start;
+          edits.replace(start..start, "export ");
+          declared = true;
+        } else if let js::Decl::Var(v) = decl {
+          if v.decls.iter().any(|d| d.init.as_deref().is_some_and(|init| renders(init))) {
+            edits.replace(crate::items::line_range(text, parsed.range(v.span())), String::new());
+          }
+        }
+      }
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => {
+        let name = match &export.decl {
+          js::Decl::Fn(f) => f.ident.sym.to_string(),
+          js::Decl::Class(c) => c.ident.sym.to_string(),
+          js::Decl::Var(v) => match v.decls.first().map(|d| &d.name) {
+            Some(js::Pat::Ident(id)) => id.id.sym.to_string(),
+            _ => continue,
+          },
+          _ => continue,
+        };
+        declared |= name == entry.component;
+      }
+      js::ModuleItem::Stmt(js::Stmt::Expr(e)) if renders(&e.expr) => {
+        edits.replace(crate::items::line_range(text, parsed.range(e.span())), String::new());
+      }
+      _ => {}
+    }
+  }
+  if !declared {
+    return None;
+  }
+  let text = edits.apply(text);
+  let text = crate::items::drop_named_import(&text, "ink", "render").unwrap_or(text);
+  Some(format!("{}\n", text.trim_end_matches('\n')))
+}
+
+/// Whether `e` is a call of `render`, Ink's or anyone's by that name.
+fn renders(e: &js::Expr) -> bool {
+  let mut e = e;
+  while let js::Expr::Paren(p) = e {
+    e = &p.expr;
+  }
+  let js::Expr::Call(call) = e else { return false };
+  let js::Callee::Expr(callee) = &call.callee else { return false };
+  matches!(&**callee, js::Expr::Ident(id) if id.sym.as_ref() == "render")
+}
+
+/// `app/routes/page.tsx` rendering `entry.component` with no props, imported from where the entry imported it or from the entry itself when `kept`; `None` with a note when that import cannot be followed.
+fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entry: &Entry, kept: bool, report: &mut Report) -> Option<String> {
   let text = tree.text(&entry.path)?;
   let parsed = parse(&entry.path, text).ok()?;
   let mut import = None;
+  if kept {
+    import = Some((format!("./{}", entry.path.rsplit('/').next().unwrap_or(&entry.path)), format!("{{ {} }}", entry.component)));
+  }
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(decl)) = item else { continue };
     for spec in &decl.specifiers {
