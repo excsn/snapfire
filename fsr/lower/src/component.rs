@@ -9380,12 +9380,15 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         otherwise
       }
       js::Stmt::Try(t) => {
-        if t.finalizer.is_some() {
-          return Err(self.lowerer.residue(t.span, "a `finally` in a handler"));
+        let mut after = self.join(rest, within)?;
+        if let Some(finalizer) = &t.finalizer {
+          if t.block.stmts.iter().chain(t.handler.iter().flat_map(|c| &c.body.stmts)).any(holds_return) {
+            return Err(self.lowerer.residue(t.span, "a `return` inside a `try` whose `finally` follows an `await`"));
+          }
+          after = self.join(&finalizer.stmts, &Within { catch: within.catch.clone(), then: after })?;
         }
-        let after = self.join(rest, within)?;
-        let caught = match &t.handler {
-          Some(catch) => {
+        let caught = match (&t.handler, &t.finalizer) {
+          (Some(catch), _) => {
             let param = match &catch.param {
               Some(js::Pat::Ident(name)) => Some(name.id.sym.to_string()),
               None => None,
@@ -9393,7 +9396,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             };
             Some(Catch { param, body: &catch.body.stmts[..], after: after.clone() })
           }
-          None => within.catch.clone(),
+          (None, Some(_)) if within.catch.is_some() => return Err(self.lowerer.residue(t.span, "a `try` with only a `finally` inside another `try`, around an `await`")),
+          (None, Some(finalizer)) => Some(Catch { param: None, body: &finalizer.stmts[..], after: None }),
+          (None, None) => within.catch.clone(),
         };
         let inner = Within { catch: caught, then: after };
         self.async_within(&t.block.stmts, walk, &inner)

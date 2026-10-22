@@ -2155,8 +2155,9 @@ impl<'a> Lowerer<'a> {
       return Ok(match &done {
         None => value,
         Some(done) => {
-          let returned = self.temp();
-          Expr::Block(vec![Stmt::Let { name: returned.clone(), expr: value }, settle(done, true, Expr::Var(returned))])
+          let (returned, thrown) = (self.temp(), self.temp());
+          let ran = vec![Stmt::Let { name: returned.clone(), expr: value }, settle(done, true, Expr::Var(returned))];
+          Expr::Block(vec![Stmt::Try { body: ran, name: Some(thrown.clone()), handler: Some(vec![settle(done, false, Expr::Var(thrown))]), finally: Vec::new() }])
         }
       });
     };
@@ -2165,20 +2166,31 @@ impl<'a> Lowerer<'a> {
       if inside.is_some() {
         return Err(self.residue(t.span, "a `try` that awaits inside another"));
       }
-      if t.finalizer.is_some() {
-        return Err(self.residue(t.span, "a `finally` around an `await`"));
+      let finally: Vec<js::Stmt> = t.finalizer.iter().flat_map(|f| f.stmts.iter().cloned()).collect();
+      if !finally.is_empty() && (t.block.stmts.iter().any(crate::component::holds_return) || t.handler.iter().any(|h| h.body.stmts.iter().any(crate::component::holds_return))) {
+        return Err(self.residue(t.span, "a `return` inside a `try` whose `finally` follows an `await`"));
       }
-      let Some(handler) = &t.handler else { return Err(self.residue(t.span, "a `try` that awaits without a `catch`")) };
-      let param = match &handler.param {
-        None => None,
-        Some(js::Pat::Ident(name)) => Some(name.id.sym.to_string()),
-        Some(other) => return Err(self.residue(other.span(), "a `catch` parameter that is not a name")),
-      };
       let before = self.before_await(&stmts[..at])?;
-      let rest = &stmts[at + 1..];
-      let body: Vec<js::Stmt> = t.block.stmts.iter().chain(rest).cloned().collect();
-      let caught: Vec<js::Stmt> = handler.body.stmts.iter().chain(rest).cloned().collect();
-      let ran = self.async_caught(&body, done, Some(AsyncCatch { param, body: caught, covers: t.block.stmts.len() }))?;
+      let after: Vec<js::Stmt> = finally.iter().chain(&stmts[at + 1..]).cloned().collect();
+      let rethrown = |covers: usize| {
+        let name = format!("$finally{}", t.span.lo.0);
+        let thrown = js::Stmt::Throw(js::ThrowStmt { span: t.span, arg: Box::new(js::Expr::Ident(js::Ident::new_no_ctxt(name.as_str().into(), t.span))) });
+        AsyncCatch { param: Some(name), body: finally.iter().cloned().chain(std::iter::once(thrown)).collect(), covers, inner: None }
+      };
+      let catch = match &t.handler {
+        Some(handler) => {
+          let param = match &handler.param {
+            None => None,
+            Some(js::Pat::Ident(name)) => Some(name.id.sym.to_string()),
+            Some(other) => return Err(self.residue(other.span(), "a `catch` parameter that is not a name")),
+          };
+          let inner = (!finally.is_empty()).then(|| Box::new(rethrown(handler.body.stmts.len())));
+          AsyncCatch { param, body: handler.body.stmts.iter().chain(&after).cloned().collect(), covers: t.block.stmts.len(), inner }
+        }
+        None => rethrown(t.block.stmts.len()),
+      };
+      let body: Vec<js::Stmt> = t.block.stmts.iter().chain(&after).cloned().collect();
+      let ran = self.async_caught(&body, done, Some(catch))?;
       return Ok(Expr::Block(vec![Stmt::Expr(before), Stmt::Expr(ran)]));
     }
     if let js::Stmt::If(branch) = &stmts[at] {
@@ -2225,7 +2237,7 @@ impl<'a> Lowerer<'a> {
           if let Some(param) = &catch.param {
             this.scope.push((param.clone(), resumed.clone().field("value")));
           }
-          let caught = this.async_caught(&catch.body, done.clone(), None);
+          let caught = this.async_caught(&catch.body, done.clone(), catch.inner.clone().map(|inner| *inner));
           this.scope.truncate(depth);
           caught?
         }
@@ -4205,6 +4217,8 @@ struct AsyncCatch {
   param: Option<String>,
   body: Vec<js::Stmt>,
   covers: usize,
+  /// The catch over `body`'s first statements: a `finally` that runs before what the body throws goes on.
+  inner: Option<Box<AsyncCatch>>,
 }
 
 /// The local a member write changes and the members from it outward: `x.a[i].b` is `x` with `.a`, `[i]` and `.b`.

@@ -1437,7 +1437,7 @@ export default function Page() {
 }
 ```
 
-An async function, one a handler calls where it is written or an `async function` declared in the module, may `await` inside a `try`, whose `catch` runs when the promise rejects; what follows the `try` runs either way. An async function that returns a promise settles as that promise does. `useApp().suspendTerminal(fn)` gives up the screen while the promise `fn` returns is pending, so a process spawned with `stdio: "inherit"` can own the terminal. Once the promise settles it takes the screen back and redraws. `process.env.NAME` reads the environment:
+An async function, one a handler calls where it is written or an `async function` declared in the module, may `await` inside a `try`, whose `catch` runs when the promise rejects and whose `finally` runs once it settles either way; what follows the `try` runs after both. A throw at the end of an async function rejects its promise. An async function that returns a promise settles as that promise does. `useApp().suspendTerminal(fn)` gives up the screen while the promise `fn` returns is pending, so a process spawned with `stdio: "inherit"` can own the terminal. Once the promise settles it takes the screen back and redraws. `process.env.NAME` reads the environment:
 
 ```tsx
 const run = (command: string) =>
