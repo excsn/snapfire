@@ -3170,14 +3170,30 @@ fn made_component(parsed: &Parsed, export: &str) -> Option<(Span, String)> {
       _ => continue,
     };
     for decl in &var.decls {
-      if let (js::Pat::Ident(name), Some(init)) = (&decl.name, &decl.init) {
-        if name.id.sym.as_ref() == export {
-          return made(init);
-        }
+      match (&decl.name, &decl.init) {
+        (js::Pat::Ident(name), Some(init)) if name.id.sym.as_ref() == export => return made(init),
+        (pattern @ (js::Pat::Object(_) | js::Pat::Array(_)), Some(init)) if binds(pattern, export) => return made(init),
+        _ => {}
       }
     }
   }
   None
+}
+
+/// Whether a destructuring pattern declares `name`.
+fn binds(pattern: &js::Pat, name: &str) -> bool {
+  match pattern {
+    js::Pat::Ident(id) => id.id.sym.as_ref() == name,
+    js::Pat::Assign(assign) => binds(&assign.left, name),
+    js::Pat::Rest(rest) => binds(&rest.arg, name),
+    js::Pat::Array(array) => array.elems.iter().flatten().any(|p| binds(p, name)),
+    js::Pat::Object(object) => object.props.iter().any(|prop| match prop {
+      js::ObjectPatProp::KeyValue(kv) => binds(&kv.value, name),
+      js::ObjectPatProp::Assign(a) => a.key.sym.as_ref() == name,
+      js::ObjectPatProp::Rest(rest) => binds(&rest.arg, name),
+    }),
+    _ => false,
+  }
 }
 
 pub(crate) enum Found<'a> {
