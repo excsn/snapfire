@@ -34,6 +34,8 @@ pub enum Stmt {
   /// dispatches the action when the handler runs in server mode. Only a
   /// handler holds one; a body cannot dispatch an action.
   Act { action: String, input: Expr },
+  /// `try { body } catch (name) { handler }`: `handler` runs when `body` fails as JavaScript would throw, a type error, an invalid value or a `throw`, with `name` bound to what was thrown, `{ name, message }` for an error the interpreter raised. A guard's `fail` is not caught.
+  Try { body: Body, #[serde(default, skip_serializing_if = "Option::is_none")] name: Option<String>, handler: Body },
   Expr(Expr),
 }
 
@@ -244,7 +246,7 @@ pub enum Builtin {
   IsArray,
   /// `console.log(...)` and its kin on a render path: the first argument names the method, `log`, `info`, `debug`, `warn` or `error`, and the rest are written as `console.log` writes them, as a `tracing` event under the target `fsr::console` at that level; the value is null.
   Log,
-  /// `throw Error(message)` on a render path: the render fails with `String(message)`, as a component that throws fails React's server render.
+  /// `throw Error(message)` on a render path: the render fails with `String(message)`, as a component that throws fails React's server render. A second argument is what a `catch` around it binds, the `Error` itself.
   Throw,
   /// A component named as a value, `icon={Star}`: its module, which a tag read from the value renders.
   ComponentRef,
@@ -260,6 +262,14 @@ pub enum Builtin {
   FormHas,
   /// `.getAll(key)` over the same string: every value under `key`, in order.
   FormGetAll,
+  /// `.entries()` over the same string: each pair as `[key, value]`, in order.
+  FormEntries,
+  /// The class an instance of a class the build lowered was made by, `file#Class`, from its `$c`; null for any other value. A method call dispatches on it.
+  ClassOf,
+  /// `x.m(args)` with `x` an instance: the method `m` of the nearest class on `x`'s chain that declares it, called with `x` and then `args`. The arguments are `x`, the name and `args`.
+  CallMethod,
+  /// `x.g` with `x` an instance: the getter `g` of the nearest class on `x`'s chain that declares one, called with `x`, else `x`'s own field `g`.
+  GetMember,
   /// `.set(key, value)` over the same string: the string with the first value under `key` replaced and the rest removed; the pair appended when there is none.
   FormSet,
   /// `.append(key, value)` over the same string: the string with the pair added at the end.
@@ -623,6 +633,10 @@ pub fn body_visit_mut(body: &mut Body, f: &mut dyn FnMut(&mut Expr)) {
       Stmt::SessionDelete { path, .. } => path.iter_mut().for_each(|p| p.visit_mut(f)),
       Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => seconds.visit_mut(f),
       Stmt::Act { input, .. } => input.visit_mut(f),
+      Stmt::Try { body, handler, .. } => {
+        body_visit_mut(body, f);
+        body_visit_mut(handler, f);
+      }
     }
   }
 }
@@ -652,6 +666,10 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
       Stmt::SessionDelete { path, .. } => path.iter().for_each(|p| p.visit(f)),
       Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => seconds.visit(f),
       Stmt::Act { input, .. } => input.visit(f),
+      Stmt::Try { body, handler, .. } => {
+        body_visit(body, f);
+        body_visit(handler, f);
+      }
     }
   }
 }
@@ -1146,6 +1164,7 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
         Stmt::SessionDelete { path, .. } => exprs.extend(path.iter()),
         Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => exprs.push(seconds),
         Stmt::If { cond, .. } | Stmt::ForOf { over: cond, .. } => exprs.push(cond),
+        Stmt::Try { .. } => {}
       }
       for expr in exprs {
         let mut free = Vec::new();
@@ -1172,6 +1191,12 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
           walk(body, bound, out);
           bound.truncate(bound.len() - 1);
         }
+        Stmt::Try { body, name, handler } => {
+          walk(body, bound, out);
+          bound.extend(name.iter().cloned());
+          walk(handler, bound, out);
+          bound.truncate(bound.len() - name.iter().count());
+        }
         _ => {}
       }
     }
@@ -1190,6 +1215,7 @@ pub fn body_reads_request(body: &Body) -> bool {
     Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
     Stmt::Guard { cond, message, .. } => cond.reads_request() || message.reads_request(),
+    Stmt::Try { body, handler, .. } => body_reads_request(body) || body_reads_request(handler),
     Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => true,
   })
 }
@@ -1236,6 +1262,10 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
         Stmt::SessionDelete { path, .. } => into.extend(path.iter()),
         Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => into.push(seconds),
         Stmt::Act { input, .. } => into.push(input),
+        Stmt::Try { body, handler, .. } => {
+          exprs(body, into);
+          exprs(handler, into);
+        }
       }
     }
   }

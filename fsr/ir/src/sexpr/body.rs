@@ -55,6 +55,7 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
     Stmt::SessionExtend { seconds } => form("session-extend", vec![expr_to_sx(seconds)]),
     Stmt::Redirect(to) => form("redirect", vec![expr_to_sx(to)]),
     Stmt::Act { action, input } => form("act", vec![Sx::Str(action.clone()), expr_to_sx(input)]),
+    Stmt::Try { body, name, handler } => form("try", vec![Sx::list(body_to_sx(body)), name.clone().map_or_else(|| Sx::list(Vec::new()), Sx::Sym), Sx::list(body_to_sx(handler))]),
     Stmt::Expr(expr) => form("do", vec![expr_to_sx(expr)]),
   }
 }
@@ -169,6 +170,17 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
     "act" => {
       let a = args(items, head, 2)?;
       Stmt::Act { action: str_of(&a[0])?, input: expr_from_sx(&a[1])? }
+    }
+    "try" => {
+      let a = args(items, head, 3)?;
+      Stmt::Try {
+        body: body_from_sx(a[0].as_list()?)?,
+        name: match &a[1] {
+          Sx::Sym(name) => Some(name.clone()),
+          _ => None,
+        },
+        handler: body_from_sx(a[2].as_list()?)?,
+      }
     }
     "do" => Stmt::Expr(expr_from_sx(&args(items, head, 1)?[0])?),
     other => return Err(SexprError::shape(format!("`{other}` is not a statement form"))),

@@ -107,6 +107,14 @@ pub struct ComponentSet {
   fn_names: Vec<(String, String)>,
   /// Every file the browser imports a function prop from.
   fn_files: Vec<String>,
+  /// Every class a file this set read declares, shared with each lowerer so a call site dispatches on the classes known when it lowers.
+  pub(crate) classes: Rc<std::cell::RefCell<crate::classes::ClassTable>>,
+  /// The classes whose members are lowered into `consts`, or are being.
+  classes_lowered: HashSet<String>,
+  /// The files whose imports were read for the classes they declare.
+  class_graphs: HashSet<String>,
+  /// What each type alias resolved so far stands for as a kind, by `file#name`.
+  aliases: HashMap<String, Option<crate::AliasKind>>,
   /// Components of another framework a React component renders inline, as
   /// `file#export`: lowered to the empty region `Mount` writes, which the
   /// browser fills through the module's registry entry.
@@ -197,7 +205,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new() }
+    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -351,7 +359,7 @@ impl ComponentSet {
       .collect();
     let mut calls = DeriveCalls { meanings: &meanings, calls: Vec::new() };
     parsed.module.visit_with(&mut calls);
-    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone() };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone(), classes: Some(self.classes.clone()), type_kinds: self.alias_kinds(file) };
     let mut rows = Vec::new();
     for call in &calls.calls {
       let at = parsed.residue(call.span, "");
@@ -369,6 +377,9 @@ impl ComponentSet {
               if let Some((expr, key)) = self.global(file, &name)? {
                 if let Some(kind) = self.global_kind(file, &name)? {
                   resolved.global_kinds.push((name.clone(), kind));
+                }
+                if let Some(kind) = self.global_return_kind(file, &name)? {
+                  resolved.global_kinds.push((crate::returned_by(&name), kind));
                 }
                 if let Some(made) = self.global_formatter(file, &name)? {
                   resolved.global_formatters.push((name.clone(), made));
@@ -492,8 +503,9 @@ impl ComponentSet {
   /// cannot be bound.
   fn resolving_loop<T>(&mut self, file: &str, lower: impl Fn(&Parsed, &SessionDefaults, &Resolved) -> Result<T, Unresolved>) -> Result<T, LowerError> {
     self.load(file)?;
+    self.load_class_graph(file);
     self.meanings(file);
-    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone() };
+    let mut resolved = Resolved { globals: Vec::new(), global_kinds: Vec::new(), global_formatters: Vec::new(), natives: self.natives.clone(), classes: Some(self.classes.clone()), type_kinds: self.alias_kinds(file) };
     loop {
       let parsed = self.parsed[file].clone();
       let defaults = self.defaults.clone();
@@ -503,6 +515,9 @@ impl ComponentSet {
           Some((expr, key)) => {
             if let Some(kind) = self.global_kind(file, &name)? {
               resolved.global_kinds.push((name.clone(), kind));
+            }
+            if let Some(kind) = self.global_return_kind(file, &name)? {
+              resolved.global_kinds.push((crate::returned_by(&name), kind));
             }
             if let Some(made) = self.global_formatter(file, &name)? {
               resolved.global_formatters.push((name.clone(), made));
@@ -1012,6 +1027,7 @@ impl ComponentSet {
       return match source.and_then(|source| self.transformed(&base, &source, &overrides)) {
         Ok(parsed) => {
           self.parsed.insert(file.to_owned(), Rc::new(parsed));
+          self.register_classes(file);
           Ok(())
         }
         Err(error) => {
@@ -1031,6 +1047,7 @@ impl ComponentSet {
     match parsed {
       Ok(parsed) => {
         self.parsed.insert(file.to_owned(), Rc::new(parsed));
+        self.register_classes(file);
         Ok(())
       }
       Err(error) => {
@@ -1108,6 +1125,114 @@ impl ComponentSet {
   /// The file an import names relative to the app, through an alias or a
   /// relative path; `None` for a bare or generated specifier the build does
   /// not follow.
+  /// Adds each class `file` declares to the table, its parent resolved through the import that binds it.
+  fn register_classes(&mut self, file: &str) {
+    let parsed = self.parsed[file].clone();
+    for (name, class) in crate::classes::declared(&parsed.module) {
+      let id = format!("{file}#{name}");
+      if self.classes.borrow().get(&id).is_some() {
+        continue;
+      }
+      let mut info = crate::classes::describe(id, class);
+      info.parent = class.super_class.as_deref().and_then(|parent| match crate::meaning::bare(parent) {
+        js::Expr::Ident(parent) => self.class_id(file, parent.sym.as_ref()),
+        _ => None,
+      });
+      self.classes.borrow_mut().classes.push(info);
+    }
+  }
+
+  /// The id of the class `name` names in `file`: declared there, or imported from a file the set can read.
+  fn class_id(&mut self, file: &str, name: &str) -> Option<String> {
+    let parsed = self.parsed.get(file)?.clone();
+    if crate::classes::declared(&parsed.module).iter().any(|(n, _)| n == name) {
+      return Some(format!("{file}#{name}"));
+    }
+    for item in &parsed.module.body {
+      let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+      for spec in &import.specifiers {
+        let (local, imported) = match spec {
+          js::ImportSpecifier::Named(named) => (named.local.sym.to_string(), match &named.imported {
+            Some(js::ModuleExportName::Ident(id)) => id.sym.to_string(),
+            Some(js::ModuleExportName::Str(s)) => s.value.to_atom_lossy().to_string(),
+            None => named.local.sym.to_string(),
+          }),
+          js::ImportSpecifier::Default(d) => (d.local.sym.to_string(), "default".to_owned()),
+          js::ImportSpecifier::Namespace(_) => continue,
+        };
+        if local != name {
+          continue;
+        }
+        let source = import.src.value.to_atom_lossy().to_string();
+        let target = self.resolve_import(file, &source)?;
+        if is_foreign(&target) || self.load(&target).is_err() {
+          return None;
+        }
+        return self.class_id(&target, &imported).or_else(|| self.reexported_class(&target, &imported));
+      }
+    }
+    None
+  }
+
+  /// The class `export { name } from "…"` or `export * from "…"` in `file` hands on.
+  fn reexported_class(&mut self, file: &str, name: &str) -> Option<String> {
+    let parsed = self.parsed.get(file)?.clone();
+    for item in &parsed.module.body {
+      let (source, named) = match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(e)) => match &e.src {
+          Some(src) => (src.value.to_atom_lossy().to_string(), e.specifiers.iter().find_map(|spec| match spec {
+            js::ExportSpecifier::Named(n) => {
+              let exported = match n.exported.as_ref().unwrap_or(&n.orig) {
+                js::ModuleExportName::Ident(id) => id.sym.to_string(),
+                js::ModuleExportName::Str(s) => s.value.to_atom_lossy().to_string(),
+              };
+              let orig = match &n.orig {
+                js::ModuleExportName::Ident(id) => id.sym.to_string(),
+                js::ModuleExportName::Str(s) => s.value.to_atom_lossy().to_string(),
+              };
+              (exported == name).then_some(orig)
+            }
+            _ => None,
+          })),
+          None => continue,
+        },
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportAll(e)) => (e.src.value.to_atom_lossy().to_string(), Some(name.to_owned())),
+        _ => continue,
+      };
+      let Some(orig) = named else { continue };
+      let Some(target) = self.resolve_import(file, &source) else { continue };
+      if is_foreign(&target) || self.load(&target).is_err() {
+        continue;
+      }
+      if let Some(found) = self.class_id(&target, &orig).or_else(|| self.reexported_class(&target, &orig)) {
+        return Some(found);
+      }
+    }
+    None
+  }
+
+  /// Reads every file `file` reaches through its imports, so the classes they declare are in the table.
+  fn load_class_graph(&mut self, file: &str) {
+    let mut pending = vec![file.to_owned()];
+    while let Some(at) = pending.pop() {
+      if !self.class_graphs.insert(at.clone()) || self.load(&at).is_err() {
+        continue;
+      }
+      let parsed = self.parsed[&at].clone();
+      for item in &parsed.module.body {
+        let source = match item {
+          js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => import.src.value.to_atom_lossy().to_string(),
+          js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportAll(e)) => e.src.value.to_atom_lossy().to_string(),
+          js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(js::NamedExport { src: Some(src), .. })) => src.value.to_atom_lossy().to_string(),
+          _ => continue,
+        };
+        if let Some(target) = self.resolve_import(&at, &source).filter(|t| !is_foreign(t)) {
+          pending.push(target);
+        }
+      }
+    }
+  }
+
   fn resolve_import(&self, from: &str, source: &str) -> Option<String> {
     let joined = crate::resolve_specifier(from, source)?;
     // TypeScript resolves a `.js` or `.jsx` specifier to the source it compiles to that name.
@@ -1137,6 +1262,7 @@ impl ComponentSet {
   }
 
   fn lower_loaded_in(&mut self, file: &str, export: &str) -> Result<Component, LowerError> {
+    self.load_class_graph(file);
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
     let mut global_formatters: Vec<(String, js::NewExpr)> = Vec::new();
@@ -1216,6 +1342,9 @@ impl ComponentSet {
         }
         // The browser half reads hoisted values through a hook, which a class's `render()` may not call.
         lowerer.hoisting = (!element_template && class.is_none()).then(Candidates::default);
+        lowerer.classes = Some(self.classes.clone());
+        lowerer.type_kinds = self.alias_kinds(file);
+      lowerer.type_kinds = self.alias_kinds(file);
         lowerer.meanings = Some(meanings);
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
@@ -1287,6 +1416,9 @@ impl ComponentSet {
           };
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
+          }
+          if let Some(kind) = self.global_return_kind(file, &name)? {
+            global_kinds.push((crate::returned_by(&name), kind));
           }
           if let Some(made) = self.global_formatter(file, &name)? {
             global_formatters.push((name.clone(), made));
@@ -1590,6 +1722,9 @@ impl ComponentSet {
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
           }
+          if let Some(kind) = self.global_return_kind(file, &name)? {
+            global_kinds.push((crate::returned_by(&name), kind));
+          }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
         }
@@ -1758,6 +1893,9 @@ impl ComponentSet {
           };
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
+          }
+          if let Some(kind) = self.global_return_kind(file, &name)? {
+            global_kinds.push((crate::returned_by(&name), kind));
           }
           let expr = self.name_if_large(key, expr);
           globals.push((name, expr));
@@ -2107,6 +2245,10 @@ impl ComponentSet {
     }
     let meanings = self.meanings(file);
     let parsed = self.parsed[file].clone();
+    if let Some(id) = crate::classes::declared(&parsed.module).iter().any(|(n, _)| n == name).then(|| format!("{file}#{name}")) {
+      self.lower_class(&id)?;
+      return Ok(Some((crate::classes::class_value(&id), key)));
+    }
     match meanings.bindings.get(name) {
       Some(crate::meaning::Meaning::Asset { source }) => {
         let Some(path) = asset_path(file, source) else { return Ok(None) };
@@ -2215,6 +2357,120 @@ impl ComponentSet {
     })
   }
 
+  /// The kind a module-level function `name` is declared to return, a type alias read through to what it stands for.
+  fn global_return_kind(&mut self, file: &str, name: &str) -> Result<Option<crate::Kind>, LowerError> {
+    if let Some(crate::meaning::Meaning::Own { file: declared, name: declared_name }) = self.meanings(file).bindings.get(name).cloned() {
+      if declared != file {
+        self.load(&declared)?;
+        return self.global_return_kind(&declared, &declared_name);
+      }
+    }
+    let parsed = self.parsed[file].clone();
+    let Some(returned) = declared_return(&parsed.module, name) else { return Ok(None) };
+    let aliases = self.alias_kinds(file);
+    Ok(crate::Kind::of_type_in(returned, &aliases))
+  }
+
+  /// Every type alias `file` declares or imports that stands for a kind, by its local name.
+  pub(crate) fn alias_kinds(&mut self, file: &str) -> Vec<(String, crate::AliasKind)> {
+    let Some(parsed) = self.parsed.get(file).cloned() else { return Vec::new() };
+    let mut names: Vec<String> = parsed.module.body.iter().filter_map(|item| type_alias_decl(item).map(|a| a.id.sym.to_string())).collect();
+    for item in &parsed.module.body {
+      let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+      for spec in &import.specifiers {
+        if let js::ImportSpecifier::Named(named) = spec {
+          names.push(named.local.sym.to_string());
+        }
+      }
+    }
+    names.into_iter().filter_map(|name| self.resolve_alias(file, &name).map(|kind| (name, kind))).collect()
+  }
+
+  /// What the type `name` stands for in `file` as a kind: an alias declared there, or one imported or handed on from a file the set can read.
+  fn resolve_alias(&mut self, file: &str, name: &str) -> Option<crate::AliasKind> {
+    let key = format!("{file}#{name}");
+    if let Some(known) = self.aliases.get(&key) {
+      return *known;
+    }
+    self.aliases.insert(key.clone(), None);
+    let found = self.resolve_alias_uncached(file, name);
+    self.aliases.insert(key, found);
+    found
+  }
+
+  fn resolve_alias_uncached(&mut self, file: &str, name: &str) -> Option<crate::AliasKind> {
+    let parsed = self.parsed.get(file)?.clone();
+    if let Some(alias) = parsed.module.body.iter().filter_map(type_alias_decl).find(|a| a.id.sym.as_ref() == name) {
+      let params: Vec<String> = alias.type_params.as_ref().map(|p| p.params.iter().map(|p| p.name.sym.to_string()).collect()).unwrap_or_default();
+      return self.alias_body_kind(file, &alias.type_ann, &params);
+    }
+    let mut sources = Vec::new();
+    for item in &parsed.module.body {
+      match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => {
+          for spec in &import.specifiers {
+            let js::ImportSpecifier::Named(named) = spec else { continue };
+            if named.local.sym.as_ref() != name {
+              continue;
+            }
+            let imported = match &named.imported {
+              Some(js::ModuleExportName::Ident(id)) => id.sym.to_string(),
+              Some(js::ModuleExportName::Str(s)) => s.value.to_atom_lossy().to_string(),
+              None => name.to_owned(),
+            };
+            sources.push((import.src.value.to_atom_lossy().to_string(), imported));
+          }
+        }
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(js::NamedExport { src: Some(src), specifiers, .. })) => {
+          for spec in specifiers {
+            let js::ExportSpecifier::Named(n) = spec else { continue };
+            let text = |n: &js::ModuleExportName| match n {
+              js::ModuleExportName::Ident(id) => id.sym.to_string(),
+              js::ModuleExportName::Str(s) => s.value.to_atom_lossy().to_string(),
+            };
+            if text(n.exported.as_ref().unwrap_or(&n.orig)) == name {
+              sources.push((src.value.to_atom_lossy().to_string(), text(&n.orig)));
+            }
+          }
+        }
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportAll(e)) => sources.push((e.src.value.to_atom_lossy().to_string(), name.to_owned())),
+        _ => {}
+      }
+    }
+    for (source, imported) in sources {
+      let Some(target) = self.resolve_import(file, &source).filter(|t| !is_foreign(t)) else { continue };
+      if self.load(&target).is_err() {
+        continue;
+      }
+      if let Some(found) = self.resolve_alias(&target, &imported) {
+        return Some(found);
+      }
+    }
+    None
+  }
+
+  /// The kind an alias body `ty` stands for, `params` the alias's own type parameters.
+  fn alias_body_kind(&mut self, file: &str, ty: &js::TsType, params: &[String]) -> Option<crate::AliasKind> {
+    match ty {
+      js::TsType::TsParenthesizedType(p) => self.alias_body_kind(file, &p.type_ann, params),
+      js::TsType::TsUnionOrIntersectionType(js::TsUnionOrIntersectionType::TsIntersectionType(i)) => i.types.iter().find_map(|t| self.alias_body_kind(file, t, params)),
+      js::TsType::TsTypeRef(r) => {
+        let js::TsEntityName::Ident(id) = &r.type_name else { return None };
+        if let Some(i) = params.iter().position(|p| p == id.sym.as_ref()) {
+          return Some(crate::AliasKind::Param(i));
+        }
+        if let Some(kind) = crate::Kind::of_type(ty) {
+          return Some(crate::AliasKind::Fixed(kind));
+        }
+        match self.resolve_alias(file, id.sym.as_ref())? {
+          crate::AliasKind::Fixed(kind) => Some(crate::AliasKind::Fixed(kind)),
+          crate::AliasKind::Param(j) => self.alias_body_kind(file, r.type_params.as_ref()?.params.get(j)?, params),
+        }
+      }
+      other => crate::Kind::of_type(other).map(crate::AliasKind::Fixed),
+    }
+  }
+
   /// The `Intl` formatter a module-level `name` holds when it is declared as `new Intl.NumberFormat(...)` or `new Intl.DateTimeFormat(...)`.
   fn global_formatter(&mut self, file: &str, name: &str) -> Result<Option<js::NewExpr>, LowerError> {
     if let Some(crate::meaning::Meaning::Own { file: declared, name: declared_name }) = self.meanings(file).bindings.get(name).cloned() {
@@ -2236,6 +2492,52 @@ impl ComponentSet {
   /// A constant the plan names once or the expression itself when naming it
   /// would cost more than copying it. `CONST_WEIGHT` is where a copy per
   /// reference starts to dominate the plan.
+  /// Lowers every member of the class `id`, and of each class it extends, into `consts`. A member that does not lower is a constant that fails with its residue when it runs.
+  fn lower_class(&mut self, id: &str) -> Result<(), LowerError> {
+    if !self.classes_lowered.insert(id.to_owned()) {
+      return Ok(());
+    }
+    let Some((file, name)) = id.rsplit_once('#') else { return Ok(()) };
+    let parent = self.classes.borrow().get(id).and_then(|c| c.parent.clone());
+    if let Some(parent) = &parent {
+      self.lower_class(parent)?;
+    }
+    if let Some(parent) = &parent {
+      self.consts.insert(crate::classes::class_parent_key(id), Expr::lit_str(parent));
+    }
+    let parsed = self.parsed[file].clone();
+    let Some((_, class)) = crate::classes::declared(&parsed.module).into_iter().find(|(n, _)| n == name) else { return Ok(()) };
+    let ident = crate::classes::declared_ident(&parsed.module, name).unwrap_or_else(|| js::Ident::new(name.into(), class.span, parsed.top));
+    let mut members: Vec<(String, Member<'_>)> = vec![(crate::classes::constructor_key(id), Member::Constructor)];
+    for member in &class.body {
+      match member {
+        js::ClassMember::Method(m) if m.kind != js::MethodKind::Setter => {
+          let Some(member_name) = crate::classes::member_name(&m.key) else { continue };
+          match (m.is_static, m.kind) {
+            (true, _) => members.push((crate::classes::static_key(id, &member_name), Member::Static(&m.function))),
+            (false, js::MethodKind::Getter) => members.push((crate::classes::class_getter_key(id, &member_name), Member::Instance(&m.function))),
+            (false, _) => members.push((crate::classes::class_method_key(id, &member_name), Member::Instance(&m.function))),
+          }
+        }
+        js::ClassMember::ClassProp(p) if p.is_static => {
+          let (Some(member_name), Some(value)) = (crate::classes::member_name(&p.key), p.value.as_deref()) else { continue };
+          members.push((crate::classes::static_key(id, &member_name), Member::StaticField(value)));
+        }
+        _ => {}
+      }
+    }
+    for (key, member) in members {
+      let item = Global::Member { id: id.to_owned(), parent: parent.clone(), class, name: ident.clone(), member };
+      let lowered = match self.lower_global(file, item) {
+        Ok(expr) => expr,
+        Err(LowerError::Residue(residue)) => Expr::Builtin { name: Builtin::Throw, args: vec![Expr::lit_str(residue.to_string())] },
+        Err(other) => return Err(other),
+      };
+      self.consts.insert(key, lowered);
+    }
+    Ok(())
+  }
+
   fn name_if_large(&mut self, key: String, expr: Expr) -> Expr {
     if weight(&expr) < CONST_WEIGHT || matches!(expr, Expr::Lambda { .. } | Expr::Ext { .. }) || is_asset_record(&expr) {
       return expr;
@@ -2247,6 +2549,7 @@ impl ComponentSet {
 
 
   fn lower_global(&mut self, file: &str, item: Global<'_>) -> Result<Expr, LowerError> {
+    self.load_class_graph(file);
     let mut globals: Vec<(String, Expr)> = Vec::new();
     let mut global_kinds = Vec::new();
     let mut global_formatters = Vec::new();
@@ -2264,9 +2567,15 @@ impl ComponentSet {
       if self.terminal {
         lowerer.cells = module_lets_of(&parsed, self.terminal).into_iter().filter(|(_, _, written)| *written).map(|(name, _, _)| (name.clone(), Expr::Var(name))).collect();
       }
+      lowerer.classes = Some(self.classes.clone());
+      lowerer.type_kinds = self.alias_kinds(file);
       let result = match &item {
         Global::Const(init) => lowerer.expr(init),
         Global::Function(params, body, is_async) => function_to_lambda(&mut lowerer, params, *body, *is_async),
+        Global::Member { id, parent, class, name, member } => {
+          lowerer.class_parent = parent.clone();
+          crate::classes::lower_member(&mut lowerer, id, parent.as_deref(), class, name, member)
+        }
       };
       match result {
         Ok(expr) => {
@@ -2281,6 +2590,9 @@ impl ComponentSet {
           let Some((expr, key)) = self.global(file, &name)? else { return Err(residue.into()) };
           if let Some(kind) = self.global_kind(file, &name)? {
             global_kinds.push((name.clone(), kind));
+          }
+          if let Some(kind) = self.global_return_kind(file, &name)? {
+            global_kinds.push((crate::returned_by(&name), kind));
           }
           if let Some(made) = self.global_formatter(file, &name)? {
             global_formatters.push((name.clone(), made));
@@ -2612,10 +2924,23 @@ enum Global<'a> {
   Const(&'a js::Expr),
   /// Its parameters, its body and whether it is `async`.
   Function(Vec<js::Pat>, FunctionBody<'a>, bool),
+  /// A member of the class `id`, `parent` the class it extends.
+  Member { id: String, parent: Option<String>, class: &'a js::Class, name: js::Ident, member: Member<'a> },
+}
+
+/// One member of a class as `lower_global` lowers it.
+#[derive(Clone)]
+pub(crate) enum Member<'a> {
+  Constructor,
+  /// A method or a getter, which takes the instance first.
+  Instance(&'a js::Function),
+  /// A static method or getter, `this` the class itself.
+  Static(&'a js::Function),
+  StaticField(&'a js::Expr),
 }
 
 pub(crate) fn patterns(function: &js::Function) -> Vec<js::Pat> {
-  function.params.iter().map(|p| p.pat.clone()).collect()
+  function.params.iter().filter(|p| !matches!(&p.pat, js::Pat::Ident(id) if id.id.sym == "this")).map(|p| p.pat.clone()).collect()
 }
 
 /// `Date.now` named rather than called, as `useState(Date.now)` passes it to be called once.
@@ -2973,6 +3298,34 @@ fn decl_function<'a>(parsed: &'a Parsed, decl: &'a js::Decl, name: &str) -> Opti
 }
 
 /// A module-level value: a `const` with an initialiser or a function.
+/// The `type X<…> = …` a module item declares, exported or not.
+fn type_alias_decl(item: &js::ModuleItem) -> Option<&js::TsTypeAliasDecl> {
+  match item {
+    js::ModuleItem::Stmt(js::Stmt::Decl(js::Decl::TsTypeAlias(a))) | js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::TsTypeAlias(a), .. })) => Some(a),
+    _ => None,
+  }
+}
+
+/// The return type a module-level function `name` declares: a `function` or a `const` holding an arrow or a function expression.
+fn declared_return<'a>(module: &'a js::Module, name: &str) -> Option<&'a js::TsType> {
+  module.body.iter().find_map(|item| {
+    let decl = match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(d)) => d,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(e)) => &e.decl,
+      _ => return None,
+    };
+    match decl {
+      js::Decl::Fn(f) if f.ident.sym.as_ref() == name => f.function.return_type.as_deref().map(|t| &*t.type_ann),
+      js::Decl::Var(v) => v.decls.iter().find_map(|d| match (&d.name, d.init.as_deref().map(crate::strip_parens)) {
+        (js::Pat::Ident(id), Some(js::Expr::Arrow(a))) if id.id.sym.as_ref() == name => a.return_type.as_deref().map(|t| &*t.type_ann),
+        (js::Pat::Ident(id), Some(js::Expr::Fn(f))) if id.id.sym.as_ref() == name => f.function.return_type.as_deref().map(|t| &*t.type_ann),
+        _ => None,
+      }),
+      _ => None,
+    }
+  })
+}
+
 fn find_value<'a>(parsed: &'a Parsed, name: &str) -> Option<Global<'a>> {
   for item in &parsed.module.body {
     let decl = match item {
@@ -3314,7 +3667,7 @@ pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, Strin
 /// A module-level function as a lambda: parameters bind as in `Lowerer::lambda`;
 /// `const`s inline; `if (c) return a;` chains become ternaries.
 /// A module function as a lambda. An `async` one in a terminal page runs its statements as an async function and returns the promise they settle.
-fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
+pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
   let names = bind_params(lowerer, params)?;
   if is_async && lowerer.terminal {
@@ -3538,6 +3891,9 @@ pub(crate) fn bind_params(lowerer: &mut Lowerer<'_>, params: &[js::Pat]) -> Lowe
       js::Pat::Ident(id) => {
         let name = id.id.sym.to_string();
         lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+        if let Some(kind) = id.type_ann.as_deref().and_then(|t| crate::Kind::of_type_in(&t.type_ann, &lowerer.type_kinds)) {
+          lowerer.kinds.push((name.clone(), Expr::Var(name.clone()), kind));
+        }
         names.push(name);
       }
       js::Pat::Assign(assign) if matches!(&*assign.left, js::Pat::Ident(_)) => {
@@ -3816,12 +4172,28 @@ pub(crate) fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStmt) -> L
     js::Expr::New(new) => error_message(&new.callee, new.args.as_deref().unwrap_or_default()),
     _ => None,
   };
-  let message = match message {
-    Some(Some(arg)) => lowerer.expr(&arg)?,
-    Some(None) => Expr::lit_str(""),
-    None => lowerer.expr(&thrown.arg)?,
+  let (message, error) = match message {
+    Some(arg) => {
+      let message = match arg {
+        Some(arg) => lowerer.expr(&arg)?,
+        None => Expr::lit_str(""),
+      };
+      let error = Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("Error")), Entry::Field("message".to_owned(), Expr::Str(Box::new(message.clone())))]);
+      (message, Some(error))
+    }
+    None => {
+      let value = lowerer.expr(&thrown.arg)?;
+      if matches!(value, Expr::Lit(_) | Expr::Template(..)) {
+        (value, None)
+      } else {
+        let t = lowerer.temp();
+        let read = Expr::Var(t.clone());
+        let message = Expr::Coalesce(Box::new(Expr::Field(Box::new(read.clone()), "message".to_owned())), Box::new(read.clone()));
+        return Ok(Expr::Block(vec![Stmt::Let { name: t, expr: value }, Stmt::Return(Expr::Builtin { name: Builtin::Throw, args: vec![message, read] })]));
+      }
+    }
   };
-  Ok(Expr::Builtin { name: Builtin::Throw, args: vec![message] })
+  Ok(Expr::Builtin { name: Builtin::Throw, args: std::iter::once(message).chain(error).collect() })
 }
 
 fn holds_break(stmt: &js::Stmt) -> bool {
@@ -4851,6 +5223,29 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
     },
     js::Stmt::Throw(thrown) => throw_expr(lowerer, thrown),
     js::Stmt::Empty(_) => block_to_expr_inner(lowerer, rest, floor),
+    js::Stmt::Try(t) => {
+      if t.finalizer.is_some() {
+        return Err(lowerer.residue(t.span, "a `finally`"));
+      }
+      let Some(catch) = &t.handler else { return Err(lowerer.residue(t.span, "a `try` without a `catch`")) };
+      // What follows a `try` runs outside it, so it may only follow a block that cannot fall through to it.
+      if !rest.is_empty() && !matches!(t.block.stmts.last(), Some(js::Stmt::Return(_) | js::Stmt::Throw(_))) {
+        return Err(lowerer.residue(t.span, "a `try` whose block can end without returning, with statements after it"));
+      }
+      let name = match &catch.param {
+        Some(js::Pat::Ident(id)) => Some(id.id.sym.to_string()),
+        None => None,
+        Some(other) => return Err(lowerer.residue(other.span(), "a `catch` parameter that is not a name")),
+      };
+      let body = path(lowerer, joined(&js::Stmt::Block(t.block.clone()), rest))?;
+      let depth = lowerer.scope.len();
+      if let Some(name) = &name {
+        lowerer.scope.push((name.clone(), Expr::Var(name.clone())));
+      }
+      let handler = path(lowerer, joined(&js::Stmt::Block(catch.body.clone()), rest));
+      lowerer.scope.truncate(depth);
+      Ok(Expr::Block(vec![Stmt::Try { body: vec![Stmt::Return(body)], name, handler: vec![Stmt::Return(handler?)] }]))
+    }
     js::Stmt::Block(_) if holds_return(first) => path(lowerer, joined(first, rest)),
     js::Stmt::If(if_stmt) if holds_return(first) => {
       let cond = lowerer.expr(&if_stmt.test)?;
@@ -9598,7 +9993,7 @@ export default function Cart({ lines, total }: { lines: { price: number }[]; tot
     let files = [
       ("routes/a/page.tsx", "import Card from \"@src/ui/Card\";\nexport default function A({ total }: { total: number }) {\n  return <Card total={total} />;\n}\n"),
       ("routes/b/page.tsx", "import Shell from \"@src/ui/Shell\";\nexport default function B({ total }: { total: number }) {\n  return <Shell total={total} />;\n}\n"),
-      ("src/ui/Shell.tsx", "import Card from \"./Card\";\nclass Clock {}\nexport default function Shell({ total }: { total: number }) {\n  const clock = new Clock();\n  return <section data-clock={String(clock)}><Card total={total} /></section>;\n}\n"),
+      ("src/ui/Shell.tsx", "import Card from \"./Card\";\nexport default function Shell({ total }: { total: number }) {\n  const clock = new Clock();\n  return <section data-clock={String(clock)}><Card total={total} /></section>;\n}\n"),
       ("src/ui/Card.tsx", card),
       ("src/ui/money.ts", "export function money(cents: number): string {\n  return `$${(cents / 100).toFixed(2)}`;\n}\n"),
     ];

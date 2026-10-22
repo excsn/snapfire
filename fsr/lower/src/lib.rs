@@ -4,6 +4,7 @@
 
 pub mod assets;
 pub mod component;
+mod classes;
 mod create_element;
 pub mod extract;
 mod methods;
@@ -142,6 +143,8 @@ pub(crate) struct Resolved {
   /// The resolved module-level names that hold an `Intl` formatter, with the `new` that made each.
   pub global_formatters: Vec<(String, js::NewExpr)>,
   pub natives: Vec<(String, Reach)>,
+  pub classes: Option<std::rc::Rc<std::cell::RefCell<crate::classes::ClassTable>>>,
+  pub type_kinds: Vec<(String, AliasKind)>,
 }
 
 /// A body that did not lower, with the name the set may bind and retry.
@@ -993,6 +996,16 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) provided: Vec<(String, Expr)>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
   pub(crate) unfollowed: Vec<String>,
+  /// The classes the set has read, whose members a call site dispatches to.
+  pub(crate) classes: Option<std::rc::Rc<std::cell::RefCell<crate::classes::ClassTable>>>,
+  /// The class the member being lowered extends, which `super.m()` calls into.
+  pub(crate) class_parent: Option<String>,
+  /// The kinds the fields of the class whose member is being lowered are declared with, read as `this.field`.
+  pub(crate) this_kinds: Vec<(String, Kind)>,
+  /// The receivers a call is being lowered without class dispatch for, the call already dispatching on them.
+  pub(crate) dispatching: Vec<String>,
+  /// The type aliases the file declares or imports that stand for a kind.
+  pub(crate) type_kinds: Vec<(String, AliasKind)>,
 }
 
 /// A JavaScript type the value model has no arm for and what it lowered to: a `Map` as an object keyed by `String(key)`, a `Set` as an array without repeats, a `URLSearchParams` as the encoded string, a `URL` as its href, a `Date` as milliseconds since the epoch and a `BigInt` as an integer.
@@ -1036,8 +1049,14 @@ impl Kind {
 
   /// The kind a type annotation names: `Map<K, V>`, `Set<T>`, `Date`, `URLSearchParams`, `URL` or `bigint`.
   pub(crate) fn of_type(ty: &js::TsType) -> Option<Kind> {
+    Kind::of_type_in(ty, &[])
+  }
+
+  /// The kind `ty` names, an alias in `aliases` read through to what it stands for, so `Unique<URL>` for `type Unique<T> = T & Brand` is a `URL`.
+  pub(crate) fn of_type_in(ty: &js::TsType, aliases: &[(String, AliasKind)]) -> Option<Kind> {
     match ty {
-      js::TsType::TsParenthesizedType(p) => Kind::of_type(&p.type_ann),
+      js::TsType::TsParenthesizedType(p) => Kind::of_type_in(&p.type_ann, aliases),
+      js::TsType::TsUnionOrIntersectionType(js::TsUnionOrIntersectionType::TsIntersectionType(i)) => i.types.iter().find_map(|t| Kind::of_type_in(t, aliases)),
       js::TsType::TsKeywordType(k) if k.kind == js::TsKeywordTypeKind::TsBigIntKeyword => Some(Kind::BigInt),
       js::TsType::TsTypeRef(r) => match &r.type_name {
         js::TsEntityName::Ident(id) => match id.sym.as_ref() {
@@ -1046,13 +1065,28 @@ impl Kind {
           "Date" => Some(Kind::Date),
           "URLSearchParams" => Some(Kind::Query),
           "URL" => Some(Kind::Url),
-          _ => None,
+          name => match aliases.iter().find(|(n, _)| n == name).map(|(_, kind)| *kind)? {
+            AliasKind::Fixed(kind) => Some(kind),
+            AliasKind::Param(i) => Kind::of_type_in(r.type_params.as_ref()?.params.get(i)?, aliases),
+          },
         },
         _ => None,
       },
       _ => None,
     }
   }
+}
+
+/// What a type alias stands for as a kind: one kind whatever it is given, or the kind of its type argument at a position.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum AliasKind {
+  Fixed(Kind),
+  Param(usize),
+}
+
+/// The name the kind a module-level function returns is noted under beside the kinds of module-level values.
+pub(crate) fn returned_by(name: &str) -> String {
+  format!("{name}()")
 }
 
 /// The parts of a `URL` read through `UrlPart` and written through `UrlSet`.
@@ -1062,7 +1096,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1070,6 +1104,8 @@ impl<'a> Lowerer<'a> {
     self.global_kinds = resolved.global_kinds.clone();
     self.global_formatters = resolved.global_formatters.clone();
     self.natives = resolved.natives.clone();
+    self.classes = resolved.classes.clone();
+    self.type_kinds = resolved.type_kinds.clone();
     self
   }
 
@@ -1334,12 +1370,20 @@ impl<'a> Lowerer<'a> {
       js::Expr::Call(call) => match &call.callee {
         js::Callee::Expr(callee) => match &**callee {
           js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Browser) => Some(Kind::Browser),
+          js::Expr::Ident(f) if !self.scope.iter().any(|(n, _)| n == f.sym.as_ref()) => {
+            let returned = returned_by(f.sym.as_ref());
+            self.global_kinds.iter().find(|(n, _)| *n == returned).map(|(_, kind)| *kind).or_else(|| made_kind(e))
+          }
           _ => made_kind(e),
         },
         _ => None,
       },
       js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Browser) => Some(Kind::Browser),
       js::Expr::Member(m) if self.kind_of(&m.obj) == Some(Kind::Url) && matches!(&m.prop, js::MemberProp::Ident(p) if &*p.sym == "searchParams") => Some(Kind::Query),
+      js::Expr::Member(m) if matches!((&*m.obj, &m.prop), (js::Expr::Ident(this), js::MemberProp::Ident(_)) if this.sym.as_ref() == crate::classes::THIS) => {
+        let js::MemberProp::Ident(field) = &m.prop else { return None };
+        self.this_kinds.iter().find(|(n, _)| n == field.sym.as_ref()).map(|(_, kind)| *kind)
+      }
       js::Expr::Member(m) => {
         let js::Expr::Ident(obj) = &*m.obj else { return None };
         let js::MemberProp::Ident(prop) = &m.prop else { return None };
@@ -1357,6 +1401,9 @@ impl<'a> Lowerer<'a> {
 
   /// `x instanceof Map`, `Set`, `Date` or `Array`: a constant where the build knows what `x` holds, `Array.isArray` for `Array`.
   fn instance_of(&mut self, bin: &js::BinExpr) -> Lowered<Expr> {
+    if let Some(test) = self.class_instance_of(&bin.left, &bin.right)? {
+      return Ok(test);
+    }
     let js::Expr::Ident(class) = &*bin.right else { return Err(self.residue(bin.span, "`instanceof` of a computed class")) };
     let class = class.sym.as_ref();
     if self.scope.iter().any(|(n, _)| n == class) || self.globals.iter().any(|(n, _)| n == class) {
@@ -2569,6 +2616,9 @@ impl<'a> Lowerer<'a> {
         return Ok(Expr::Config(key));
       }
     }
+    if let Some(read) = self.class_static_read(member)? {
+      return Ok(read);
+    }
 
     let prop = |this: &mut Self| -> Lowered<Result<String, Expr>> {
       Ok(match &member.prop {
@@ -2691,6 +2741,10 @@ impl<'a> Lowerer<'a> {
     match prop(self)? {
       Ok(name) if name == "length" => Ok(Expr::Length(Box::new(target))),
       Ok(name) if name == "size" && collection.is_some_and(|kind| kind != Kind::Query) => Ok(Expr::Length(Box::new(target))),
+      Ok(name) if collection.is_none() && self.may_be_getter(&name) && !crate::classes::plain_root(&target) => {
+        let t = self.temp();
+        Ok(crate::classes::getter_dispatch(t, target, &name))
+      }
       Ok(name) => Ok(Expr::Field(Box::new(target), name)),
       Err(key) => Ok(Expr::Index(Box::new(target), Box::new(key))),
     }
@@ -2786,6 +2840,12 @@ impl<'a> Lowerer<'a> {
     let js::Callee::Expr(callee) = &call.callee else {
       return Err(self.residue(call.span, "`super` or `import()`"));
     };
+    if let Some(called) = self.class_call(call, callee)? {
+      return Ok(called);
+    }
+    if let Some(called) = self.instance_call(call, callee)? {
+      return Ok(called);
+    }
     if let Some(read) = self.context_read(call, callee)? {
       return Ok(read);
     }
@@ -3208,6 +3268,7 @@ impl<'a> Lowerer<'a> {
             let name = if method == "has" { Builtin::FormHas } else { Builtin::FormGetAll };
             Ok(Expr::Builtin { name, args: vec![target, Expr::Str(Box::new(self.expr(&arg.expr)?))] })
           }
+          "entries" => Ok(Expr::Builtin { name: Builtin::FormEntries, args: vec![target] }),
           other => Err(self.residue(member.span, format!("`.{other}()` of a `URLSearchParams`"))),
         };
       }
@@ -3592,7 +3653,10 @@ impl<'a> Lowerer<'a> {
       _ if svelte.is_some() => svelte.expect("checked").to_owned(),
       js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.to_string(),
       _ if intl_formatter(n).is_some() => return Err(self.residue_with(n.span, "an `Intl` formatter kept as a value", "call `.format(x)` on it where it is made, `new Intl.NumberFormat(undefined, options).format(n)`")),
-      other => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`")),
+      other => match self.class_new(n)? {
+        Some(made) => return Ok(made),
+        None => return Err(self.residue(other.span(), "`new` of something other than `Date`, `Map`, `Set`, `URL`, `URLSearchParams` or a class the build reads")),
+      },
     };
     let first = match args.first() {
       Some(a) => Some(self.expr(&a.expr)?),

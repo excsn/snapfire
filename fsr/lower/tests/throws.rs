@@ -63,3 +63,9 @@ fn a_guard_that_throws_lets_the_rest_of_the_body_render() {
   let thrown = html("guard_throw", &[("src/Price.tsx", guard), ("routes/page.tsx", &page(-1))]);
   assert!(thrown.as_ref().is_err_and(|e| e.contains("negative")), "{thrown:?}");
 }
+
+#[test]
+fn a_helper_catches_what_its_try_throws() {
+  let page = "const host = (s: string) => {\n  try {\n    return new URL(s).hostname;\n  } catch (e) {\n    return `bad ${e.name}`;\n  }\n};\nconst checked = (n: number) => {\n  try {\n    if (n > 1) throw new Error(\"big\");\n    return \"small\";\n  } catch (e) {\n    return e.message;\n  }\n};\nexport default function Page() {\n  return <p>{host(\"https://a.example/x\")} {host(\"nope\")} {checked(1)} {checked(2)}</p>;\n}\n";
+  assert_eq!(html("try_catch", &[("routes/page.tsx", page)]).as_deref(), Ok("<p>a.example bad Error small big</p>"));
+}

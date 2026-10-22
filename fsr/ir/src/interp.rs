@@ -100,6 +100,9 @@ impl Held {
   }
 
   fn hold(&self, key: &str, value: &Value) {
+    if holds_closure(value) {
+      return;
+    }
     if let Some(cell) = self.cells.get(key) {
       let _ = cell.set(value.clone());
     }
@@ -308,7 +311,7 @@ impl Interpreter {
           }
         }
         Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
-        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => break,
+        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::Try { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => break,
       }
     }
 
@@ -783,6 +786,24 @@ impl Env {
           self.scope.truncate(depth);
           return Ok(Flow::Return(value));
         }
+        Stmt::Try { body, name, handler } => {
+          let at = self.scope.len();
+          let flow = match self.block_sync(body) {
+            Err(fail) if fail.kind == FailureKind::Internal => {
+              self.scope.truncate(at);
+              let caught = self.thrown.take().unwrap_or_else(|| thrown_error(&fail));
+              self.scope.extend(name.iter().map(|name| (name.clone(), caught.clone())));
+              let flow = self.block_sync(handler);
+              self.scope.truncate(at);
+              flow?
+            }
+            other => other?,
+          };
+          if let Flow::Return(v) = flow {
+            self.scope.truncate(depth);
+            return Ok(Flow::Return(v));
+          }
+        }
         Stmt::Expr(expr) => {
           self.eval_sync(expr)?;
         }
@@ -935,6 +956,23 @@ impl Env {
         }
       }
       Stmt::Return(expr) => return Ok(Flow::Return(self.eval(expr).await?)),
+      Stmt::Try { body, name, handler } => {
+        let at = self.scope.len();
+        let flow = match self.block(body).await {
+          Err(fail) if fail.kind == FailureKind::Internal => {
+            self.scope.truncate(at);
+            let caught = self.thrown.take().unwrap_or_else(|| thrown_error(&fail));
+            self.scope.extend(name.iter().map(|name| (name.clone(), caught.clone())));
+            let flow = self.block(handler).await;
+            self.scope.truncate(at);
+            flow?
+          }
+          other => other?,
+        };
+        if let Flow::Return(v) = flow {
+          return Ok(Flow::Return(v));
+        }
+      }
       Stmt::Guard { cond, kind, message } => self.guard(cond, kind, message).await?,
       Stmt::SessionSet { key, path, value } => {
         let value = self.eval(value).await?;
@@ -1229,8 +1267,21 @@ impl Env {
         }
         match name {
           Builtin::CloneElement => self.clone_element(values),
+          Builtin::CallMethod | Builtin::GetMember => {
+            let (target, member) = (values.first().cloned().unwrap_or(Value::Undefined), match values.get(1) { Some(Value::Str(name)) => name.to_string(), _ => String::new() });
+            let getter = *name == Builtin::GetMember;
+            match instance_class(&target).and_then(|class| class_member(self.consts.as_deref(), &class, &member, getter)) {
+              Some(key) => {
+                let mut called = vec![target];
+                called.extend(values.into_iter().skip(2));
+                self.apply_sync(&Expr::Const(key), called)
+              }
+              None if getter => Ok(get_field(&target, &member)),
+              None => Err(Fail::internal(format!("`{member}` is not a method of {}", instance_class(&target).unwrap_or_else(|| "this value".to_owned())))),
+            }
+          }
           Builtin::Throw => {
-            self.thrown = values.first().cloned();
+            self.thrown = values.get(1).or(values.first()).cloned();
             builtin(*name, values)
           }
           Builtin::Emit => {
@@ -1711,6 +1762,23 @@ impl Env {
             values.push(self.eval(arg).await?);
           }
           self.apply(f, values).await
+        }
+        Expr::Builtin { name: name @ (Builtin::CallMethod | Builtin::GetMember), args } => {
+          let mut values = Vec::with_capacity(args.len());
+          for arg in args {
+            values.push(self.eval(arg).await?);
+          }
+          let (target, member) = (values.first().cloned().unwrap_or(Value::Undefined), match values.get(1) { Some(Value::Str(name)) => name.to_string(), _ => String::new() });
+          let getter = *name == Builtin::GetMember;
+          match instance_class(&target).and_then(|class| class_member(self.consts.as_deref(), &class, &member, getter)) {
+            Some(key) => {
+              let mut called = vec![target];
+              called.extend(values.into_iter().skip(2));
+              self.apply(&Expr::Const(key), called).await
+            }
+            None if getter => Ok(get_field(&target, &member)),
+            None => Err(Fail::internal(format!("`{member}` is not a method of {}", instance_class(&target).unwrap_or_else(|| "this value".to_owned())))),
+          }
         }
         Expr::Builtin { name, args } => {
           let mut values = Vec::with_capacity(args.len());
@@ -2255,6 +2323,60 @@ fn with_array(mut args: Vec<Value>, whole: &Option<Value>) -> Vec<Value> {
     args.push(array.clone());
   }
   args
+}
+
+/// The field an instance of a class the build lowered carries its class in, `file#Class`.
+pub const CLASS_FIELD: &str = "$c";
+
+/// The constant the instance method `name` of the class `class` is lowered into, a function of the instance and the method's arguments.
+pub fn class_method_key(class: &str, name: &str) -> String {
+  format!("{class}.{name}")
+}
+
+/// The constant the getter `name` of `class` is lowered into, a function of the instance.
+pub fn class_getter_key(class: &str, name: &str) -> String {
+  format!("{class}:get:{name}")
+}
+
+/// The constant naming the class `class` extends, a string; absent for one that extends none.
+pub fn class_parent_key(class: &str) -> String {
+  format!("{class}:parent")
+}
+
+/// The constant the instance member `name` of `class` runs: its own, else the nearest one up its chain.
+fn class_member(consts: Option<&Consts>, class: &str, name: &str, getter: bool) -> Option<String> {
+  let consts = consts?;
+  let mut at = class.to_owned();
+  for _ in 0..64 {
+    let key = if getter { class_getter_key(&at, name) } else { class_method_key(&at, name) };
+    if consts.contains_key(&key) {
+      return Some(key);
+    }
+    match consts.get(&class_parent_key(&at)) {
+      Some(Expr::Lit(Lit::Str(parent))) => at = parent.clone(),
+      _ => return None,
+    }
+  }
+  None
+}
+
+/// The class `value` was made by, when it is an instance of one the build lowered.
+fn instance_class(value: &Value) -> Option<String> {
+  match value {
+    Value::Map(fields) => match fields.get(CLASS_FIELD) {
+      Some(Value::Str(class)) => Some(class.to_string()),
+      _ => None,
+    },
+    _ => None,
+  }
+}
+
+/// What a `catch` binds for a failure the interpreter raised itself: an `Error`'s `name` and `message`.
+fn thrown_error(fail: &Fail) -> Value {
+  let mut fields = ValueMap::default();
+  fields.insert("name".to_owned(), Value::str("Error"));
+  fields.insert("message".to_owned(), Value::str(fail.message.clone()));
+  Value::Map(fields)
 }
 
 /// The URL a `UrlParse` href holds.
@@ -3049,6 +3171,16 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
       }
     }
+    Builtin::CallMethod | Builtin::GetMember => return Err(Fail::internal("a method call evaluated outside an environment")),
+    Builtin::ClassOf => match arg(0)? {
+      Value::Map(fields) => fields.get(CLASS_FIELD).filter(|c| matches!(c, Value::Str(_))).cloned().unwrap_or(Value::Null),
+      _ => Value::Null,
+    },
+    Builtin::FormEntries => match arg(0)? {
+      Value::Str(s) => Value::Seq(form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes()).map(|(k, v)| Value::Seq(vec![Value::str(k.into_owned()), Value::str(v.into_owned())].into_iter().collect())).collect()),
+      Value::Null | Value::Undefined => Value::Seq(Default::default()),
+      other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
+    },
     Builtin::FormHas | Builtin::FormGetAll => {
       let key = stringify(arg(1)?)?;
       let values: Vec<Value> = match arg(0)? {

@@ -29,7 +29,7 @@ examples-composition-named-render-props	lowered
 examples-composition-render-prop-fallbacks	lowered
 examples-composition-render-prop-props	lowered
 examples-composition-render-props	lowered
-examples-context-context-api	client: src/App.svelte:7:2 `<MapMarker>` does not lower: src/MapMarker.svelte:10:23: `new` of something other than `Date`, `Map`, `Set`, `URL` or `URLSearchParams`
+examples-context-context-api	client: src/App.svelte:7:2 `<MapMarker>` does not lower: src/MapMarker.svelte:10:23: `new` of something other than `Date`, `Map`, `Set`, `URL`, `URLSearchParams` or a class the build reads
 examples-debugging-debug	lowered
 examples-easing-easing	lowered
 examples-embeds-blog-svelte-css-in-js	client: src/styles.js:13:26 a tagged template

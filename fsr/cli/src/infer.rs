@@ -219,6 +219,12 @@ impl<'a> Inferer<'a> {
           env.pop();
         }
         Stmt::Return(e) => returns.push(self.expr(e, env)),
+        Stmt::Try { body, name, handler } => {
+          self.block(body, env, returns);
+          env.extend(name.iter().map(|name| (name.clone(), Ts::Unknown)));
+          self.block(handler, env, returns);
+          env.truncate(env.len() - name.iter().count());
+        }
         Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } | Stmt::Expr(_) => {}
       }
     }
@@ -402,6 +408,7 @@ impl<'a> Inferer<'a> {
         Builtin::FormGet => Ts::Union(vec![Ts::Str, Ts::Null]),
         Builtin::FormHas => Ts::Bool,
         Builtin::FormGetAll => Ts::List(Box::new(Ts::Str)),
+        Builtin::FormEntries => Ts::List(Box::new(Ts::List(Box::new(Ts::Str)))),
         Builtin::ClassNames | Builtin::TypeOf => Ts::Str,
         _ => Ts::Str,
       },
