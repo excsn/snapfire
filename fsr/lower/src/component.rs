@@ -1187,6 +1187,10 @@ impl ComponentSet {
               if let Some((span, how)) = made_component(&parsed, export) {
                 return Err(Lowerer::new(&parsed, &defaults).residue(span, how).into());
               }
+              if let Some(id) = default_ident(&parsed).filter(|id| export == "default" && matches!(meanings.bindings.get(id.sym.as_ref()), Some(crate::meaning::Meaning::Foreign))) {
+                let source = find_import(&parsed, id.sym.as_ref()).map(|(source, _)| source).unwrap_or_default();
+                return Err(Lowerer::new(&parsed, &defaults).residue(id.span, format!("`{}` comes from `{source}`, which the build cannot follow", id.sym)).into());
+              }
               return Err(LowerError::MissingExport { file: file.to_owned(), export: export.to_owned() });
             }
           },
@@ -2617,6 +2621,17 @@ pub(crate) fn arrow_body(arrow: &js::ArrowExpr) -> FunctionBody<'_> {
 
 /// The exported or declared function named `export`; `default` is the
 /// default export.
+/// The name `export default name;` exports.
+fn default_ident(parsed: &Parsed) -> Option<&js::Ident> {
+  parsed.module.body.iter().find_map(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => match &*e.expr {
+      js::Expr::Ident(id) => Some(id),
+      _ => None,
+    },
+    _ => None,
+  })
+}
+
 pub(crate) fn find_function<'a>(parsed: &'a Parsed, export: &str) -> Option<Found<'a>> {
   for item in &parsed.module.body {
     match item {
@@ -10152,6 +10167,14 @@ export function Page(props: { className: string; children: React.ReactNode; cart
     let LowerError::Residue(residue) = err else { panic!("{err}") };
     assert_eq!(residue.message, "a function called where it is written");
     assert!(residue.hint.as_deref().is_some_and(|h| h.contains("named function")), "{residue:?}");
+  }
+
+  #[test]
+  fn a_default_export_of_a_package_component_is_residue_naming_the_package() {
+    let layout = "import { BaseLayout } from \"shell-lib/layouts\";\nexport default BaseLayout;\n";
+    let err = lower(&[("routes/layout.tsx", layout)], "routes/layout.tsx#default").unwrap_err();
+    let LowerError::Residue(residue) = err else { panic!("{err}") };
+    assert_eq!(residue.message, "`BaseLayout` comes from `shell-lib/layouts`, which the build cannot follow");
   }
 
   #[test]
