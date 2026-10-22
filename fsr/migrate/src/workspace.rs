@@ -57,6 +57,15 @@ impl Pass for Workspace {
         }
       }
     }
+    let sheets: Vec<String> = reached.iter().filter(|p| p.ends_with(".css")).cloned().collect();
+    for sheet in sheets {
+      let Some(css) = tree.text(&sheet).map(str::to_owned) else { continue };
+      for (_, url) in crate::modules::relative_urls(&css) {
+        if let Some((target, _)) = normalize(dirname(&sheet), &url).and_then(|p| find(tree, &p)) {
+          reached.insert(target);
+        }
+      }
+    }
     let mut paths: Vec<(String, String)> = aliased.iter().map(|(pattern, file)| (pattern.clone(), without_extension(&format!("{PLACED_DIR}{}", file.strip_prefix(WORKSPACE_DIR).unwrap_or(file))))).collect();
     for package in &packages {
       for (subpath, file) in &package.exports {
@@ -278,6 +287,24 @@ mod tests {
     assert_eq!(report.packages.keys().collect::<Vec<_>>(), ["intl-lib"]);
     assert!(report.notes.iter().any(|n| n.message.contains("`./env` names a file for node and another for the browser")), "{:?}", report.notes);
   }
+  #[test]
+  fn a_package_stylesheet_brings_the_files_its_urls_name_and_names_them_from_where_it_lands() {
+    let input = tree(&[
+      ("package.json", r#"{ "dependencies": { "next": "15", "@shell/web": "workspace:*" } }"#),
+      ("app/page.tsx", "import { Button } from \"@shell/web/button\";\nexport default function Page() { return <Button />; }\n"),
+      (".workspace/@shell/web/package.json", r#"{ "name": "@shell/web", "exports": { "./button": "./src/ui/Button.tsx" } }"#),
+      (".workspace/@shell/web/src/ui/Button.tsx", "import \"./button.css\";\nexport function Button() { return <button className=\"b\">go</button>; }\n"),
+      (".workspace/@shell/web/src/ui/button.css", ".b { background: url(\"../images/bg.png\"); }\n@font-face { src: url(./fonts/a.woff2) format(\"woff2\"); }\n.c { mask: url(data:image/svg+xml,x); }\n"),
+      (".workspace/@shell/web/src/images/bg.png", "png"),
+      (".workspace/@shell/web/src/ui/fonts/a.woff2", "woff"),
+    ]);
+    let (out, report) = migrate(&input);
+    assert_eq!(out.text("app/styles/button.css").unwrap(), ".b { background: url(\"../src/packages/@shell/web/src/images/bg.png\"); }\n@font-face { src: url(../src/packages/@shell/web/src/ui/fonts/a.woff2) format(\"woff2\"); }\n.c { mask: url(data:image/svg+xml,x); }\n");
+    assert!(out.contains("app/src/packages/@shell/web/src/images/bg.png"));
+    assert!(out.contains("app/src/packages/@shell/web/src/ui/fonts/a.woff2"));
+    assert!(!report.notes.iter().any(|n| n.message.contains("now resolve from")), "{:?}", report.notes);
+  }
+
   #[test]
   fn an_application_alias_into_a_workspace_package_wins_over_its_exports() {
     let input = tree(&[

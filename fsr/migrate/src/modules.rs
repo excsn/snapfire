@@ -343,15 +343,47 @@ impl Pass for Stylesheets {
     }
     for (from, to) in moved {
       let Some(bytes) = tree.remove(&from) else { continue };
-      if std::str::from_utf8(&bytes).is_ok_and(|css| css.split("url(").skip(1).any(|u| {
-        let u = u.trim_start_matches(['"', '\'', ' ']);
-        !u.starts_with("http") && !u.starts_with("data:") && !u.starts_with('/') && !u.starts_with("var(")
-      })) {
-        report.note(&to, 0, format!("moved from `{from}`; its relative `url()`s now resolve from `app/styles/`"));
+      let Ok(css) = String::from_utf8(bytes.clone()) else {
+        tree.insert(to, bytes);
+        continue;
+      };
+      let mut out = css.clone();
+      let mut unmoved = false;
+      for (range, url) in relative_urls(&css).into_iter().rev() {
+        match crate::relocate::normalize(crate::relocate::dirname(&from), &url).filter(|asset| tree.contains(asset)) {
+          Some(asset) => out.replace_range(range, &crate::relocate::relative(crate::relocate::dirname(&to), &asset)),
+          None => unmoved = true,
+        }
       }
-      tree.insert(to, bytes);
+      if unmoved {
+        report.note(&to, 0, format!("moved from `{from}`; a relative `url()` in it names a file that did not come, so it resolves from `app/styles/`"));
+      }
+      tree.insert(to, out);
     }
   }
+}
+
+/// Each relative `url()` in a stylesheet, the range of its path and the path: not a URL with a scheme, not root-relative, not `data:` and not a `var()`. A query or a fragment after the path is left out of both.
+pub(crate) fn relative_urls(css: &str) -> Vec<(Range<usize>, String)> {
+  let mut out = Vec::new();
+  let mut from = 0;
+  while let Some(at) = css[from..].find("url(") {
+    let open = from + at + "url(".len();
+    let Some(close) = css[open..].find(')').map(|c| open + c) else { break };
+    from = close;
+    let inner = &css[open..close];
+    let lead = inner.len() - inner.trim_start().len();
+    let quoted = inner.trim().starts_with(['"', '\'']);
+    let start = open + lead + usize::from(quoted);
+    let body = css[start..close].trim_end();
+    let body = if quoted { body.trim_end_matches(['"', '\'']) } else { body };
+    let path = body.split(['?', '#']).next().unwrap_or(body);
+    if path.is_empty() || path.contains(':') || path.starts_with('/') || path.starts_with("var(") {
+      continue;
+    }
+    out.push((start..start + path.len(), path.to_owned()));
+  }
+  out
 }
 
 /// Tailwind 3's `@tailwind base;`, `@tailwind components;` and
