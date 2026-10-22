@@ -1187,6 +1187,12 @@ impl ComponentSet {
               if let Some((span, how)) = made_component(&parsed, export) {
                 return Err(Lowerer::new(&parsed, &defaults).residue(span, how).into());
               }
+              if let Some(crate::meaning::Meaning::Own { file: declared, name: declared_name }) = default_ident(&parsed).filter(|_| export == "default").and_then(|id| meanings.bindings.get(id.sym.as_ref()).cloned()) {
+                if !is_foreign(&declared) && declared != file {
+                  self.load(&declared)?;
+                  return self.lower_loaded(&declared, &declared_name);
+                }
+              }
               if let Some(id) = default_ident(&parsed).filter(|id| export == "default" && matches!(meanings.bindings.get(id.sym.as_ref()), Some(crate::meaning::Meaning::Foreign))) {
                 let source = find_import(&parsed, id.sym.as_ref()).map(|(source, _)| source).unwrap_or_default();
                 return Err(Lowerer::new(&parsed, &defaults).residue(id.span, format!("`{}` comes from `{source}`, which the build cannot follow", id.sym)).into());

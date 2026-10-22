@@ -249,3 +249,10 @@ fn children_for_each_runs_over_what_the_placement_passed() {
   let page = "import SeparatorList from \"@src/SeparatorList\";\nexport default function Page() {\n  return <SeparatorList><p>a</p><p>b</p></SeparatorList>;\n}\n";
   assert_eq!(html_with("children_each", &[("src/SeparatorList.tsx", list), ("routes/page.tsx", page)]).as_deref(), Ok("<p>a</p><hr><p>b</p>"));
 }
+
+#[test]
+fn a_page_whose_default_export_is_an_imported_component_renders_that_component() {
+  let card = "export function Card({ title = \"t\" }: { title?: string }) {\n  return <h1>{title}</h1>;\n}\n";
+  let page = "import { Card } from \"@src/Card\";\nexport default Card;\n";
+  assert_eq!(html_with("default_reexport", &[("src/Card.tsx", card), ("routes/page.tsx", page)]).as_deref(), Ok("<h1>t</h1>"));
+}
