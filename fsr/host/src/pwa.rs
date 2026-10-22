@@ -97,7 +97,7 @@ fn icons(config: &Config) -> Vec<serde_json::Value> {
   found.into_iter().map(|(_, sizes, name, kind)| serde_json::json!({ "src": format!("{}/{name}", root.route), "sizes": sizes, "type": kind })).collect()
 }
 
-/// The worker: the build's hashed modules and stylesheets precached as one set per build and answered from it first; the client, the vendor modules, the document's other stylesheets and the offline route warmed at install; everything else from the network first, kept when the response is not `private` or `no-store` and answered from what was kept when the network fails.
+/// The worker: the build's hashed modules and stylesheets precached as one set per build and answered from it first; the client, the vendor modules, the document's other stylesheets, the manifest and the offline route warmed at install; everything else from the network first, kept when the response is not `private` or `no-store` and answered from what was kept when the network fails. A payload a client navigation kept also keeps its page's document, so a reload offline finds the page.
 fn worker(config: &Config, section: &PwaSection, import_map: Option<&str>, styles: &[String], client_minified: bool) -> String {
   let bundle = config.bundle.as_ref();
   let build: Vec<String> = bundle
@@ -149,6 +149,7 @@ fn worker(config: &Config, section: &PwaSection, import_map: Option<&str>, style
   for href in styles {
     add(href.clone(), &mut warm);
   }
+  add(MANIFEST_ROUTE.to_owned(), &mut warm);
   if let Some(offline) = &section.offline {
     add(offline.clone(), &mut warm);
   }
@@ -228,6 +229,15 @@ self.addEventListener("fetch", (event) => {
         if (kept(response)) {
           const copy = response.clone();
           event.waitUntil(caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy)));
+          if (url.searchParams.has("__payload")) {
+            const page = new URL(url);
+            page.searchParams.delete("__payload");
+            event.waitUntil(
+              fetch(page.href, { credentials: "same-origin" })
+                .then((document) => (kept(document) ? caches.open(RUNTIME_CACHE).then((cache) => cache.put(page.href, document)) : undefined))
+                .catch(() => undefined),
+            );
+          }
         }
         return response;
       })

@@ -2579,6 +2579,9 @@ impl<'a> Lowerer<'a> {
     if self.terminal && self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) == Some(&meaning::Meaning::Library(meaning::Construct::Suspend)) {
       return Ok(Expr::Object(vec![Entry::Field(crate::terminal::PRIMITIVE.to_owned(), Expr::lit_str("suspendTerminal"))]));
     }
+    if let Some(meaning::Meaning::Library(meaning::Construct::NamedKey(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) {
+      return Ok(Expr::lit_str(*key));
+    }
     match self.root_of(id) {
       Some(Root::Input) => Ok(Expr::Input),
       Some(Root::Now) => Ok(Expr::Now),

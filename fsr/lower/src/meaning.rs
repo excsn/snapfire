@@ -24,6 +24,8 @@ pub(crate) enum Construct {
   Placement(&'static str),
   /// The store's `key`, which names a store key by its string.
   StoreKey,
+  /// A store key the client exports, by the string it holds: `online` and `updateReady`.
+  NamedKey(&'static str),
   /// The store's `derive`, which computes a key from its sources.
   Derive,
   /// A call the store exports that a handler may make: `set`, `clear`, `transaction` or `optimistic`.
@@ -141,6 +143,8 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr-client/svelte", "island", Construct::Placement("island")),
   ("@snapfire/fsr-client/store", "key", Construct::StoreKey),
   ("@snapfire/fsr-client", "key", Construct::StoreKey),
+  ("@snapfire/fsr-client", "online", Construct::NamedKey("sf/online")),
+  ("@snapfire/fsr-client", "updateReady", Construct::NamedKey("sf/update-ready")),
   ("@snapfire/fsr-client/store", "derive", Construct::Derive),
   ("@snapfire/fsr-client", "derive", Construct::Derive),
   ("@snapfire/fsr-client/store", "set", Construct::StoreCall("set")),
