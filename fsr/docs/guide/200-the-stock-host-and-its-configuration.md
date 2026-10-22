@@ -34,7 +34,7 @@ For each stem the host reads `<stem>.toml` then `<stem>.yaml`, whichever exist, 
 
 `bundle.toml` is the last rung and a project does not write one. `fsr bundle` writes it into the deploy tree it produces, naming the paths that moved when the files were laid out; chapter 303 covers what it holds. It loads after every deployment overlay because the overlays describe a deployment while `bundle.toml` describes the directory layout, which no deployment overlay sets.
 
-The host reads these sections. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title and the template a route's title is written into, each a literal or a message key with its fallback, the shell, the entry script, the import map, the stylesheets, which build of the client a page loads, whether the head carries a preload link per module, plus the Content-Security-Policy. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory. `[[route]]` declares a pattern the application registers in Rust, so the doctor and anything else reading the configuration know the deployment answers it; a declaration nothing registered shows on the boot report, which the stock host prints for every one since it registers no Rust route. `server.static_max_age` says how long a browser may keep what one answers. `[public]` holds the deployment's own values, the one section whose keys the application names.
+The host reads these sections. `[server]` names the listen address, the plan file and the contracts directory. `[document]` names the title and the template a route's title is written into, each a literal or a message key with its fallback, the shell, the entry script, the import map, the stylesheets, which build of the client a page loads, whether the head carries a preload link per module, plus the Content-Security-Policy. `[session]` holds the signing key, the store, the TTL, the capacity and whether the cookie is secure. `[cache]` turns on the render memo with a capacity and a lifetime; without it nothing is cached. `server.dev` turns the live refresh on or off; absent, it is on whenever `RELEASE_ENV` is unset or `development`. `[locales]` names the locales the host serves, the default that goes unprefixed and whether a chosen prefix is remembered in a cookie. `[clients.<name>]` gives each service its document and base URL. `[[static]]` maps a route to a directory. `[[route]]` declares a pattern the application registers in Rust, so the doctor and anything else reading the configuration know the deployment answers it; a declaration nothing registered shows on the boot report, which the stock host prints for every one since it registers no Rust route. `server.static_max_age` says how long a browser may keep what one answers. `[pwa]` has the host write the web app manifest and a worker that keeps pages for offline reading. `[public]` holds the deployment's own values, the one section whose keys the application names.
 
 ## What the host infers
 
@@ -104,6 +104,19 @@ The candidates are the fixed routes plus one path per value of a route's `paths`
 
 Past 50,000 URLs the sitemap becomes an index, the pages going in `sitemap-1.xml`, `sitemap-2.xml` and so on beside it. A mounted site is part of the shell's routes and needs nothing of its own.
 
+
+## Installing and reading offline
+
+A `[pwa]` section makes the application installable. The host writes `/manifest.webmanifest` from the fields and the sized icons in `icons/`, links it from every page and, outside development, serves a worker at `/sw.js` that the client registers:
+
+```toml
+[pwa]
+name = "Trails"
+theme_color = "#2f5d3a"
+offline = "/offline"
+```
+
+The worker precaches the build's modules under their hashed names and keeps every page a visitor opened that was not served `private`. With the network gone a kept page answers from the cache and any other page shows `offline`. A deploy installs the new build beside the old one: open pages keep their modules, the `updateReady` store key turns true and the next full load is the new build. An island shows the connection by reading the `online` key. `fsr/examples/trails_pwa_react_ts` is the whole of it in an application.
 ## The host this deployment answers on
 
 A body reads `ctx.host`. It is null until `[server]` lists the hosts the deployment answers on:

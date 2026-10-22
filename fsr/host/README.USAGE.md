@@ -26,6 +26,7 @@ How to write `config/app.toml`, what the host infers so the file stays short, ho
 * [Rendering a Template Route](#rendering-a-template-route)
 * [Serving Files Under Their Own Names](#serving-files-under-their-own-names)
 * [Serving robots.txt and a Sitemap](#serving-robotstxt-and-a-sitemap)
+* [Installing the Application and Reading It Offline](#installing-the-application-and-reading-it-offline)
 * [Serving Images and Fonts](#serving-images-and-fonts)
 * [Drawing Card Images](#drawing-card-images)
 * [Serving Locales](#serving-locales)
@@ -716,6 +717,46 @@ The boot report shows where they are and what cannot be listed:
 crawl     /robots.txt            robots
           /sitemap.xml           sitemap of every page an anonymous visitor is served
           /item/{id}             not in the sitemap: no `paths` export lists its values
+```
+
+## Installing the Application and Reading It Offline
+
+`[pwa]` makes the application installable and keeps what a visitor opened for when the network fails.
+
+```toml
+[pwa]
+name = "Trails"
+short_name = "Trails"
+theme_color = "#2f5d3a"
+background_color = "#f4f1ea"
+offline = "/offline"
+```
+
+The host answers `/manifest.webmanifest` from those fields, with `start_url` defaulting to `/`, `display` to `standalone` and each PNG, WebP or SVG in the icons directory whose name carries its size (`android-chrome-192x192.png`) as an icon. Every page links it and carries the theme colour; a `site.webmanifest` the icons directory would otherwise link is left out. Outside development the head also names the worker, which the client registers:
+
+```html
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#2f5d3a">
+<meta name="sf:worker" content="/sw.js">
+```
+
+The worker at `/sw.js` is written at boot from what the host serves:
+
+| Request | Answered |
+| --- | --- |
+| A module or stylesheet of the bundle | From the build's own cache, filled at install with every hashed name. A new build installs a new set and keeps the one before, so an open page still loads the modules it started with. |
+| The client, the vendor modules, the document's other stylesheets, the manifest and `offline` | Fetched at install without cookies and kept. |
+| Anything else that is a GET on this origin | From the network. A response that is not `private` or `no-store` is kept. A payload a client navigation kept also keeps its page's document. When the network fails the kept copy answers. A page never kept shows `offline`. |
+| `/_sf/`, `/__fsr/`, a POST | Never touched. |
+
+A visitor holding a session gets `private` documents, so nothing of theirs is kept. A new worker takes over every open page at once; the next full load is the new build. The client sets the `sf/update-ready` store key so a page can say so. Development links the manifest and registers no worker.
+
+An application that writes its own manifest or worker names the file instead. `file` and the manifest's fields are never set together. One of `file` or `name` is required:
+
+```toml
+[pwa]
+file = "pwa/app.webmanifest"
+worker = "pwa/worker.js"
 ```
 
 ## Serving Images and Fonts

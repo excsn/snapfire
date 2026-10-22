@@ -36,6 +36,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Navigating and Refreshing From Code](#navigating-and-refreshing-from-code)
 * [Wiring Another Library to the Navigator](#wiring-another-library-to-the-navigator)
 * [Following the Server](#following-the-server)
+* [Showing Whether the Page Is Online](#showing-whether-the-page-is-online)
 * [Sending as Fast as Someone Types](#sending-as-fast-as-someone-types)
 * [Calling an Action](#calling-an-action)
   * [Skipping Revalidation](#skipping-revalidation)
@@ -820,6 +821,29 @@ live(["prices"], { onTopic: (topic) => console.log(`${topic} moved`) });
 ```
 
 Nothing happens where `EventSource` is absent, so the same component renders on the server without a guard.
+
+## Showing Whether the Page Is Online
+
+`boot` keeps the `online` store key current and, under the host's `[pwa]`, registers its worker. An island reads the key like any other. `updateReady` turns true once a newer build's worker has taken over the page:
+
+```tsx
+import { online, updateReady } from "@snapfire/fsr-client";
+import { useStore } from "@snapfire/fsr-client/react";
+import { Link } from "@snapfire/fsr/components";
+
+export default function Status() {
+  const [connected] = useStore(online, true);
+  const [ready] = useStore(updateReady, false);
+  return (
+    <div className="status">
+      {connected ? null : <p>Offline: you are reading saved pages.</p>}
+      {ready ? <Link href="/" full>A new version is ready</Link> : null}
+    </div>
+  );
+}
+```
+
+A script that is not an island listens for `sf:update-ready` on the document instead. The page keeps running on the modules it loaded until the next full load.
 
 ## Sending as Fast as Someone Types
 

@@ -58,6 +58,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [refresh](#refresh)
   * [live](#live)
   * [socket](#socket)
+  * [enablePwa](#enablepwa)
   * [applyHead](#applyhead)
   * [loadScript](#loadscript)
   * [loadDeclaredScripts](#loaddeclaredscripts)
@@ -620,6 +621,14 @@ Does nothing and returns a no-op where `topics` is empty or where `EventSource` 
 Opens a WebSocket on `topic` at `path` (`/_sf/socket` by default) and keeps it open: a drop calls `onClose` and is retried after `backoffMs`, doubling to a minute. Every connection calls `onOpen`. Rows the server sends are written into the store under their keys unless `onRow` says otherwise, so an island reading a key follows without being told.
 
 `send` is dropped rather than queued while the socket is down, which is right for what this seam carries: the state of a keystroke, superseded by the next one. Returns a socket whose methods do nothing where `WebSocket` is absent, which is every server-side render.
+
+### enablePwa
+
+* `enablePwa(): void`
+* `online: StoreKey<boolean>`, the key `sf/online`
+* `updateReady: StoreKey<boolean>`, the key `sf/update-ready`
+
+Writes `online` from `navigator.onLine` and keeps it current from the window's `online` and `offline` events. When the document carries `<meta name="sf:worker" content="…">`, which the host writes under `[pwa]` outside development, registers that worker with scope `/`. When a newer worker takes over a page an older one controlled, sets `updateReady` to true and dispatches `sf:update-ready` on the document. `boot` calls it; a second call on the same document does nothing. The build reads `online` and `updateReady` imported from `@snapfire/fsr-client` as their key strings, so `useStore(online, true)` lowers.
 
 ### applyHead
 

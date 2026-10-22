@@ -57,6 +57,7 @@ No feature is needed for hyper or axum. The crate depends on `c5store` with `tom
 | Send a Content-Security-Policy | `[document.csp]` as directives and sources; the host adds the import map's hash and the dev nonce itself |
 | Try a policy before enforcing it | `[document.csp_report_only]`, the same shape, sent as report-only |
 | Serve `robots.txt` and a sitemap of what a signed-out visitor reaches | `[crawl]` with `document.origin` |
+| Make the application installable and readable offline | `[pwa]`: a manifest from its fields and a worker keeping what a visitor opened |
 | See what was bound and served | `Host::report` |
 
 | Serve a team's application under a path of yours, from its build output, one session and one navigation across both | `HostBuilder::mount` and `Mount` or `snapfire_fsr_sites` over a `[sites]` table |
