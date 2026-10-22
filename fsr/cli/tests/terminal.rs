@@ -478,3 +478,17 @@ fn a_let_declared_without_a_value_is_undefined() {
   let mut session = Session::open(&app(page)).unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0], "unset undefined");
 }
+
+#[test]
+fn a_handler_writes_its_own_let_in_a_branch_and_after_it() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Count() {\n  const [count, setCount] = useState(1);\n  useInput((input) => {\n    let next = count;\n    if (input === \"+\") {\n      next += 2;\n    } else {\n      next--;\n    }\n    next = next * 10;\n    setCount(next);\n  });\n  return <Text>{count}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let press = |c: char| {
+    let Some(Press::Input(press)) = key_event(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)) else { panic!("{c} is input") };
+    press
+  };
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "1");
+  assert_eq!(line(session.press(&press('+')).unwrap()), "30");
+  assert_eq!(line(session.press(&press('-')).unwrap()), "290");
+}

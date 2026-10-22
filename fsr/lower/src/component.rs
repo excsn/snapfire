@@ -8941,11 +8941,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               }
             }
             // A local a listener or a continuation writes lasts past this step, so it is a cell under a key fresh to this run.
-            if self.lowerer.terminal && walk.reach.is_none() && var.kind != js::VarDeclKind::Const && written_names(&stmts[at + 1..], true).contains(&local) {
+            if self.lowerer.terminal && var.kind != js::VarDeclKind::Const && written_names(&stmts[at + 1..], true).contains(&local) {
               let key = self.lowerer.temp();
               walk.out.push(Stmt::Let { name: key.clone(), expr: Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] } });
               let handle = Expr::ModuleCell { key: Box::new(Expr::Var(key)), init: Box::new(Expr::Lit(Lit::Null)) };
-              walk.out.push(Stmt::Expr(Expr::WriteCell(Box::new(handle.clone()), Box::new(expr))));
+              walk.effect(Stmt::Expr(Expr::WriteCell(Box::new(handle.clone()), Box::new(expr))));
               self.lowerer.cells.push((local.clone(), handle.clone()));
               self.lowerer.scope.push((local, Expr::ReadCell(Box::new(handle))));
               continue;
@@ -9296,6 +9296,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         }
       }
       js::Expr::Assign(assign) if self.lowerer.terminal && self.lowerer.cell_of_target(&assign.left).is_some() => {
+        let stmt = self.lowerer.effect(e)?;
+        walk.effect(stmt);
+        Ok(())
+      }
+      js::Expr::Update(update) if self.lowerer.terminal && matches!(&*update.arg, js::Expr::Ident(id) if self.lowerer.cells.iter().any(|(name, _)| *name == *id.sym)) => {
         let stmt = self.lowerer.effect(e)?;
         walk.effect(stmt);
         Ok(())
