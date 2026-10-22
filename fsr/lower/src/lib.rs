@@ -973,8 +973,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) global_formatters: Vec<(String, js::NewExpr)>,
   /// Why the last residue was a value only the browser knows, set by the site that refused it. A consumer that can leave the value to the browser, text under an element, a prop into a placement, a binding, takes it and lowers null in its place; anywhere else the residue stands.
   pub(crate) browser_value: Option<String>,
-  /// Lowering for a terminal, where a render may read the clock.
-  pub(crate) terminal: bool,
+  /// What the host running the page can do past `Render` and `Body`, [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`]; empty for a page with a browser half.
+  pub(crate) reaches: Vec<Reach>,
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
   /// The parameter a `derive` compute reads its sources through: a call of it is a store read.
@@ -1108,7 +1108,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1126,14 +1126,19 @@ impl<'a> Lowerer<'a> {
     (self.render_path || self.hoisting.is_some()) && !self.in_handler
   }
 
-  /// Refuses a `body` extension on a render path and a `terminal` one outside a terminal page.
+  /// Whether the host running the page has `reach`; `Render` and `Body` every page has.
+  pub(crate) fn reaches(&self, reach: Reach) -> bool {
+    reach.needs().is_none() || self.reaches.contains(&reach)
+  }
+
+  /// Refuses a `body` extension on a render path with a browser half and any reach the host lacks.
   fn check_reach(&mut self, span: Span, key: &str, reach: Reach) -> Lowered<()> {
-    if reach == Reach::Body && self.on_render_path() && !self.terminal {
+    if reach == Reach::Body && self.on_render_path() && !self.reaches(Reach::Terminal) {
       self.reach_violation = true;
       return Err(self.residue(span, format!("`{key}` on a render path")));
     }
-    if reach == Reach::Terminal && !self.terminal {
-      return Err(self.residue(span, format!("`{key}`, which runs in a terminal page only")));
+    if let (false, Some(needs)) = (self.reaches(reach), reach.needs()) {
+      return Err(self.residue(span, format!("`{key}`, which {needs}")));
     }
     Ok(())
   }
@@ -1869,12 +1874,12 @@ impl<'a> Lowerer<'a> {
     let js::Callee::Expr(callee) = &call.callee else { return false };
     let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return false };
     let settler = |e: &js::Expr| matches!(crate::meaning::bare(e), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym));
-    settler(callee) || (self.terminal && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
+    settler(callee) || (self.reaches(Reach::Later) && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
   }
 
   /// `process.env.NAME` or `process.env[name]` in a terminal page, `process` Node's from `node:process` or the global: the variable through `terminal.env`, null when it is not set.
   fn env_read(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
-    if !self.terminal {
+    if !self.reaches(Reach::Process) {
       return Ok(None);
     }
     let js::Expr::Member(env) = crate::meaning::bare(&member.obj) else { return Ok(None) };
@@ -1956,12 +1961,12 @@ impl<'a> Lowerer<'a> {
 
   /// Whether `call` is a listener [`Lowerer::listener`] reads.
   fn listens(&self, call: &js::CallExpr) -> bool {
-    self.terminal && self.listener(call).is_some()
+    self.reaches(Reach::Process) && self.listener(call).is_some()
   }
 
   /// A listener on a spawned process as the act [`crate::terminal::Act::Listen`]. Its callback is a continuation with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` settles the promise instead. `None` for any other call.
   fn listening(&mut self, call: &js::CallExpr) -> Lowered<Option<Stmt>> {
-    if !self.terminal {
+    if !self.reaches(Reach::Process) {
       return Ok(None);
     }
     let Some((process, report, callback, removes)) = self.listener(call) else { return Ok(None) };
@@ -2004,7 +2009,7 @@ impl<'a> Lowerer<'a> {
 
   /// `p.then(f)` in a terminal page: a fresh promise and a continuation on `p` running `f` with what `p` resolved to, which settles the fresh one with what `f` returns; one `p` rejects rejects it as well.
   fn then_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-    let (true, js::Callee::Expr(callee)) = (self.terminal, &call.callee) else { return Ok(None) };
+    let (true, js::Callee::Expr(callee)) = (self.reaches(Reach::Later), &call.callee) else { return Ok(None) };
     let js::Expr::Member(member) = crate::meaning::bare(callee) else { return Ok(None) };
     if self.member_name(member).as_deref() != Some("then") || call.args.len() != 1 {
       return Ok(None);
@@ -2042,7 +2047,7 @@ impl<'a> Lowerer<'a> {
   fn suspend_call(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
     let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
     let js::Expr::Ident(id) = crate::meaning::bare(callee) else { return Ok(None) };
-    if !self.terminal {
+    if !self.reaches(Reach::Process) {
       return Ok(None);
     }
     let suspends = match self.scope.iter().rev().find(|(n, _)| *n == *id.sym) {
@@ -2073,7 +2078,7 @@ impl<'a> Lowerer<'a> {
   pub(crate) fn async_iife<'c>(&self, call: &'c js::CallExpr) -> Option<&'c js::ArrowExpr> {
     let js::Callee::Expr(callee) = &call.callee else { return None };
     match crate::meaning::bare(callee) {
-      js::Expr::Arrow(arrow) if self.terminal && arrow.is_async && call.args.is_empty() && arrow.params.is_empty() => Some(arrow),
+      js::Expr::Arrow(arrow) if self.reaches(Reach::Later) && arrow.is_async && call.args.is_empty() && arrow.params.is_empty() => Some(arrow),
       _ => None,
     }
   }
@@ -2242,7 +2247,7 @@ impl<'a> Lowerer<'a> {
       let input = Expr::Object(vec![Entry::Field("settle".to_owned(), settle), Entry::Field("value".to_owned(), value)]);
       return Ok(Some(Stmt::Act { action: crate::terminal::Act::Settle.name().to_owned(), input }));
     }
-    if id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && self.terminal {
+    if id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && self.reaches(Reach::Later) {
       if let [callback, delay] = call.args.as_slice() {
         if settler(self, &callback.expr) {
           let input = Expr::Object(vec![Entry::Field("settle".to_owned(), self.expr(&callback.expr)?), Entry::Field("ms".to_owned(), self.expr(&delay.expr)?)]);
@@ -2642,7 +2647,7 @@ impl<'a> Lowerer<'a> {
     if let Some((_, bound)) = self.globals.iter().rev().find(|(n, _)| n == name) {
       return Ok(bound.clone());
     }
-    if self.terminal && self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) == Some(&meaning::Meaning::Library(meaning::Construct::Suspend)) {
+    if self.reaches(Reach::Process) && self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) == Some(&meaning::Meaning::Library(meaning::Construct::Suspend)) {
       return Ok(Expr::Object(vec![Entry::Field(crate::terminal::PRIMITIVE.to_owned(), Expr::lit_str("suspendTerminal"))]));
     }
     if let Some(meaning::Meaning::Library(meaning::Construct::NamedKey(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_ident(id)) {
@@ -2904,12 +2909,12 @@ impl<'a> Lowerer<'a> {
     if let Some(suspended) = self.suspend_call(call)? {
       return Ok(suspended);
     }
-    if let (true, js::Callee::Expr(callee), Some(js::Expr::Lit(js::Lit::Str(id)))) = (self.terminal, &call.callee, call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
+    if let (true, js::Callee::Expr(callee), Some(js::Expr::Lit(js::Lit::Str(id)))) = (self.reaches(Reach::Process), &call.callee, call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
       if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) == Some(meaning::Meaning::Library(meaning::Construct::ClientAction)) {
         return Ok(Expr::Object(vec![Entry::Field(crate::terminal::ACT_REF.to_owned(), Expr::lit_str(id.value.to_string_lossy().into_owned()))]));
       }
     }
-    if self.terminal && self.spawns(call) {
+    if self.reaches(Reach::Process) && self.spawns(call) {
       return self.spawn_value(call);
     }
     if let Some(chained) = self.then_call(call)? {
@@ -2972,7 +2977,7 @@ impl<'a> Lowerer<'a> {
     if let Some(meaning::Meaning::Library(meaning::Construct::Extension(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
       let (module, member) = key.split_once('.').expect("an extension is `module.member`");
       let reach = standard_reach(module, member).expect("a package maps to a standard member");
-      if reach == Reach::Terminal && !self.terminal {
+      if !self.reaches(reach) {
         let named = match &**callee {
           js::Expr::Ident(id) => id.sym.to_string(),
           _ => key.to_owned(),
@@ -3042,7 +3047,7 @@ impl<'a> Lowerer<'a> {
           if !matches!(*f, Expr::Lambda { .. }) {
             return Err(self.residue(id.span, format!("`{name}` is not a function")));
           }
-          if self.on_render_path() && !self.terminal {
+          if self.on_render_path() && !self.reaches(Reach::Terminal) {
             if let Some(key) = self.body_extension_in(&f) {
               if self.reads_only_the_date_clock(&f) {
                 return Err(self.browser_only(call.span, format!("`{name}` reads the current time on a render path, which the server and the browser read at different moments")));
@@ -3158,7 +3163,7 @@ impl<'a> Lowerer<'a> {
               _ => both(number, both(finite, both(whole, compare(CompareOp::Le, Expr::Builtin { name: Builtin::Abs, args: vec![x] }, Expr::Lit(Lit::Int(9_007_199_254_740_991)))))),
             });
           }
-          "Math" if method == "random" && self.terminal && call.args.is_empty() => {
+          "Math" if method == "random" && self.reaches(Reach::Terminal) && call.args.is_empty() => {
             let bytes = Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Float(6.0))] };
             let whole = Expr::Builtin { name: Builtin::ParseInt, args: vec![bytes, Expr::Lit(Lit::Float(16.0))] };
             return Ok(Expr::Arith(ArithOp::Div, Box::new(whole), Box::new(Expr::Lit(Lit::Float(281_474_976_710_656.0)))));
@@ -3408,7 +3413,7 @@ impl<'a> Lowerer<'a> {
         };
         Ok(Expr::Builtin { name: Builtin::DatePart, args: vec![*target, Expr::lit_str(part)] })
       }
-      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" if self.terminal && call.args.is_empty() => {
+      "getFullYear" | "getMonth" | "getDate" | "getDay" | "getHours" | "getMinutes" | "getSeconds" if self.reaches(Reach::Terminal) && call.args.is_empty() => {
         let part = match method.as_str() {
           "getFullYear" => "year",
           "getMonth" => "month",
@@ -3424,8 +3429,8 @@ impl<'a> Lowerer<'a> {
         let body = Expr::Builtin { name: Builtin::DatePart, args: vec![local, Expr::lit_str(part)] };
         Ok(Expr::Apply { f: Box::new(Expr::Lambda { params: vec![at], body: Box::new(body) }), args: vec![*target] })
       }
-      "getTimezoneOffset" if self.terminal => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
-      "toLocaleTimeString" if self.terminal && call.args.len() <= 1 => {
+      "getTimezoneOffset" if self.reaches(Reach::Terminal) => Ok(Expr::Ext { module: "time".to_owned(), name: "localOffset".to_owned(), args: vec![*target] }),
+      "toLocaleTimeString" if self.reaches(Reach::Terminal) && call.args.len() <= 1 => {
         let locale = match call.args.first().map(|a| strip_parens(&a.expr)) {
           None => Expr::Lit(Lit::Null),
           Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => Expr::Lit(Lit::Null),
@@ -3740,7 +3745,7 @@ impl<'a> Lowerer<'a> {
       };
       return Ok(Expr::Object(vec![Entry::Field("current".to_owned(), value.clone()), Entry::Field("target".to_owned(), value)]));
     }
-    if self.terminal && matches!(&*n.callee, js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved && id.sym.as_ref() == "Promise") {
+    if self.reaches(Reach::Later) && matches!(&*n.callee, js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved && id.sym.as_ref() == "Promise") {
       return self.terminal_promise(n, &args);
     }
     if let js::Expr::Ident(id) = &*n.callee {
@@ -3810,7 +3815,7 @@ impl<'a> Lowerer<'a> {
 
   /// `Date.now()` or `new Date()`: the request's clock in a body; on a render path the server and the browser would each read their own moment.
   pub(crate) fn date_now(&mut self, span: Span) -> Lowered<Expr> {
-    if self.on_render_path() && !self.terminal {
+    if self.on_render_path() && !self.reaches(Reach::Terminal) {
       return Err(self.browser_only(span, "the current time on a render path, which the server and the browser read at different moments"));
     }
     Ok(Expr::Num(Box::new(Expr::Ext { module: "time".to_owned(), name: "now".to_owned(), args: Vec::new() })))
@@ -3818,7 +3823,7 @@ impl<'a> Lowerer<'a> {
 
   /// Refuses an `Intl.Segmenter` the build does not split as the browser would: one outside a terminal, whose browser may hold other Unicode tables, and one whose granularity is not `"grapheme"`.
   fn grapheme_segmenter(&mut self, made: &js::NewExpr) -> Lowered<()> {
-    if !self.terminal {
+    if !self.reaches(Reach::Terminal) {
       return Err(self.browser_only(made.span, "`Intl.Segmenter`, which splits by the browser's own Unicode tables"));
     }
     let granularity = made.args.as_ref().and_then(|args| args.get(1)).map(|options| match &*options.expr {

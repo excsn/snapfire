@@ -9,7 +9,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("terminal.stripAnsi", Reach::Terminal, |_, args| Ok(Value::str(strip(text("terminal.stripAnsi", args, 0)?))));
   extensions.register("terminal.stringWidth", Reach::Terminal, |_, args| Ok(Value::F64(width(text("terminal.stringWidth", args, 0)?) as f64)));
   extensions.register("terminal.wrapAnsi", Reach::Terminal, wrap_ansi);
-  extensions.register("terminal.env", Reach::Terminal, |_, args| Ok(std::env::var(text("terminal.env", args, 0)?).map_or(Value::Null, Value::str)));
+  extensions.register("terminal.env", Reach::Process, |_, args| Ok(std::env::var(text("terminal.env", args, 0)?).map_or(Value::Null, Value::str)));
 }
 
 /// `ms(x, { long })`: a number of milliseconds as `1m` or `1 minute`, a string such as `2 days` as milliseconds, null for one it cannot read.

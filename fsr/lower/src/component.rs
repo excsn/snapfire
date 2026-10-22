@@ -41,8 +41,8 @@ pub struct ForeignImport {
 #[non_exhaustive]
 pub struct ComponentSet {
   app: PathBuf,
-  /// Lowering for a terminal, which runs where the viewer is: the clock is read on a render path.
-  terminal: bool,
+  /// What the host running the pages can do past `Render` and `Body`, [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`]; empty for pages with a browser half.
+  reaches: Vec<Reach>,
   parsed: HashMap<String, Rc<Parsed>>,
   /// Where an imported image or font is looked up.
   assets: Rc<dyn AssetResolver>,
@@ -207,7 +207,7 @@ impl Transformed {
 
 impl ComponentSet {
   pub fn new(app: &Path) -> Self {
-    Self { app: app.to_path_buf(), terminal: false, parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new(), positional: HashSet::new() }
+    Self { app: app.to_path_buf(), reaches: Vec::new(), parsed: HashMap::new(), assets: Rc::new(NoAssets), rewrite_images: true, heads: HashMap::new(), provided: HashMap::new(), consts: Consts::new(), defaults: SessionDefaults::new(), components: Vec::new(), failed: HashMap::new(), resolving: Vec::new(), layouts: Vec::new(), slots: Vec::new(), rewrites: Vec::new(), pure: HashMap::new(), natives: Vec::new(), remaining: Vec::new(), foreign: Vec::new(), mounted: Vec::new(), described: HashMap::new(), meanings: HashMap::new(), meaning_in_progress: Vec::new(), foreign_residue: Vec::new(), browser_only: Vec::new(), undescribed: HashMap::new(), scripts_only: HashMap::new(), cyclic: false, stateless: HashMap::new(), moving_props: HashSet::new(), keys: HashMap::new(), elements: Rc::default(), transform: None, variants: HashMap::new(), placement_kinds: HashMap::new(), prop_kinds: HashMap::new(), relied: HashMap::new(), browser_texts: Vec::new(), lowering_component: false, module_lets: Vec::new(), continuations: Vec::new(), fn_exports: Vec::new(), fn_names: Vec::new(), fn_files: Vec::new(), classes: Rc::default(), classes_lowered: HashSet::new(), class_graphs: HashSet::new(), aliases: HashMap::new(), positional: HashSet::new() }
   }
 
   /// Where an imported image or font is looked up, and whether a plain
@@ -215,12 +215,17 @@ impl ComponentSet {
   /// Lowers for `fsr dev --terminal`, where the process is the viewer's: a
   /// render may read the clock, which a web render leaves to the browser.
   pub fn for_terminal(mut self) -> Self {
-    self.terminal = true;
+    self.reaches = vec![Reach::Terminal, Reach::Later, Reach::Process];
     self.provided.insert(crate::terminal::INK_FILE.to_owned(), crate::terminal::INK_SOURCE.to_owned());
     for (_, file, source) in crate::terminal::COMPANIONS {
       self.provided.insert(file.to_owned(), source.to_owned());
     }
     self
+  }
+
+  /// Whether the host running the pages has `reach`.
+  fn reaches(&self, reach: Reach) -> bool {
+    reach.needs().is_none() || self.reaches.contains(&reach)
   }
 
   pub fn with_assets(mut self, resolver: Rc<dyn AssetResolver>, rewrite_images: bool) -> Self {
@@ -1240,7 +1245,7 @@ impl ComponentSet {
   }
 
   fn resolve_import(&self, from: &str, source: &str) -> Option<String> {
-    if self.terminal {
+    if self.reaches(Reach::Terminal) {
       if let Some((_, file, _)) = crate::terminal::COMPANIONS.iter().find(|(specifier, _, _)| *specifier == source) {
         return Some((*file).to_owned());
       }
@@ -1279,9 +1284,9 @@ impl ComponentSet {
     let mut global_formatters: Vec<(String, js::NewExpr)> = Vec::new();
     let continued = self.continuations.len();
     let mut module_bindings: Vec<(String, String, Expr)> = Vec::new();
-    if self.terminal {
+    if self.reaches(Reach::Later) {
       let parsed = self.parsed[file].clone();
-      for (name, _, written) in module_lets_of(&parsed, self.terminal) {
+      for (name, _, written) in module_lets_of(&parsed) {
         if written {
           let seed = self.module_init(file, &name)?;
           module_bindings.push((name.clone(), format!("{file}#{name}"), seed));
@@ -1353,13 +1358,13 @@ impl ComponentSet {
           return Err(Lowerer::new(&parsed, &defaults).residue(span, ASYNC_COMPONENT).into());
         }
         let mut lowerer = Lowerer::new(&parsed, &defaults);
-        lowerer.terminal = self.terminal;
+        lowerer.reaches = self.reaches.clone();
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
         lowerer.global_formatters = global_formatters.clone();
         lowerer.unfollowed = unfollowed.iter().map(|(name, _)| name.clone()).collect();
         lowerer.natives = self.natives.clone();
-        if self.terminal {
+        if self.reaches(Reach::Later) {
           lowerer.cells = module_bindings.iter().map(|(name, _, _)| (name.clone(), Expr::Var(name.clone()))).collect();
         }
         // The browser half reads hoisted values through a hook, which a class's `render()` may not call.
@@ -1722,7 +1727,7 @@ impl ComponentSet {
         let parsed = self.parsed[file].clone();
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
-        lowerer.terminal = self.terminal;
+        lowerer.reaches = self.reaches.clone();
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
         lowerer.natives = self.natives.clone();
@@ -1883,7 +1888,7 @@ impl ComponentSet {
         let parsed = self.parsed[file].clone();
         let defaults = self.defaults.clone();
         let mut lowerer = Lowerer::new(&parsed, &defaults);
-        lowerer.terminal = self.terminal;
+        lowerer.reaches = self.reaches.clone();
         lowerer.globals = globals.clone();
         lowerer.global_kinds = global_kinds.clone();
         lowerer.natives = self.natives.clone();
@@ -2233,7 +2238,7 @@ impl ComponentSet {
     if export == "actions" && is_generated_client(file, source) {
       return Meaning::Library(Construct::GeneratedActions);
     }
-    if self.terminal && file != crate::terminal::INK_FILE && crate::terminal::INK_MODULES.contains(&source) {
+    if self.reaches(Reach::Terminal) && file != crate::terminal::INK_FILE && crate::terminal::INK_MODULES.contains(&source) {
       if let Some(written) = self.meanings(crate::terminal::INK_FILE).exports.get(export).cloned() {
         return written;
       }
@@ -2310,7 +2315,7 @@ impl ComponentSet {
         self.module_lets.push((key.clone(), file.to_owned(), name.to_owned()));
       }
       // A terminal page holds the module `let` in a cell that lasts from one step to the next; a read is the cell's value.
-      let read = match self.terminal {
+      let read = match self.reaches(Reach::Later) {
         true => Expr::ReadCell(Box::new(Expr::Var(name.to_owned()))),
         false => Expr::Var(name.to_owned()),
       };
@@ -2586,14 +2591,14 @@ impl ComponentSet {
       let defaults = self.defaults.clone();
       let meanings = self.meanings(file);
       let mut lowerer = Lowerer::new(&parsed, &defaults);
-      lowerer.terminal = self.terminal;
+      lowerer.reaches = self.reaches.clone();
       lowerer.meanings = Some(meanings);
       lowerer.globals = globals.clone();
       lowerer.global_kinds = global_kinds.clone();
       lowerer.global_formatters = global_formatters.clone();
       lowerer.natives = self.natives.clone();
-      if self.terminal {
-        lowerer.cells = module_lets_of(&parsed, self.terminal).into_iter().filter(|(_, _, written)| *written).map(|(name, _, _)| (name.clone(), Expr::Var(name))).collect();
+      if self.reaches(Reach::Later) {
+        lowerer.cells = module_lets_of(&parsed).into_iter().filter(|(_, _, written)| *written).map(|(name, _, _)| (name.clone(), Expr::Var(name))).collect();
       }
       lowerer.classes = Some(self.classes.clone());
       lowerer.type_kinds = self.alias_kinds(file);
@@ -3739,7 +3744,7 @@ pub(crate) fn find_import(parsed: &Parsed, local: &str) -> Option<(String, Strin
 pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], body: FunctionBody<'_>, is_async: bool) -> Lowered<Expr> {
   let depth = lowerer.scope.len();
   let names = bind_params(lowerer, params)?;
-  if is_async && lowerer.terminal {
+  if is_async && lowerer.reaches(Reach::Later) {
     let done = lowerer.temp();
     let stmts = match body {
       FunctionBody::Block(stmts) => stmts.to_vec(),
@@ -4861,7 +4866,7 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
           },
           _ => None,
         };
-        if lowerer.terminal && target.is_none() {
+        if lowerer.reaches(Reach::Terminal) && target.is_none() {
           // A terminal page runs a render's side effects as JavaScript does, in order: a call that emits, acts or writes a cell is held where it stands.
           let effect = lowerer.expr(&e.expr)?;
           if effectful(&effect) {
@@ -4938,7 +4943,7 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
     }
     js::Stmt::ForOf(for_of) => rebind_for_of(lowerer, for_of, writable, assigned),
     js::Stmt::For(counted) => rebind_counted(lowerer, counted, writable, assigned),
-    js::Stmt::While(looped) if lowerer.terminal => rebind_while(lowerer, looped, writable, assigned),
+    js::Stmt::While(looped) if lowerer.reaches(Reach::Terminal) => rebind_while(lowerer, looped, writable, assigned),
     js::Stmt::Empty(_) => Ok(()),
     js::Stmt::Try(t) if !holds_return(stmt) && !lowerer.held_reach.is_empty() => {
       let (ran, written) = try_run(lowerer, t, writable)?;
@@ -5512,7 +5517,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
           None => Expr::Lit(Lit::Undefined),
         };
         if let (js::Pat::Ident(id), Some(js::Expr::Call(call))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) {
-          if lowerer.terminal && lowerer.spawns(call) {
+          if lowerer.reaches(Reach::Process) && lowerer.spawns(call) {
             lowerer.spawned.push(id.id.sym.to_string());
           }
         }
@@ -5526,7 +5531,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       let value = block_to_expr_inner(lowerer, rest, floor)?;
       Ok(sequenced(lets, value))
     }
-    js::Stmt::Decl(js::Decl::Var(var)) if var.decls.iter().filter_map(|decl| decl.init.as_deref()).any(|init| matches!(crate::meaning::bare(init), js::Expr::New(_) | js::Expr::Call(_))) && lowerer.terminal => {
+    js::Stmt::Decl(js::Decl::Var(var)) if var.decls.iter().filter_map(|decl| decl.init.as_deref()).any(|init| matches!(crate::meaning::bare(init), js::Expr::New(_) | js::Expr::Call(_))) && lowerer.reaches(Reach::Terminal) => {
       let mut lets = Vec::new();
       for decl in &var.decls {
         let mut expr = match decl.init.as_deref() {
@@ -5534,7 +5539,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
           None => Expr::Lit(Lit::Undefined),
         };
         if let (js::Pat::Ident(id), Some(js::Expr::Call(call))) = (&decl.name, decl.init.as_deref().map(crate::meaning::bare)) {
-          if lowerer.terminal && lowerer.spawns(call) {
+          if lowerer.reaches(Reach::Process) && lowerer.spawns(call) {
             lowerer.spawned.push(id.id.sym.to_string());
           }
         }
@@ -5624,7 +5629,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       Ok(value)
     }
     js::Stmt::For(_) | js::Stmt::ForOf(_) | js::Stmt::While(_) if returns_from_loop(first) => path(lowerer, loop_return(first, rest)),
-    js::Stmt::If(branch) if lowerer.terminal && holds_acts(lowerer, first) => {
+    js::Stmt::If(branch) if lowerer.reaches(Reach::Terminal) && holds_acts(lowerer, first) => {
       let cond = lowerer.expr(&branch.test)?;
       let arm = |lowerer: &mut Lowerer<'_>, arm: &js::Stmt| -> Lowered<Expr> {
         let depth = lowerer.scope.len();
@@ -5657,7 +5662,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
     }
     js::Stmt::Expr(stmt) if matches!(&*stmt.expr, js::Expr::Call(_)) && {
       let depth = lowerer.scope.len();
-      let probed = lowerer.expr(&stmt.expr).map(|e| writes_store(&e) || (lowerer.terminal && effectful(&e))).unwrap_or(false);
+      let probed = lowerer.expr(&stmt.expr).map(|e| writes_store(&e) || (lowerer.reaches(Reach::Terminal) && effectful(&e))).unwrap_or(false);
       lowerer.scope.truncate(depth);
       probed
     } => {
@@ -5725,7 +5730,7 @@ fn computed_once(lowerer: &Lowerer<'_>, expr: &Expr) -> bool {
       acts |= body.iter().any(|stmt| matches!(stmt, Stmt::Act { .. }));
     }
   });
-  acts || touches_cells(expr) || (lowerer.terminal && lowerer.body_extension_in(expr).is_some())
+  acts || touches_cells(expr) || (lowerer.reaches(Reach::Terminal) && lowerer.body_extension_in(expr).is_some())
 }
 
 /// Whether an expression reads or writes a cell or calls a function, which may: a value computed from one is taken where it is declared, not where it is used.
@@ -6292,7 +6297,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   fn bind_value(&mut self, pattern: &js::Pat, value: Expr) -> Lowered<()> {
-    if crate::terminal::act_ref(&value).is_some() || crate::terminal::primitive_ref(&value).is_some() || (self.lowerer.terminal && matches!(value, Expr::Lambda { .. })) {
+    if crate::terminal::act_ref(&value).is_some() || crate::terminal::primitive_ref(&value).is_some() || (self.lowerer.reaches(Reach::Terminal) && matches!(value, Expr::Lambda { .. })) {
       return bind_pattern(&mut self.lowerer, pattern, value);
     }
     let name = self.lowerer.temp();
@@ -7065,7 +7070,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 }
               }
             }
-            js::Stmt::While(_) if self.lowerer.terminal => {
+            js::Stmt::While(_) if self.lowerer.reaches(Reach::Terminal) => {
               self.premake_stmt(stmt)?;
               self.rebound(stmt, floor, &early, &mut lets, &guarded)?
             }
@@ -7088,7 +7093,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     // A module-level `let` a function writes is state the store holds per request, seeded by the module's own initialisation; a handler's write to it reaches the store as any store write does.
     let mut bound = Vec::new();
     for (name, key, seed) in std::mem::take(&mut self.module_lets) {
-      if self.lowerer.terminal {
+      if self.lowerer.reaches(Reach::Later) {
         bound.push(Stmt::Let { name, expr: Expr::ModuleCell { key: Box::new(Expr::lit_str(key)), init: Box::new(seed) } });
         continue;
       }
@@ -7617,7 +7622,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             };
             self.state.push(local.clone());
             let mut fields = vec![Entry::Field("current".to_owned(), current)];
-            if self.lowerer.terminal {
+            if self.lowerer.reaches(Reach::Terminal) {
               self.state_bindings.push(local.clone());
               self.held_refs.push(local.clone());
               let range = self.lowerer.parsed.range(call.span);
@@ -7641,10 +7646,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
           Some(("useId", call)) if !matches!(self.meanings().bindings.get("useId"), Some(crate::meaning::Meaning::Own { .. })) => {
             let range = self.lowerer.parsed.range(call.span);
+            let viewer = self.lowerer.reaches(Reach::Terminal);
             match &mut self.lowerer.hoisting {
               Some(candidates) => candidates.id(range),
               // A terminal page has no browser copy whose ids must match, so a hook's own id is the component's to number.
-              None if self.lowerer.terminal => {
+              None if viewer => {
                 self.hook_ids += 1;
                 Expr::HoistId(HOOK_IDS + self.hook_ids)
               }
@@ -7657,7 +7663,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             match init {
               js::Expr::Arrow(arrow) => {
                 self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
-                if self.lowerer.terminal {
+                if self.lowerer.reaches(Reach::Terminal) {
                   let unbound = self.lowerer.unbound.take();
                   match self.lowerer.lambda(arrow) {
                     Ok(f) => {
@@ -7814,7 +7820,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       let state = hook == "useActionState" && at == 0;
       match part {
         None => {
-          if hook == "useTransition" && self.lowerer.terminal {
+          if hook == "useTransition" && self.lowerer.reaches(Reach::Terminal) {
             self.transitions.push(name.clone());
           }
           self.browser_function(name)
@@ -7854,7 +7860,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       self.browser_function(dispatch.clone());
     }
     let Some(name) = state else { return Ok(None) };
-    if let (Some(dispatch), true) = (dispatch, self.lowerer.terminal) {
+    if let (Some(dispatch), true) = (dispatch, self.lowerer.reaches(Reach::Terminal)) {
       let reducer = match call.args.first().map(|a| &*a.expr) {
         Some(js::Expr::Arrow(arrow)) => self.lowerer.lambda(arrow)?,
         Some(reducer) => self.lowerer.expr(reducer)?,
@@ -8751,7 +8757,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let [effect, deps] = &call.args[..] else { return Ok(()) };
     let js::Expr::Array(deps) = &*deps.expr else { return Ok(()) };
     if !deps.elems.iter().all(|d| self.never_changes(d)) {
-      if self.lowerer.terminal {
+      if self.lowerer.reaches(Reach::Terminal) {
         return self.rerun_effect(&effect.expr, deps);
       }
       return Ok(());
@@ -8761,7 +8767,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       inner = &p.expr;
     }
     let js::Expr::Arrow(arrow) = inner else { return Ok(()) };
-    if self.lowerer.terminal {
+    if self.lowerer.reaches(Reach::Terminal) {
       return self.terminal_effect(arrow);
     }
     let mut started: Vec<&'p js::Expr> = Vec::new();
@@ -8877,7 +8883,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// The act a local refers to in a terminal page, bound to an [`crate::terminal::ACT_REF`].
   fn act_bound(&self, name: &str) -> Option<String> {
-    if !self.lowerer.terminal {
+    if !self.lowerer.reaches(Reach::Terminal) {
       return None;
     }
     let (_, bound) = self.lowerer.scope.iter().rev().find(|(n, _)| n == name)?;
@@ -8890,7 +8896,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let name = id.sym.as_ref();
     self.setters.iter().any(|(setter, _)| setter == name)
       || self.writers.iter().any(|(writer, _)| writer == name)
-      || (self.lowerer.terminal && (self.dispatchers.iter().any(|(d, _, _)| d == name) || self.held_refs.iter().any(|r| r == name) || self.stable_callbacks.iter().any(|c| c == name) || self.act_bound(name).is_some()))
+      || (self.lowerer.reaches(Reach::Terminal) && (self.dispatchers.iter().any(|(d, _, _)| d == name) || self.held_refs.iter().any(|r| r == name) || self.stable_callbacks.iter().any(|c| c == name) || self.act_bound(name).is_some()))
   }
 
   /// Whether `body` reads a browser global, the global itself rather than a local of that name: work for a browser, which a terminal page has none of.
@@ -9186,7 +9192,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     let (spawned, cells) = (self.lowerer.spawned.len(), self.lowerer.cells.len());
     let result = match body {
       FunctionBody::Expr(e) => self.handler_stmt(e, walk),
-      FunctionBody::Block(stmts) if self.lowerer.terminal && stmts.iter().any(crate::awaits) => self.handler_async(stmts, walk),
+      FunctionBody::Block(stmts) if self.lowerer.reaches(Reach::Later) && stmts.iter().any(crate::awaits) => self.handler_async(stmts, walk),
       FunctionBody::Block(stmts) => self.handler_block(stmts, walk).map(|_| ()),
     };
     self.lowerer.scope.truncate(depth);
@@ -9225,7 +9231,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               }
             }
             let listener = match decl.init.as_deref().map(crate::meaning::bare) {
-              Some(js::Expr::Arrow(arrow)) if self.lowerer.terminal && listened_names(&stmts[at + 1..]).contains(&local) => Some(arrow),
+              Some(js::Expr::Arrow(arrow)) if self.lowerer.reaches(Reach::Process) && listened_names(&stmts[at + 1..]).contains(&local) => Some(arrow),
               _ => None,
             };
             let expr = match (decl.init.as_deref(), listener) {
@@ -9237,12 +9243,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               (None, _) => Expr::Lit(Lit::Null),
             };
             if let Some(js::Expr::Call(call)) = decl.init.as_deref().map(crate::meaning::bare) {
-              if self.lowerer.terminal && self.lowerer.spawns(call) {
+              if self.lowerer.reaches(Reach::Process) && self.lowerer.spawns(call) {
                 self.lowerer.spawned.push(local.clone());
               }
             }
             // A local a listener or a continuation writes lasts past this step, so it is a cell under a key fresh to this run.
-            if self.lowerer.terminal && var.kind != js::VarDeclKind::Const && written_names(&stmts[at + 1..], true).contains(&local) {
+            if var.kind != js::VarDeclKind::Const && written_names(&stmts[at + 1..], true).contains(&local) {
               let key = self.lowerer.temp();
               walk.out.push(Stmt::Let { name: key.clone(), expr: Expr::Ext { module: "crypto".to_owned(), name: "random".to_owned(), args: vec![Expr::Lit(Lit::Int(8))] } });
               let handle = Expr::ModuleCell { key: Box::new(Expr::Var(key)), init: Box::new(Expr::Lit(Lit::Null)) };
@@ -9485,7 +9491,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// `setInterval(f, ms)` or `setTimeout(f, ms)` in a terminal handler with `f` an arrow written in place.
   fn arrow_timer(&self, e: &'p js::Expr) -> Option<(bool, &'p js::ArrowExpr, &'p js::Expr)> {
-    let (repeats, callback, delay) = timer_call(e).filter(|_| self.lowerer.terminal)?;
+    let (repeats, callback, delay) = timer_call(e).filter(|_| self.lowerer.reaches(Reach::Later))?;
     match crate::meaning::bare(callback) {
       js::Expr::Arrow(arrow) => Some((repeats, arrow, delay)),
       _ => None,
@@ -9636,7 +9642,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               self.handler_timer(repeats, callback, delay, call.span, walk)?;
               return Ok(());
             }
-            if self.lowerer.terminal && (name == "clearInterval" || name == "clearTimeout") {
+            if self.lowerer.reaches(Reach::Later) && (name == "clearInterval" || name == "clearTimeout") {
               let timer = match call.args.first() {
                 Some(arg) => self.lowerer.expr(&arg.expr)?,
                 None => Expr::Lit(Lit::Null),
@@ -9725,7 +9731,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               return self.store_call(store_call, call, walk);
             }
             if let Ok(lowered) = self.lowerer.expr(e) {
-              if writes_store(&lowered) || calls_a_value(&lowered) || (self.lowerer.terminal && !self.lowerer.cells.is_empty() && touches_cells(&lowered)) {
+              if writes_store(&lowered) || calls_a_value(&lowered) || (self.lowerer.reaches(Reach::Later) && !self.lowerer.cells.is_empty() && touches_cells(&lowered)) {
                 walk.effect(Stmt::Expr(lowered));
                 return Ok(());
               }
@@ -9967,7 +9973,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// `<Suspense>` as its children inside React's completed boundary, the fallback left out since nothing on the server waits; `<Activity>` as its children inside an Activity boundary unless `mode` is `"hidden"`, which React's server renders as nothing.
   fn boundary(&mut self, which: &str, el: &'p js::JSXElement) -> Lowered<Tmpl> {
     let children = Tmpl::Fragment(self.children(&el.children)?);
-    if which == "Suspense" && self.lowerer.terminal {
+    if which == "Suspense" && self.lowerer.reaches(Reach::Terminal) {
       let fallback = el.opening.attrs.iter().find_map(|attr| match attr {
         js::JSXAttrOrSpread::JSXAttr(attr) if attr_name(&attr.name) == "fallback" => match &attr.value {
           Some(js::JSXAttrValue::JSXExprContainer(js::JSXExprContainer { expr: js::JSXExpr::Expr(e), .. })) => Some(&**e),

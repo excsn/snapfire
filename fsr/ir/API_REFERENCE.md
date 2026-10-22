@@ -291,8 +291,8 @@ The registry an `Expr::Ext` is answered from, by `module.member`. `Clone`, `Defa
 
 Re-exported from `snapfire_fsr_core::ext`. `STANDARD` and `standard_reach` are this crate's.
 
-* `pub enum Reach { Render, Body, Terminal }`, `Copy`, `Eq`; `as_str` is `render`, `body` or `terminal`.
-* `Render`: pure, both sides, callable from every site. `Body`: server only, callable from a body, a handler and middleware; the lowerer refuses it on a component's render path. `Terminal`: a terminal page only, where the machine running the page is the viewer; it has no browser half and the lowerer refuses it anywhere else.
+* `pub enum Reach { Render, Body, Terminal, Later, Process }`, `Copy`, `Eq`; `as_str` is `render`, `body`, `terminal`, `later` or `process`; `needs() -> Option<&'static str>` is what a page lacks for the reach, finishing "`x`, which ...", `None` for `Render` and `Body`.
+* `Render`: pure, both sides, callable from every site. `Body`: server only, callable from a body, a handler and middleware; the lowerer refuses it on a component's render path. The other three name what a host can do, and the lowerer refuses each on a page whose host lacks it. `Terminal`: the page runs where it is viewed, so it has no browser half and a render may read the clock. `Later`: the host resumes a handler after the step that started it, for a timer, an `await` or a listener. `Process`: the host has processes, an environment and a screen of its own. A terminal page has all three; a page with a browser half has none.
 * `pub const STANDARD: &[(&str, &str, Reach)]`: module, member and reach of every standard member; `standard_reach(module, name) -> Option<Reach>` looks one up. The registry `Extensions::standard` builds and the lowerer's checks are both taken from it.
 
 ### Ambient

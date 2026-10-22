@@ -145,16 +145,23 @@ impl std::fmt::Display for Fail {
 
 impl std::error::Error for Fail {}
 
-/// Where an extension may run. `Render`: pure, both sides, callable from
-/// every site. `Body`: server only, callable from a loader, an action, a
-/// handler or middleware, refused on a component's render path. `Terminal`:
-/// a terminal page only, where the machine running the page is the viewer;
-/// it has no browser half and is refused everywhere else.
+/// Where an extension may run, and what a host running a page can do.
+/// `Render`: pure, both sides, callable from every site. `Body`: server
+/// only, callable from a loader, an action, a handler or middleware, refused
+/// on a component's render path. The rest name a host's capabilities, which
+/// the lowerer refuses on a page whose host lacks them. `Terminal`: the page
+/// runs where it is viewed, so it has no browser half; a render may read the
+/// clock. `Later`: the host resumes a handler after the step that started
+/// it, for a timer, an `await` or a listener. `Process`: the host has
+/// processes, an environment and a screen of its own. A terminal page has
+/// all three; a page with a browser half has none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reach {
   Render,
   Body,
   Terminal,
+  Later,
+  Process,
 }
 
 impl Reach {
@@ -163,6 +170,18 @@ impl Reach {
       Reach::Render => "render",
       Reach::Body => "body",
       Reach::Terminal => "terminal",
+      Reach::Later => "later",
+      Reach::Process => "process",
+    }
+  }
+
+  /// What a page needs for this reach, finishing "`x`, which ...": `None` for `Render` and `Body`, which every page has.
+  pub fn needs(&self) -> Option<&'static str> {
+    match self {
+      Reach::Render | Reach::Body => None,
+      Reach::Terminal => Some("runs in a terminal page only"),
+      Reach::Later => Some("needs a host that resumes a handler after its step"),
+      Reach::Process => Some("needs a host with processes of its own"),
     }
   }
 }

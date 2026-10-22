@@ -54,7 +54,7 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("terminal", "stripAnsi", Reach::Terminal),
   ("terminal", "stringWidth", Reach::Terminal),
   ("terminal", "wrapAnsi", Reach::Terminal),
-  ("terminal", "env", Reach::Terminal),
+  ("terminal", "env", Reach::Process),
 ];
 
 /// The reach of a standard member or `None` when no such member exists.
