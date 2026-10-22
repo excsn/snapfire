@@ -51,8 +51,32 @@ fn react_engine(app: &Path, built: &snapfire_fsr_cli::Built, cache: &Path, rt: &
   patterns::react::react_engine(app, built, cache, rt)
 }
 
-/// How long one example may take; the engine's clock stands still, so a render that waits for it never returns.
+/// The processor time one example may take; the engine's clock stands still, so a render that waits for it spins and never returns. Processor time rather than wall time, so a machine running every example at once does not time one out.
 const BUDGET: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// The wall time after which an example that is not spinning is given up on, inside nextest's own `slow-timeout`.
+const BACKSTOP: std::time::Duration = std::time::Duration::from_secs(50);
+
+/// The processor time this process has used, user and system.
+fn cpu_time() -> std::time::Duration {
+  let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+  unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+  let of = |t: libc::timeval| std::time::Duration::new(t.tv_sec as u64, t.tv_usec as u32 * 1000);
+  of(usage.ru_utime) + of(usage.ru_stime)
+}
+
+/// What `receive` gets before the example spends `BUDGET` of processor time or `BACKSTOP` of wall time.
+fn within_budget(receive: &std::sync::mpsc::Receiver<String>) -> Option<String> {
+  let (cpu, wall) = (cpu_time(), std::time::Instant::now());
+  loop {
+    match receive.recv_timeout(std::time::Duration::from_millis(100)) {
+      Ok(verdict) => return Some(verdict),
+      Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+      Err(std::sync::mpsc::RecvTimeoutError::Timeout) if cpu_time() - cpu >= BUDGET || wall.elapsed() >= BACKSTOP => return None,
+      Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+    }
+  }
+}
 
 fn first_html(name: &str) -> String {
   let scratch = std::env::temp_dir().join(format!("fsr-corpus-html-{}", std::process::id()));
@@ -60,7 +84,7 @@ fn first_html(name: &str) -> String {
   let (send, receive) = std::sync::mpsc::channel();
   let worker = app.clone();
   std::thread::spawn(move || send.send(verdict(&worker)));
-  let mut verdict = receive.recv_timeout(BUDGET).unwrap_or_else(|_| "times out".to_owned());
+  let mut verdict = within_budget(&receive).unwrap_or_else(|| "times out".to_owned());
   // The temp directory differs per machine and per run, an error names it resolved through `/private` on macOS and the engine cuts a long message inside the path.
   let temp = std::env::temp_dir();
   for (spelled, with) in [(scratch.canonicalize().ok(), "<scratch>"), (Some(scratch.clone()), "<scratch>"), (temp.canonicalize().ok(), "<temp>"), (Some(temp), "<temp>")] {
