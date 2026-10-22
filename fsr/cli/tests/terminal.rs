@@ -440,6 +440,19 @@ fn a_resize_runs_the_listeners_stdout_on_added_and_off_removes_the_one_an_effect
 }
 
 #[test]
+fn ink_spinner_steps_through_the_frames_cli_spinners_names_at_its_interval() {
+  use std::time::Duration;
+  let page = "import { Text } from \"ink\";\nimport Spinner from \"ink-spinner\";\nimport spinners from \"cli-spinners\";\n\nexport default function Waiting() {\n  return (\n    <Text>\n      <Spinner type=\"line\" /> <Spinner /> {spinners.line.frames.length}\n    </Text>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "- \u{280b} 4");
+  let timers = session.take_started();
+  assert_eq!(timers.iter().map(|t| t.every).collect::<Vec<_>>(), [Duration::from_millis(130), Duration::from_millis(80)]);
+  session.fire(&timers[0]).unwrap();
+  assert_eq!(line(session.fire(&timers[1]).unwrap()), "\\ \u{2819} 4");
+}
+
+#[test]
 fn a_large_constant_another_module_exports_reads_in_the_terminal() {
   let page = "import { Text } from \"ink\";\nimport WORDS from \"../src/words\";\n\nexport default function Word() {\n  return <Text>{WORDS[3]} of {WORDS.length}</Text>;\n}\n";
   let app = app(page);
@@ -450,13 +463,6 @@ fn a_large_constant_another_module_exports_reads_in_the_terminal() {
 }
 
 #[test]
-fn a_let_declared_without_a_value_is_undefined() {
-  let page = "import { Text } from \"ink\";\n\nlet described: string | undefined;\n\nconst describe = (): string => {\n  if (described !== undefined) {\n    return described;\n  }\n  described = \"set\";\n  return \"unset\";\n};\n\nexport default function Page() {\n  let local: number | undefined;\n  return <Text>{describe()} {local === undefined ? \"undefined\" : \"null\"}</Text>;\n}\n";
-  let mut session = Session::open(&app(page)).unwrap();
-  assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0], "unset undefined");
-}
-
-#[test]
 fn use_input_runs_only_while_its_is_active_option_holds() {
   let page = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Field({ name, active }: { name: string; active: boolean }) {\n  const [value, setValue] = useState(\"\");\n  useInput((input) => setValue(value + input), { isActive: active });\n  return <Text>{name}:{value}</Text>;\n}\n\nexport default function Fields() {\n  return (\n    <Box flexDirection=\"column\">\n      <Field name=\"a\" active={true} />\n      <Field name=\"b\" active={false} />\n    </Box>\n  );\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
@@ -464,4 +470,11 @@ fn use_input_runs_only_while_its_is_active_option_holds() {
   let lines = |node| snapfire_fsr_terminal::render(&node, 10).lines()[..2].to_vec();
   assert_eq!(lines(session.view().unwrap()), ["a:", "b:"]);
   assert_eq!(lines(session.press(&x).unwrap()), ["a:x", "b:"]);
+}
+
+#[test]
+fn a_let_declared_without_a_value_is_undefined() {
+  let page = "import { Text } from \"ink\";\n\nlet described: string | undefined;\n\nconst describe = (): string => {\n  if (described !== undefined) {\n    return described;\n  }\n  described = \"set\";\n  return \"unset\";\n};\n\nexport default function Page() {\n  let local: number | undefined;\n  return <Text>{describe()} {local === undefined ? \"undefined\" : \"null\"}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&session.view().unwrap(), 20).lines()[0], "unset undefined");
 }

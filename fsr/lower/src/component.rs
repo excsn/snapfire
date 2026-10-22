@@ -217,6 +217,9 @@ impl ComponentSet {
   pub fn for_terminal(mut self) -> Self {
     self.terminal = true;
     self.provided.insert(crate::terminal::INK_FILE.to_owned(), crate::terminal::INK_SOURCE.to_owned());
+    for (_, file, source) in crate::terminal::COMPANIONS {
+      self.provided.insert(file.to_owned(), source.to_owned());
+    }
     self
   }
 
@@ -1236,6 +1239,11 @@ impl ComponentSet {
   }
 
   fn resolve_import(&self, from: &str, source: &str) -> Option<String> {
+    if self.terminal {
+      if let Some((_, file, _)) = crate::terminal::COMPANIONS.iter().find(|(specifier, _, _)| *specifier == source) {
+        return Some((*file).to_owned());
+      }
+    }
     let joined = crate::resolve_specifier(from, source)?;
     // TypeScript resolves a `.js` or `.jsx` specifier to the source it compiles to that name.
     let compiled: Vec<String> = match (joined.strip_suffix(".js"), joined.strip_suffix(".jsx")) {
