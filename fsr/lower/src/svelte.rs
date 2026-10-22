@@ -2023,7 +2023,7 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
     let chosen = scope.clone().field("value");
     let among = logic(LogicOp::And, scope.clone().field("multiple"), call(Builtin::IsArray, vec![chosen.clone()]));
     let matched = Expr::Ternary(Box::new(among), Box::new(call(Builtin::Includes, vec![chosen.clone(), value.clone()])), Box::new(cmp(CompareOp::Eq, value, chosen)));
-    let selected = logic(LogicOp::And, cmp(CompareOp::Ne, scope.clone(), Expr::Lit(Lit::Null)), logic(LogicOp::And, scope.field("has"), logic(LogicOp::And, known, matched)));
+    let selected = logic(LogicOp::And, present(scope.clone()), logic(LogicOp::And, scope.field("has"), logic(LogicOp::And, known, matched)));
     let mut entries = vec![Entry::Spread(var(OPTION))];
     if flags != 0 {
       entries.push(Entry::Field(SVELTE_FLAGS.to_owned(), int(flags)));
@@ -2235,7 +2235,7 @@ fn appended_styles(directives: Vec<StyleDirective>) -> Vec<Expr> {
     .into_iter()
     .chain(important)
     .map(|StyleDirective { name, value, important }| {
-      let written = logic(LogicOp::And, cmp(CompareOp::Ne, value.clone(), Expr::Lit(Lit::Null)), cmp(CompareOp::Ne, value.clone(), Expr::lit_str(String::new())));
+      let written = logic(LogicOp::And, present(value.clone()), cmp(CompareOp::Ne, value.clone(), Expr::lit_str(String::new())));
       let close = if important { " !important;" } else { ";" };
       let declaration = Expr::Template(vec![Expr::lit_str(format!(" {name}: ")), value, Expr::lit_str(close)]);
       Expr::Ternary(Box::new(written), Box::new(declaration), Box::new(Expr::lit_str(String::new())))
@@ -2258,7 +2258,7 @@ fn css_props(svg: bool, css: Vec<(String, Expr)>, placed: Tmpl, dynamic: bool) -
     css
       .into_iter()
       .map(|(name, value)| {
-        let written = logic(LogicOp::And, cmp(CompareOp::Ne, value.clone(), Expr::Lit(Lit::Null)), cmp(CompareOp::Ne, value.clone(), text("")));
+        let written = logic(LogicOp::And, present(value.clone()), cmp(CompareOp::Ne, value.clone(), text("")));
         let escaped = [("&", "&amp;"), ("\"", "&quot;"), ("<", "&lt;")].iter().fold(Expr::Str(Box::new(value)), |e, (from, to)| call(Builtin::ReplaceAll, vec![e, text(from), text(to)]));
         Entry::Item(Expr::Ternary(Box::new(written), Box::new(Expr::Template(vec![text(&format!("{name}: ")), escaped, text(";")])), Box::new(Expr::Lit(Lit::Null))))
       })
@@ -2883,6 +2883,11 @@ const CLASS_WHITESPACE: &[&str] = &[" ", "\t", "\n", "\r", "\u{c}", "\u{a0}", "\
 
 /// `to_class` written out in the IR, its `while` a loop over enough
 /// iterations for each to remove or step past one occurrence.
+/// `value != null`: neither `null` nor `undefined`.
+fn present(value: Expr) -> Expr {
+  Expr::Not(Box::new(call(Builtin::IsNullish, vec![value])))
+}
+
 fn to_class(class: Option<Expr>, hash: Option<&str>, directives: Vec<(String, Expr)>) -> Expr {
   let eq = |a: Expr, b: Expr| cmp(CompareOp::Eq, a, b);
   let space_at = |at: Expr| {
@@ -2890,7 +2895,7 @@ fn to_class(class: Option<Expr>, hash: Option<&str>, directives: Vec<(String, Ex
     Expr::Some(Box::new(whitespace), Box::new(Expr::lambda(&["w@"], holds_at(CLASS, var("w@"), at))))
   };
   let start = match class {
-    Some(value) => Expr::Ternary(Box::new(eq(value.clone(), Expr::Lit(Lit::Null))), Box::new(text("")), Box::new(Expr::Str(Box::new(value)))),
+    Some(value) => Expr::Ternary(Box::new(call(Builtin::IsNullish, vec![value.clone()])), Box::new(text("")), Box::new(Expr::Str(Box::new(value)))),
     None => text(""),
   };
   let mut body = vec![bind(CLASS, start)];
