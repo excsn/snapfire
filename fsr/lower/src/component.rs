@@ -9039,21 +9039,25 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     self.effect_fns.push((name.to_owned(), event));
   }
 
-  /// A mount timer's delay in milliseconds: a number written out or a module constant holding one.
-  fn timer_delay(&mut self, delay: &'p js::Expr) -> Lowered<u64> {
-    match self.lowerer.expr(delay)? {
-      Expr::Lit(Lit::Int(n)) => Ok(n.max(0) as u64),
-      Expr::Lit(Lit::Float(n)) if n.is_finite() => Ok(n.max(0.0) as u64),
-      _ => Err(self.lowerer.residue(delay.span(), "a timer whose delay is not a number written out or a module constant")),
-    }
+  /// A mount timer's delay in milliseconds when it is a number written out or a module constant holding one, which names the timer's handler at build time; `None` for a delay computed when the effect runs.
+  fn timer_delay(&mut self, delay: &'p js::Expr) -> Lowered<Option<u64>> {
+    Ok(match self.lowerer.expr(delay)? {
+      Expr::Lit(Lit::Int(n)) => Some(n.max(0) as u64),
+      Expr::Lit(Lit::Float(n)) if n.is_finite() => Some(n.max(0.0) as u64),
+      _ => None,
+    })
   }
 
-  /// A statement at the top of a terminal effect: a timer it starts, a call to one of its functions, which runs on mount, or a call made for its effect, which the terminal cannot run.
+  /// A statement at the top of a terminal effect: a timer it starts, a call to one of its functions, which runs on mount, or a call made for its effect, which the terminal cannot run. A timer whose delay is computed starts from a `mount` handler, as a timer a handler starts does.
   fn effect_start(&mut self, e: &'p js::Expr, span: Span) -> Lowered<()> {
     if let Some((repeats, callback, delay)) = timer_call(e) {
-      let delay = self.timer_delay(delay)?;
-      let body = self.handler_body(callback)?;
-      self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::timer(repeats, delay).name(), body });
+      if let Some(delay) = self.timer_delay(delay)? {
+        let body = self.handler_body(callback)?;
+        self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::timer(repeats, delay).name(), body });
+        return Ok(());
+      }
+      let body = self.handler_fn(&[], FunctionBody::Expr(e), span)?;
+      self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Mount.name(), body });
       return Ok(());
     }
     if let js::Expr::Call(call) = crate::meaning::bare(e) {

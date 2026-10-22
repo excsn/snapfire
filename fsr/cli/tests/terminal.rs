@@ -552,3 +552,16 @@ fn a_handler_prop_a_component_hands_on_to_the_one_it_places_reaches_the_parents_
   assert_eq!(lines(session.view().unwrap()), ["keys", "last none"]);
   assert_eq!(lines(session.press(&q).unwrap()), ["keys", "last q"]);
 }
+
+#[test]
+fn a_mount_timer_whose_delay_is_computed_starts_when_the_effect_runs() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nconst speed = { ms: 80 };\n\nexport default function Ticks() {\n  const [n, setN] = useState(0);\n  const [named, setNamed] = useState(0);\n  useEffect(() => {\n    const timer = setInterval(() => setN((n) => n + 1), speed.ms);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    const tick = () => setNamed((n) => n + 1);\n    const timer = setInterval(tick, speed.ms * 2);\n    return () => clearInterval(timer);\n  }, []);\n  return <Text>{n} {named}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "0 0");
+  let started = session.take_started();
+  assert_eq!(started.iter().map(|t| (t.every, t.repeats)).collect::<Vec<_>>(), [(std::time::Duration::from_millis(80), true), (std::time::Duration::from_millis(160), true)], "{started:?}");
+  assert_eq!(line(session.fire(&started[0]).unwrap()), "1 0");
+  assert_eq!(line(session.fire(&started[1]).unwrap()), "1 1");
+  assert_eq!(line(session.fire(&started[0]).unwrap()), "2 1");
+}
