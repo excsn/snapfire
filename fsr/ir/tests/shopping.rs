@@ -8,7 +8,7 @@ use std::time::Duration;
 use futures_util::future::BoxFuture;
 use parking_lot::Mutex;
 use snapfire_fsr_core::{Params, Value, ValueMap};
-use snapfire_fsr_ir::ast::{ArithOp, CompareOp, Entry, Lit, Stmt};
+use snapfire_fsr_ir::ast::{ArithOp, Builtin, CompareOp, Entry, Lit, Stmt};
 use snapfire_fsr_ir::{Body, Expr, Interpreter, IrAction, IrSource};
 use snapfire_fsr_runtime::{
   ActionHandler, DataSource, FailureKind, Identity, RequestCtx, ServiceCaller, ServiceError,
@@ -508,25 +508,20 @@ fn an_extension_moves_the_end_when_the_body_commits_and_not_when_it_fails() {
 #[test]
 fn a_redirect_ends_the_body_and_takes_only_a_path_on_this_origin() {
   let mock = Arc::new(Mock::default());
-  let body = vec![
-    Stmt::SessionSet { key: "seen".into(), path: vec![], value: Expr::lit_int(1) },
-    Stmt::Redirect(Expr::Lit(Lit::Str("/posts?page=2".into()))),
-    Stmt::Return(Expr::lit_int(9)),
-  ];
+  let redirect = |to: &str| Stmt::Return(Expr::Builtin { name: Builtin::RedirectTo, args: vec![Expr::Lit(Lit::Str(to.into()))] });
+  let body = vec![Stmt::SessionSet { key: "seen".into(), path: vec![], value: Expr::lit_int(1) }, redirect("/posts?page=2"), Stmt::Return(Expr::lit_int(9))];
   let c = ctx(mock.clone(), &[], ValueMap::default());
   let outcome = tokio::runtime::Runtime::new().unwrap().block_on(Interpreter::default().run(&body, &c, None)).unwrap();
   assert_eq!(outcome.redirected.as_deref(), Some("/posts?page=2"));
-  assert_eq!(c.redirect.get().as_deref(), Some("/posts?page=2"));
-  assert_eq!(outcome.value, Value::Null, "nothing after the redirect runs");
+  let response = snapfire_fsr_runtime::HttpResponse::from_value(&outcome.value).expect("a response").unwrap();
+  assert_eq!((response.status, response.location()), (303, Some("/posts?page=2")), "nothing after the redirect runs");
   assert!(c.session.is_dirty(), "what the body wrote before it commits");
 
   for to in ["https://elsewhere.example/", "//elsewhere.example/x", "/\\elsewhere.example", "posts", ""] {
-    let body = vec![Stmt::Redirect(Expr::Lit(Lit::Str(to.into())))];
     let c = ctx(mock.clone(), &[], ValueMap::default());
-    let fail = run(&body, &c, None).unwrap_err();
+    let fail = run(&vec![redirect(to)], &c, None).unwrap_err();
     assert_eq!(fail.kind, FailureKind::Invalid, "{to}");
     assert!(fail.message.contains("a path on this origin"), "{fail}");
-    assert_eq!(c.redirect.get(), None, "{to}");
   }
 }
 

@@ -226,7 +226,7 @@ impl<'a> Inferer<'a> {
           env.truncate(env.len() - name.iter().count());
           self.block(finally, env, returns);
         }
-        Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } | Stmt::Expr(_) => {}
+        Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } | Stmt::Expr(_) => {}
       }
     }
     env.truncate(depth);

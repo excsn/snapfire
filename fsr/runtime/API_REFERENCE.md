@@ -71,6 +71,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
 * [11. Actions](#11-actions)
   * [`ActionHandler`](#actionhandler)
   * [`ActionRegistry`](#actionregistry)
+  * [`HttpResponse`](#httpresponse)
 * [12. Streaming](#12-streaming)
   * [`wire_stream`](#wire_stream)
   * [`meta_to_json`](#meta_to_json)
@@ -689,6 +690,19 @@ Stable action ids to handlers, insertion-ordered. `Default`.
 * `pub fn insert(&mut self, id: impl Into<String>, handler: Arc<dyn ActionHandler>)`
 * `pub fn insert_fn<F, Fut>(&mut self, id: impl Into<String>, f: F)` where `F: Fn(RequestCtx, Value) -> Fut + Send + Sync + 'static` and `Fut: Future<Output = Result<Value, ActionError>> + Send + 'static`
 * `pub fn dispatch(&self, id: &str, ctx: RequestCtx, input: Value) -> BoxFuture<'static, Result<Value, ActionError>>`: an unknown id resolves to `ActionError` with `FailureKind::NotFound` and the message ``no action `{id}` ``, never a panic. Emits a DEBUG event on target `fsr::action`.
+
+### `HttpResponse`
+
+A response a body answers in place of data: what `new Response(...)`, `Response.json`, `Response.redirect` and `redirect()` make. A route handler that returns one is answered with it; an action that returns a redirect sends its caller there. Derives `Debug`, `Clone`, `PartialEq`.
+
+* `pub status: u16`, `pub headers: Vec<(String, String)>` in the order given, `pub body: Vec<u8>`.
+* `pub fn new(status: u16) -> Self`: no headers, an empty body.
+* `pub fn header(&self, name: &str) -> Option<&str>`: matched without regard to case.
+* `pub fn header_default(&mut self, name: &str, value: &str)`: sets `name` unless it is already there.
+* `pub fn location(&self) -> Option<&str>`: the `location` of a 3xx response.
+* `pub fn to_value(&self) -> Value`: a `Value::Variant` tagged `RESPONSE_TAG`, `"$response"`, whose payload is an object of `status`, `headers` and `body`.
+* `pub fn from_value(value: &Value) -> Option<Result<Self, String>>`: `None` for a value that is not one; an error for one whose payload is not.
+* `pub const REDIRECT_STATUSES: [u16; 5]`: 301, 302, 303, 307 and 308.
 
 ## 12. Streaming
 

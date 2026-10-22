@@ -239,15 +239,16 @@ fn stmt() -> BoxedStrategy<Stmt> {
       .prop_map(|(key, path, value)| Stmt::SessionSet { key, path, value }),
     (text(), prop::collection::vec(expr(), 0..2)).prop_map(|(key, path)| Stmt::SessionDelete { key, path }),
     expr().prop_map(|seconds| Stmt::SessionExtend { seconds }),
-    expr().prop_map(Stmt::Redirect),
     (text(), expr()).prop_map(|(action, input)| Stmt::Act { action, input }),
   ];
   leaf.prop_recursive(3, 24, 3, |inner| {
     prop_oneof![
       (expr(), prop::collection::vec(inner.clone(), 0..3), prop::collection::vec(inner.clone(), 0..3))
         .prop_map(|(cond, then, r#else)| Stmt::If { cond, then, r#else }),
-      (text(), expr(), prop::collection::vec(inner, 0..3))
+      (text(), expr(), prop::collection::vec(inner.clone(), 0..3))
         .prop_map(|(name, over, body)| Stmt::ForOf { name, over, body }),
+      (prop::collection::vec(inner.clone(), 0..3), prop::option::of(text()), prop::option::of(prop::collection::vec(inner.clone(), 0..3)), prop::collection::vec(inner, 0..3))
+        .prop_map(|(body, name, handler, finally)| Stmt::Try { body, name, handler, finally }),
     ]
   })
   .boxed()

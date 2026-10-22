@@ -79,6 +79,23 @@ pub(crate) fn js_response(body: &'static str, no_cache: bool, cache: Option<&Hea
     .expect("a script response")
 }
 
+/// A response a route handler answered, as it gave it: a header that is not a valid HTTP header is left out.
+pub(crate) fn http_response(answered: snapfire_fsr_runtime::HttpResponse) -> Response<Body> {
+  let mut builder = Response::builder().status(StatusCode::from_u16(answered.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR));
+  for (name, value) in &answered.headers {
+    if let (Ok(name), Ok(value)) = (header::HeaderName::from_bytes(name.as_bytes()), header::HeaderValue::from_str(value)) {
+      builder = builder.header(name, value);
+    }
+  }
+  builder
+    .body(
+      http_body_util::Full::new(Bytes::from(answered.body))
+        .map_err(|never| match never {})
+        .boxed_unsync(),
+    )
+    .expect("a handler's response")
+}
+
 pub(crate) fn text_response(status: StatusCode, text: String) -> Response<Body> {
   Response::builder()
     .status(status)
@@ -798,7 +815,11 @@ impl Host {
         )
         .await
       {
-        Ok(value) => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
+        Ok(value) => match snapfire_fsr_runtime::HttpResponse::from_value(&value) {
+          None => json_response(StatusCode::OK, &snapfire_fsr_payload::value_to_json(&value)),
+          Some(Ok(answered)) => http_response(answered),
+          Some(Err(message)) => json_response(StatusCode::INTERNAL_SERVER_ERROR, &serde_json::json!({ "kind": "internal", "message": message })),
+        },
         Err(e) => json_response(
           StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
           &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),

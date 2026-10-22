@@ -27,9 +27,6 @@ pub enum Stmt {
   /// body commits. An action, a route handler or middleware holds one; the
   /// lowerer refuses it in a loader.
   SessionExtend { seconds: Expr },
-  /// `redirect(to)`: the body ends and a successful action sends its caller
-  /// to `to`, a path on this origin. Only an action holds one.
-  Redirect(Expr),
   /// `void save(input)` in a handler, `save` an `action("id")`: the host
   /// dispatches the action when the handler runs in server mode. Only a
   /// handler holds one; a body cannot dispatch an action.
@@ -278,6 +275,16 @@ pub enum Builtin {
   FormDelete,
   /// `new URL(url, base)`: the href, parsed against `base` when given and normalised as the URL standard does; an invalid URL fails as `new URL` throws.
   UrlParse,
+  /// `new Response(body, init)`: a response of `body`, a string, bytes or nothing, with the `status` and `headers` `init` gives.
+  Response,
+  /// `Response.json(value, init)`: `value` written as JSON, typed `application/json`.
+  ResponseJson,
+  /// `Response.redirect(url, status)`: a redirect to `url`, a path or an absolute URL, with `status` one of 301, 302, 303, 307 and 308, 302 when absent.
+  ResponseRedirect,
+  /// `redirect(to)` from `@snapfire/fsr`: a 303 to `to`, which must be a path on this origin.
+  RedirectTo,
+  /// `new Uint8Array(source)`: the bytes of an array of numbers, each taken modulo 256; for a length, that many zeros.
+  Uint8Array,
   /// `url.pathname` and the other parts of a href: `href`, `origin`, `protocol`, `username`, `password`, `host`, `hostname`, `port`, `pathname`, `search` and `hash`, each as `URL` reads it.
   UrlPart,
   /// `url.pathname = value` and the other settable parts: the href with that part replaced as `URL`'s setter replaces it.
@@ -631,7 +638,7 @@ pub fn body_visit_mut(body: &mut Body, f: &mut dyn FnMut(&mut Expr)) {
         value.visit_mut(f);
       }
       Stmt::SessionDelete { path, .. } => path.iter_mut().for_each(|p| p.visit_mut(f)),
-      Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => seconds.visit_mut(f),
+      Stmt::SessionExtend { seconds } => seconds.visit_mut(f),
       Stmt::Act { input, .. } => input.visit_mut(f),
       Stmt::Try { body, handler, finally, .. } => {
         body_visit_mut(body, f);
@@ -665,7 +672,7 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
         value.visit(f);
       }
       Stmt::SessionDelete { path, .. } => path.iter().for_each(|p| p.visit(f)),
-      Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => seconds.visit(f),
+      Stmt::SessionExtend { seconds } => seconds.visit(f),
       Stmt::Act { input, .. } => input.visit(f),
       Stmt::Try { body, handler, finally, .. } => {
         body_visit(body, f);
@@ -1164,7 +1171,7 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
           exprs.push(value);
         }
         Stmt::SessionDelete { path, .. } => exprs.extend(path.iter()),
-        Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => exprs.push(seconds),
+        Stmt::SessionExtend { seconds } => exprs.push(seconds),
         Stmt::If { cond, .. } | Stmt::ForOf { over: cond, .. } => exprs.push(cond),
         Stmt::Try { .. } => {}
       }
@@ -1219,7 +1226,7 @@ pub fn body_reads_request(body: &Body) -> bool {
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
     Stmt::Guard { cond, message, .. } => cond.reads_request() || message.reads_request(),
     Stmt::Try { body, handler, finally, .. } => body_reads_request(body) || handler.as_ref().is_some_and(|handler| body_reads_request(handler)) || body_reads_request(finally),
-    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => true,
+    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => true,
   })
 }
 
@@ -1263,7 +1270,7 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
           into.push(value);
         }
         Stmt::SessionDelete { path, .. } => into.extend(path.iter()),
-        Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => into.push(seconds),
+        Stmt::SessionExtend { seconds } => into.push(seconds),
         Stmt::Act { input, .. } => into.push(input),
         Stmt::Try { body, handler, finally, .. } => {
           exprs(body, into);

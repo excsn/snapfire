@@ -23,8 +23,7 @@ pub struct Outcome {
   /// Seconds from now the body moved the session's end to, already applied
   /// to the cell; `None` when it did not extend.
   pub extended: Option<u64>,
-  /// The path the body redirected to, already set on the request's
-  /// `redirect`; `None` when it did not.
+  /// Where the response the body returned sends the caller, the `Location` of a redirect; `None` for anything else. An action's host checks it is a path on this origin.
   pub redirected: Option<String>,
 }
 
@@ -292,7 +291,6 @@ impl Interpreter {
       session: data,
       written: Vec::new(),
       extend: None,
-      redirect: None,
       scope: Vec::new(),
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
@@ -311,7 +309,7 @@ impl Interpreter {
           }
         }
         Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Expr(_) => {}
-        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::Try { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => break,
+        Stmt::If { .. } | Stmt::ForOf { .. } | Stmt::Try { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => break,
       }
     }
 
@@ -323,10 +321,8 @@ impl Interpreter {
     if let Some(seconds) = env.extend {
       ctx.session.extend(std::time::Duration::from_secs(seconds));
     }
-    if let Some(to) = &env.redirect {
-      ctx.redirect.set(to.clone()).map_err(|e| Fail::new(e.kind, e.message))?;
-    }
-    Ok(Outcome { value, written: env.written, extended: env.extend, redirected: env.redirect })
+    let redirected = snapfire_fsr_runtime::HttpResponse::from_value(&value).and_then(Result::ok).and_then(|response| response.location().map(str::to_owned));
+    Ok(Outcome { value, written: env.written, extended: env.extend, redirected })
   }
 }
 
@@ -355,8 +351,6 @@ pub(crate) struct Env {
   written: Vec<String>,
   /// The last `SessionExtend` the body ran, applied with the draft on success.
   extend: Option<u64>,
-  /// The `Redirect` that ended the body, checked and set on the request on success.
-  redirect: Option<String>,
   pub(crate) scope: Vec<(String, Value)>,
   pub(crate) store: ValueMap,
   /// The store keys `WriteStore` wrote, which a step returns with its patch's.
@@ -632,7 +626,6 @@ impl Env {
       session: ValueMap::default(),
       written: Vec::new(),
       extend: None,
-      redirect: None,
       scope,
       store: ValueMap::default(),
       pending: Default::default(),
@@ -806,7 +799,7 @@ impl Env {
           let input = self.eval_sync(input)?;
           self.acts.push((action.clone(), input));
         }
-        Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => return Err(Fail::internal("a guard, a session write, a redirect or a dispatch inside a block, which runs where no request is")),
+        Stmt::Guard { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Act { .. } => return Err(Fail::internal("a guard, a session write, a redirect or a dispatch inside a block, which runs where no request is")),
       }
     }
     self.scope.truncate(depth);
@@ -886,7 +879,6 @@ impl Env {
       session: self.session.clone(),
       written: Vec::new(),
       extend: None,
-      redirect: None,
       scope: self.scope.clone(),
       store: self.store.clone(),
       pending: self.pending.clone(),
@@ -1019,15 +1011,6 @@ impl Env {
           other => return Err(type_error("session extend", "a positive whole number of seconds", &other)),
         };
         self.extend = Some(seconds);
-      }
-      Stmt::Redirect(to) => {
-        let to = match self.eval(to).await? {
-          Value::Str(to) => to.to_string(),
-          other => return Err(type_error("redirect", "a path", &other)),
-        };
-        snapfire_fsr_runtime::RedirectHandle::check(&to).map_err(|e| Fail::new(e.kind, e.message))?;
-        self.redirect = Some(to);
-        return Ok(Flow::Return(Value::Null));
       }
       Stmt::Act { action, .. } => return Err(Fail::internal(format!("a body cannot dispatch `{action}`; an action is dispatched from a handler"))),
       Stmt::Expr(expr) => {
@@ -2460,6 +2443,89 @@ fn after_finally(before: Result<Flow, Fail>, after: Result<Flow, Fail>) -> Resul
   }
 }
 
+/// The response `Response`, `ResponseJson`, `ResponseRedirect` and `RedirectTo` make, failing where the Fetch standard throws.
+fn response_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
+  use snapfire_fsr_runtime::{HttpResponse, REDIRECT_STATUSES};
+  let status_of = |value: &Value| -> Result<u16, Fail> {
+    match value {
+      Value::Int(n) => u16::try_from(*n).map_err(|_| Fail::internal(format!("RangeError: {n} is not a status"))),
+      Value::F64(n) if n.fract() == 0.0 && (0.0..=f64::from(u16::MAX)).contains(n) => Ok(*n as u16),
+      other => Err(type_error("a response status", "a whole number", other)),
+    }
+  };
+  let init = |response: &mut HttpResponse, init: Option<&Value>| -> Result<(), Fail> {
+    let Some(Value::Map(init)) = init else { return Ok(()) };
+    if let Some(status) = init.get("status").filter(|status| !matches!(status, Value::Null | Value::Undefined)) {
+      response.status = status_of(status)?;
+      if !(200..=599).contains(&response.status) {
+        return Err(Fail::internal(format!("RangeError: the status {} is outside 200 to 599", response.status)));
+      }
+    }
+    match init.get("headers") {
+      None | Some(Value::Null | Value::Undefined) => {}
+      Some(Value::Map(headers)) => {
+        for (header, value) in headers {
+          response.headers.retain(|(name, _)| !name.eq_ignore_ascii_case(header));
+          response.headers.push((header.clone(), stringify(value)?));
+        }
+      }
+      Some(Value::Seq(pairs)) => {
+        for pair in pairs.iter() {
+          let Value::Seq(pair) = pair else { return Err(type_error("a response header", "a [name, value] pair", pair)) };
+          let (Some(header), Some(value)) = (pair.get(0), pair.get(1)) else { return Err(Fail::internal("TypeError: a header pair holds a name and a value")) };
+          response.headers.push((stringify(header)?, stringify(value)?));
+        }
+      }
+      Some(other) => return Err(type_error("response headers", "an object of strings", other)),
+    }
+    Ok(())
+  };
+  let mut response = HttpResponse::new(200);
+  match name {
+    Builtin::Response => {
+      init(&mut response, args.get(1))?;
+      match args.first() {
+        None | Some(Value::Null | Value::Undefined) => {}
+        Some(body) if [204, 205, 304].contains(&response.status) => return Err(type_error("a response with a null body status", "no body", body)),
+        Some(Value::Bytes(bytes)) => response.body = bytes.clone(),
+        Some(Value::TypedArray(snapfire_fsr_core::TypedArray::U8(bytes))) => response.body = bytes.clone(),
+        Some(body) => {
+          response.body = stringify(body)?.into_bytes();
+          response.header_default("content-type", "text/plain;charset=UTF-8");
+        }
+      }
+    }
+    Builtin::ResponseJson => {
+      let mut out = String::new();
+      json_into(&mut out, args.first().unwrap_or(&Value::Undefined), "", 0)?;
+      response.headers.push(("content-type".to_owned(), "application/json".to_owned()));
+      init(&mut response, args.get(1))?;
+      response.body = out.into_bytes();
+    }
+    Builtin::ResponseRedirect | Builtin::RedirectTo => {
+      let to = stringify(args.first().unwrap_or(&Value::Undefined))?;
+      if name == Builtin::RedirectTo {
+        snapfire_fsr_runtime::RedirectHandle::check(&to).map_err(|e| Fail::new(e.kind, e.message))?;
+        response.status = 303;
+      } else {
+        if !to.starts_with('/') && url::Url::parse(&to).is_err() {
+          return Err(Fail::internal(format!("TypeError: Invalid URL: {to}")));
+        }
+        response.status = match args.get(1) {
+          None | Some(Value::Null | Value::Undefined) => 302,
+          Some(status) => status_of(status)?,
+        };
+        if !REDIRECT_STATUSES.contains(&response.status) {
+          return Err(Fail::internal(format!("RangeError: {} is not a redirect status", response.status)));
+        }
+      }
+      response.headers.push(("location".to_owned(), to));
+    }
+    _ => return Err(Fail::internal(format!("{name:?} does not make a response"))),
+  }
+  Ok(response.to_value())
+}
+
 /// The URL a `UrlParse` href holds.
 fn href(value: &Value) -> Result<url::Url, Fail> {
   let text = stringify(value)?;
@@ -3304,6 +3370,14 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
       Value::str(pairs.iter().map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v))).collect::<Vec<_>>().join("&"))
     }
+    Builtin::Response | Builtin::ResponseJson | Builtin::ResponseRedirect | Builtin::RedirectTo => return response_builtin(name, &args),
+    Builtin::Uint8Array => Value::TypedArray(snapfire_fsr_core::TypedArray::U8(match args.first() {
+      None | Some(Value::Null | Value::Undefined) => Vec::new(),
+      Some(Value::Seq(items)) => items.iter().map(|item| number(name, item).map(|n| if n.is_finite() { n.trunc().rem_euclid(256.0) as u8 } else { 0 })).collect::<Result<_, _>>()?,
+      Some(Value::Bytes(bytes)) => bytes.clone(),
+      Some(Value::TypedArray(snapfire_fsr_core::TypedArray::U8(bytes))) => bytes.clone(),
+      Some(length) => vec![0; number(name, length)?.max(0.0) as usize],
+    })),
     Builtin::UrlParse => {
       let text = stringify(arg(0)?)?;
       let parsed = match args.get(1) {

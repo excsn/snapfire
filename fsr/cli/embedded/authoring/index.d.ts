@@ -60,10 +60,17 @@ export interface ActionCtx<Input, Params = Record<string, string>, Session = Rec
   input: Input;
 }
 
+/** What a `catch` binds for a failure nothing threw: a `fail`, a call that failed or the interpreter. `catch (e) { const why = (e as Failure).kind; }` */
+export interface Failure {
+  name: string;
+  kind: FailureKind;
+  message: string;
+}
+
 /** Fails the body with a kind the runtime maps onto a status. A statement, never an expression. */
 export function fail(kind: FailureKind, message: string): never;
 
-/** Ends an action and sends its caller to `to`, a path on this origin: a form post is answered with a 303 there and a call from `actions` navigates there. A statement, never an expression; only an action holds one. */
+/** Ends an action or a route handler and sends its caller to `to`, a path on this origin. A form post or a route handler is answered with a 303 there; a call from `actions` navigates there. The `Response` it makes may also be returned or held: `return redirect(to)`. A loader or middleware holds none. */
 export function redirect(to: string): never;
 
 /** Declares an action. The type argument names the input type the build emits into the contract. */

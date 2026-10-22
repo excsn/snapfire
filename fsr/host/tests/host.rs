@@ -95,7 +95,17 @@ const PLAN: &str = r#"{
   ],
   "handlers": [
     { "id": "index.POST", "method": "POST", "pattern": "/bump", "owner": "lowered", "module": "routes/index/route.ts", "input": "Bump",
-      "body": [ { "return": { "object": [ { "field": [ "by", { "field": [ "input", "by" ] } ] } ] } } ] }
+      "body": [ { "return": { "object": [ { "field": [ "by", { "field": [ "input", "by" ] } ] } ] } } ] },
+    { "id": "robots.GET", "method": "GET", "pattern": "/robots.txt", "owner": "lowered", "module": "routes/robots.txt/route.ts",
+      "body": [ { "return": { "builtin": { "name": "response", "args": [ { "lit": { "str": "User-agent: *\nAllow: /\n" } }, { "object": [ { "field": [ "headers", { "object": [ { "field": [ "content-type", { "lit": { "str": "text/plain" } } ] } ] } ] } ] } ] } } } ] },
+    { "id": "pixel.GET", "method": "GET", "pattern": "/pixel", "owner": "lowered", "module": "routes/pixel/route.ts",
+      "body": [ { "return": { "builtin": { "name": "response", "args": [ { "builtin": { "name": "uint8_array", "args": [ { "array": [ { "item": { "lit": { "int": 71 } } }, { "item": { "lit": { "int": 73 } } }, { "item": { "lit": { "int": 70 } } } ] } ] } }, { "object": [ { "field": [ "headers", { "object": [ { "field": [ "content-type", { "lit": { "str": "image/gif" } } ] } ] } ] } ] } ] } } } ] },
+    { "id": "made.POST", "method": "POST", "pattern": "/made", "owner": "lowered", "module": "routes/made/route.ts",
+      "body": [ { "return": { "builtin": { "name": "response_json", "args": [ { "object": [ { "field": [ "id", { "lit": { "float": 7.0 } } ] } ] }, { "object": [ { "field": [ "status", { "lit": { "int": 201 } } ] } ] } ] } } } ] },
+    { "id": "away.GET", "method": "GET", "pattern": "/away", "owner": "lowered", "module": "routes/away/route.ts",
+      "body": [ { "return": { "builtin": { "name": "response_redirect", "args": [ { "lit": { "str": "https://auth.example/authorize" } } ] } } } ] },
+    { "id": "done.POST", "method": "POST", "pattern": "/done", "owner": "lowered", "module": "routes/done/route.ts",
+      "body": [ { "return": { "builtin": { "name": "redirect_to", "args": [ { "lit": { "str": "/thanks" } } ] } } } ] }
   ],
   "actions": [
     { "id": "index.where", "owner": "lowered", "module": "routes/index/actions.ts",
@@ -4768,6 +4778,33 @@ async fn a_form_field_is_read_as_the_type_the_action_declares() {
     .await;
   let body = response.into_body().collect().await.unwrap().to_bytes();
   assert_eq!(&body[..], b"5", "and the refused post changed nothing");
+}
+
+#[tokio::test]
+async fn a_route_handler_answers_the_response_it_returns() {
+  let host = formed();
+  let get = |path: &str| Request::get(path).body(Bytes::new()).unwrap();
+  let response = host.handle(get("/robots.txt")).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers()[header::CONTENT_TYPE], "text/plain");
+  assert_eq!(body_of(response).await, "User-agent: *\nAllow: /\n");
+
+  let response = host.handle(get("/pixel")).await;
+  assert_eq!(response.headers()[header::CONTENT_TYPE], "image/gif");
+  assert_eq!(&response.into_body().collect().await.unwrap().to_bytes()[..], b"GIF");
+
+  let response = host.handle(Request::post("/made").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::CREATED);
+  assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+  assert_eq!(body_of(response).await, r#"{"id":7}"#);
+
+  let response = host.handle(get("/away")).await;
+  assert_eq!(response.status(), StatusCode::FOUND);
+  assert_eq!(response.headers()[header::LOCATION], "https://auth.example/authorize");
+
+  let response = host.handle(Request::post("/done").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::SEE_OTHER);
+  assert_eq!(response.headers()[header::LOCATION], "/thanks");
 }
 
 #[tokio::test]

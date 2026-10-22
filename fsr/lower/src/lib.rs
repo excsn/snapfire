@@ -463,6 +463,7 @@ pub(crate) fn lower_handlers_in(parsed: &Parsed, defaults: &SessionDefaults, res
     };
     let mut lowerer = Lowerer::new(parsed, defaults).resolved(resolved);
     lowerer.extends = true;
+    lowerer.redirects = true;
     let body = lower_function(&mut lowerer, first, body).map_err(|r| (r.into(), lowerer.unbound.take()))?;
     out.push(LoweredHandler { method: name.to_owned(), input, body });
   }
@@ -1578,6 +1579,21 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// `redirect(to)`: the response that sends the caller to `to`, which ends the body where it is a statement. An action or a route handler holds one.
+  fn redirect_to(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+    if !self.redirects {
+      return Err(self.residue_with(
+        call.span,
+        "`redirect` outside an action or a route handler",
+        "middleware answers `{ redirect }`; a loader cannot send the visitor elsewhere",
+      ));
+    }
+    let [to] = call.args.as_slice() else {
+      return Err(self.residue(call.span, "`redirect` takes the path to send the caller to"));
+    };
+    Ok(Expr::Builtin { name: Builtin::RedirectTo, args: vec![self.expr(&to.expr)?] })
+  }
+
   pub(crate) fn try_stmt(&mut self, t: &js::TryStmt) -> Lowered<Stmt> {
     let body = self.block(&t.block.stmts)?;
     let (name, handler) = match &t.handler {
@@ -1753,17 +1769,7 @@ impl<'a> Lowerer<'a> {
         Ok(Stmt::SessionDelete { key, path })
       }
       js::Expr::Call(call) if self.parsed.names_server(&call.callee, "redirect") => {
-        if !self.redirects {
-          return Err(self.residue_with(
-            call.span,
-            "`redirect` outside an action",
-            "middleware answers `{ redirect }` and a route handler returns its own response; a loader cannot send the visitor elsewhere",
-          ));
-        }
-        let [to] = call.args.as_slice() else {
-          return Err(self.residue(call.span, "`redirect` takes the path to send the caller to"));
-        };
-        Ok(Stmt::Redirect(self.expr(&to.expr)?))
+        Ok(Stmt::Return(self.redirect_to(call)?))
       }
       js::Expr::Call(call) if self.is_ident_call(call, "fail") => {
         let stmt = js::Stmt::Expr(js::ExprStmt { span: call.span, expr: Box::new(expr.clone()) });
@@ -3081,7 +3087,7 @@ impl<'a> Lowerer<'a> {
             Ok(Expr::Builtin { name: Builtin::ParseInt, args })
           }
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
-          "redirect" if self.parsed.names_server(&call.callee, "redirect") => Err(self.residue(call.span, "`redirect` inside an expression; it is a statement")),
+          "redirect" if self.parsed.names_server(&call.callee, "redirect") => self.redirect_to(call),
           "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.args.first() {
             Some(_) => Ok(*one(self)?),
             None => Ok(Expr::Lit(Lit::Null)),
@@ -3198,6 +3204,14 @@ impl<'a> Lowerer<'a> {
               }
               args.push(self.expr(&a.expr)?);
             }
+            return Ok(Expr::Builtin { name, args });
+          }
+          "Response" if matches!(method.as_str(), "json" | "redirect") => {
+            let mut args = Vec::with_capacity(call.args.len());
+            for a in &call.args {
+              args.push(self.expr(&a.expr)?);
+            }
+            let name = if method == "json" { Builtin::ResponseJson } else { Builtin::ResponseRedirect };
             return Ok(Expr::Builtin { name, args });
           }
           "JSON" if method == "stringify" => {
@@ -3778,6 +3792,14 @@ impl<'a> Lowerer<'a> {
       ("Map", Some(pairs)) => Ok(Expr::Builtin { name: Builtin::FromEntries, args: vec![pairs] }),
       ("Set", None) => Ok(Expr::Array(Vec::new())),
       ("Set", Some(items)) => Ok(Expr::Builtin { name: Builtin::Unique, args: vec![items] }),
+      ("Response", body) => {
+        let mut args = vec![body.unwrap_or(Expr::Lit(Lit::Undefined))];
+        if let Some(init) = n.args.as_deref().and_then(|a| a.get(1)) {
+          args.push(self.expr(&init.expr)?);
+        }
+        Ok(Expr::Builtin { name: Builtin::Response, args })
+      }
+      ("Uint8Array", source) => Ok(Expr::Builtin { name: Builtin::Uint8Array, args: source.into_iter().collect() }),
       ("URLSearchParams", None) => Ok(Expr::lit_str("")),
       ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
       ("URL", Some(x)) => {

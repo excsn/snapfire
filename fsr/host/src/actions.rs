@@ -664,7 +664,7 @@ impl Host {
     self.dispatch_action_to(t, id, incoming, path, locale, input).await.map(|(value, _)| value)
   }
 
-  /// [`Host::dispatch_action`] with the path the action redirected to.
+  /// [`Host::dispatch_action`] with the path the action redirected to, through `ctx.redirect` or as the redirect response it returned; that path must be on this origin. Any other response is a route handler's to answer, not an action's.
   pub(crate) async fn dispatch_action_to(
     &self,
     t: &Tables,
@@ -677,6 +677,16 @@ impl Host {
     let ctx = self.ctx(t, incoming, Params::new(), Params::new(), path, locale);
     let redirect = ctx.redirect.clone();
     let value = t.app.actions.dispatch(id, ctx, input).await?;
-    Ok((value, redirect.get()))
+    match snapfire_fsr_runtime::HttpResponse::from_value(&value) {
+      None => Ok((value, redirect.get())),
+      Some(Ok(response)) => match response.location() {
+        Some(to) => {
+          snapfire_fsr_runtime::RedirectHandle::check(to)?;
+          Ok((Value::Null, Some(to.to_owned())))
+        }
+        None => Err(ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, format!("action `{id}` answered a {} response; an action answers data or a redirect", response.status))),
+      },
+      Some(Err(message)) => Err(ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, message)),
+    }
   }
 }

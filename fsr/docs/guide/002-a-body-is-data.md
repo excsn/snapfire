@@ -17,7 +17,7 @@ export async function load({ session, services }: Ctx<"/cart">) {
 }
 ```
 
-It reads the session, calls one service, filters, maps, reduces and returns an object. Nothing in it needs a JavaScript engine to be understood. It is a small program in a limited language: reads from the request, literals, field access, arithmetic, comparisons, lambdas over arrays, service calls and a return. fsr calls that language the IR. The build's job is to check whether a body fits inside it.
+It reads the session, calls one service, filters, maps, reduces and returns an object. Nothing in it needs a JavaScript engine to be understood. It is a small program in a limited language: reads from the request, literals, field access, arithmetic, comparisons, lambdas over arrays, service calls, `try` blocks and a return. fsr calls that language the IR. The build's job is to check whether a body fits inside it.
 
 The recognised body is written into the plan file as data. The interpreter in the host runs it against the request: it evaluates the reads, makes the calls, applies the lambdas and hands the page its props. Independent awaits run together, since the plan can see they do not depend on each other. A guard that reads nothing bound yet runs before any call, so an empty cart never reaches the order service. Session writes land in a draft that commits only when the body finishes, so a failed action leaves the session as it found it.
 
@@ -25,10 +25,10 @@ The interpreter runs the rows in the plan file rather than the TypeScript source
 
 ## Residue
 
-A body that says something outside the language is residue: `try`, a class, a regular expression, a `while`, an import the build cannot follow or a call it does not know. Instead of guessing, the build names the file, the line and the construct:
+A body that says something outside the language is residue: a `while`, a regular expression, an import the build cannot follow or a call it does not know. Instead of guessing, the build names the file, the line and the construct:
 
 ```
-app/routes/cart/page.loader.ts:2:9: `try`
+app/routes/cart/page.loader.ts:3:3: `while`, a loop whose length the build cannot know
 ```
 
 and stops, because there is no engine to hand the body to. This limit is deliberate: fsr is built to prevent a silent failure, where a build quietly moves a body from "data the runtime executes" to "JavaScript some engine runs", so an application that meant to have no server JavaScript grows one without anybody deciding. When an engine exists, residue will run there and the report will say `engine` beside the name.
@@ -61,6 +61,8 @@ A Rust function that answers the same name looks like the same rows from the cal
 
 ## The lab
 
-Wrap the cart loader's service call in `try { ... } catch { ... }` and run `fsr check app`. The build stops at the line with the word `try`. Remove it and `fsr build --verbose app` shows `cart` as `lowered` again.
+Add `while (lines.length > 9) lines.pop();` to the cart loader and run `fsr check app`. The build stops at the line with the `while`. Remove it and `fsr build --verbose app` shows `cart` as `lowered` again.
+
+Then wrap the loader's service call in `try { ... } catch { ... }` and check again. It still lowers: a `catch` runs when the call fails, binding an error whose `kind` and `message` say how. A `finally` runs either way.
 
 Then break a call instead: change `listProducts` to `listProduct` and check again. This time the contract refuses the method by name before anything is lowered, since the runtime could never answer a call to a method the contract does not have.

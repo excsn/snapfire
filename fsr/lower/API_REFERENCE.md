@@ -211,7 +211,10 @@ A file in another language that a caller turns into TSX, `.mdx` and `.md` among 
 * `session.extend(e)` or `ctx.session.extend(e)` as a statement is `Stmt::SessionExtend` in an action, a route handler or middleware, `e` the seconds. In a loader or any other body it is residue naming the three, since a loader runs on every navigation; more or fewer than one argument is residue.
 * `fail("kind", msg)` as a bare statement is a guard whose condition is `true`.
 * Any other expression statement, typically an awaited call, is `Stmt::Expr`.
-* `try`, `throw`, `while`, `for`, `for...in`, nested functions, classes, `break` outside a `switch`, `continue`, labels and bare blocks are residue.
+* `try { } catch (e) { } finally { }` is `Stmt::Try`; the `catch` and the `finally` are each optional and a `catch` parameter may be a pattern. `throw e` is a `Throw` builtin over the message and the value thrown.
+* `redirect(to)` from `@snapfire/fsr` is a `RedirectTo` builtin in an action or a route handler: a statement is a `Return` of it, an expression its value. In a loader or middleware it is residue.
+* `new Response(body, init)`, `Response.json(value, init)` and `Response.redirect(url, status)` are the `Response`, `ResponseJson` and `ResponseRedirect` builtins; `new Uint8Array(source)` is `Uint8Array`.
+* `while`, `for`, `for...in`, nested functions, classes, `break` outside a `switch`, `continue`, labels and bare blocks are residue.
 
 ### Component Bodies
 

@@ -317,11 +317,11 @@ export const createPost = action<NewPost>(async ({ input, services }) => {
 });
 ```
 
-It is a statement like `fail`. Only an action holds one. A path that is not on this origin, `https://…` or `//host/…`, fails the action as `invalid`, so a target read from the request cannot send a visitor elsewhere. A Rust action sets the same with `ctx.redirect.set("/posts")?`.
+It ends the body where it stands, as a `return` would; `return redirect(to)` says the same. An action or a route handler holds one. A path that is not on this origin, `https://…` or `//host/…`, fails the body as `invalid`, so a target read from the request cannot send a visitor elsewhere. A Rust action sets the same with `ctx.redirect.set("/posts")?`.
 
 ## Writing a Route Handler
 
-`route.ts` exports one function per HTTP method it answers. A plain function reads the request body as `input` unchecked; an `action<T>` has the body checked against `T` first, the way an action's input is. The value returned is the JSON response; `fail` sets the status by its kind.
+`route.ts` exports one function per HTTP method it answers. A plain function reads the request body as `input` unchecked; an `action<T>` has the body checked against `T` first, the way an action's input is. A value returned is the JSON response; `fail` sets the status by its kind.
 
 ```ts
 import { action, fail } from "@snapfire/fsr";
@@ -340,6 +340,30 @@ export const POST = action(async ({ input, session }: ActionCtx<AddToCart>) => {
 ```
 
 The handler runs before any page is matched, sees the same `session`, `identity` and `services` a loader sees and writes the session the same way. A method the file does not export answers 404.
+
+A handler that answers with something other than JSON returns a `Response`. `new Response(body, { status, headers })` takes a string or a `Uint8Array`; a string with no `content-type` is sent as `text/plain;charset=UTF-8`. `Response.json(value, { status })` writes the value with `application/json`. `Response.redirect(url, status)` sends the caller to a path or to another site, 302 unless the status says otherwise, which is what a sign-in that starts at an identity provider needs; `redirect(to)` from `@snapfire/fsr` answers 303 to a path on this origin.
+
+```ts
+import type { Ctx } from "@snapfire/fsr";
+
+export function GET({ origin }: Ctx<"/robots.txt">) {
+  return new Response(`User-agent: *\nSitemap: ${origin}/sitemap.xml\n`, {
+    headers: { "content-type": "text/plain", "cache-control": "max-age=3600" },
+  });
+}
+```
+
+```ts
+import type { ActionCtx } from "@snapfire/fsr";
+import type { NewNote } from "@schemas/notes";
+
+export async function POST({ input, services }: ActionCtx<NewNote>) {
+  const note = await services.notes.create({ text: input.text });
+  return Response.json(note, { status: 201 });
+}
+```
+
+The status must lie between 200 and 599 and a redirect's must be 301, 302, 303, 307 or 308, as the Fetch standard has them; anything else fails the handler. A header whose name or value is not valid HTTP is left out.
 
 ## Writing Middleware
 
