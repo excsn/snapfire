@@ -29,7 +29,7 @@ test("an id the shed does not hold is not found", async () => {
 test("the document is titled from the tool the loader found", async () => {
   const c = ctx<void, "/tool/{id}">({ params: { id: "3" }, services: { shed: { listTools: () => [trimmer, drill] } } });
   const data = await load(c);
-  const head = meta({ data });
+  const head = meta({ data, params: c.params, query: c.query });
   expect(head.title).toEqual("Cordless drill · The Shed");
   expect(head.description).toEqual("Priya's, 7 days at a time");
 });

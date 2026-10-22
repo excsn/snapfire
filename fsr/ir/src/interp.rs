@@ -1390,7 +1390,7 @@ impl Env {
             return Ok(item);
           }
         }
-        Ok(Value::Null)
+        Ok(Value::Undefined)
       }
       Expr::FindIndex(over, f) => {
         let items = self.seq_sync(over, "findIndex")?; let whole = array_arg(f, &items);
@@ -1884,7 +1884,7 @@ impl Env {
               return Ok(item);
             }
           }
-          Ok(Value::Null)
+          Ok(Value::Undefined)
         }
         Expr::FindIndex(over, f) => {
           let items = self.seq(over, "findIndex").await?; let whole = array_arg(f, &items);
@@ -2928,10 +2928,10 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let i = integer(name, args.get(1))?;
       let i = if i < 0.0 { i + len as f64 } else { i };
       if i < 0.0 || i >= len as f64 {
-        return Ok(Value::Null);
+        return Ok(Value::Undefined);
       }
       match arg(0)? {
-        Value::Seq(items) => items.get(i as usize).cloned().unwrap_or(Value::Null),
+        Value::Seq(items) => items.get(i as usize).cloned().unwrap_or(Value::Undefined),
         Value::Str(s) => {
           let units: Vec<u16> = s.encode_utf16().collect();
           Value::str(from_units(name, &units[i as usize..i as usize + 1])?)
