@@ -785,12 +785,12 @@ fn found_redirect(stmt: &js::Stmt) -> bool {
 
 /// Next's request reads, written as FSR's: `await params` as `params`,
 /// `searchParams` as `query` and `notFound()` as a failure.
-struct ContextUses<'a> {
+pub(crate) struct ContextUses<'a> {
   /// The name the component binds its whole props to, when it does.
-  props: Option<String>,
-  found: Vec<(Span, String)>,
-  parsed: &'a Parsed,
-  text: &'a str,
+  pub(crate) props: Option<String>,
+  pub(crate) found: Vec<(Span, String)>,
+  pub(crate) parsed: &'a Parsed,
+  pub(crate) text: &'a str,
 }
 
 impl ContextUses<'_> {
@@ -800,7 +800,7 @@ impl ContextUses<'_> {
   }
 }
 
-fn request_field(props: Option<&str>, e: &js::Expr) -> Option<&'static str> {
+pub(crate) fn request_field(props: Option<&str>, e: &js::Expr) -> Option<&'static str> {
   let js::Expr::Member(m) = e else { return None };
   let (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) = (&*m.obj, &m.prop) else { return None };
   if Some(&*obj.sym) != props {
@@ -816,9 +816,9 @@ fn request_field(props: Option<&str>, e: &js::Expr) -> Option<&'static str> {
 /// The names a statement reads, `props.params` and `props.searchParams`
 /// counted as the request's `params` and `searchParams` rather than as a read
 /// of `props`.
-struct RequestReads {
-  props: Option<String>,
-  names: BTreeSet<String>,
+pub(crate) struct RequestReads {
+  pub(crate) props: Option<String>,
+  pub(crate) names: BTreeSet<String>,
 }
 
 impl Visit for RequestReads {

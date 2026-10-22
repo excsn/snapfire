@@ -65,3 +65,12 @@ fn a_next_metadata_object_is_written_as_the_head_it_describes() {
   }
   std::fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn meta_reads_the_routes_params_and_query() {
+  let loader = "import { fromNextMetadata } from \"@snapfire/fsr/head\";\nexport const meta = ({ params, query }) => fromNextMetadata({ title: { absolute: `${params.locale} ${query.code ?? \"none\"}` } });\n";
+  let root = project(&[("routes/[locale]/page.tsx", "export default function Page() {\n  return <main>page</main>;\n}\n"), ("routes/[locale]/page.loader.ts", loader)]);
+  let html = document(&root, "/de?code=x1");
+  assert!(html.contains("<title>de x1</title>"), "{html}");
+  std::fs::remove_dir_all(&root).unwrap();
+}
