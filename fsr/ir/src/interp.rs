@@ -2030,6 +2030,14 @@ fn index(target: &Value, key: &Value) -> Result<Value, Fail> {
     (Value::Seq(items), Value::F64(f)) => Ok(if f.fract() == 0.0 && *f >= 0.0 { items.get(*f as usize).cloned().unwrap_or(Value::Undefined) } else { Value::Undefined }),
     (Value::Seq(items), Value::F32(f)) => Ok(if f.fract() == 0.0 && *f >= 0.0 { items.get(*f as usize).cloned().unwrap_or(Value::Undefined) } else { Value::Undefined }),
     (Value::Null | Value::Undefined, _) => Ok(Value::Undefined),
+    (Value::Str(s), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => {
+      let at = to_number(key).filter(|n| n.fract() == 0.0 && *n >= 0.0);
+      let units: Vec<u16> = s.encode_utf16().collect();
+      match at.filter(|n| *n < units.len() as f64) {
+        Some(at) => Ok(Value::str(String::from_utf16(&units[at as usize..at as usize + 1]).map_err(|_| Fail::internal("indexing a string would split a surrogate pair, which the value model holds no half of"))?)),
+        None => Ok(Value::Undefined),
+      }
+    }
     (Value::Map(map), Value::Int(_) | Value::UInt(_) | Value::F32(_) | Value::F64(_)) => Ok(map.get(stringify(key)?.as_str()).cloned().unwrap_or(Value::Undefined)),
     (Value::Map(_), other) => Err(type_error("indexing an object", "a string key", other)),
     (Value::Seq(_), other) => Err(type_error("indexing an array", "an integer", other)),

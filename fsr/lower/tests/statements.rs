@@ -307,3 +307,12 @@ fn a_let_declared_without_a_value_is_undefined() {
   let page = "export default function Page() {\n  let local: number | undefined;\n  let set: number | undefined;\n  set = 1;\n  return <p>{local === undefined ? \"undefined\" : \"null\"}|{set}</p>;\n}\n";
   assert_eq!(html("let_undefined", page).as_deref(), Ok("<p>undefined|1</p>"));
 }
+
+#[test]
+fn a_string_indexed_by_a_number_is_the_character_there() {
+  let page = "export default function Page() {\n  const word = \"h\u{e9}llo\";\n  const i = 4;\n  return <p>{word[1]}{word[i]}|{word[9] === undefined ? \"undefined\" : \"set\"}</p>;\n}\n";
+  assert_eq!(html("string_index", page).as_deref(), Ok("<p>\u{e9}o|undefined</p>"));
+  let astral = "export default function Page() {\n  const face = \"a\u{1F600}\";\n  return <p>{face[1]}</p>;\n}\n";
+  let failed = html("string_index_astral", astral).unwrap_err();
+  assert!(failed.contains("surrogate"), "{failed}");
+}
