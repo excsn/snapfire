@@ -118,6 +118,9 @@ pub enum LowerError {
 
 pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, UPLOAD};
 
+/// JavaScript's error constructors, which a `throw` and, in a terminal page, a `new` read as `{ name, message }`.
+pub(crate) const ERROR_CONSTRUCTORS: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
+
 /// The import aliases every fsr application has, each a prefix and the app
 /// directory it stands for. The build writes them into both tsconfigs, snapfirec
 /// rewrites them for the browser and the lowerers resolve them here.
@@ -3677,12 +3680,14 @@ impl<'a> Lowerer<'a> {
     if self.terminal && matches!(&*n.callee, js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved && id.sym.as_ref() == "Promise") {
       return self.terminal_promise(n, &args);
     }
-    if self.terminal && matches!(&*n.callee, js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved && id.sym.as_ref() == "Error") {
-      let message = match args.first() {
-        Some(a) => Expr::Str(Box::new(self.expr(&a.expr)?)),
-        None => Expr::lit_str(""),
-      };
-      return Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("Error")), Entry::Field("message".to_owned(), message)]));
+    if let js::Expr::Ident(id) = &*n.callee {
+      if self.terminal && id.ctxt == self.parsed.unresolved && ERROR_CONSTRUCTORS.contains(&id.sym.as_ref()) {
+        let message = match args.first() {
+          Some(a) => Expr::Str(Box::new(self.expr(&a.expr)?)),
+          None => Expr::lit_str(""),
+        };
+        return Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(id.sym.as_ref())), Entry::Field("message".to_owned(), message)]));
+      }
     }
     let global = match &*n.callee {
       _ if svelte.is_some() => svelte.expect("checked").to_owned(),

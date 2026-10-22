@@ -4311,7 +4311,7 @@ pub(crate) fn switch_arms<'s>(lowerer: &Lowerer<'_>, sw: &'s js::SwitchStmt) -> 
 /// `throw Error(message)`, `throw new Error(message)` or `throw value` as a render that fails with the message.
 pub(crate) fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStmt) -> Lowered<Expr> {
   let error_message = |callee: &js::Expr, args: &[js::ExprOrSpread]| match crate::meaning::bare(callee) {
-    js::Expr::Ident(id) if id.sym.as_ref() == "Error" && id.ctxt == lowerer.meanings.as_ref().map(|m| m.unresolved).unwrap_or(id.ctxt) => Some(args.first().map(|a| (*a.expr).clone())),
+    js::Expr::Ident(id) if crate::ERROR_CONSTRUCTORS.contains(&id.sym.as_ref()) && id.ctxt == lowerer.meanings.as_ref().map(|m| m.unresolved).unwrap_or(id.ctxt) => Some((id.sym.to_string(), args.first().map(|a| (*a.expr).clone()))),
     _ => None,
   };
   let message = match crate::meaning::bare(&thrown.arg) {
@@ -4323,12 +4323,12 @@ pub(crate) fn throw_expr(lowerer: &mut Lowerer<'_>, thrown: &js::ThrowStmt) -> L
     _ => None,
   };
   let (message, error) = match message {
-    Some(arg) => {
+    Some((name, arg)) => {
       let message = match arg {
         Some(arg) => lowerer.expr(&arg)?,
         None => Expr::lit_str(""),
       };
-      let error = Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str("Error")), Entry::Field("message".to_owned(), Expr::Str(Box::new(message.clone())))]);
+      let error = Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), Expr::Str(Box::new(message.clone())))]);
       (message, Some(error))
     }
     None => {

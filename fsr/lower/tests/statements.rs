@@ -327,3 +327,10 @@ fn a_json_file_imports_as_its_value() {
   let files = [("routes/page.tsx", page), ("routes/words.json", "{\n  \"greeting\": [\"hello\", \"bonjour\"]\n}\n"), ("package.json", "{ \"name\": \"app\", \"version\": \"1.2.0\" }\n")];
   assert_eq!(html_files("json_import", &files).as_deref(), Ok("<p>bonjour|1.2.0</p>"));
 }
+
+#[test]
+fn a_thrown_type_error_fails_the_render_with_its_message() {
+  let page = "function tone(name: string) {\n  if (name !== \"none\") {\n    throw new TypeError(`Unexpected tone: ${name}`);\n  }\n  return name;\n}\n\nexport default function Page() {\n  return <p>{tone(\"blue\")}</p>;\n}\n";
+  let failed = html("type_error", page).unwrap_err();
+  assert!(failed.contains("Unexpected tone: blue"), "{failed}");
+}
