@@ -515,7 +515,7 @@ A body answering an action id. Implements `snapfire_fsr_runtime::ActionHandler`.
 
 ## 7. The Host
 
-`snapfire_fsr_ir::host` holds the names a lowered page and the program that runs it share. A handler is named for the event that runs it, an `Event`. When a handler needs something only the program can do, a timer, a spawned process or a promise settled, it emits a `Stmt::Act` naming an `Act`. A spawned process reports back through a `Report`. The terminal runs all of them. The web host runs none, and the lowerer refuses the source that would need one on a web page.
+`snapfire_fsr_ir::host` holds the names a lowered page and the program that runs it share. A handler is named for the event that runs it, an `Event`. When a handler needs something only the program can do, a timer, a spawned process or a promise settled, it emits a `Stmt::Act` naming an `Act`. A spawned process reports back through a `Report`. The terminal runs all of them. The web host runs none. The lowerer refuses source that would need one on a web page.
 
 ### Event
 

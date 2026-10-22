@@ -3,8 +3,8 @@
 //! something only the program can do, a timer, a spawned process or a
 //! promise settled, it emits a `Stmt::Act` naming an [`Act`]. A spawned
 //! process reports back through a [`Report`]. The terminal runs all of them.
-//! The web host runs none, and the lowerer refuses the source that would
-//! need one on a web page.
+//! The web host runs none. The lowerer refuses source that would need one
+//! on a web page.
 
 /// The key a promise's `resolve` or `reject` is held under: `{ "$settles": deferred, ok }`, `ok` false for `reject`. Calling one is an [`Act::Settle`]; a timer on one settles the deferred when it is due.
 pub const SETTLES: &str = "$settles";
