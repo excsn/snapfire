@@ -542,3 +542,13 @@ fn a_function_a_handler_calls_takes_the_arguments_of_the_call_and_its_defaults()
   assert_eq!(line(session.press(&press('a')).unwrap()), "log x");
   assert_eq!(line(session.press(&press('b')).unwrap()), "log xyy");
 }
+
+#[test]
+fn a_handler_prop_a_component_hands_on_to_the_one_it_places_reaches_the_parents_handler() {
+  let page = "import { useCallback, useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Keys({ onKey }: { onKey: (key: string) => void }) {\n  useInput((input) => onKey(input));\n  return <Text>keys</Text>;\n}\n\nfunction Middle({ onKey }: { onKey: (key: string) => void }) {\n  return <Keys onKey={onKey} />;\n}\n\nexport default function Page() {\n  const [last, setLast] = useState(\"none\");\n  const heard = useCallback((key: string) => {\n    setLast(key);\n  }, []);\n  return (\n    <Box flexDirection=\"column\">\n      <Middle onKey={heard} />\n      <Text>last {last}</Text>\n    </Box>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(q)) = key_event(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE)) else { panic!("q is input") };
+  let lines = |node| snapfire_fsr_terminal::render(&node, 12).lines()[..2].iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(lines(session.view().unwrap()), ["keys", "last none"]);
+  assert_eq!(lines(session.press(&q).unwrap()), ["keys", "last q"]);
+}

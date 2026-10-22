@@ -9825,6 +9825,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         continue;
       }
       if is_handler_name(&raw) {
+        if let Some(handed) = self.handler_reference(attr).filter(|_| self.lowerer.terminal) {
+          props.push(Entry::Field(raw, handed));
+        }
         continue;
       }
       if let Some(name) = self.browser_function_named(attr) {
