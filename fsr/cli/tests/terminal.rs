@@ -492,3 +492,13 @@ fn a_handler_writes_its_own_let_in_a_branch_and_after_it() {
   assert_eq!(line(session.press(&press('+')).unwrap()), "30");
   assert_eq!(line(session.press(&press('-')).unwrap()), "290");
 }
+
+#[test]
+fn a_state_setter_passed_as_a_prop_sets_the_parents_state_when_the_child_calls_it() {
+  let page = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Typer({ value, onChange }: { value: string; onChange: (value: string) => void }) {\n  useInput((input) => onChange(value + input));\n  return <Text>typed {value}</Text>;\n}\n\nexport default function Page() {\n  const [query, setQuery] = useState(\"\");\n  return (\n    <Box flexDirection=\"column\">\n      <Typer value={query} onChange={setQuery} />\n      <Text>query {query}</Text>\n    </Box>\n  );\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(h)) = key_event(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)) else { panic!("h is input") };
+  let lines = |node| snapfire_fsr_terminal::render(&node, 12).lines()[..2].iter().map(|l| l.trim_end().to_owned()).collect::<Vec<_>>();
+  assert_eq!(lines(session.view().unwrap()), ["typed", "query"]);
+  assert_eq!(lines(session.press(&h).unwrap()), ["typed h", "query h"]);
+}

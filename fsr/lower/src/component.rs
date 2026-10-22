@@ -8395,6 +8395,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     while let js::Expr::Paren(p) = inner {
       inner = &p.expr;
     }
+    if let js::Expr::Ident(id) = inner {
+      if let Some((_, state)) = self.setters.iter().find(|(setter, _)| *setter == *id.sym).filter(|_| self.lowerer.terminal).cloned() {
+        self.lowered_handlers.push(Handler { event: name.to_owned(), body: vec![Stmt::Return(Expr::Object(vec![Entry::Field(state, Expr::Var("$event".to_owned()))]))] });
+        return Some(Ok(self.lowered_handlers.len() - 1));
+      }
+    }
     let function = match inner {
       js::Expr::Arrow(_) | js::Expr::Fn(_) => true,
       js::Expr::Ident(id) => self.handler_fns.contains_key(id.sym.as_ref()),
