@@ -167,4 +167,23 @@ Each crate under this directory carries a `README.md`, a `README.USAGE.md` and a
 
 Most modern full-stack frameworks are JavaScript wrappers trying to solve systems-level performance problems with duct tape.
 
+## Special thanks
+
+FSR stands on the work of these projects and the people who maintain them:
+
+- [swc](https://swc.rs) parses, transforms and minifies TypeScript and JavaScript in `snapfirec`, the lowerer and `fsr migrate`.
+- [Oxc](https://oxc.rs) writes the `.d.ts` declarations `snapfirec` emits.
+- [Lightning CSS](https://lightningcss.dev) parses, transforms and minifies every stylesheet.
+- [Tailwind CSS](https://tailwindcss.com): `snapfire_tailwind` follows its v4 specification and carries its sources and tests.
+- [markdown-rs](https://github.com/wooorm/markdown-rs) and the [MDX](https://mdxjs.com) team: FSR reads MDX through markdown-rs.
+- [Taffy](https://github.com/DioxusLabs/taffy) lays out the terminal half with flexbox.
+- [Ink](https://github.com/vadimdemedes/ink) defines the components and hooks the terminal half runs.
+- [TypeScript](https://www.typescriptlang.org): `snapfiretc` runs its native compiler.
+- [QuickJS](https://bellard.org/quickjs/) and [rquickjs](https://github.com/DelSkayn/rquickjs) run the Vue and Svelte compilers and the test engine.
+- [Vue](https://vuejs.org), [Svelte](https://svelte.dev) and [React](https://react.dev), whose compilers and server output FSR matches.
+- [ICU4X](https://github.com/unicode-org/icu4x) formats dates, numbers, lists and plurals.
+- [syntect](https://github.com/trishume/syntect) highlights code blocks.
+- [Tokio](https://tokio.rs), [hyper](https://hyper.rs), [axum](https://github.com/tokio-rs/axum) and [tower](https://github.com/tower-rs/tower) serve every request.
+- [Tera](https://keats.github.io/tera/) renders the Tera evaluator's templates.
+
 [Excerion Sun LLC](https://www.excsn.com)
