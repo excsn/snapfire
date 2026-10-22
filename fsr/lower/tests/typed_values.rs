@@ -148,3 +148,22 @@ fn a_loader_builds_a_url_from_the_query() {
   assert_eq!(fields.get("link"), Some(&Value::str("https://www.example.com/plus-referral?code=a%26b#top")));
   assert_eq!(fields.get("path"), Some(&Value::str("/plus-referral")));
 }
+
+#[test]
+fn a_helper_s_typed_parameter_keeps_its_kind_in_the_helper() {
+  let helpers = "export function resolveRef(searchParams: URLSearchParams): string {\n  return searchParams.get(\"ref\") ?? \"none\";\n}\nexport function hostOf(url: URL) {\n  return url.hostname;\n}\nexport const sizeOf = (tags: Set<string>) => tags.size;\nexport function yearOf(at: Date) {\n  return at.getUTCFullYear();\n}\n";
+  let page = "import { resolveRef, hostOf, sizeOf, yearOf } from \"@src/helpers\";\nexport default function Page() {\n  return <p>{resolveRef(new URLSearchParams(\"ref=abc\"))} {hostOf(new URL(\"https://a.example/x\"))} {sizeOf(new Set([\"a\", \"b\", \"a\"]))} {yearOf(new Date(0))}</p>;\n}\n";
+  assert_eq!(html("helper_kinds", &[("src/helpers.ts", helpers), ("routes/page.tsx", page)]).as_deref(), Ok("<p>abc a.example 2 1970</p>"));
+}
+
+#[test]
+fn a_loader_s_helper_reads_its_typed_parameter_as_that_kind() {
+  let loader = "function resolveRef(searchParams: URLSearchParams): string {\n  return searchParams.get(\"ref\") ?? \"none\";\n}\nconst hostOf = (url: URL) => url.hostname;\nexport async function load({ query }: Ctx) {\n  const q = new URLSearchParams();\n  q.set(\"ref\", query.ref);\n  return { ref: resolveRef(q), host: hostOf(new URL(\"https://a.example/x\")) };\n}\n";
+  let body = snapfire_fsr_lower::lower_loader("page.loader.ts", loader).unwrap_or_else(|e| panic!("{e}"));
+  let mut ctx = snapfire_fsr_runtime::RequestCtx::anonymous(Default::default());
+  ctx.query.insert("ref".to_owned(), "abc".to_owned());
+  let out = futures::executor::block_on(Interpreter::default().run(&body, &ctx, None)).map(|outcome| outcome.value).unwrap_or_else(|e| panic!("{}", e.message));
+  let Value::Map(fields) = out else { panic!("{out:?}") };
+  assert_eq!(fields.get("ref"), Some(&Value::str("abc")));
+  assert_eq!(fields.get("host"), Some(&Value::str("a.example")));
+}
