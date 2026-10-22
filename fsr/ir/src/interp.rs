@@ -1548,20 +1548,14 @@ impl Env {
         Err(e) => return Err(e),
       };
       let mut scope = closure.scope;
-      let mut args = args.into_iter();
-      for param in &closure.params {
-        scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
-      }
+      bind_params(&mut scope, &closure.params, args);
       let outer = std::mem::replace(&mut self.scope, scope);
       let result = self.eval_sync(&closure.body);
       self.scope = outer;
       return result;
     };
     let depth = self.scope.len();
-    let mut args = args.into_iter();
-    for param in params {
-      self.scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
-    }
+    bind_params(&mut self.scope, params, args);
     let result = self.eval_sync(body);
     self.scope.truncate(depth);
     result
@@ -1986,10 +1980,7 @@ impl Env {
       return self.apply_sync(f, args);
     };
     let depth = self.scope.len();
-    let mut args = args.into_iter();
-    for param in params {
-      self.scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
-    }
+    bind_params(&mut self.scope, params, args);
     let result = self.eval(body).await;
     self.scope.truncate(depth);
     result
@@ -2664,6 +2655,18 @@ fn json_value(parsed: serde_json::Value) -> Value {
       }
       Value::Map(map)
     }
+  }
+}
+
+/// Binds a lambda's parameters to `args` in order, `Undefined` past the end; a parameter named `...x` takes every argument left as an array, as a rest parameter does.
+fn bind_params(scope: &mut Vec<(String, Value)>, params: &[String], args: Vec<Value>) {
+  let mut args = args.into_iter();
+  for param in params {
+    if param.starts_with("...") {
+      scope.push((param.clone(), Value::Seq(args.by_ref().collect())));
+      return;
+    }
+    scope.push((param.clone(), args.next().unwrap_or(Value::Undefined)));
   }
 }
 

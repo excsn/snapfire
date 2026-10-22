@@ -633,3 +633,13 @@ fn process_exit_in_a_handler_ends_the_session_with_its_code() {
   assert!(session.exited());
   assert_eq!(session.exit_code(), Some(3));
 }
+
+#[test]
+fn process_stdout_columns_and_rows_are_the_terminals_size() {
+  let page = "import { Text } from \"ink\";\n\nexport default function Size() {\n  return <Text>{process.stdout.columns}x{process.stdout.rows}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 20).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "80x24");
+  session.resize(100, 30);
+  assert_eq!(line(session.view().unwrap()), "100x30");
+}

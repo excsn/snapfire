@@ -1902,6 +1902,16 @@ impl<'a> Lowerer<'a> {
     if self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("platform") {
       return Ok(Some(Expr::Ext { module: "os".to_owned(), name: "platform".to_owned(), args: Vec::new() }));
     }
+    if let js::Expr::Member(out) = crate::meaning::bare(&member.obj) {
+      if matches!(self.member_name(out).as_deref(), Some("stdout" | "stderr")) && self.is_process(&out.obj) {
+        let size = match self.member_name(member).as_deref() {
+          Some("columns") => (crate::TERMINAL_COLUMNS, 80),
+          Some("rows") => (crate::TERMINAL_ROWS, 24),
+          _ => return Ok(None),
+        };
+        return Ok(Some(Expr::Coalesce(Box::new(Expr::Store(size.0.to_owned())), Box::new(Expr::Lit(Lit::Int(size.1))))));
+      }
+    }
     let js::Expr::Member(env) = crate::meaning::bare(&member.obj) else { return Ok(None) };
     if self.member_name(env).as_deref() != Some("env") || !self.is_process(&env.obj) {
       return Ok(None);

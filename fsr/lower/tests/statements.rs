@@ -352,3 +352,29 @@ fn json_parse_reads_a_document_into_a_value() {
   let page = "const text = '{\"name\": \"ace\", \"tags\": [\"a\", \"b\"], \"n\": 2.5, \"on\": true, \"none\": null}';\nexport default function Page() {\n  const doc = JSON.parse(text);\n  return <p>{doc.name} {doc.tags.length} {doc.n * 2} {doc.on ? \"on\" : \"off\"} {doc.none === null ? \"null\" : \"set\"} {Object.keys(doc).join(\",\")}</p>;\n}\n";
   assert_eq!(html("json_parse", page).unwrap(), "<p>ace 2 5 on null name,tags,n,on,none</p>");
 }
+
+#[test]
+fn a_hook_named_use_store_from_another_package_is_that_package_s_not_fsr_s() {
+  let page = "import { useStore } from \"@nanostores/react\";\nimport { $count } from \"@src/stores\";\n\nexport default function Page() {\n  const count = useStore($count);\n  return <p>{count}</p>;\n}\n";
+  let stores = "export const $count = { get: () => 1 };\n";
+  let dir = std::env::temp_dir().join(format!("fsr_statements_nanostores_{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&dir);
+  std::fs::create_dir_all(dir.join("routes")).unwrap();
+  std::fs::create_dir_all(dir.join("src")).unwrap();
+  std::fs::write(dir.join("routes/page.tsx"), page).unwrap();
+  std::fs::write(dir.join("src/stores.ts"), stores).unwrap();
+  let mut set = snapfire_fsr_lower::component::ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());
+  std::fs::remove_dir_all(&dir).unwrap();
+  let message = match result {
+    Ok(()) => set.browser_only.first().map(|(_, r)| r.message.clone()).unwrap_or_default(),
+    Err(e) => e,
+  };
+  assert!(message.contains("`useStore`, a hook the build cannot follow"), "{message}");
+}
+
+#[test]
+fn a_rest_parameter_gathers_the_arguments_after_the_named_ones() {
+  let page = "const tally = (label: string, ...counts: number[]) => `${label}: ${counts.length} of ${counts.reduce((a, b) => a + b, 0)}`;\nconst all = (...xs: string[]) => xs.join(\"+\");\nexport default function Page() {\n  return <p>{tally(\"n\", 1, 2, 3)} / {tally(\"none\")} / {all(\"a\", \"b\")}</p>;\n}\n";
+  assert_eq!(html("rest_params", page).unwrap(), "<p>n: 3 of 6 / none: 0 of 0 / a+b</p>");
+}

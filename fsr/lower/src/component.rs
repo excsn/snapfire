@@ -4107,7 +4107,16 @@ pub(crate) fn bind_params(lowerer: &mut Lowerer<'_>, params: &[js::Pat]) -> Lowe
         lowerer.scope.push((name.clone(), Expr::Coalesce(Box::new(Expr::Var(name.clone())), Box::new(default))));
         names.push(name);
       }
-      js::Pat::Rest(rest) => return Err(lowerer.residue(rest.span, "a rest parameter")),
+      js::Pat::Rest(rest) => {
+        let js::Pat::Ident(id) = &*rest.arg else { return Err(lowerer.residue(rest.span, "a rest parameter that is not a name")) };
+        if i + 1 != params.len() {
+          return Err(lowerer.residue(rest.span, "a rest parameter that is not last"));
+        }
+        let name = id.id.sym.to_string();
+        let gathered = format!("...{name}");
+        lowerer.scope.push((name, Expr::Var(gathered.clone())));
+        names.push(gathered);
+      }
       pattern => {
         let positional = format!("${i}");
         bind_pattern(lowerer, pattern, Expr::Var(positional.clone()))?;
@@ -6044,6 +6053,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// Whether a `use` call names one of the application's own hooks rather than React's or FSR client's.
+  /// Whether `call`'s callee is an import of a package the build does not follow.
+  fn foreign_callee(&self, call: &js::CallExpr) -> bool {
+    let js::Callee::Expr(callee) = &call.callee else { return false };
+    matches!(self.meanings().of_expr(callee), Some(crate::meaning::Meaning::Foreign))
+  }
+
   fn custom_hook(&self, name: &str) -> bool {
     use crate::meaning::{Construct, Meaning, LIBRARY};
     match self.meanings().bindings.get(name) {
@@ -6676,6 +6691,9 @@ fn library_hook<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> 
   let js::Callee::Expr(callee) = &call.callee else { return None };
   meanings.of_expr(callee).and_then(|meant| meant.hook()).map(|hook| (hook, call))
 }
+
+/// The hooks FSR's client library declares, which another package's hook of the same name is not.
+const FSR_HOOKS: &[&str] = &["useStore", "useLocale", "useEffectEvent", "useAnimation"];
 
 fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Option<(&'a str, &'a js::CallExpr)> {
   let js::Expr::Call(call) = expr else { return None };
@@ -7643,6 +7661,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           return Ok(None);
         }
         let expr = match hook_call(&self.meanings(), init) {
+          Some((hook, call)) if FSR_HOOKS.contains(&hook) && self.foreign_callee(call) => {
+            return Err(self.lowerer.residue(call.span, format!("`{hook}`, a hook the build cannot follow")));
+          }
           Some(("useCallback", call)) => {
             if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|a| &*a.expr) {
               self.handler_fns.insert(local.clone(), (arrow.params.clone(), arrow_body(arrow)));
@@ -7924,6 +7945,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// A destructuring in a component body: the value under a temporary each name reads a part of.
   fn pattern_stmt(&mut self, pattern: &'p js::Pat, init: &'p js::Expr) -> Lowered<Option<Stmt>> {
     let expr = match hook_call(&self.meanings(), init) {
+      Some((hook, call)) if FSR_HOOKS.contains(&hook) && self.foreign_callee(call) => {
+        return Err(self.lowerer.residue(call.span, format!("`{hook}`, a hook the build cannot follow")));
+      }
       Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(pattern)),
       Some(("useFormStatus", call)) => {
         // Each field is a constant on the server, bound as one so a read of `data` is known to be null.

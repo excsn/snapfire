@@ -295,7 +295,7 @@ A file in another language that a caller turns into TSX, `.mdx` and `.md` among 
 
 ### Lambdas
 
-* An arrow function in a builtin position. A parameter is an identifier, an identifier with a default or any pattern a declaration takes; a pattern parameter is named `$<index>` and each name it declares reads a part of it.
+* An arrow function in a builtin position. A parameter is an identifier, an identifier with a default or any pattern a declaration takes; a pattern parameter is named `$<index>` and each name it declares reads a part of it. A rest parameter, `...xs` last, is named `...xs` and takes every argument past the named ones as an array.
 * The body is one expression or a block lowered as a helper's is.
 * An arrow anywhere else is residue.
 
