@@ -314,7 +314,7 @@ fn youtube_iframe(attrs: &[(String, Value, String)]) -> String {
 
 /// `loader` with `rows` joined to its `meta` head, a `meta` written when it
 /// has none; `None` when its `meta` is not an object literal.
-fn with_head(loader: &str, path: &str, rows: &[String]) -> Option<String> {
+pub(crate) fn with_head(loader: &str, path: &str, rows: &[String]) -> Option<String> {
   let parsed = parse(path, loader).ok()?;
   let joined = rows.join(", ");
   let mut edits = Edits::default();
@@ -362,13 +362,16 @@ fn with_head(loader: &str, path: &str, rows: &[String]) -> Option<String> {
     let sep = if out.is_empty() || out.ends_with("\n\n") { "" } else if out.ends_with('\n') { "\n" } else { "\n\n" };
     out.push_str(&format!("{sep}export const meta = () => ({{ head: [{joined}] }});\n"));
   }
-  if rows.iter().any(|r| r.starts_with("scriptTag(")) && !out.lines().any(|l| l.starts_with("import") && l.contains("scriptTag")) {
+  for helper in ["scriptTag", "linkTag"] {
+    if !rows.iter().any(|r| r.starts_with(&format!("{helper}("))) || out.lines().any(|l| l.starts_with("import") && l.contains(helper)) {
+      continue;
+    }
     match out.lines().position(|l| l.starts_with("import {") && l.ends_with("from \"@snapfire/fsr/head\";")) {
       Some(at) => {
-        let lines: Vec<String> = out.lines().enumerate().map(|(i, l)| if i == at { l.replacen("import { ", "import { scriptTag, ", 1) } else { l.to_owned() }).collect();
+        let lines: Vec<String> = out.lines().enumerate().map(|(i, l)| if i == at { l.replacen("import { ", &format!("import {{ {helper}, "), 1) } else { l.to_owned() }).collect();
         out = lines.join("\n") + "\n";
       }
-      None => out.insert_str(0, "import { scriptTag } from \"@snapfire/fsr/head\";\n"),
+      None => out.insert_str(0, &format!("import {{ {helper} }} from \"@snapfire/fsr/head\";\n")),
     }
   }
   Some(out)

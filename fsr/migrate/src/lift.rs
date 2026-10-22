@@ -462,6 +462,12 @@ impl Pass for RouteLift {
             loader.push('\n');
           }
           loader.push_str(&load.body);
+          if !load.head.is_empty() {
+            match crate::scripts::with_head(&loader, &loader_path, &load.head) {
+              Some(with) => loader = with,
+              None => report.note(&path, 0, "the route's `meta` is not an object literal the resource hints could join, so they were left for you"),
+            }
+          }
           tree.insert(loader_path, tidy(&loader));
           tree.insert(path, tidy(&page));
         }
@@ -474,6 +480,34 @@ impl Pass for RouteLift {
 struct Load {
   imports: String,
   body: String,
+  /// `meta` head rows for the resource hints the component made.
+  head: Vec<String>,
+}
+
+/// The `linkTag` row a `preconnect(href)` or `prefetchDNS(href)` from `react-dom` is.
+fn resource_hint(stmt: &js::Stmt, text: &str, parsed: &Parsed) -> Option<(String, String)> {
+  let js::Stmt::Expr(e) = stmt else { return None };
+  let js::Expr::Call(call) = &*e.expr else { return None };
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Ident(name) = &**callee else { return None };
+  let rel = match &*name.sym {
+    "preconnect" => "preconnect",
+    "prefetchDNS" => "dns-prefetch",
+    _ => return None,
+  };
+  let [href] = &call.args[..] else { return None };
+  if href.spread.is_some() || !imports_from(parsed, &name.sym, "react-dom") {
+    return None;
+  }
+  Some((name.sym.to_string(), format!("linkTag(\"{rel}\", {})", &text[parsed.range(href.expr.span())])))
+}
+
+/// Whether the module imports `local` from `module`.
+fn imports_from(parsed: &Parsed, local: &str, module: &str) -> bool {
+  parsed.module.body.iter().any(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(i)) => &*i.src.value == module && i.specifiers.iter().any(|s| matches!(s, js::ImportSpecifier::Named(n) if &*n.local.sym == local)),
+    _ => false,
+  })
 }
 
 fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &js::Function, loader_path: &str, report: &mut Report) -> Option<(String, Load, bool)> {
@@ -538,17 +572,25 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
 
   let mut fails = false;
   let mut statements = String::new();
+  let mut head = Vec::new();
+  let mut left_out = BTreeSet::new();
   for stmt in &moved {
     if binds_request_params(stmt, props.as_deref()) {
       continue;
     }
+    if let Some((hint, row)) = resource_hint(stmt, text, parsed) {
+      left_out.insert(hint);
+      head.push(row);
+      continue;
+    }
     let range = parsed.range(stmt.span());
     let mut edits = Edits::default();
-    let mut found = ContextUses { props: props.clone(), found: Vec::new() };
+    let mut found = ContextUses { props: props.clone(), found: Vec::new(), parsed: &parsed, text: &text };
     stmt.visit_with(&mut found);
     for (span, with) in found.found {
       if with.starts_with("fail(") {
         fails = true;
+        left_out.insert("notFound".to_owned());
       }
       edits.replace(shift(parsed.range(span), range.start), with);
     }
@@ -560,7 +602,31 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
     statements.push_str(&edits.apply(&text[range]));
     statements.push('\n');
   }
-  let mut fields: Vec<String> = returned.clone();
+  let mut fields: Vec<String> = Vec::new();
+  let mut called: Vec<(Range<usize>, String)> = Vec::new();
+  for name in &returned {
+    let mut uses = CallUses { name, parsed, text, calls: Vec::new(), other: false };
+    for stmt in kept.iter().copied().chain(std::iter::once(last)) {
+      stmt.visit_with(&mut uses);
+    }
+    if uses.other || uses.calls.is_empty() {
+      fields.push(name.clone());
+      continue;
+    }
+    let mut props: Vec<(String, String)> = Vec::new();
+    for (range, call) in uses.calls {
+      let prop = match props.iter().find(|(_, c)| *c == call) {
+        Some((prop, _)) => prop.clone(),
+        None => {
+          let prop = call_prop(name, &call, &props);
+          fields.push(format!("{prop}: {call}"));
+          props.push((prop.clone(), call));
+          prop
+        }
+      };
+      called.push((range, prop));
+    }
+  }
   if later_reads.contains("params") && !fields.iter().any(|f| f == "params") {
     fields.push("params".to_owned());
   }
@@ -580,9 +646,12 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   let decls = format!("{inlined}{}", copied(text, parsed, &items, &taken, path, report));
   let body_text = format!("{decls}export async function load({ctx}) {{\n{statements}  return {{ {} }};\n}}\n", fields.join(", "));
   let ctx_import = if typed_ctx { "import type { Ctx } from \"@snapfire/fsr\";\n" } else { "" };
-  let imports = format!("{ctx_import}{inlined_imports}{}", imports_for(text, parsed, &needed, path, loader_path));
+  let imports = format!("{ctx_import}{inlined_imports}{}", imports_for(text, parsed, &needed.difference(&left_out).cloned().collect(), path, loader_path));
 
   let mut page = Edits::default();
+  for (range, prop) in called {
+    page.replace(range, prop);
+  }
   for stmt in &moved {
     page.replace(line_range(text, parsed.range(stmt.span())), "");
   }
@@ -619,7 +688,59 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
   if let Some(props_type) = &props_type {
     page.insert_str(0, &format!("import type {{ {props_type} }} from \"@generated/client\";\n"));
   }
-  Some((page, Load { imports, body: body_text }, fails))
+  Some((page, Load { imports, body: body_text, head }, fails))
+}
+
+/// Where a statement calls `name` with literal arguments and whether it uses `name` any other way.
+struct CallUses<'a> {
+  name: &'a str,
+  parsed: &'a Parsed,
+  text: &'a str,
+  calls: Vec<(Range<usize>, String)>,
+  other: bool,
+}
+
+impl Visit for CallUses<'_> {
+  fn visit_call_expr(&mut self, n: &js::CallExpr) {
+    if let js::Callee::Expr(callee) = &n.callee {
+      if matches!(&**callee, js::Expr::Ident(i) if &*i.sym == self.name) {
+        if n.args.iter().all(|a| a.spread.is_none() && matches!(&*a.expr, js::Expr::Lit(js::Lit::Str(_) | js::Lit::Num(_) | js::Lit::Bool(_)))) {
+          let range = self.parsed.range(n.span);
+          return self.calls.push((range.clone(), self.text[range].to_owned()));
+        }
+        self.other = true;
+      }
+    }
+    n.visit_children_with(self);
+  }
+
+  fn visit_ident(&mut self, n: &js::Ident) {
+    if &*n.sym == self.name {
+      self.other = true;
+    }
+  }
+}
+
+/// The prop a call's result is passed as: `t("Action.Close")` is `tActionClose`, numbered when two calls spell the same.
+fn call_prop(name: &str, call: &str, taken: &[(String, String)]) -> String {
+  let args = call.find('(').map_or("", |at| &call[at..]);
+  let mut prop = name.to_owned();
+  let mut upper = true;
+  for c in args.chars() {
+    if c.is_ascii_alphanumeric() {
+      prop.push(if upper { c.to_ascii_uppercase() } else { c });
+      upper = false;
+    } else {
+      upper = true;
+    }
+  }
+  let mut out = prop.clone();
+  let mut n = 2;
+  while taken.iter().any(|(p, _)| *p == out) {
+    out = format!("{prop}{n}");
+    n += 1;
+  }
+  out
 }
 
 fn param_names(function: &js::Function) -> Vec<String> {
@@ -664,13 +785,15 @@ fn found_redirect(stmt: &js::Stmt) -> bool {
 
 /// Next's request reads, written as FSR's: `await params` as `params`,
 /// `searchParams` as `query` and `notFound()` as a failure.
-struct ContextUses {
+struct ContextUses<'a> {
   /// The name the component binds its whole props to, when it does.
   props: Option<String>,
   found: Vec<(Span, String)>,
+  parsed: &'a Parsed,
+  text: &'a str,
 }
 
-impl ContextUses {
+impl ContextUses<'_> {
   /// `params` or `query` for `props.params` or `props.searchParams`.
   fn request_field(&self, e: &js::Expr) -> Option<&'static str> {
     request_field(self.props.as_deref(), e)
@@ -716,7 +839,21 @@ impl Visit for RequestReads {
   }
 }
 
-impl Visit for ContextUses {
+impl ContextUses<'_> {
+  /// `params` or `query` for `params`, `searchParams` or either read off the props.
+  fn request_value(&self, e: &js::Expr) -> Option<&'static str> {
+    if let js::Expr::Ident(i) = e {
+      return match &*i.sym {
+        "params" => Some("params"),
+        "searchParams" => Some("query"),
+        _ => None,
+      };
+    }
+    self.request_field(e)
+  }
+}
+
+impl Visit for ContextUses<'_> {
   fn visit_await_expr(&mut self, n: &js::AwaitExpr) {
     if let Some(field) = self.request_field(&n.arg) {
       return self.found.push((n.span, field.to_owned()));
@@ -745,6 +882,17 @@ impl Visit for ContextUses {
   }
 
   fn visit_call_expr(&mut self, n: &js::CallExpr) {
+    if let (js::Callee::Expr(callee), [arg]) = (&n.callee, &n.args[..]) {
+      if let (js::Expr::Member(m), None) = (&**callee, arg.spread) {
+        if let (js::MemberProp::Ident(then), Some(field)) = (&m.prop, self.request_value(&m.obj)) {
+          if &*then.sym == "then" {
+            let f = &self.text[self.parsed.range(arg.expr.span())];
+            let f = if matches!(&*arg.expr, js::Expr::Ident(_) | js::Expr::Member(_)) { f.to_owned() } else { format!("({f})") };
+            return self.found.push((n.span, format!("{f}({field})")));
+          }
+        }
+      }
+    }
     if let js::Callee::Expr(e) = &n.callee {
       if let js::Expr::Ident(i) = &**e {
         if &*i.sym == "notFound" && n.args.is_empty() {
@@ -788,7 +936,7 @@ impl Pass for ComponentLift {
       let items: Vec<Item> = parsed.module.body.iter().map(|item| describe(item, &parsed)).collect();
       let module_names: BTreeSet<String> = items.iter().flat_map(|i| i.binds.iter().cloned()).collect();
       let mut edits = Edits::default();
-      let mut lifted: Vec<(String, Vec<Read>)> = Vec::new();
+      let mut lifted: Vec<(String, Vec<Read>, &js::Function)> = Vec::new();
       for item in &parsed.module.body {
         let Some((name, function)) = component(item) else { continue };
         let Some(reads) = component_reads(&text, &parsed, function, &module_names, &path, report) else { continue };
@@ -801,7 +949,7 @@ impl Pass for ComponentLift {
             edits.replace(span.start + at..span.start + at + "async ".len(), "");
           }
         }
-        lifted.push((name, reads));
+        lifted.push((name, reads, function));
       }
       if lifted.is_empty() {
         continue;
@@ -811,7 +959,7 @@ impl Pass for ComponentLift {
         report.note(&path, 0, "a component awaits data but no page places it, so it was left as it is");
         continue;
       }
-      for (component, _) in &lifted {
+      for (component, _, _) in &lifted {
         if !placed_unconditionally(tree, component) {
           report.note(&path, 0, format!("`{component}` renders only under a condition, so its data now loads with the page before any render reads it"));
         }
@@ -819,43 +967,87 @@ impl Pass for ComponentLift {
       let mut needed: BTreeSet<String> = BTreeSet::new();
       let mut loads = String::new();
       let mut seeds = Vec::new();
-      for (component, reads) in &lifted {
+      let mut reading: BTreeMap<(usize, usize), Vec<String>> = BTreeMap::new();
+      let mut fields: Vec<String> = Vec::new();
+      let mut file_keys: Vec<(String, String)> = Vec::new();
+      for (component, reads, function) in &lifted {
         for read in reads {
           let key_id = format!("{}/{}", component.to_lowercase(), read.name);
           let key_name = format!("{}{}", lower_first(component), upper_first(&read.name));
-          let field = key_name.clone();
           let wrapped = parse("x.ts", &format!("({})", read.expr)).ok();
           if let Some(w) = wrapped {
             needed.extend(reads_of(&w));
           }
-          loads.push_str(&format!("  const {field} = await {};\n", read.expr));
-          seeds.push(format!("\"{key_id}\": data.{field}"));
-          edits.replace(read.stmt.clone(), format!("const [{}] = useStore({key_name}, null);", read.name));
-          keys.push((key_name, key_id));
+          loads.push_str(&format!("  const {key_name} = await {};\n", read.expr));
+          let mut uses = CallUses { name: &read.name, parsed: &parsed, text: &text, calls: Vec::new(), other: false };
+          for stmt in function.body.iter().flat_map(|b| &b.stmts).filter(|s| parsed.range(s.span()) != read.stmt) {
+            stmt.visit_with(&mut uses);
+          }
+          if uses.other || uses.calls.is_empty() {
+            fields.push(key_name.clone());
+            seeds.push(format!("\"{key_id}\": data.{key_name}"));
+            reading.entry((read.stmt.start, read.stmt.end)).or_default().push(format!("const [{}] = useStore({key_name}, null);", read.name));
+            file_keys.push((key_name, key_id));
+            continue;
+          }
+          let mut props: Vec<(String, String)> = Vec::new();
+          for (range, call) in uses.calls {
+            if let Some((prop, _)) = props.iter().find(|(_, c)| *c == call) {
+              edits.replace(range, prop.clone());
+              continue;
+            }
+            let prop = call_prop(&read.name, &call, &props);
+            let called_name = format!("{}{}", lower_first(component), upper_first(&prop));
+            let called_id = format!("{}/{prop}", component.to_lowercase());
+            loads.push_str(&format!("  const {called_name} = {key_name}{};\n", &call[read.name.len()..]));
+            fields.push(called_name.clone());
+            seeds.push(format!("\"{called_id}\": data.{called_name}"));
+            reading.entry((read.stmt.start, read.stmt.end)).or_default().push(format!("const [{prop}] = useStore({called_name}, null);"));
+            file_keys.push((called_name, called_id));
+            edits.replace(range, prop.clone());
+            props.push((prop, call));
+          }
         }
+      }
+      let key_names: Vec<String> = fields.clone();
+      for ((start, end), lines) in reading {
+        let indent = Some(&text[text[..start].rfind('\n').map_or(0, |n| n + 1)..start]).filter(|i| i.chars().all(char::is_whitespace)).unwrap_or(" ");
+        edits.replace(start..end, lines.join(&format!("\n{indent}")));
       }
       let taken = closure(&items, &mut needed);
       let own = copied(&text, &parsed, &items, &taken, &path, report);
-      let fields: Vec<String> = lifted.iter().flat_map(|(c, rs)| rs.iter().map(move |r| format!("{}{}", lower_first(c), upper_first(&r.name)))).collect();
+      let mut loaders: Vec<(String, String)> = Vec::new();
+      let mut refused = None;
       for page in &pages {
         let loader_path = format!("{}/page.loader.ts", dirname(page));
         let existing = tree.text(&loader_path).unwrap_or_default().to_owned();
-        if existing.contains("function load") || existing.contains("const load") || existing.contains("export const store") {
-          report.note(&path, 0, format!("`{loader_path}` already has a `load` or a `store`, so the data this component awaits was not moved there"));
-          continue;
-        }
         let mut needed_here = needed.clone();
         let (inlined_imports, inlined) = inline_memoized(tree, &parsed, &mut needed_here, &path, &loader_path, report);
         let decls = format!("{inlined}{own}");
-        let imports = format!("{inlined_imports}{}", imports_for(&text, &parsed, &needed_here, &path, &loader_path));
-        let loader = format!(
-          "{imports}\n{existing}\n{decls}export async function load() {{\n{loads}  return {{ {} }};\n}}\n\nexport const store = ({{ data }}) => ({{ {} }});\n",
-          fields.join(", "),
-          seeds.join(", ")
-        );
+        let imports: String = format!("{inlined_imports}{}", imports_for(&text, &parsed, &needed_here, &path, &loader_path)).lines().filter(|l| !existing.lines().any(|e| e == *l)).map(|l| format!("{l}\n")).collect();
+        let store = format!("export const store = ({{ data }}) => ({{ {} }});\n", seeds.join(", "));
+        let has_load = existing.contains("function load") || existing.contains("const load");
+        let loader = if has_load || existing.contains("export const store") {
+          match merged_load(&existing, &loader_path, &loads, &fields) {
+            Some(merged) if !existing.contains("export const store") => format!("{imports}\n{decls}{merged}\n{store}"),
+            _ => {
+              refused = Some(loader_path);
+              break;
+            }
+          }
+        } else {
+          format!("{imports}\n{existing}\n{decls}export async function load() {{\n{loads}  return {{ {} }};\n}}\n\n{store}", fields.join(", "))
+        };
+        loaders.push((loader_path, loader));
+      }
+      if let Some(loader_path) = refused {
+        report.note(&path, 0, format!("`{loader_path}` has a `store` or a `load` that does not end in returning an object, so the data this component awaits was left in it"));
+        continue;
+      }
+      for (loader_path, loader) in loaders {
         tree.insert(loader_path, tidy(&loader));
       }
-      let key_names: Vec<String> = lifted.iter().flat_map(|(c, rs)| rs.iter().map(move |r| format!("{}{}", lower_first(c), upper_first(&r.name)))).collect();
+      keys.extend(file_keys);
       let header = format!("import {{ useStore }} from \"@snapfire/fsr-client/react\";\nimport {{ {} }} from \"@src/store\";\n", key_names.join(", "));
       let mut removable = needed.clone();
       removable.insert("use".to_owned());
@@ -874,6 +1066,28 @@ impl Pass for ComponentLift {
     }
     tree.insert("app/src/store.ts", store);
   }
+}
+
+/// `existing` with `loads` run before the final `return { ... }` of its `load` and `fields` joined to what it returns; `None` for any other `load`.
+fn merged_load(existing: &str, path: &str, loads: &str, fields: &[String]) -> Option<String> {
+  let parsed = parse(path, existing).ok()?;
+  let function = parsed.module.body.iter().find_map(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) if &*f.ident.sym == "load" => Some(&f.function),
+    _ => None,
+  })?;
+  let js::Stmt::Return(ret) = function.body.as_ref()?.stmts.last()? else { return None };
+  let js::Expr::Object(object) = &**ret.arg.as_ref()? else { return None };
+  let at = parsed.range(ret.span).start;
+  let mut edits = Edits::default();
+  edits.replace(at..at, format!("{}\n  ", loads.trim_end().trim_start()));
+  match object.props.last() {
+    Some(last) => {
+      let end = parsed.range(last.span()).end;
+      edits.replace(end..end, format!(", {}", fields.join(", ")));
+    }
+    None => edits.replace(parsed.range(object.span), format!("{{ {} }}", fields.join(", "))),
+  }
+  Some(edits.apply(existing))
 }
 
 fn reads_of(parsed: &Parsed) -> BTreeSet<String> {
@@ -916,6 +1130,17 @@ fn component_reads(text: &str, parsed: &Parsed, function: &js::Function, module_
       continue;
     };
     let [decl] = var.decls.as_slice() else { continue };
+    if let Some(pairs) = awaited_all(&decl.name, decl.init.as_deref()) {
+      for (name, call) in pairs {
+        let free = reads(call);
+        if let Some(local) = free.iter().find(|n| !module_names.contains(*n) && !GLOBALS.contains(&n.as_str())) {
+          report.note(path, parsed.line(stmt.span()), format!("the read depends on `{local}`, which is not known before the component renders, so it stays in the browser"));
+          return None;
+        }
+        out.push(Read { name, expr: text[parsed.range(call.span())].to_owned(), stmt: parsed.range(stmt.span()) });
+      }
+      continue;
+    }
     let (js::Pat::Ident(name), Some(init)) = (&decl.name, decl.init.as_deref()) else {
       if function.is_async && holds(stmt).awaits {
         report.note(path, parsed.line(stmt.span()), "the component awaits into a pattern the lift does not move, so it was left as it is");
@@ -947,6 +1172,28 @@ fn component_reads(text: &str, parsed: &Parsed, function: &js::Function, module_
       continue;
     }
     out.push(Read { name: name.id.sym.to_string(), expr: text[parsed.range(call.span())].to_owned(), stmt: parsed.range(stmt.span()) });
+  }
+  Some(out)
+}
+
+/// Each name of `const [a, b] = await Promise.all([f(), g()])` with the read it binds.
+fn awaited_all<'a>(pattern: &js::Pat, init: Option<&'a js::Expr>) -> Option<Vec<(String, &'a js::Expr)>> {
+  let (js::Pat::Array(names), Some(js::Expr::Await(awaited))) = (pattern, init) else { return None };
+  let js::Expr::Call(all) = &*awaited.arg else { return None };
+  let js::Callee::Expr(callee) = &all.callee else { return None };
+  let js::Expr::Member(m) = &**callee else { return None };
+  let (js::Expr::Ident(promise), js::MemberProp::Ident(method)) = (&*m.obj, &m.prop) else { return None };
+  if &*promise.sym != "Promise" || &*method.sym != "all" {
+    return None;
+  }
+  let [arg] = &all.args[..] else { return None };
+  let js::Expr::Array(reads) = &*arg.expr else { return None };
+  let mut out = Vec::new();
+  for (at, name) in names.elems.iter().enumerate() {
+    let Some(name) = name else { continue };
+    let js::Pat::Ident(name) = name else { return None };
+    let read = reads.elems.get(at)?.as_ref().filter(|e| e.spread.is_none())?;
+    out.push((name.id.sym.to_string(), &*read.expr));
   }
   Some(out)
 }
@@ -1104,6 +1351,63 @@ mod tests {
   }
 
   #[test]
+  fn then_on_the_request_params_calls_its_function_with_them() {
+    let page = "import { clean } from \"../src/clean\";\n\nexport default async function Home({ params, searchParams }) {\n  const [q, slug] = await Promise.all([searchParams.then(clean), params.then((p) => p.slug)]);\n  return <p>{q.term}{slug}</p>;\n}\n";
+    let input = tree(&[("app/routes/page.tsx", page), ("app/src/clean.ts", "export const clean = (q) => q;\n")]);
+    let (out, report) = lift(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("await Promise.all([clean(query), ((p) => p.slug)(params)])"), "{loader}");
+    assert!(loader.contains("load({ params, query }"), "{loader}");
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_not_found_the_lift_rewrites_is_not_imported_by_the_loader() {
+    let page = "import { notFound } from \"next/navigation\";\nimport { getPage } from \"../src/cms\";\n\nexport default async function Home() {\n  const page = await getPage();\n  if (page === null) notFound();\n  return <p>{page.title}</p>;\n}\n";
+    let input = tree(&[("app/routes/page.tsx", page), ("app/src/cms.ts", "export const getPage = async () => ({ title: \"t\" });\n")]);
+    let (out, _) = lift(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("fail(\"not_found\", \"not found\")") && !loader.contains("notFound"), "{loader}");
+    assert!(!out.text("app/routes/page.tsx").unwrap().contains("notFound"));
+  }
+
+  #[test]
+  fn a_function_the_page_only_calls_with_literals_is_called_in_the_loader() {
+    let page = "import { getTranslations } from \"../src/i18n\";\nimport Blocks from \"../src/Blocks\";\n\nexport default async function Home() {\n  const [t, tPlay] = await Promise.all([getTranslations(\"Common\"), getTranslations(\"Landing\")]);\n  return <Blocks labels={{ play: tPlay(\"Label.Play\"), close: t(\"Action.Close\") }} title={t(\"Action.Close\")} />;\n}\n";
+    let input = tree(&[("app/routes/page.tsx", page), ("app/src/i18n.ts", "export const getTranslations = async (ns) => (k) => k;\n"), ("app/src/Blocks.tsx", "export default function Blocks() { return null; }\n")]);
+    let (out, report) = lift(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("return { tActionClose: t(\"Action.Close\"), tPlayLabelPlay: tPlay(\"Label.Play\") };"), "{loader}");
+    let page = out.text("app/routes/page.tsx").unwrap();
+    assert!(page.contains("function Home({ tActionClose, tPlayLabelPlay }: RootProps)"), "{page}");
+    assert!(page.contains("labels={{ play: tPlayLabelPlay, close: tActionClose }} title={tActionClose}"), "{page}");
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_function_the_page_also_passes_whole_is_returned_as_it_is() {
+    let page = "import { getTranslations } from \"../src/i18n\";\nimport Blocks from \"../src/Blocks\";\n\nexport default async function Home() {\n  const t = await getTranslations(\"Common\");\n  return <Blocks t={t} title={t(\"Title\")} />;\n}\n";
+    let input = tree(&[("app/routes/page.tsx", page), ("app/src/i18n.ts", "export const getTranslations = async (ns) => (k) => k;\n"), ("app/src/Blocks.tsx", "export default function Blocks() { return null; }\n")]);
+    let (out, _) = lift(&input);
+    assert!(out.text("app/routes/page.loader.ts").unwrap().contains("return { t };"));
+  }
+
+  #[test]
+  fn a_preconnect_the_page_makes_is_a_head_row_of_its_meta() {
+    let page = "import { preconnect } from \"react-dom\";\nimport { mediaUrl, getPage } from \"../src/cms\";\n\nexport default async function Home() {\n  preconnect(mediaUrl.href);\n  const page = await getPage();\n  return <p>{page.title}</p>;\n}\n";
+    let input = tree(&[("app/routes/page.tsx", page), ("app/src/cms.ts", "export const mediaUrl = new URL(\"https://media.example\");\nexport const getPage = async () => ({ title: \"t\" });\n")]);
+    let (out, report) = lift(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("import { linkTag } from \"@snapfire/fsr/head\";"), "{loader}");
+    assert!(loader.contains("import { mediaUrl, getPage } from \"../src/cms\";"), "{loader}");
+    assert!(loader.contains("export const meta = () => ({ head: [linkTag(\"preconnect\", mediaUrl.href)] });"), "{loader}");
+    assert!(!loader.contains("react-dom") && !loader.contains("  preconnect("), "{loader}");
+    let page = out.text("app/routes/page.tsx").unwrap();
+    assert!(!page.contains("react-dom") && !page.contains("preconnect"), "{page}");
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+  }
+
+  #[test]
   fn a_function_memoizing_in_a_map_is_read_as_the_call_it_memoizes() {
     let data = "let cache = new Map();\n\nexport function fetchData(url) {\n  if (!cache.has(url)) {\n    cache.set(url, getData(url));\n  }\n  return cache.get(url);\n}\n\nasync function getData(url) {\n  return [url];\n}\n";
     let app = "import { use } from 'react';\nimport { fetchData } from './data.js';\n\nexport default function Albums() {\n  const albums = use(fetchData('/albums'));\n  return <ul>{albums.map(a => <li key={a}>{a}</li>)}</ul>;\n}\n";
@@ -1160,5 +1464,65 @@ mod tests {
     );
     assert_eq!(out.text("app/src/store.ts").unwrap(), "import { key } from \"@snapfire/fsr-client/store\";\n\nexport const albumsAlbums = key<any>(\"albums/albums\");\n");
     assert_eq!(report.notes.len(), 1, "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_function_a_component_awaits_and_only_calls_with_literals_seeds_each_result() {
+    let nav = "import { getTranslations } from \"./i18n\";\n\nexport default async function Nav() {\n  const [t, tMenu] = await Promise.all([getTranslations(\"Common\"), getTranslations(\"Menu\")]);\n  const label = t(\"Label.Navigation\");\n  return <nav aria-label={label}><button title={tMenu(\"Label.Open\")}>{t(\"Label.Navigation\")}</button></nav>;\n}\n";
+    let page = "import Nav from \"@src/Nav\";\n\nexport default function Page() {\n  return <Nav />;\n}\n";
+    let input = tree(&[("app/src/Nav.tsx", nav), ("app/src/i18n.ts", "export const getTranslations = async (ns) => (k) => k;\n"), ("app/routes/page.tsx", page)]);
+    let (out, report) = lift(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("  const navT = await getTranslations(\"Common\");\n  const navTLabelNavigation = navT(\"Label.Navigation\");\n  const navTMenu = await getTranslations(\"Menu\");\n  const navTMenuLabelOpen = navTMenu(\"Label.Open\");\n  return { navTLabelNavigation, navTMenuLabelOpen };"), "{loader}");
+    assert!(loader.contains("\"nav/tLabelNavigation\": data.navTLabelNavigation, \"nav/tMenuLabelOpen\": data.navTMenuLabelOpen"), "{loader}");
+    let nav = out.text("app/src/Nav.tsx").unwrap();
+    assert!(nav.contains("  const [tLabelNavigation] = useStore(navTLabelNavigation, null);\n  const [tMenuLabelOpen] = useStore(navTMenuLabelOpen, null);\n  const label = tLabelNavigation;\n"), "{nav}");
+    assert!(nav.contains("title={tMenuLabelOpen}>{tLabelNavigation}</button>"), "{nav}");
+    assert!(!nav.contains("getTranslations"), "{nav}");
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_component_beneath_a_page_with_a_loader_joins_its_reads_to_that_load() {
+    let nav = "import { getLabels } from \"./data\";\n\nexport default async function Nav({ links }) {\n  const labels = await getLabels();\n  return <nav aria-label={labels.title}>{links.length}</nav>;\n}\n";
+    let page = "import Nav from \"@src/Nav\";\nimport { getPage } from \"@src/data\";\n\nexport default async function Page() {\n  const page = await getPage();\n  return <Nav links={page.links} />;\n}\n";
+    let data = "export const getLabels = async () => ({ title: \"t\" });\nexport const getPage = async () => ({ links: [] });\n";
+    let input = tree(&[("app/src/Nav.tsx", nav), ("app/src/data.ts", data), ("app/routes/page.tsx", page)]);
+    let (out, report) = lift(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("  const page = await getPage();\n  const navLabels = await getLabels();\n  return { page, navLabels };"), "{loader}");
+    assert!(loader.contains("export const store = ({ data }) => ({ \"nav/labels\": data.navLabels });"), "{loader}");
+    assert_eq!(loader.matches("from \"../src/data\"").count() + loader.matches("from \"@src/data\"").count(), loader.lines().filter(|l| l.starts_with("import") && l.contains("data\"")).count(), "{loader}");
+    assert!(out.text("app/src/Nav.tsx").unwrap().contains("const [labels] = useStore(navLabels, null);"));
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_component_beneath_a_load_that_cannot_take_its_reads_is_left_whole() {
+    let nav = "import { getLabels } from \"./data\";\n\nexport default async function Nav() {\n  const labels = await getLabels();\n  return <nav aria-label={labels.title} />;\n}\n";
+    let page = "import Nav from \"@src/Nav\";\n\nexport default function Page() {\n  return <Nav />;\n}\n";
+    let loader = "export async function load() {\n  if (Math.random() > 2) return { a: 1 };\n  return null;\n}\n";
+    let input = tree(&[("app/src/Nav.tsx", nav), ("app/src/data.ts", "export const getLabels = async () => ({ title: \"t\" });\n"), ("app/routes/page.tsx", page), ("app/routes/page.loader.ts", loader)]);
+    let (out, report) = lift(&input);
+    assert_eq!(out.text("app/src/Nav.tsx").unwrap(), nav);
+    assert_eq!(out.text("app/routes/page.loader.ts").unwrap(), loader);
+    assert!(out.text("app/src/store.ts").is_none());
+    assert!(report.notes.iter().any(|n| n.message.contains("does not end in returning an object")), "{:?}", report.notes);
+  }
+
+  #[test]
+  fn a_component_awaiting_promise_all_into_names_reads_each_from_the_store() {
+    let nav = "import { getLinks, getLabels } from \"./data\";\n\nexport default async function Nav() {\n  const [links, labels] = await Promise.all([getLinks(), getLabels(\"nav\")]);\n  return <nav aria-label={labels.title}>{links.length}</nav>;\n}\n";
+    let page = "import Nav from \"@src/Nav\";\n\nexport default function Page() {\n  return <Nav />;\n}\n";
+    let data = "export const getLinks = async () => [];\nexport const getLabels = async (ns) => ({ title: ns });\n";
+    let input = tree(&[("app/src/Nav.tsx", nav), ("app/src/data.ts", data), ("app/routes/page.tsx", page)]);
+    let (out, report) = lift(&input);
+    let loader = out.text("app/routes/page.loader.ts").unwrap();
+    assert!(loader.contains("  const navLinks = await getLinks();\n  const navLabels = await getLabels(\"nav\");\n  return { navLinks, navLabels };"), "{loader}");
+    assert!(loader.contains("export const store = ({ data }) => ({ \"nav/links\": data.navLinks, \"nav/labels\": data.navLabels });"), "{loader}");
+    let nav = out.text("app/src/Nav.tsx").unwrap();
+    assert!(nav.contains("export default function Nav() {\n  const [links] = useStore(navLinks, null);\n  const [labels] = useStore(navLabels, null);\n  return"), "{nav}");
+    assert!(!nav.contains("Promise.all") && !nav.contains("./data"), "{nav}");
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
   }
 }

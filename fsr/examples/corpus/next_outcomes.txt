@@ -11,9 +11,9 @@ auth-with-stytch	no application
 auth0	refused: routes/advanced/ssr-profile/page.loader.ts:3:21: `load` is a call the build does not recognise	pages 5	notes 6
 basic-css	refused: src/styles.module.css: 1:1: Expression expected	pages 1	notes 0
 blog	lowered	pages 0	notes 4
-blog-starter	refused: src/lib/api.ts:9:10: `fs` comes from `fs`, which the build cannot follow	pages 2	notes 7
+blog-starter	refused: src/lib/api.ts:9:10: `fs` comes from `fs`, which the build cannot follow	pages 2	notes 8
 blog-with-comment	refused: src/lib/getPost.ts:9:10: `fs` comes from `fs`, which the build cannot follow	pages 3	notes 9
-cache-handler-redis	refused: routes/[timezone]/page.loader.ts:26:3: an expression statement other than a write to a local	pages 1	notes 12
+cache-handler-redis	refused: routes/[timezone]/page.loader.ts:25:3: an expression statement other than a write to a local	pages 1	notes 12
 cache-handler-redis-turbo	refused: routes/use-cache/page.loader.ts:10:3: an expression statement other than a write to a local	pages 3	notes 4
 cloudflare-turnstile	client: routes/explicit/page.island0.tsx:6:5 `Script` comes from `next/script`, which the build cannot follow	pages 2	notes 6
 cms-agilitycms	refused: src/lib/api.ts:15:23: `agility` comes from `@agility/content-fetch`, which the build cannot follow	pages 2	notes 26
@@ -30,11 +30,11 @@ cms-graphcms	refused: src/lib/graphcms.js:2:21: a call to `fetch`, which the bui
 cms-keystonejs-embedded	no application
 cms-kontent-ai	refused: src/lib/api.ts:9:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 2	notes 24
 cms-makeswift	refused: routes/[[...path]]/page.loader.ts:26:25: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 7
-cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 22
+cms-payload	refused: routes/(site)/layout.tsx:4:20: an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 4	notes 23
 cms-plasmic	refused: src/plasmic-init.ts:21:32: a call to `initPlasmicLoader`, which the build cannot follow	pages 1	notes 9
 cms-prepr	refused: src/lib/api.js:2:26: a call to `fetch`, which the build cannot follow	pages 2	notes 24
 cms-prismic	refused: src/lib/prismic.ts:32:18: `prismic` is not bound here; an import the build cannot follow or a name from outside the body	pages 3	notes 21
-cms-sanity	refused: src/sanity/lib/fetch.ts:30:28: a call to `draftMode`, which the build cannot follow	pages 3	notes 15
+cms-sanity	refused: src/sanity/lib/fetch.ts:30:28: a call to `draftMode`, which the build cannot follow	pages 3	notes 17
 cms-sitecore-xmcloud	refused: src/lib/page-props-factory/index.ts:53:45: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 29
 cms-sitefinity	refused: src/lib/api.ts:6:30: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 17
 cms-storyblok	refused: src/lib/api.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 21
@@ -44,12 +44,12 @@ cms-tina	refused: src/lib/api.js:8:10: `fs` comes from `fs`, which the build can
 cms-umbraco	refused: src/lib/api.ts:10:26: a call to `fetch`, which the build cannot follow	pages 2	notes 20
 cms-umbraco-heartcore	refused: src/lib/umbraco-heartcore.js:2:21: a call to `fetch`, which the build cannot follow	pages 2	notes 22
 cms-webiny	refused: src/lib/api.ts:7:10: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 2	notes 22
-cms-wordpress	refused: routes/api/exit-preview/route.ts:5:36: `url` is not a field of the context	pages 1	notes 34
+cms-wordpress	refused: routes/api/exit-preview/route.ts:5:36: `url` is not a field of the context	pages 1	notes 35
 convex	refused: routes/layout.tsx:7:20: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 1	notes 2
 custom-server	lowered	pages 1	notes 3
 github-pages	lowered	pages 2	notes 1
 hello-world	lowered	pages 1	notes 0
-i18n-routing	refused: routes/[lang]/layout.loader.ts:6:12: `params` as a whole; read one of its fields	pages 1	notes 1
+i18n-routing	refused: src/get-dictionary.ts:13:3: an optional call of a function value	pages 1	notes 1
 i18n-routing-pages	refused: routes/gsp/page.loader.ts:11:7: `locales` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 7
 image-component	refused: src/styles.module.css: 1:1: Expression expected	pages 8	notes 11
 image-secure-compute	refused: routes/image-api/[...path]/route.ts:5:8: `headers` is not a field of the context	pages 2	notes 1
@@ -88,7 +88,7 @@ with-cypress	refused: src/styles/Home.module.css: 1:1: Expression expected	pages
 with-docker	lowered	pages 1	notes 5
 with-docker-compose/next-app	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
 with-docker-export-output	lowered	pages 1	notes 5
-with-docker-multi-env	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 6
+with-docker-multi-env	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 3
 with-dynamic-import	client: routes/page.island0.tsx:13:27 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:14:27 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:4:27 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:5:44 a component made by `dynamic`, which the build does not lower | routes/page.island0.tsx:9:36 a component made by `dynamic`, which the build does not lower	pages 1	notes 0
 with-edgedb	refused: routes/page.loader.ts:5:22: `e` comes from `../src/client`, which the build cannot follow	pages 4	notes 4
 with-elasticsearch	refused: src/lib/elasticsearch.ts:4:24: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 6
@@ -119,11 +119,11 @@ with-gsap	client: routes/page.island0.tsx:35:5 `CSSTransition` comes from `react
 with-hls-js	lowered	pages 1	notes 0
 with-http2	lowered	pages 2	notes 2
 with-i18n-next-intl	refused: routes/page.loader.ts:4:12: a call to `require`, which the build cannot follow	pages 2	notes 4
-with-i18n-rosetta	refused: routes/[lng]/page.loader.ts:4:43: `super` or `import()`	pages 2	notes 4
+with-i18n-rosetta	refused: routes/[lng]/page.loader.ts:4:43: `super` or `import()`	pages 2	notes 3
 with-ionic	lowered	pages 1	notes 0
 with-iron-session	no application
 with-iron-session-cache-components	refused: src/lib/session.ts:42:3: a call for its effect, which a straight-line body cannot hold	pages 3	notes 6
-with-jest	lowered	pages 2	notes 2
+with-jest	lowered	pages 2	notes 3
 with-jest-babel	refused: routes/index.module.css: 1:1: Expression expected	pages 1	notes 1
 with-joi	lowered	pages 0	notes 3
 with-jotai	refused: src/styles/Home.module.css: 1:1: Expression expected	pages 1	notes 1
@@ -134,14 +134,14 @@ with-lingui	client: routes/layout.js:13:22 `useRouter`, a hook the build cannot 
 with-magic	client: src/lib/hooks.js:13:27 `useSWR`, a hook the build cannot follow	pages 3	notes 10
 with-mantine	client: routes/layout.island0.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/layout.tsx:5:5 `MantineProvider` comes from `@mantine/core`, which the build cannot follow | routes/page.island0.tsx:9:5 `Text` comes from `@mantine/core`, which the build cannot follow	pages 1	notes 2
 with-mdbreact	client: routes/page.island0.tsx:15:5 `MDBCardTitle` comes from `mdbreact`, which the build cannot follow	pages 1	notes 1
-with-meilisearch	client: routes/page.island0.tsx:76:25 `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 6
+with-meilisearch	client: routes/page.island0.tsx:76:25 `searchClient` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 5
 with-mobx	client: src/components/Page.js:7:14 a component made by `observer`, which the build does not lower | src/components/StoreProvider.js:17:31 `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 4	notes 2
 with-mobx-state-tree	refused: src/store.ts:10:5: `store`, a module-level `let` a function writes; a body reads module state through the store	pages 4	notes 2
 with-mocha	lowered	pages 1	notes 0
 with-mongodb	refused: <app>/routes: holds `actions.ts` but no `page.tsx`; an action is named for the page beside it	pages 1	notes 6
 with-mongodb-mongoose	refused: src/lib/dbConnect.ts:13:23: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 4	notes 8
 with-mqtt-js	client: routes/page.island0.tsx:18:9 a call for its effect, which a straight-line body cannot hold	pages 1	notes 1
-with-msw	refused: routes/page.loader.ts:3:21: a call to `fetch`, which the build cannot follow	pages 1	notes 5
+with-msw	refused: routes/page.loader.ts:3:21: a call to `fetch`, which the build cannot follow	pages 1	notes 4
 with-mux-video	refused: routes/(upload)/page.loader.ts:3:17: `new` of something other than `Date`, `Map`, `Set` or `URLSearchParams`	pages 3	notes 9
 with-mysql	lowered	pages 1	notes 2
 with-neo4j	refused: src/styles/global.js:3:16: a tagged template	pages 3	notes 8
@@ -209,7 +209,7 @@ with-temporal	lowered	pages 2	notes 2
 with-three-js	client: routes/_components/Box.js:11:3 `useFrame`, a hook the build cannot follow | routes/birds/page.island0.tsx:11:17 `Math.random` | routes/boxes/page.island0.tsx:7:5 `OrbitControls` comes from `@react-three/drei`, which the build cannot follow	pages 3	notes 0
 with-turbopack	client: routes/page.island0.tsx:4:3 a call for its effect, which a straight-line body cannot hold	pages 1	notes 0
 with-turbopack-loaders	client: routes/page.island0.tsx:6:5 `Vercel` is not a component this file declares or imports	pages 1	notes 2
-with-turso	client: routes/form.tsx:21:3 an expression statement other than a write to a local | routes/todo-list.tsx:19:8 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 7
+with-turso	client: routes/form.tsx:21:3 an expression statement other than a write to a local | routes/todo-list.tsx:19:8 an `async` component; what it awaits belongs in the route's loader, `page.loader.ts`, which runs before the page renders	pages 1	notes 6
 with-typescript	refused: routes/users/[id]/page.loader.ts:16:3: `try`, and a body has no exceptions	pages 4	notes 3
 with-typescript-graphql	refused: src/lib/apollo.ts:11:5: `apolloClient`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 3
 with-typescript-types	lowered	pages 1	notes 0
@@ -219,9 +219,9 @@ with-userbase	lowered	pages 1	notes 3
 with-vanilla-extract	refused: <app>/routes: `page.css.ts` names slot `css`, which no layout above it declares	pages 2	notes 0
 with-vercel-blob	refused: src/utils/cachedImages.ts:5:5: `cached`, a module-level `let` a function writes; a body reads module state through the store	pages 2	notes 10
 with-videojs	lowered	pages 1	notes 0
-with-vitest	lowered	pages 2	notes 3
+with-vitest	lowered	pages 2	notes 4
 with-web-worker	lowered	pages 1	notes 0
-with-webassembly	refused: routes/page.loader.ts:4:17: `query` as a whole; read one of its fields	pages 1	notes 2
+with-webassembly	refused: routes/page.loader.ts:6:44: `super` or `import()`	pages 1	notes 1
 with-xata	refused: routes/layout.loader.ts:6:5: `process` is not bound here; an import the build cannot follow or a name from outside the body	pages 1	notes 10
 with-xstate	client: routes/_components/Counter.tsx:6:25 `useMachine`, a hook the build cannot follow | routes/_components/Toggle.tsx:6:25 `useMachine`, a hook the build cannot follow	pages 1	notes 0
 with-yarn-workspaces	unmigrated: not a Next.js application	pages 0	notes 1

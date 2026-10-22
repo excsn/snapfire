@@ -161,7 +161,10 @@ pub struct Report {
 
 impl Report {
   pub fn note(&mut self, file: &str, line: usize, message: impl Into<String>) {
-    self.notes.push(Note { file: file.to_owned(), line, message: message.into() });
+    let note = Note { file: file.to_owned(), line, message: message.into() };
+    if !self.notes.contains(&note) {
+      self.notes.push(note);
+    }
   }
 
   pub fn command(&mut self, command: impl Into<String>) {

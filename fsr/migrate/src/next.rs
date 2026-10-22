@@ -147,7 +147,7 @@ pub(crate) fn source_path(path: &str, root: &str, report: &mut Report) -> Option
   }
   if path.split('/').any(|p| p.starts_with('.') || p == "node_modules") {
     if file.starts_with(".env") {
-      report.note(path, 0, "environment files are not carried over; a value a page reads goes under `[public]` in `config/app.toml`");
+      report.note(".env*", 0, "environment files are not carried over; a value a page reads goes under `[public]` in `config/app.toml`");
     }
     return None;
   }
@@ -244,6 +244,12 @@ impl Pass for Metadata {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
       let Ok(parsed) = parse(&path, &text) else { continue };
       for item in &parsed.module.body {
+        if let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) = item {
+          if &*f.ident.sym == "generateMetadata" {
+            report.note(&path, parsed.line(item.span()), "`generateMetadata` was left in place: the loader's `meta` is a function of what `load` returned");
+          }
+          continue;
+        }
         let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) = item else { continue };
         let Some(decl) = var.decls.first() else { continue };
         let js::Pat::Ident(name) = &decl.name else { continue };
@@ -388,6 +394,30 @@ mod tests {
     assert_eq!(paths, ["app/public/logo.svg", "app/routes/blog/[slug]/page.tsx", "app/routes/page.tsx", "app/routes/slots/modal/page.tsx", "app/src/components/nav.tsx", "app/tests/blog/[slug]/page.test.tsx"]);
     assert!(out.text("app/routes/page.tsx").unwrap().starts_with("import Nav from \"../src/components/nav\";"));
     assert_eq!(report.packages.keys().collect::<Vec<_>>(), ["clsx"]);
+  }
+
+  #[test]
+  fn generate_metadata_is_noted_however_it_is_declared() {
+    for page in ["export async function generateMetadata() {\n  return { title: \"a\" };\n}\nexport default function Page() { return null; }\n", "export const generateMetadata = async () => ({ title: \"a\" });\nexport default function Page() { return null; }\n"] {
+      let input = tree(&[("package.json", r#"{ "dependencies": { "next": "latest" } }"#), ("app/page.tsx", page)]);
+      let (_, report) = migrate(&input);
+      assert!(report.notes.iter().any(|n| n.message.starts_with("`generateMetadata` was left in place")), "{page}: {:?}", report.notes);
+    }
+  }
+
+  #[test]
+  fn environment_files_are_one_note() {
+    let input = tree(&[
+      ("package.json", r#"{ "dependencies": { "next": "latest" } }"#),
+      ("app/page.tsx", "export default function Page() { return null; }\n"),
+      (".env", "A=1\n"),
+      (".env.production", "A=2\n"),
+      (".env.development", "A=3\n"),
+    ]);
+    let (_, report) = migrate(&input);
+    let env: Vec<_> = report.notes.iter().filter(|n| n.message.starts_with("environment files")).collect();
+    assert_eq!(env.len(), 1, "{:?}", report.notes);
+    assert_eq!(env[0].file, ".env*");
   }
 
   #[test]
