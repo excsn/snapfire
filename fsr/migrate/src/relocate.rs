@@ -17,10 +17,11 @@ pub(crate) struct Aliases {
 
 impl Aliases {
   pub(crate) fn read(tree: &Tree) -> Self {
-    let Some(config) = ["tsconfig.json", "jsconfig.json"].iter().find_map(|f| tree.text(f).and_then(lenient_json)) else {
+    let Some((file, config)) = ["tsconfig.json", "jsconfig.json"].iter().find_map(|f| tree.text(f).and_then(lenient_json).map(|c| ((*f).to_owned(), c))) else {
       return Self::default();
     };
-    let options = config.get("compilerOptions");
+    let options = compiler_options(tree, &file, config, 0);
+    let options = options.as_ref();
     let base = options.and_then(|o| o.get("baseUrl")).and_then(|b| b.as_str()).and_then(|b| normalize("", b));
     let mut paths = Vec::new();
     if let Some(map) = options.and_then(|o| o.get("paths")).and_then(|p| p.as_object()) {
@@ -32,6 +33,28 @@ impl Aliases {
     Self { base, paths }
   }
 
+}
+
+/// `config`'s `compilerOptions` with those of the configuration its `extends` names beneath them, the chain followed from `file`'s directory up to eight deep; `None` when neither has any.
+fn compiler_options(tree: &Tree, file: &str, config: serde_json::Value, depth: usize) -> Option<serde_json::Value> {
+  let own = config.get("compilerOptions").cloned();
+  let base = config.get("extends").and_then(|e| e.as_str()).filter(|_| depth < 8).and_then(|base| {
+    let path = normalize(dirname(file), base)?;
+    let path = if path.ends_with(".json") { path } else { format!("{path}.json") };
+    let text = tree.text(&path)?;
+    compiler_options(tree, &path, lenient_json(text)?, depth + 1)
+  });
+  match (own, base) {
+    (Some(serde_json::Value::Object(own)), Some(serde_json::Value::Object(mut base))) => {
+      base.extend(own);
+      Some(serde_json::Value::Object(base))
+    }
+    (Some(own), _) => Some(own),
+    (None, base) => base,
+  }
+}
+
+impl Aliases {
   /// The paths, without extension, that `spec` may name.
   pub(crate) fn candidates(&self, spec: &str) -> Vec<String> {
     let mut out = Vec::new();

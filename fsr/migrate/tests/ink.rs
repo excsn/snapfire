@@ -86,3 +86,44 @@ fn an_entry_that_declares_the_component_it_renders_is_kept_and_exports_it() {
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
   assert!(report.notes.is_empty(), "{:?}", report.notes);
 }
+
+#[test]
+fn an_entry_rendering_through_create_element_gets_a_page_with_a_component_name() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("source/cli.tsx", "import React from 'react';\nimport {render} from 'ink';\nimport ui from './ui.js';\n\nconst limit = 7;\nrender(React.createElement(ui, {limit}));\n"),
+    ("source/ui.tsx", "export default function Ui({ limit }: { limit: number }) {\n  return null;\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import Ui from \"@src/ui\";\n\nexport default function Page() {\n  return <Ui />;\n}\n", "{:?}", report.notes);
+  assert_eq!(report.notes.iter().map(ToString::to_string).collect::<Vec<_>>(), ["source/cli.tsx:6: `render` passed `ui` the prop `limit`, read from the command line; `routes/page.tsx` renders it without them"]);
+}
+
+#[test]
+fn an_entry_rendering_a_tree_of_imported_components_gets_that_tree() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("src/cli.tsx", "import React from 'react';\nimport { render } from 'ink';\nimport { App } from './terminal/App.js';\nimport { GameContext } from './terminal/components/GameContext.js';\nimport { Screen } from './terminal/components/Screen.js';\n\nrender(\n  <GameContext.Provider>\n    <Screen>\n      <App />\n    </Screen>\n  </GameContext.Provider>,\n  { exitOnCtrlC: true },\n);\n"),
+    ("src/terminal/App.tsx", "export function App() { return null; }\n"),
+    ("src/terminal/components/GameContext.tsx", "export const GameContext = { Provider: ({ children }) => children };\n"),
+    ("src/terminal/components/Screen.tsx", "export function Screen({ children }) { return children; }\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { App } from \"@src/terminal/App\";\nimport { GameContext } from \"@src/terminal/components/GameContext\";\nimport { Screen } from \"@src/terminal/components/Screen\";\n\nexport default function Page() {\n  return (\n    <GameContext.Provider>\n      <Screen>\n        <App />\n      </Screen>\n    </GameContext.Provider>\n  );\n}\n", "{:?}", report.notes);
+  assert!(report.notes.is_empty(), "{:?}", report.notes);
+}
+
+#[test]
+fn an_alias_declared_in_a_tsconfig_the_application_extends_is_rewritten() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("tsconfig.base.json", "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"@app/*\": [\"src/*\"] } } }"),
+    ("tsconfig.json", "{ \"extends\": \"./tsconfig.base.json\", \"compilerOptions\": { \"outDir\": \"dist\" } }"),
+    ("src/cli.tsx", "import React from 'react';\nimport { render } from 'ink';\nimport App from '@app/ui/App';\n\nrender(<App />);\n"),
+    ("src/ui/App.tsx", "import Header from '@app/ui/components/Header';\n\nexport default function App() { return <Header />; }\n"),
+    ("src/ui/components/Header.tsx", "export default function Header() { return null; }\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/src/ui/App.tsx").unwrap(), "import Header from '@src/ui/components/Header';\n\nexport default function App() { return <Header />; }\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import App from \"@src/ui/App\";\n\nexport default function Page() {\n  return <App />;\n}\n");
+}
