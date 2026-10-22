@@ -14,10 +14,10 @@ export function useWindowSize() {
   return { columns, rows };
 }
 
-/** The terminal's output: its size, and `write`, which prints a line above the page. */
+/** The terminal's output: its size, which `stdout.on("resize", f)` hears change, plus `write`, which prints a line above the page. */
 export function useStdout() {
   const { columns, rows } = useWindowSize();
-  return { stdout: { columns, rows }, write: action("$stdout") };
+  return { stdout: { columns, rows, $process: "$terminal" }, write: action("$stdout") };
 }
 
 /** The terminal's error output, printed above the page as `useStdout`'s is. */

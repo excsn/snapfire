@@ -1349,7 +1349,7 @@ impl ComponentSet {
         lowerer.prop_kinds = self.placement_kinds.get(&module).cloned().unwrap_or_default();
         let layout_root = self.layouts.iter().any(|m| *m == module);
         let slot_names = self.slots.iter().find(|(m, _)| *m == module).map(|(_, names)| names.clone()).unwrap_or_default();
-        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None, hook_renames: Vec::new() };
+        let mut cl = ComponentLowerer { lowerer, file, handlers: Vec::new(), refs: Vec::new(), select_value: None, props_name: None, props_rest: None, children_name: None, forwards_ref: forwards_ref(&parsed, export), class, layout_root, slot_names, slot_props: Vec::new(), state: Vec::new(), hook: None, state_bindings: Vec::new(), store_bindings: Vec::new(), store_lets: Vec::new(), setters: Vec::new(), handler_fns: HashMap::new(), lowered_handlers: Vec::new(), event_binds: None, writers: Vec::new(), animations: 0, elements: self.elements.clone(), providers: Vec::new(), assets: self.assets.clone(), rewrite_images: self.rewrite_images, heads: Vec::new(), hooks: hook_sources.iter().map(|(name, parsed, export)| (name.clone(), &**parsed, export.clone())).collect(), wanted_hook: None, pending_lets: Vec::new(), hook_calls: 0, unbound_in: None, inlining: Vec::new(), checking: std::cell::RefCell::new(Vec::new()), counts_children: Vec::new(), imports: imports.clone(), chosen: HashMap::new(), variants: Vec::new(), placed_kinds: Vec::new(), browser_texts: Vec::new(), module_lets: module_bindings.clone(), fn_refs: Vec::new(), held_refs: Vec::new(), dispatchers: Vec::new(), transitions: Vec::new(), effect_locals: Vec::new(), effect_fns: Vec::new(), stable_callbacks: Vec::new(), spawns: Vec::new(), hook_ids: 0, cleanup_for: None, hook_renames: Vec::new(), named_listeners: Vec::new() };
         let result = cl.component(&function);
         let consts = &self.consts;
         let counts_children = std::mem::take(&mut cl.counts_children);
@@ -3698,6 +3698,26 @@ pub(crate) fn function_to_lambda(lowerer: &mut Lowerer<'_>, params: &[js::Pat], 
   };
   lowerer.scope.truncate(depth);
   Ok(Expr::Lambda { params: names, body: Box::new(result?) })
+}
+
+/// The bare names `stmts` pass as the function of a `.on(event, f)` or `.off(event, f)` call, nested arrows included.
+fn listened_names(stmts: &[js::Stmt]) -> Vec<String> {
+  struct Listened(Vec<String>);
+  impl Visit for Listened {
+    fn visit_call_expr(&mut self, call: &js::CallExpr) {
+      if let (js::Callee::Expr(callee), Some(f)) = (&call.callee, call.args.get(1)) {
+        if let (js::Expr::Member(member), js::Expr::Ident(name)) = (crate::meaning::bare(callee), crate::meaning::bare(&f.expr)) {
+          if matches!(&member.prop, js::MemberProp::Ident(method) if method.sym == "on" || method.sym == "off") {
+            self.0.push(name.sym.to_string());
+          }
+        }
+      }
+      call.visit_children_with(self);
+    }
+  }
+  let mut listened = Listened(Vec::new());
+  stmts.iter().for_each(|stmt| stmt.visit_with(&mut listened));
+  listened.0
 }
 
 /// The bare names `stmts` write through `=`, a compound assignment or `++`, in source order; nested functions and arrows are walked when `through_functions` says so.
@@ -6095,6 +6115,8 @@ struct ComponentLowerer<'a, 'p> {
   cleanup_for: Option<String>,
   /// While an effect or an input handler of an inlined custom hook lowers, each name the hook declared and what the inlining renamed it to.
   hook_renames: Vec<(String, String)>,
+  /// The locals a terminal handler bound to an arrow it passes to `on` or `off`, each holding `{ event, carry }` of the continuation the arrow is, with whether the arrow takes parameters.
+  named_listeners: Vec<(String, bool)>,
   /// How many ids the custom hooks a terminal component inlines have taken with `useId`.
   hook_ids: u32,
 }
@@ -8649,14 +8671,19 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         js::Stmt::Decl(js::Decl::Var(var)) => {
           for decl in &var.decls {
             let js::Pat::Ident(name) = &decl.name else { return Err(self.lowerer.residue(decl.span, "a destructuring in a handler")) };
-            let expr = match decl.init.as_deref() {
-              Some(init) => match self.arrow_timer(init) {
+            let local = name.id.sym.to_string();
+            let listener = match decl.init.as_deref().map(crate::meaning::bare) {
+              Some(js::Expr::Arrow(arrow)) if self.lowerer.terminal && listened_names(&stmts[at + 1..]).contains(&local) => Some(arrow),
+              _ => None,
+            };
+            let expr = match (decl.init.as_deref(), listener) {
+              (Some(_), Some(arrow)) => self.named_listener(arrow, decl.span)?,
+              (Some(init), None) => match self.arrow_timer(init) {
                 Some((repeats, callback, delay)) => self.handler_timer(repeats, callback, delay, decl.span, walk)?,
                 None => self.lowerer.expr(init)?,
               },
-              None => Expr::Lit(Lit::Null),
+              (None, _) => Expr::Lit(Lit::Null),
             };
-            let local = name.id.sym.to_string();
             if let Some(js::Expr::Call(call)) = decl.init.as_deref().map(crate::meaning::bare) {
               if self.lowerer.terminal && self.lowerer.spawns(call) {
                 self.lowerer.spawned.push(local.clone());
@@ -8679,6 +8706,9 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
                 (format!("{local}${}", walk.locals), Expr::Ternary(Box::new(reach.clone()), Box::new(expr), Box::new(Expr::Lit(Lit::Null))))
               }
             };
+            if let Some(arrow) = listener {
+              self.named_listeners.push((name.clone(), !arrow.params.is_empty()));
+            }
             self.lowerer.scope.push((local, Expr::Var(name.clone())));
             walk.out.push(Stmt::Let { name, expr });
           }
@@ -8821,17 +8851,39 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A listener on a process the handler spawned as the act [`crate::terminal::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report, or the promise's `resolve` or `reject` it settles.
   fn handler_listen(&mut self, call: &'p js::CallExpr, walk: &mut HandlerWalk) -> Lowered<()> {
-    let (process, report, callback) = self.lowerer.listener(call).expect("checked");
+    let (process, report, callback, removes) = self.lowerer.listener(call).expect("checked");
     let Some(report) = report else { return Ok(()) };
     let Some(callback) = callback else { return Err(self.lowerer.residue(call.span, "a process listener without a function")) };
     let mut fields = vec![Entry::Field("process".to_owned(), self.lowerer.expr(process)?), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
+    let exits = matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close);
+    let named = match crate::meaning::bare(callback) {
+      js::Expr::Ident(_) => match self.lowerer.expr(callback)? {
+        Expr::Var(var) => self.named_listeners.iter().find(|(name, _)| *name == var).map(|(_, takes)| (Expr::Var(var.clone()), *takes)),
+        _ => None,
+      },
+      _ => None,
+    };
+    if removes {
+      let Some((named, _)) = named else { return Err(self.lowerer.residue(callback.span(), "an `off` whose function is not a `const` arrow of the handler that passes it to `on`")) };
+      fields.push(Entry::Field("event".to_owned(), named.field("event")));
+      walk.act(crate::terminal::Act::Unlisten.name().to_owned(), Expr::Object(fields));
+      return Ok(());
+    }
+    if let Some((named, takes)) = named {
+      if exits && takes {
+        return Err(self.lowerer.residue(callback.span(), "an `exit` or `close` listener taking parameters that is not written in place"));
+      }
+      fields.push(Entry::Field("event".to_owned(), named.clone().field("event")));
+      fields.push(Entry::Field("carry".to_owned(), named.field("carry")));
+      walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
+      return Ok(());
+    }
     if matches!(crate::meaning::bare(callback), js::Expr::Ident(id) if self.lowerer.settlers.iter().any(|s| *s == *id.sym)) {
       fields.push(Entry::Field("settle".to_owned(), self.lowerer.expr(callback)?));
       walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
       return Ok(());
     }
-    let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(callback.span(), "a process listener that is not an arrow written in place or a promise's `resolve` or `reject`")) };
-    let exits = matches!(report, crate::terminal::Report::Exit | crate::terminal::Report::Close);
+    let js::Expr::Arrow(arrow) = crate::meaning::bare(callback) else { return Err(self.lowerer.residue(callback.span(), "a process listener that is not an arrow written in place, an arrow a `const` names or a promise's `resolve` or `reject`")) };
     let value = Expr::Var(RESUME.to_owned()).field("value");
     let mut binds = Vec::new();
     for (i, param) in arrow.params.iter().enumerate() {
@@ -8848,6 +8900,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     fields.push(Entry::Field("carry".to_owned(), carry));
     walk.act(crate::terminal::Act::Listen.name().to_owned(), Expr::Object(fields));
     Ok(())
+  }
+
+  /// A `const` arrow a terminal handler passes to `on` or `off` as the value `{ event, carry }` of the continuation it is, its parameters bound to what the report carries.
+  fn named_listener(&mut self, arrow: &'p js::ArrowExpr, at: Span) -> Lowered<Expr> {
+    let value = Expr::Var(RESUME.to_owned()).field("value");
+    let mut binds = Vec::new();
+    for param in &arrow.params {
+      let js::Pat::Ident(name) = param else { return Err(self.lowerer.residue(param.span(), "a process listener's parameter that is not a name")) };
+      binds.push((name.id.sym.to_string(), value.clone()));
+    }
+    let (event, carry) = self.arrow_continuation(arrow, binds, at)?;
+    Ok(Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]))
   }
 
   /// `arrow`'s body as a continuation of the component with `binds` in scope: its event and the carry the act that runs it passes.

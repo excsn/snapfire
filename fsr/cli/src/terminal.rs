@@ -260,7 +260,7 @@ impl Focus {
       Act::FocusPrevious => self.step(true),
       Act::FocusEnable => self.disabled = false,
       Act::FocusDisable => self.disabled = true,
-      Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run | Act::Exit => return false,
+      Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Unlisten | Act::Run | Act::Exit => return false,
     }
     true
   }
@@ -333,9 +333,17 @@ impl Session {
       .collect()
   }
 
-  /// The terminal's size, which the page reads through `useWindowSize` and `useStdout`.
+  /// The terminal's size, which the page reads through `useWindowSize` and `useStdout`. A change runs what `stdout.on("resize", f)` added on the next step.
   pub fn resize(&mut self, columns: u16, rows: u16) {
+    if self.size == (columns, rows) {
+      return;
+    }
     self.size = (columns, rows);
+    for (id, report, listener) in &self.listeners {
+      if let (true, Report::Resize, Listener::Run(waiting)) = (id == snapfire_fsr_lower::terminal::TERMINAL_OUTPUT, report, listener) {
+        self.ready.push((Waiting { path: waiting.path.clone(), event: waiting.event.clone(), carry: waiting.carry.clone() }, true, Value::Null));
+      }
+    }
   }
 
   /// The processes started since the last call, in the order the page spawned them.
@@ -392,7 +400,7 @@ impl Session {
         let mut event = ValueMap::default();
         event.insert("value".to_owned(), Value::Null);
         event.insert("ok".to_owned(), Value::Bool(true));
-        event.insert("carry".to_owned(), carry.clone());
+        event.insert("carry".to_owned(), self.live(carry.clone()));
         Value::Map(event)
       }
     };
@@ -509,8 +517,23 @@ impl Session {
     let mut event = ValueMap::default();
     event.insert("value".to_owned(), value);
     event.insert("ok".to_owned(), Value::Bool(ok));
-    event.insert("carry".to_owned(), waiting.carry);
+    event.insert("carry".to_owned(), self.live(waiting.carry));
     Some(self.render(Some(HandlerRef::at(waiting.path, index)), &Value::Map(event)))
+  }
+
+  /// `carry` with the terminal's output in it, `useStdout().stdout`, at the size the terminal has now, as Node's `process.stdout` reads it.
+  fn live(&self, carry: Value) -> Value {
+    match carry {
+      Value::Map(mut map) => {
+        if matches!(map.get(snapfire_fsr_lower::terminal::PROCESS), Some(Value::Str(id)) if &**id == snapfire_fsr_lower::terminal::TERMINAL_OUTPUT) {
+          map.insert("columns".to_owned(), Value::Int(self.size.0.into()));
+          map.insert("rows".to_owned(), Value::Int(self.size.1.into()));
+          return Value::Map(map);
+        }
+        Value::Map(map.into_iter().map(|(key, value)| (key, self.live(value))).collect())
+      }
+      other => other,
+    }
   }
 
   /// An act a handler or a block of `path`'s component issued, `components` the step's.
@@ -569,6 +592,11 @@ impl Session {
         };
         self.listeners.push((process, report, listener));
       }
+      (Some(Act::Unlisten), Value::Map(unlisten)) => {
+        let (Some(Value::Map(process)), Some(Value::Str(report)), Some(Value::Str(event))) = (unlisten.get("process"), unlisten.get("report"), unlisten.get("event")) else { return };
+        let (Some(Value::Str(process)), Some(report)) = (process.get(snapfire_fsr_lower::terminal::PROCESS), Report::parse(report)) else { return };
+        self.listeners.retain(|(id, heard, listener)| !(id == &**process && *heard == report && matches!(listener, Listener::Run(waiting) if waiting.path == path && waiting.event == **event)));
+      }
       (Some(Act::Suspend), Value::Map(suspend)) => {
         let (Some(until), Some(settles)) = (suspend.get("until").and_then(deferred_of), suspend.get("settles").and_then(deferred_of)) else { return };
         match self.deferreds.get(&until).and_then(|d| d.settled.clone()) {
@@ -618,7 +646,7 @@ impl Session {
         self.spawns.push(Spawn { path: path.to_owned(), id, command, args, options: spawn.get("options").cloned().unwrap_or(Value::Null) });
       }
       (Some(focus @ (Act::Focus | Act::FocusNext | Act::FocusPrevious | Act::FocusEnable | Act::FocusDisable)), _) => self.focus_acts.push((focus, value)),
-      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Run), _) | (None, _) => {}
+      (Some(Act::Stdout | Act::Stderr | Act::Timer | Act::ClearTimer | Act::Cleanup | Act::Spawn | Act::Settle | Act::Then | Act::Suspend | Act::Listen | Act::Unlisten | Act::Run), _) | (None, _) => {}
     }
   }
 

@@ -423,3 +423,18 @@ fn an_effect_returning_undefined_early_has_no_cleanup_and_the_rest_runs_when_it_
   assert_eq!(line(session.press(&press('a')).unwrap()), "a 0");
   assert_eq!(line(session.press(&press('b')).unwrap()), "ab 1");
 }
+
+#[test]
+fn a_resize_runs_the_listeners_stdout_on_added_and_off_removes_the_one_an_effect_cleanup_names() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text, useStdout } from \"ink\";\nimport { useStdoutDimensions } from \"../src/use-stdout-dimensions\";\n\nexport default function Sized() {\n  const [columns, rows] = useStdoutDimensions();\n  const [heard, setHeard] = useState(0);\n  const { stdout } = useStdout();\n  useEffect(() => {\n    const count = () => setHeard((n) => n + 1);\n    stdout.on(\"resize\", count);\n    return () => stdout.off(\"resize\", count);\n  }, [stdout]);\n  return <Text>{columns}x{rows} heard {heard}</Text>;\n}\n";
+  let app = app(page);
+  std::fs::create_dir_all(app.join("src")).unwrap();
+  std::fs::write(app.join("src/use-stdout-dimensions.ts"), "import { useEffect, useState } from \"react\";\nimport { useStdout } from \"ink\";\n\nexport function useStdoutDimensions(): [number, number] {\n  const { stdout } = useStdout();\n  const [dimensions, setDimensions] = useState<[number, number]>([\n    stdout.columns,\n    stdout.rows,\n  ]);\n\n  useEffect(() => {\n    const handler = () => setDimensions([stdout.columns, stdout.rows]);\n    stdout.on(\"resize\", handler);\n    return () => {\n      stdout.off(\"resize\", handler);\n    };\n  }, [stdout]);\n\n  return dimensions;\n}\n").unwrap();
+  let mut session = Session::open(&app).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "80x24 heard 0");
+  session.resize(120, 40);
+  assert_eq!(line(session.view().unwrap()), "120x40 heard 1");
+  session.resize(90, 30);
+  assert_eq!(line(session.view().unwrap()), "90x30 heard 2", "the listener the first run added is gone");
+}

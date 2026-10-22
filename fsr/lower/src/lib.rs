@@ -1865,11 +1865,16 @@ impl<'a> Lowerer<'a> {
     Ok(Expr::Block(vec![Stmt::Let { name: id.clone(), expr: random }, spawn, Stmt::Return(Expr::Object(vec![Entry::Field(crate::terminal::PROCESS.to_owned(), Expr::Var(id))]))]))
   }
 
-  /// The process local, the report and the listener of `sub.on(event, f)`, `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)` on a local a block bound to a spawn; the report `None` for `setEncoding`, which a terminal takes as read.
-  fn listener<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, Option<crate::terminal::Report>, Option<&'c js::Expr>)> {
+  /// The process, the report and the listener of `sub.on(event, f)`, `sub.stdout.on("data", f)` or `sub.stderr.on("data", f)` on a local a block bound to a spawn; also `stdout.on("resize", f)` and `stdout.off("resize", f)` on the terminal's output, `true` for `off`; the report `None` for `setEncoding`, which a terminal takes as read.
+  fn listener<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, Option<crate::terminal::Report>, Option<&'c js::Expr>, bool)> {
     use crate::terminal::Report;
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
+    if let (Some(on @ ("on" | "off")), Some(js::Expr::Lit(js::Lit::Str(event)))) = (self.member_name(method).as_deref(), call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
+      if event.value.to_string_lossy() == Report::Resize.name() {
+        return Some((&method.obj, Some(Report::Resize), call.args.get(1).map(|a| &*a.expr), on == "off"));
+      }
+    }
     let (process, stream) = match crate::meaning::bare(&method.obj) {
       process @ js::Expr::Ident(id) if self.spawned.iter().any(|s| *s == *id.sym) => (process, None),
       js::Expr::Member(inner) => match (crate::meaning::bare(&inner.obj), self.member_name(inner).as_deref()) {
@@ -1883,12 +1888,12 @@ impl<'a> Lowerer<'a> {
       _ => None,
     };
     let report = match (stream, self.member_name(method).as_deref(), event.as_deref()) {
-      (Some(_), Some("setEncoding"), _) => return Some((process, None, None)),
+      (Some(_), Some("setEncoding"), _) => return Some((process, None, None, false)),
       (Some(stream), Some("on"), Some("data")) => stream,
       (None, Some("on"), Some(event)) => Report::parse(event)?,
       _ => return None,
     };
-    Some((process, Some(report), call.args.get(1).map(|a| &*a.expr)))
+    Some((process, Some(report), call.args.get(1).map(|a| &*a.expr), false))
   }
 
   /// Whether `call` is a listener [`Lowerer::listener`] reads.
@@ -1901,9 +1906,12 @@ impl<'a> Lowerer<'a> {
     if !self.terminal {
       return Ok(None);
     }
-    let Some((process, report, callback)) = self.listener(call) else { return Ok(None) };
+    let Some((process, report, callback, removes)) = self.listener(call) else { return Ok(None) };
     let Some(report) = report else { return Ok(Some(Stmt::Expr(Expr::Lit(Lit::Null)))) };
     let Some(callback) = callback else { return Err(self.residue(call.span, "a process listener without a function")) };
+    if removes {
+      return Err(self.residue(call.span, "an `off` outside a component's handler"));
+    }
     let process = self.expr(process)?;
     let mut fields = vec![Entry::Field("process".to_owned(), process), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
     if matches!(crate::meaning::bare(callback), js::Expr::Ident(id) if self.settlers.iter().any(|s| *s == *id.sym)) {

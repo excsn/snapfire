@@ -74,6 +74,9 @@ pub const TIMER: &str = "$timer";
 /// The key a process a block spawned is held under, `{ "$process": id }`, the id its [`Act::Spawn`] and its listeners name.
 pub const PROCESS: &str = "$process";
 
+/// The id [`PROCESS`] names on the terminal's own output, `useStdout().stdout`, which reports [`Report::Resize`].
+pub const TERMINAL_OUTPUT: &str = "$terminal";
+
 
 /// What a terminal runs a handler on, the event its `Handler::event` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,7 +135,7 @@ impl Event {
   }
 }
 
-/// What a spawned process reports: a chunk of `stdout` or `stderr` as text, `exit` and `close` with `{ code, signal }`, `error` with `{ message }`.
+/// What a spawned process reports: a chunk of `stdout` or `stderr` as text, `exit` and `close` with `{ code, signal }`, `error` with `{ message }`; `resize` with `null`, which only [`TERMINAL_OUTPUT`] reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Report {
   Stdout,
@@ -140,6 +143,7 @@ pub enum Report {
   Exit,
   Close,
   Error,
+  Resize,
 }
 
 impl Report {
@@ -150,6 +154,7 @@ impl Report {
       Report::Exit => "exit",
       Report::Close => "close",
       Report::Error => "error",
+      Report::Resize => "resize",
     }
   }
 
@@ -160,6 +165,7 @@ impl Report {
       "exit" => Report::Exit,
       "close" => Report::Close,
       "error" => Report::Error,
+      "resize" => Report::Resize,
       _ => return None,
     })
   }
@@ -186,6 +192,8 @@ pub enum Act {
   Then,
   /// `{ process, report, event, carry }` or `{ process, report, settle }`: when the process [`PROCESS`] names reports `report`, run the handler `event` names with `{ value, ok, carry }`. With `settle` instead, settle the promise it names, [`SETTLES`], with what it reported.
   Listen,
+  /// `{ process, report, event }`: stop running the handler `event` names when the process reports `report`, `off(event, f)`.
+  Unlisten,
   /// `{ event, carry }`: run the handler `event` names next, with `{ value: null, ok: true, carry }`; where the ways through an async handler's `if` or `try` join.
   Run,
   /// `{ until, settles }`: give up the screen until the deferred `until` settles, then take it back and settle `settles` as `until` settled. Ink's `suspendTerminal`.
@@ -213,6 +221,7 @@ impl Act {
       Act::Then => "$then",
       Act::Suspend => "$suspend",
       Act::Listen => "$listen",
+      Act::Unlisten => "$unlisten",
       Act::Run => "$run",
       Act::Exit => "$exit",
       Act::Focus => "$focus",
@@ -224,7 +233,7 @@ impl Act {
   }
 
   pub fn parse(name: &str) -> Option<Act> {
-    [Act::Stdout, Act::Stderr, Act::Timer, Act::ClearTimer, Act::Cleanup, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Run, Act::Exit, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
+    [Act::Stdout, Act::Stderr, Act::Timer, Act::ClearTimer, Act::Cleanup, Act::Spawn, Act::Settle, Act::Then, Act::Suspend, Act::Listen, Act::Unlisten, Act::Run, Act::Exit, Act::Focus, Act::FocusNext, Act::FocusPrevious, Act::FocusEnable, Act::FocusDisable].into_iter().find(|act| act.name() == name)
   }
 }
 
