@@ -1837,6 +1837,7 @@ impl Loader {
       return Err(HostError::NoConfig(located.root.clone()));
     }
     let mut options = C5StoreOptions::default();
+    options.env_case = c5store::Case::Snake;
     options.secret_opts = self.secret_options(&located.dir);
     let (store, _mgr) = create_c5store(located.sources.clone(), Some(options))
       .map_err(|e| HostError::Config(located.sources[0].clone(), e.to_string()))?;

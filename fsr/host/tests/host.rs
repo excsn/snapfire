@@ -737,6 +737,15 @@ fn the_environment_overrides_the_file_and_the_report_says_where_config_came_from
 }
 
 #[test]
+fn the_environment_sets_a_key_whose_name_holds_an_underscore() {
+  let dir = app_dir();
+  unsafe { std::env::set_var("C5_SERVER__STATIC_MAX_AGE", "77") };
+  let config = snapfire_fsr_host::Config::load(dir.join("app.toml"));
+  unsafe { std::env::remove_var("C5_SERVER__STATIC_MAX_AGE") };
+  assert_eq!(config.unwrap().server.static_max_age, Some(77));
+}
+
+#[test]
 fn a_project_root_with_a_config_directory_infers_the_rest_from_the_app() {
   let root = std::env::temp_dir().join(format!("fsr-host-root-{}-{}", std::process::id(), rand_suffix()));
   let app = root.join("app");

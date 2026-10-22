@@ -25,7 +25,11 @@ pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, body: Bytes) -> Htt
     Err(e) => return HttpResponse::BadRequest().body(e.to_string()),
   };
 
-  let response = host.handle(request).await;
+  to_actix(host.handle(request).await)
+}
+
+/// The host's response as actix's, headers as the host wrote them.
+fn to_actix(response: http::Response<crate::Body>) -> HttpResponse {
   let (parts, body) = response.into_parts();
   let mut out = HttpResponse::build(
     actix_web::http::StatusCode::from_u16(parts.status.as_u16())
@@ -37,6 +41,9 @@ pub async fn handle(req: HttpRequest, host: Data<Arc<Host>>, body: Bytes) -> Htt
         out.append_header((name, value));
       }
     }
+  }
+  if http_body::Body::size_hint(&body).exact() == Some(0) {
+    return out.finish();
   }
   let stream = body
     .into_data_stream()
@@ -66,4 +73,22 @@ pub async fn serve(host: Arc<Host>, addr: (&str, u16)) -> std::io::Result<()> {
     handle.stop(true).await;
   });
   server.await
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn a_response_with_no_body_and_no_type_gains_no_type() {
+    let response = http::Response::builder()
+      .status(308)
+      .header("location", "/agents/3")
+      .body(http_body_util::Full::new(bytes::Bytes::new()).map_err(|never| match never {}).boxed_unsync())
+      .unwrap();
+    let answered = to_actix(response);
+    assert_eq!(answered.status().as_u16(), 308);
+    assert_eq!(answered.headers().get("location").map(|v| v.as_bytes()), Some(&b"/agents/3"[..]));
+    assert!(answered.headers().get("content-type").is_none(), "{:?}", answered.headers());
+  }
 }

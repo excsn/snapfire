@@ -302,7 +302,7 @@ The files in `config/` load in this order, each `.toml` then `.yaml`, skipping t
 | `<APP_REGION>` | `APP_REGION`, no default |
 | `<APP_ENV>-<APP_REGION>` | both |
 
-So `config/production.toml` is read when `APP_ENV=production` and ignored otherwise; `config/local.toml` is a developer's machine by default. A file with any other name is never read. Every key is also reachable from the environment with the `C5_` prefix and `__` between levels, so a container sets the listen address without a file:
+So `config/production.toml` is read when `APP_ENV=production` and ignored otherwise; `config/local.toml` is a developer's machine by default. A file with any other name is never read. Every key is also reachable from the environment with the `C5_` prefix and `__` between levels, each level spelled as the key is in upper case, so `C5_SERVER__STATIC_MAX_AGE` sets `server.static_max_age` and a container sets the listen address without a file:
 
 ```sh
 APP_ENV=production C5_SERVER__LISTEN=0.0.0.0:80 C5_SESSION__KEY=... ./shop
