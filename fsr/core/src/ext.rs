@@ -145,7 +145,7 @@ impl std::fmt::Display for Fail {
 
 impl std::error::Error for Fail {}
 
-/// Where an extension may run, and what a host running a page can do.
+/// Where an extension may run and what a host running a page can do.
 /// `Render`: pure, both sides, callable from every site. `Body`: server
 /// only, callable from a loader, an action, a handler or middleware, refused
 /// on a component's render path. The rest name a host's capabilities, which
