@@ -2,6 +2,7 @@ import { enableEmbeds } from "./embed.js";
 import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { settlePlaced, unplaced } from "./places.js";
+import { enablePwa } from "./pwa.js";
 import { REGION_KEY } from "./render.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
@@ -353,6 +354,7 @@ export function boot() {
     adoptLocale();
     adoptCatalog();
     enableEmbeds();
+    enablePwa();
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", run, {
             once: true

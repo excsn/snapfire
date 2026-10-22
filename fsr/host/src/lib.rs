@@ -17,6 +17,7 @@ mod live;
 pub mod locale;
 mod mount;
 mod prerender;
+mod pwa;
 mod probe;
 mod remote;
 mod render;
@@ -364,6 +365,8 @@ struct Tables {
   static_cache: Option<HeaderValue>,
   /// Per bundle route served outside development, each hashed name against the output it names.
   hashed_names: Vec<(String, HashMap<String, String>)>,
+  /// The manifest and worker `[pwa]` answers.
+  pwa: Option<pwa::Pwa>,
   /// Whether [`client::ROUTE`] is answered out of the binary, which it is
   /// unless a static root claims the prefix.
   client: bool,

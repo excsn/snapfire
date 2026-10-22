@@ -308,6 +308,24 @@ impl Host {
       }
     }
 
+    if let Some(pwa) = &t.pwa {
+      if req.method() == Method::GET || req.method() == Method::HEAD {
+        let answer = match path.as_str() {
+          crate::pwa::MANIFEST_ROUTE => Some(("application/manifest+json", pwa.manifest.clone())),
+          crate::pwa::WORKER_ROUTE => pwa.worker.clone().map(|worker| (client::MEDIA_TYPE, worker)),
+          _ => None,
+        };
+        if let Some((kind, body)) = answer {
+          return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, kind)
+            .header(header::CACHE_CONTROL, "no-cache")
+            .body(http_body_util::Full::new(body).map_err(|never| match never {}).boxed_unsync())
+            .expect("a pwa response");
+        }
+      }
+    }
+
     // A browser asks for the root icon on its own when it shows anything but
     // a document; with none to serve, it is told so without a logged 404.
     if path == "/favicon.ico" && t.favicon.is_none() && (req.method() == Method::GET || req.method() == Method::HEAD) && !t.statics.iter().any(|(route, _, root)| route.is_empty() && root.join("favicon.ico").is_file()) {

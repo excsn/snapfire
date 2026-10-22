@@ -61,6 +61,8 @@ pub struct Config {
   /// `[desktop]`: the native window `fsr dev --desktop` and `fsr serve
   /// --desktop` open; the host reads none of it.
   pub desktop: Option<DesktopSection>,
+  /// `[pwa]`: the web app manifest and the service worker the host serves; absent means neither.
+  pub pwa: Option<PwaSection>,
   /// `[mdx]`: how `fsr` reads `.mdx` and `.md` files, defaults filled.
   pub mdx: MdxSection,
   /// The application as a site: its name and the prefix its routes sit
@@ -1238,6 +1240,53 @@ pub struct CrawlSection {
   pub disallow: Vec<String>,
 }
 
+/// `[pwa]`. The manifest is written from `name` and the fields beside it, or
+/// read from `file`, never both; its icons are the PNGs and SVGs the icons
+/// directory holds with their size in the name. Outside development the host
+/// serves a worker at `/sw.js`, its own unless `worker` names the
+/// application's. The worker falls back to `offline` for a page it never cached.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct PwaSection {
+  #[serde(default)]
+  pub name: Option<String>,
+  #[serde(default)]
+  pub short_name: Option<String>,
+  #[serde(default)]
+  pub description: Option<String>,
+  #[serde(default)]
+  pub theme_color: Option<String>,
+  #[serde(default)]
+  pub background_color: Option<String>,
+  /// `standalone` when left out.
+  #[serde(default)]
+  pub display: Option<String>,
+  /// `/` when left out.
+  #[serde(default)]
+  pub start_url: Option<String>,
+  /// The application's own manifest, relative to the app directory.
+  #[serde(default)]
+  pub file: Option<String>,
+  /// The application's own worker, relative to the app directory.
+  #[serde(default)]
+  pub worker: Option<String>,
+  /// The route a page the worker never cached shows offline, precached at install.
+  #[serde(default)]
+  pub offline: Option<String>,
+}
+
+impl PwaSection {
+  fn check(&self) -> Result<(), String> {
+    let fields = [&self.name, &self.short_name, &self.description, &self.theme_color, &self.background_color, &self.display, &self.start_url];
+    match (&self.file, &self.name) {
+      (Some(_), _) if fields.iter().any(|f| f.is_some()) => Err("names either `file` or the manifest's fields, not both".to_owned()),
+      (None, None) => Err("needs `name` for the manifest it writes or `file` naming the application's own".to_owned()),
+      _ => Ok(()),
+    }
+  }
+}
+
 /// `[desktop]`. `name` leads the window's title, before the page's own.
 /// `serve` is how the window reaches the host and `cookies` where a scheme
 /// window keeps the cookies the host sets.
@@ -1335,6 +1384,7 @@ const SECTIONS: &[&str] = &[
   "trace",
   "crawl",
   "desktop",
+  "pwa",
   "mdx",
   "site",
   "sites",
@@ -1475,6 +1525,7 @@ pub fn config_schema() -> serde_json::Value {
     ("trace", of::<TraceSection>(&mut generator)),
     ("crawl", of::<CrawlSection>(&mut generator)),
     ("desktop", of::<DesktopSection>(&mut generator)),
+    ("pwa", of::<PwaSection>(&mut generator)),
     ("mdx", serde_json::json!({
       "type": "object",
       "properties": {
@@ -2192,6 +2243,20 @@ impl Config {
       None
     };
 
+    let pwa: Option<PwaSection> = if store.path_exists("pwa") || !store.key_paths_with_prefix(Some("pwa")).is_empty() {
+      let mut json = serde_json::Map::new();
+      for key in ["name", "short_name", "description", "theme_color", "background_color", "display", "start_url", "file", "worker", "offline"] {
+        if let Some(value) = store.get(&format!("pwa.{key}")) {
+          json.insert(key.to_owned(), to_json(&value));
+        }
+      }
+      let section: PwaSection = serde_json::from_value(serde_json::Value::Object(json)).map_err(|e| HostError::Config(at.clone(), format!("pwa: {e}")))?;
+      section.check().map_err(|why| HostError::Config(at.clone(), format!("pwa {why}")))?;
+      Some(section)
+    } else {
+      None
+    };
+
     let mut mdx = MdxSection::default();
     let mdx_keys: Vec<String> = store.key_paths_with_prefix(Some("mdx")).into_iter().filter_map(|k| k.strip_prefix("mdx.").map(str::to_owned)).collect();
     for key in &mdx_keys {
@@ -2715,6 +2780,7 @@ impl Config {
       trace,
       crawl,
       desktop,
+      pwa,
       mdx,
       site,
       sites,

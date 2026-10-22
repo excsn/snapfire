@@ -906,6 +906,13 @@ impl HostBuilder {
     );
     head.template = config.document.title_template.as_ref().map(|template| template.literal().to_owned());
     head.head = config.document.head_meta()?.head;
+    let pwa = match &config.pwa {
+      Some(section) => {
+        crate::pwa::head_rows(&mut head.head, section, !config.dev());
+        Some(crate::pwa::serve(&config, section, import_map.as_deref(), &styles, serve_client && client_minified)?)
+      }
+      None => None,
+    };
     let font_css = assets_manifest.as_ref().map(|m| m.fonts.css.clone()).filter(|css| !css.is_empty());
     if let Some(manifest) = &assets_manifest {
       head.head.extend(asset_head_rows(manifest));
@@ -1159,6 +1166,7 @@ impl HostBuilder {
         favicon: config.favicon.clone(),
         static_cache,
         hashed_names,
+        pwa,
         client: serve_client,
         client_minified,
         csp,

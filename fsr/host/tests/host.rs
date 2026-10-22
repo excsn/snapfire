@@ -7108,3 +7108,76 @@ fn a_record_writes_a_none_as_null_unless_the_field_is_optional() {
   assert_eq!(Product::from_native_value(full).unwrap(), Product { category: Some("hats".to_owned()), tag: Some("new".to_owned()) });
 }
 
+
+fn pwa_app(dev: bool, pwa: &str) -> PathBuf {
+  let dir = hashed_app(dev);
+  let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+  std::fs::write(dir.join("app.toml"), format!("{toml}\n[pwa]\n{pwa}\n")).unwrap();
+  std::fs::create_dir_all(dir.join("icons")).unwrap();
+  std::fs::write(dir.join("icons/android-chrome-192x192.png"), [0x89, 0x50, 0x4e, 0x47]).unwrap();
+  std::fs::write(dir.join("icons/android-chrome-512x512.png"), [0x89, 0x50, 0x4e, 0x47]).unwrap();
+  std::fs::write(dir.join("icons/site.webmanifest"), "{}").unwrap();
+  dir
+}
+
+const PWA: &str = "name = \"Trails\"\nshort_name = \"Trails\"\ntheme_color = \"#2f5d3a\"\nbackground_color = \"#f4f1ea\"\noffline = \"/offline\"\n";
+
+#[tokio::test]
+async fn a_pwa_section_serves_a_manifest_and_a_worker_that_precaches_the_build() {
+  let host = tuned_host(&pwa_app(false, PWA));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"<link rel="manifest" href="/manifest.webmanifest">"#), "{html}");
+  assert!(!html.contains("site.webmanifest"), "[pwa] replaces the icons directory's manifest: {html}");
+  assert!(html.contains(r#"<meta name="sf:worker" content="/sw.js">"#), "{html}");
+  assert!(html.contains(r##"<meta name="theme-color" content="#2f5d3a">"##), "{html}");
+
+  let response = host.handle(Request::get("/manifest.webmanifest").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("content-type").unwrap(), "application/manifest+json");
+  let manifest: serde_json::Value = serde_json::from_str(&body_of(response).await).unwrap();
+  assert_eq!(manifest["name"], "Trails");
+  assert_eq!(manifest["start_url"], "/");
+  assert_eq!(manifest["display"], "standalone");
+  assert_eq!(manifest["theme_color"], "#2f5d3a");
+  assert_eq!(manifest["icons"][0], serde_json::json!({ "src": "/static/icons/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png" }));
+  assert_eq!(manifest["icons"][1]["sizes"], "512x512");
+
+  let response = host.handle(Request::get("/sw.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.headers().get("content-type").unwrap(), "text/javascript; charset=utf-8");
+  assert_eq!(response.headers().get("cache-control").unwrap(), "no-cache");
+  let worker = body_of(response).await;
+  let main = format!("/static/js/app/src/main.min.{}.js", content_hash("import'./shared.min.js';"));
+  assert!(worker.contains(&format!("\"{main}\"")), "the build's modules are precached: {worker}");
+  assert!(!worker.contains("\"/static/js/app/src/main.min.js\""), "{worker}");
+  assert!(worker.contains("\"/offline\""), "{worker}");
+  assert!(worker.contains("\"/static/js/fsr/index.min.js\""), "the client is warmed: {worker}");
+}
+
+#[tokio::test]
+async fn a_development_host_links_the_manifest_and_registers_no_worker() {
+  let host = tuned_host(&pwa_app(true, PWA));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(r#"<link rel="manifest" href="/manifest.webmanifest">"#), "{html}");
+  assert!(!html.contains("sf:worker"), "{html}");
+  let response = host.handle(Request::get("/sw.js").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn a_pwa_section_serves_the_application_s_own_manifest_and_worker() {
+  let dir = pwa_app(false, "file = \"pwa/app.webmanifest\"\nworker = \"pwa/worker.js\"\n");
+  std::fs::create_dir_all(dir.join("pwa")).unwrap();
+  std::fs::write(dir.join("pwa/app.webmanifest"), "{\"name\":\"Own\"}").unwrap();
+  std::fs::write(dir.join("pwa/worker.js"), "self.addEventListener('fetch', () => {});").unwrap();
+  let host = tuned_host(&dir);
+  assert_eq!(served(&host, "/manifest.webmanifest").await, "{\"name\":\"Own\"}");
+  assert_eq!(served(&host, "/sw.js").await, "self.addEventListener('fetch', () => {});");
+}
+
+#[test]
+fn a_pwa_section_naming_a_manifest_file_and_its_fields_or_neither_is_refused() {
+  for (pwa, says) in [("file = \"m.json\"\nname = \"Trails\"\n", "either `file` or the manifest's fields"), ("theme_color = \"#000\"\n", "`name`")] {
+    let dir = pwa_app(false, pwa);
+    let err = Host::from(dir.join("app.toml")).err().expect("refused").to_string();
+    assert!(err.contains("pwa") && err.contains(says), "{err}");
+  }
+}
