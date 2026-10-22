@@ -46,8 +46,12 @@ fn a_locale_written_in_the_code_formats_under_it() {
   assert_eq!(page("{new Intl.NumberFormat(\"en-US\", { maximumFractionDigits: 1 }).format(1234.56)}").as_deref(), Ok("<p>1,234.6</p>"));
   assert_eq!(page("{new Intl.DateTimeFormat(\"en-US\", { dateStyle: \"medium\", timeZone: \"UTC\" }).format(when)}").as_deref(), Ok("<p>Jun 15, 2025</p>"));
   assert_eq!(page("{when.toLocaleDateString(\"de-DE\", { dateStyle: \"long\" })}").as_deref(), Ok("<p>15. Juni 2025</p>"));
-  let out = page("{new Intl.NumberFormat(locale).format(1)}");
-  assert!(out.as_ref().is_err_and(|e| e.contains("a locale that is not written in place")), "{out:?}");
+}
+
+#[test]
+fn a_locale_read_at_render_time_formats_under_it() {
+  let page = "function List({ locale, items }: { locale: string; items: string[] }) {\n  return <p>{new Intl.ListFormat(locale, { type: \"conjunction\" }).format(items)} {new Intl.NumberFormat(locale).format(1234.5)}</p>;\n}\nexport default function Page() {\n  return <main><List locale=\"fr-FR\" items={[\"a\", \"b\", \"c\"]} /><List locale=\"en-US\" items={[\"a\", \"b\", \"c\"]} /></main>;\n}\n";
+  assert_eq!(html("runtime_locale", &[("routes/page.tsx", page)]).as_deref(), Ok("<main><p>a, b et c 1\u{202f}234,5</p><p>a, b, and c 1,234.5</p></main>"));
 }
 
 #[test]

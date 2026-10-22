@@ -42,6 +42,10 @@ pub enum Stmt {
 pub enum Expr {
   Param(String),
   Query(String),
+  /// The route's params as an object, for a body that passes them whole.
+  ParamsAll,
+  /// The request's query as an object, for a body that passes it whole.
+  QueryAll,
   Session(String),
   /// `useContext(c)`: the value the nearest provider of the context `c`, `file#name`, holds around the render point, null under none.
   Context(String),
@@ -252,6 +256,10 @@ pub enum Builtin {
   FormEncode,
   /// `new URLSearchParams(x).get(key)` over the string `FormEncode` wrote: the first value under `key`, null for none.
   FormGet,
+  /// `.has(key)` over the same string: whether any value sits under `key`.
+  FormHas,
+  /// `.getAll(key)` over the same string: every value under `key`, in order.
+  FormGetAll,
   /// `re.test(s)`.
   RegexTest,
   /// `s.match(re)`: the first match and its groups, every match with `g`, null for none.
@@ -869,7 +877,7 @@ impl Expr {
           out.push(name.clone());
         }
       }
-      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Object(entries) | Expr::Array(entries) => {
         for entry in entries {
           match entry {
@@ -925,7 +933,7 @@ impl Expr {
     f(self);
     match self {
       Expr::Markup(tmpl) => tmpl.visit(f),
-      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
@@ -970,7 +978,7 @@ impl Expr {
     f(self);
     match self {
       Expr::Markup(tmpl) => std::sync::Arc::make_mut(tmpl).visit_mut(f),
-      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| e.visit_mut(f)),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| entry.visit_mut(f)),
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
@@ -1015,7 +1023,7 @@ impl Expr {
         tmpl.visit(&mut |e| reads |= e.reads_request());
         reads
       }
-      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host | Expr::Address => true,
+      Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host | Expr::Address => true,
       Expr::Locale | Expr::Path | Expr::Document | Expr::Origin | Expr::Config(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
@@ -1049,7 +1057,7 @@ impl Expr {
         calls
       }
       Expr::Call { .. } | Expr::NativeCall { .. } => true,
-      Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
+      Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
         Entry::Baked(_) => false,
@@ -1179,7 +1187,7 @@ pub fn body_reads_ambient(body: &Body) -> bool {
   let mut found = false;
   for expr in body_exprs(body) {
     expr.visit(&mut |e| {
-      if matches!(e, Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Now) {
+      if matches!(e, Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Now) {
         found = true;
       }
     });

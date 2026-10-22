@@ -346,8 +346,12 @@ fn url_search_params_reads_a_value_by_its_key() {
   assert_eq!(read(&inline), (Builtin::FormGet, true), "{inline:?}");
   let local = loader("query_local", "export async function load({ params }) {\n  const p = new URLSearchParams(params.q);\n  return { a: p.get(\"a\") };\n}\n").unwrap_or_else(|e| panic!("{e}"));
   assert_eq!(read(&local), (Builtin::FormGet, true), "{local:?}");
-  let err = loader("query_get_all", "export async function load({ params }) {\n  const p = new URLSearchParams(params.q);\n  return { a: p.getAll(\"a\") };\n}\n").unwrap_err();
-  assert!(err.contains("`.getAll()` of a `URLSearchParams`"), "{err}");
+  let has = loader("query_has", "export async function load({ params }) {\n  const p = new URLSearchParams(params.q);\n  return { a: p.has(\"a\") };\n}\n").unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(read(&has), (Builtin::FormHas, true), "{has:?}");
+  let all = loader("query_get_all", "export async function load({ params }) {\n  const p = new URLSearchParams(params.q);\n  return { a: p.getAll(\"a\") };\n}\n").unwrap_or_else(|e| panic!("{e}"));
+  assert_eq!(read(&all), (Builtin::FormGetAll, true), "{all:?}");
+  let err = loader("query_sort", "export async function load({ params }) {\n  const p = new URLSearchParams(params.q);\n  return { a: p.sort() };\n}\n").unwrap_err();
+  assert!(err.contains("`.sort()` of a `URLSearchParams`"), "{err}");
 }
 
 #[test]

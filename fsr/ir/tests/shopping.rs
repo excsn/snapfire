@@ -390,6 +390,36 @@ fn a_query_read_is_a_string_or_null() {
 }
 
 #[test]
+fn the_whole_query_and_params_read_as_objects_of_strings() {
+  let mock = Arc::new(Mock::default());
+  let mut c = ctx(mock, &[("slug", "cards")], ValueMap::default());
+  c.query.insert("ref".into(), "app".into());
+  let body = vec![Stmt::Return(Expr::object(vec![("q", Expr::QueryAll), ("p", Expr::ParamsAll), ("r", Expr::QueryAll.field("ref")), ("none", Expr::QueryAll.field("other"))]))];
+  let Value::Map(out) = run(&body, &c, None).unwrap() else { panic!() };
+  let mut q = ValueMap::default();
+  q.insert("ref".to_owned(), Value::str("app"));
+  let mut p = ValueMap::default();
+  p.insert("slug".to_owned(), Value::str("cards"));
+  assert_eq!(out.get("q"), Some(&Value::Map(q)));
+  assert_eq!(out.get("p"), Some(&Value::Map(p)));
+  assert_eq!(out.get("r"), Some(&Value::str("app")));
+  assert_eq!(out.get("none"), Some(&Value::Null));
+}
+
+#[test]
+fn has_and_get_all_read_every_value_under_a_key_of_a_query_string() {
+  use snapfire_fsr_ir::ast::Builtin;
+  let c = ctx(Arc::new(Mock::default()), &[], ValueMap::default());
+  let over = |name: Builtin, key: &str| Expr::Builtin { name, args: vec![Expr::lit_str("a=1&b=2&a=x%20y"), Expr::lit_str(key)] };
+  let body = vec![Stmt::Return(Expr::object(vec![("has", over(Builtin::FormHas, "a")), ("lacks", over(Builtin::FormHas, "c")), ("all", over(Builtin::FormGetAll, "a")), ("none", over(Builtin::FormGetAll, "c"))]))];
+  let Value::Map(out) = run(&body, &c, None).unwrap() else { panic!() };
+  assert_eq!(out.get("has"), Some(&Value::Bool(true)));
+  assert_eq!(out.get("lacks"), Some(&Value::Bool(false)));
+  assert_eq!(out.get("all"), Some(&Value::Seq(vec![Value::str("1"), Value::str("x y")].into_iter().collect())));
+  assert_eq!(out.get("none"), Some(&Value::Seq(Vec::new().into_iter().collect())));
+}
+
+#[test]
 fn mixed_scalar_operands_coerce_and_an_array_operand_is_an_internal_failure() {
   let c = ctx(Arc::new(Mock::default()), &[], ValueMap::default());
   let body = vec![Stmt::Return(Expr::Arith(ArithOp::Add, Box::new(Expr::lit_int(1)), Box::new(Expr::lit_str("1"))))];

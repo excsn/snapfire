@@ -51,6 +51,14 @@ export const checkout = action(async ({ session, services }) => {
 "#;
 
 #[test]
+fn a_loader_passes_the_query_and_params_whole_to_a_helper() {
+  let loader = "const pick = (q: Record<string, string | undefined>) => q.ref ?? \"none\";\nexport async function load({ query, params }: Ctx<\"/{slug}\">) {\n  return { r: pick(query), all: params };\n}\n";
+  let body = lower_loader("page.loader.ts", loader).unwrap_or_else(|e| panic!("{e}"));
+  let text = format!("{body:?}");
+  assert!(text.contains("QueryAll") && text.contains("ParamsAll") && !text.contains("Residue"), "{text}");
+}
+
+#[test]
 fn the_catalog_loader_lowers_to_one_call() {
   let body = lower_loader("page.loader.ts", CATALOG).unwrap();
   assert_eq!(

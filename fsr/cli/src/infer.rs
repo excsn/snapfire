@@ -243,6 +243,7 @@ impl<'a> Inferer<'a> {
         None => self.consts.get(key).map(|held| self.expr(held, env)).unwrap_or(Ts::Unknown),
       },
       Expr::Param(_) | Expr::Query(_) => Ts::Str,
+      Expr::ParamsAll | Expr::QueryAll => Ts::Map(Box::new(Ts::Str)),
       Expr::Session(key) => match self.session {
         Some(name) => self.field_of(&Ts::Named(name.to_owned()), key),
         None => Ts::Unknown,

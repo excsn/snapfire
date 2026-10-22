@@ -2463,7 +2463,9 @@ impl<'a> Lowerer<'a> {
       Some(Root::Origin) => Ok(Expr::Origin),
       Some(Root::Address) => Ok(Expr::Address),
       Some(Root::Identity) => Ok(Expr::Identity(Vec::new())),
-      Some(Root::Params | Root::Query | Root::Session | Root::Config) => Err(self.residue(id.span, format!("`{name}` as a whole; read one of its fields"))),
+      Some(Root::Params) => Ok(Expr::ParamsAll),
+      Some(Root::Query) => Ok(Expr::QueryAll),
+      Some(Root::Session | Root::Config) => Err(self.residue(id.span, format!("`{name}` as a whole; read one of its fields"))),
       Some(Root::Services) => Err(self.residue(id.span, "`services` as a value; call a method on it")),
       Some(Root::Native) => Err(self.residue(id.span, "`native` as a value; call a method on it")),
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
@@ -3131,6 +3133,11 @@ impl<'a> Lowerer<'a> {
             let arg = call.args.first().ok_or_else(|| self.residue(call.span, "`get` without a key"))?;
             Ok(Expr::Builtin { name: Builtin::FormGet, args: vec![target, Expr::Str(Box::new(self.expr(&arg.expr)?))] })
           }
+          "has" | "getAll" => {
+            let arg = call.args.first().ok_or_else(|| self.residue(call.span, format!("`{method}` without a key")))?;
+            let name = if method == "has" { Builtin::FormHas } else { Builtin::FormGetAll };
+            Ok(Expr::Builtin { name, args: vec![target, Expr::Str(Box::new(self.expr(&arg.expr)?))] })
+          }
           other => Err(self.residue(member.span, format!("`.{other}()` of a `URLSearchParams`"))),
         };
       }
@@ -3594,8 +3601,8 @@ impl<'a> Lowerer<'a> {
     let locale = match made.first().map(|a| strip_parens(&a.expr)) {
       None => None,
       Some(js::Expr::Ident(id)) if id.sym.as_ref() == "undefined" => None,
-      Some(js::Expr::Lit(js::Lit::Str(s))) => Some(s.value.to_atom_lossy().to_string()),
-      Some(other) => return Err(self.residue_with(other.span(), "a locale that is not written in place", "write the locale, `\"en-US\"`, or pass `undefined` for the request's")),
+      Some(js::Expr::Lit(js::Lit::Str(s))) => Some(Expr::lit_str(s.value.to_atom_lossy().to_string())),
+      Some(other) => Some(self.expr(other)?),
     };
     let mut options: Vec<(String, js::Expr)> = Vec::new();
     if let Some(given) = made.get(1) {
@@ -3611,7 +3618,7 @@ impl<'a> Lowerer<'a> {
       js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_atom_lossy().to_string()),
       _ => None,
     });
-    let locale_entry = locale.map(|tag| Entry::Field("locale".to_owned(), Expr::lit_str(tag)));
+    let locale_entry = locale.map(|tag| Entry::Field("locale".to_owned(), tag));
     match formatter {
       "NumberFormat" => {
         let mut entries: Vec<Entry> = locale_entry.into_iter().collect();

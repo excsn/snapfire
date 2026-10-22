@@ -22,6 +22,8 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     }
     Expr::Param(n) => form("param", vec![Sx::Sym(n.clone())]),
     Expr::Query(n) => form("query", vec![Sx::Sym(n.clone())]),
+    Expr::ParamsAll => form("params-all", vec![]),
+    Expr::QueryAll => form("query-all", vec![]),
     Expr::Session(n) => form("session", vec![Sx::Sym(n.clone())]),
     Expr::Store(n) => form("store", vec![Sx::Sym(n.clone())]),
     Expr::Context(id) => form("context", vec![Sx::Str(id.clone())]),
@@ -146,6 +148,14 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "var" => Expr::Var(sym_of(&args(items, head, 1)?[0])?),
     "param" => Expr::Param(sym_of(&args(items, head, 1)?[0])?),
     "query" => Expr::Query(sym_of(&args(items, head, 1)?[0])?),
+    "params-all" => {
+      args(items, head, 0)?;
+      Expr::ParamsAll
+    }
+    "query-all" => {
+      args(items, head, 0)?;
+      Expr::QueryAll
+    }
     "session" => Expr::Session(sym_of(&args(items, head, 1)?[0])?),
     "store" => Expr::Store(sym_of(&args(items, head, 1)?[0])?),
     "context" => Expr::Context(str_of(&args(items, head, 1)?[0])?),

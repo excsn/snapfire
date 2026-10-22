@@ -81,6 +81,8 @@ fn expr() -> BoxedStrategy<Expr> {
     text().prop_map(Expr::Store),
     text().prop_map(Expr::Const),
     prop::collection::vec(text(), 0..3).prop_map(Expr::Identity),
+    Just(Expr::ParamsAll),
+    Just(Expr::QueryAll),
     Just(Expr::Locale),
     Just(Expr::Path),
     Just(Expr::Document),

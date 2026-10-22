@@ -121,7 +121,7 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
   let mut pure = free.is_empty();
   let mut refs = Vec::new();
   expr.visit(&mut |e| match e {
-    Expr::Param(_) | Expr::Query(_) | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
+    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
     Expr::Const(other) => refs.push(other.clone()),
     _ => {}
   });
@@ -1031,6 +1031,8 @@ impl Env {
       }
       Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
       Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
+      Expr::ParamsAll => Ok(Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
+      Expr::QueryAll => Ok(Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
       Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
       Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
@@ -1530,6 +1532,8 @@ impl Env {
         }
         Expr::Param(name) => Ok(self.ctx.params.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
         Expr::Query(name) => Ok(self.ctx.query.get(name).map(|s| Value::str(s.clone())).unwrap_or(Value::Null)),
+      Expr::ParamsAll => Ok(Value::Map(self.ctx.params.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
+      Expr::QueryAll => Ok(Value::Map(self.ctx.query.iter().map(|(k, v)| (k.clone(), Value::str(v.clone()))).collect())),
         Expr::Session(key) => Ok(self.session.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Store(key) => Ok(self.store.get(key).cloned().unwrap_or(Value::Null)),
         Expr::Context(id) => Ok(self.contexts.iter().rev().find(|(c, _)| c == id).map(|(_, v)| v.clone()).unwrap_or(Value::Null)),
@@ -3022,6 +3026,18 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
         Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes()).find(|(k, _)| *k == key.as_str()).map_or(Value::Null, |(_, v)| Value::str(v.into_owned())),
         Value::Null => Value::Null,
         other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
+      }
+    }
+    Builtin::FormHas | Builtin::FormGetAll => {
+      let key = stringify(arg(1)?)?;
+      let values: Vec<Value> = match arg(0)? {
+        Value::Str(s) => form_urlencoded::parse(s.strip_prefix('?').unwrap_or(s).as_bytes()).filter(|(k, _)| *k == key.as_str()).map(|(_, v)| Value::str(v.into_owned())).collect(),
+        Value::Null => Vec::new(),
+        other => return Err(type_error(&format!("{name:?}"), "a query string", other)),
+      };
+      match name {
+        Builtin::FormHas => Value::Bool(!values.is_empty()),
+        _ => Value::Seq(values.into_iter().collect()),
       }
     }
     Builtin::LooseMatch => {

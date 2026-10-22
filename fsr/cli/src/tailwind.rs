@@ -274,6 +274,8 @@ fn as_written(expr: &Expr) -> Option<String> {
     Expr::Var(name) => name.trim_start_matches('$').to_owned(),
     Expr::Param(name) => format!("params.{name}"),
     Expr::Query(name) => format!("query.{name}"),
+    Expr::ParamsAll => "params".to_owned(),
+    Expr::QueryAll => "query".to_owned(),
     Expr::Field(target, name) => format!("{}.{name}", as_written(target)?),
     Expr::Index(target, index) => format!("{}[{}]", as_written(target)?, as_written(index)?),
     Expr::Template(parts) => {
