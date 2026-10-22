@@ -8,7 +8,7 @@ use swc_core::ecma::visit::{Visit, VisitWith};
 
 use crate::edit::Edits;
 use crate::items::{drop_named_import, line_range};
-use crate::relocate::{relocate, Aliases};
+use crate::relocate::{dirname, find, normalize, relocate, Aliases};
 use crate::syntax::parse;
 use crate::{Pass, Report, Tree};
 
@@ -177,46 +177,101 @@ impl Pass for Document {
   }
 
   fn run(&self, tree: &mut Tree, report: &mut Report) {
-    let Some(path) = ["tsx", "jsx", "js", "ts"].iter().map(|e| format!("app/routes/layout.{e}")).find(|p| tree.contains(p)) else { return };
-    let Some(text) = tree.text(&path).map(str::to_owned) else { return };
-    let Ok(parsed) = parse(&path, &text) else { return };
-    let mut find = Elements { found: Vec::new() };
-    parsed.module.visit_with(&mut find);
-    let mut edits = Edits::default();
-    for element in &find.found {
-      let js::JSXElementName::Ident(name) = &element.opening.name else { continue };
-      let open = parsed.range(element.opening.span);
-      let close = element.closing.as_ref().map(|c| parsed.range(c.span));
-      match &*name.sym {
-        "html" => {
-          if let Some(lang) = attribute(&element.opening, "lang").filter(|l| l != "en") {
-            report.note(&path, parsed.line(element.span), format!("`<html lang=\"{lang}\">`: FSR writes `lang` from the request's locale, `[locales]` in `config/app.toml`"));
-          }
-          edits.replace(open, "<>");
-          if let Some(close) = close {
-            edits.replace(close, "</>");
-          }
+    let layouts: Vec<String> = tree.paths().filter(|p| p.starts_with("app/routes/") && ["tsx", "jsx", "js", "ts"].iter().any(|e| p.ends_with(&format!("/layout.{e}")))).map(str::to_owned).collect();
+    let mut targets: Vec<String> = Vec::new();
+    for layout in layouts {
+      let exported = tree.text(&layout).and_then(|text| default_import(tree, &layout, text));
+      for path in std::iter::once(layout).chain(exported) {
+        if !targets.contains(&path) {
+          targets.push(path);
         }
-        "body" => {
-          let tag = &text[parsed.range(element.opening.span)];
-          edits.replace(open.start..open.start + "<body".len(), "<div");
-          if tag.ends_with("/>") {
-            continue;
-          }
-          if let Some(close) = close {
-            edits.replace(close, "</div>");
-          }
-        }
-        "head" => {
-          report.note(&path, parsed.line(element.span), "the root layout's `<head>` was taken out; a route's head comes from its loader's `meta`");
-          edits.replace(parsed.range(element.span), "");
-        }
-        _ => {}
       }
     }
-    if !edits.is_empty() {
-      tree.insert(path, edits.apply(&text));
+    for path in targets {
+      unwrap_document(tree, path, report);
     }
+  }
+}
+
+/// The module whose default export `path` re-exports as its own: `export { default } from "x"` or `import L from "x"; export default L`.
+fn default_import(tree: &Tree, path: &str, text: &str) -> Option<String> {
+  let parsed = parse(path, text).ok()?;
+  let source = |name: &str| {
+    parsed.module.body.iter().find_map(|item| match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if import.specifiers.iter().any(|s| matches!(s, js::ImportSpecifier::Default(d) if &*d.local.sym == name)) => Some(import.src.value.to_string_lossy().into_owned()),
+      _ => None,
+    })
+  };
+  let spec = parsed.module.body.iter().find_map(|item| match item {
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(named)) => named.specifiers.iter().find_map(|s| match s {
+      js::ExportSpecifier::Named(n) => {
+        let exported = n.exported.as_ref().unwrap_or(&n.orig);
+        let is_default = matches!(exported, js::ModuleExportName::Ident(i) if &*i.sym == "default");
+        let orig = match &n.orig {
+          js::ModuleExportName::Ident(i) => i.sym.to_string(),
+          _ => return None,
+        };
+        match (&named.src, is_default) {
+          (Some(src), true) if orig == "default" => Some(src.value.to_string_lossy().into_owned()),
+          (None, true) => source(&orig),
+          _ => None,
+        }
+      }
+      _ => None,
+    }),
+    js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDefaultExpr(e)) => match &*e.expr {
+      js::Expr::Ident(id) => source(&id.sym),
+      _ => None,
+    },
+    _ => None,
+  })?;
+  let base = match spec.strip_prefix("@src/") {
+    Some(rest) => format!("app/src/{rest}"),
+    None if spec.starts_with('.') => normalize(dirname(path), &spec)?,
+    None => return None,
+  };
+  find(tree, &base).map(|(found, _)| found)
+}
+
+fn unwrap_document(tree: &mut Tree, path: String, report: &mut Report) {
+  let Some(text) = tree.text(&path).map(str::to_owned) else { return };
+  let Ok(parsed) = parse(&path, &text) else { return };
+  let mut find = Elements { found: Vec::new() };
+  parsed.module.visit_with(&mut find);
+  let mut edits = Edits::default();
+  for element in &find.found {
+    let js::JSXElementName::Ident(name) = &element.opening.name else { continue };
+    let open = parsed.range(element.opening.span);
+    let close = element.closing.as_ref().map(|c| parsed.range(c.span));
+    match &*name.sym {
+      "html" => {
+        if let Some(lang) = attribute(&element.opening, "lang").filter(|l| l != "en") {
+          report.note(&path, parsed.line(element.span), format!("`<html lang=\"{lang}\">`: FSR writes `lang` from the request's locale, `[locales]` in `config/app.toml`"));
+        }
+        edits.replace(open, "<>");
+        if let Some(close) = close {
+          edits.replace(close, "</>");
+        }
+      }
+      "body" => {
+        let tag = &text[parsed.range(element.opening.span)];
+        edits.replace(open.start..open.start + "<body".len(), "<div");
+        if tag.ends_with("/>") {
+          continue;
+        }
+        if let Some(close) = close {
+          edits.replace(close, "</div>");
+        }
+      }
+      "head" => {
+        report.note(&path, parsed.line(element.span), "the root layout's `<head>` was taken out; a route's head comes from its loader's `meta`");
+        edits.replace(parsed.range(element.span), "");
+      }
+      _ => {}
+    }
+  }
+  if !edits.is_empty() {
+    tree.insert(path, edits.apply(&text));
   }
 }
 
@@ -487,6 +542,25 @@ mod tests {
     assert!(notes.iter().any(|n| n.contains("`metadata.twitter` reads a value from the module")), "{notes:?}");
     assert!(notes.iter().any(|n| n.contains("`metadata.icons` was not carried over")), "{notes:?}");
     assert!(!notes.iter().any(|n| n.contains("robots")), "{notes:?}");
+  }
+
+  #[test]
+  fn a_layout_component_a_route_layout_exports_loses_html_and_its_body_becomes_a_div() {
+    let base = "export default function BaseLayout({ children }) {\n  return (\n    <html lang=\"en\">\n      <body className=\"shell\">{children}</body>\n    </html>\n  );\n}\n";
+    for layout in ["import BaseLayout from \"../../components/BaseLayout\";\n\nexport default BaseLayout;\n", "export { default } from \"../../components/BaseLayout\";\n"] {
+      let input = tree(&[
+        ("package.json", r#"{ "dependencies": { "next": "latest" } }"#),
+        ("components/BaseLayout.tsx", base),
+        ("app/[locale]/layout.tsx", layout),
+        ("app/[locale]/page.tsx", "export default function Home() {\n  return <p>home</p>;\n}\n"),
+      ]);
+      let (out, _) = migrate(&input);
+      assert_eq!(
+        out.text("app/src/components/BaseLayout.tsx").unwrap(),
+        "export default function BaseLayout({ children }) {\n  return (\n    <>\n      <div className=\"shell\">{children}</div>\n    </>\n  );\n}\n",
+        "{layout}"
+      );
+    }
   }
 
   #[test]
