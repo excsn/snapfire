@@ -334,3 +334,9 @@ fn a_thrown_type_error_fails_the_render_with_its_message() {
   let failed = html("type_error", page).unwrap_err();
   assert!(failed.contains("Unexpected tone: blue"), "{failed}");
 }
+
+#[test]
+fn a_spread_of_an_array_of_a_length_is_that_many_undefineds() {
+  let page = "export default function Page() {\n  const n = 3;\n  const blanks = [...Array(n)].map(() => \"_\");\n  const made = [...new Array(2)];\n  return <p>{blanks.join(\"\")}|{made.length}|{made[0] === undefined ? \"undefined\" : \"null\"}</p>;\n}\n";
+  assert_eq!(html("spread_array_length", page).as_deref(), Ok("<p>___|2|undefined</p>"));
+}

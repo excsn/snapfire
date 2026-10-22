@@ -2469,6 +2469,11 @@ impl<'a> Lowerer<'a> {
       js::Expr::Array(arr) => {
         let mut entries = Vec::new();
         for elem in arr.elems.iter().flatten() {
+          if let (Some(_), Some(length)) = (elem.spread, self.array_of_length(&elem.expr)) {
+            let range = Box::new(Expr::Builtin { name: Builtin::Range, args: vec![self.expr(length)?] });
+            entries.push(Entry::Spread(Expr::Map(range, Box::new(Expr::Lambda { params: vec!["$hole".to_owned()], body: Box::new(Expr::Lit(Lit::Undefined)) }))));
+            continue;
+          }
           let value = self.expr(&elem.expr)?;
           entries.push(match elem.spread {
             Some(_) if self.kind_of(&elem.expr) == Some(Kind::Map) => Entry::Spread(Expr::Entries(Box::new(value))),
