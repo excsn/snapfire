@@ -477,7 +477,7 @@ fn greeting(ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
 }
 ```
 
-`snapfire_fsr_host` registers each one with `HostBuilder::extension` under its name and a `Reach`: `Reach::Render` runs on both sides of a render and must answer what its browser half answers, `Reach::Body` runs on the server only. The host re-exports `ext`, so an application can import all of it from there.
+`snapfire_fsr_host` registers each one with `HostBuilder::extension` under its name and a `Reach`: `Reach::Render` runs on both sides of a render and must answer what its browser half answers, `Reach::Body` runs on the server only. `Reach::Terminal`, `Reach::Later` and `Reach::Process` name what a host can do, a page with no browser half, one that resumes a handler after its step and one with processes of its own; a terminal page has all three and the build refuses a member of any of them on a web page. The host re-exports `ext`, so an application can import all of it from there.
 
 An argument of the wrong kind fails as `Internal`, naming the call:
 

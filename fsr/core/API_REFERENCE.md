@@ -268,11 +268,16 @@ The contract the Rust half of a native extension is written against, in `snapfir
 
 ### Reach
 
-Where an extension may run.
+Where an extension may run and what a host running a page can do.
 
 * `Render` - pure and run on both sides of a render, callable from every site. Must answer byte for byte what its browser half answers.
 * `Body` - server only, callable from a loader, an action, a handler or middleware. Refused on a component's render path.
-* `pub fn as_str(&self) -> &'static str` - `render` or `body`.
+* `Terminal` - the page runs where it is viewed, so it has no browser half and a render may read the clock.
+* `Later` - the host resumes a handler after the step that started it, for a timer, an `await` or a listener.
+* `Process` - the host has processes, an environment and a screen of its own.
+* The last three are refused on a page whose host lacks them. A terminal page has all three; a page with a browser half has none.
+* `pub fn as_str(&self) -> &'static str` - `render`, `body`, `terminal`, `later` or `process`.
+* `pub fn needs(&self) -> Option<&'static str>` - what a page lacks for the reach, finishing "`x`, which ..."; `None` for `Render` and `Body`.
 * Derives `Debug`, `Clone`, `Copy`, `PartialEq` and `Eq`.
 
 ### Ambient

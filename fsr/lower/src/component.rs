@@ -9072,7 +9072,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     })
   }
 
-  /// A statement at the top of a terminal effect: a timer it starts, a call to one of its functions, which runs on mount, or a call made for its effect, which the terminal cannot run. A timer whose delay is computed starts from a `mount` handler, as a timer a handler starts does.
+  /// A statement at the top of a terminal effect: a timer it starts; a call to one of its functions, which runs on mount; or a call made for its effect, which the terminal cannot run. A timer whose delay is computed starts from a `mount` handler, as a timer a handler starts does.
   fn effect_start(&mut self, e: &'p js::Expr, span: Span) -> Lowered<()> {
     if let Some((repeats, callback, delay)) = timer_call(e) {
       if let Some(delay) = self.timer_delay(delay)? {
@@ -9433,7 +9433,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Some(Join { event, carry }))
   }
 
-  /// A listener on a process the handler spawned as the act [`snapfire_fsr_ir::host::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report, or the promise's `resolve` or `reject` it settles.
+  /// A listener on a process the handler spawned as the act [`snapfire_fsr_ir::host::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` as the callback settles that promise instead.
   fn handler_listen(&mut self, call: &'p js::CallExpr, walk: &mut HandlerWalk) -> Lowered<()> {
     let (process, report, callback, removes) = self.lowerer.listener(call).expect("checked");
     let Some(report) = report else { return Ok(()) };
