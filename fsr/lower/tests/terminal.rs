@@ -324,3 +324,20 @@ fn ink_hooks_written_in_the_provided_module_are_inlined_like_an_apps_own() {
   let component = &set.components.iter().find(|(m, _)| m == MODULE).unwrap().1;
   assert!(component.stores.iter().any(|(_, key)| key == "$terminal.columns"), "{:?}", component.stores);
 }
+
+#[test]
+fn a_file_read_on_a_web_page_is_refused_naming_what_it_needs() {
+  let page = "import { readFileSync } from \"node:fs\";\n\nexport default function Page() {\n  return <p>{readFileSync(\"/etc/hostname\", \"utf8\")}</p>;\n}\n";
+  let dir = std::env::temp_dir().join(format!("fsr_lower_terminal_web_fs_{}", std::process::id()));
+  let _ = std::fs::remove_dir_all(&dir);
+  std::fs::create_dir_all(dir.join("routes")).unwrap();
+  std::fs::write(dir.join("routes/page.tsx"), page).unwrap();
+  let mut set = snapfire_fsr_lower::component::ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default").map_err(|e| e.to_string());
+  std::fs::remove_dir_all(&dir).unwrap();
+  let message = match result {
+    Ok(()) => set.browser_only.first().map(|(_, r)| r.message.clone()).unwrap_or_default(),
+    Err(e) => e,
+  };
+  assert!(message.contains("`fs.readFileSync`, which needs a host with processes of its own"), "{message}");
+}

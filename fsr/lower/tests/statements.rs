@@ -346,3 +346,9 @@ fn an_array_added_to_a_value_is_its_items_joined_by_commas() {
   let page = "export default function Page() {\n  const letters = [\"c\", \"d\"];\n  const nested = [1, [2, null]];\n  const none: string[] = [];\n  return <p>{\"ab\" + letters}|{nested + 1}|{none + \"\"}|{letters + letters}</p>;\n}\n";
   assert_eq!(html("array_plus", page).as_deref(), Ok("<p>abc,d|1,2,1||c,dc,d</p>"));
 }
+
+#[test]
+fn json_parse_reads_a_document_into_a_value() {
+  let page = "const text = '{\"name\": \"ace\", \"tags\": [\"a\", \"b\"], \"n\": 2.5, \"on\": true, \"none\": null}';\nexport default function Page() {\n  const doc = JSON.parse(text);\n  return <p>{doc.name} {doc.tags.length} {doc.n * 2} {doc.on ? \"on\" : \"off\"} {doc.none === null ? \"null\" : \"set\"} {Object.keys(doc).join(\",\")}</p>;\n}\n";
+  assert_eq!(html("json_parse", page).unwrap(), "<p>ace 2 5 on null name,tags,n,on,none</p>");
+}

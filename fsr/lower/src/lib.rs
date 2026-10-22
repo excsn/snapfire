@@ -1883,20 +1883,24 @@ impl<'a> Lowerer<'a> {
     settler(callee) || (self.reaches(Reach::Later) && id.sym.as_ref() == "setTimeout" && id.ctxt == self.parsed.unresolved && matches!(call.args.as_slice(), [callback, _] if settler(&callback.expr) || matches!(crate::meaning::bare(&callback.expr), js::Expr::Arrow(_))))
   }
 
-  /// `process.env.NAME` or `process.env[name]` in a terminal page, `process` Node's from `node:process` or the global: the variable through `terminal.env`, null when it is not set.
+  /// Whether `e` is Node's `process`, the global or the default import of `node:process`.
+  fn is_process(&self, e: &js::Expr) -> bool {
+    match crate::meaning::bare(e) {
+      js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.as_ref() == "process",
+      other => self.meanings.as_ref().and_then(|meanings| meanings.of_expr(other)) == Some(meaning::Meaning::Library(meaning::Construct::NodeProcess)),
+    }
+  }
+
+  /// `process.env.NAME` or `process.env[name]` in a terminal page: the variable through `terminal.env`, null when it is not set. `process.platform` is `os.platform`.
   fn env_read(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
     if !self.reaches(Reach::Process) {
       return Ok(None);
     }
-    let js::Expr::Member(env) = crate::meaning::bare(&member.obj) else { return Ok(None) };
-    if self.member_name(env).as_deref() != Some("env") {
-      return Ok(None);
+    if self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("platform") {
+      return Ok(Some(Expr::Ext { module: "os".to_owned(), name: "platform".to_owned(), args: Vec::new() }));
     }
-    let process = match crate::meaning::bare(&env.obj) {
-      js::Expr::Ident(id) if id.ctxt == self.parsed.unresolved => id.sym.as_ref() == "process",
-      other => self.meanings.as_ref().and_then(|meanings| meanings.of_expr(other)) == Some(meaning::Meaning::Library(meaning::Construct::NodeProcess)),
-    };
-    if !process {
+    let js::Expr::Member(env) = crate::meaning::bare(&member.obj) else { return Ok(None) };
+    if self.member_name(env).as_deref() != Some("env") || !self.is_process(&env.obj) {
       return Ok(None);
     }
     let name = match &member.prop {
@@ -1905,6 +1909,13 @@ impl<'a> Lowerer<'a> {
       js::MemberProp::PrivateName(_) => return Ok(None),
     };
     Ok(Some(Expr::Ext { module: "terminal".to_owned(), name: "env".to_owned(), args: vec![name] }))
+  }
+
+  /// `process.cwd()` in a terminal page: the member `process.cwd`.
+  fn process_call(&self, call: &js::CallExpr) -> Option<Expr> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(member) = crate::meaning::bare(callee) else { return None };
+    (self.reaches(Reach::Process) && self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("cwd") && call.args.is_empty()).then(|| Expr::Ext { module: "process".to_owned(), name: "cwd".to_owned(), args: Vec::new() })
   }
 
   /// Whether `call` is `spawn` from `node:child_process`, named or through its default export.
@@ -2923,6 +2934,9 @@ impl<'a> Lowerer<'a> {
     if self.reaches(Reach::Process) && self.spawns(call) {
       return self.spawn_value(call);
     }
+    if let Some(cwd) = self.process_call(call) {
+      return Ok(cwd);
+    }
     if let Some(chained) = self.then_call(call)? {
       return Ok(chained);
     }
@@ -2983,12 +2997,8 @@ impl<'a> Lowerer<'a> {
     if let Some(meaning::Meaning::Library(meaning::Construct::Extension(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
       let (module, member) = key.split_once('.').expect("an extension is `module.member`");
       let reach = standard_reach(module, member).expect("a package maps to a standard member");
-      if !self.reaches(reach) {
-        let named = match &**callee {
-          js::Expr::Ident(id) => id.sym.to_string(),
-          _ => key.to_owned(),
-        };
-        return Err(self.residue(call.span, format!("a call to `{named}`, which the build cannot follow")));
+      if let (false, Some(needs)) = (self.reaches(reach), reach.needs()) {
+        return Err(self.residue(call.span, format!("a call to `{key}`, which {needs}")));
       }
       self.check_reach(call.span, key, reach)?;
       let mut args = Vec::with_capacity(call.args.len());
@@ -3213,6 +3223,10 @@ impl<'a> Lowerer<'a> {
             }
             let name = if method == "json" { Builtin::ResponseJson } else { Builtin::ResponseRedirect };
             return Ok(Expr::Builtin { name, args });
+          }
+          "JSON" if method == "parse" => {
+            let [arg] = call.args.as_slice() else { return Err(self.residue(call.span, "`JSON.parse` takes the text alone; a reviver is not lowered")) };
+            return Ok(Expr::Builtin { name: Builtin::JsonParse, args: vec![self.expr(&arg.expr)?] });
           }
           "JSON" if method == "stringify" => {
             if call.args.len() > 3 || call.args.get(1).is_some_and(|a| !matches!(&*a.expr, js::Expr::Lit(js::Lit::Null(_)))) {

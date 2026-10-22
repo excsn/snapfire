@@ -211,6 +211,8 @@ pub enum Builtin {
   Substring,
   /// `JSON.stringify(v, null, indent)`.
   Json,
+  /// `JSON.parse(s)`.
+  JsonParse,
   /// `Math.pow(a, b)`.
   Pow,
   /// `Math.sqrt(n)`.

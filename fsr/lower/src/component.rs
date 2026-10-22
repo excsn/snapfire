@@ -2345,11 +2345,19 @@ impl ComponentSet {
       }
     }
     let replays = matches!(item, Global::Const(_)) && module_lets_of(&parsed).into_iter().any(|(_, _, written)| written);
+    let constant = matches!(item, Global::Const(_));
     self.resolving.push(key.clone());
     let result = self.lower_global(file, item);
     self.resolving.pop();
     match result {
       Err(LowerError::Residue(residue)) if file.starts_with(&format!("{EXT_DIR}/")) => Err(LowerError::Extension(residue)),
+      // A constant that reads the machine, a file or the clock is what the module's initialisation left it at: a cell the session makes once, as Node runs a module once.
+      Ok(expr) if constant && self.lowering_component && self.reaches(Reach::Later) && reads_host(&expr, &self.natives) => {
+        if !self.module_lets.iter().any(|(k, _, _)| *k == key) {
+          self.module_lets.push((key.clone(), file.to_owned(), name.to_owned()));
+        }
+        Ok(Some((Expr::ReadCell(Box::new(Expr::Var(name.to_owned()))), key)))
+      }
       // A constant of a module whose `let`s its functions write is what the module's initialisation leaves it at, so it is read by replaying that initialisation.
       Ok(_) if replays => self.module_init(file, name).map(|expr| Some((expr, key))),
       other => other.map(|expr| Some((expr, key))),
@@ -3465,6 +3473,21 @@ fn module_lets_of(parsed: &Parsed) -> Vec<(String, Option<&js::Expr>, bool)> {
     }
   }
   out
+}
+
+/// Whether `expr` reads the machine, a file or the clock: an extension member past `Render` reach, or `now`.
+fn reads_host(expr: &Expr, natives: &[(String, Reach)]) -> bool {
+  let mut found = false;
+  expr.visit(&mut |e| match e {
+    Expr::Ext { module, name, .. } => {
+      let key = format!("{module}.{name}");
+      let reach = snapfire_fsr_ir::standard_reach(module, name).or_else(|| natives.iter().find(|(n, _)| *n == key).map(|(_, r)| *r));
+      found |= reach.is_some_and(|r| r != Reach::Render);
+    }
+    Expr::Now => found = true,
+    _ => {}
+  });
+  found
 }
 
 /// Whether `expr` reads any cell.

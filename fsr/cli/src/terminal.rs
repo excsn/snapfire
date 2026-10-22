@@ -607,8 +607,14 @@ impl Session {
         }
       }
       (Some(Act::Then), Value::Map(then)) => {
-        let (Some(deferred), Some(Value::Str(event))) = (then.get("deferred").and_then(deferred_of), then.get("event")) else { return };
+        let Some(Value::Str(event)) = then.get("event") else { return };
         let waiting = Waiting { path: path.to_owned(), event: event.to_string(), carry: then.get("carry").cloned().unwrap_or(Value::Null) };
+        let awaited = then.get("deferred").cloned().unwrap_or(Value::Null);
+        // `await` of a value that is not a promise continues with the value, as JavaScript does.
+        let Some(deferred) = deferred_of(&awaited) else {
+          self.ready.push((waiting, true, awaited));
+          return;
+        };
         match self.deferreds.entry(deferred).or_default() {
           Deferred { settled: Some((ok, value)), .. } => {
             let (ok, value) = (*ok, value.clone());

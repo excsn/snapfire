@@ -338,6 +338,23 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `terminal.stripAnsi` | terminal | `s` | `s` without the escape codes `ansi-regex` matches |
 | `terminal.stringWidth` | terminal | `s` | the terminal columns `s` takes once its escape codes are gone, a grapheme cluster at most two |
 | `terminal.env` | terminal | `name` | the environment variable `name`, null when it is not set |
+| `path.join` | terminal | `...parts` | the parts joined with `/` and normalized, POSIX; `.` for none |
+| `path.resolve` | terminal | `...parts` | the parts right to left until one is absolute, the working directory before them otherwise, normalized, no trailing `/` |
+| `path.normalize` | terminal | `path` | `.` and empty segments dropped, `..` resolved, a leading and a trailing `/` kept |
+| `path.dirname` | terminal | `path` | the directory part; `.` when there is none, `/` at the root |
+| `path.basename` | terminal | `path`, `ext?` | the last segment, without `ext` when it ends with it |
+| `path.extname` | terminal | `path` | from the last `.` of the last segment; empty for a dotfile or no dot |
+| `path.relative` | terminal | `from`, `to` | the path from `from` to `to`, both resolved |
+| `path.isAbsolute` | terminal | `path` | whether it starts with `/` |
+| `os.homedir` | process | | `HOME`; `USERPROFILE` when that is not set |
+| `os.platform` | process | | `darwin`, `linux`, `win32` or what Rust calls the OS |
+| `os.tmpdir` | process | | the temporary directory, no trailing `/` |
+| `process.cwd` | process | | the working directory |
+| `fs.existsSync` | process | `path` | whether anything is at `path` |
+| `fs.readFileSync`, `fs.readFile` | process | `path`, `encoding?` | the file as text, bytes that are not UTF-8 as U+FFFD; a missing file throws `{ name: "Error", message, code: "ENOENT", path }` |
+| `fs.writeFileSync`, `fs.writeFile` | process | `path`, `data` | writes `data` as text; null |
+| `fs.mkdirSync`, `fs.mkdir` | process | `path`, `{ recursive? }?` | makes the directory, its parents too with `recursive`; null |
+| `fs.readdirSync`, `fs.readdir` | process | `path` | the entries' names, sorted |
 | `terminal.wrapAnsi` | terminal | `s`, `columns`, `{ hard?, trim?, wordWrap? }?` | the rows `wrap-ansi` 9 breaks `s` into; escape codes stay where they stand |
 | `i18n.t` | render | `key`, `{ count?, …}?` | the message under `key` in the ambient locale's catalog; with `count` a number, `key.<cardinal category>` then `key.other` then `key`; `{name}` filled from a scalar argument, left as written otherwise; the key itself when nothing matches or no catalogs are set. What `t` from the client's std module lowers to |
 
@@ -443,6 +460,7 @@ The frameworks an application vendors, each at the major whose server markup the
 * `Builtin::Split` takes a subject, a separator and an optional limit, read as `ToUint32`, and yields a `Seq` of at most that many strings. A separator the subject does not hold gives one piece, a leading or trailing separator keeps its empty piece; an empty separator splits into characters and is `Internal` on a subject holding one outside the Basic Multilingual Plane, since JavaScript splits that into UTF-16 code units, which the value model holds no half of. It refuses to build more than a million pieces, for the same reason `Repeat` and `Range` have bounds.
 * `Builtin::Replace` takes a subject, a string pattern and a replacement, yielding the subject with the **first** occurrence replaced, as JavaScript's `String.prototype.replace` does with a string pattern. The replacement carries JavaScript's substitutions: `$$` is one dollar, `$&` the match, `` $` `` the text before it and `$'` the text after. A string pattern has no capture groups, so `$1` stays the two characters it is written as. Given a regular expression as its pattern it replaces the first match (every match with `g`) and the replacement also reads `$1` to `$99` and `$<name>`, a group that did not take part as nothing.
 * `Builtin::Slice`, `At`, `IndexOf` and `Concat` take an array or a string; `Reverse` an array; `PadStart`, `PadEnd` and `Substring` a string. Indices follow JavaScript's `ToIntegerOrInfinity`, negative counting from the end where JavaScript's does. A string's indices count UTF-16 code units. A cut through a surrogate pair is `Internal`, since the value model holds no half of one. `IndexOf` over an array compares numbers by value whatever their width and anything else by equality. `PadStart` and `PadEnd` refuse to build more than `Repeat`'s bound.
+* `Builtin::JsonParse` is `JSON.parse(text)`: every number an `F64`, an object's keys in document order; text that is not JSON throws a `SyntaxError` a `catch` can read.
 * `Builtin::Json` is `JSON.stringify(value, null, indent)`: maps in insertion order, a non-finite number as `null`, an `Int`, which only a `bigint` produces, `Internal` as JavaScript throws, an indent of a number capped at 10 spaces or a string's first 10 characters.
 * `Builtin::Response` takes a body and an init: a `Str` body is sent as UTF-8 with `text/plain;charset=UTF-8` unless the init's headers name a type, a `Bytes` or `Uint8Array` body as its bytes, `Null` or `Undefined` as nothing. The init's `status` must lie in 200 to 599 and is 200 when absent. Its `headers` is an object of strings or an array of `[name, value]` pairs. `ResponseJson` writes its value as `Json` does with `application/json`. `ResponseRedirect` takes a path or an absolute URL and a status among 301, 302, 303, 307 and 308, 302 when absent, setting `location`. `RedirectTo` is `redirect(to)`: a 303 whose target must be a path on this origin as `RedirectHandle::check` takes it, else `Invalid`. Each yields the `Value::Variant` that `snapfire_fsr_runtime::HttpResponse::from_value` reads.
 * `Builtin::Uint8Array` takes an array of numbers, each truncated and taken modulo 256; bytes, kept as they are; or a length, giving that many zeros.

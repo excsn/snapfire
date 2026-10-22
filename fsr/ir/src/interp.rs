@@ -2649,6 +2649,24 @@ fn console_text(value: &Value) -> String {
 }
 
 /// `JSON.stringify` of a value at `depth`, with `indent` per level.
+/// A parsed JSON document as a value: every number an `F64`, as JavaScript's `JSON.parse` reads them, and an object's keys in document order.
+fn json_value(parsed: serde_json::Value) -> Value {
+  match parsed {
+    serde_json::Value::Null => Value::Null,
+    serde_json::Value::Bool(b) => Value::Bool(b),
+    serde_json::Value::Number(n) => Value::F64(n.as_f64().unwrap_or(f64::NAN)),
+    serde_json::Value::String(s) => Value::str(s),
+    serde_json::Value::Array(items) => Value::Seq(items.into_iter().map(json_value).collect()),
+    serde_json::Value::Object(fields) => {
+      let mut map = ValueMap::default();
+      for (key, value) in fields {
+        map.insert(key, json_value(value));
+      }
+      Value::Map(map)
+    }
+  }
+}
+
 fn json_into(out: &mut String, value: &Value, indent: &str, depth: usize) -> Result<(), Fail> {
   let newline = |out: &mut String, depth: usize| {
     if !indent.is_empty() {
@@ -3172,6 +3190,19 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let mut out = String::new();
       json_into(&mut out, arg(0)?, &indent, 0)?;
       Value::str(out)
+    }
+    Builtin::JsonParse => {
+      let Value::Str(text) = arg(0)? else { return Err(type_error("JSON.parse", "a string", arg(0)?)) };
+      match serde_json::from_str::<serde_json::Value>(text) {
+        Ok(parsed) => json_value(parsed),
+        Err(e) => {
+          let message = format!("{e}");
+          let mut thrown = ValueMap::default();
+          thrown.insert("name".to_owned(), Value::str("SyntaxError"));
+          thrown.insert("message".to_owned(), Value::str(message.clone()));
+          return Err(Fail::internal(format!("JSON.parse: {message}")).with_thrown(Value::Map(thrown)));
+        }
+      }
     }
     Builtin::MinOf | Builtin::MaxOf => {
       let Value::Seq(items) = arg(0)? else { return Err(type_error(&format!("{name:?}"), "an array", arg(0)?)) };

@@ -75,6 +75,21 @@ The callback is a continuation: a handler of the component named for where it wa
 
 An effect only a browser could run, writing `document.title` for one, is left out.
 
+## Files, paths and the environment
+
+A terminal tool reads its own configuration before it draws, so a page may read the machine it runs on. `node:fs` gives `existsSync`, `readFileSync`, `writeFileSync`, `mkdirSync` and `readdirSync`, `node:fs/promises` their awaited forms, `node:path` its path functions and `node:os` `homedir`, `platform` and `tmpdir`; `process.env`, `process.platform` and `process.cwd()` read the process. Each runs natively, no Node involved.
+
+```tsx
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+const configPath = join(homedir(), ".config", "cards", "config.json");
+const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, "utf8")) : { deck: "default" };
+```
+
+`config` is evaluated once, when the session opens, as Node runs a module once; it is not read again on each render. A missing file throws an error whose `code` is `ENOENT`, so a `try` around the read with a default in its `catch` works as it does under Node. The same imports on a web page are refused, since a browser has no files: the build says which reach the page lacks.
+
 ## Processes
 
 An effect or a handler may start a process with `spawn` from `node:child_process`. Its output is piped to the terminal. Each listener is a continuation like a timer's callback, so it may call the component's setters. A local the listeners write keeps its value from one report to the next. Each run of the effect gets its own. [`examples/monitor_terminal_ts`](../../examples/monitor_terminal_ts/README.md) reads a command for whichever tab is chosen:
