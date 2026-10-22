@@ -244,19 +244,9 @@ impl Pass for Metadata {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
       let Ok(parsed) = parse(&path, &text) else { continue };
       for item in &parsed.module.body {
-        if let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Fn(f), .. })) = item {
-          if &*f.ident.sym == "generateMetadata" {
-            report.note(&path, parsed.line(item.span()), "`generateMetadata` was left in place: the loader's `meta` is a function of what `load` returned");
-          }
-          continue;
-        }
         let js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(js::ExportDecl { decl: js::Decl::Var(var), .. })) = item else { continue };
         let Some(decl) = var.decls.first() else { continue };
         let js::Pat::Ident(name) = &decl.name else { continue };
-        if &*name.id.sym == "generateMetadata" {
-          report.note(&path, parsed.line(item.span()), "`generateMetadata` was left in place: the loader's `meta` is a function of what `load` returned");
-          continue;
-        }
         if &*name.id.sym != "metadata" {
           continue;
         }
@@ -397,11 +387,13 @@ mod tests {
   }
 
   #[test]
-  fn generate_metadata_is_noted_however_it_is_declared() {
+  fn generate_metadata_moves_to_the_loader_however_it_is_declared() {
     for page in ["export async function generateMetadata() {\n  return { title: \"a\" };\n}\nexport default function Page() { return null; }\n", "export const generateMetadata = async () => ({ title: \"a\" });\nexport default function Page() { return null; }\n"] {
       let input = tree(&[("package.json", r#"{ "dependencies": { "next": "latest" } }"#), ("app/page.tsx", page)]);
-      let (_, report) = migrate(&input);
-      assert!(report.notes.iter().any(|n| n.message.starts_with("`generateMetadata` was left in place")), "{page}: {:?}", report.notes);
+      let (out, report) = migrate(&input);
+      assert!(out.text("app/routes/page.loader.ts").is_some_and(|l| l.contains("return fromNextMetadata({ title: \"a\" });")), "{page}: {:?}", out.text("app/routes/page.loader.ts"));
+      assert!(!out.text("app/routes/page.tsx").unwrap().contains("generateMetadata"), "{page}");
+      assert!(report.notes.is_empty(), "{page}: {:?}", report.notes);
     }
   }
 

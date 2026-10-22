@@ -2159,6 +2159,53 @@ export function alternate(href: string, hreflang: string): HeadEl {
 export function jsonLd(json: string): HeadEl {
   return { tag: "script", type: "application/ld+json", children: json };
 }
+
+/** What a `meta` body returns. */
+export interface MetaOf {
+  title?: string;
+  absolute?: boolean;
+  description?: string;
+  head: HeadEl[];
+}
+
+/** One image of an Open Graph or Twitter card, as Next.js accepts it: a URL or an object naming one. */
+type NextImage = string | { url: string; width?: number | string; height?: number | string; alt?: string };
+
+function nextImages(images: NextImage | NextImage[] | null | undefined): { url: string; width?: number | string; height?: number | string; alt?: string }[] {
+  if (images == null) {
+    return [];
+  }
+  const list = Array.isArray(images) ? images : [images];
+  return list.map((image) => (typeof image === "string" ? { url: image } : image));
+}
+
+function cardRows(rows: [string, string | null | undefined][], make: (name: string, content: string) => HeadEl): HeadEl[] {
+  return rows.filter(([, content]) => content != null && content !== "").map(([name, content]) => make(name, String(content)));
+}
+
+/** A Next.js `Metadata` object, the value `generateMetadata` returns, as `meta` returns it: `title` (a string or `{ absolute }`, `{ default }`), `description`, `alternates` as the canonical and one alternate per language, `openGraph` and `twitter` as their properties and images, `robots` (a string or `{ index, follow }`) and `authors`. Fields with no head element, `icons`, `manifest` and the title template among them, are left out. */
+export function fromNextMetadata(metadata: { [field: string]: any }): MetaOf {
+  const title = metadata.title;
+  const absolute = title != null && typeof title === "object" && title.absolute != null;
+  const titled = title == null ? undefined : typeof title === "string" ? title : absolute ? title.absolute : title.default;
+  const alternates = metadata.alternates ?? {};
+  const graph = metadata.openGraph ?? {};
+  const card = metadata.twitter ?? {};
+  const shown = metadata.robots;
+  const robotsText = shown == null ? null : typeof shown === "string" ? shown : `${shown.index === false ? "noindex" : "index"}, ${shown.follow === false ? "nofollow" : "follow"}`;
+  const authors = metadata.authors == null ? [] : Array.isArray(metadata.authors) ? metadata.authors : [metadata.authors];
+  const head: HeadEl[] = [
+    ...(alternates.canonical == null ? [] : [canonical(String(alternates.canonical))]),
+    ...Object.entries(alternates.languages ?? {}).map(([language, href]) => alternate(String(href), language)),
+    ...cardRows([["title", graph.title], ["description", graph.description], ["url", graph.url], ["site_name", graph.siteName], ["type", graph.type]], og),
+    ...nextImages(graph.images).flatMap((image) => cardRows([["image", image.url], ["image:width", image.width == null ? null : String(image.width)], ["image:height", image.height == null ? null : String(image.height)], ["image:alt", image.alt]], og)),
+    ...cardRows([["card", card.card], ["title", card.title], ["description", card.description], ["site", card.site], ["creator", card.creator]], twitter),
+    ...nextImages(card.images).flatMap((image) => cardRows([["image", image.url], ["image:alt", image.alt]], twitter)),
+    ...(robotsText == null ? [] : [robots(robotsText)]),
+    ...authors.filter((author) => author != null && author.name != null).map((author) => metaTag("author", String(author.name))),
+  ];
+  return { ...(titled == null ? {} : { title: titled }), ...(absolute ? { absolute: true } : {}), ...(metadata.description == null ? {} : { description: metadata.description }), head };
+}
 "##;
 
 /// `[public]` from the configuration beside `app`, each value typed the way

@@ -15,7 +15,7 @@ use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(RouteLift), Box::new(ComponentLift)]
+  vec![Box::new(RouteLift), Box::new(ComponentLift), Box::new(crate::meta::GeneratedMeta)]
 }
 
 /// The default export of `module` when it is a function: its declaration
@@ -118,10 +118,10 @@ pub(crate) fn props_name(id: &str) -> String {
 /// Whether `node` holds JSX, an `await` or a `return` outside the functions
 /// inside it.
 #[derive(Default)]
-struct Holds {
-  jsx: bool,
-  awaits: bool,
-  returns: bool,
+pub(crate) struct Holds {
+  pub(crate) jsx: bool,
+  pub(crate) awaits: bool,
+  pub(crate) returns: bool,
   depth: usize,
 }
 
@@ -161,19 +161,19 @@ impl Visit for Holds {
   }
 }
 
-fn holds(node: &impl VisitWith<Holds>) -> Holds {
+pub(crate) fn holds(node: &impl VisitWith<Holds>) -> Holds {
   let mut h = Holds::default();
   node.visit_with(&mut h);
   h
 }
 
-fn reads(node: &impl VisitWith<Reads>) -> BTreeSet<String> {
+pub(crate) fn reads(node: &impl VisitWith<Reads>) -> BTreeSet<String> {
   let mut r = Reads { names: BTreeSet::new() };
   node.visit_with(&mut r);
   r.names
 }
 
-fn binds(stmt: &js::Stmt) -> Vec<String> {
+pub(crate) fn binds(stmt: &js::Stmt) -> Vec<String> {
   match stmt {
     js::Stmt::Decl(js::Decl::Var(v)) => {
       let mut out = Vec::new();
@@ -189,7 +189,7 @@ fn binds(stmt: &js::Stmt) -> Vec<String> {
 
 /// The module-level items `needed` reaches, imports aside, followed through
 /// what each of them reads.
-fn closure(items: &[Item], needed: &mut BTreeSet<String>) -> BTreeSet<usize> {
+pub(crate) fn closure(items: &[Item], needed: &mut BTreeSet<String>) -> BTreeSet<usize> {
   let mut taken = BTreeSet::new();
   loop {
     let before = taken.len();
@@ -288,7 +288,7 @@ impl Visit for Delays {
 /// delays dropped and a function that memoizes in a module-level `Map` read
 /// as the call it memoizes, since a loader runs once per request and FSR
 /// caches what it returns. A `Map` nothing else copied reads is left out.
-fn copied(text: &str, parsed: &Parsed, items: &[Item], taken: &BTreeSet<usize>, path: &str, report: &mut Report) -> String {
+pub(crate) fn copied(text: &str, parsed: &Parsed, items: &[Item], taken: &BTreeSet<usize>, path: &str, report: &mut Report) -> String {
   let mut memo_maps = BTreeSet::new();
   let mut bodies: BTreeMap<usize, String> = BTreeMap::new();
   for &n in taken {
