@@ -33,7 +33,7 @@ Every route has a **source id** and it is the name you see in the boot report, i
 | `routes/(shop)/cart/` | `/cart` | `(shop).cart` | `ShopCartProps` |
 | `routes/030-intro/` | `/030-intro` | `030-intro` | `Route030IntroProps` |
 
-The `$` keeps ids unique. A directory name may hold alphanumerics, `_` and `-` and nothing else, so no static segment can ever produce a `$` part, which is why `routes/a/x/` and `routes/a/[x]/` cannot collide on a name. The marker is dropped when the props type is derived, so `product.$id` is `ProductIdProps` and the `$` never reaches your TypeScript. A group keeps its parentheses in the id, which is how `(shop)/layout.tsx` and `(account)/layout.tsx` stay two layouts. The type name drops them.
+The `$` keeps ids unique. A directory name may hold alphanumerics, `_`, `-` and `.` and nothing else, so no static segment can ever produce a `$` part, which is why `routes/a/x/` and `routes/a/[x]/` cannot collide on a name. A `.` is `~` in the id, so `routes/robots.txt/route.ts` answers `/robots.txt` and stays apart from `routes/robots/txt/`. The marker is dropped when the props type is derived, so `product.$id` is `ProductIdProps` and the `$` never reaches your TypeScript. A group keeps its parentheses in the id, which is how `(shop)/layout.tsx` and `(account)/layout.tsx` stay two layouts. The type name drops them.
 
 Actions and slots extend the same id. An `addToCart` exported from `routes/cart/actions.ts` is `cart.addToCart` and a parallel slot beside a layout is `layout.<name>`. Under a site prefix the full id carries the prefix, so the billing site's root is `billing:$root`.
 

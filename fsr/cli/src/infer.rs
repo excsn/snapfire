@@ -19,6 +19,8 @@ pub enum Ts {
   Bool,
   Null,
   Unknown,
+  /// No value: what an empty array literal holds, so `never[]` beside `Product[]` leaves a callback's item a `Product`.
+  Never,
   Named(String),
   /// A TypeScript type expression written as-is, which indexing and field
   /// access extend rather than resolve: the app's own declared type, kept
@@ -45,6 +47,7 @@ impl Ts {
       Ts::Null => "null".into(),
       Ts::Undefined => "undefined".into(),
       Ts::Unknown => "unknown".into(),
+      Ts::Never => "never".into(),
       Ts::Named(n) => n.clone(),
       Ts::TsExpr(t) => t.clone(),
       Ts::List(inner) => {
@@ -108,6 +111,9 @@ fn union(arms: Vec<Ts>) -> Ts {
   }
   if out.iter().any(|t| *t == Ts::Unknown) {
     return Ts::Unknown;
+  }
+  if out.len() > 1 {
+    out.retain(|t| *t != Ts::Never);
   }
   match out.len() {
     0 => Ts::Unknown,
@@ -314,7 +320,7 @@ impl<'a> Inferer<'a> {
             _ => Ts::Unknown,
           })
           .collect();
-        if items.is_empty() { Ts::List(Box::new(Ts::Unknown)) } else { Ts::List(Box::new(union(items))) }
+        if items.is_empty() { Ts::List(Box::new(Ts::Never)) } else { Ts::List(Box::new(union(items))) }
       }
       Expr::Field(target, name) => self.field_of(&self.expr(target, env), name),
       Expr::Index(target, _) => indexed(non_null(self.expr(target, env))),
@@ -332,7 +338,7 @@ impl<'a> Inferer<'a> {
         let right = self.expr(r, env);
         match (&left, &right) {
           (Ts::Map(_) | Ts::Record(_) | Ts::Named(_) | Ts::List(_), Ts::Record(fields)) if fields.is_empty() => left,
-          (Ts::List(_), Ts::List(inner)) if **inner == Ts::Unknown => left,
+          (Ts::List(_), Ts::List(inner)) if matches!(**inner, Ts::Unknown | Ts::Never) => left,
           _ => union(vec![left, right]),
         }
       }
@@ -506,6 +512,19 @@ mod tests {
     let call = |m: &str| Expr::native_call("digest", m, vec![], true);
     let body = vec![Stmt::Return(Expr::object(vec![("w", call("words")), ("l", call("longest")), ("s", call("summary")), ("x", call("missing"))]))];
     assert_eq!(inferer.returns(&body).print(Flavour::Client), "{ w: bigint | number; l: string; s: Summary; x: unknown }");
+  }
+
+  #[test]
+  fn an_empty_array_is_of_never_so_the_items_another_return_gives_stand() {
+    let c = contract();
+    let inferer = Inferer { contract: &c, session: None, input: None, input_type: None, consts: &Consts::new(), config: &[], natives: &[] };
+    let body = vec![Stmt::Try {
+      body: vec![Stmt::Return(Expr::object(vec![("items", Expr::call("shop", "list", vec![]))]))],
+      name: None,
+      handler: Some(vec![Stmt::Return(Expr::object(vec![("items", Expr::Array(Vec::new()))]))]),
+      finally: Vec::new(),
+    }];
+    assert_eq!(inferer.returns(&body).print(Flavour::Client), "{ items: Product[] } | { items: never[] }");
   }
 
   #[test]

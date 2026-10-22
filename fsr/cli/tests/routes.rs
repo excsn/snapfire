@@ -1792,3 +1792,33 @@ fn a_vendored_module_importing_a_package_the_import_map_does_not_name_is_refused
   build(&dir, &Options::default()).unwrap();
   std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_dotted_directory_is_a_route_at_that_name_and_its_id_cannot_meet_a_nested_one() {
+  let dir = app(&[
+    ("routes/layout.tsx", LAYOUT),
+    ("routes/page.tsx", PAGE),
+    ("routes/robots.txt/route.ts", "export function GET() {\n  return new Response(\"User-agent: *\\n\");\n}\n"),
+    ("routes/robots/txt/route.ts", "export function GET() {\n  return { nested: true };\n}\n"),
+    ("routes/.well-known/security.txt/route.ts", "export function GET() {\n  return new Response(\"Contact: mailto:a@b.example\\n\");\n}\n"),
+  ]);
+  let plan = plan_json(&dir);
+  let handlers: Vec<(String, String)> = plan["handlers"].as_array().unwrap().iter().map(|h| (h["pattern"].as_str().unwrap().to_owned(), h["id"].as_str().unwrap().to_owned())).collect();
+  for pattern in ["/robots.txt", "/robots/txt", "/.well-known/security.txt"] {
+    assert!(handlers.iter().any(|(p, _)| p == pattern), "{pattern} in {handlers:?}");
+  }
+  let mut ids: Vec<&String> = handlers.iter().map(|(_, id)| id).collect();
+  ids.sort();
+  ids.dedup();
+  assert_eq!(ids.len(), handlers.len(), "every handler has an id of its own: {handlers:?}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_segment_with_a_character_a_url_path_does_not_carry_plainly_is_refused() {
+  for bad in ["a b", "a%20b", "a?b", "..."] {
+    let dir = app(&[("routes/page.tsx", PAGE), (&format!("routes/{bad}/route.ts"), "export function GET() {\n  return {};\n}\n")]);
+    assert!(matches!(fails(&dir), BuildError::Segment { .. }), "{bad}");
+    std::fs::remove_dir_all(&dir).unwrap();
+  }
+}

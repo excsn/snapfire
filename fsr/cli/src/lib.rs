@@ -71,7 +71,7 @@ pub enum BuildError {
   Configuration(String),
   #[error("no `routes/` directory under {0}")]
   NoRoutes(PathBuf),
-  #[error("{path}: `{name}` is not a route segment; use a name, `[param]`, `[...rest]` or `(group)`")]
+  #[error("{path}: `{name}` is not a route segment; use a name of letters, digits, `-`, `_` and `.`, `[param]`, `[...rest]` or `(group)`")]
   Segment { path: PathBuf, name: String },
   #[error("{file} imports `{specifier}`, which TypeScript resolves to `{module}` beside the component rather than to the component; import it as `{alias}`")]
   ShadowedImport { file: String, specifier: String, module: String, alias: String },
@@ -4322,8 +4322,10 @@ fn is_template(module: &str) -> bool {
 /// `routes/index/` is `/index`; no directory name is special. The id is every
 /// segment joined with `.`, `$root` for the root, a parameter contributing
 /// `$<name>`. The marker is what makes the id injective: a directory name is
-/// alphanumerics, `_` and `-` only, so no static segment can produce a `$`
-/// part and `routes/a/x` can never share an id with `routes/a/[x]`.
+/// alphanumerics, `_`, `-` and `.` only, so no static segment can produce a `$`
+/// part and `routes/a/x` can never share an id with `routes/a/[x]`. A `.` in a
+/// name, `robots.txt` or `.well-known`, is `~` in the id, so `routes/a.b` and
+/// `routes/a/b` stay apart.
 fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
   let rel = dir.strip_prefix(root).unwrap_or(dir);
   let mut segments = Vec::new();
@@ -4347,11 +4349,11 @@ fn pattern_of(root: &Path, dir: &Path) -> Result<(String, String), BuildError> {
       }
       continue;
     }
-    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if name.is_empty() || name.chars().all(|c| c == '.') || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.') {
       return Err(BuildError::Segment { path: dir.to_path_buf(), name });
     }
     segments.push(name.clone());
-    id_parts.push(name);
+    id_parts.push(name.replace('.', "~"));
   }
   let pattern = if segments.is_empty() { "/".to_owned() } else { format!("/{}", segments.join("/")) };
   let id = if id_parts.is_empty() { "$root".to_owned() } else { id_parts.join(".") };
