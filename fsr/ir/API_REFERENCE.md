@@ -296,8 +296,8 @@ The registry an `Expr::Ext` is answered from, by `module.member`. `Clone`, `Defa
 
 Re-exported from `snapfire_fsr_core::ext`. `STANDARD` and `standard_reach` are this crate's.
 
-* `pub enum Reach { Render, Body, Terminal, Later, Process }`, `Copy`, `Eq`; `as_str` is `render`, `body`, `terminal`, `later` or `process`; `needs() -> Option<&'static str>` is what a page lacks for the reach, finishing "`x`, which ...", `None` for `Render` and `Body`.
-* `Render`: pure, both sides, callable from every site. `Body`: server only, callable from a body, a handler and middleware; the lowerer refuses it on a component's render path. The other three name what a host can do; the lowerer refuses each on a page whose host lacks it. `Terminal`: the page runs where it is viewed, so it has no browser half and a render may read the clock. `Later`: the host resumes a handler after the step that started it, for a timer, an `await` or a listener. `Process`: the host has processes, an environment and a screen of its own. A terminal page has all three; a page with a browser half has none.
+* `pub enum Reach { Render, Body, Terminal, Later, Process }`, `Copy`, `Eq`: where a call may run. `as_str` is `render`, `body`, `terminal`, `later` or `process`. `needs() -> Option<&'static str>` is why a web page cannot use the reach, finishing "`x`, which ..."; `None` for `Render` and `Body`.
+* `Render`: on the server and in the browser, so it must give the same answer in both. `Body`: on the server only, in a loader, an action, a handler or middleware; the lowerer refuses it on a component's render path. `Terminal`: in a program that draws where it is viewed, with no browser half, so a render may read the clock. `Later`: in a program that keeps running after a handler returns, so a timer, an `await` or a listener can run the rest of the handler later. `Process`: in a program that starts processes, reads its environment and owns the screen. A terminal page may use all five. A web page may use `Render` and `Body` only; the lowerer refuses the other three.
 * `pub const STANDARD: &[(&str, &str, Reach)]`: module, member and reach of every standard member; `standard_reach(module, name) -> Option<Reach>` looks one up. The registry `Extensions::standard` builds and the lowerer's checks are both taken from it.
 
 ### Ambient
@@ -515,7 +515,7 @@ A body answering an action id. Implements `snapfire_fsr_runtime::ActionHandler`.
 
 ## 7. The Host
 
-What a page and the host that runs it agree on, in `snapfire_fsr_ir::host`: the events a handler is named for, the acts a handler asks for and what a process reports. Both sides build and read these names only through these types. A terminal implements all of it. A host that lacks a reach, `Later` or `Process`, never sees the acts behind it, since the lowerer refuses them on its pages.
+`snapfire_fsr_ir::host` holds the names a lowered page and the program that runs it share. A handler is named for the event that runs it, an `Event`. When a handler needs something only the program can do, a timer, a spawned process or a promise settled, it emits a `Stmt::Act` naming an `Act`. A spawned process reports back through a `Report`. The terminal runs all of them. The web host runs none, and the lowerer refuses the source that would need one on a web page.
 
 ### Event
 

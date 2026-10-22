@@ -41,7 +41,7 @@ pub struct ForeignImport {
 #[non_exhaustive]
 pub struct ComponentSet {
   app: PathBuf,
-  /// What the host running the pages can do past `Render` and `Body`, [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`]; empty for pages with a browser half.
+  /// The reaches these pages may use besides `Render` and `Body`: [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`] for a terminal page, none for a web page.
   reaches: Vec<Reach>,
   parsed: HashMap<String, Rc<Parsed>>,
   /// Where an imported image or font is looked up.
@@ -223,7 +223,7 @@ impl ComponentSet {
     self
   }
 
-  /// Whether the host running the pages has `reach`.
+  /// Whether these pages may use `reach`.
   fn reaches(&self, reach: Reach) -> bool {
     reach.needs().is_none() || self.reaches.contains(&reach)
   }

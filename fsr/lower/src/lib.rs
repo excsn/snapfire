@@ -973,7 +973,7 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) global_formatters: Vec<(String, js::NewExpr)>,
   /// Why the last residue was a value only the browser knows, set by the site that refused it. A consumer that can leave the value to the browser, text under an element, a prop into a placement, a binding, takes it and lowers null in its place; anywhere else the residue stands.
   pub(crate) browser_value: Option<String>,
-  /// What the host running the page can do past `Render` and `Body`, [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`]; empty for a page with a browser half.
+  /// The reaches this page may use besides `Render` and `Body`: [`Reach::Terminal`], [`Reach::Later`] and [`Reach::Process`] for a terminal page, none for a web page.
   pub(crate) reaches: Vec<Reach>,
   /// What the module-level names of a component's file mean, set by the component lowerer.
   pub(crate) meanings: Option<std::rc::Rc<meaning::Meanings>>,
@@ -1126,12 +1126,12 @@ impl<'a> Lowerer<'a> {
     (self.render_path || self.hoisting.is_some()) && !self.in_handler
   }
 
-  /// Whether the host running the page has `reach`; `Render` and `Body` every page has.
+  /// Whether this page may use `reach`. Every page may use `Render` and `Body`.
   pub(crate) fn reaches(&self, reach: Reach) -> bool {
     reach.needs().is_none() || self.reaches.contains(&reach)
   }
 
-  /// Refuses a `body` extension on a render path with a browser half and any reach the host lacks.
+  /// Refuses a `body` extension on a web page's render path and any reach the page may not use.
   fn check_reach(&mut self, span: Span, key: &str, reach: Reach) -> Lowered<()> {
     if reach == Reach::Body && self.on_render_path() && !self.reaches(Reach::Terminal) {
       self.reach_violation = true;

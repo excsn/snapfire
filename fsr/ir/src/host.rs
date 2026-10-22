@@ -1,8 +1,10 @@
-//! What a page and the host that runs it agree on: the events a handler is
-//! named for, the acts a handler asks for and what a process reports. Both
-//! sides build and read these names only through the types here. A terminal
-//! implements all of it; a host that lacks a reach never sees the acts behind
-//! it, since the lowerer refuses them on its pages.
+//! The names a lowered page and the program that runs it share. A handler
+//! is named for the event that runs it, an [`Event`]. When a handler needs
+//! something only the program can do, a timer, a spawned process or a
+//! promise settled, it emits a `Stmt::Act` naming an [`Act`]. A spawned
+//! process reports back through a [`Report`]. The terminal runs all of them.
+//! The web host runs none, and the lowerer refuses the source that would
+//! need one on a web page.
 
 /// The key a promise's `resolve` or `reject` is held under: `{ "$settles": deferred, ok }`, `ok` false for `reject`. Calling one is an [`Act::Settle`]; a timer on one settles the deferred when it is due.
 pub const SETTLES: &str = "$settles";
