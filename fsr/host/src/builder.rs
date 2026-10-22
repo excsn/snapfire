@@ -823,6 +823,7 @@ impl HostBuilder {
     if !catalogs.is_empty() {
       app = app.catalogs(catalogs.clone());
     }
+    app = app.config(public_values(&config));
     let catalog_rows = catalogs.rows();
     app = app.bearer_services(bearer_rows.iter().map(|(client, _)| client.clone()));
     let prerendered = self
@@ -969,13 +970,7 @@ impl HostBuilder {
     // Longest route first, so the most specific root answers a path whatever
     // order the file, the inference and the mounts named them in.
     statics.sort_by(|a, b| b.route.len().cmp(&a.route.len()));
-    let public: ValueMap = {
-      let mut fields = snapfire_fsr_core::Fields::default();
-      for (key, value) in &config.public {
-        fields.insert(key.clone(), value.to_value());
-      }
-      fields.into()
-    };
+    let public: ValueMap = public_values(&config);
     let statics: Vec<(String, ServeDir, PathBuf)> = statics.into_iter().map(|s| (s.route, ServeDir::new(&s.dir), s.dir)).collect();
     let static_cache = match config.server.static_max_age {
       None => Some(HeaderValue::from_static("no-cache")),
@@ -1240,6 +1235,15 @@ pub(crate) fn missing_session_key(config: &Config) -> HostError {
     config.config_dir(),
     "`session.key` is not set outside development; set C5_SESSION__KEY or write it in a configuration file the host reads".to_owned(),
   )
+}
+
+/// `[public]` from the configuration as the values a body reads.
+fn public_values(config: &Config) -> ValueMap {
+  let mut fields = snapfire_fsr_core::Fields::default();
+  for (key, value) in &config.public {
+    fields.insert(key.clone(), value.to_value());
+  }
+  fields.into()
 }
 
 /// `session.key` first, then `session.previous_keys` in order.

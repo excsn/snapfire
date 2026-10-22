@@ -71,6 +71,9 @@ const PLACEMENT_MODULES: [&str; 4] = ["@snapfire/fsr-authoring/template", "@snap
 const PLACEMENTS: [&str; 9] = ["Island", "island", "Link", "Slot", "Picture", "Mount", "Embed", "Place", "tree"];
 /// FSR's own components, which an application imports in every framework; the build points the specifier at the importing file's framework.
 pub const COMPONENTS_MODULE: &str = "@snapfire/fsr/components";
+
+/// The module whose `config` and named exports are the deployment's `[public]` values, read anywhere.
+pub const CONFIG_MODULE: &str = "@snapfire/fsr/config";
 const COMPONENTS: [&str; 5] = ["Link", "Picture", "Mount", "Embed", "Place"];
 /// Ink's elements, from Ink itself or FSR's terminal module, which a terminal window draws.
 const TERMINAL_MODULES: [&str; 3] = ["ink", "@snapfire/fsr/terminal", "@snapfire/fsr/terminal/core"];
@@ -238,6 +241,8 @@ pub(crate) enum Meaning {
   Own { file: String, name: String },
   /// The default import of an image or a font, by the specifier it was imported from.
   Asset { source: String },
+  /// An import from [`CONFIG_MODULE`]: `config` whole as `None`, one `[public]` key's value by its name.
+  Config(Option<String>),
   /// An import from a package the table does not speak for.
   Foreign,
 }

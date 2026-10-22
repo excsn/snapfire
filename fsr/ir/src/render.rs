@@ -604,6 +604,9 @@ impl Interpreter {
     if let Some(Value::Str(document)) = props.get(snapfire_fsr_runtime::DOCUMENT_PROP) {
       env.ctx.document = Some(document.to_string());
     }
+    if env.ctx.config.is_empty() {
+      env.ctx.config = (**self.config()).clone();
+    }
     env.hoists = Some(Hoists::new(module));
     env
   }

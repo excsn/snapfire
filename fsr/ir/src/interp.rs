@@ -57,6 +57,8 @@ pub struct Interpreter {
   island_reads: Arc<std::collections::BTreeMap<String, Vec<String>>>,
   /// The derived store keys, sources before the keys they feed.
   derives: Arc<Vec<Derive>>,
+  /// `[public]` from the deployment's configuration, the same on every request, which a component render reads `Expr::Config` from.
+  config: Arc<ValueMap>,
 }
 
 /// A store key the browser's `derive` computes: its sources and the lowered
@@ -134,13 +136,13 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
+    Self { clock: Arc::new(SystemClock), store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default() }
+    Self { clock, store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
   }
 
   /// The frameworks the application vendors. A component one of them
@@ -177,6 +179,15 @@ impl Interpreter {
 
   pub fn frameworks(&self) -> Frameworks {
     self.frameworks
+  }
+
+  pub fn with_config(mut self, config: Arc<ValueMap>) -> Self {
+    self.config = config;
+    self
+  }
+
+  pub fn config(&self) -> &Arc<ValueMap> {
+    &self.config
   }
 
   /// The message catalogs `i18n.t` reads; none by default, where every key answers as itself.

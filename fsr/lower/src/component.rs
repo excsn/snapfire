@@ -2072,6 +2072,9 @@ impl ComponentSet {
         return written;
       }
     }
+    if source == meaning::CONFIG_MODULE {
+      return Meaning::Config((export != "config").then(|| export.to_owned()));
+    }
     if meaning::is_library(source) {
       return meaning::library(source, export).map(Meaning::Library).unwrap_or(Meaning::Foreign);
     }
@@ -2124,6 +2127,8 @@ impl ComponentSet {
         self.load(&declared)?;
         return self.global(&declared, &declared_name);
       }
+      Some(crate::meaning::Meaning::Config(Some(field))) => return Ok(Some((Expr::Config(field.clone()), key))),
+      Some(crate::meaning::Meaning::Config(None)) => return Err(LowerError::Residue(parsed.residue(parsed.module.span, format!("`{name}` from `{}` as a whole; read one of its fields", crate::meaning::CONFIG_MODULE)))),
       Some(crate::meaning::Meaning::Library(_) | crate::meaning::Meaning::Foreign | crate::meaning::Meaning::Namespace(_)) => return Ok(None),
       _ => {}
     }

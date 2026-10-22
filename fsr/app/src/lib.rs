@@ -488,6 +488,7 @@ pub struct AppBuilder {
   derives: Vec<snapfire_fsr_plan::DeriveEntry>,
   extensions: Extensions,
   catalogs: Option<Arc<Catalogs>>,
+  config: Arc<snapfire_fsr_core::ValueMap>,
   /// The plan's named constants, which `Expr::Const` reads.
   consts: Option<Arc<snapfire_fsr_ir::ast::Consts>>,
   bearer_services: Vec<String>,
@@ -550,6 +551,7 @@ impl App {
       action_claims: Vec::new(),
       extensions: Extensions::standard(),
       catalogs: None,
+      config: Arc::default(),
       consts: None,
       bearer_services: Vec::new(),
       action_overrides: Vec::new(),
@@ -780,6 +782,12 @@ impl AppBuilder {
     &self.extensions
   }
 
+  /// `[public]` from the deployment's configuration, which a component reads through `@snapfire/fsr/config`.
+  pub fn config(mut self, config: snapfire_fsr_core::ValueMap) -> Self {
+    self.config = Arc::new(config);
+    self
+  }
+
   /// The message catalogs `t` reads, by locale; none by default.
   pub fn catalogs(mut self, catalogs: Arc<Catalogs>) -> Self {
     self.catalogs = Some(catalogs);
@@ -937,6 +945,7 @@ impl AppBuilder {
     let interpreter = Interpreter::default()
       .with_extensions(Arc::new(self.extensions.clone()))
       .with_catalogs(self.catalogs.clone())
+      .with_config(self.config.clone())
       .with_consts(self.consts.clone())
       .with_frameworks(self.frameworks)
       .with_island_reads(self.island_reads.clone())

@@ -124,6 +124,10 @@ to = "next/navigation"
 [map."@shell/navigation#Link"]
 to = "@snapfire/fsr/components#Link"
 
+# A deployment value the shell reads from the environment, a `[public]` key wherever it is read.
+[map."@shell/env#environment"]
+to = "@snapfire/fsr/config#environment"
+
 # A locale read off the URL, in the route's loader.
 [map."@shell/i18n/server#getLocale"]
 call = "params.locale"

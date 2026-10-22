@@ -79,6 +79,12 @@ pub fn request_meta(token: &str) -> String {
   format!("<meta name=\"sf-request\" content=\"{}\">", escape(token))
 }
 
+/// `[public]` as the browser's `@snapfire/fsr/config` reads it: the values in the payload's tagged JSON, `<` escaped so the text cannot close the script.
+pub fn public_config(values: &snapfire_fsr_core::ValueMap) -> String {
+  let json = snapfire_fsr_payload::value_to_json(&snapfire_fsr_core::Value::Map(values.clone())).to_string().replace('<', "\\u003c");
+  format!("<script type=\"application/json\" id=\"sf-config\">{json}</script>")
+}
+
 /// One preload link a mounted site adds to a document on its own routes, for
 /// a module of its own bundle that the shell's links do not already cover.
 pub fn preload_link(href: &str) -> String {

@@ -275,6 +275,9 @@ impl Host {
       };
       extra.push(snapfire_fsr_core::Node::raw(shell::dev_script(&bundle, &t.styles, t.dev_nonce.as_deref())));
     }
+    if matches!(mode, RenderMode::Html) && !t.public.is_empty() {
+      extra.push(snapfire_fsr_core::Node::raw(shell::public_config(&t.public)));
+    }
     if visit.prefixed && visit.locale.is_default {
       extra.push(snapfire_fsr_core::Node::raw(shell::canonical(self.origin.as_deref(), &visit.path)));
     }

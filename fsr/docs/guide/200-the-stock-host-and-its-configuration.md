@@ -143,7 +143,18 @@ support = "help@example.com"
 analytics_id = "G-65TR8XV7YE"
 ```
 
-The values are public in the plain sense: a loader returns them, a page renders them, a store seeds the browser with them. A secret does not go in `[public]`. Put it in a `[clients]` credential or somewhere the application's own Rust reads. The boot report lists every key with its value on a `public` row. `fsr doctor` reports a body reading a key the section does not declare.
+A module other than a loader reads the same values from `@snapfire/fsr/config`, which exports them whole as `config` and one by one under their keys:
+
+```ts
+// src/social.ts
+import { environment } from "@snapfire/fsr/config";
+
+export const appId = { staging: "372225166219819", production: "190191627665278" }[environment];
+```
+
+A component, a helper or a module-level constant reads it the way a loader reads `ctx.config`, on the server and in an island alike: the host writes the values into each document as a JSON script the browser's module reads. They are the same on every request, so a route that reads them still prerenders.
+
+The values are public in the plain sense: a loader returns them, a page renders them, a store seeds the browser with them, every document carries them. A secret does not go in `[public]`. Put it in a `[clients]` credential or somewhere the application's own Rust reads. The boot report lists every key with its value on a `public` row. `fsr doctor` reports a body reading a key the section does not declare.
 
 **A section the host does not own is left alone.** An application that runs the host inside itself hands it one branch of its own store, `Config::from_store_at(&store.branch("fsr"), root)` and keeps the rest of `config/` for itself. Its rungs are named after the same deployment axes, so the application and the host share one `local.yaml`. The host reads the sections it names and leaves every other top-level key where it is, listing them on the report's `ignored` row so a misspelt section is still visible; `fsr bundle` and `fsr doctor` read the directory the same way. A key it does not know inside a section it owns is still an error.
 

@@ -2564,6 +2564,12 @@ impl<'a> Lowerer<'a> {
     if let Some(read) = self.env_read(member)? {
       return Ok(read);
     }
+    if let (js::Expr::Ident(id), Some(key)) = (&*member.obj, self.member_name(member)) {
+      if !self.scope.iter().any(|(n, _)| n == id.sym.as_ref()) && self.meanings.as_ref().and_then(|m| m.of_ident(id)) == Some(&crate::meaning::Meaning::Config(None)) {
+        return Ok(Expr::Config(key));
+      }
+    }
+
     let prop = |this: &mut Self| -> Lowered<Result<String, Expr>> {
       Ok(match &member.prop {
         js::MemberProp::Ident(id) => Ok(id.sym.to_string()),

@@ -965,6 +965,7 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool, shadowe
   let mut paths: Vec<(String, String)> = vec![
     ("@snapfire/fsr".to_owned(), "./generated/fsr".to_owned()),
     ("@snapfire/fsr/head".to_owned(), "./generated/head".to_owned()),
+    (CONFIG_MODULE.0.to_owned(), CONFIG_MODULE.1.to_owned()),
     ("@snapfire/fsr/testing".to_owned(), "./generated/testing".to_owned()),
   ];
   for (file, declaration) in shadowed {
@@ -1034,7 +1035,8 @@ pub fn tsconfig(app: &Path, generated: bool, shim: bool, declared: bool, shadowe
 pub fn tsconfig_build(app: &Path, files: &[String], generated: &[String], jsx: &str) -> String {
   let compile = CompileOptions::of(app).lines();
   let mut out = format!("{{\n  \"compilerOptions\": {{\n{compile}    \"outDir\": \"dist\",\n    \"rootDir\": \".\",\n    \"sourceMap\": true,\n    \"jsx\": \"react-jsx\",\n    \"jsxImportSource\": \"{jsx}\",\n    \"paths\": {{\n");
-  let paths = alias_paths();
+  let mut paths = alias_paths();
+  paths.push((CONFIG_MODULE.0.to_owned(), CONFIG_MODULE.1.to_owned()));
   let last = paths.len() - 1;
   for (i, (from, to)) in paths.iter().enumerate() {
     out.push_str(&format!("      \"{from}\": [\"{to}\"]{}\n", if i == last { "" } else { "," }));
@@ -1049,7 +1051,7 @@ pub fn tsconfig_build(app: &Path, files: &[String], generated: &[String], jsx: &
   if app.join(&styles).is_dir() {
     include.push(format!("{styles}/**/*.css"));
   }
-  include.extend(["generated/islands.ts".to_owned(), "generated/client.ts".to_owned()]);
+  include.extend(["generated/islands.ts".to_owned(), "generated/client.ts".to_owned(), "generated/config.ts".to_owned()]);
   let include: Vec<String> = include.into_iter().map(|i| format!("\"{i}\"")).collect();
   out.push_str(&format!("    }}\n  }},\n  \"include\": [{}]", include.join(", ")));
   // A module the build generated exists in the bundle overlay alone, which
@@ -1062,6 +1064,9 @@ pub fn tsconfig_build(app: &Path, files: &[String], generated: &[String], jsx: &
   out.push_str("\n}\n");
   out
 }
+
+/// `@snapfire/fsr/config` and the generated module it names, in both tsconfigs.
+const CONFIG_MODULE: (&str, &str) = ("@snapfire/fsr/config", "./generated/config");
 
 /// The `paths` entries for `snapfire_fsr_lower::ALIASES`, the same in both tsconfigs.
 fn alias_paths() -> Vec<(String, String)> {
@@ -1537,7 +1542,7 @@ mod tests {
     generated_reversed.reverse();
     let one = tsconfig_build(&app, &files, &generated, "react");
     assert_eq!(one, tsconfig_build(&app, &reversed, &generated_reversed, "react"));
-    assert!(one.contains("\"include\": [\"src/store.ts\", \"src/ui/Header.tsx\", \"src/ui/money.ts\", \"styles/**/*.css\", \"generated/islands.ts\", \"generated/client.ts\"]"), "{one}");
+    assert!(one.contains("\"include\": [\"src/store.ts\", \"src/ui/Header.tsx\", \"src/ui/money.ts\", \"styles/**/*.css\", \"generated/islands.ts\", \"generated/client.ts\", \"generated/config.ts\"]"), "{one}");
     assert!(one.contains("\"files\": [\"routes/a.island0.tsx\", \"routes/b.island0.tsx\"]"), "{one}");
     std::fs::remove_dir_all(&app).unwrap();
   }
