@@ -55,7 +55,13 @@ pub fn stmt_to_sx(stmt: &Stmt) -> Sx {
     Stmt::SessionExtend { seconds } => form("session-extend", vec![expr_to_sx(seconds)]),
     Stmt::Redirect(to) => form("redirect", vec![expr_to_sx(to)]),
     Stmt::Act { action, input } => form("act", vec![Sx::Str(action.clone()), expr_to_sx(input)]),
-    Stmt::Try { body, name, handler } => form("try", vec![Sx::list(body_to_sx(body)), name.clone().map_or_else(|| Sx::list(Vec::new()), Sx::Sym), Sx::list(body_to_sx(handler))]),
+    Stmt::Try { body, name, handler, finally } => {
+      let mut items = vec![Sx::list(body_to_sx(body)), name.clone().map_or_else(|| Sx::list(Vec::new()), Sx::Sym), handler.as_ref().map_or_else(|| Sx::Sym("uncaught".to_owned()), |handler| Sx::list(body_to_sx(handler)))];
+      if !finally.is_empty() {
+        items.push(Sx::list(body_to_sx(finally)));
+      }
+      form("try", items)
+    }
     Stmt::Expr(expr) => form("do", vec![expr_to_sx(expr)]),
   }
 }
@@ -172,14 +178,21 @@ pub fn stmt_from_sx(sx: &Sx) -> Res<Stmt> {
       Stmt::Act { action: str_of(&a[0])?, input: expr_from_sx(&a[1])? }
     }
     "try" => {
-      let a = args(items, head, 3)?;
+      let a = if items.len() == 5 { args(items, head, 4)? } else { args(items, head, 3)? };
       Stmt::Try {
         body: body_from_sx(a[0].as_list()?)?,
         name: match &a[1] {
           Sx::Sym(name) => Some(name.clone()),
           _ => None,
         },
-        handler: body_from_sx(a[2].as_list()?)?,
+        handler: match &a[2] {
+          Sx::Sym(word) if word == "uncaught" => None,
+          other => Some(body_from_sx(other.as_list()?)?),
+        },
+        finally: match a.get(3) {
+          Some(finally) => body_from_sx(finally.as_list()?)?,
+          None => Vec::new(),
+        },
       }
     }
     "do" => Stmt::Expr(expr_from_sx(&args(items, head, 1)?[0])?),

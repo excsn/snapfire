@@ -403,9 +403,10 @@ fn strip_body(body: &mut [Stmt], tainted: &[String], kept: &mut Vec<u32>, in_hoi
       }
       Stmt::SessionDelete { path, .. } => path.iter_mut().for_each(|e| strip(e, tainted, kept, true, in_hoist)),
       Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => strip(seconds, tainted, kept, true, in_hoist),
-      Stmt::Try { body, handler, .. } => {
+      Stmt::Try { body, handler, finally, .. } => {
         strip_body(body, tainted, kept, in_hoist);
-        strip_body(handler, tainted, kept, in_hoist);
+        handler.iter_mut().for_each(|handler| strip_body(handler, tainted, kept, in_hoist));
+        strip_body(finally, tainted, kept, in_hoist);
       }
     }
   }

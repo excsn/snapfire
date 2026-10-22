@@ -987,6 +987,10 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) cells: Vec<(String, Expr)>,
   /// One frame per open fold step or function path: the lets a declaration whose value reads the clock or randomness is bound by, so it is read once where it is declared.
   pub(crate) held: Vec<Vec<Stmt>>,
+  /// For each frame in `held`, where its conditions start in `rebind_reach`.
+  pub(crate) held_reach: Vec<usize>,
+  /// The conditions of the branches a rebinding is inside, outermost first: a `let` held for a statement inside them runs only where they all hold.
+  pub(crate) rebind_reach: Vec<Expr>,
   /// The names a terminal promise's executor binds its `resolve` and `reject` to, while it lowers.
   pub(crate) settlers: Vec<String>,
   /// The continuations a terminal page's async functions lowered to, each the rest of a function after an `await`, which the component that runs it holds as handlers.
@@ -995,6 +999,11 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) spawned: Vec<String>,
   /// Where the scope of the async function lowering starts: its locals, declared before an `await` and carried to the continuation after it, are its own to write.
   pub(crate) async_floor: Option<usize>,
+  /// Set while render statements inside a `try` lower: a `return` there is `[value]` and a path that ends without one is `null`, so what follows the `try` can tell the two apart.
+  pub(crate) wrapped_returns: bool,
+  /// Set while a component's `try` that returns markup runs as statements: where its scope starts. A `return` there ends the run with which `return` it was as `$path` and each name in scope from there as `$0`, `$1` and on. `markup_returns` records each by its position in the source with the names.
+  pub(crate) markup_base: Option<usize>,
+  pub(crate) markup_returns: Vec<(u32, Vec<String>)>,
   /// The contexts this component provides, by key, for a `getContext` of its own to read.
   pub(crate) provided: Vec<(String, Expr)>,
   /// Imports of the application's own the build followed and could not lower; a handler that reaches one is the browser's.
@@ -1099,7 +1108,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, terminal: false, meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -1540,18 +1549,48 @@ impl<'a> Lowerer<'a> {
         self.scope.truncate(depth);
         Ok(Stmt::ForOf { name, over, body: body? })
       }
+      js::Stmt::Return(ret) if self.markup_base.is_some() => {
+        let base = self.markup_base.expect("checked");
+        let path = self.markup_returns.len();
+        let mut fields = vec![Entry::Field("$path".to_owned(), Expr::Lit(Lit::Int(path as i128)))];
+        fields.extend(self.scope[base..].iter().enumerate().map(|(k, (_, expr))| Entry::Field(format!("${k}"), expr.clone())));
+        let names = self.scope[base..].iter().map(|(name, _)| name.clone()).collect();
+        self.markup_returns.push((ret.span.lo.0, names));
+        Ok(Stmt::Return(Expr::Object(fields)))
+      }
       js::Stmt::Return(ret) => match &ret.arg {
         Some(arg) => Ok(Stmt::Return(self.expr(arg)?)),
         None => Ok(Stmt::Return(Expr::Lit(Lit::Null))),
       },
       js::Stmt::Expr(expr_stmt) => self.effect(&expr_stmt.expr),
-      js::Stmt::Throw(thrown) if self.terminal => Ok(Stmt::Expr(crate::component::throw_expr(self, thrown)?)),
+      js::Stmt::Throw(thrown) => Ok(Stmt::Expr(crate::component::throw_expr(self, thrown)?)),
+      js::Stmt::Try(t) => self.try_stmt(t),
       js::Stmt::Block(block) => Err(self.residue(block.span, "a bare block")),
       other => {
         let (what, hint) = describe_stmt(other);
         Err(self.residue_with(other.span(), what, hint))
       }
     }
+  }
+
+  pub(crate) fn try_stmt(&mut self, t: &js::TryStmt) -> Lowered<Stmt> {
+    let body = self.block(&t.block.stmts)?;
+    let (name, handler) = match &t.handler {
+      None => (None, None),
+      Some(catch) => {
+        let depth = self.scope.len();
+        let name = crate::component::catch_param(self, catch.param.as_ref());
+        let handler = name.and_then(|name| Ok((name, self.block(&catch.body.stmts)?)));
+        self.scope.truncate(depth);
+        let (name, handler) = handler?;
+        (name, Some(handler))
+      }
+    };
+    let finally = match &t.finalizer {
+      Some(finalizer) => self.block(&finalizer.stmts)?,
+      None => Vec::new(),
+    };
+    Ok(Stmt::Try { body, name, handler, finally })
   }
 
   fn branch(&mut self, stmt: &js::Stmt) -> Lowered<Body> {
@@ -4261,8 +4300,6 @@ pub(crate) fn prop_name(name: &js::PropName) -> Option<String> {
 /// What the construct is and the rewrite that does the same thing in the IR.
 fn describe_stmt(stmt: &js::Stmt) -> (&'static str, &'static str) {
   match stmt {
-    js::Stmt::Try(_) => ("`try`, and a body has no exceptions", "a service call that fails fails the body; `fail(kind, message)` is how a body stops on purpose"),
-    js::Stmt::Throw(_) => ("`throw`, and a body has no exceptions", "`fail(kind, message)` stops the body and the host maps the kind onto a status"),
     js::Stmt::While(_) | js::Stmt::DoWhile(_) => ("`while`, a loop whose length the build cannot know", "a body loops over data it already has: `map`, `filter`, `reduce`, `find` and `for...of`"),
     js::Stmt::For(_) | js::Stmt::ForIn(_) => ("a `for` loop other than `for...of`", "`for...of` over a list, or `map` and `filter`, which the interpreter runs directly"),
     js::Stmt::Switch(_) => ("`switch`", "a chain of `if`, or a ternary when every arm is an expression"),

@@ -279,7 +279,6 @@ impl Interpreter {
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
-      thrown: None,
       marks: Vec::new(),
       placed: Vec::new(),
       input: input.unwrap_or(Value::Null),
@@ -437,8 +436,6 @@ pub(crate) struct Env {
   pub(crate) module_cells: Vec<(String, usize)>,
   /// The value a named cell starts from instead of its `init`, by key: a host that keeps module state from one step to the next hands it in as [`crate::render::CELLS_PROP`].
   pub(crate) module_seed: snapfire_fsr_core::ValueMap,
-  /// What the last `throw` threw, which a Suspense boundary reads when its children fail.
-  pub(crate) thrown: Option<Value>,
 }
 
 /// A function value: its parameters, its body and the names it reads with their values where it was written.
@@ -671,7 +668,6 @@ impl Env {
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
-      thrown: None,
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -786,20 +782,23 @@ impl Env {
           self.scope.truncate(depth);
           return Ok(Flow::Return(value));
         }
-        Stmt::Try { body, name, handler } => {
+        Stmt::Try { body, name, handler, finally } => {
           let at = self.scope.len();
-          let flow = match self.block_sync(body) {
-            Err(fail) if fail.kind == FailureKind::Internal => {
-              self.scope.truncate(at);
-              let caught = self.thrown.take().unwrap_or_else(|| thrown_error(&fail));
+          let mut flow = self.block_sync(body);
+          self.scope.truncate(at);
+          if let (Some(handler), Err(fail)) = (handler, &flow) {
+            if let Some(caught) = caught(fail) {
               self.scope.extend(name.iter().map(|name| (name.clone(), caught.clone())));
-              let flow = self.block_sync(handler);
+              flow = self.block_sync(handler);
               self.scope.truncate(at);
-              flow?
             }
-            other => other?,
-          };
-          if let Flow::Return(v) = flow {
+          }
+          if !finally.is_empty() {
+            let after = self.block_sync(finally);
+            self.scope.truncate(at);
+            flow = after_finally(flow, after);
+          }
+          if let Flow::Return(v) = flow? {
             self.scope.truncate(depth);
             return Ok(Flow::Return(v));
           }
@@ -912,7 +911,6 @@ impl Env {
       store_written: ValueMap::default(),
       handler_calls: Vec::new(),
       module_seed: snapfire_fsr_core::ValueMap::default(),
-      thrown: None,
       marks: Vec::new(),
       placed: Vec::new(),
     }
@@ -956,20 +954,23 @@ impl Env {
         }
       }
       Stmt::Return(expr) => return Ok(Flow::Return(self.eval(expr).await?)),
-      Stmt::Try { body, name, handler } => {
+      Stmt::Try { body, name, handler, finally } => {
         let at = self.scope.len();
-        let flow = match self.block(body).await {
-          Err(fail) if fail.kind == FailureKind::Internal => {
-            self.scope.truncate(at);
-            let caught = self.thrown.take().unwrap_or_else(|| thrown_error(&fail));
+        let mut flow = self.block(body).await;
+        self.scope.truncate(at);
+        if let (Some(handler), Err(fail)) = (handler, &flow) {
+          if let Some(caught) = caught(fail) {
             self.scope.extend(name.iter().map(|name| (name.clone(), caught.clone())));
-            let flow = self.block(handler).await;
+            flow = self.block(handler).await;
             self.scope.truncate(at);
-            flow?
           }
-          other => other?,
-        };
-        if let Flow::Return(v) = flow {
+        }
+        if !finally.is_empty() {
+          let after = self.block(finally).await;
+          self.scope.truncate(at);
+          flow = after_finally(flow, after);
+        }
+        if let Flow::Return(v) = flow? {
           return Ok(Flow::Return(v));
         }
       }
@@ -1279,10 +1280,6 @@ impl Env {
               None if getter => Ok(get_field(&target, &member)),
               None => Err(Fail::internal(format!("`{member}` is not a method of {}", instance_class(&target).unwrap_or_else(|| "this value".to_owned())))),
             }
-          }
-          Builtin::Throw => {
-            self.thrown = values.get(1).or(values.first()).cloned();
-            builtin(*name, values)
           }
           Builtin::Emit => {
             if let (true, Some(Value::Str(kind)), Some(value)) = (self.server_mode, values.first(), values.get(1)) {
@@ -2386,12 +2383,27 @@ fn instance_class(value: &Value) -> Option<String> {
   }
 }
 
-/// What a `catch` binds for a failure the interpreter raised itself: an `Error`'s `name` and `message`.
-fn thrown_error(fail: &Fail) -> Value {
-  let mut fields = ValueMap::default();
-  fields.insert("name".to_owned(), Value::str("Error"));
-  fields.insert("message".to_owned(), Value::str(fail.message.clone()));
-  Value::Map(fields)
+/// What a `catch` binds for `fail`: what was thrown; when nothing was, an `Error` with the failure's `kind` and `message`. `None` for a suspension, a deferred value thrown for a Suspense boundary to wait on, which no `catch` takes.
+fn caught(fail: &Fail) -> Option<Value> {
+  match fail.thrown.as_deref() {
+    Some(Value::Map(map)) if map.contains_key(crate::render::DEFERRED) => None,
+    Some(thrown) => Some(thrown.clone()),
+    None => {
+      let mut fields = ValueMap::default();
+      fields.insert("name".to_owned(), Value::str("Error"));
+      fields.insert("kind".to_owned(), Value::str(fail.kind.as_str()));
+      fields.insert("message".to_owned(), Value::str(fail.message.clone()));
+      Some(Value::Map(fields))
+    }
+  }
+}
+
+/// How a `try` ends once its `finally` has run: `after` when the `finally` returned or failed, `before` when it ran to its end.
+fn after_finally(before: Result<Flow, Fail>, after: Result<Flow, Fail>) -> Result<Flow, Fail> {
+  match after {
+    Ok(Flow::Next) => before,
+    other => other,
+  }
 }
 
 /// The URL a `UrlParse` href holds.
@@ -3113,7 +3125,18 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
-    Builtin::Throw => return Err(Fail::internal(stringify(arg(0)?).unwrap_or_else(|_| "an object thrown".to_owned()))),
+    Builtin::Throw => {
+      let thrown = args.get(1).or(args.first()).cloned().unwrap_or(Value::Undefined);
+      let kind = match &thrown {
+        Value::Map(fields) => fields.get("kind").and_then(|kind| match kind {
+          Value::Str(kind) => FailureKind::from_name(kind.as_str()),
+          _ => None,
+        }),
+        _ => None,
+      };
+      let message = stringify(arg(0)?).unwrap_or_else(|_| "an object thrown".to_owned());
+      return Err(Fail::new(kind.unwrap_or(FailureKind::Internal), message).with_thrown(thrown));
+    }
     Builtin::Log => {
       let line = || args.iter().skip(1).map(console_text).collect::<Vec<_>>().join(" ");
       match args.first() {

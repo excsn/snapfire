@@ -667,7 +667,7 @@ impl Interpreter {
           // A `let` whose render is suspended, a Suspense boundary waiting on what it threw, is not there for the handler; one that reads it fails on the name.
           None => match env.eval_sync(expr) {
             Ok(value) => value,
-            Err(_) if env.thrown.take().is_some() => continue,
+            Err(fail) if fail.thrown.is_some() => continue,
             Err(fail) => return Err(fail),
           },
         };
@@ -1779,10 +1779,9 @@ fn render_stamped_element<'a>(env: &mut Env, tag: &str, attrs: &[Entry], childre
     let [content, fallback] = children else { return Err(Fail::internal("a Suspense boundary holds its content and its fallback")) };
     let saved = out.clone();
     let depth = env.scope.len();
-    env.thrown = None;
     let rendered = render(env, content, library, slots, out);
     let Err(fail) = rendered else { return Ok(()) };
-    let deferred = env.thrown.take().filter(|thrown| matches!(thrown, Value::Map(map) if map.contains_key(DEFERRED)));
+    let deferred = fail.thrown.as_deref().filter(|thrown| matches!(thrown, Value::Map(map) if map.contains_key(DEFERRED))).cloned();
     let Some(deferred) = deferred else { return Err(fail) };
     *out = saved;
     env.scope.truncate(depth);

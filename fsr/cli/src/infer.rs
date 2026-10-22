@@ -219,11 +219,12 @@ impl<'a> Inferer<'a> {
           env.pop();
         }
         Stmt::Return(e) => returns.push(self.expr(e, env)),
-        Stmt::Try { body, name, handler } => {
+        Stmt::Try { body, name, handler, finally } => {
           self.block(body, env, returns);
           env.extend(name.iter().map(|name| (name.clone(), Ts::Unknown)));
-          self.block(handler, env, returns);
+          handler.iter().for_each(|handler| self.block(handler, env, returns));
           env.truncate(env.len() - name.iter().count());
+          self.block(finally, env, returns);
         }
         Stmt::Set { .. } | Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } | Stmt::Expr(_) => {}
       }

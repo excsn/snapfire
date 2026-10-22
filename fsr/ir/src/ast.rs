@@ -34,8 +34,8 @@ pub enum Stmt {
   /// dispatches the action when the handler runs in server mode. Only a
   /// handler holds one; a body cannot dispatch an action.
   Act { action: String, input: Expr },
-  /// `try { body } catch (name) { handler }`: `handler` runs when `body` fails as JavaScript would throw, a type error, an invalid value or a `throw`, with `name` bound to what was thrown, `{ name, message }` for an error the interpreter raised. A guard's `fail` is not caught.
-  Try { body: Body, #[serde(default, skip_serializing_if = "Option::is_none")] name: Option<String>, handler: Body },
+  /// `try { body } catch (name) { handler } finally { finally }`. `handler` runs when `body` fails, whatever failed: a `throw`, a `fail`, a call or the interpreter. `name` binds what was thrown; for a failure nothing threw it binds `{ name, kind, message }`. `None` is a `try` with no `catch`. `finally` runs on every way out of the two; when it returns or fails, that replaces how they ended.
+  Try { body: Body, #[serde(default, skip_serializing_if = "Option::is_none")] name: Option<String>, #[serde(default, skip_serializing_if = "Option::is_none")] handler: Option<Body>, #[serde(default, skip_serializing_if = "Vec::is_empty")] finally: Body },
   Expr(Expr),
 }
 
@@ -633,9 +633,10 @@ pub fn body_visit_mut(body: &mut Body, f: &mut dyn FnMut(&mut Expr)) {
       Stmt::SessionDelete { path, .. } => path.iter_mut().for_each(|p| p.visit_mut(f)),
       Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => seconds.visit_mut(f),
       Stmt::Act { input, .. } => input.visit_mut(f),
-      Stmt::Try { body, handler, .. } => {
+      Stmt::Try { body, handler, finally, .. } => {
         body_visit_mut(body, f);
-        body_visit_mut(handler, f);
+        handler.iter_mut().for_each(|handler| body_visit_mut(handler, f));
+        body_visit_mut(finally, f);
       }
     }
   }
@@ -666,9 +667,10 @@ pub fn body_visit(body: &Body, f: &mut dyn FnMut(&Expr)) {
       Stmt::SessionDelete { path, .. } => path.iter().for_each(|p| p.visit(f)),
       Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => seconds.visit(f),
       Stmt::Act { input, .. } => input.visit(f),
-      Stmt::Try { body, handler, .. } => {
+      Stmt::Try { body, handler, finally, .. } => {
         body_visit(body, f);
-        body_visit(handler, f);
+        handler.iter().for_each(|handler| body_visit(handler, f));
+        body_visit(finally, f);
       }
     }
   }
@@ -1191,11 +1193,12 @@ pub fn body_free_vars(body: &Body) -> Vec<String> {
           walk(body, bound, out);
           bound.truncate(bound.len() - 1);
         }
-        Stmt::Try { body, name, handler } => {
+        Stmt::Try { body, name, handler, finally } => {
           walk(body, bound, out);
           bound.extend(name.iter().cloned());
-          walk(handler, bound, out);
+          handler.iter().for_each(|handler| walk(handler, bound, out));
           bound.truncate(bound.len() - name.iter().count());
+          walk(finally, bound, out);
         }
         _ => {}
       }
@@ -1215,7 +1218,7 @@ pub fn body_reads_request(body: &Body) -> bool {
     Stmt::If { cond, then, r#else } => cond.reads_request() || body_reads_request(then) || body_reads_request(r#else),
     Stmt::ForOf { over, body, .. } => over.reads_request() || body_reads_request(body),
     Stmt::Guard { cond, message, .. } => cond.reads_request() || message.reads_request(),
-    Stmt::Try { body, handler, .. } => body_reads_request(body) || body_reads_request(handler),
+    Stmt::Try { body, handler, finally, .. } => body_reads_request(body) || handler.as_ref().is_some_and(|handler| body_reads_request(handler)) || body_reads_request(finally),
     Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } | Stmt::Redirect(_) | Stmt::Act { .. } => true,
   })
 }
@@ -1262,9 +1265,10 @@ fn body_exprs(body: &Body) -> Vec<&Expr> {
         Stmt::SessionDelete { path, .. } => into.extend(path.iter()),
         Stmt::SessionExtend { seconds } | Stmt::Redirect(seconds) => into.push(seconds),
         Stmt::Act { input, .. } => into.push(input),
-        Stmt::Try { body, handler, .. } => {
+        Stmt::Try { body, handler, finally, .. } => {
           exprs(body, into);
-          exprs(handler, into);
+          handler.iter().for_each(|handler| exprs(handler, into));
+          exprs(finally, into);
         }
       }
     }

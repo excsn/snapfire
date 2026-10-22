@@ -234,7 +234,7 @@ export async function load() {
 }
 
 #[test]
-fn try_is_residue() {
+fn a_try_lowers_as_a_try_with_its_catch() {
   let src = r#"
 export async function load({ services }: Ctx) {
   try {
@@ -244,10 +244,11 @@ export async function load({ services }: Ctx) {
   }
 }
 "#;
-  let r = residue(lower_loader("page.loader.ts", src).unwrap_err());
-  assert_eq!(r.line, 3);
-  assert_eq!(r.message, "`try`, and a body has no exceptions");
-  assert!(r.hint.as_deref().is_some_and(|h| h.contains("`fail(kind, message)`")), "the residue names the rewrite: {:?}", r.hint);
+  let body = lower_loader("page.loader.ts", src).unwrap();
+  let [Stmt::Try { name, handler: Some(handler), finally, .. }] = body.as_slice() else { panic!("{body:?}") };
+  assert_eq!(name.as_deref(), Some("e"));
+  assert!(matches!(handler.as_slice(), [Stmt::Return(_)]), "{handler:?}");
+  assert!(finally.is_empty());
 }
 
 #[test]

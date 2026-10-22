@@ -116,11 +116,19 @@ impl FailureKind {
 pub struct Fail {
   pub kind: FailureKind,
   pub message: String,
+  /// What a `throw` threw, which a `catch` binds; `None` for a failure the interpreter or a call raised.
+  pub thrown: Option<Box<Value>>,
 }
 
 impl Fail {
   pub fn new(kind: FailureKind, message: impl Into<String>) -> Self {
-    Self { kind, message: message.into() }
+    Self { kind, message: message.into(), thrown: None }
+  }
+
+  /// This failure as the throw of `value`.
+  pub fn with_thrown(mut self, value: Value) -> Self {
+    self.thrown = Some(Box::new(value));
+    self
   }
 
   /// A failure of kind [`FailureKind::Internal`].
