@@ -56,13 +56,21 @@ Each corpus builds a framework's own published examples through FSR as one appli
 
 | Corpus | Examples | Rendered on the server | Rendered on the server after migration | Left to the browser by design | Browser rendered, SSR pending |
 |---|---|---|---|---|---|
-| [react.dev](docs/corpus/react-dev.md) | 634 | 575 (90.7%) | 579 (91.3%) | 59 | 0 |
+| [react.dev](docs/corpus/react-dev.md) | 634 | 575 (90.7%) | 582 (91.8%) | 59 | 0 |
 | [svelte.dev](docs/corpus/svelte-dev.md) | 167 | 151 (90.4%) | 152 (91.0%) | 16 | 0 |
 | [vuejs.org](docs/corpus/vuejs-org.md) | 70 | 58 (82.9%) | 58 (82.9%) | 12 | 0 |
 
 The "by design" column counts examples that use something the server can't reproduce exactly: the current time, `Math.random`, a `fetch` during render or an npm package the build doesn't follow. Not counting those, the server renders 100% of the rest on all three.
 
 The migration column counts the by-design examples that render on the server once the rewrite a migration makes is applied: an awaited read moved into the route's loader and seeded into the store, a `<svelte:head>` moved into the loader's `meta`. For react.dev `fsr migrate` makes the rewrite and `examples/corpus/migrated_outcomes.txt` holds what each example then builds to, leaving out a read only a later render makes; the svelte.dev one was applied by hand. The rest load their data after a click, a navigation or typing, read the clock or need a contract for a remote API.
+
+Next.js's own examples go through `fsr migrate` first, then build as FSR applications ([held outcomes](examples/corpus/next_outcomes.txt)). They are whole applications with backends, CSS modules and component libraries rather than one-component samples, so most stop at the build:
+
+| Corpus | Examples | Rendered on the server after migration | Some components in the browser | Refused at build |
+|---|---|---|---|---|
+| Next.js | 223 | 44 (19.7%) | 66 | 113 |
+
+Each refused line names the construct it stopped at. Three more examples are not Next.js applications and five directories hold no application.
 
 ## Desktop apps (experimental)
 
