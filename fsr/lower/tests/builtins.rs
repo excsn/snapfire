@@ -139,10 +139,8 @@ fn split_with_a_limit_lowers_with_the_limit_as_its_third_argument() {
 }
 
 #[test]
-fn split_on_an_empty_separator_is_residue() {
-  let err = lowered("split_empty", "params.slug.split(\"\")").unwrap_err();
-  assert!(err.contains("`split` with an empty separator"), "{err}");
-  assert!(err.contains("UTF-16 code units"), "the hint says why: {err}");
+fn split_on_an_empty_separator_lowers() {
+  assert_eq!(builtin_of(&lowered("split_empty", "params.slug.split(\"\")").unwrap()), snapfire_fsr_ir::ast::Builtin::Split);
 }
 
 #[test]

@@ -77,9 +77,10 @@ async fn split_is_joins_inverse() {
 }
 
 #[tokio::test]
-async fn split_refuses_an_empty_separator() {
-  let err = fails(call(Builtin::Split, &["ab", ""])).await;
-  assert!(err.contains("separator that is not empty"), "{err}");
+async fn split_on_an_empty_separator_is_the_characters_and_refuses_an_astral_one() {
+  assert_eq!(run(call(Builtin::Split, &["ab", ""])).await, Value::Seq(vec![Value::str("a"), Value::str("b")].into()));
+  let err = fails(call(Builtin::Split, &["a\u{1F600}", ""])).await;
+  assert!(err.contains("outside the Basic Multilingual Plane"), "{err}");
 }
 
 #[tokio::test]

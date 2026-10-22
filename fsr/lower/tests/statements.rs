@@ -283,3 +283,12 @@ fn reduce_without_an_initial_value_starts_from_the_first_item_and_throws_on_an_e
   let failed = html("reduce_empty", empty).unwrap_err();
   assert!(failed.contains("Reduce of empty array with no initial value"), "{failed}");
 }
+
+#[test]
+fn split_on_an_empty_separator_is_the_characters_and_an_astral_one_fails() {
+  let page = "export default function Page() {\n  const sep = \"\";\n  const all = \"h\u{e9}llo\".split(\"\");\n  return <p>{all.join(\"-\")}|{\"abc\".split(sep, 2).join(\"-\")}|{\"\".split(\"\").length}</p>;\n}\n";
+  assert_eq!(html("split_empty", page).as_deref(), Ok("<p>h-\u{e9}-l-l-o|a-b|0</p>"));
+  let astral = "export default function Page() {\n  return <p>{\"a\u{1F600}\".split(\"\").length}</p>;\n}\n";
+  let failed = html("split_astral", astral).unwrap_err();
+  assert!(failed.contains("outside the Basic Multilingual Plane"), "{failed}");
+}

@@ -2751,9 +2751,15 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       let sep = text(name, arg(1)?)?;
       // JavaScript splits an empty separator into UTF-16 code units, so an
       // astral character becomes two surrogate halves no Rust string can hold.
-      // The lowerer refuses a literal `""`; this catches one built at runtime.
       if sep.is_empty() {
-        return Err(Fail::internal(format!("{name:?} takes a separator that is not empty")));
+        if let Some(astral) = s.chars().find(|c| *c > '\u{FFFF}') {
+          return Err(Fail::internal(format!("{name:?} with an empty separator splits {astral:?}, a character outside the Basic Multilingual Plane, into UTF-16 halves; use `Array.from(s)` for its characters")));
+        }
+        let pieces = s.chars().count();
+        if pieces > MAX_SPLIT {
+          return Err(Fail::internal(format!("{name:?} would build {pieces} pieces")));
+        }
+        return Ok(Value::Seq(s.chars().take(split_limit(&args)).map(|c| Value::str(c.to_string())).collect()));
       }
       let pieces = s.matches(sep).count() + 1;
       if pieces > MAX_SPLIT {

@@ -184,8 +184,8 @@ pub enum Builtin {
   Includes,
   StartsWith,
   EndsWith,
-  /// `s.split(sep, limit?)`, at most `limit` pieces, read as `ToUint32`. An empty separator is refused: JavaScript splits one into
-  /// UTF-16 code units, which a Rust `String` cannot hold a half of.
+  /// `s.split(sep, limit?)`, at most `limit` pieces, read as `ToUint32`. An empty separator splits into characters and fails on one
+  /// outside the Basic Multilingual Plane: JavaScript splits that into UTF-16 code units, which a Rust `String` cannot hold a half of.
   Split,
   /// `s.replace(from, to)`, the first occurrence only, with `$` in `to`
   /// carrying JavaScript's substitutions.

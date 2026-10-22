@@ -3544,16 +3544,6 @@ impl<'a> Lowerer<'a> {
           let plural = if arity == 1 { "" } else { "s" };
           return Err(self.residue(call.span, format!("`{method}` takes {arity} argument{plural}, got {}", call.args.len())));
         }
-        if name == Builtin::Split {
-          let empty = call.args.first().is_some_and(|a| matches!(&*a.expr, js::Expr::Lit(js::Lit::Str(s)) if s.value.to_atom_lossy().as_ref().is_empty()));
-          if empty {
-            return Err(self.residue_with(
-              call.args[0].expr.span(),
-              "`split` with an empty separator".to_owned(),
-              "JavaScript splits one into UTF-16 code units, which the value model holds no half of; `Array.from(s)` and `[...s]` are residue for the same reason",
-            ));
-          }
-        }
         let mut args = vec![*target];
         for a in &call.args {
           args.push(self.expr(&a.expr)?);
