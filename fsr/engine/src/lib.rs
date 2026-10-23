@@ -297,11 +297,18 @@ impl Drop for Engine {
   }
 }
 
+/// The native stack of a thread an [`Engine`] runs on. QuickJS checks its stack against the native one, so a thread with less overflows it instead of throwing.
+pub const NATIVE_STACK: usize = 64 * 1024 * 1024;
+
+/// How deep the JavaScript of a page may call before a `RangeError`, room for the component depth a browser renders.
+const JS_STACK: usize = 32 * 1024 * 1024;
+
 impl Engine {
   /// A context with the prelude, the DOM at `dom` (linkedom's worker bundle)
-  /// and the hooks bound as globals.
+  /// and the hooks bound as globals, for a thread of [`NATIVE_STACK`].
   pub fn new(resolution: Resolution, dom: &Path, hooks: Rc<dyn Hooks>, calls: JsCalls) -> Result<Self, EngineError> {
     let runtime = Runtime::new().map_err(|e| EngineError::Js(e.to_string()))?;
+    runtime.set_max_stack_size(JS_STACK);
     runtime.set_loader(FileResolver { resolution, dom: dom.to_path_buf() }, FileLoader);
     let context = Context::full(&runtime).map_err(|e| EngineError::Js(e.to_string()))?;
     NATIVE_CONTEXT.with(|slot| *slot.borrow_mut() = Some(context.clone()));

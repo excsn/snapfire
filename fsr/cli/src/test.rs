@@ -89,6 +89,19 @@ impl fmt::Display for Summary {
 /// fetched first and the generated types are this build's, as `fsr build`
 /// does.
 pub fn run(app: &Path, options: &Options, typecheck: &crate::typecheck::Typecheck, filter: Option<&str>) -> Result<Summary, BuildError> {
+  // The specs run in an engine whose JavaScript stack is sized for a thread of this native stack, whatever thread calls this.
+  std::thread::scope(|scope| {
+    std::thread::Builder::new()
+      .name("fsr-test".to_owned())
+      .stack_size(snapfire_fsr_engine::NATIVE_STACK)
+      .spawn_scoped(scope, || run_here(app, options, typecheck, filter))
+      .map_err(|e| BuildError::Dev(format!("starting the test thread: {e}")))?
+      .join()
+      .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+  })
+}
+
+fn run_here(app: &Path, options: &Options, typecheck: &crate::typecheck::Typecheck, filter: Option<&str>) -> Result<Summary, BuildError> {
   let fetched = typecheck.enabled.then(|| crate::types::fetch_missing_from(app, crate::types::NPM_REGISTRY));
   let mut plugins = crate::plugins::Plugins::new();
   let built = crate::build_with(app, options, &mut plugins)?;

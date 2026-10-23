@@ -162,7 +162,7 @@ pub fn test_bundle(app: &Path, specifier: &str, version: &str, url: &str) -> Res
   Ok(dir.join(file))
 }
 
-/// Runs every spec file under `app` whose name matches `filter`, adding to `summary`.
+/// Runs every spec file under `app` whose name matches `filter`, adding to `summary`. Call it on a thread of [`snapfire_fsr_engine::NATIVE_STACK`].
 pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&str>, runtime: &tokio::runtime::Runtime, summary: &mut Summary, plugins: &mut crate::plugins::Plugins) -> Result<(), BuildError> {
   let app = app.canonicalize().map_err(|e| BuildError::Io(app.to_path_buf(), e))?;
   let mut files = Vec::new();
