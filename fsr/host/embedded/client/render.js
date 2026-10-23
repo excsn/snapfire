@@ -30,7 +30,7 @@ export function nodeToHtml(node, ids) {
                 const inner = node.ssr ? nodeToHtml(node.ssr, ids) : node.children.map((c)=>nodeToHtml(c, ids)).join("");
                 ids.island = outer;
                 const props = propsScript(node);
-                return `<sf-i id="${id}" data-sf-module="${node.module}">${inner}</sf-i>` + `<script type="application/json" data-sf-props="${id}">${props}</script>`;
+                return `<sf-i id="${id}" data-sf-module="${node.module}"${node.ssr ? ` ${SSR_ATTR}` : ""}>${inner}</sf-i>` + `<script type="application/json" data-sf-props="${id}">${props}</script>`;
             }
         case "pending":
             return `<div data-sf-slot="${node.slot}">${nodeToHtml(node.fallback, ids)}</div>`;
@@ -93,6 +93,7 @@ function renderPositioned(node, positioned, ids) {
     return nodeToHtml(node, ids);
 }
 export const REGION_KEY = "$k";
+export const SSR_ATTR = "data-sf-ssr";
 export const CHILDREN_ATTR = "data-sf-children";
 export function childrenOf(node, ids) {
     if (node.kind !== "client") return null;

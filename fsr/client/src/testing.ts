@@ -666,7 +666,7 @@ async function renderIsland(module: string, element: Placed, container: HTMLElem
     const rendered = sf().render(module, JSON.stringify(encodeValue(props as SfValue)));
     const { html, hoisted } = rendered == null ? { html: "", hoisted: null } : (JSON.parse(rendered) as { html: string; hoisted: SfValue });
     const encoded = encodeValue({ ...props, ...(hoisted === null ? {} : { $h: decodeValue(hoisted) }) } as SfValue);
-    writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`, id);
+    writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}"${rendered == null ? "" : " data-sf-ssr"}>${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`, id);
     return container.querySelector(`sf-i#${id}`) as Element;
   };
   let marker = place(element.props as Record<string, unknown>);

@@ -22,7 +22,7 @@ test("a wire response parses into its tree, its sidecar and its resolutions", ()
 test("a tree renders to the markers the boot scans for", () => {
   const html = nodeToHtml(parsePayload(wire).tree, { next: 0 });
   expect(html).toEqual(
-    'a&lt;b<sf-i id="sf-c0" data-sf-module="x#y"><p>hi</p></sf-i><script type="application/json" data-sf-props="sf-c0">{"n":{"$":"i","v":"1"}}</script><div data-sf-slot="1">soon</div>',
+    'a&lt;b<sf-i id="sf-c0" data-sf-module="x#y" data-sf-ssr><p>hi</p></sf-i><script type="application/json" data-sf-props="sf-c0">{"n":{"$":"i","v":"1"}}</script><div data-sf-slot="1">soon</div>',
   );
 });
 

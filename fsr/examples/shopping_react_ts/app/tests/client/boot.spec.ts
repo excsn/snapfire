@@ -10,7 +10,7 @@ test("scan mounts each registered marker once, with its props and whether it has
     },
   });
   document.body.innerHTML =
-    '<sf-i id="w1" data-sf-module="tests/client/widget"><b>x</b></sf-i><script type="application/json" data-sf-props="w1">{"n":{"$":"i","v":"2"}}</script><sf-i id="w2" data-sf-module="tests/client/widget"></sf-i>';
+    '<sf-i id="w1" data-sf-module="tests/client/widget" data-sf-ssr><b>x</b></sf-i><script type="application/json" data-sf-props="w1">{"n":{"$":"i","v":"2"}}</script><sf-i id="w2" data-sf-module="tests/client/widget"></sf-i>';
   scan(document);
   scan(document);
   await settle();

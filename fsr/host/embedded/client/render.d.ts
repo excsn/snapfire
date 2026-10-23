@@ -48,6 +48,8 @@ export interface RegionSource {
 	} | null;
 }
 /** The attribute of the region an island's children render in, which the mounter hands the component as its `children`. */
+/** Marks an island element whose markup the server rendered, so the browser hydrates it rather than mounting it. */
+export declare const SSR_ATTR = "data-sf-ssr";
 export declare const CHILDREN_ATTR = "data-sf-children";
 /** The markup of an island's children region: the `<sf-s data-sf-children>` in its own markup that is not inside an island nested in it. Null for a node that is not an island or holds no such region. */
 export declare function childrenOf(node: SfNode, ids: IdAlloc): string | null;

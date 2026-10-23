@@ -69,7 +69,7 @@ fn ssr_content_renders_inside_the_island_marker() {
     ssr: Some(Box::new(Node::raw("<svg></svg>"))),
   };
   assert!(html_serialize(&node).starts_with(
-    "<sf-i id=\"sf-i0\" data-sf-module=\"components/X.tsx#default\"><svg></svg></sf-i>"
+    "<sf-i id=\"sf-i0\" data-sf-module=\"components/X.tsx#default\" data-sf-ssr><svg></svg></sf-i>"
   ));
 }
 
@@ -105,7 +105,7 @@ fn placed_content_follows_the_tree_where_the_parser_puts_it_at_the_end_of_the_bo
   ]);
   assert_eq!(
     html_serialize(&node),
-    "<main></main><template data-sf-l=\"\"></template><dialog><sf-i id=\"sf-i0\" data-sf-module=\"components/M.tsx#default\"><b>m</b></sf-i><script type=\"application/json\" data-sf-props=\"sf-i0\">{}</script></dialog>a &lt; b<template data-sf-l-end></template>"
+    "<main></main><template data-sf-l=\"\"></template><dialog><sf-i id=\"sf-i0\" data-sf-module=\"components/M.tsx#default\" data-sf-ssr><b>m</b></sf-i><script type=\"application/json\" data-sf-props=\"sf-i0\">{}</script></dialog>a &lt; b<template data-sf-l-end></template>"
   );
 }
 

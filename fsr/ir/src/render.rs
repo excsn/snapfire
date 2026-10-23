@@ -150,6 +150,8 @@ pub struct RenderedIsland {
   /// island with the payload that describes it.
   pub key: String,
   pub body: Rendered,
+  /// Whether the server rendered the component. False for a module it has no body for, one held for a pending store key and one a body left to the browser, whose body is only the regions they offer.
+  pub rendered: bool,
 }
 
 /// The props key a server-mode island's initial state rides under.
@@ -2012,7 +2014,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     }
     let index = out.islands.len();
     let body = Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted: ValueMap::default(), whole: true };
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: ValueMap::default(), when: when.clone(), mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key, body, rendered: true });
     out.markup(&format!("{ISLAND_MARK}{index}\0"));
     return Ok(());
   }
@@ -2029,7 +2031,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     write_marked(env, &marks, &[], library, &mut inner)?;
     let index = out.islands.len();
     let awaits: Vec<String> = env.island_reads.get(module).into_iter().flatten().filter(|key| env.pending.contains(*key)).cloned().collect();
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted: ValueMap::default(), whole: true } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits, key, body: Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted: ValueMap::default(), whole: true }, rendered: false });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   };
@@ -2047,7 +2049,7 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     let index = out.islands.len();
     let hoisted = held_chunks(env, module, component, &map, library, slots);
     let body = Rendered { html: held.html, islands: held.islands, places: held.places, hoisted, whole: true };
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store: ValueMap::default(), awaits, key, body, rendered: false });
     out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
     return Ok(());
   }
@@ -2096,10 +2098,10 @@ fn render_placed_in<'a>(env: &mut Env, module: &str, props: &[Entry], children: 
     }
     write_marked(env, &marks, &[], library, &mut held)?;
     let body = Rendered { html: held.html, islands: held.islands, places: held.places, hoisted, whole: true };
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, awaits: Vec::new(), key, body });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: ValueMap::default(), reads, rendered_store, awaits: Vec::new(), key, body, rendered: false });
   } else {
     write_marked(env, &marks, &placed, library, &mut inner)?;
-    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted, whole: true } });
+    out.islands.push(RenderedIsland { module: module.to_owned(), props: wire, when: when.clone(), mode: mode.clone(), state: inner.state, reads, rendered_store, awaits: Vec::new(), key, body: Rendered { html: inner.html, islands: inner.islands, places: inner.places, hoisted, whole: true }, rendered: true });
   }
   out.markup(&format!("{ISLAND_MARK}{index}\u{0}"));
   Ok(())
@@ -3662,7 +3664,7 @@ mod hoist_tests {
     props.insert("shape".to_owned(), Value::str("not a map"));
     props.insert("plain".to_owned(), Value::str("x"));
     props.insert(TYPES_PROP.to_owned(), Value::Map(types));
-    let island = RenderedIsland { module: "m".to_owned(), props, when: None, mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key: String::new(), body: Rendered { html: String::new(), islands: Vec::new(), places: Vec::new(), hoisted: ValueMap::default(), whole: true } };
+    let island = RenderedIsland { module: "m".to_owned(), props, when: None, mode: None, state: ValueMap::default(), reads: Vec::new(), rendered_store: ValueMap::default(), awaits: Vec::new(), key: String::new(), body: Rendered { html: String::new(), islands: Vec::new(), places: Vec::new(), hoisted: ValueMap::default(), whole: true }, rendered: true };
     let mount = island.mount_props();
     let wrapped = |tag: &str, payload: Value| Value::Variant { tag: tag.to_owned(), payload: Some(Box::new(payload)) };
     assert_eq!(mount.get("m"), Some(&wrapped(typed::MAP, Value::seq(vec![Value::seq(vec![Value::str("a"), Value::int(1i64)])]))));
@@ -3986,6 +3988,21 @@ mod island_tests {
     assert_eq!(**body, Node::raw("<p>help 7</p>"));
     assert_eq!(nodes[3], Node::raw("</sf-s>"));
     assert_eq!(nodes[4], Node::raw("after</main>"));
+  }
+
+  #[test]
+  fn an_island_the_server_cannot_render_binds_with_no_ssr_and_its_children_as_nodes() {
+    let mut library = Components::new();
+    library.insert("src/ui/Body.tsx#Body".to_owned(), Arc::new(Component::new(crate::ast::Owner::React, Vec::new(), Tmpl::Text("body".to_owned()))));
+    let page = Component::new(crate::ast::Owner::React, Vec::new(), Tmpl::Island { module: "src/ui/Shell.vue#default".to_owned(), props: Vec::new(), children: vec![island_at("src/ui/Body.tsx#Body", 3)], when: None, mode: None, id: 0, define: false });
+    let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
+    assert!(!rendered.islands[0].rendered, "the server had no body for the module");
+    assert!(rendered.islands[0].body.islands[0].rendered, "the island among its children it rendered");
+    let nodes = rendered_nodes(&rendered);
+    let Node::Client { module, ssr: None, children, .. } = &nodes[1] else { panic!("{:?}", nodes[1]) };
+    assert_eq!(module.to_string(), "src/ui/Shell.vue#default");
+    let nested = format!("{children:?}");
+    assert!(nested.contains("path: \"src/ui/Body.tsx\", export: \"Body\"") && nested.contains("ssr: Some"), "{nested}");
   }
 }
 

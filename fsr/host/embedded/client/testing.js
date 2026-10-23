@@ -519,7 +519,7 @@ async function renderIsland(module, element, container) {
                 $h: decodeValue(hoisted)
             }
         });
-        writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}">${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`, id);
+        writeHtml(container, `<sf-s data-sf-island data-sf-when="load"><sf-i id="${id}" data-sf-module="${module}"${rendered == null ? "" : " data-sf-ssr"}>${html}</sf-i><script type="application/json" data-sf-props="${id}">${JSON.stringify(encoded).replace(/</g, "\\u003c")}</script></sf-s>`, id);
         return container.querySelector(`sf-i#${id}`);
     };
     let marker = place(element.props);

@@ -52,7 +52,7 @@ export function nodeToHtml(node: SfNode, ids: IdAlloc): string {
       ids.island = outer;
       const props = propsScript(node);
       return (
-        `<sf-i id="${id}" data-sf-module="${node.module}">${inner}</sf-i>` +
+        `<sf-i id="${id}" data-sf-module="${node.module}"${node.ssr ? ` ${SSR_ATTR}` : ""}>${inner}</sf-i>` +
         `<script type="application/json" data-sf-props="${id}">${props}</script>`
       );
     }
@@ -135,6 +135,8 @@ export interface RegionSource {
 }
 
 /** The attribute of the region an island's children render in, which the mounter hands the component as its `children`. */
+/** Marks an island element whose markup the server rendered, so the browser hydrates it rather than mounting it. */
+export const SSR_ATTR = "data-sf-ssr";
 export const CHILDREN_ATTR = "data-sf-children";
 
 /** The markup of an island's children region: the `<sf-s data-sf-children>` in its own markup that is not inside an island nested in it. Null for a node that is not an island or holds no such region. */

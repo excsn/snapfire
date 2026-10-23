@@ -3,7 +3,7 @@ import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { settlePlaced, unplaced } from "./places.js";
 import { enablePwa } from "./pwa.js";
-import { REGION_KEY } from "./render.js";
+import { REGION_KEY, SSR_ATTR } from "./render.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef, SfValue } from "./values.js";
@@ -132,9 +132,9 @@ export function markerProps(marker: Element): { script: Element | null; props: P
 /** The mounter for an island whose module defines a custom element: importing the module is the whole mount, since the element the server already wrote upgrades itself once its definition runs. What the island's timing schedules, then, is the import. */
 export const defineMounter: Mounter = () => undefined;
 
-/** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. Slot regions do not count: a module the server never evaluated still carries one per plan child it must offer, so an element holding nothing else was rendered by nobody. */
+/** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. */
 export function serverRendered(el: Element): boolean {
-  return Array.from(el.childNodes).some((node) => !(node instanceof Element && node.tagName === "SF-S"));
+  return el.hasAttribute(SSR_ATTR);
 }
 
 /** An island the nearest island above it has not rendered and has not yet mounted. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded and the copy carries the `data-sf-scheduled` a scan would leave. The parent's own mount reaches it instead, once that mount has run: a parent that renders nothing but its regions still holds no markup of its own then. */

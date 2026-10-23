@@ -34,7 +34,7 @@ export declare function markerProps(marker: Element): {
 };
 /** The mounter for an island whose module defines a custom element: importing the module is the whole mount, since the element the server already wrote upgrades itself once its definition runs. What the island's timing schedules, then, is the import. */
 export declare const defineMounter: Mounter;
-/** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. Slot regions do not count: a module the server never evaluated still carries one per plan child it must offer, so an element holding nothing else was rendered by nobody. */
+/** Whether the server rendered this island's own markup, which is what decides hydrating over mounting. */
 export declare function serverRendered(el: Element): boolean;
 /** Ends every island under `root`, `root` itself included when it is a marker, before the caller takes those nodes out of the document: a mount still waiting on its timing is called off, one whose loader is in flight mounts nothing when it lands and a mounted one is handed to its entry's `unmount`, nested islands before the island around them. What was mounted there is forgotten, so `islandState` answers null and `patchIsland` false. Call it on every node removed by anything other than a mounted root's own render, since a root left in a detached element keeps running: its effects never clean up and whatever they hold stays held. */
 export declare function discard(root: ParentNode): void;

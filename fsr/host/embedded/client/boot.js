@@ -3,7 +3,7 @@ import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { settlePlaced, unplaced } from "./places.js";
 import { enablePwa } from "./pwa.js";
-import { REGION_KEY } from "./render.js";
+import { REGION_KEY, SSR_ATTR } from "./render.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef } from "./values.js";
@@ -76,7 +76,7 @@ export function markerProps(marker) {
 }
 export const defineMounter = ()=>undefined;
 export function serverRendered(el) {
-    return Array.from(el.childNodes).some((node)=>!(node instanceof Element && node.tagName === "SF-S"));
+    return el.hasAttribute(SSR_ATTR);
 }
 function awaitingAnAncestor(el) {
     const above = el.parentElement?.closest("sf-i");

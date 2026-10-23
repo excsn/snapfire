@@ -59,7 +59,10 @@ pub fn rendered_nodes(rendered: &Rendered) -> Vec<Node> {
     }
     open.push('>');
     out.push(Node::raw(open));
-    out.push(Node::Client { module, props: island.mount_props(), children: Vec::new(), ssr: Some(Box::new(island_body(&island.body))) });
+    out.push(match island.rendered {
+      true => Node::Client { module, props: island.mount_props(), children: Vec::new(), ssr: Some(Box::new(island_body(&island.body))) },
+      false => Node::Client { module, props: island.mount_props(), children: vec![island_body(&island.body)], ssr: None },
+    });
     out.push(Node::raw("</sf-s>"));
   }
   if !rest.is_empty() {

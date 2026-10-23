@@ -121,7 +121,8 @@ impl HtmlSession {
       Node::Client { module, props, children, ssr } => {
         let id = self.next_island;
         self.next_island += 1;
-        out.push_str(&format!("<sf-i id=\"sf-i{id}\" data-sf-module=\"{module}\">"));
+        let rendered = if ssr.is_some() { " data-sf-ssr" } else { "" };
+        out.push_str(&format!("<sf-i id=\"sf-i{id}\" data-sf-module=\"{module}\"{rendered}>"));
         match ssr {
           Some(rendered) => {
             let name = match props.get(REGION_KEY) {
