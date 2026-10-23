@@ -74,11 +74,14 @@ pub struct DevOptions {
   /// Runs the root page in this terminal, `--terminal`.
   #[cfg(feature = "terminal")]
   pub terminal: bool,
+  /// The command line after `--`, the terminal page's loader params.
+  #[cfg(feature = "terminal")]
+  pub args: Vec<String>,
 }
 
 impl Default for DevOptions {
   fn default() -> Self {
-    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false, #[cfg(feature = "terminal")] terminal: false }
+    Self { build: Options::default(), public_path: crate::BUNDLE_BASE.to_owned(), snapfirec: None, typecheck: Typecheck { enabled: true, ..Typecheck::default() }, under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false, #[cfg(feature = "terminal")] terminal: false, #[cfg(feature = "terminal")] args: Vec::new() }
   }
 }
 
@@ -88,7 +91,7 @@ impl DevOptions {
   pub fn beside(app: &Path) -> Self {
     let build = Options::beside(app);
     let public_path = crate::bundle_base(build.site.as_ref());
-    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false, #[cfg(feature = "terminal")] terminal: false }
+    Self { build, public_path, snapfirec: None, typecheck: Typecheck::beside(app), under: None, alone: false, verbose: false, #[cfg(feature = "desktop")] desktop: false, #[cfg(feature = "terminal")] terminal: false, #[cfg(feature = "terminal")] args: Vec::new() }
   }
 }
 
@@ -988,7 +991,7 @@ type Window = std::convert::Infallible;
 pub fn run(app: &Path, options: DevOptions) -> Result<(), BuildError> {
   #[cfg(feature = "terminal")]
   if options.terminal {
-    return crate::terminal::run(app);
+    return crate::terminal::run(app, &options.args);
   }
   #[cfg(feature = "desktop")]
   if options.desktop {

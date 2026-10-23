@@ -678,3 +678,15 @@ fn the_root_page_takes_what_its_loader_returns_as_its_props() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0], "hello world");
 }
+
+#[test]
+fn the_command_line_after_the_dashes_is_the_loaders_params() {
+  let args: Vec<String> = ["--name", "norm", "cards.txt", "--yes", "--limit=3", "extra"].iter().map(|s| s.to_string()).collect();
+  let params = snapfire_fsr_cli::terminal::params(&args);
+  assert_eq!(params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect::<Vec<_>>(), [("name", "norm"), ("0", "cards.txt"), ("yes", "true"), ("limit", "3"), ("1", "extra")]);
+  let page = "import { Text } from \"ink\";\n\nexport default function Hello({ name, file }: { name: string; file: string }) {\n  return <Text>hello {name} from {file}</Text>;\n}\n";
+  let loader = "export async function load({ params }: { params: Record<string, string> }) {\n  return { name: params.name ?? \"world\", file: params[\"0\"] ?? \"nothing\" };\n}\n";
+  let mut session = Session::open_with(&app_with_loader(page, loader), params).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 40).lines()[0], "hello norm from cards.txt");
+}

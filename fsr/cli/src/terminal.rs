@@ -869,9 +869,31 @@ impl Drop for Screen {
 }
 
 /// Runs the root page of `app` in this terminal until Ctrl-C or until it calls `exit`.
-pub fn run(app: &Path) -> Result<(), BuildError> {
+/// The command line after `--` as the loader's params: `--name value` and `--name=value` bind `name`, a bare `--flag` binds `"true"` and each positional argument binds its position, `"0"`, `"1"` and on.
+pub fn params(args: &[String]) -> Params {
+  let mut params = Params::new();
+  let mut position = 0;
+  let mut args = args.iter().peekable();
+  while let Some(arg) = args.next() {
+    if let Some(flag) = arg.strip_prefix("--") {
+      if let Some((name, value)) = flag.split_once('=') {
+        params.insert(name.to_owned(), value.to_owned());
+      } else if let Some(value) = args.next_if(|next| !next.starts_with("--")) {
+        params.insert(flag.to_owned(), value.clone());
+      } else {
+        params.insert(flag.to_owned(), "true".to_owned());
+      }
+    } else {
+      params.insert(position.to_string(), arg.clone());
+      position += 1;
+    }
+  }
+  params
+}
+
+pub fn run(app: &Path, args: &[String]) -> Result<(), BuildError> {
   let fail = |e: std::io::Error| BuildError::Dev(format!("terminal: {e}"));
-  let mut session = Session::open(app).map_err(BuildError::Dev)?;
+  let mut session = Session::open_with(app, params(args)).map_err(BuildError::Dev)?;
   let (tx, rx) = std::sync::mpsc::channel();
   let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
     if let Ok(event) = event {

@@ -35,7 +35,8 @@ fn an_ink_app_draws_its_first_frame() {
   };
   let size = |name: &str, default: u16| std::env::var(name).ok().and_then(|v| v.parse().ok()).unwrap_or(default);
   let (columns, rows) = (size("INK_COLUMNS", 100), size("INK_ROWS", 30));
-  let mut session = match Session::open(std::path::Path::new(&app)) {
+  let args: Vec<String> = std::env::var("INK_ARGS").unwrap_or_default().split_whitespace().map(str::to_owned).collect();
+  let mut session = match Session::open_with(std::path::Path::new(&app), snapfire_fsr_cli::terminal::params(&args)) {
     Ok(session) => session,
     Err(why) => panic!("refused: {why}"),
   };

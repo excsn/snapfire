@@ -190,6 +190,10 @@ struct Dev {
   #[cfg(feature = "terminal")]
   #[arg(long)]
   terminal: bool,
+  /// The terminal page's command line, after `--`: `--name value` and positional arguments reach its loader as `params`.
+  #[cfg(feature = "terminal")]
+  #[arg(last = true, value_name = "ARG")]
+  args: Vec<String>,
 }
 
 #[derive(Args)]
@@ -537,6 +541,7 @@ impl Dev {
     #[cfg(feature = "terminal")]
     {
       options.terminal = self.terminal;
+      options.args = self.args.clone();
     }
     options
   }
