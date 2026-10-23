@@ -9669,6 +9669,24 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   }
 
   /// `if`, `else` and `else if`: each branch lowers under its condition joined to the reach around it and the names it declares go out of scope with it. A branch that returns leaves the rest of the handler reachable only when the other one ran.
+  /// `c ? a() : b();` as a statement: each arm runs under its side of the condition, as `if (c) a(); else b();` does.
+  fn handler_cond(&mut self, cond: &'p js::CondExpr, walk: &mut HandlerWalk) -> Lowered<()> {
+    let test = self.lowerer.expr(&cond.test)?;
+    let test = self.branch_cond(test, walk);
+    let outer = walk.reach.clone();
+    let depth = self.lowerer.scope.len();
+    walk.reach = Some(reach_under(&outer, test.clone()));
+    self.handler_stmt(&cond.cons, walk)?;
+    self.lowerer.scope.truncate(depth);
+    self.reread_effect_locals(walk);
+    walk.reach = Some(reach_under(&outer, Expr::Not(Box::new(test))));
+    self.handler_stmt(&cond.alt, walk)?;
+    self.lowerer.scope.truncate(depth);
+    self.reread_effect_locals(walk);
+    walk.reach = outer;
+    Ok(())
+  }
+
   fn handler_if(&mut self, branch: &'p js::IfStmt, walk: &mut HandlerWalk) -> Lowered<()> {
     let mut updates = Vec::new();
     let test = counted_test(&branch.test, &|name| self.effect_locals.iter().any(|(local, _)| local == name), &mut updates);
@@ -9806,6 +9824,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   fn handler_stmt(&mut self, e: &'p js::Expr, walk: &mut HandlerWalk) -> Lowered<()> {
     match e {
       js::Expr::Paren(p) => self.handler_stmt(&p.expr, walk),
+      js::Expr::Cond(cond) => self.handler_cond(cond, walk),
       js::Expr::Unary(u) if u.op == js::UnaryOp::Void => self.handler_stmt(&u.arg, walk),
       js::Expr::Await(a) => self.handler_stmt(&a.arg, walk),
       js::Expr::Call(call) if self.lowerer.async_iife(call).is_some() => {

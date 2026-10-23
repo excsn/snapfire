@@ -53,3 +53,11 @@ fn a_handler_writes_its_own_let_after_an_early_return() {
   assert!(html[1].contains(">0</button>"), "{}", html[1]);
   assert!(html[2].contains(">10</button>"), "{}", html[2]);
 }
+
+#[test]
+fn a_ternary_statement_in_a_handler_runs_one_arm() {
+  let page = "import { useState } from 'react';\n\nexport default function Count() {\n  const [count, setCount] = useState(0);\n  const step = () => {\n    count === 0 ? setCount(5) : setCount(0);\n  };\n  return <button onClick={step}>{count}</button>;\n}\n";
+  let html = steps("ternary", page, 0, 2).unwrap();
+  assert!(html[0].contains(">5</button>"), "{}", html[0]);
+  assert!(html[1].contains(">0</button>"), "{}", html[1]);
+}
