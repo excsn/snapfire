@@ -367,3 +367,7 @@ a:hover {
 a[data-sf-pending] {
   opacity: 0.7;
 }
+
+.planner-gap {
+  height: 120vh;
+}

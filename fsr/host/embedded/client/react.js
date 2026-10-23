@@ -1,7 +1,7 @@
 import * as ReactModule from "react";
-import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import { islandState, patchIsland, scan } from "./boot.js";
+import { childrenRegion, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -33,82 +33,424 @@ function adopted(slot, name) {
     if (slot?.hasAttribute(CHILDREN_ATTR)) props[CHILDREN_ATTR] = "";
     return createElement("sf-s", props);
 }
-const childrenMarkup = new WeakMap();
-function IslandChildren({ root }) {
-    const [html] = useState(()=>childrenMarkup.get(root) ?? "");
+function boxOf(pieces, html) {
+    return {
+        pieces,
+        html,
+        listeners: new Set()
+    };
+}
+function refill(box, html) {
+    if (box.html === html) return;
+    box.html = html;
+    box.pieces = piecesOf(html);
+    for (const listener of Array.from(box.listeners))listener();
+}
+function PiecesRegion({ box, attrs }) {
+    const subscribe = useCallback((listener)=>{
+        box.listeners.add(listener);
+        return ()=>box.listeners.delete(listener);
+    }, [
+        box
+    ]);
+    const pieces = useSyncExternalStore(subscribe, ()=>box.pieces, ()=>box.pieces);
     const region = useRef(null);
+    const tree = pieces.some(holdsOwn);
     useEffect(()=>{
-        if (region.current) scan(region.current);
-    }, []);
+        if (tree && region.current) scan(region.current);
+    });
+    if (!tree) return createElement(Opaque, {
+        key: "opaque",
+        tag: "sf-s",
+        attrs,
+        html: box.html
+    });
     return createElement("sf-s", {
+        key: "tree",
+        ...attrs,
         ref: region,
-        [CHILDREN_ATTR]: "",
+        suppressHydrationWarning: true
+    }, ...nodesOf(pieces));
+}
+function Opaque({ tag, attrs, html }) {
+    const [first] = useState(()=>unmarked(html));
+    const shown = useRef(html);
+    const node = useRef(null);
+    useReleasing(node);
+    useEffect(()=>{
+        const el = node.current;
+        if (!el) return;
+        if (html !== shown.current) {
+            shown.current = html;
+            morph(el, html);
+        }
+        scan(el);
+    }, [
+        html
+    ]);
+    return createElement(tag, {
+        ...attrs,
+        ref: node,
+        dangerouslySetInnerHTML: {
+            __html: first
+        },
+        suppressHydrationWarning: true
+    });
+}
+function holdsOwn(piece) {
+    if (piece.kind === "island") return piece.entry?.mount === reactMounter;
+    return piece.kind === "element" && piece.children.some(holdsOwn);
+}
+const PROP_NAMES = {
+    class: "className",
+    for: "htmlFor",
+    tabindex: "tabIndex",
+    readonly: "readOnly",
+    maxlength: "maxLength",
+    minlength: "minLength",
+    colspan: "colSpan",
+    rowspan: "rowSpan",
+    autocomplete: "autoComplete",
+    autofocus: "autoFocus",
+    crossorigin: "crossOrigin",
+    contenteditable: "contentEditable",
+    enctype: "encType",
+    formaction: "formAction",
+    formnovalidate: "formNoValidate",
+    novalidate: "noValidate",
+    srcset: "srcSet",
+    srcdoc: "srcDoc",
+    "http-equiv": "httpEquiv",
+    "accept-charset": "acceptCharset",
+    itemprop: "itemProp",
+    itemscope: "itemScope",
+    itemtype: "itemType",
+    usemap: "useMap",
+    datetime: "dateTime",
+    playsinline: "playsInline",
+    referrerpolicy: "referrerPolicy",
+    spellcheck: "spellCheck",
+    inputmode: "inputMode",
+    enterkeyhint: "enterKeyHint",
+    fetchpriority: "fetchPriority",
+    allowfullscreen: "allowFullScreen",
+    autoplay: "autoPlay",
+    nomodule: "noModule",
+    popovertarget: "popoverTarget",
+    "xlink:href": "xlinkHref",
+    "xml:lang": "xmlLang"
+};
+const BOOLEAN_PROPS = new Set([
+    "hidden",
+    "disabled",
+    "selected",
+    "multiple",
+    "readonly",
+    "required",
+    "open",
+    "autofocus",
+    "async",
+    "defer",
+    "novalidate",
+    "formnovalidate",
+    "allowfullscreen",
+    "controls",
+    "loop",
+    "muted",
+    "autoplay",
+    "playsinline",
+    "default",
+    "reversed",
+    "inert",
+    "itemscope",
+    "nomodule"
+]);
+const VOID_TAGS = new Set([
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "source",
+    "track",
+    "wbr"
+]);
+function reactProps(tag, attrs, svg) {
+    const props = {};
+    for (const [name, value] of Object.entries(attrs)){
+        if (name.startsWith("on")) continue;
+        if (name === "style") props.style = styleOf(value);
+        else if (name === "value" && (tag === "input" || tag === "select" || tag === "textarea")) props.defaultValue = value;
+        else if (name === "checked") props.defaultChecked = true;
+        else if (BOOLEAN_PROPS.has(name)) props[PROP_NAMES[name] ?? name] = true;
+        else if (PROP_NAMES[name]) props[PROP_NAMES[name]] = value;
+        else if (svg && name.includes("-") && !name.startsWith("data-") && !name.startsWith("aria-")) props[name.replace(/-([a-z])/g, (_, c)=>c.toUpperCase())] = value;
+        else props[name] = value;
+    }
+    return props;
+}
+function styleOf(text) {
+    const out = {};
+    for (const part of text.split(";")){
+        const at = part.indexOf(":");
+        if (at < 0) continue;
+        const name = part.slice(0, at).trim();
+        out[name.startsWith("--") ? name : name.replace(/-([a-z])/g, (_, c)=>c.toUpperCase())] = part.slice(at + 1).trim();
+    }
+    return out;
+}
+function nodesOf(pieces, svg = false) {
+    const out = [];
+    pieces.forEach((piece, key)=>{
+        if (piece.kind === "text") out.push(piece.text);
+        else if (piece.kind === "island") out.push(piece.entry?.mount === reactMounter ? createElement(NestedIsland, {
+            key: `${key}:${piece.moduleId}`,
+            piece
+        }) : createElement(Foreign, {
+            key: `${key}:${piece.moduleId}`,
+            piece
+        }));
+        else if (piece.kind === "element") {
+            const inSvg = svg || piece.tag === "svg";
+            const props = {
+                ...reactProps(piece.tag, piece.attrs, inSvg),
+                key
+            };
+            if (VOID_TAGS.has(piece.tag)) out.push(createElement(piece.tag, props));
+            else if (piece.tag === "textarea") out.push(createElement("textarea", {
+                ...props,
+                defaultValue: piece.node.textContent ?? ""
+            }));
+            else if (piece.children.some(holdsOwn)) out.push(createElement(piece.tag, props, ...nodesOf(piece.children, inSvg)));
+            else out.push(createElement(Opaque, {
+                key,
+                tag: piece.tag,
+                attrs: props,
+                html: piece.node.innerHTML
+            }));
+        }
+    });
+    return out;
+}
+function markerAttrs(marker) {
+    const attrs = {};
+    for (const attr of Array.from(marker.attributes)){
+        if (attr.name !== "data-sf-scheduled" && attr.name !== "data-sf-mounted") attrs[attr.name] = attr.value;
+    }
+    return attrs;
+}
+function propsScript(piece) {
+    if (!piece.script) return null;
+    return createElement("script", {
+        type: "application/json",
+        "data-sf-props": piece.marker.id,
+        dangerouslySetInnerHTML: {
+            __html: piece.script.textContent ?? ""
+        },
+        suppressHydrationWarning: true
+    });
+}
+function useReleasing(node) {
+    useEffect(()=>{
+        const el = node.current;
+        return ()=>{
+            if (el) release(el);
+        };
+    }, []);
+}
+function Foreign({ piece }) {
+    const node = useRef(null);
+    const [html] = useState(()=>unmarked(piece.marker.innerHTML));
+    useReleasing(node);
+    const first = useRef(piece);
+    useEffect(()=>{
+        const el = node.current;
+        if (!el || piece === first.current) return;
+        first.current = piece;
+        if (el.hasAttribute("data-sf-scheduled")) void patchIsland(el, piece.props, null, childrenRegion(piece.marker)?.innerHTML ?? null, piece.encoded);
+    }, [
+        piece
+    ]);
+    return createElement(Fragment, null, createElement("sf-i", {
+        ...markerAttrs(piece.marker),
+        ref: node,
+        dangerouslySetInnerHTML: {
+            __html: html
+        },
+        suppressHydrationWarning: true
+    }), propsScript(piece));
+}
+function useTiming(when, find) {
+    const [waiting] = useState(()=>{
+        if (when === "load") return null;
+        const made = timingFired(when, find);
+        void made.then(()=>Object.assign(made, {
+                status: "fulfilled",
+                value: undefined
+            }));
+        return made;
+    });
+    return waiting;
+}
+function Timed({ waiting, children }) {
+    if (waiting === null) return children;
+    if (reactUse) reactUse(waiting);
+    else if (waiting.status !== "fulfilled") throw waiting;
+    return children;
+}
+function timingFired(when, find) {
+    if (when === "load") return Promise.resolve();
+    if (when === "idle") return new Promise((resolve)=>(globalThis.requestIdleCallback ?? setTimeout)(()=>resolve()));
+    return new Promise((resolve)=>{
+        const observe = (el)=>{
+            if (!el || typeof IntersectionObserver === "undefined") return resolve();
+            const observer = new IntersectionObserver((entries)=>{
+                if (entries.some((entry)=>entry.isIntersecting)) {
+                    observer.disconnect();
+                    resolve();
+                }
+            });
+            observer.observe(el);
+        };
+        const now = find();
+        if (now) observe(now);
+        else setTimeout(()=>observe(find()));
+    });
+}
+const lazies = new WeakMap();
+function componentFor(entry) {
+    const ready = loadedModule(entry);
+    if (ready !== undefined) return ready;
+    let made = lazies.get(entry);
+    if (!made) {
+        made = lazy(()=>loadModule(entry).then((component)=>({
+                    default: component
+                })));
+        lazies.set(entry, made);
+    }
+    return made;
+}
+function ClientOnly({ marker, at, ready, body }) {
+    const [html] = useState(marker.innerHTML);
+    const [mounted, setMounted] = useState(false);
+    useEffect(()=>{
+        let live = true;
+        void ready().then(()=>{
+            if (live) setMounted(true);
+        });
+        return ()=>{
+            live = false;
+        };
+    }, []);
+    if (!mounted) return createElement("sf-i", {
+        ...markerAttrs(marker),
+        ref: at,
         dangerouslySetInnerHTML: {
             __html: html
         },
         suppressHydrationWarning: true
     });
+    return createElement("sf-i", {
+        ...markerAttrs(marker),
+        ref: at
+    }, body());
 }
+function NestedIsland({ piece }) {
+    const node = useRef(null);
+    const at = useCallback(()=>node.current, []);
+    const box = useMemo(()=>piece.children === null ? null : boxOf(piece.children, childrenRegion(piece.marker)?.innerHTML ?? ""), [
+        piece
+    ]);
+    const entry = piece.entry;
+    const [component] = useState(()=>componentFor(entry));
+    const [id] = useState(piece.marker.id);
+    const find = ()=>node.current ?? document.getElementById(id);
+    const waiting = useTiming(piece.ssr ? piece.when : "load", find);
+    useEffect(()=>{
+        if (node.current) markRendered(node.current);
+    });
+    const childrenElement = box === null ? undefined : createElement(PiecesRegion, {
+        box,
+        attrs: {
+            [CHILDREN_ATTR]: ""
+        }
+    });
+    const render = ()=>islandElement(component, piece.props, piece.marker, false, null, {
+            at,
+            children: childrenElement
+        });
+    const body = ()=>createElement(Timed, {
+            waiting
+        }, render());
+    const script = propsScript(piece);
+    if (!piece.ssr) return createElement(Fragment, null, createElement(ClientOnly, {
+        marker: piece.marker,
+        at: node,
+        ready: ()=>timingFired(piece.when, find).then(()=>loadModule(entry)),
+        body: render
+    }), script);
+    const inner = piece.when === "load" && loadedModule(entry) !== undefined ? body() : createElement(Suspense, {
+        fallback: null
+    }, body());
+    return createElement(Fragment, null, createElement("sf-i", {
+        ...markerAttrs(piece.marker),
+        ref: node,
+        suppressHydrationWarning: true
+    }, inner), script);
+}
+function bracketNested(el, children) {
+    const bracket = (marker)=>{
+        if (!marker.firstChild || marker.firstChild.nodeType === 8) return;
+        marker.insertBefore(marker.ownerDocument.createComment("$"), marker.firstChild);
+        marker.appendChild(marker.ownerDocument.createComment("/$"));
+    };
+    const walk = (pieces)=>{
+        for (const piece of pieces){
+            if (piece.kind === "element") walk(piece.children);
+            if (piece.kind !== "island" || piece.entry?.mount !== reactMounter) continue;
+            if (piece.ssr && !(piece.when === "load" && loadedModule(piece.entry) !== undefined)) bracket(piece.marker);
+            if (piece.children) walk(piece.children);
+        }
+    };
+    if (children) walk(children);
+    for (const region of Array.from(el.querySelectorAll("sf-s[data-sf-island]"))){
+        const marker = region.firstElementChild;
+        if (marker?.tagName !== "SF-I" || !serverRendered(marker)) continue;
+        const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
+        if (entry?.mount !== reactMounter) continue;
+        const when = region.getAttribute("data-sf-when") ?? entry.when ?? "load";
+        if (when !== "load") bracket(marker);
+    }
+}
+const childrenBoxes = new WeakMap();
 const children = new WeakMap();
-function heldChildrenOf(el) {
-    for (const held of Array.from(el.querySelectorAll(`template[${CHILDREN_ATTR}]`))){
-        if (held.parentElement?.closest("sf-i") === el) return held;
-    }
-    return null;
-}
 function childrenFor(el) {
-    const held = children.get(el);
-    if (held) return held;
-    const slot = slotOf(el);
-    if (!slot) {
-        const template = heldChildrenOf(el);
-        if (!template) return undefined;
-        childrenMarkup.set(el, template.innerHTML);
-        template.remove();
-        const element = createElement(IslandChildren, {
-            root: el
-        });
-        children.set(el, element);
-        return element;
-    }
-    let element;
-    if (slot.hasAttribute(CHILDREN_ATTR)) {
-        childrenMarkup.set(el, slot.innerHTML);
-        element = createElement(IslandChildren, {
-            root: el
-        });
-    } else {
-        element = adopted(slot);
-    }
+    const made = children.get(el);
+    if (made) return made;
+    const box = childrenBoxes.get(el);
+    const slot = box ? null : slotOf(el);
+    if (!box && (!slot || slot.hasAttribute(CHILDREN_ATTR))) return undefined;
+    const element = box ? createElement(PiecesRegion, {
+        box,
+        attrs: {
+            [CHILDREN_ATTR]: ""
+        }
+    }) : adopted(slot);
     children.set(el, element);
     return element;
 }
 function patchChildren(el, fresh) {
-    if (fresh === null || !childrenMarkup.has(el) || childrenMarkup.get(el) === fresh) return;
-    childrenMarkup.set(el, fresh);
-    const region = slotOf(el);
-    if (!region?.hasAttribute(CHILDREN_ATTR)) return;
-    morph(region, fresh);
-    scan(region);
+    const box = childrenBoxes.get(el);
+    if (fresh !== null && box) refill(box, fresh);
 }
 const MARKUP_PROP = "$sfm";
-const markupHtml = new WeakMap();
+const markupBoxes = new WeakMap();
 const markupElements = new WeakMap();
-function IslandMarkup({ root, n }) {
-    const [html] = useState(()=>markupHtml.get(root)?.get(n) ?? "");
-    const region = useRef(null);
-    useEffect(()=>{
-        if (region.current) scan(region.current);
-    }, []);
-    return createElement("sf-s", {
-        ref: region,
-        [MARKUP_ATTR]: String(n),
-        dangerouslySetInnerHTML: {
-            __html: html
-        },
-        suppressHydrationWarning: true
-    });
-}
 function ownOf(el, selector) {
     return Array.from(el.querySelectorAll(selector)).find((found)=>found.parentElement?.closest("sf-i") === el) ?? null;
 }
@@ -117,35 +459,35 @@ function markupFor(el, n) {
     if (!elements) markupElements.set(el, elements = new Map());
     const made = elements.get(n);
     if (made) return made;
-    let html = markupHtml.get(el);
-    if (!html) markupHtml.set(el, html = new Map());
-    if (!html.has(n)) {
+    let boxes = markupBoxes.get(el);
+    if (!boxes) markupBoxes.set(el, boxes = new Map());
+    let box = boxes.get(n);
+    if (!box) {
         const placed = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
         const held = ownOf(el, `template[${MARKUP_ATTR}="${n}"]`);
-        html.set(n, placed?.innerHTML ?? held?.innerHTML ?? "");
+        box = placed ? boxOf(readPieces(placed.childNodes), placed.innerHTML) : held ? boxOf(readPieces(held.content.childNodes), held.innerHTML) : boxOf([], "");
         held?.remove();
+        boxes.set(n, box);
     }
-    const element = createElement(IslandMarkup, {
+    const element = createElement(PiecesRegion, {
         key: `m${n}`,
-        root: el,
-        n
+        box,
+        attrs: {
+            [MARKUP_ATTR]: String(n)
+        }
     });
     elements.set(n, element);
     return element;
 }
 function patchMarkup(el, fresh) {
     if (fresh === null) return;
-    let html = markupHtml.get(el);
-    if (!html) markupHtml.set(el, html = new Map());
+    let boxes = markupBoxes.get(el);
+    if (!boxes) markupBoxes.set(el, boxes = new Map());
     for (const [key, markup] of Object.entries(fresh)){
         const n = Number(key);
-        if (html.get(n) === markup) continue;
-        html.set(n, markup);
-        const region = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
-        if (region) {
-            morph(region, markup);
-            scan(region);
-        }
+        const box = boxes.get(n);
+        if (box) refill(box, markup);
+        else boxes.set(n, boxOf(piecesOf(markup), markup));
     }
 }
 function isMarker(value) {
@@ -232,7 +574,8 @@ export function Island({ when, mode, children }) {
             if (key !== null) regions.byKey.delete(key);
             return {
                 html: held.innerHTML,
-                inline: false
+                inline: false,
+                held
             };
         }
         return {
@@ -240,9 +583,11 @@ export function Island({ when, mode, children }) {
             inline: key === null || !regions.sources?.has(key)
         };
     });
+    const marker = claimed.held?.firstElementChild;
+    const inTree = mode === undefined && marker?.tagName === "SF-I" && registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.mount === reactMounter;
     useEffect(()=>{
         const region = node.current;
-        if (!region || !regions || claimed.inline) return;
+        if (!region || !regions || claimed.inline || inTree) return;
         const fresh = regions.gen !== consumed.current;
         consumed.current = regions.gen;
         const source = fresh && key !== null ? regions.sources?.get(key) ?? null : null;
@@ -262,21 +607,76 @@ export function Island({ when, mode, children }) {
         if (hoisted.current !== undefined) next[HOISTED_PROP] = hoisted.current;
         void patchIsland(mounted, next, null);
     });
-    if (claimed.inline) return createElement(Fragment, null, isValidElement(children) ? cloneElement(children, {
+    const child = isValidElement(children) ? cloneElement(children, {
         [KEY_PROP]: undefined
-    }) : children);
+    }) : children;
+    if (claimed.inline) return createElement(Fragment, null, child);
     const props = {
         ref: node,
-        "data-sf-island": "",
-        dangerouslySetInnerHTML: {
-            __html: claimed.html
-        },
-        suppressHydrationWarning: true
+        "data-sf-island": ""
     };
     if (key !== null) props["data-sf-region"] = key;
     if (when) props["data-sf-when"] = when;
     if (mode) props["data-sf-mode"] = mode;
-    return createElement("sf-s", props);
+    if (inTree && marker) {
+        const source = key !== null ? regions?.sources?.get(key) : undefined;
+        return createElement("sf-s", {
+            ...props,
+            suppressHydrationWarning: true
+        }, createElement(PlacedIsland, {
+            marker,
+            when,
+            source,
+            child
+        }));
+    }
+    return createElement("sf-s", {
+        ...props,
+        dangerouslySetInnerHTML: {
+            __html: claimed.html
+        },
+        suppressHydrationWarning: true
+    });
+}
+function PlacedIsland({ marker, when, source, child }) {
+    const node = useRef(null);
+    const at = useCallback(()=>node.current, []);
+    const [written] = useState(()=>markerProps(marker));
+    const [script] = useState(()=>written.script?.textContent ?? null);
+    useEffect(()=>{
+        if (node.current) markRendered(node.current);
+    });
+    const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
+    const timing = when ?? entry?.when ?? "load";
+    const find = ()=>node.current ?? marker;
+    const waiting = useTiming(serverRendered(marker) ? timing : "load", find);
+    const props = source?.props ?? written.props;
+    const render = ()=>islandScope(createElement(Fragment, null, child), props, marker, false, null, at);
+    const body = ()=>createElement(Timed, {
+            waiting
+        }, render());
+    const scriptElement = script === null ? null : createElement("script", {
+        type: "application/json",
+        "data-sf-props": marker.id,
+        dangerouslySetInnerHTML: {
+            __html: script
+        },
+        suppressHydrationWarning: true
+    });
+    if (!serverRendered(marker)) return createElement(Fragment, null, createElement(ClientOnly, {
+        marker,
+        at: node,
+        ready: ()=>timingFired(timing, find),
+        body: render
+    }), scriptElement);
+    const inner = timing === "load" ? body() : createElement(Suspense, {
+        fallback: null
+    }, body());
+    return createElement(Fragment, null, createElement("sf-i", {
+        ...markerAttrs(marker),
+        ref: node,
+        suppressHydrationWarning: true
+    }, inner), scriptElement);
 }
 let placed = 0;
 export function Mount({ module, props = {}, when }) {
@@ -406,7 +806,7 @@ export function useLinkStatus() {
     const island = useContext(IslandContext);
     const pending = useSyncExternalStore(subscribePendingLink, ()=>{
         const at = pendingLink();
-        return at !== null && at === (link ? link.current : island?.closest("a") ?? null);
+        return at !== null && at === (link ? link.current : island?.()?.closest("a") ?? null);
     }, ()=>false);
     return {
         pending
@@ -577,24 +977,32 @@ function withRegions(el, element, patched, sources) {
         value: state
     }, element);
 }
-function islandElement(component, props, el, patched, sources) {
-    const [own, hoisted, rendered] = splitHoisted(props);
+function islandElement(component, props, el, patched, sources, scope = {
+    at: ()=>el,
+    children: childrenFor(el)
+}) {
+    const [own] = splitHoisted(props);
     const element = createElement(component, {
         ...withMarkup(own, el),
         ...slotPropsFor(el)
-    }, childrenFor(el));
+    }, scope.children);
+    return islandScope(element, props, el, patched, sources, scope.at);
+}
+function islandScope(element, props, el, patched, sources, at) {
+    const [, hoisted, rendered] = splitHoisted(props);
     const under = createElement(RenderedStoreContext.Provider, {
         value: rendered
     }, withHoisted(hoisted, element));
     return createElement(IslandContext.Provider, {
-        value: el
+        value: at
     }, createElement(Mounting, {
-        el
+        at
     }, withRegions(el, under, patched, sources)));
 }
-function Mounting({ el, children }) {
+function Mounting({ at, children }) {
     useEffect(()=>{
-        scan(el);
+        const el = at();
+        if (el) scan(el);
     });
     return createElement(Fragment, null, children);
 }
@@ -644,7 +1052,11 @@ function markActivity(el) {
     el.insertBefore(el.ownerDocument.createComment("&"), el.firstChild);
     el.appendChild(el.ownerDocument.createComment("/&"));
 }
-export const reactMounter = (component, props, el, hydrate)=>{
+export const reactMounter = (component, props, el, hydrate, pieces)=>{
+    const region = childrenRegion(el);
+    if (pieces !== null) childrenBoxes.set(el, boxOf(pieces, region?.innerHTML ?? ""));
+    if (region instanceof HTMLTemplateElement) region.remove();
+    if (hydrate) bracketNested(el, pieces);
     const element = islandElement(component, props, el, false);
     hidden.delete(el);
     if (hydrate) {
@@ -718,5 +1130,6 @@ export const reactUnmounter = (handle)=>{
     }
     void box.committed.then(()=>root.unmount());
 };
+rendersNested(reactMounter);
 export { createContext, useContext as use };
 //# sourceMappingURL=react.js.map

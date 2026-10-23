@@ -3,7 +3,7 @@ import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { settlePlaced, unplaced } from "./places.js";
 import { enablePwa } from "./pwa.js";
-import { REGION_KEY, SSR_ATTR } from "./render.js";
+import { CHILDREN_ATTR, MARKUP_ATTR, REGION_KEY, SSR_ATTR } from "./render.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef } from "./values.js";
@@ -74,6 +74,143 @@ export function markerProps(marker) {
         encoded
     };
 }
+const nesting = new WeakSet();
+export function rendersNested(mount) {
+    nesting.add(mount);
+}
+export function nestsIn(outer, inner) {
+    return outer !== undefined && inner !== undefined && outer.mount === inner.mount && nesting.has(outer.mount);
+}
+export function childrenRegion(el) {
+    for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))){
+        if (region.parentElement?.closest("sf-i") === el) return region;
+    }
+    return null;
+}
+export function islandChildren(el) {
+    const region = childrenRegion(el);
+    if (!region) return null;
+    return readPieces(region instanceof HTMLTemplateElement ? region.content.childNodes : region.childNodes);
+}
+export function piecesOf(html) {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    return readPieces(template.content.childNodes);
+}
+function timingOf(marker, entry) {
+    const around = marker.parentElement?.closest("sf-s[data-sf-when], sf-i");
+    const placed = around?.tagName === "SF-S" ? around.getAttribute("data-sf-when") : null;
+    return placed ?? entry?.when ?? "load";
+}
+export function readPieces(nodes) {
+    const out = [];
+    const list = Array.from(nodes);
+    for(let i = 0; i < list.length; i++){
+        const node = list[i];
+        if (node.nodeType === 3) {
+            out.push({
+                kind: "text",
+                text: node.textContent ?? ""
+            });
+            continue;
+        }
+        if (node.nodeType === 8) {
+            out.push({
+                kind: "comment",
+                text: node.data
+            });
+            continue;
+        }
+        if (!(node instanceof Element)) continue;
+        const moduleId = node.tagName === "SF-I" ? node.getAttribute("data-sf-module") : null;
+        if (moduleId === null) {
+            const attrs = {};
+            for (const attr of Array.from(node.attributes))attrs[attr.name] = attr.value;
+            const inner = node instanceof HTMLTemplateElement ? node.content.childNodes : node.childNodes;
+            out.push({
+                kind: "element",
+                node,
+                tag: node.tagName.toLowerCase(),
+                attrs,
+                children: readPieces(inner)
+            });
+            continue;
+        }
+        const { script, props, encoded } = markerProps(node);
+        if (script && list[i + 1] === script) i++;
+        const entry = islands.get(moduleId);
+        out.push({
+            kind: "island",
+            marker: node,
+            script,
+            moduleId,
+            entry,
+            props,
+            encoded,
+            when: timingOf(node, entry),
+            ssr: serverRendered(node),
+            children: islandChildren(node)
+        });
+    }
+    return out;
+}
+function prepareNested(entry, el, children) {
+    const work = [];
+    const need = (inner, when)=>{
+        if (inner && nestsIn(entry, inner) && when === "load" && !loaded.has(inner)) work.push(inner.loader().then((mod)=>void loaded.set(inner, mod)));
+    };
+    for (const marker of Array.from(el.querySelectorAll("sf-i"))){
+        const inner = islands.get(marker.getAttribute("data-sf-module") ?? "");
+        need(inner, timingOf(marker, inner));
+    }
+    const walk = (pieces)=>{
+        for (const piece of pieces){
+            if (piece.kind === "element") walk(piece.children);
+            if (piece.kind !== "island") continue;
+            need(piece.entry, piece.when);
+            if (nestsIn(entry, piece.entry)) work.push(resolveModuleRefs(piece.props));
+            if (piece.children) walk(piece.children);
+        }
+    };
+    if (children) walk(children);
+    return Promise.all(work);
+}
+const loaded = new WeakMap();
+export function loadedModule(entry) {
+    return loaded.get(entry);
+}
+export function loadModule(entry) {
+    return entry.loader().then((mod)=>{
+        loaded.set(entry, mod);
+        return mod;
+    });
+}
+export function unmarked(html) {
+    if (!html.includes(SCHEDULED)) return html;
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    for (const marker of Array.from(template.content.querySelectorAll(`sf-i[${SCHEDULED}]`))){
+        marker.removeAttribute(SCHEDULED);
+        marker.removeAttribute(MOUNTED);
+    }
+    return template.innerHTML;
+}
+export function markRendered(el) {
+    el.setAttribute(SCHEDULED, "");
+    el.setAttribute(MOUNTED, "");
+}
+function inParentTree(el, entry) {
+    const above = el.parentElement?.closest("sf-i");
+    if (!above || !entry || !nesting.has(entry.mount)) return false;
+    if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
+    if (above.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
+    for(let at = el.parentElement; at && at !== above; at = at.parentElement){
+        if (at.tagName === "SF-S" && !at.hasAttribute("data-sf-island") && !at.hasAttribute(CHILDREN_ATTR) && !at.hasAttribute(MARKUP_ATTR)) return false;
+    }
+    const outer = islands.get(above.getAttribute("data-sf-module") ?? "");
+    if (!outer) return null;
+    return nestsIn(outer, entry);
+}
 export const defineMounter = ()=>undefined;
 export function serverRendered(el) {
     return el.hasAttribute(SSR_ATTR);
@@ -98,14 +235,16 @@ function mountNow(entry, moduleId, el, props) {
         children: null,
         markup: null
     };
+    const children = islandChildren(el);
     const ready = Promise.all([
         entry.loader(),
-        resolveModuleRefs(props)
+        resolveModuleRefs(props),
+        prepareNested(entry, el, children)
     ]);
     const turn = lastMount.then(()=>ready);
     island.handle = turn.then(([mod, resolved])=>{
         island.props = resolved;
-        return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate);
+        return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate, children);
     }).then((value)=>{
         if (island.gone) return undefined;
         island.root = value;
@@ -250,6 +389,7 @@ export function scan(root) {
         const moduleId = el.getAttribute("data-sf-module");
         if (!moduleId) continue;
         if (awaitingAnAncestor(el)) continue;
+        if (inParentTree(el, islands.get(moduleId)) !== false) continue;
         if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
             el.setAttribute(SCHEDULED, "");
             const raw = {

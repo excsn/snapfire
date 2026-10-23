@@ -1,8 +1,8 @@
 import * as ReactModule from "react";
-import { cloneElement, createContext, createElement, Fragment, isValidElement, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
+import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { discard, islandState, MountTiming, Mounter, Patcher, patchIsland, scan, type Pauser, type Props, type Unmounter } from "./boot.js";
+import { childrenRegion, discard, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -41,82 +41,348 @@ function adopted(slot: Element | null, name?: string): ReactElement {
   return createElement("sf-s", props);
 }
 
-/** The markup an island's children region holds now: what the server wrote, then what each patch gave it. */
-const childrenMarkup = new WeakMap<Element, string>();
-
-/** An island's children: an `<sf-s data-sf-children>` whose markup React sets once per instance and never reconciles. A patch morphs the region in place, so an island nested in it keeps its DOM and its state. A component that stops rendering its children and renders them again gets the latest markup. The islands in it are then mounted afresh. */
-function IslandChildren({ root }: { root: Element }): ReactElement {
-  const [html] = useState(() => childrenMarkup.get(root) ?? "");
-  const region = useRef<Element | null>(null);
-  useEffect(() => {
-    if (region.current) scan(region.current);
-  }, []);
-  return createElement("sf-s", { ref: region, [CHILDREN_ATTR]: "", dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
+/** What a children region or a markup prop region shows: the pieces it renders and the markup they were read from, which a patch replaces. */
+interface RegionBox {
+  pieces: Piece[];
+  html: string;
+  listeners: Set<() => void>;
 }
+
+function boxOf(pieces: Piece[], html: string): RegionBox {
+  return { pieces, html, listeners: new Set() };
+}
+
+function refill(box: RegionBox, html: string): void {
+  if (box.html === html) return;
+  box.html = html;
+  box.pieces = piecesOf(html);
+  for (const listener of Array.from(box.listeners)) listener();
+}
+
+/** A region of an island's markup that holds what the server placed in it: its children or a markup prop. Pieces that hold a React island render in this tree, that island included; a region that holds none is markup React sets once and a patch morphs. */
+function PiecesRegion({ box, attrs }: { box: RegionBox; attrs: { [name: string]: string } }): ReactElement {
+  const subscribe = useCallback((listener: () => void) => {
+    box.listeners.add(listener);
+    return () => box.listeners.delete(listener);
+  }, [box]);
+  const pieces = useSyncExternalStore(subscribe, () => box.pieces, () => box.pieces);
+  const region = useRef<Element | null>(null);
+  const tree = pieces.some(holdsOwn);
+  useEffect(() => {
+    if (tree && region.current) scan(region.current);
+  });
+  if (!tree) return createElement(Opaque, { key: "opaque", tag: "sf-s", attrs, html: box.html });
+  return createElement("sf-s", { key: "tree", ...attrs, ref: region, suppressHydrationWarning: true }, ...nodesOf(pieces));
+}
+
+/** An element whose markup React sets once and never reconciles, scanned for the islands inside it. New markup is morphed in, so an island inside keeps its DOM and its state. Taken away, it releases those islands. */
+function Opaque({ tag, attrs, html }: { tag: string; attrs: { [prop: string]: unknown }; html: string }): ReactElement {
+  const [first] = useState(() => unmarked(html));
+  const shown = useRef(html);
+  const node = useRef<Element | null>(null);
+  useReleasing(node);
+  useEffect(() => {
+    const el = node.current;
+    if (!el) return;
+    if (html !== shown.current) {
+      shown.current = html;
+      morph(el, html);
+    }
+    scan(el);
+  }, [html]);
+  return createElement(tag, { ...attrs, ref: node, dangerouslySetInnerHTML: { __html: first }, suppressHydrationWarning: true });
+}
+
+/** Whether a piece is or holds an island React renders in this tree. */
+function holdsOwn(piece: Piece): boolean {
+  if (piece.kind === "island") return piece.entry?.mount === reactMounter;
+  return piece.kind === "element" && piece.children.some(holdsOwn);
+}
+
+/** HTML attribute names whose React prop is spelled otherwise. */
+const PROP_NAMES: { [attr: string]: string } = {
+  class: "className",
+  for: "htmlFor",
+  tabindex: "tabIndex",
+  readonly: "readOnly",
+  maxlength: "maxLength",
+  minlength: "minLength",
+  colspan: "colSpan",
+  rowspan: "rowSpan",
+  autocomplete: "autoComplete",
+  autofocus: "autoFocus",
+  crossorigin: "crossOrigin",
+  contenteditable: "contentEditable",
+  enctype: "encType",
+  formaction: "formAction",
+  formnovalidate: "formNoValidate",
+  novalidate: "noValidate",
+  srcset: "srcSet",
+  srcdoc: "srcDoc",
+  "http-equiv": "httpEquiv",
+  "accept-charset": "acceptCharset",
+  itemprop: "itemProp",
+  itemscope: "itemScope",
+  itemtype: "itemType",
+  usemap: "useMap",
+  datetime: "dateTime",
+  playsinline: "playsInline",
+  referrerpolicy: "referrerPolicy",
+  spellcheck: "spellCheck",
+  inputmode: "inputMode",
+  enterkeyhint: "enterKeyHint",
+  fetchpriority: "fetchPriority",
+  allowfullscreen: "allowFullScreen",
+  autoplay: "autoPlay",
+  nomodule: "noModule",
+  popovertarget: "popoverTarget",
+  "xlink:href": "xlinkHref",
+  "xml:lang": "xmlLang",
+};
+
+/** HTML attributes React takes as booleans. */
+const BOOLEAN_PROPS = new Set(["hidden", "disabled", "selected", "multiple", "readonly", "required", "open", "autofocus", "async", "defer", "novalidate", "formnovalidate", "allowfullscreen", "controls", "loop", "muted", "autoplay", "playsinline", "default", "reversed", "inert", "itemscope", "nomodule"]);
+
+const VOID_TAGS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+
+/** An element's attributes as the props React writes them back with. An `on…` attribute is left out, since React takes a handler and never a string. */
+function reactProps(tag: string, attrs: { [name: string]: string }, svg: boolean): { [prop: string]: unknown } {
+  const props: { [prop: string]: unknown } = {};
+  for (const [name, value] of Object.entries(attrs)) {
+    if (name.startsWith("on")) continue;
+    if (name === "style") props.style = styleOf(value);
+    else if (name === "value" && (tag === "input" || tag === "select" || tag === "textarea")) props.defaultValue = value;
+    else if (name === "checked") props.defaultChecked = true;
+    else if (BOOLEAN_PROPS.has(name)) props[PROP_NAMES[name] ?? name] = true;
+    else if (PROP_NAMES[name]) props[PROP_NAMES[name]] = value;
+    else if (svg && name.includes("-") && !name.startsWith("data-") && !name.startsWith("aria-")) props[name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = value;
+    else props[name] = value;
+  }
+  return props;
+}
+
+function styleOf(text: string): { [property: string]: string } {
+  const out: { [property: string]: string } = {};
+  for (const part of text.split(";")) {
+    const at = part.indexOf(":");
+    if (at < 0) continue;
+    const name = part.slice(0, at).trim();
+    out[name.startsWith("--") ? name : name.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())] = part.slice(at + 1).trim();
+  }
+  return out;
+}
+
+/** Pieces as React nodes: an element on the way to a React island as an element, one holding none as `Opaque`, a React island in this tree and another framework's island as its marker for the boot runtime to mount. A comment is left out, as React's hydration skips one. */
+function nodesOf(pieces: Piece[], svg = false): ReactNode[] {
+  const out: ReactNode[] = [];
+  pieces.forEach((piece, key) => {
+    if (piece.kind === "text") out.push(piece.text);
+    else if (piece.kind === "island") out.push(piece.entry?.mount === reactMounter ? createElement(NestedIsland, { key: `${key}:${piece.moduleId}`, piece }) : createElement(Foreign, { key: `${key}:${piece.moduleId}`, piece }));
+    else if (piece.kind === "element") {
+      const inSvg = svg || piece.tag === "svg";
+      const props = { ...reactProps(piece.tag, piece.attrs, inSvg), key };
+      if (VOID_TAGS.has(piece.tag)) out.push(createElement(piece.tag, props));
+      else if (piece.tag === "textarea") out.push(createElement("textarea", { ...props, defaultValue: piece.node.textContent ?? "" }));
+      else if (piece.children.some(holdsOwn)) out.push(createElement(piece.tag, props, ...nodesOf(piece.children, inSvg)));
+      else out.push(createElement(Opaque, { key, tag: piece.tag, attrs: props, html: piece.node.innerHTML }));
+    }
+  });
+  return out;
+}
+
+/** A marker's attributes as the server wrote them, without the marks the boot runtime adds. */
+function markerAttrs(marker: Element): { [name: string]: string } {
+  const attrs: { [name: string]: string } = {};
+  for (const attr of Array.from(marker.attributes)) {
+    if (attr.name !== "data-sf-scheduled" && attr.name !== "data-sf-mounted") attrs[attr.name] = attr.value;
+  }
+  return attrs;
+}
+
+/** An island's props script, rendered back as the server wrote it. */
+function propsScript(piece: IslandPiece): ReactElement | null {
+  if (!piece.script) return null;
+  return createElement("script", { type: "application/json", "data-sf-props": piece.marker.id, dangerouslySetInnerHTML: { __html: piece.script.textContent ?? "" }, suppressHydrationWarning: true });
+}
+
+/** Releases the islands inside the element `node` holds when React takes it away or hides it, so their frameworks end them or pause them. They are marked for a scan to mount again if the element comes back. */
+function useReleasing(node: { current: Element | null }): void {
+  useEffect(() => {
+    const el = node.current;
+    return () => {
+      if (el) release(el);
+    };
+  }, []);
+}
+
+/** Another framework's island among the pieces: its marker with the markup the server wrote, mounted by the boot runtime. New props reach a mounted one as a patch. */
+function Foreign({ piece }: { piece: IslandPiece }): ReactElement {
+  const node = useRef<Element | null>(null);
+  const [html] = useState(() => unmarked(piece.marker.innerHTML));
+  useReleasing(node);
+  const first = useRef(piece);
+  useEffect(() => {
+    const el = node.current;
+    if (!el || piece === first.current) return;
+    first.current = piece;
+    if (el.hasAttribute("data-sf-scheduled")) void patchIsland(el, piece.props, null, childrenRegion(piece.marker)?.innerHTML ?? null, piece.encoded);
+  }, [piece]);
+  return createElement(Fragment, null, createElement("sf-i", { ...markerAttrs(piece.marker), ref: node, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true }), propsScript(piece));
+}
+
+/** A promise a render suspends on, carrying the `status` React reads off a thenable once it settles. */
+type Waiting = Promise<void> & { status?: string; value?: undefined };
+
+/** What an island timed later than load waits on, null for one timed on load. Held by the island's own component, which commits around the boundary its body suspends in, so a render that replays or a patch that reads the island again takes the same promise. */
+function useTiming(when: MountTiming, find: () => Element | null): Waiting | null {
+  const [waiting] = useState<Waiting | null>(() => {
+    if (when === "load") return null;
+    const made: Waiting = timingFired(when, find);
+    void made.then(() => Object.assign(made, { status: "fulfilled", value: undefined }));
+    return made;
+  });
+  return waiting;
+}
+
+/** Suspends until `waiting` settles. */
+function Timed({ waiting, children }: { waiting: Waiting | null; children?: ReactNode }): ReactNode {
+  if (waiting === null) return children;
+  if (reactUse) reactUse(waiting);
+  else if (waiting.status !== "fulfilled") throw waiting;
+  return children;
+}
+
+/** Settles when an island's timing fires: at once on load, once its element is in view or once the main thread is idle. */
+function timingFired(when: MountTiming, find: () => Element | null): Promise<void> {
+  if (when === "load") return Promise.resolve();
+  if (when === "idle") return new Promise((resolve) => ((globalThis as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? setTimeout)(() => resolve()));
+  return new Promise((resolve) => {
+    const observe = (el: Element | null) => {
+      if (!el || typeof IntersectionObserver === "undefined") return resolve();
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(el);
+    };
+    const now = find();
+    if (now) observe(now);
+    else setTimeout(() => observe(find()));
+  });
+}
+
+/** The component of a registered React island, loaded as React renders it, by entry. */
+const lazies = new WeakMap<IslandEntry, ComponentType<object>>();
+
+function componentFor(entry: IslandEntry): ComponentType<object> {
+  const ready = loadedModule(entry);
+  if (ready !== undefined) return ready as ComponentType<object>;
+  let made = lazies.get(entry);
+  if (!made) {
+    made = lazy(() => loadModule(entry).then((component) => ({ default: component as ComponentType<object> })));
+    lazies.set(entry, made);
+  }
+  return made;
+}
+
+/** An island the server left to the browser: its markup kept as the server wrote it while React hydrates around it, then, once `ready` settles, what `body` renders, with no boundary of its own. */
+function ClientOnly({ marker, at, ready, body }: { marker: Element; at: { current: Element | null }; ready: () => Promise<unknown>; body: () => ReactNode }): ReactElement {
+  const [html] = useState(marker.innerHTML);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void ready().then(() => {
+      if (live) setMounted(true);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
+  if (!mounted) return createElement("sf-i", { ...markerAttrs(marker), ref: at, dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
+  return createElement("sf-i", { ...markerAttrs(marker), ref: at }, body());
+}
+
+/** A React island among the pieces, rendered in this tree: the providers around it reach it and an error or a suspension inside it reaches the boundaries above. Its own children render the same way. A server-rendered one timed later than load sits behind a boundary of its own, which the server's markup is bracketed for before hydration. */
+function NestedIsland({ piece }: { piece: IslandPiece }): ReactElement {
+  const node = useRef<Element | null>(null);
+  const at = useCallback(() => node.current, []);
+  const box = useMemo(() => (piece.children === null ? null : boxOf(piece.children, childrenRegion(piece.marker)?.innerHTML ?? "")), [piece]);
+  const entry = piece.entry as IslandEntry;
+  const [component] = useState(() => componentFor(entry));
+  const [id] = useState(piece.marker.id);
+  const find = () => node.current ?? document.getElementById(id);
+  const waiting = useTiming(piece.ssr ? piece.when : "load", find);
+  useEffect(() => {
+    if (node.current) markRendered(node.current);
+  });
+  const childrenElement = box === null ? undefined : createElement(PiecesRegion, { box, attrs: { [CHILDREN_ATTR]: "" } });
+  const render = () => islandElement(component, piece.props, piece.marker, false, null, { at, children: childrenElement });
+  const body = () => createElement(Timed, { waiting }, render());
+  const script = propsScript(piece);
+  if (!piece.ssr) return createElement(Fragment, null, createElement(ClientOnly, { marker: piece.marker, at: node, ready: () => timingFired(piece.when, find).then(() => loadModule(entry)), body: render }), script);
+  const inner = piece.when === "load" && loadedModule(entry) !== undefined ? body() : createElement(Suspense, { fallback: null }, body());
+  return createElement(Fragment, null, createElement("sf-i", { ...markerAttrs(piece.marker), ref: node, suppressHydrationWarning: true }, inner), script);
+}
+
+/** Brackets the markup of each React island under `el` that renders in its tree behind a boundary of its own in the comments React reads as a completed Suspense boundary, so hydration finds the boundary and leaves the markup as it is until the boundary resolves. */
+function bracketNested(el: Element, children: Piece[] | null): void {
+  const bracket = (marker: Element) => {
+    if (!marker.firstChild || marker.firstChild.nodeType === 8) return;
+    marker.insertBefore(marker.ownerDocument.createComment("$"), marker.firstChild);
+    marker.appendChild(marker.ownerDocument.createComment("/$"));
+  };
+  const walk = (pieces: Piece[]) => {
+    for (const piece of pieces) {
+      if (piece.kind === "element") walk(piece.children);
+      if (piece.kind !== "island" || piece.entry?.mount !== reactMounter) continue;
+      if (piece.ssr && !(piece.when === "load" && loadedModule(piece.entry) !== undefined)) bracket(piece.marker);
+      if (piece.children) walk(piece.children);
+    }
+  };
+  if (children) walk(children);
+  for (const region of Array.from(el.querySelectorAll("sf-s[data-sf-island]"))) {
+    const marker = region.firstElementChild;
+    if (marker?.tagName !== "SF-I" || !serverRendered(marker)) continue;
+    const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
+    if (entry?.mount !== reactMounter) continue;
+    const when = (region.getAttribute("data-sf-when") as MountTiming | null) ?? entry.when ?? "load";
+    if (when !== "load") bracket(marker);
+  }
+}
+
+/** Each root's children, as boot read them when it mounted the root. */
+const childrenBoxes = new WeakMap<Element, RegionBox>();
 
 /** The child element a layout or an island with children receives, created once per root. */
 const children = new WeakMap<Element, ReactElement>();
 
-/** The inert `<template data-sf-children>` the server writes after an island's markup when its first render did not place its children: under `el` and not inside a nested island. */
-function heldChildrenOf(el: Element): Element | null {
-  for (const held of Array.from(el.querySelectorAll(`template[${CHILDREN_ATTR}]`))) {
-    if (held.parentElement?.closest("sf-i") === el) return held;
-  }
-  return null;
-}
-
 function childrenFor(el: Element): ReactElement | undefined {
-  const held = children.get(el);
-  if (held) return held;
-  const slot = slotOf(el);
-  if (!slot) {
-    const template = heldChildrenOf(el);
-    if (!template) return undefined;
-    childrenMarkup.set(el, template.innerHTML);
-    template.remove();
-    const element = createElement(IslandChildren, { root: el });
-    children.set(el, element);
-    return element;
-  }
-  let element: ReactElement;
-  if (slot.hasAttribute(CHILDREN_ATTR)) {
-    childrenMarkup.set(el, slot.innerHTML);
-    element = createElement(IslandChildren, { root: el });
-  } else {
-    element = adopted(slot);
-  }
+  const made = children.get(el);
+  if (made) return made;
+  const box = childrenBoxes.get(el);
+  const slot = box ? null : slotOf(el);
+  if (!box && (!slot || slot.hasAttribute(CHILDREN_ATTR))) return undefined;
+  const element = box ? createElement(PiecesRegion, { box, attrs: { [CHILDREN_ATTR]: "" } }) : adopted(slot);
   children.set(el, element);
   return element;
 }
 
-/** Brings an island's children region to the markup a patch gave it: morphed in place while the component renders it, remembered for when it next does. */
+/** Brings a root's children to the markup a patch gave them. */
 function patchChildren(el: Element, fresh: string | null): void {
-  if (fresh === null || !childrenMarkup.has(el) || childrenMarkup.get(el) === fresh) return;
-  childrenMarkup.set(el, fresh);
-  const region = slotOf(el);
-  if (!region?.hasAttribute(CHILDREN_ATTR)) return;
-  morph(region, fresh);
-  scan(region);
+  const box = childrenBoxes.get(el);
+  if (fresh !== null && box) refill(box, fresh);
 }
 
 /** The key of a marker the server puts in an island's props for a markup value. */
 const MARKUP_PROP = "$sfm";
 
-/** The markup each markup prop region of a root holds now, by region number: what the server wrote, then what each patch gave it. */
-const markupHtml = new WeakMap<Element, Map<number, string>>();
+/** Each markup prop region of a root, by region number: what the server wrote, then what each patch gave it. */
+const markupBoxes = new WeakMap<Element, Map<number, RegionBox>>();
 
 /** The element each markup prop of a root is, created once per region so a re-render never replaces what React set. */
 const markupElements = new WeakMap<Element, Map<number, ReactElement>>();
-
-/** A markup prop: an `<sf-s data-sf-m>` whose markup React sets once per instance and never reconciles, scanned for the islands inside it. A patch morphs it in place. */
-function IslandMarkup({ root, n }: { root: Element; n: number }): ReactElement {
-  const [html] = useState(() => markupHtml.get(root)?.get(n) ?? "");
-  const region = useRef<Element | null>(null);
-  useEffect(() => {
-    if (region.current) scan(region.current);
-  }, []);
-  return createElement("sf-s", { ref: region, [MARKUP_ATTR]: String(n), dangerouslySetInnerHTML: { __html: html }, suppressHydrationWarning: true });
-}
 
 /** The `selector` under `el` that is not inside an island nested in it. */
 function ownOf(el: Element, selector: string): Element | null {
@@ -128,33 +394,31 @@ function markupFor(el: Element, n: number): ReactElement {
   if (!elements) markupElements.set(el, (elements = new Map()));
   const made = elements.get(n);
   if (made) return made;
-  let html = markupHtml.get(el);
-  if (!html) markupHtml.set(el, (html = new Map()));
-  if (!html.has(n)) {
+  let boxes = markupBoxes.get(el);
+  if (!boxes) markupBoxes.set(el, (boxes = new Map()));
+  let box = boxes.get(n);
+  if (!box) {
     const placed = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
-    const held = ownOf(el, `template[${MARKUP_ATTR}="${n}"]`);
-    html.set(n, placed?.innerHTML ?? held?.innerHTML ?? "");
+    const held = ownOf(el, `template[${MARKUP_ATTR}="${n}"]`) as HTMLTemplateElement | null;
+    box = placed ? boxOf(readPieces(placed.childNodes), placed.innerHTML) : held ? boxOf(readPieces(held.content.childNodes), held.innerHTML) : boxOf([], "");
     held?.remove();
+    boxes.set(n, box);
   }
-  const element = createElement(IslandMarkup, { key: `m${n}`, root: el, n });
+  const element = createElement(PiecesRegion, { key: `m${n}`, box, attrs: { [MARKUP_ATTR]: String(n) } });
   elements.set(n, element);
   return element;
 }
 
-/** Brings each markup prop region of a root to the markup a patch gave it: morphed in place where the island renders it, remembered for when it next does. */
+/** Brings each markup prop region of a root to the markup a patch gave it. */
 function patchMarkup(el: Element, fresh: { [n: string]: string } | null): void {
   if (fresh === null) return;
-  let html = markupHtml.get(el);
-  if (!html) markupHtml.set(el, (html = new Map()));
+  let boxes = markupBoxes.get(el);
+  if (!boxes) markupBoxes.set(el, (boxes = new Map()));
   for (const [key, markup] of Object.entries(fresh)) {
     const n = Number(key);
-    if (html.get(n) === markup) continue;
-    html.set(n, markup);
-    const region = ownOf(el, `sf-s[${MARKUP_ATTR}="${n}"]`);
-    if (region) {
-      morph(region, markup);
-      scan(region);
-    }
+    const box = boxes.get(n);
+    if (box) refill(box, markup);
+    else boxes.set(n, boxOf(piecesOf(markup), markup));
   }
 }
 
@@ -268,7 +532,7 @@ export function Island({ when, mode, children }: IslandProps): ReactElement {
   const node = useRef<Element | null>(null);
   const consumed = useRef(-1);
   const hoisted = useRef<unknown>(undefined);
-  const [claimed] = useState<{ html: string; inline: boolean }>(() => {
+  const [claimed] = useState<{ html: string; inline: boolean; held?: Element }>(() => {
     if (!regions) return { html: "", inline: false };
     // A region belongs to the placement that first took it, for as long as
     // that placement lives. A placement added later takes its markup from the
@@ -276,14 +540,17 @@ export function Island({ when, mode, children }: IslandProps): ReactElement {
     const held = key === null ? regions.slots[regions.next++] : regions.byKey.get(key);
     if (held) {
       if (key !== null) regions.byKey.delete(key);
-      return { html: held.innerHTML, inline: false };
+      return { html: held.innerHTML, inline: false, held };
     }
     return { html: "", inline: key === null || !regions.sources?.has(key) };
   });
 
+  const marker = claimed.held?.firstElementChild;
+  const inTree = mode === undefined && marker?.tagName === "SF-I" && registeredIslands().get(marker.getAttribute("data-sf-module") ?? "")?.mount === reactMounter;
+
   useEffect(() => {
     const region = node.current;
-    if (!region || !regions || claimed.inline) return;
+    if (!region || !regions || claimed.inline || inTree) return;
     const fresh = regions.gen !== consumed.current;
     consumed.current = regions.gen;
     const source = fresh && key !== null ? (regions.sources?.get(key) ?? null) : null;
@@ -304,12 +571,39 @@ export function Island({ when, mode, children }: IslandProps): ReactElement {
     void patchIsland(mounted, next, null);
   });
 
-  if (claimed.inline) return createElement(Fragment, null, isValidElement(children) ? cloneElement(children, { [KEY_PROP]: undefined } as never) : children);
-  const props: { [key: string]: unknown } = { ref: node, "data-sf-island": "", dangerouslySetInnerHTML: { __html: claimed.html }, suppressHydrationWarning: true };
+  const child = isValidElement(children) ? cloneElement(children, { [KEY_PROP]: undefined } as never) : children;
+  if (claimed.inline) return createElement(Fragment, null, child);
+  const props: { [key: string]: unknown } = { ref: node, "data-sf-island": "" };
   if (key !== null) props["data-sf-region"] = key;
   if (when) props["data-sf-when"] = when;
   if (mode) props["data-sf-mode"] = mode;
-  return createElement("sf-s", props);
+  if (inTree && marker) {
+    const source = key !== null ? regions?.sources?.get(key) : undefined;
+    return createElement("sf-s", { ...props, suppressHydrationWarning: true }, createElement(PlacedIsland, { marker, when, source, child }));
+  }
+  return createElement("sf-s", { ...props, dangerouslySetInnerHTML: { __html: claimed.html }, suppressHydrationWarning: true });
+}
+
+/** A React island an island's own markup placed, rendered in that island's tree: its props are the ones the parent just computed. What it has of its own (its hoisted table and its store values) comes from the props the server wrote or from the payload behind the latest patch. */
+function PlacedIsland({ marker, when, source, child }: { marker: Element; when: MountTiming | undefined; source: RegionSource | undefined; child: ReactNode }): ReactElement {
+  const node = useRef<Element | null>(null);
+  const at = useCallback(() => node.current, []);
+  const [written] = useState(() => markerProps(marker));
+  const [script] = useState(() => written.script?.textContent ?? null);
+  useEffect(() => {
+    if (node.current) markRendered(node.current);
+  });
+  const entry = registeredIslands().get(marker.getAttribute("data-sf-module") ?? "");
+  const timing = when ?? entry?.when ?? "load";
+  const find = () => node.current ?? marker;
+  const waiting = useTiming(serverRendered(marker) ? timing : "load", find);
+  const props = (source?.props ?? written.props) as object;
+  const render = () => islandScope(createElement(Fragment, null, child), props, marker, false, null, at);
+  const body = () => createElement(Timed, { waiting }, render());
+  const scriptElement = script === null ? null : createElement("script", { type: "application/json", "data-sf-props": marker.id, dangerouslySetInnerHTML: { __html: script }, suppressHydrationWarning: true });
+  if (!serverRendered(marker)) return createElement(Fragment, null, createElement(ClientOnly, { marker, at: node, ready: () => timingFired(timing, find), body: render }), scriptElement);
+  const inner = timing === "load" ? body() : createElement(Suspense, { fallback: null }, body());
+  return createElement(Fragment, null, createElement("sf-i", { ...markerAttrs(marker), ref: node, suppressHydrationWarning: true }, inner), scriptElement);
 }
 
 /** Ids for the markers this module writes, which no server rendered. */
@@ -462,8 +756,8 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 /** The anchor a `Link` rendered, for `useLinkStatus` in a component inside it. */
 const LinkContext = createContext<{ readonly current: Element | null } | null>(null);
 
-/** The element an island is mounted in, for `useLinkStatus` in an island the server placed inside a link. */
-const IslandContext = createContext<Element | null>(null);
+/** The element an island is in, for `useLinkStatus` in an island the server placed inside a link. */
+const IslandContext = createContext<(() => Element | null) | null>(null);
 
 /** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes, `match` as the `data-sf-link` the navigator re-reads after each navigation and `current` as `data-sf-current` when it is the document's. */
 export function Link(props: LinkProps): ReactElement {
@@ -479,7 +773,7 @@ export function useLinkStatus(): { pending: boolean } {
     subscribePendingLink,
     () => {
       const at = pendingLink();
-      return at !== null && at === (link ? link.current : (island?.closest("a") ?? null));
+      return at !== null && at === (link ? link.current : (island?.()?.closest("a") ?? null));
     },
     () => false,
   );
@@ -658,17 +952,31 @@ function withRegions(el: Element, element: ReactElement, patched: boolean, sourc
   return createElement(RegionsContext.Provider, { value: state }, element);
 }
 
-function islandElement(component: unknown, props: object, el: Element, patched: boolean, sources?: Map<string, RegionSource> | null): ReactElement {
-  const [own, hoisted, rendered] = splitHoisted(props);
-  const element = createElement(component as never, { ...(withMarkup(own, el) as object), ...slotPropsFor(el) } as never, childrenFor(el));
-  const under = createElement(RenderedStoreContext.Provider, { value: rendered }, withHoisted(hoisted, element));
-  return createElement(IslandContext.Provider, { value: el }, createElement(Mounting, { el }, withRegions(el, under, patched, sources)));
+/** Where an island renders: the element it is in now, which for one rendered in another's tree is known once React has placed it. Also its children element. */
+interface Scope {
+  at: () => Element | null;
+  children: ReactElement | undefined;
 }
 
-/** Scans the regions the root around it has built. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */
-function Mounting({ el, children }: { el: Element; children?: ReactNode }): ReactElement {
+/** `component` with `props` as the island at `el` renders it, under the providers each island has of its own. `el` is the marker as the server wrote it, which the island's regions are read from. */
+function islandElement(component: unknown, props: object, el: Element, patched: boolean, sources?: Map<string, RegionSource> | null, scope: Scope = { at: () => el, children: childrenFor(el) }): ReactElement {
+  const [own] = splitHoisted(props);
+  const element = createElement(component as never, { ...(withMarkup(own, el) as object), ...slotPropsFor(el) } as never, scope.children);
+  return islandScope(element, props, el, patched, sources, scope.at);
+}
+
+/** `element` under what an island provides of its own: the element it is in, the store values it was rendered from, its hoisted table and its regions. */
+function islandScope(element: ReactElement, props: object, el: Element, patched: boolean, sources: Map<string, RegionSource> | null | undefined, at: () => Element | null): ReactElement {
+  const [, hoisted, rendered] = splitHoisted(props);
+  const under = createElement(RenderedStoreContext.Provider, { value: rendered }, withHoisted(hoisted, element));
+  return createElement(IslandContext.Provider, { value: at }, createElement(Mounting, { at }, withRegions(el, under, patched, sources)));
+}
+
+/** Scans the island around it once React has placed it, for the islands in its regions no other island renders. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */
+function Mounting({ at, children }: { at: () => Element | null; children?: ReactNode }): ReactElement {
   useEffect(() => {
-    scan(el);
+    const el = at();
+    if (el) scan(el);
   });
   return createElement(Fragment, null, children);
 }
@@ -735,7 +1043,11 @@ function markActivity(el: Element): void {
   el.appendChild(el.ownerDocument.createComment("/&"));
 }
 
-export const reactMounter: Mounter = (component, props, el, hydrate) => {
+export const reactMounter: Mounter = (component, props, el, hydrate, pieces) => {
+  const region = childrenRegion(el);
+  if (pieces !== null) childrenBoxes.set(el, boxOf(pieces, region?.innerHTML ?? ""));
+  if (region instanceof HTMLTemplateElement) region.remove();
+  if (hydrate) bracketNested(el, pieces);
   const element = islandElement(component, props, el, false);
   hidden.delete(el);
   if (hydrate) {
@@ -804,6 +1116,8 @@ export const reactUnmounter: Unmounter = (handle) => {
   }
   void box.committed.then(() => root.unmount());
 };
+
+rendersNested(reactMounter);
 
 /** The template dialect's context where an island reaches a template file: the build points that file's import of the dialect here, so its contexts are React's and `use` is `useContext`. */
 export { createContext, useContext as use };

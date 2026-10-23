@@ -3,13 +3,14 @@ import { adoptCatalog, adoptLocale } from "./locale.js";
 import { loadDeclaredScripts, loadMarkedScript } from "./script.js";
 import { settlePlaced, unplaced } from "./places.js";
 import { enablePwa } from "./pwa.js";
-import { REGION_KEY, SSR_ATTR } from "./render.js";
+import { CHILDREN_ATTR, MARKUP_ATTR, REGION_KEY, SSR_ATTR } from "./render.js";
 import { endServer, isServerIsland, mountServer, patchServer } from "./server.js";
 import { adopt, isPending, whenSettled } from "./store.js";
 import { decodeValue, isRef, SfValue } from "./values.js";
 
 export type Props = { [key: string]: SfValue };
-export type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean) => unknown;
+/** Mounts an island at `el`. `children` is what the server placed as the island's children, read once by boot, null when it placed none: an adapter renders them in its own tree, the islands among them of its own framework included. */
+export type Mounter = (module: unknown, props: Props, el: Element, hydrate: boolean, children: Piece[] | null) => unknown;
 /** Re-renders a mounted island in place with new props; `handle` is what the mounter returned. */
 export type Patcher = (handle: unknown, module: unknown, props: Props, el: Element) => void;
 /** Ends a mounted island, running whatever its framework runs when a root goes away; `handle` is what the mounter returned. */
@@ -18,6 +19,47 @@ export type Unmounter = (handle: unknown, el: Element) => void;
 export type Pauser = (handle: unknown, el: Element, paused: boolean) => boolean | Promise<void>;
 
 export type MountTiming = "load" | "visible" | "idle";
+
+/** One node of an island's children as the server wrote them. */
+export type Piece = TextPiece | CommentPiece | ElementPiece | IslandPiece;
+
+export interface TextPiece {
+  kind: "text";
+  text: string;
+}
+
+export interface CommentPiece {
+  kind: "comment";
+  text: string;
+}
+
+export interface ElementPiece {
+  kind: "element";
+  /** The element as the server wrote it, for an adapter to take over whole when no island of its framework is under it. */
+  node: Element;
+  tag: string;
+  attrs: { [name: string]: string };
+  children: Piece[];
+}
+
+export interface IslandPiece {
+  kind: "island";
+  /** The marker as the server wrote it, holding the island's markup. */
+  marker: Element;
+  /** The props script after the marker, which the piece takes in with it. */
+  script: Element | null;
+  moduleId: string;
+  /** The registry's entry for the module, undefined while no registry has named it. */
+  entry: IslandEntry | undefined;
+  props: Props;
+  /** The props as the server encoded them. */
+  encoded: unknown;
+  when: MountTiming;
+  /** Whether the server rendered the island's own markup. */
+  ssr: boolean;
+  /** The island's own children, null when the server placed none. */
+  children: Piece[] | null;
+}
 
 export interface IslandEntry {
   loader: () => Promise<unknown>;
@@ -129,6 +171,149 @@ export function markerProps(marker: Element): { script: Element | null; props: P
   return { script, props: decodeValue(encoded) as Props, encoded };
 }
 
+/** Mounters whose adapter renders an island of its own kind nested in one it mounts inside that island's tree. */
+const nesting = new WeakSet<Mounter>();
+
+/** Says that `mount`'s adapter renders the children of an island it mounts in one tree with that island, every island of its own kind under it included. A scan then leaves those islands to it. */
+export function rendersNested(mount: Mounter): void {
+  nesting.add(mount);
+}
+
+/** Whether the adapter of the island `outer` renders the island `inner` in its own tree. */
+export function nestsIn(outer: IslandEntry | undefined, inner: IslandEntry | undefined): boolean {
+  return outer !== undefined && inner !== undefined && outer.mount === inner.mount && nesting.has(outer.mount);
+}
+
+/** The region holding `el`'s children: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after its markup when its render did not place them. Never one inside an island nested in `el`. */
+export function childrenRegion(el: Element): Element | null {
+  for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))) {
+    if (region.parentElement?.closest("sf-i") === el) return region;
+  }
+  return null;
+}
+
+/** `el`'s children as pieces, null when the server placed none. */
+export function islandChildren(el: Element): Piece[] | null {
+  const region = childrenRegion(el);
+  if (!region) return null;
+  return readPieces(region instanceof HTMLTemplateElement ? region.content.childNodes : region.childNodes);
+}
+
+/** Children markup a patch carries, as pieces. */
+export function piecesOf(html: string): Piece[] {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  return readPieces(template.content.childNodes);
+}
+
+/** The timing a marker's own placement asks for: the `data-sf-when` of the region around it, when that region is inside the island above it, else the registry's. */
+function timingOf(marker: Element, entry: IslandEntry | undefined): MountTiming {
+  const around = marker.parentElement?.closest("sf-s[data-sf-when], sf-i");
+  const placed = around?.tagName === "SF-S" ? (around.getAttribute("data-sf-when") as MountTiming | null) : null;
+  return placed ?? entry?.when ?? "load";
+}
+
+export function readPieces(nodes: ArrayLike<Node>): Piece[] {
+  const out: Piece[] = [];
+  const list = Array.from(nodes);
+  for (let i = 0; i < list.length; i++) {
+    const node = list[i];
+    if (node.nodeType === 3) {
+      out.push({ kind: "text", text: node.textContent ?? "" });
+      continue;
+    }
+    if (node.nodeType === 8) {
+      out.push({ kind: "comment", text: (node as Comment).data });
+      continue;
+    }
+    if (!(node instanceof Element)) continue;
+    const moduleId = node.tagName === "SF-I" ? node.getAttribute("data-sf-module") : null;
+    if (moduleId === null) {
+      const attrs: { [name: string]: string } = {};
+      for (const attr of Array.from(node.attributes)) attrs[attr.name] = attr.value;
+      const inner = node instanceof HTMLTemplateElement ? node.content.childNodes : node.childNodes;
+      out.push({ kind: "element", node, tag: node.tagName.toLowerCase(), attrs, children: readPieces(inner) });
+      continue;
+    }
+    const { script, props, encoded } = markerProps(node);
+    if (script && list[i + 1] === script) i++;
+    const entry = islands.get(moduleId);
+    out.push({ kind: "island", marker: node, script, moduleId, entry, props, encoded, when: timingOf(node, entry), ssr: serverRendered(node), children: islandChildren(node) });
+  }
+  return out;
+}
+
+/** Each module an island nested in `el` and rendered in its tree needs before that tree first renders: those its own placement times on load, under `el` or among `children`. What arrives is held for `loadedModule`, so the tree never waits on one. Module references in the props of the islands among `children` are resolved in place. */
+function prepareNested(entry: IslandEntry, el: Element, children: Piece[] | null): Promise<unknown> {
+  const work: Promise<unknown>[] = [];
+  const need = (inner: IslandEntry | undefined, when: MountTiming) => {
+    if (inner && nestsIn(entry, inner) && when === "load" && !loaded.has(inner)) work.push(inner.loader().then((mod) => void loaded.set(inner, mod)));
+  };
+  for (const marker of Array.from(el.querySelectorAll("sf-i"))) {
+    const inner = islands.get(marker.getAttribute("data-sf-module") ?? "");
+    need(inner, timingOf(marker, inner));
+  }
+  const walk = (pieces: Piece[]) => {
+    for (const piece of pieces) {
+      if (piece.kind === "element") walk(piece.children);
+      if (piece.kind !== "island") continue;
+      need(piece.entry, piece.when);
+      if (nestsIn(entry, piece.entry)) work.push(resolveModuleRefs(piece.props));
+      if (piece.children) walk(piece.children);
+    }
+  };
+  if (children) walk(children);
+  return Promise.all(work);
+}
+
+/** The modules of nested islands loaded so far, by registry entry. */
+const loaded = new WeakMap<IslandEntry, unknown>();
+
+/** The module an entry names, once something has loaded it, else undefined. */
+export function loadedModule(entry: IslandEntry): unknown {
+  return loaded.get(entry);
+}
+
+/** Loads the module an entry names and holds it for `loadedModule`. */
+export function loadModule(entry: IslandEntry): Promise<unknown> {
+  return entry.loader().then((mod) => {
+    loaded.set(entry, mod);
+    return mod;
+  });
+}
+
+/** `html` without the marks a scan and a mount leave on the markers in it, so a copy of live markup is mounted afresh by the next scan. */
+export function unmarked(html: string): string {
+  if (!html.includes(SCHEDULED)) return html;
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  for (const marker of Array.from(template.content.querySelectorAll(`sf-i[${SCHEDULED}]`))) {
+    marker.removeAttribute(SCHEDULED);
+    marker.removeAttribute(MOUNTED);
+  }
+  return template.innerHTML;
+}
+
+/** Marks an island an adapter rendered in the tree of the one around it as taken and mounted, as a scan and a mount mark one of their own. */
+export function markRendered(el: Element): void {
+  el.setAttribute(SCHEDULED, "");
+  el.setAttribute(MOUNTED, "");
+}
+
+/** Whether the island above `el` renders it in its own tree, which leaves it to that island's adapter: an island of the same framework placed in its body, among its children or in a markup prop. One in a layout's segment or named slot is a root of its own. Undecided while no registry has named the island above. */
+function inParentTree(el: Element, entry: IslandEntry | undefined): boolean | null {
+  const above = el.parentElement?.closest("sf-i");
+  if (!above || !entry || !nesting.has(entry.mount)) return false;
+  if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
+  if (above.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") return false;
+  for (let at = el.parentElement; at && at !== above; at = at.parentElement) {
+    if (at.tagName === "SF-S" && !at.hasAttribute("data-sf-island") && !at.hasAttribute(CHILDREN_ATTR) && !at.hasAttribute(MARKUP_ATTR)) return false;
+  }
+  const outer = islands.get(above.getAttribute("data-sf-module") ?? "");
+  if (!outer) return null;
+  return nestsIn(outer, entry);
+}
+
 /** The mounter for an island whose module defines a custom element: importing the module is the whole mount, since the element the server already wrote upgrades itself once its definition runs. What the island's timing schedules, then, is the import. */
 export const defineMounter: Mounter = () => undefined;
 
@@ -153,12 +338,13 @@ function mountNow(entry: IslandEntry, moduleId: string, el: Element, props: Prop
   const hydrate = !fresh.has(el) && serverRendered(el);
   fresh.delete(el);
   const island: Mounted = { entry, moduleId, handle: Promise.resolve(undefined), root: undefined, gone: false, props, regions: null, children: null, markup: null };
-  const ready = Promise.all([entry.loader(), resolveModuleRefs(props)]);
+  const children = islandChildren(el);
+  const ready = Promise.all([entry.loader(), resolveModuleRefs(props), prepareNested(entry, el, children)]);
   const turn = lastMount.then(() => ready);
   island.handle = turn
     .then(([mod, resolved]) => {
       island.props = resolved;
-      return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate);
+      return island.gone ? undefined : entry.mount(mod, resolved, el, hydrate, children);
     })
     .then((value) => {
       if (island.gone) return undefined;
@@ -321,6 +507,7 @@ export function scan(root: ParentNode): void {
     const moduleId = el.getAttribute("data-sf-module");
     if (!moduleId) continue;
     if (awaitingAnAncestor(el)) continue;
+    if (inParentTree(el, islands.get(moduleId)) !== false) continue;
     if (el.parentElement?.closest("sf-s[data-sf-mode]")?.getAttribute("data-sf-mode") === "server") {
       el.setAttribute(SCHEDULED, "");
       const raw = { ...((rawPropsFor(root, el.id) ?? {}) as { [key: string]: unknown }) };
