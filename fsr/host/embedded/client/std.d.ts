@@ -50,6 +50,8 @@ export declare const text: {
 	truncate(s: string, max: number, ellipsis?: string): string;
 };
 export declare const time: {
+	/** Milliseconds since the time origin, as `performance.now()`; on the server, since the process started. */
+	monotonic(): number;
 	/** `when` in UTC with `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced and every other character kept. */
 	format(when: number, pattern: string): string;
 	/** The instant `amount` units after `when`. */

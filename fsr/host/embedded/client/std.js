@@ -95,6 +95,9 @@ function unitMs(what, unit) {
 }
 const pad = (n, width)=>String(n).padStart(width, "0");
 export const time = {
+    monotonic () {
+        return performance.now();
+    },
     format (when, pattern) {
         const d = new Date(when);
         const tokens = [

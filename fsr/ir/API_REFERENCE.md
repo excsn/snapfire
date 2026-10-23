@@ -330,6 +330,7 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `time.diff` | render | `later`, `earlier`, `unit` | the difference in units, fractional, `F64` |
 | `time.parse` | render | `s` | `YYYY-MM-DD`, optionally `THH:MM`, `:SS`, `.fff` and `Z` or `±HH:MM`, as `F64` milliseconds; `Null` for anything else |
 | `time.now` | body | | `Ambient.now` as `Int` |
+| `time.monotonic` | body | | milliseconds since the process first read it, as `F64`; `performance.now()` |
 | `crypto.hash` | render | `s` | SHA-256 of the UTF-8 bytes as lowercase hex |
 | `crypto.verify` | render | `s`, `hash` | whether `hash` is the hash of `s`, compared in constant time, case insensitive |
 | `crypto.random` | body | `bytes` (at most 1024) | that many random bytes as hex |

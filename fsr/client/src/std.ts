@@ -121,6 +121,10 @@ function unitMs(what: string, unit: string): number {
 const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
 export const time = {
+  /** Milliseconds since the time origin, as `performance.now()`; on the server, since the process started. */
+  monotonic(): number {
+    return performance.now();
+  },
   /** `when` in UTC with `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced and every other character kept. */
   format(when: number, pattern: string): string {
     const d = new Date(when);

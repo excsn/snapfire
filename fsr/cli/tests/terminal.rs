@@ -699,3 +699,12 @@ fn node_crypto_members_run_in_a_terminal_loader() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 120).lines()[0], "36 8 ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=");
 }
+
+#[test]
+fn performance_now_reads_a_clock_that_advances_within_a_loader() {
+  let page = "import { Text } from \"ink\";\n\nexport default function Took({ ok }: { ok: string }) {\n  return <Text>{ok}</Text>;\n}\n";
+  let loader = "export async function load() {\n  const started = performance.now();\n  const later = performance.now();\n  return { ok: started >= 0 && later >= started && later < 3_600_000 ? \"yes\" : \"no\" };\n}\n";
+  let mut session = Session::open(&app_with_loader(page, loader)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 20).lines()[0], "yes");
+}

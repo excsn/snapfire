@@ -3425,6 +3425,12 @@ impl<'a> Lowerer<'a> {
               }
             };
           }
+          "performance" if method == "now" => {
+            if self.on_render_path() && !self.reaches(Reach::Terminal) {
+              return Err(self.browser_only(call.span, "the current time on a render path, which the server and the browser read at different moments"));
+            }
+            return Ok(Expr::Num(Box::new(Expr::Ext { module: "time".to_owned(), name: "monotonic".to_owned(), args: Vec::new() })));
+          }
           "Date" => {
             return match method.as_str() {
               "now" => self.date_now(call.span),

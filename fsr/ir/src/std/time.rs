@@ -7,12 +7,16 @@ use snapfire_fsr_core::Value;
 use crate::ext::{number, text, Ambient, Extensions, Reach};
 use crate::interp::Fail;
 
+/// When the process first read the monotonic clock; `time.monotonic` counts from here, as `performance.now()` counts from the time origin.
+static STARTED: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
 pub fn register(extensions: &mut Extensions) {
   extensions.register("time.format", Reach::Render, format);
   extensions.register("time.add", Reach::Render, add);
   extensions.register("time.diff", Reach::Render, diff);
   extensions.register("time.parse", Reach::Render, |_, args| Ok(parse_iso(text("time.parse", args, 0)?).map(Value::F64).unwrap_or(Value::Null)));
   extensions.register("time.now", Reach::Body, |ambient, _| Ok(Value::Int(ambient.now)));
+  extensions.register("time.monotonic", Reach::Body, |_, _| Ok(Value::F64(STARTED.get_or_init(std::time::Instant::now).elapsed().as_secs_f64() * 1000.0)));
   extensions.register("time.localOffset", Reach::Terminal, |_, args| Ok(Value::F64(local_offset(number("time.localOffset", args, 0)?))));
 }
 

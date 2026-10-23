@@ -43,6 +43,7 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("time", "diff", Reach::Render),
   ("time", "parse", Reach::Render),
   ("time", "now", Reach::Body),
+  ("time", "monotonic", Reach::Body),
   ("crypto", "hash", Reach::Render),
   ("crypto", "verify", Reach::Render),
   ("crypto", "random", Reach::Body),
