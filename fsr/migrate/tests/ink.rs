@@ -174,3 +174,27 @@ fn the_last_render_in_the_entry_is_the_page_and_the_statements_before_it_keep_th
   assert!(!loader.lines().any(|l| l.ends_with(' ')), "a blank line inside a copied statement stays blank: {loader:?}");
   assert!(report.notes.iter().any(|n| n.to_string() == "source/cli.tsx:8: `render` is called here too; a page for it waits on the terminal running more than one route"), "{:?}", report.notes);
 }
+
+#[test]
+fn an_entry_that_awaits_ink_and_its_component_from_dynamic_imports_gets_a_page_and_a_loader() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("source/cli.tsx", "import React from 'react';\n\nexport async function main() {\n  const [{render}, {default: App}] = await Promise.all([\n    import('ink'),\n    import('./app.js'),\n  ]);\n  const cwd = process.cwd();\n  render(<App cwd={cwd} />);\n}\n\nmain();\n"),
+    ("source/app.tsx", "export default function App({ cwd }: { cwd: string }) {\n  return null;\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import type { RootProps } from \"@generated/client\";\nimport App from \"@src/app\";\n\nexport default function Page({ cwd }: RootProps) {\n  return <App cwd={cwd} />;\n}\n", "{:?}", report.notes);
+  let loader = out.text("app/routes/page.loader.ts").unwrap();
+  assert!(loader.contains("export async function load({ params }: Ctx<\"/\">) {\n  const cwd = process.cwd();\n  return { cwd };\n}\n"), "the import binding is not a loader statement: {loader}");
+}
+
+#[test]
+fn an_entry_that_awaits_render_alone_from_a_dynamic_import_gets_a_page() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("source/cli.tsx", "import React from 'react';\nimport Ui from './ui.js';\n\nasync function main() {\n  const {render} = await import('ink');\n  render(<Ui />);\n}\n\nmain();\n"),
+    ("source/ui.tsx", "export default function Ui() {\n  return null;\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import Ui from \"@src/ui\";\n\nexport default function Page() {\n  return <Ui />;\n}\n", "{:?}", report.notes);
+}

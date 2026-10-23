@@ -8,6 +8,8 @@ use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 use swc_core::ecma::visit::{Visit, VisitWith};
 
+use snapfire_fsr_lower::meaning::awaited_imports;
+
 use crate::lift::ctx_type;
 use crate::next::{read_packages_but, source_path};
 use crate::relocate::{dirname, find, normalize, relocate, Aliases};
@@ -89,6 +91,8 @@ struct Entry {
   call: Span,
   /// The lines of the other `render` calls in the file.
   earlier: Vec<usize>,
+  /// The names the entry binds through awaited `import()` calls, each with its specifier and the clause that imports it statically.
+  imports: Vec<(String, String, String)>,
   /// The component rendered, by the name the entry holds it under.
   component: String,
   /// What `render` passed the component: prop names from an element, or the count of arguments from a call.
@@ -112,14 +116,14 @@ fn entry(tree: &Tree, root: &str) -> Option<Entry> {
     }
     let Some(text) = tree.text(path) else { continue };
     let Ok(parsed) = parse(path, text) else { continue };
-    let mut calls = Renders { render: None, found: Vec::new(), branches: 0, callbacks: 0, parsed: &parsed, text };
+    let mut calls = Renders { render: None, found: Vec::new(), dynamic: Vec::new(), branches: 0, callbacks: 0, parsed: &parsed, text };
     parsed.module.visit_with(&mut calls);
     // The root page is the last render on the straight-line path, outside every branch and callback; the first render when every one is inside a branch.
     let chosen = calls.found.iter().rposition(|(.., straight)| *straight).or_else(|| (!calls.found.is_empty()).then_some(0));
     if let Some(at) = chosen {
       let earlier = calls.found.iter().enumerate().filter(|(i, _)| *i != at).map(|(_, (line, ..))| *line).collect();
       let (line, call, component, passed, _) = calls.found.swap_remove(at);
-      found = Some(Entry { path: path.to_owned(), line, call, earlier, component, passed });
+      found = Some(Entry { path: path.to_owned(), line, call, earlier, imports: calls.dynamic, component, passed });
     }
   }
   found
@@ -132,6 +136,8 @@ struct Renders<'a> {
   render: Option<String>,
   /// Every `render` call in order: its line, span, component, what it passed and whether it stands on the straight-line path, outside every branch and callback.
   found: Vec<(usize, Span, String, Passed, bool)>,
+  /// The names bound through awaited `import()` calls other than Ink's `render`: local, specifier and the static import clause.
+  dynamic: Vec<(String, String, String)>,
   branches: usize,
   callbacks: usize,
 }
@@ -160,6 +166,19 @@ impl Visit for Renders<'_> {
         }
       }
     }
+  }
+
+  fn visit_stmt(&mut self, s: &js::Stmt) {
+    for binding in awaited_imports(s) {
+      match binding.imported.as_deref() {
+        Some("render") if binding.source == "ink" => self.render = Some(binding.local),
+        Some("default") => self.dynamic.push((binding.local.clone(), binding.source, binding.local)),
+        Some(imported) if imported == binding.local => self.dynamic.push((binding.local.clone(), binding.source, format!("{{ {} }}", binding.local))),
+        Some(imported) => self.dynamic.push((binding.local.clone(), binding.source, format!("{{ {imported} as {} }}", binding.local))),
+        None => self.dynamic.push((binding.local.clone(), binding.source, format!("* as {}", binding.local))),
+      }
+    }
+    s.visit_children_with(self);
   }
 
   fn visit_call_expr(&mut self, n: &js::CallExpr) {
@@ -522,7 +541,7 @@ fn enclosing(parsed: &crate::syntax::Parsed, call: Span) -> (Vec<std::ops::Range
       if self.best.as_ref().is_some_and(|(best, ..)| best.lo >= span.lo && best.hi <= span.hi) {
         return;
       }
-      let before: Vec<&js::Stmt> = stmts.iter().take_while(|s| s.span().hi <= self.call.lo).collect();
+      let before: Vec<&js::Stmt> = stmts.iter().take_while(|s| s.span().hi <= self.call.lo).filter(|s| awaited_imports(s).is_empty()).collect();
       let mut reads = Reads(Vec::new());
       before.iter().for_each(|s| s.visit_with(&mut reads));
       let mut names = Vec::new();
@@ -554,7 +573,7 @@ fn enclosing(parsed: &crate::syntax::Parsed, call: Span) -> (Vec<std::ops::Range
   let mut reads = Reads(Vec::new());
   for item in &parsed.module.body {
     let js::ModuleItem::Stmt(stmt) = item else { continue };
-    if stmt.span().hi <= call.lo {
+    if stmt.span().hi <= call.lo && awaited_imports(stmt).is_empty() {
       stmt.visit_with(&mut reads);
       before.push(parsed.range(stmt.span()));
     }
@@ -573,7 +592,7 @@ fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, 
   let (before, params, mut names) = enclosing(&parsed, entry.call);
   names.extend(value_names.iter().cloned());
   let mut imports = Vec::new();
-  for (local, spec, clause) in imports_of(&parsed) {
+  for (local, spec, clause) in imports_of(&parsed).into_iter().chain(entry.imports.iter().cloned()) {
     if matches!(spec.as_str(), "ink" | "react" | "react/jsx-runtime") || local == entry.component || !names.contains(&local) {
       continue;
     }
@@ -614,6 +633,7 @@ fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, en
   let text = tree.text(&entry.path)?;
   let parsed = parse(&entry.path, text).ok()?;
   let mut imports = imports_of(&parsed);
+  imports.extend(entry.imports.iter().cloned());
   if kept {
     imports.push((entry.component.clone(), format!("./{}", entry.path.rsplit('/').next().unwrap_or(&entry.path)), format!("{{ {} }}", entry.component)));
   }

@@ -427,3 +427,98 @@ pub(crate) fn bare(expr: &js::Expr) -> &js::Expr {
     other => other,
   }
 }
+
+/// A name a statement binds to a module's export through an awaited `import()`: `const { a, default: B } = await import("m")`, `const m = await import("m")` or `const [{ a }, { default: B }] = await Promise.all([import("m"), import("n")])`, each pattern matched to its import by position.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportBinding {
+  /// The local name bound.
+  pub local: String,
+  /// The module specifier as written.
+  pub source: String,
+  /// The export bound, `default` for a default import; `None` when the local is the module whole.
+  pub imported: Option<String>,
+}
+
+/// The import bindings `stmt` makes through awaited dynamic imports; empty for any other statement.
+pub fn awaited_imports(stmt: &js::Stmt) -> Vec<ImportBinding> {
+  let js::Stmt::Decl(js::Decl::Var(var)) = stmt else { return Vec::new() };
+  let mut out = Vec::new();
+  for decl in &var.decls {
+    let Some(init) = decl.init.as_deref() else { continue };
+    let js::Expr::Await(awaited) = bare(init) else { continue };
+    match (bare(&awaited.arg), &decl.name) {
+      (js::Expr::Call(call), pat) => {
+        if let Some(source) = imported_source(call) {
+          bind(pat, &source, &mut out);
+        } else if let Some(sources) = promise_all(call) {
+          if let js::Pat::Array(array) = pat {
+            for (element, source) in array.elems.iter().zip(sources) {
+              if let Some(pat) = element {
+                bind(pat, &source, &mut out);
+              }
+            }
+          }
+        }
+      }
+      _ => {}
+    }
+  }
+  out
+}
+
+/// The specifier of `import("m")`; `None` for any other call.
+fn imported_source(call: &js::CallExpr) -> Option<String> {
+  if !matches!(call.callee, js::Callee::Import(_)) {
+    return None;
+  }
+  match call.args.first().map(|a| bare(&a.expr)) {
+    Some(js::Expr::Lit(js::Lit::Str(s))) => Some(s.value.to_string_lossy().into_owned()),
+    _ => None,
+  }
+}
+
+/// The specifiers of `Promise.all([import("m"), import("n")])` in order; `None` for any other call or an element that is not an `import()`.
+fn promise_all(call: &js::CallExpr) -> Option<Vec<String>> {
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Member(member) = bare(callee) else { return None };
+  if !matches!(&*member.obj, js::Expr::Ident(id) if id.sym.as_ref() == "Promise") || !matches!(&member.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "all") {
+    return None;
+  }
+  let js::Expr::Array(array) = bare(&call.args.first()?.expr) else { return None };
+  array
+    .elems
+    .iter()
+    .map(|element| match element {
+      Some(element) if element.spread.is_none() => match bare(&element.expr) {
+        js::Expr::Call(call) => imported_source(call),
+        _ => None,
+      },
+      _ => None,
+    })
+    .collect()
+}
+
+fn bind(pat: &js::Pat, source: &str, out: &mut Vec<ImportBinding>) {
+  match pat {
+    js::Pat::Ident(id) => out.push(ImportBinding { local: id.id.sym.to_string(), source: source.to_owned(), imported: None }),
+    js::Pat::Object(object) => {
+      for prop in &object.props {
+        match prop {
+          js::ObjectPatProp::Assign(a) => out.push(ImportBinding { local: a.key.sym.to_string(), source: source.to_owned(), imported: Some(a.key.sym.to_string()) }),
+          js::ObjectPatProp::KeyValue(kv) => {
+            let imported = match &kv.key {
+              js::PropName::Ident(id) => id.sym.to_string(),
+              js::PropName::Str(s) => s.value.to_string_lossy().into_owned(),
+              _ => continue,
+            };
+            if let js::Pat::Ident(local) = &*kv.value {
+              out.push(ImportBinding { local: local.id.sym.to_string(), source: source.to_owned(), imported: Some(imported) });
+            }
+          }
+          js::ObjectPatProp::Rest(_) => {}
+        }
+      }
+    }
+    _ => {}
+  }
+}
