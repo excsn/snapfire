@@ -733,3 +733,11 @@ fn a_module_let_takes_an_awaited_value_by_assignment_in_an_async_function() {
   session.view().unwrap();
   assert_eq!(line(session.view().unwrap()), "AB");
 }
+
+#[test]
+fn a_function_deletes_a_field_of_the_object_it_normalizes() {
+  let page = "import { Text } from \"ink\";\n\ntype Verbs = { punctuation?: string; format?: string };\n\nconst normalize = (config: { verbs: Verbs }) => {\n  if (config.verbs.punctuation) {\n    config.verbs.format = \"{}\" + config.verbs.punctuation;\n    delete config.verbs.punctuation;\n  }\n  return config;\n};\n\nexport default function Shown() {\n  const config = normalize({ verbs: { punctuation: \"...\" } });\n  return <Text>{config.verbs.format} {\"punctuation\" in config.verbs ? \"kept\" : \"dropped\"}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "{}... dropped");
+}

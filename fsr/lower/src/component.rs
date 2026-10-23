@@ -4840,6 +4840,23 @@ pub(crate) fn rebind_stmt(lowerer: &mut Lowerer<'_>, stmt: &js::Stmt, writable: 
         note(assigned, &name);
         Ok(())
       }
+      js::Expr::Unary(unary) if unary.op == js::UnaryOp::Delete => {
+        let js::Expr::Member(member) = crate::meaning::bare(&unary.arg) else { return Err(lowerer.residue(unary.span, "`delete` of something other than a field of a local")) };
+        let Some((id, path)) = crate::write_root(member) else { return Err(lowerer.residue(unary.span, "`delete` of something other than a field of a local")) };
+        let name = id.sym.to_string();
+        if !writable.local(lowerer, &name) {
+          return Err(lowerer.residue_with(unary.span, format!("a write to `{name}`, which this body did not declare"), "declare a local with `let` and write that; state changes through its setter"));
+        }
+        let key = match &member.prop {
+          js::MemberProp::Ident(key) => Expr::lit_str(key.sym.as_ref()),
+          js::MemberProp::Computed(computed) => lowerer.expr(&computed.expr)?,
+          js::MemberProp::PrivateName(_) => return Err(lowerer.residue(member.span, "`delete` of a private field")),
+        };
+        let parent = lowerer.expr(&member.obj)?;
+        let omitted = Expr::Builtin { name: Builtin::Omit, args: vec![parent, key] };
+        let value = lowerer.written_at(current(lowerer, &name), &path[..path.len() - 1], omitted)?;
+        write_field(lowerer, unary.span, &name, value, assigned)
+      }
       js::Expr::Call(call) => {
         if let Some(logged) = console_call(lowerer, call)? {
           let name = format!("$log{}", call.span.lo.0);
