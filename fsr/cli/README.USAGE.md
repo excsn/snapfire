@@ -384,7 +384,7 @@ export async function middleware({ request, identity, next }: MiddlewareCtx) {
 
 The route's response reads `status`, `ok` and `headers.get(name)`; `headers.set`, `append` and `delete` change it; its body streams to the visitor as the route writes it. A `Request` handed to `next` names a path on this origin, query and all. Under a site's prefix the shell's middleware runs first and its `next` runs the site's middleware, whose `next` runs the route.
 
-`identity` is read by field, `identity?.subject` here, since a body holds no whole value for it. A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`. There `next` answers a 200 with no body and `c.trace.next` lists the requests it was handed; `c.trace.redirect` is where a redirect pointed.
+`identity` is read by field, `identity?.subject` here, since a body holds no whole value for it. A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`. There `next` answers a 200 with no body and `c.trace.next` lists the requests it was handed; `c.trace.redirect` is where a redirect pointed. Work a body queues with `after` runs as soon as the body returns, before the test reads the result, so a mock function sees its calls.
 
 Middleware is also where a session is kept alive. A session ends one `session.ttl` after it opened however often it is read and nothing moves that end on its own; `session.extend(seconds)` moves it to that many seconds from now and the host sets the cookie again to match. Guard it with a key the session holds, so a busy session costs one store write every few hours rather than one a request:
 

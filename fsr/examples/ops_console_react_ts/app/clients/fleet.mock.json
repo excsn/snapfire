@@ -13,5 +13,7 @@
     { "id": 21, "agent_id": 3, "level": "page", "text": "builder-us-1 stopped answering" },
     { "id": 22, "agent_id": 1, "level": "warn", "text": "queue over 3" }
   ],
-  "acknowledgeAlert": { "$fail": { "kind": "unavailable", "message": "the mock records nothing" } }
+  "acknowledgeAlert": { "$fail": { "kind": "unavailable", "message": "the mock records nothing" } },
+  "getVisits": { "count": 0 },
+  "recordVisit": { "count": 0 }
 }

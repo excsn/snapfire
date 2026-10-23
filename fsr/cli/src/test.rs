@@ -560,6 +560,9 @@ impl<'a> Run<'a> {
     let mock = self.mocks.get_mut(ctx_name).ok_or_else(|| format!("`{ctx_name}` is not a ctx"))?;
     let input = input.or_else(|| mock.input.clone());
     let outcome = self.interpreter.run(body, &mock.ctx, input).await;
+    for work in mock.ctx.after.take() {
+      work.await;
+    }
     let result = match outcome {
       Ok(outcome) => {
         mock.written = outcome.written;

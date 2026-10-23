@@ -73,5 +73,8 @@ export function fail(kind: FailureKind, message: string): never;
 /** Ends an action or a route handler and sends its caller to `to`, a path on this origin. A form post or a route handler is answered with a 303 there; a call from `actions` navigates there. The `Response` it makes may also be returned or held: `return redirect(to)`. A loader or middleware holds none. */
 export function redirect(to: string): never;
 
+/** Runs `work` once the response is written, whether the body returned or failed: logging, analytics, a cache to warm. `work` sees what the names it reads held when `after` was called and cannot write the session, whose cookie is already sent. A failure in it is logged and changes nothing the caller saw. */
+export function after(work: () => unknown): void;
+
 /** Declares an action. The type argument names the input type the build emits into the contract. */
 export function action<Input = void, Out = unknown>(body: (ctx: ActionCtx<Input>) => Promise<Out>): (ctx: ActionCtx<Input>) => Promise<Out>;

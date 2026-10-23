@@ -125,7 +125,7 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
   let mut pure = free.is_empty();
   let mut refs = Vec::new();
   expr.visit(&mut |e| match e {
-    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_) | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
+    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_) | Expr::After(_) | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
     Expr::Const(other) => refs.push(other.clone()),
     _ => {}
   });
@@ -300,6 +300,13 @@ impl Interpreter {
     };
 
     for stmt in body {
+      let mut queues = false;
+      if let Stmt::Let { expr, .. } | Stmt::Expr(expr) | Stmt::Return(expr) = stmt {
+        expr.visit(&mut |e| queues |= matches!(e, Expr::After(_)));
+      }
+      if queues {
+        break;
+      }
       match stmt {
         Stmt::Guard { cond, kind, message } => {
           let mut free = Vec::new();
@@ -1174,6 +1181,19 @@ impl Env {
       }
       Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
       Expr::Next(_) => Err(Fail::internal("`next` in an expression that cannot suspend")),
+      Expr::After(work) => {
+        if !matches!(**work, Expr::Lambda { .. }) {
+          return Err(Fail::internal("`after` takes a function"));
+        }
+        let mut later = self.snapshot();
+        let work = (**work).clone();
+        self.ctx.after.push(async move {
+          if let Err(fail) = later.apply(&work, Vec::new()).await {
+            tracing::warn!(target: "fsr::after", kind = fail.kind.as_str(), message = %fail.message, "work after the response failed");
+          }
+        });
+        Ok(Value::Undefined)
+      }
       Expr::NativeCall { module, method, args, sync } => self.native_sync(module, method, args, *sync),
       Expr::Lambda { params, body } => self.close(params, body),
       Expr::Block(body) => {
@@ -1575,7 +1595,7 @@ impl Env {
     }
     Box::pin(async move {
       match expr {
-        Expr::Markup(_) => self.eval_sync(expr),
+        Expr::Markup(_) | Expr::After(_) => self.eval_sync(expr),
         Expr::Cell(init) => {
           let value = self.eval(init).await?;
           self.new_cell(value)

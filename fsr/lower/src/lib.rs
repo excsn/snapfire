@@ -1592,12 +1592,34 @@ impl<'a> Lowerer<'a> {
   }
 
   /// `redirect(to)`: the response that sends the caller to `to`, which ends the body where it is a statement. An action or a route handler holds one.
+  /// `after(fn)`: the function, written in place with no parameters, to run once the response is written. Its body lowers as a body does; it cannot write the session, whose cookie is already sent.
+  fn after_of(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+    let body = match call.args.as_slice() {
+      [work] if work.spread.is_none() => match strip_parens(&work.expr) {
+        js::Expr::Arrow(arrow) if arrow.params.is_empty() => match &*arrow.body {
+          js::ArrowFunctionBody::FunctionBody(block) => self.block(&block.stmts)?,
+          js::ArrowFunctionBody::Expr(e) => vec![Stmt::Return(self.expr(e)?)],
+        },
+        js::Expr::Fn(f) if f.function.params.is_empty() => match &f.function.body {
+          Some(block) => self.block(&block.stmts)?,
+          None => Vec::new(),
+        },
+        _ => return Err(self.residue(call.span, "`after` takes a function written in place, with no parameters")),
+      },
+      _ => return Err(self.residue(call.span, "`after` takes a function written in place, with no parameters")),
+    };
+    if writes_session(&body) {
+      return Err(self.residue(call.span, "a session write inside `after`, which runs once the response and its cookie are sent"));
+    }
+    Ok(Expr::After(Box::new(Expr::Lambda { params: Vec::new(), body: Box::new(Expr::Block(body)) })))
+  }
+
   fn redirect_to(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
     if !self.redirects {
       return Err(self.residue_with(
         call.span,
         "`redirect` outside an action or a route handler",
-        "middleware answers `{ redirect }`; a loader cannot send the visitor elsewhere",
+        "middleware returns `Response.redirect(to)`; a loader cannot send the visitor elsewhere",
       ));
     }
     let [to] = call.args.as_slice() else {
@@ -1801,6 +1823,7 @@ impl<'a> Lowerer<'a> {
       js::Expr::Call(call) if self.parsed.names_server(&call.callee, "redirect") => {
         Ok(Stmt::Return(self.redirect_to(call)?))
       }
+      js::Expr::Call(call) if self.parsed.names_server(&call.callee, "after") => Ok(Stmt::Expr(self.after_of(call)?)),
       js::Expr::Call(call) if self.is_ident_call(call, "fail") => {
         let stmt = js::Stmt::Expr(js::ExprStmt { span: call.span, expr: Box::new(expr.clone()) });
         let (kind, message) = self.as_fail(&stmt).expect("checked");
@@ -3236,6 +3259,7 @@ impl<'a> Lowerer<'a> {
           }
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           "redirect" if self.parsed.names_server(&call.callee, "redirect") => self.redirect_to(call),
+          "after" if self.parsed.names_server(&call.callee, "after") => self.after_of(call),
           "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.args.first() {
             Some(_) => Ok(*one(self)?),
             None => Ok(Expr::Lit(Lit::Null)),
@@ -4306,6 +4330,17 @@ fn prop_key(bound: &Expr) -> Option<String> {
     Expr::Coalesce(read, _) => prop_key(read),
     _ => None,
   }
+}
+
+/// Whether `body` writes or extends the session anywhere in it.
+fn writes_session(body: &[Stmt]) -> bool {
+  body.iter().any(|stmt| match stmt {
+    Stmt::SessionSet { .. } | Stmt::SessionDelete { .. } | Stmt::SessionExtend { .. } => true,
+    Stmt::If { then, r#else, .. } => writes_session(then) || writes_session(r#else),
+    Stmt::ForOf { body, .. } => writes_session(body),
+    Stmt::Try { body, handler, finally, .. } => writes_session(body) || handler.as_deref().is_some_and(writes_session) || writes_session(finally),
+    Stmt::Let { .. } | Stmt::Set { .. } | Stmt::Return(_) | Stmt::Guard { .. } | Stmt::Act { .. } | Stmt::Expr(_) => false,
+  })
 }
 
 fn strip_parens(e: &js::Expr) -> &js::Expr {

@@ -8,7 +8,7 @@ const alerts = [{ id: 21n, agent_id: 3n, level: "page", text: "builder-us-1 stop
 const jobs = [{ id: 11n, name: "compile", seconds: 92n }];
 
 function services() {
-  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, listJobs: () => jobs, listAlerts: () => alerts } };
+  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, getVisits: () => ({ count: 0n }), listJobs: () => jobs, listAlerts: () => alerts } };
 }
 
 test("a full link renders the agent under the list, peek renders it beside the list, and the list stays", async () => {

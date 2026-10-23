@@ -286,7 +286,7 @@ impl Host {
     let (bare, raw_query) = path.split_once('?').unwrap_or((path, ""));
     let visit = t.locales.resolve(bare, None, None);
     self
-      .call_handler_in(
+      .answering(self.call_handler_in(
         &t,
         method,
         &visit.path,
@@ -295,7 +295,7 @@ impl Host {
         &visit.locale,
         input,
         false,
-      )
+      ))
       .await
   }
 
@@ -342,7 +342,7 @@ impl Host {
   ) -> Result<Value, ActionError> {
     let t = self.tables();
     self
-      .dispatch_action(&t, id, Incoming::anonymous(session), "", locale, input)
+      .answering(self.dispatch_action(&t, id, Incoming::anonymous(session), "", locale, input))
       .await
   }
 

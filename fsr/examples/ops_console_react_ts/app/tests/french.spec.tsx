@@ -13,7 +13,7 @@ const alerts = [
 ];
 
 function services() {
-  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, listJobs: () => [], listAlerts: () => alerts, acknowledgeAlert: () => [alerts[1]] } };
+  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, getVisits: () => ({ count: 0n }), listJobs: () => [], listAlerts: () => alerts, acknowledgeAlert: () => [alerts[1]] } };
 }
 
 test("under /fr_FR/ the server paints the header, the list and the derived headline in French", async () => {

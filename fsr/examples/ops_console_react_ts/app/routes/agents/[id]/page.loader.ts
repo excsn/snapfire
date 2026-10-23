@@ -3,7 +3,7 @@ import { t } from "@snapfire/fsr-client/std";
 
 export async function load({ params, services, session }: Ctx<"/agents/{id}">) {
   const id = BigInt(params.id);
-  return { agent: await services.fleet.getAgent({ id }), jobs: await services.fleet.listJobs({ id }), watched: Boolean(session.watching[params.id]) };
+  return { agent: await services.fleet.getAgent({ id }), jobs: await services.fleet.listJobs({ id }), visits: await services.fleet.getVisits({ id }), watched: Boolean(session.watching[params.id]) };
 }
 
 export const meta = ({ data }: { data: { agent: { name: string } } }) => ({

@@ -14,7 +14,7 @@ const alerts = [
 const jobs = [{ id: 11n, name: "compile", seconds: 92n }];
 
 function services() {
-  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, listJobs: () => jobs, listAlerts: () => alerts, acknowledgeAlert: () => [alerts[1]] } };
+  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, getVisits: () => ({ count: 0n }), listJobs: () => jobs, listAlerts: () => alerts, acknowledgeAlert: () => [alerts[1]] } };
 }
 
 test("two layouts seed the store, the inner one wins the region, and the derived headline follows both", async () => {

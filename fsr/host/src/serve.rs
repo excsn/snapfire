@@ -135,7 +135,7 @@ impl Host {
     self.draining.load(std::sync::atomic::Ordering::Relaxed)
   }
 
-  /// Serves `listener` until `shutdown` resolves, then stops accepting and waits up to `server.shutdown_grace` for the connections it holds to finish what they are answering.
+  /// Serves `listener` until `shutdown` resolves, then stops accepting and waits up to `server.shutdown_grace` for the connections it holds to finish what they are answering and for the work their requests left with `after`.
   pub async fn serve_until(self: Arc<Self>, listener: tokio::net::TcpListener, shutdown: impl Future<Output = ()>) -> std::io::Result<()> {
     #[cfg(all(unix, feature = "tls"))]
     self.clone().watch_for_reload();
@@ -158,8 +158,12 @@ impl Host {
     let _ = stop.send(true);
     let open = stop.receiver_count();
     tracing::info!(target: "fsr::host", connections = open, grace_s = self.shutdown_grace.as_secs(), "shutting down");
-    if tokio::time::timeout(self.shutdown_grace, stop.closed()).await.is_err() {
+    let deadline = tokio::time::Instant::now() + self.shutdown_grace;
+    if tokio::time::timeout_at(deadline, stop.closed()).await.is_err() {
       tracing::warn!(target: "fsr::host", connections = stop.receiver_count(), "server.shutdown_grace ran out with connections still open; they are cut");
+    }
+    if tokio::time::timeout_at(deadline, self.after_settled()).await.is_err() {
+      tracing::warn!(target: "fsr::host", "server.shutdown_grace ran out with work after a response still running; it is cut");
     }
     Ok(())
   }

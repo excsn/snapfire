@@ -108,6 +108,8 @@ pub enum Expr {
   NativeCall { module: String, method: String, #[serde(default)] args: Vec<(String, Expr)>, #[serde(default, skip_serializing_if = "std::ops::Not::not")] sync: bool },
   /// Middleware's `next(request)`: the rest of the chain run for `request`, `undefined` for the request as it came, answering the route's `Response`.
   Next(Box<Expr>),
+  /// `after(fn)`: `fn`, a lambda, queued on the request's `after` to run once the response is written, over a copy of the scope it was called in. `undefined`.
+  After(Box<Expr>),
   Lambda { params: Vec<String>, body: Box<Expr> },
   /// A lambda applied to arguments: a module-level helper a component calls.
   Apply { f: Box<Expr>, args: Vec<Expr> },
@@ -963,7 +965,7 @@ impl Expr {
       }
       Expr::Template(parts) => parts.iter().for_each(|p| p.free_vars(out)),
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.free_vars(out)),
-      Expr::Next(e) => e.free_vars(out),
+      Expr::Next(e) | Expr::After(e) => e.free_vars(out),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().for_each(|e| e.free_vars(out)),
       Expr::Apply { f, args } => {
         f.free_vars(out);
@@ -998,7 +1000,7 @@ impl Expr {
       Expr::Markup(tmpl) => tmpl.visit(f),
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
-      Expr::Next(e) => e.visit(f),
+      Expr::Next(e) | Expr::After(e) => e.visit(f),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
           Entry::Baked(_) => {}
@@ -1048,7 +1050,7 @@ impl Expr {
       Expr::Markup(tmpl) => std::sync::Arc::make_mut(tmpl).visit_mut(f),
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| e.visit_mut(f)),
-      Expr::Next(e) => e.visit_mut(f),
+      Expr::Next(e) | Expr::After(e) => e.visit_mut(f),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| entry.visit_mut(f)),
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.visit_mut(f),
@@ -1099,7 +1101,7 @@ impl Expr {
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host | Expr::Address => true,
       Expr::Locale | Expr::Path | Expr::Document | Expr::Origin | Expr::Config(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
-      Expr::Next(_) => true,
+      Expr::Next(_) | Expr::After(_) => true,
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.reads_request(),
@@ -1132,6 +1134,7 @@ impl Expr {
         calls
       }
       Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_) => true,
+      Expr::After(_) => false,
       Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),

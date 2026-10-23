@@ -7,7 +7,7 @@ const agents = [
 const jobs = [{ id: 11n, name: "compile", seconds: 92n }];
 
 function services() {
-  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, listJobs: () => jobs, listAlerts: () => [] } };
+  return { fleet: { listAgents: () => agents, getAgent: ({ id }: { id: number }) => agents.find((a) => a.id === BigInt(id))!, getVisits: () => ({ count: 0n }), listJobs: () => jobs, listAlerts: () => [] } };
 }
 
 const mark = (text: string) => screen.getByText(text).getAttribute("aria-current");

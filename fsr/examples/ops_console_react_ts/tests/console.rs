@@ -45,8 +45,16 @@ fn fleet() -> Arc<MockTransport> {
       .returns("fleet.listJobs", Value::seq(vec![job(11, "compile", 92)]))
       .returns("fleet.listAlerts", Value::seq(vec![alert(21, 3, "page", "builder-us-1 stopped answering"), alert(22, 1, "warn", "queue over 3")]))
       .returns("fleet.acknowledgeAlert", Value::seq(vec![alert(22, 1, "warn", "queue over 3")]))
+      .returns("fleet.getVisits", visits(0))
+      .returns("fleet.recordVisit", visits(1))
       .returns("identity.authenticate", signed("alice", "admin")),
   )
+}
+
+fn visits(count: i64) -> Value {
+  let mut map = ValueMap::default();
+  map.insert("count".to_owned(), Value::int(count));
+  Value::Map(map)
 }
 
 fn signed(subject: &str, role: &str) -> Value {

@@ -6,7 +6,7 @@ import { actions, type AgentsIdProps } from "@generated/client";
 import { JobTimeline } from "@src/ui/JobTimeline";
 import { watching } from "@src/store";
 
-export default function AgentPage({ agent, jobs, watched }: AgentsIdProps) {
+export default function AgentPage({ agent, jobs, visits, watched }: AgentsIdProps) {
   async function watch(): Promise<void> {
     await optimistic(watching, (get(watching) ?? 0) + 1, () => actions.agents.watchAgent({ agent_id: agent.id }));
   }
@@ -21,6 +21,7 @@ export default function AgentPage({ agent, jobs, watched }: AgentsIdProps) {
       <p className="lede">
         {t("agent.lede", { region: agent.region, status: agent.status, queued: String(agent.queue_depth), cpu: agent.cpu.toFixed(1) })}
       </p>
+      <p className="visits">{t("agent.visits", { count: visits.count })}</p>
       {watched ? (
         <button className="btn" onClick={() => void unwatch()}>{t("agent.unwatch")}</button>
       ) : (

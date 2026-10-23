@@ -2611,7 +2611,7 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
     }
     Expr::Builtin { args: items, .. } | Expr::Ext { args: items, .. } => items.iter_mut().for_each(fold_expr),
     Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| fold_expr(e)),
-    Expr::Next(e) => fold_expr(e),
+    Expr::Next(e) | Expr::After(e) => fold_expr(e),
     Expr::Apply { f, args } => {
       fold_expr(f);
       args.iter_mut().for_each(fold_expr);

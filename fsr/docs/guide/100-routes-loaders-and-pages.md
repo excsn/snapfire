@@ -313,6 +313,21 @@ export async function middleware({ request, identity, next }: MiddlewareCtx) {
 
 The storefront's middleware sends the old `/basket` to `/cart`, serves `/shop` as the catalog and stamps every response. Under `fsr test`, a body test runs it with a `request` in its context, a spec's `fetch` goes through it and `load` follows the redirect and reports where it landed.
 
+## Work after the response
+
+`after(fn)` from `@snapfire/fsr` runs `fn` once the response is written: a count, a log line, a cache to warm, anything the caller should not wait on. A loader, an action, a route handler and middleware can each call it. The work runs whether the body went on to return or to fail.
+
+```ts
+export function GET({ params, services }: Ctx<"/go/{id}">) {
+  after(async () => {
+    await services.fleet.recordVisit({ id: BigInt(params.id) });
+  });
+  return Response.redirect(`/agents/${params.id}`, 308);
+}
+```
+
+The function is written in place and takes nothing. It reads the names around it as they stood when `after` was called. It cannot write the session, since the cookie went out with the response. The build refuses one that tries. A failure inside it is logged under `fsr::after` and changes nothing the caller saw. The host starts the work when the response body has been sent or dropped. On shutdown it waits for running work inside `server.shutdown_grace`. Under `fsr test` the work runs as soon as the body returns, so a mock sees its calls. The operations console's short link counts each visit this way.
+
 ## Client navigation
 
 Links are ordinary anchors. With navigation enabled, a same-origin click fetches the destination's payload rather than a new document. Every region of a page carries a segment key, the module plus the parameters and query that produced it and a digest of what it rendered; the client walks the old and new payloads together, keeping every region whose digest is unchanged and replacing the rest. A region that did not change keeps its DOM and its island state, whatever its key became, which is what lets a four-pane page change one pane on a click. The shell survives every click, since its module and inputs never change; a page's own region is replaced when its module or its parameters do, which is what a click from the catalog into a product asks for.

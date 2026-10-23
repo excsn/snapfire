@@ -65,6 +65,8 @@ peek = "{queued} queued · {cpu}% cpu"
 watch = "Watch this agent"
 unwatch = "Stop watching this agent"
 running = "Running"
+visits.one = "Opened {count} time from a short link."
+visits.other = "Opened {count} times from a short link."
 error_title = "That agent did not answer"
 error_body = "The fleet service refused the read. The rest of the console is still live."
 

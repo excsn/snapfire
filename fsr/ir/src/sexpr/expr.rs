@@ -56,6 +56,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
       form("call", rest)
     }
     Expr::Next(request) => form("next", vec![expr_to_sx(request)]),
+    Expr::After(work) => form("after", vec![expr_to_sx(work)]),
     Expr::NativeCall { module, method, args, sync } => {
       let mut rest = vec![Sx::Sym(module.clone()), Sx::Sym(method.clone())];
       rest.extend(named_args(args));
@@ -229,6 +230,7 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
       Expr::Call { service: sym_of(&a[0])?, method: sym_of(&a[1])?, args: named_args_from(&a[2..])? }
     }
     "next" => Expr::Next(Box::new(expr_from_sx(&args(items, head, 1)?[0])?)),
+    "after" => Expr::After(Box::new(expr_from_sx(&args(items, head, 1)?[0])?)),
     "native" | "native-sync" => {
       let a = at_least(items, head, 2)?;
       Expr::NativeCall {

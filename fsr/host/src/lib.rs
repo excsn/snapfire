@@ -3,6 +3,7 @@
 //! it, actix reaches it through the `actix` feature's shim.
 
 mod actions;
+mod after;
 pub mod assets;
 mod auth;
 mod builder;
@@ -302,6 +303,8 @@ pub struct Host {
   shutdown_grace: std::time::Duration,
   /// Set by `begin_drain`, which turns `server.ready` to 503.
   draining: std::sync::atomic::AtomicBool,
+  /// The work requests left to run after their responses, still running.
+  afters: Arc<after::AfterTasks>,
   /// The certificate the listener presents, `[server.tls]`; absent, the
   /// listener is plain TCP.
   #[cfg(feature = "tls")]

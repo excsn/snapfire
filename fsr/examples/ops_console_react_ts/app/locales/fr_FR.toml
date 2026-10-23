@@ -68,6 +68,8 @@ peek = "{queued} en attente · {cpu} % CPU"
 watch = "Suivre cet agent"
 unwatch = "Ne plus suivre cet agent"
 running = "En cours"
+visits.one = "Ouvert {count} fois depuis un lien court."
+visits.other = "Ouvert {count} fois depuis un lien court."
 error_title = "Cet agent n'a pas répondu"
 error_body = "Le service de la flotte a refusé la lecture. Le reste de la console fonctionne toujours."
 

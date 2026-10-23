@@ -350,6 +350,7 @@ impl<'a> Inferer<'a> {
         .map(|m| Ts::from_contract(&m.returns))
         .unwrap_or(Ts::Unknown),
       Expr::Next(_) => Ts::Named("Response".to_owned()),
+      Expr::After(_) => Ts::Undefined,
       Expr::NativeCall { module, method, .. } => self
         .natives
         .iter()

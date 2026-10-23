@@ -851,8 +851,8 @@ fn an_action_imports_redirect_from_the_module_it_imports_action_from() {
   ]);
   let built = build(&dir, &Options::default()).unwrap();
   let fsr = &built.files.iter().find(|(name, _)| name == "generated/fsr.ts").unwrap().1;
-  assert!(fsr.contains("import { action as declare, fail, redirect } from \"@snapfire/fsr-authoring\";"), "{fsr}");
-  assert!(fsr.contains("\nexport { fail, redirect };\n"), "{fsr}");
+  assert!(fsr.contains("import { action as declare, after, fail, redirect } from \"@snapfire/fsr-authoring\";"), "{fsr}");
+  assert!(fsr.contains("\nexport { after, fail, redirect };\n"), "{fsr}");
 }
 
 #[test]

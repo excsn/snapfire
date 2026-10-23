@@ -194,6 +194,9 @@ impl Host {
     ctx.csrf = incoming.csrf;
     ctx.services = services;
     ctx.natives = snapfire_fsr_runtime::NativeHandle::new(t.app.natives.clone());
+    if let Ok(after) = crate::after::AFTER.try_with(Clone::clone) {
+      ctx.after = after;
+    }
     ctx
   }
 
@@ -262,13 +265,28 @@ impl Host {
       .id()
       .and_then(|id| self.traces.as_ref()?.of_span(id.into_u64()))
       .and_then(|trace| self.trace_token(&self.tables(), &trace));
-    let mut answered = tracing::Instrument::instrument(self.handle_in(req), root.clone()).await;
+    let after = snapfire_fsr_runtime::AfterHandle::default();
+    let mut answered = crate::after::AFTER.scope(after.clone(), tracing::Instrument::instrument(self.handle_in(req), root.clone())).await;
     if let Some(value) = token.and_then(|token| HeaderValue::from_str(&token).ok()) {
       answered.headers_mut().insert("x-sf-request", value);
     }
     root.record("status", answered.status().as_u16());
     root.record("fibre.outcome", if answered.status().is_success() { "ok" } else { "error" });
+    let (parts, body) = answered.into_parts();
+    Response::from_parts(parts, Body::new(crate::after::Finishing::new(body, after, self.afters.clone())))
+  }
+
+  /// Runs `call` with a queue of its own for `after` and starts what it queued once it returns: a call from outside `handle`, which has no response body to wait on.
+  pub(crate) async fn answering<T>(&self, call: impl std::future::Future<Output = T>) -> T {
+    let after = snapfire_fsr_runtime::AfterHandle::default();
+    let answered = crate::after::AFTER.scope(after.clone(), call).await;
+    self.afters.start(after);
     answered
+  }
+
+  /// Resolves once the work every answered request left with `after` has finished.
+  pub async fn after_settled(&self) {
+    self.afters.settled().await
   }
 
   pub(crate) async fn handle_in(&self, req: Request<Bytes>) -> Response<Body> {

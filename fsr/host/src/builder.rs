@@ -527,6 +527,7 @@ impl HostBuilder {
       http2,
       shutdown_grace: std::time::Duration::from_secs(config.server.shutdown_grace),
       draining: std::sync::atomic::AtomicBool::new(false),
+      afters: Default::default(),
       #[cfg(feature = "tls")]
       tls,
       #[cfg(feature = "tls")]

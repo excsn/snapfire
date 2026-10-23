@@ -36,10 +36,17 @@ pub struct Alert {
   pub text: String,
 }
 
+#[derive(Clone, Serialize)]
+pub struct Visits {
+  pub count: u64,
+}
+
 pub struct Fleet {
   agents: Vec<Agent>,
   jobs: Vec<(u64, Job)>,
   alerts: RwLock<Vec<Alert>>,
+  /// How often each agent was opened from a short link, by agent id.
+  visits: RwLock<std::collections::HashMap<u64, u64>>,
 }
 
 fn agent(id: u64, name: &str, region: &str, status: &str, queue_depth: u64, cpu: f64) -> Agent {
@@ -74,6 +81,7 @@ impl Fleet {
         alert(21, 3, "page", "builder-us-1 stopped answering"),
         alert(22, 1, "warn", "builder-eu-1 queue over 3"),
       ]),
+      visits: RwLock::default(),
     })
   }
 
@@ -91,6 +99,17 @@ impl Fleet {
 
   fn alerts(&self) -> Vec<Alert> {
     self.alerts.read().clone()
+  }
+
+  fn visits(&self, id: u64) -> Visits {
+    Visits { count: self.visits.read().get(&id).copied().unwrap_or(0) }
+  }
+
+  fn visit(&self, id: u64) -> Visits {
+    let mut visits = self.visits.write();
+    let count = visits.entry(id).or_insert(0);
+    *count += 1;
+    Visits { count: *count }
   }
 
   fn acknowledge(&self, id: u64) -> Vec<Alert> {
@@ -134,6 +153,14 @@ async fn acknowledge(fleet: Data<Arc<Fleet>>, id: Path<u64>) -> HttpResponse {
   HttpResponse::Ok().json(fleet.acknowledge(*id))
 }
 
+async fn get_visits(fleet: Data<Arc<Fleet>>, id: Path<u64>) -> HttpResponse {
+  HttpResponse::Ok().json(fleet.visits(*id))
+}
+
+async fn record_visit(fleet: Data<Arc<Fleet>>, id: Path<u64>) -> HttpResponse {
+  HttpResponse::Ok().json(fleet.visit(*id))
+}
+
 async fn document() -> HttpResponse {
   HttpResponse::Ok().content_type("application/json").body(DOCUMENT)
 }
@@ -146,6 +173,8 @@ pub async fn serve(fleet: Arc<Fleet>, addr: (&'static str, u16)) -> std::io::Res
       .route("/agents", web::get().to(list_agents))
       .route("/agents/{id}", web::get().to(get_agent))
       .route("/agents/{id}/jobs", web::get().to(list_jobs))
+      .route("/agents/{id}/visits", web::get().to(get_visits))
+      .route("/agents/{id}/visits", web::post().to(record_visit))
       .route("/alerts", web::get().to(list_alerts))
       .route("/alerts/{id}/ack", web::post().to(acknowledge))
   })

@@ -105,7 +105,9 @@ const PLAN: &str = r#"{
     { "id": "away.GET", "method": "GET", "pattern": "/away", "owner": "lowered", "module": "routes/away/route.ts",
       "body": [ { "return": { "builtin": { "name": "response_redirect", "args": [ { "lit": { "str": "https://auth.example/authorize" } } ] } } } ] },
     { "id": "done.POST", "method": "POST", "pattern": "/done", "owner": "lowered", "module": "routes/done/route.ts",
-      "body": [ { "return": { "builtin": { "name": "redirect_to", "args": [ { "lit": { "str": "/thanks" } } ] } } } ] }
+      "body": [ { "return": { "builtin": { "name": "redirect_to", "args": [ { "lit": { "str": "/thanks" } } ] } } } ] },
+    { "id": "later.POST", "method": "POST", "pattern": "/later", "owner": "lowered", "module": "routes/later/route.ts",
+      "body": [ { "expr": { "after": { "lambda": { "params": [], "body": { "block": [ { "return": { "call": { "service": "shop", "method": "list", "args": [] } } } ] } } } } }, { "return": { "object": [ { "field": [ "ok", { "lit": { "bool": true } } ] } ] } } ] }
   ],
   "actions": [
     { "id": "index.where", "owner": "lowered", "module": "routes/index/actions.ts",
@@ -2168,8 +2170,10 @@ impl snapfire_fsr_runtime::Metadata for ItemsTitle {
 }
 
 fn formed() -> Arc<Host> {
-  let transport =
-    Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")])));
+  formed_over(Arc::new(MockTransport::new().returns("shop.list", Value::seq(vec![Value::str("a"), Value::str("b")]))))
+}
+
+fn formed_over(transport: Arc<MockTransport>) -> Arc<Host> {
   let host = Host::from(formed_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
@@ -4817,6 +4821,20 @@ async fn a_route_handler_answers_the_response_it_returns() {
   let response = host.handle(Request::post("/done").body(Bytes::new()).unwrap()).await;
   assert_eq!(response.status(), StatusCode::SEE_OTHER);
   assert_eq!(response.headers()[header::LOCATION], "/thanks");
+}
+
+#[tokio::test]
+async fn work_after_the_response_runs_once_its_body_is_read() {
+  let transport = Arc::new(MockTransport::new().returns("shop.list", Value::seq(Vec::new())));
+  let host = formed_over(transport.clone());
+  let response = host.handle(Request::post("/later").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  tokio::task::yield_now().await;
+  assert!(transport.calls().is_empty(), "nothing runs while the response is unwritten");
+  assert_eq!(body_of(response).await, r#"{"ok":true}"#);
+  tokio::time::timeout(std::time::Duration::from_secs(5), host.after_settled()).await.expect("the work finishes");
+  let calls: Vec<String> = transport.calls().into_iter().map(|(path, ..)| path).collect();
+  assert_eq!(calls, ["shop.list"]);
 }
 
 #[tokio::test]

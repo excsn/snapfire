@@ -266,6 +266,23 @@ pub struct RequestCtx {
   pub redirect: RedirectHandle,
   /// Middleware's `next`, set while a middleware runs; `None` everywhere else.
   pub next: Option<crate::NextHandle>,
+  /// Work to run once the response is written, `after(fn)`. A clone shares the queue.
+  pub after: AfterHandle,
+}
+
+/// The work a request left to run once its response is written. The host takes it when the response body is finished or dropped and spawns each piece.
+#[derive(Clone, Default)]
+pub struct AfterHandle(Arc<Mutex<Vec<futures_util::future::BoxFuture<'static, ()>>>>);
+
+impl AfterHandle {
+  pub fn push(&self, work: impl std::future::Future<Output = ()> + Send + 'static) {
+    self.0.lock().push(Box::pin(work));
+  }
+
+  /// Everything queued so far, leaving the queue empty.
+  pub fn take(&self) -> Vec<futures_util::future::BoxFuture<'static, ()>> {
+    std::mem::take(&mut *self.0.lock())
+  }
 }
 
 /// The target an action body named with `redirect`. A clone shares the cell,
@@ -317,6 +334,7 @@ impl RequestCtx {
       natives: crate::natives::NativeHandle::default(),
       redirect: RedirectHandle::default(),
       next: None,
+      after: AfterHandle::default(),
     }
   }
 

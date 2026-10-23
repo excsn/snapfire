@@ -989,7 +989,11 @@ impl Hooks for SpecHooks {
           Ok((head, answered.body))
         }
       };
+      let after = ctx.after.clone();
       let passed = snapfire_fsr_runtime::drive_middleware(ctx, &query, run, serve).await;
+      for work in after.take() {
+        work.await;
+      }
       match passed {
         Ok(snapfire_fsr_runtime::Passed::Continue) => {
           let target = if query.is_empty() { path.clone() } else { format!("{path}?{query}") };
@@ -1116,7 +1120,11 @@ impl FetchHooks {
         return Err(json_response(400, serde_json::json!({ "kind": "invalid", "message": e.to_string() })));
       }
     }
-    match self.interpreter.run(&body_ir, &mock.ctx, Some(input)).await {
+    let ran = self.interpreter.run(&body_ir, &mock.ctx, Some(input)).await;
+    for work in mock.ctx.after.take() {
+      work.await;
+    }
+    match ran {
       Ok(outcome) => Ok((outcome.value, outcome.redirected)),
       Err(fail) => Err(json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message }))),
     }
@@ -1186,7 +1194,11 @@ impl FetchHooks {
     let mut ctx = mock.ctx.clone();
     ctx.params = params;
     ctx.query = parse_query(&query);
-    match self.interpreter.run(&body_ir, &ctx, Some(input)).await {
+    let ran = self.interpreter.run(&body_ir, &ctx, Some(input)).await;
+    for work in ctx.after.take() {
+      work.await;
+    }
+    match ran {
       Ok(outcome) => json_response(200, value_to_json(&outcome.value)),
       Err(fail) => json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
     }
