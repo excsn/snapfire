@@ -117,3 +117,18 @@ fn a_component_another_library_wraps_or_styles_is_residue_naming_how_it_was_made
     assert!(residue.message.contains(how), "{tag}: {residue:?}");
   }
 }
+
+#[test]
+fn a_class_island_renders_its_children_in_the_region_the_browser_adopts() {
+  let page = "import Guard from \"@src/Guard\";\nexport default function Page() {\n  return <main><Guard><p>inside</p></Guard></main>;\n}\n";
+  let direct = "import { Component } from \"react\";\nexport default class Guard extends Component {\n  state = { failed: false };\n  static getDerivedStateFromError() {\n    return { failed: true };\n  }\n  render() {\n    if (this.state.failed) return <p>failed</p>;\n    return this.props.children;\n  }\n}\n";
+  let destructured = "import { Component } from \"react\";\nexport default class Guard extends Component {\n  state = { failed: false };\n  render() {\n    const { children } = this.props;\n    return <div>{children}</div>;\n  }\n}\n";
+  for (tag, source, inner) in [("direct", direct, "<sf-s data-sf-children><p>inside</p></sf-s>"), ("destructured", destructured, "<div><sf-s data-sf-children><p>inside</p></sf-s></div>")] {
+    let set = lowered(tag, &[("src/Guard.tsx", source), ("routes/page.tsx", page)]).unwrap();
+    let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+    let module = "routes/page.tsx#default";
+    let out = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap();
+    assert_eq!(out.islands.len(), 1, "{tag}");
+    assert!(out.islands[0].body.html.contains(inner), "{tag}: {}", out.islands[0].body.html);
+  }
+}

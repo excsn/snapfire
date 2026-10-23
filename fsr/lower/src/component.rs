@@ -6688,8 +6688,11 @@ impl ComponentLowerer<'_, '_> {
         self.slot_props.iter().find(|(local, _)| local == name).map(|(_, slot)| slot.clone())
       }
       js::Expr::Member(m) => {
-        let js::Expr::Ident(obj) = &*m.obj else { return None };
         let js::MemberProp::Ident(prop) = &m.prop else { return None };
+        if self.class.is_some() && prop.sym.as_ref() == "children" && is_this_props(&m.obj) {
+          return Some("content".to_owned());
+        }
+        let js::Expr::Ident(obj) = &*m.obj else { return None };
         if self.props_name.as_deref() != Some(obj.sym.as_ref()) {
           return None;
         }
@@ -6702,6 +6705,11 @@ impl ComponentLowerer<'_, '_> {
       _ => None,
     }
   }
+}
+
+/// `this.props`, which a class component's `render()` reads its props through.
+fn is_this_props(expr: &js::Expr) -> bool {
+  matches!(expr, js::Expr::Member(m) if matches!(&*m.obj, js::Expr::This(_)) && matches!(&m.prop, js::MemberProp::Ident(p) if p.sym.as_ref() == "props"))
 }
 
 const EFFECT_HOOKS: &[&str] = &["useEffect", "useLayoutEffect", "useInsertionEffect", "useDebugValue", "useImperativeHandle"];
@@ -7986,6 +7994,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
 
   /// A destructuring in a component body: the value under a temporary each name reads a part of.
   fn pattern_stmt(&mut self, pattern: &'p js::Pat, init: &'p js::Expr) -> Lowered<Option<Stmt>> {
+    if let (Some(_), js::Pat::Object(obj)) = (self.class, pattern) {
+      if is_this_props(init) {
+        self.children_name = obj.props.iter().find_map(|prop| match prop {
+          js::ObjectPatProp::Assign(a) if a.key.id.sym.as_ref() == "children" => Some("children".to_owned()),
+          js::ObjectPatProp::KeyValue(kv) if prop_name(&kv.key).as_deref() == Some("children") => match &*kv.value {
+            js::Pat::Ident(id) => Some(id.id.sym.to_string()),
+            _ => None,
+          },
+          _ => None,
+        }).or(self.children_name.take());
+      }
+    }
     let expr = match hook_call(&self.meanings(), init) {
       Some((hook, call)) if FSR_HOOKS.contains(&hook) && self.foreign_callee(call) => {
         return Err(self.lowerer.residue(call.span, format!("`{hook}`, a hook the build cannot follow")));
