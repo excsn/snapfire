@@ -127,6 +127,8 @@ fsr migrate ./my-ink-tool ./my-fsr-tool
 
 The sources under `source/` or `src/` go to `app/src/` and a top-level `test.ts` or a `*.test.*` file to `app/tests/`. The entry that calls Ink's `render` is left behind, since `app/routes/page.tsx` renders the same component instead.
 
+When `render` passed the component props, `app/routes/page.loader.ts` is written as well: the statements before `render` in the function that rendered become the loader's body and each prop becomes a field of its return, which the page gives to the component from `RootProps`. The loader runs once when the terminal opens, with the command line after `--` as `params`, so `fsr dev app --terminal -- --limit 3` reaches it as `params.limit`.
+
 ```tsx
 import Ui from "@src/ui";
 

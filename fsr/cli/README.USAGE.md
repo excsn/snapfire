@@ -1497,6 +1497,18 @@ return (
 
 A change under `app/` lowers the page again and redraws it with its state kept. A page that does not lower, or that renders something other than Ink's elements, shows why in red in place of the page until the next change fixes it.
 
+
+A root page beside `routes/page.loader.ts` takes what `load` returns as its props, as a web page does. The loader runs once when the terminal opens, with the command line after `--` as `params`: `--name value` and `--name=value` bind `name`, a bare `--flag` binds `"true"` and each positional argument binds its position, `"0"`, `"1"` and on.
+
+```ts
+export async function load({ params }: Ctx<"/">) {
+  return { name: params.name ?? "world", file: params["0"] };
+}
+```
+
+```sh
+fsr dev app --terminal -- --name norm cards.txt
+```
 `Transform`, `measureElement` and pages other than `routes/page.tsx` are not supported yet. The [counter example](../examples/counter_terminal_ts/README.md) is a complete one.
 
 ## Rendering a Route with Tera
