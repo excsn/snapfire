@@ -1974,13 +1974,38 @@ fn render_place<'a>(env: &mut Env, target: &str, children: &'a [Tmpl], library: 
 
 /// An island: `<Island>` in the source, or a component a framework hydrates
 /// that composition renders, which only its framework can render again.
-/// The browser mounts an island in a root of its own, so no provider outside it reaches it; the server renders it the same way.
+/// The browser renders an island inside an island of its own framework in that island's tree, so the providers above it reach it. Any other island it mounts in a root of its own, which no provider outside reaches. The server renders both the same way.
 #[allow(clippy::too_many_arguments)]
 fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a [Tmpl], when: &Option<String>, mode: &Option<String>, id: u32, define: bool, library: &'a Components, slots: &mut Vec<Slot<'a>>, out: &mut Out) -> Result<(), Fail> {
-  let provided = std::mem::take(&mut env.contexts);
+  let owner = island_owner(module, library);
+  let joins = owner.is_some() && owner == env.island;
+  let provided = if joins { env.contexts.clone() } else { std::mem::take(&mut env.contexts) };
+  let enclosing = std::mem::replace(&mut env.island, owner);
   let result = render_placed_in(env, module, props, children, when, mode, id, define, library, slots, out);
+  env.island = enclosing;
   env.contexts = provided;
   result
+}
+
+/// The framework an island's module renders with: its lowered component's owner, else its file's. None for a module no framework renders.
+fn island_owner(module: &str, library: &Components) -> Option<crate::ast::Owner> {
+  use crate::ast::Owner;
+  match library.get(module).map(|c| c.owner) {
+    Some(Owner::Fsr) => None,
+    Some(owner) => Some(owner),
+    None => {
+      let file = module.split_once('#').map_or(module, |(file, _)| file);
+      if file.ends_with(".vue") {
+        Some(Owner::Vue)
+      } else if file.ends_with(".svelte") {
+        Some(Owner::Svelte)
+      } else if file.ends_with(".tsx") || file.ends_with(".jsx") {
+        Some(Owner::React)
+      } else {
+        None
+      }
+    }
+  }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -3988,6 +4013,23 @@ mod island_tests {
     assert_eq!(**body, Node::raw("<p>help 7</p>"));
     assert_eq!(nodes[3], Node::raw("</sf-s>"));
     assert_eq!(nodes[4], Node::raw("after</main>"));
+  }
+
+  #[test]
+  fn an_island_inside_an_island_of_its_own_framework_reads_the_providers_above_it() {
+    let reader = |owner| Arc::new(Component::new(owner, Vec::new(), Tmpl::Expr(Expr::Context("tone".to_owned()))));
+    let mut library = Components::new();
+    library.insert("src/ui/Reader.tsx#Reader".to_owned(), reader(crate::ast::Owner::React));
+    library.insert("src/ui/Reader.vue#default".to_owned(), reader(crate::ast::Owner::Vue));
+    let provide = |tone: &str, then: Tmpl| Tmpl::Let { name: format!("{CONTEXT_PREFIX}tone"), expr: Expr::Lit(crate::ast::Lit::Str(tone.to_owned())), then: Box::new(then) };
+    let shell = Tmpl::Fragment(vec![Tmpl::Expr(Expr::Context("tone".to_owned())), provide("dusk", Tmpl::Fragment(vec![island_at("src/ui/Reader.tsx#Reader", 1), island_at("src/ui/Reader.vue#default", 2)]))]);
+    library.insert("src/ui/Shell.tsx#Shell".to_owned(), Arc::new(Component::new(crate::ast::Owner::React, Vec::new(), shell)));
+    let page = Component::new(crate::ast::Owner::React, Vec::new(), provide("page", island_at("src/ui/Shell.tsx#Shell", 0)));
+    let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
+    let shell = &rendered.islands[0];
+    assert!(!shell.body.html.contains("page"), "the page's provider stays outside the outermost island: {}", shell.body.html);
+    assert_eq!(shell.body.islands[0].body.html, "dusk", "a React island in a React island");
+    assert_eq!(shell.body.islands[1].body.html, "", "a Vue island in a React island");
   }
 
   #[test]

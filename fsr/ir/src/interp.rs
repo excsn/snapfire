@@ -267,6 +267,7 @@ impl Interpreter {
       component_path: String::new(),
       unrendered: false,
       contexts: Vec::new(),
+      island: None,
       stamp: Vec::new(),
       fallthrough: None,
       slotted: Vec::new(),
@@ -416,6 +417,8 @@ pub(crate) struct Env {
   pub(crate) unrendered: bool,
   /// The values the providers around the render point hold, by context, innermost last.
   pub(crate) contexts: Vec<(String, Value)>,
+  /// The framework of the island being rendered, whose tree an island of the same framework inside it joins in the browser. None outside every island.
+  pub(crate) island: Option<crate::ast::Owner>,
   /// Attributes waiting for the first element the component just placed renders, its root: a Vue parent's scoped-style id, followed inside slot content by the slot host's slotted stamp.
   pub(crate) stamp: Vec<String>,
   /// The attributes a Vue parent gave a child that the child does not declare as props, waiting for the child's root element, which takes them as Vue's `mergeProps` does.
@@ -660,6 +663,7 @@ impl Env {
       component_path: String::new(),
       unrendered: false,
       contexts: Vec::new(),
+      island: None,
       stamp: Vec::new(),
       fallthrough: None,
       slotted: Vec::new(),
@@ -913,6 +917,7 @@ impl Env {
       component_path: self.component_path.clone(),
       unrendered: false,
       contexts: self.contexts.clone(),
+      island: self.island,
       stamp: Vec::new(),
       fallthrough: None,
       slotted: Vec::new(),
