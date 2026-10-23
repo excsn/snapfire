@@ -356,6 +356,7 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `os.platform` | process | | `darwin`, `linux`, `win32` or what Rust calls the OS |
 | `os.tmpdir` | process | | the temporary directory, no trailing `/` |
 | `process.cwd` | process | | the working directory |
+| `process.memoryUsage` | process | | `{ rss, heapTotal, heapUsed, external, arrayBuffers }`; `rss` is the resident set in bytes and the rest are 0, there being no JavaScript heap |
 | `fs.existsSync` | process | `path` | whether anything is at `path` |
 | `fs.readFileSync`, `fs.readFile` | process | `path`, `encoding?` | the file as text, bytes that are not UTF-8 as U+FFFD; a missing file throws `{ name: "Error", message, code: "ENOENT", path }` |
 | `fs.writeFileSync`, `fs.writeFile` | process | `path`, `data` | writes `data` as text; null |

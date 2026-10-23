@@ -16,6 +16,7 @@ readme = "README.md"
 [dependencies]
 memchr = "2"
 itoa = "1"
+libc = "0.2"
 parking_lot = "0.12"
 regress = { version = "0.12", default-features = false, features = ["std", "utf16"] }
 snapfire_fsr_core.workspace = true

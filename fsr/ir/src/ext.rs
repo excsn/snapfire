@@ -71,6 +71,7 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("os", "platform", Reach::Process),
   ("os", "tmpdir", Reach::Process),
   ("process", "cwd", Reach::Process),
+  ("process", "memoryUsage", Reach::Process),
   ("fs", "existsSync", Reach::Process),
   ("fs", "readFileSync", Reach::Process),
   ("fs", "readFile", Reach::Process),

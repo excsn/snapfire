@@ -121,6 +121,9 @@ pub use schema::{builtin_types, read_schema, read_session_defaults, SchemaType, 
 /// JavaScript's error constructors, which a `throw` and a `new` read as `{ name, message }`.
 pub(crate) const ERROR_CONSTRUCTORS: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
 
+/// The `process` methods a terminal page calls with no arguments, each the standard member of the same name.
+const PROCESS_CALLS: [&str; 2] = ["cwd", "memoryUsage"];
+
 /// The import aliases every fsr application has, each a prefix and the app
 /// directory it stands for. The build writes them into both tsconfigs, snapfirec
 /// rewrites them for the browser and the lowerers resolve them here.
@@ -1996,11 +1999,35 @@ impl<'a> Lowerer<'a> {
     Ok(Some(Stmt::Act { action: snapfire_fsr_ir::host::Act::Exit.name().to_owned(), input: code }))
   }
 
-  /// `process.cwd()` in a terminal page: the member `process.cwd`.
+  /// `process.cwd()` or `process.memoryUsage()` in a terminal page: the member of the same name.
   fn process_call(&self, call: &js::CallExpr) -> Option<Expr> {
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Member(member) = crate::meaning::bare(callee) else { return None };
-    (self.reaches(Reach::Process) && self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("cwd") && call.args.is_empty()).then(|| Expr::Ext { module: "process".to_owned(), name: "cwd".to_owned(), args: Vec::new() })
+    if !self.reaches(Reach::Process) || !self.is_process(&member.obj) || !call.args.is_empty() {
+      return None;
+    }
+    let name = self.member_name(member)?;
+    PROCESS_CALLS.contains(&name.as_str()).then(|| Expr::Ext { module: "process".to_owned(), name, args: Vec::new() })
+  }
+
+  /// What `typeof` answers for `process` or one of its members the build lowers, in a terminal page; `None` for anything else.
+  fn process_type(&self, e: &js::Expr) -> Option<&'static str> {
+    if !self.reaches(Reach::Process) {
+      return None;
+    }
+    if self.is_process(e) {
+      return Some("object");
+    }
+    let js::Expr::Member(member) = crate::meaning::bare(e) else { return None };
+    if !self.is_process(&member.obj) {
+      return None;
+    }
+    match self.member_name(member)?.as_str() {
+      name if PROCESS_CALLS.contains(&name) || name == "exit" => Some("function"),
+      "platform" => Some("string"),
+      "env" | "stdout" => Some("object"),
+      _ => None,
+    }
   }
 
   /// Whether `call` is `spawn` from `node:child_process`, named or through its default export.
@@ -2703,6 +2730,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOp::Tilde if self.kind_of(&u.arg) == Some(Kind::BigInt) => Err(self.residue(u.span, "the `~` operator on a `bigint`")),
         js::UnaryOp::Tilde => Ok(Expr::Arith(ArithOp::BitXor, Box::new(self.expr(&u.arg)?), Box::new(Expr::Lit(Lit::Float(-1.0))))),
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
+        js::UnaryOp::TypeOf if self.process_type(&u.arg).is_some() => Ok(Expr::lit_str(self.process_type(&u.arg).unwrap_or_default())),
         js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
           Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response) => Expr::lit_str("object"),
@@ -2711,6 +2739,7 @@ impl<'a> Lowerer<'a> {
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
       },
       js::Expr::Bin(bin) if bin.op == js::BinaryOp::InstanceOf => self.instance_of(bin),
+      js::Expr::Bin(bin) if bin.op == js::BinaryOp::LogicalAnd && self.reaches(Reach::Process) && self.is_process(&bin.left) => self.expr(&bin.right),
       js::Expr::Bin(bin) if is_bitwise(bin.op) && (self.kind_of(&bin.left) == Some(Kind::BigInt) || self.kind_of(&bin.right) == Some(Kind::BigInt)) => Err(self.residue(bin.span, format!("the `{}` operator on a `bigint`", bin.op))),
       js::Expr::Bin(bin) => {
         let l = Box::new(self.expr(&bin.left)?);

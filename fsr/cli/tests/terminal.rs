@@ -708,3 +708,11 @@ fn performance_now_reads_a_clock_that_advances_within_a_loader() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 20).lines()[0], "yes");
 }
+
+#[test]
+fn a_page_reads_the_process_memory_behind_a_guard_on_the_process_object() {
+  let page = "import { Text } from \"ink\";\nimport nodeProcess from \"node:process\";\n\nfunction safeMemory() {\n  if (nodeProcess && typeof nodeProcess.memoryUsage === \"function\") {\n    return nodeProcess.memoryUsage();\n  }\n  return { rss: 0, heapTotal: 0, heapUsed: 0, external: 0, arrayBuffers: 0 };\n}\n\nexport default function Memory() {\n  const usage = safeMemory();\n  return <Text>{usage.rss > 0 ? \"rss\" : \"none\"} {typeof nodeProcess} {usage.heapUsed >= 0 ? \"heap\" : \"no\"}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "rss object heap");
+}

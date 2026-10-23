@@ -3,7 +3,7 @@
 //! `Terminal` reach; the rest read the machine and are `Process` reach.
 //! Paths are POSIX, as Node's `path.posix`.
 
-use crate::ext::{option, text, text_opt, Ambient, Extensions, Reach};
+use crate::ext::{option, text, text_opt, Extensions, Reach};
 use crate::interp::Fail;
 use snapfire_fsr_core::{Value, ValueMap};
 
@@ -20,6 +20,7 @@ pub fn register(extensions: &mut Extensions) {
   extensions.register("os.platform", Reach::Process, |_, _| Ok(Value::str(platform())));
   extensions.register("os.tmpdir", Reach::Process, |_, _| Ok(Value::str(std::env::temp_dir().to_string_lossy().trim_end_matches('/').to_owned())));
   extensions.register("process.cwd", Reach::Process, |_, _| Ok(Value::str(std::env::current_dir().map_err(|e| Fail::internal(format!("process.cwd: {e}")))?.to_string_lossy().into_owned())));
+  extensions.register("process.memoryUsage", Reach::Process, |_, _| Ok(memory_usage()));
   extensions.register("fs.existsSync", Reach::Process, |_, args| Ok(Value::Bool(std::path::Path::new(text("fs.existsSync", args, 0)?).exists())));
   extensions.register("fs.readFileSync", Reach::Process, |_, args| read_file("fs.readFileSync", args));
   extensions.register("fs.readFile", Reach::Process, |_, args| read_file("fs.readFile", args));
@@ -43,6 +44,36 @@ fn platform() -> &'static str {
     "windows" => "win32",
     other => other,
   }
+}
+
+/// Node's `process.memoryUsage()`: `rss` is the process's resident set in bytes; `heapTotal`, `heapUsed`, `external` and `arrayBuffers` are 0, since there is no JavaScript heap.
+fn memory_usage() -> Value {
+  let mut usage = ValueMap::default();
+  usage.insert("rss".to_owned(), Value::Int(resident_bytes() as i128));
+  for field in ["heapTotal", "heapUsed", "external", "arrayBuffers"] {
+    usage.insert(field.to_owned(), Value::Int(0));
+  }
+  Value::Map(usage)
+}
+
+#[cfg(target_os = "macos")]
+fn resident_bytes() -> u64 {
+  let mut info: libc::mach_task_basic_info = unsafe { std::mem::zeroed() };
+  let mut count = libc::MACH_TASK_BASIC_INFO_COUNT;
+  let result = unsafe { libc::task_info(libc::mach_task_self(), libc::MACH_TASK_BASIC_INFO, &mut info as *mut libc::mach_task_basic_info as libc::task_info_t, &mut count) };
+  if result == libc::KERN_SUCCESS { info.resident_size } else { 0 }
+}
+
+#[cfg(target_os = "linux")]
+fn resident_bytes() -> u64 {
+  let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
+  let pages: u64 = statm.split_whitespace().nth(1).and_then(|p| p.parse().ok()).unwrap_or(0);
+  pages * unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(0) as u64
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn resident_bytes() -> u64 {
+  0
 }
 
 /// `path.normalize`: `.` and empty segments dropped, `..` resolved against what precedes it, a leading `/` and a trailing `/` kept; `.` for nothing.
