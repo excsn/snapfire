@@ -9330,7 +9330,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
               _ => None,
             };
             let expr = match (decl.init.as_deref(), listener) {
-              (Some(_), Some(arrow)) => self.named_listener(arrow, decl.span)?,
+              (Some(_), Some(arrow)) => self.named_listener(&arrow.params, arrow_body(arrow), decl.span)?,
               (Some(init), None) => match self.arrow_timer(init) {
                 Some((repeats, callback, delay)) => self.handler_timer(repeats, callback, delay, decl.span, walk)?,
                 None => self.lowerer.expr(init)?,
@@ -9365,6 +9365,27 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             self.lowerer.scope.push((local, Expr::Var(name.clone())));
             walk.out.push(Stmt::Let { name, expr });
           }
+        }
+        js::Stmt::Decl(js::Decl::Fn(f)) if f.function.body.is_some() => {
+          let local = f.ident.sym.to_string();
+          let params: Vec<js::Pat> = f.function.params.iter().map(|p| p.pat.clone()).collect();
+          let body = FunctionBody::Block(&f.function.body.as_ref().expect("checked").stmts);
+          if !(self.lowerer.reaches(Reach::Process) && listened_names(&stmts[at + 1..]).contains(&local)) {
+            let outer = self.handler_fns.insert(local.clone(), (params, body));
+            declared.push((local, outer));
+            continue;
+          }
+          let expr = self.named_listener(&params, body, f.function.span)?;
+          let (name, expr) = match &walk.reach {
+            None => (local.clone(), expr),
+            Some(reach) => {
+              walk.locals += 1;
+              (format!("{local}${}", walk.locals), Expr::Ternary(Box::new(reach.clone()), Box::new(expr), Box::new(Expr::Lit(Lit::Null))))
+            }
+          };
+          self.named_listeners.push((name.clone(), !params.is_empty()));
+          self.lowerer.scope.push((local, Expr::Var(name.clone())));
+          walk.out.push(Stmt::Let { name, expr });
         }
         js::Stmt::Return(r) if r.arg.as_deref().is_none_or(is_undefined) => return Ok(true),
         js::Stmt::Return(js::ReturnStmt { arg: Some(cleanup), span }) if self.cleanup_for.is_some() => {
@@ -9505,22 +9526,27 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(Some(Join { event, carry }))
   }
 
-  /// A listener on a process the handler spawned as the act [`snapfire_fsr_ir::host::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` as the callback settles that promise instead.
+  /// A listener on a process the handler spawned as the act [`snapfire_fsr_ir::host::Act::Listen`], its callback a continuation of the component with `code` and `signal` bound from an exit's report; a promise's `resolve` or `reject` as the callback settles that promise instead; a function the effect declares runs as the handler it already is.
   fn handler_listen(&mut self, call: &'p js::CallExpr, walk: &mut HandlerWalk) -> Lowered<()> {
     let (process, report, callback, removes) = self.lowerer.listener(call).expect("checked");
     let Some(report) = report else { return Ok(()) };
     let Some(callback) = callback else { return Err(self.lowerer.residue(call.span, "a process listener without a function")) };
     let mut fields = vec![Entry::Field("process".to_owned(), self.lowerer.expr(process)?), Entry::Field("report".to_owned(), Expr::lit_str(report.name()))];
     let exits = matches!(report, snapfire_fsr_ir::host::Report::Exit | snapfire_fsr_ir::host::Report::Close);
-    let named = match crate::meaning::bare(callback) {
-      js::Expr::Ident(_) => match self.lowerer.expr(callback)? {
+    let effect_fn = match crate::meaning::bare(callback) {
+      js::Expr::Ident(id) => self.effect_fns.iter().find(|(f, _)| *f == *id.sym).map(|(_, event)| event.clone()),
+      _ => None,
+    };
+    let named = match (effect_fn, crate::meaning::bare(callback)) {
+      (Some(event), _) => Some((Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), Expr::Object(Vec::new()))]), false)),
+      (None, js::Expr::Ident(_)) => match self.lowerer.expr(callback)? {
         Expr::Var(var) => self.named_listeners.iter().find(|(name, _)| *name == var).map(|(_, takes)| (Expr::Var(var.clone()), *takes)),
         _ => None,
       },
       _ => None,
     };
     if removes {
-      let Some((named, _)) = named else { return Err(self.lowerer.residue(callback.span(), "an `off` whose function is not a `const` arrow of the handler that passes it to `on`")) };
+      let Some((named, _)) = named else { return Err(self.lowerer.residue(callback.span(), "an `off` whose function is not a `const` arrow of the handler that passes it to `on` or a function its effect declares")) };
       fields.push(Entry::Field("event".to_owned(), named.field("event")));
       walk.act(snapfire_fsr_ir::host::Act::Unlisten.name().to_owned(), Expr::Object(fields));
       return Ok(());
@@ -9558,27 +9584,32 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     Ok(())
   }
 
-  /// A `const` arrow a terminal handler passes to `on` or `off` as the value `{ event, carry }` of the continuation it is, its parameters bound to what the report carries.
-  fn named_listener(&mut self, arrow: &'p js::ArrowExpr, at: Span) -> Lowered<Expr> {
+  /// A `const` arrow or a function declaration a terminal handler passes to `on` or `off` as the value `{ event, carry }` of the continuation it is, its parameters bound to what the report carries.
+  fn named_listener(&mut self, params: &[js::Pat], body: FunctionBody<'p>, at: Span) -> Lowered<Expr> {
     let value = Expr::Var(RESUME.to_owned()).field("value");
     let mut binds = Vec::new();
-    for param in &arrow.params {
+    for param in params {
       let js::Pat::Ident(name) = param else { return Err(self.lowerer.residue(param.span(), "a process listener's parameter that is not a name")) };
       binds.push((name.id.sym.to_string(), value.clone()));
     }
-    let (event, carry) = self.arrow_continuation(arrow, binds, at)?;
+    let (event, carry) = self.body_continuation(body, binds, at)?;
     Ok(Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]))
   }
 
   /// `arrow`'s body as a continuation of the component with `binds` in scope: its event and the carry the act that runs it passes.
   fn arrow_continuation(&mut self, arrow: &'p js::ArrowExpr, binds: Vec<(String, Expr)>, at: Span) -> Lowered<(String, Expr)> {
+    self.body_continuation(arrow_body(arrow), binds, at)
+  }
+
+  /// A function's `body` as a continuation of the component with `binds` in scope: its event and the carry the act that runs it passes.
+  fn body_continuation(&mut self, body: FunctionBody<'p>, binds: Vec<(String, Expr)>, at: Span) -> Lowered<(String, Expr)> {
     let depth = self.lowerer.scope.len();
     self.lowerer.scope.extend(binds);
     let cleanup_for = self.cleanup_for.take();
     let mut cw = HandlerWalk::default();
-    let lowered = match &*arrow.body {
-      js::ArrowFunctionBody::FunctionBody(b) => self.async_within(&b.stmts, &mut cw, &Within::default()),
-      js::ArrowFunctionBody::Expr(e) => self.handler_stmt(e, &mut cw),
+    let lowered = match body {
+      FunctionBody::Block(stmts) => self.async_within(stmts, &mut cw, &Within::default()),
+      FunctionBody::Expr(e) => self.handler_stmt(e, &mut cw),
     };
     self.cleanup_for = cleanup_for;
     self.lowerer.scope.truncate(depth);

@@ -1919,13 +1919,21 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// `process.env.NAME` or `process.env[name]` in a terminal page: the variable through `terminal.env`, null when it is not set. `process.platform` is `os.platform`.
+  /// `process.env.NAME` or `process.env[name]` in a terminal page: the variable through `terminal.env`, null when it is not set. `process.platform` is `os.platform`. `process.stdout` is the terminal's output as `useStdout` gives it, its `columns` and `rows` the terminal's size.
   fn env_read(&mut self, member: &js::MemberExpr) -> Lowered<Option<Expr>> {
     if !self.reaches(Reach::Process) {
       return Ok(None);
     }
     if self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("platform") {
       return Ok(Some(Expr::Ext { module: "os".to_owned(), name: "platform".to_owned(), args: Vec::new() }));
+    }
+    if self.is_process(&member.obj) && self.member_name(member).as_deref() == Some("stdout") {
+      let size = |key: &str, fallback: i128| Expr::Coalesce(Box::new(Expr::Store(key.to_owned())), Box::new(Expr::Lit(Lit::Int(fallback))));
+      return Ok(Some(Expr::Object(vec![
+        Entry::Field("columns".to_owned(), size(crate::TERMINAL_COLUMNS, 80)),
+        Entry::Field("rows".to_owned(), size(crate::TERMINAL_ROWS, 24)),
+        Entry::Field(snapfire_fsr_ir::host::PROCESS.to_owned(), Expr::lit_str(snapfire_fsr_ir::host::TERMINAL_OUTPUT)),
+      ])));
     }
     if let js::Expr::Member(out) = crate::meaning::bare(&member.obj) {
       if matches!(self.member_name(out).as_deref(), Some("stdout" | "stderr")) && self.is_process(&out.obj) {

@@ -77,7 +77,7 @@ An effect only a browser could run, writing `document.title` for one, is left ou
 
 ## Files, paths and the environment
 
-A terminal tool reads its own configuration before it draws, so a page may read the machine it runs on. `node:fs` gives `existsSync`, `readFileSync`, `writeFileSync`, `mkdirSync` and `readdirSync`, `node:fs/promises` their awaited forms, `node:path` its path functions and `node:os` `homedir`, `platform` and `tmpdir`; `process.env`, `process.platform` and `process.cwd()` read the process and `process.exit(code)` ends it. Each runs natively, no Node involved.
+A terminal tool reads its own configuration before it draws, so a page may read the machine it runs on. `node:fs` gives `existsSync`, `readFileSync`, `writeFileSync`, `mkdirSync` and `readdirSync`, `node:fs/promises` their awaited forms, `node:path` its path functions and `node:os` `homedir`, `platform` and `tmpdir`; `process.env`, `process.platform` and `process.cwd()` read the process and `process.exit(code)` ends it. `process.stdout.columns` and `process.stdout.rows` are the terminal's size and `process.stdout.on("resize", f)` runs `f` when it changes, with `off` in the effect's cleanup taking it off. Each runs natively, no Node involved.
 
 ```tsx
 import { existsSync, readFileSync } from "node:fs";

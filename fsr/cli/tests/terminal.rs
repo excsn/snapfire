@@ -643,3 +643,13 @@ fn process_stdout_columns_and_rows_are_the_terminals_size() {
   session.resize(100, 30);
   assert_eq!(line(session.view().unwrap()), "100x30");
 }
+
+#[test]
+fn a_resize_runs_the_listener_process_stdout_on_added_with_a_function_the_effect_declares() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Sized() {\n  const [size, setSize] = useState({ columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 });\n  useEffect(() => {\n    function updateSize() {\n      setSize({ columns: process.stdout.columns || 80, rows: process.stdout.rows || 24 });\n    }\n    process.stdout.on(\"resize\", updateSize);\n    return () => {\n      process.stdout.off(\"resize\", updateSize);\n    };\n  }, []);\n  return <Text>{size.columns}x{size.rows}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "80x24");
+  session.resize(120, 40);
+  assert_eq!(line(session.view().unwrap()), "120x40");
+}
