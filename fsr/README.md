@@ -86,7 +86,7 @@ Desktop mode is experimental. Today the window loads the host over a loopback po
 
 ## Terminal apps (experimental)
 
-FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal: Ink's `Box`, `Text`, `Spacer`, `Newline` and `useInput`, imported from `ink` itself, so an Ink file needs no changes to run. Ink is what Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with. Ink runs every one of them on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the cells that changed rewritten. That is the base for high-performance terminal apps of that kind.
+FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal. `Box`, `Text`, `Spacer`, `Newline` and `useInput` are imported from `ink` itself, so an Ink file runs unchanged. Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with Ink on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the changed cells rewritten.
 
 ```tsx
 import { useState } from "react";
@@ -110,7 +110,7 @@ cargo install snapfire_fsr_cli --features terminal
 fsr dev app --terminal
 ```
 
-Terminal mode is experimental. Today it runs the app's root page `routes/page.tsx` with every component it places, each with its own state, keys and timers. It reads React's `useState`, `useReducer` and `useRef` with Ink's `useInput`, `useFocus`, `useFocusManager`, `useApp().exit` and `suspendTerminal`, `useWindowSize`, `useStdout`, `useStderr`, `useAnimation`, `useBoxMetrics`, `useCursor` and `Static`; Tab, Shift+Tab and Esc move the focus as Ink's do. An effect may start `setInterval` and `setTimeout` timers and stop them with `clearInterval` and `clearTimeout`; the cleanup it returns runs before it runs again. Local time reads this machine's time zone. A Box may be sized in percentages. `ms`, `strip-ansi`, `string-width` and `wrap-ansi` run natively. `ink-spinner`, `cli-spinners` and `ink-text-input` are provided, written in TypeScript as their packages are. An effect or a handler may spawn a process with `node:child_process` and read its output. A handler or a timer sets state, dispatches or calls an action. An effect runs again when its dependencies change. A promise made with `new Promise`, an `await`, a `try` around one and a `Suspense` boundary waiting on a thrown promise run as they do in Ink. `Transform` and `measureElement` are not supported yet. Editing the page while it runs redraws it with its state kept. See [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) and the [counter example](examples/counter_terminal_ts/README.md).
+Terminal mode runs the app's root page with every component it places and redraws it with its state kept when the page is edited. [Running a Terminal App](cli/README.USAGE.md#running-a-terminal-app) lists what it runs and what it does not yet; the [counter example](examples/counter_terminal_ts/README.md) is the page above.
 
 The corpus runs Ink's own examples through terminal mode as one application each:
 
@@ -118,7 +118,7 @@ The corpus runs Ink's own examples through terminal mode as one application each
 |---|---|---|---|---|
 | [Ink](docs/corpus/ink.md) | 29 | 26 (89.7%) | 3 | 0 |
 
-The "by design" column counts examples built on `react-router` (FSR's own routes stand in for it) and on an npm package the build does not follow: `@faker-js/faker` and `p-queue` with `delay`. Not counting those, all 26 run. No example is refused. The corpus page lists each cause.
+The "by design" column counts examples built on `react-router`, which FSR's own routes stand in for, or on an npm package the build does not follow. The [corpus page](docs/corpus/ink.md) lists each one.
 
 ## Architecture
 
