@@ -14,7 +14,7 @@ use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(Links), Box::new(Images), Box::new(Fonts), Box::new(crate::head::Head), Box::new(Stylesheets), Box::new(crate::actions::ServerActions)]
+  vec![Box::new(Links), Box::new(CatchErrors), Box::new(Images), Box::new(Fonts), Box::new(crate::head::Head), Box::new(Stylesheets), Box::new(crate::actions::ServerActions)]
 }
 
 fn scripts(tree: &Tree) -> Vec<String> {
@@ -131,6 +131,142 @@ impl Pass for Links {
       }
       tree.insert(path, edits.apply(&text));
     }
+  }
+}
+
+/// The boundary `catchError` stands for, written once into the application.
+const CATCH_ERROR: &str = r#"import { Component, type ReactNode } from "react";
+import { refresh } from "@snapfire/fsr-client";
+
+/** What a fallback is given beside its props: what was thrown, `retry` to fetch the page again and render the children anew, `reset` to render them again as they are. */
+export interface ErrorInfo {
+  error: unknown;
+  retry: () => void;
+  reset: () => void;
+}
+
+/** A component that renders its children and, when one of them throws while rendering, `fallback` with its other props. */
+export function catchError<P extends object>(fallback: (props: P, info: ErrorInfo) => ReactNode) {
+  return class CaughtError extends Component<P & { children?: ReactNode }, { failed: boolean; error: unknown }> {
+    state = { failed: false, error: undefined as unknown };
+
+    static getDerivedStateFromError(error: unknown) {
+      return { failed: true, error };
+    }
+
+    render(): ReactNode {
+      if (!this.state.failed) return this.props.children;
+      const { children: _children, ...props } = this.props;
+      const reset = () => this.setState({ failed: false, error: undefined });
+      return fallback(props as unknown as P, { error: this.state.error, reset, retry: () => void refresh().then(reset) });
+    }
+  };
+}
+"#;
+
+/// `catchError` and `unstable_catchError` from `next/error` as a React error
+/// boundary `app/src/catch-error.tsx` holds, with `retry` refreshing the
+/// page. `unstable_rethrow` from `next/navigation` goes with a note: nothing
+/// FSR's `redirect` or `notFound` does is thrown.
+struct CatchErrors;
+
+impl Pass for CatchErrors {
+  fn name(&self) -> &'static str {
+    "next-catch-error"
+  }
+
+  fn run(&self, tree: &mut Tree, report: &mut Report) {
+    let mut wanted = false;
+    for path in scripts(tree) {
+      let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
+      if !text.contains("next/error") && !text.contains("unstable_rethrow") {
+        continue;
+      }
+      let Ok(parsed) = parse(&path, &text) else { continue };
+      let mut edits = Edits::default();
+      let mut rethrow: Option<String> = None;
+      for item in &parsed.module.body {
+        let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
+        let module = import.src.value.to_string_lossy();
+        if module != "next/error" && module != "next/navigation" {
+          continue;
+        }
+        let mut moved = Vec::new();
+        let mut kept = Vec::new();
+        for specifier in &import.specifiers {
+          let js::ImportSpecifier::Named(n) = specifier else {
+            kept.push(text[parsed.range(specifier.span())].to_owned());
+            continue;
+          };
+          let imported = match &n.imported {
+            Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
+            Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
+            None => n.local.sym.to_string(),
+          };
+          let local = n.local.sym.to_string();
+          match (module.as_ref(), imported.as_str()) {
+            ("next/error", "catchError" | "unstable_catchError" | "ErrorInfo") => {
+              let name = if imported == "ErrorInfo" { "ErrorInfo" } else { "catchError" };
+              let typed = if n.is_type_only || import.type_only { "type " } else { "" };
+              moved.push(if local == name { format!("{typed}{name}") } else { format!("{typed}{name} as {local}") });
+            }
+            ("next/navigation", "unstable_rethrow") => rethrow = Some(local),
+            _ => kept.push(text[parsed.range(n.span)].to_owned()),
+          }
+        }
+        if moved.is_empty() && (module != "next/navigation" || rethrow.is_none()) {
+          continue;
+        }
+        let mut lines = Vec::new();
+        if !kept.is_empty() {
+          let (defaults, named): (Vec<String>, Vec<String>) = kept.into_iter().partition(|k| !k.starts_with('*') && import.specifiers.iter().any(|s| matches!(s, js::ImportSpecifier::Default(d) if d.local.sym == **k)));
+          let mut clause = defaults;
+          if !named.is_empty() {
+            clause.push(format!("{{ {} }}", named.join(", ")));
+          }
+          lines.push(format!("import {} from \"{module}\";", clause.join(", ")));
+        }
+        if !moved.is_empty() {
+          wanted = true;
+          lines.push(format!("import {{ {} }} from \"@src/catch-error\";", moved.join(", ")));
+        }
+        match lines.is_empty() {
+          true => edits.replace(line_range(&text, parsed.range(import.span)), ""),
+          false => edits.replace(parsed.range(import.span), lines.join("\n")),
+        }
+      }
+      if let Some(name) = &rethrow {
+        let mut calls = Rethrows { name: name.clone(), found: Vec::new() };
+        parsed.module.visit_with(&mut calls);
+        for span in &calls.found {
+          edits.replace(line_range(&text, parsed.range(*span)), "");
+          report.note(&path, parsed.line(*span), "`unstable_rethrow` was dropped: FSR's `redirect` returns a `Response` and a failure a `catch` takes is the body's own, so there is nothing to throw on");
+        }
+      }
+      tree.insert(path, edits.apply(&text));
+    }
+    if wanted && tree.text("app/src/catch-error.tsx").is_none() {
+      tree.insert("app/src/catch-error.tsx", CATCH_ERROR);
+    }
+  }
+}
+
+/// Every expression statement that calls `name`.
+struct Rethrows {
+  name: String,
+  found: Vec<Span>,
+}
+
+impl Visit for Rethrows {
+  fn visit_expr_stmt(&mut self, stmt: &js::ExprStmt) {
+    if let js::Expr::Call(call) = &*stmt.expr {
+      if let js::Callee::Expr(callee) = &call.callee {
+        if matches!(&**callee, js::Expr::Ident(id) if *id.sym == *self.name) {
+          self.found.push(stmt.span);
+        }
+      }
+    }
+    stmt.visit_children_with(self);
   }
 }
 
@@ -547,6 +683,25 @@ mod tests {
     assert!(page.starts_with("import { Link } from \"@snapfire/fsr/components\";\nimport { useLinkStatus } from \"@snapfire/fsr-client/react\";\n\nfunction Hint() {"), "{page}");
     let b = out.text("app/routes/b/page.tsx").unwrap();
     assert!(b.starts_with("import { useLinkStatus as linkStatus } from \"@snapfire/fsr-client/react\";\n"), "{b}");
+  }
+
+  #[test]
+  fn catch_error_comes_from_a_boundary_written_into_the_app() {
+    let input = tree(&[
+      ("package.json", PACKAGE),
+      ("app/ui/boundary.tsx", "'use client';\nimport { unstable_catchError as catchError, type ErrorInfo } from \"next/error\";\n\nfunction Fallback(props: { title: string }, { error, retry }: ErrorInfo) {\n  return <button onClick={() => retry()}>{props.title}</button>;\n}\n\nexport default catchError(Fallback);\n"),
+      ("app/page.tsx", "import { unstable_rethrow } from \"next/navigation\";\nimport Boundary from \"./ui/boundary\";\n\nexport default async function Page() {\n  try {\n    return <Boundary title=\"x\">a</Boundary>;\n  } catch (e) {\n    unstable_rethrow(e);\n    return null;\n  }\n}\n"),
+    ]);
+    let (out, report) = migrate(&input);
+    let boundary = out.paths().find(|p| p.ends_with("boundary.tsx")).map(|p| out.text(p).unwrap().to_owned()).expect("the boundary moved");
+    assert!(boundary.contains("import { catchError, type ErrorInfo } from \"@src/catch-error\";"), "{boundary}");
+    assert!(!boundary.contains("next/error"), "{boundary}");
+    let module = out.text("app/src/catch-error.tsx").expect("the boundary module is written");
+    assert!(module.contains("export function catchError") && module.contains("getDerivedStateFromError") && module.contains("refresh()"), "{module}");
+    let page = out.text("app/routes/page.tsx").unwrap();
+    assert!(!page.contains("unstable_rethrow"), "{page}");
+    assert!(page.contains("  } catch (e) {\n    return null;\n  }"), "{page}");
+    assert!(report.notes.iter().any(|n| n.message.contains("unstable_rethrow") && n.line == 8), "{:?}", report.notes);
   }
 
   #[test]
