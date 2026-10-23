@@ -56,7 +56,7 @@ Every import follows the file it names. A relative specifier is rewritten for bo
 | `getStaticPaths` | `paths`, one params object per path |
 | `pages/_app`'s `<Component {...pageProps} />` | the layout's `children` |
 | `next/link` | `Link` from `@snapfire/fsr/components`; `useLinkStatus` from `@snapfire/fsr-client/react` |
-| `catchError` or `unstable_catchError` from `next/error` | `catchError` from `app/src/catch-error.tsx`, which `fsr migrate` writes: a React error boundary whose fallback gets the wrapper's props and `{ error, retry, reset }`, `retry` refreshing the page first. It catches what throws inside its own React root; an island placed in its children is a root of its own, so its errors do not reach it yet |
+| `catchError` or `unstable_catchError` from `next/error` | `catchError` from `app/src/catch-error.tsx`, which `fsr migrate` writes: a React error boundary whose fallback gets the wrapper's props and `{ error, retry, reset }`, `retry` refreshing the page first. It catches what throws inside its own React tree, a React island placed in its children included |
 | `unstable_rethrow` from `next/navigation` | dropped with a note: `redirect` returns a `Response` and nothing FSR does is thrown for a `catch` to swallow |
 | `after` from `next/server` | `after` from `@snapfire/fsr`, written by hand: `fsr migrate` does not rewrite the import yet |
 | `next/image` | `Picture` from `@snapfire/fsr/components` |

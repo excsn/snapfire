@@ -17,6 +17,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Importing FSR's Components](#importing-fsrs-components)
 * [Placing an Island of Another Framework](#placing-an-island-of-another-framework)
 * [Placing a Component as an Island](#placing-a-component-as-an-island)
+* [Nesting an Island Inside One of Its Own Framework](#nesting-an-island-inside-one-of-its-own-framework)
 * [Placing an Island in Server Mode](#placing-an-island-in-server-mode)
 * [Filling a Layout's Slots](#filling-a-layouts-slots)
 * [Sharing State Between a Layout and Its Page](#sharing-state-between-a-layout-and-its-page)
@@ -340,6 +341,59 @@ The build lowers the use: the server renders `OrderHelp` with its props as a nes
 
 A placement inside a `.map` is one region per item and the build names each of them, so the page can grow a list without an island taking a region that belongs to another item. When the page revalidates, every island under it takes the new props: a placement that is still there keeps its root, its DOM and its state, one the new data added is mounted from the payload and one it dropped goes with its item. Nothing about that is written by hand. `island(OrderHelp, { when: "visible" })` at module level gives a component that places itself the same way wherever it is used. `when` on the region wins over the registry's timing for that use; a use without one takes the registry's, else `"load"`. A component from another framework works the same way once its module has a mounter registered, since the registry picks the mounter by module.
 
+## Nesting an Island Inside One of Its Own Framework
+
+An island placed among the children of an island of the same framework renders in that island's tree, so it reads what the components above it provide and their error boundaries catch what it throws. The page places them as it places any island:
+
+```tsx
+import { Island } from "@snapfire/fsr-authoring/template";
+import Kitchen from "@src/nested/Kitchen.svelte";
+import Portions from "@src/nested/Portions.svelte";
+import Remains from "@src/nested/Remains.svelte";
+
+<Island>
+  <Kitchen>
+    <Island>
+      <Portions />
+    </Island>
+    <Island when="visible">
+      <Remains />
+    </Island>
+  </Kitchen>
+</Island>;
+```
+
+The outer component provides and the inner one reads, in each framework's own terms:
+
+```svelte
+<!-- Kitchen.svelte -->
+<script lang="ts">
+  import { setContext, type Snippet } from "svelte";
+
+  let { children }: { children?: Snippet } = $props();
+  const servings = $state({ count: 2 });
+  setContext("servings", servings);
+</script>
+
+<button onclick={() => (servings.count = 4)}>Cook for four</button>
+{@render children?.()}
+```
+
+```svelte
+<!-- Portions.svelte -->
+<script lang="ts">
+  import { getContext } from "svelte";
+
+  const servings = getContext<{ count: number }>("servings");
+</script>
+
+<p>Serves {servings.count}</p>
+```
+
+The server renders `Portions` in `Kitchen`'s frame, so the first paint already says what the provider holds. In the browser the mounter of `Kitchen` hydrates `Portions` in its own tree and a scan leaves it alone. React does the same with `createContext` and an error boundary, Vue with `provide`, `inject` and `onErrorCaptured`.
+
+Timing works per framework. React gives a `visible` or `idle` island a Suspense boundary of its own that hydrates when the timing fires. Vue hydrates it through `hydrateOnVisible` or `hydrateOnIdle`. Svelte cannot hydrate part of a tree later, so a Svelte island the server rendered with a timing other than `load` hydrates as a root of its own, mounted with the contexts of the tree around it: `Remains` above reads the same `servings` and follows it. An island the server could not render renders in the tree once its module loads. Markup between the islands is kept as the server wrote it. An island of another framework among the children is left to a scan and mounts in a root of its own.
+
 ## Placing an Island in Server Mode
 
 An island whose events round-trip to the server. The browser holds its props and state, every bound event is sent to the server, Rust runs the handler and renders the component again and the markup that comes back is patched into place. No component code runs in the browser, so the component has no JavaScript half to keep in step with the server.
@@ -439,7 +493,7 @@ registerIsland("src/ui/Tonight.vue#default", {
 
 `fsr build` writes exactly that registration for every `.vue` island a template places, so an application never writes it by hand. The mounter holds the island's props in a reactive object and renders the component through a one-element wrapper, which is what lets `vuePatcher` hand a mounted island new props in place rather than tearing it down. `vueUnmounter` unmounts the app when a navigation takes the marker out of the document. The runtime's own keys on the props, the hoisted table and the region key, never reach the component.
 
-The island's children are its default slot. The server writes them in an `<sf-s data-sf-children>` region where the template placed its `<slot />`, which Vue hydrates as an element the wrapper rendered and whose content is adopted as it stands, nested islands included. When the template placed no slot this render, a panel behind a closed `v-if` for one, the server writes them after the markup in an inert `<template data-sf-children>`; the mounter reads it before Vue hydrates and takes it out of the document, so the slot has its content when the template opens.
+The island's children are its default slot. The server writes them in an `<sf-s data-sf-children>` region where the template placed its `<slot />`. The mounter renders them in the app: a Vue island among them is a component of the tree, as [Nesting an Island Inside One of Its Own Framework](#nesting-an-island-inside-one-of-its-own-framework) shows. The markup around it is adopted as it stands. When the template placed no slot this render, a panel behind a closed `v-if` for one, the server writes them after the markup in an inert `<template data-sf-children>`; the mounter reads it before Vue hydrates and takes it out of the document, so the slot has its content when the template opens.
 
 Inside the component the store is a ref:
 
@@ -489,7 +543,7 @@ registerIsland("src/ui/Counter.svelte#default", {
 });
 ```
 
-When the server rendered the component, the mounter hydrates that markup rather than mounting fresh. The region the server wrote the island's children in is kept as it stands. A patch hands the component new props without remounting it, so a `$state` the component holds survives a revalidation. The island's children arrive as its `children` snippet:
+When the server rendered the component, the mounter hydrates that markup rather than mounting fresh. A patch hands the component new props without remounting it, so a `$state` the component holds survives a revalidation. The island's children arrive as its `children` snippet, which renders them through `Pieces.svelte` in the island's tree. `fsr build` writes that component under `generated/components` and hands its snippet to the adapter with `registerTree`, so a Svelte island among the children is a component of the tree and the markup around it is hydrated as the server wrote it. The server writes the markers `Pieces.svelte` writes under `svelte/server` around the children, which is how hydration finds them. It needs Svelte 5.5 or later:
 
 ```svelte
 <script lang="ts">
@@ -526,13 +580,13 @@ A `.svelte` file imports FSR's components from `@snapfire/fsr/components`, as [I
 When `label` changes, Svelte runs the attachment again and the chart is patched in place rather than mounted again.
 ## Writing a Mounter for Another Framework
 
-A `Mounter` receives the loaded module, the decoded props, the marker element and whether server-rendered markup is already inside it. Its return value is kept by the caller and handed back to the entry's `Unmounter` when a navigation takes the marker out of the document, so return whatever the framework needs for teardown:
+A `Mounter` receives the loaded module, the decoded props, the marker element, whether the server rendered the island's markup and the island's children as pieces. Its return value is kept by the caller and handed back to the entry's `Unmounter` when a navigation takes the marker out of the document, so return whatever the framework needs for teardown:
 
 ```ts
 import { registerIsland, type Mounter, type Props, type Unmounter } from "@snapfire/fsr-client";
 import { mount, unmount, type Component } from "svelte";
 
-const svelteMounter: Mounter = (module, props, el, hydrate) => {
+const svelteMounter: Mounter = (module, props, el, hydrate, _children) => {
   if (!hydrate) el.replaceChildren();
   return mount(module as Component, { target: el, props: props as Record<string, unknown> });
 };
@@ -550,19 +604,30 @@ registerIsland("components/Counter.svelte#default", {
 
 An entry without `unmount` has its root dropped as it stands, which leaves the framework's effects running on a detached element.
 
-`hydrate` is true when the marker has child nodes. The React mounter in the `/react` entry reads exactly the same flag:
+`hydrate` is true when the server rendered the island's markup, which the marker says with `data-sf-ssr`. A mounter that ignores `children` leaves the region the server wrote them in as it stands while hydrating. A scan mounts every island inside it as a root of its own.
+
+A mounter that renders the children in its own framework's tree says so with `rendersNested`. A scan then leaves the islands of its framework among the children to it. Each island piece carries its registry entry, its props and its timing. `loadedModule` already holds the module of every one timed `load` when the mounter runs:
 
 ```ts
-export const reactMounter: Mounter = (component, props, el, hydrate) => {
-  const element = createElement(component as never, props as never);
-  if (hydrate) {
-    return hydrateRoot(el, element);
+import { loadedModule, markRendered, rendersNested, type IslandPiece, type Mounter, type Piece } from "@snapfire/fsr-client";
+
+const ownIslands = (pieces: Piece[]): IslandPiece[] =>
+  pieces.flatMap((piece) => (piece.kind === "island" ? [piece] : piece.kind === "element" ? ownIslands(piece.children) : []));
+
+const solidMounter: Mounter = (module, props, el, hydrate, children) => {
+  for (const island of ownIslands(children ?? [])) {
+    if (island.entry?.mount !== solidMounter) continue;
+    const component = loadedModule(island.entry);
+    // render `component` with `island.props` at `island.marker` inside this root
+    markRendered(island.marker);
   }
-  const root = createRoot(el);
-  root.render(element);
-  return root;
+  // mount `module` with `props` at `el`, hydrating when `hydrate` is true
 };
+
+rendersNested(solidMounter);
 ```
+
+`markRendered` stamps the marker as a scan stamps one it mounted, so a later scan of the region leaves it.
 
 ## Rescanning After Streamed Content Arrives
 
