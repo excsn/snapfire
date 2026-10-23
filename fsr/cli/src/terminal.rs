@@ -13,8 +13,10 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use notify::{RecursiveMode, Watcher};
-use snapfire_fsr_core::{Value, ValueMap};
+use snapfire_fsr_core::{Params, Value, ValueMap};
+use snapfire_fsr_ir::ast::Body;
 use snapfire_fsr_ir::render::{prepare, Components, HandlerRef};
+use snapfire_fsr_runtime::RequestCtx;
 use snapfire_fsr_ir::Interpreter;
 use snapfire_fsr_lower::component::ComponentSet;
 use snapfire_fsr_ir::host::{Act, Event as HandlerEvent};
@@ -191,6 +193,8 @@ pub struct Session {
   exiting: bool,
   /// The code `process.exit(code)` gave; `None` for Ink's `exit()` or no exit yet.
   exit_code: Option<i32>,
+  /// What `routes/page.loader.ts` returned when the session opened, the root page's props; empty without a loader.
+  props: ValueMap,
 }
 
 /// What a page asked to happen when a process it spawned reports: a continuation to run or a promise to settle.
@@ -276,13 +280,26 @@ impl Focus {
 impl Session {
   /// The page under `app` lowered; it fails to draw rather than to open when it is not Ink's.
   pub fn open(app: &Path) -> Result<Session, String> {
-    Session::open_module(app, MODULE)
+    Session::open_with(app, Params::new())
+  }
+
+  /// The page under `app` with `params` for its loader: the command line as `fsr dev --terminal -- …` reads it.
+  pub fn open_with(app: &Path, params: Params) -> Result<Session, String> {
+    Session::open_module_with(app, MODULE, params)
   }
 
   /// The component `module` names under `app`, `src/app.tsx#default` for one, as the root.
   pub fn open_module(app: &Path, module: &str) -> Result<Session, String> {
-    let (library, consts) = lower(app, module)?;
-    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false, exit_code: None })
+    Session::open_module_with(app, module, Params::new())
+  }
+
+  fn open_module_with(app: &Path, module: &str, params: Params) -> Result<Session, String> {
+    let (library, consts, loader) = lower(app, module)?;
+    let props = match &loader {
+      Some(body) => load(body, consts.clone(), params)?,
+      None => ValueMap::default(),
+    };
+    Ok(Session { app: app.to_path_buf(), module: module.to_owned(), library, consts, state: ValueMap::default(), size: (80, 24), written: Vec::new(), components: vec![(String::new(), module.to_owned())], focus: Focus::default(), focusables_seen: Vec::new(), focus_acts: Vec::new(), mounted: Default::default(), started: Vec::new(), metrics: ValueMap::default(), cursor: None, spawns: Vec::new(), effects_seen: Vec::new(), effects_ran: HashMap::new(), cells: ValueMap::default(), deferreds: HashMap::new(), ready: Vec::new(), suspensions: Vec::new(), listeners: Vec::new(), store: ValueMap::default(), adopted: Vec::new(), cleared: Default::default(), cleanups: HashMap::new(), exiting: false, exit_code: None, props })
   }
 
   /// The page as it stands.
@@ -317,9 +334,9 @@ impl Session {
     self.components.iter().filter_map(|(path, module)| Some((path, self.library.get(module)?))).flat_map(|(path, component)| component.handlers.iter().enumerate().map(move |(index, h)| (path.clone(), index, h.event.clone())))
   }
 
-  /// Lowers the page again from disk, keeping the state.
+  /// Lowers the page again from disk, keeping the state and what the loader returned when the session opened.
   pub fn reload(&mut self) -> Result<(), String> {
-    (self.library, self.consts) = lower(&self.app, &self.module)?;
+    (self.library, self.consts, _) = lower(&self.app, &self.module)?;
     self.mounted.clear();
     self.started.clear();
     Ok(())
@@ -714,7 +731,7 @@ impl Session {
     store.insert(snapfire_fsr_lower::TERMINAL_ROWS.to_owned(), Value::Int(self.size.1.into()));
     store.insert(snapfire_fsr_lower::TERMINAL_FOCUS.to_owned(), self.focus.value());
     store.insert(snapfire_fsr_lower::TERMINAL_METRICS.to_owned(), Value::Map(self.metrics.clone()));
-    let mut props = ValueMap::default();
+    let mut props = self.props.clone();
     props.insert("$store".to_owned(), Value::Map(store));
     let path = handler.as_ref().map(|handler| handler.path.clone()).unwrap_or_default();
     props.insert(snapfire_fsr_ir::render::CELLS_PROP.to_owned(), Value::Map(self.cells.clone()));
@@ -799,14 +816,34 @@ fn measured(page: &Node, columns: u16) -> ValueMap {
 
 /// The library `module` lowers to, with the module constants its bodies name. A component it places that does not lower
 /// refuses it, since a terminal has no browser to render that one in.
-fn lower(app: &Path, module: &str) -> Result<(Components, Arc<snapfire_fsr_ir::ast::Consts>), String> {
+/// The root page's loader module, read when the page is `routes/page.tsx`.
+const LOADER: &str = "routes/page.loader.ts";
+
+fn lower(app: &Path, module: &str) -> Result<(Components, Arc<snapfire_fsr_ir::ast::Consts>, Option<Body>), String> {
   let mut set = ComponentSet::new(app).for_terminal();
   set.lower(module).map_err(|e| e.to_string())?;
   if let Some((placed, why)) = set.browser_only.first() {
     return Err(format!("`{placed}` does not lower, so only a browser could render it: {why}"));
   }
+  let loader = match module == MODULE && app.join(LOADER).is_file() {
+    true => Some(set.lower_loader(LOADER).map_err(|e| e.to_string())?),
+    false => None,
+  };
   let library = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
-  Ok((library, Arc::new(set.consts.clone())))
+  Ok((library, Arc::new(set.consts.clone()), loader))
+}
+
+/// What the loader returns for `params`, as the root page's props: an object, or nothing for a loader that returns none.
+fn load(body: &Body, consts: Arc<snapfire_fsr_ir::ast::Consts>, params: Params) -> Result<ValueMap, String> {
+  let interpreter = Interpreter::default().with_consts(Some(consts));
+  let ctx = RequestCtx::anonymous(params);
+  let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|e| e.to_string())?;
+  let outcome = runtime.block_on(interpreter.run(body, &ctx, None)).map_err(|fail| format!("{LOADER}: {}", fail.message))?;
+  match outcome.value {
+    Value::Map(props) => Ok(props),
+    Value::Null => Ok(ValueMap::default()),
+    other => Err(format!("{LOADER}: `load` returned {other:?}, not an object")),
+  }
 }
 
 /// The terminal held in raw mode on the alternate screen, put back on drop.

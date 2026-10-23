@@ -663,3 +663,18 @@ fn a_resize_runs_the_listener_a_custom_hook_adds_on_use_stdout_with_a_template_e
   session.resize(120, 40);
   assert_eq!(line(session.view().unwrap()), "120x40");
 }
+
+fn app_with_loader(page: &str, loader: &str) -> std::path::PathBuf {
+  let app = app(page);
+  std::fs::write(app.join("routes/page.loader.ts"), loader).unwrap();
+  app
+}
+
+#[test]
+fn the_root_page_takes_what_its_loader_returns_as_its_props() {
+  let page = "import { Text } from \"ink\";\n\nexport default function Hello({ name }: { name: string }) {\n  return <Text>hello {name}</Text>;\n}\n";
+  let loader = "export async function load() {\n  return { name: \"world\" };\n}\n";
+  let mut session = Session::open(&app_with_loader(page, loader)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0], "hello world");
+}
