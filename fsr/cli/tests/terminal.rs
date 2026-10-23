@@ -724,3 +724,12 @@ fn a_mount_effect_branches_before_it_sets_state() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 40).lines()[0].trim_end(), "updated from 1.0 pending");
 }
+
+#[test]
+fn a_module_let_takes_an_awaited_value_by_assignment_in_an_async_function() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nlet cached: string | null = null;\nconst lookup = async (query: string) => query.toUpperCase();\nconst ensure = async (query: string) => {\n  if (!cached) {\n    cached = await lookup(query);\n  }\n  return cached;\n};\n\nexport default function Found() {\n  const [found, setFound] = useState(\"none\");\n  useEffect(() => {\n    const run = async () => {\n      const value = await ensure(\"ab\");\n      setFound(value);\n    };\n    run();\n  }, []);\n  return <Text>{found}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "AB");
+}

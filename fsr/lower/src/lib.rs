@@ -2302,26 +2302,35 @@ impl<'a> Lowerer<'a> {
       let otherwise = arm(self, branch.alt.as_deref())?;
       return Ok(Expr::Block(vec![Stmt::Expr(before), Stmt::If { cond, then: vec![Stmt::Expr(then)], r#else: vec![Stmt::Expr(otherwise)] }]));
     }
-    let (awaited, bound) = match &stmts[at] {
+    let (awaited, bound, assigned) = match &stmts[at] {
       js::Stmt::Expr(e) => match crate::meaning::bare(&e.expr) {
-        js::Expr::Await(a) => (&*a.arg, None),
-        _ => return Err(self.residue(e.span, "an `await` inside an expression; await as a statement or a `const`'s value")),
+        js::Expr::Await(a) => (&*a.arg, None, None),
+        js::Expr::Assign(assign) if assign.op == js::AssignOp::Assign && matches!(crate::meaning::bare(&assign.right), js::Expr::Await(_)) => {
+          let js::Expr::Await(a) = crate::meaning::bare(&assign.right) else { unreachable!("matched an await") };
+          let hidden = format!("$await{}", e.span.lo.0);
+          let value = js::Expr::Ident(js::Ident::new(hidden.clone().into(), e.span, self.parsed.top));
+          let assigned = js::Stmt::Expr(js::ExprStmt { span: e.span, expr: Box::new(js::Expr::Assign(js::AssignExpr { span: assign.span, op: assign.op, left: assign.left.clone(), right: Box::new(value) })) });
+          (&*a.arg, Some(hidden), Some(assigned))
+        }
+        _ => return Err(self.residue(e.span, "an `await` inside an expression; await as a statement, a `const`'s value or an assignment")),
       },
       js::Stmt::Decl(js::Decl::Var(var)) => match (var.decls.as_slice(), var.decls.first().and_then(|d| d.init.as_deref()).map(crate::meaning::bare)) {
         ([decl], Some(js::Expr::Await(a))) => match &decl.name {
-          js::Pat::Ident(name) => (&*a.arg, Some(name.id.sym.to_string())),
+          js::Pat::Ident(name) => (&*a.arg, Some(name.id.sym.to_string()), None),
           _ => return Err(self.residue(decl.span, "an awaited value bound to a pattern")),
         },
-        _ => return Err(self.residue(var.span, "an `await` inside an expression; await as a statement or a `const`'s value")),
+        _ => return Err(self.residue(var.span, "an `await` inside an expression; await as a statement, a `const`'s value or an assignment")),
       },
       other => return Err(self.residue(other.span(), "an `await` inside a loop or a `switch`")),
     };
     let before = self.before_await(&stmts[..at])?;
     let deferred = self.expr(awaited)?;
-    let rest = &stmts[at + 1..];
+    let prepended = assigned.is_some() as usize;
+    let joined: Vec<js::Stmt> = assigned.into_iter().chain(stmts[at + 1..].iter().cloned()).collect();
+    let rest = &joined[..];
     let (event, carry) = self.continuation(stmts[at].span(), bound, |this| {
       let resumed = Expr::Var("$resume".to_owned());
-      let covered = inside.clone().map(|catch| AsyncCatch { covers: catch.covers - at - 1, ..catch }).filter(|catch| catch.covers > 0);
+      let covered = inside.clone().map(|catch| AsyncCatch { covers: catch.covers + prepended - at - 1, ..catch }).filter(|catch| catch.covers > 0);
       let ran = this.async_caught(rest, done.clone(), covered)?;
       let rejected = match (&inside, &done) {
         (Some(catch), _) => {
