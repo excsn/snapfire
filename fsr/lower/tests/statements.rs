@@ -378,3 +378,9 @@ fn a_rest_parameter_gathers_the_arguments_after_the_named_ones() {
   let page = "const tally = (label: string, ...counts: number[]) => `${label}: ${counts.length} of ${counts.reduce((a, b) => a + b, 0)}`;\nconst all = (...xs: string[]) => xs.join(\"+\");\nexport default function Page() {\n  return <p>{tally(\"n\", 1, 2, 3)} / {tally(\"none\")} / {all(\"a\", \"b\")}</p>;\n}\n";
   assert_eq!(html("rest_params", page).unwrap(), "<p>n: 3 of 6 / none: 0 of 0 / a+b</p>");
 }
+
+#[test]
+fn a_spread_argument_passes_an_array_items_as_the_arguments() {
+  let page = "const tally = (label: string, ...counts: number[]) => `${label}: ${counts.reduce((a, b) => a + b, 0)}`;\nconst pair = (a: string, b: string) => `${a}${b}`;\nexport default function Page() {\n  const counts = [1, 2];\n  const letters = [\"x\", \"y\"];\n  return <p>{tally(\"n\", ...counts, 3)} / {pair(...letters)}</p>;\n}\n";
+  assert_eq!(html("spread_args", page).unwrap(), "<p>n: 6 / xy</p>");
+}

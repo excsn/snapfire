@@ -375,6 +375,7 @@ impl<'a> Inferer<'a> {
       }
       Expr::Filter(over, _) | Expr::Sort(over, _) => non_null(self.expr(over, env)),
       Expr::FlatMap(..) => Ts::List(Box::new(Ts::Unknown)),
+      Expr::ApplyOf(..) => Ts::Unknown,
       Expr::ReplaceWith(..) => Ts::Str,
       Expr::Reduce(over, init, f) => {
         let elem = element(self.expr(over, env));

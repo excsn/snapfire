@@ -2600,7 +2600,7 @@ fn fold_expr(expr: &mut crate::ast::Expr) {
       fold_expr(a);
       fold_expr(b);
     }
-    Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b) | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b) | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) => {
+    Expr::Index(a, b) | Expr::Arith(_, a, b) | Expr::Compare(_, a, b) | Expr::Logic(_, a, b) | Expr::Coalesce(a, b) | Expr::Map(a, b) | Expr::Filter(a, b) | Expr::Find(a, b) | Expr::FindIndex(a, b) | Expr::Some(a, b) | Expr::Every(a, b) | Expr::Sort(a, b) | Expr::FlatMap(a, b) | Expr::ApplyOf(a, b) => {
       fold_expr(a);
       fold_expr(b);
     }

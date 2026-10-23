@@ -86,6 +86,7 @@ pub fn expr_to_sx(expr: &Expr) -> Sx {
     Expr::Every(a, b) => two("every", a, b),
     Expr::Sort(a, b) => two("sort", a, b),
     Expr::FlatMap(a, b) => two("flat-map", a, b),
+    Expr::ApplyOf(a, b) => two("apply-of", a, b),
     Expr::ReplaceWith(a, b, c) => form("replace-with", vec![expr_to_sx(a), expr_to_sx(b), expr_to_sx(c)]),
     Expr::Entries(e) => one("entries", e),
     Expr::Keys(e) => one("keys", e),
@@ -296,6 +297,10 @@ pub fn expr_from_sx(sx: &Sx) -> Res<Expr> {
     "flat-map" => {
       let (a, b) = two(head)?;
       Expr::FlatMap(a, b)
+    }
+    "apply-of" => {
+      let (a, b) = two(head)?;
+      Expr::ApplyOf(a, b)
     }
     "entries" => Expr::Entries(one(head)?),
     "keys" => Expr::Keys(one(head)?),

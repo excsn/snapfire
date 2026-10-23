@@ -111,6 +111,8 @@ pub enum Expr {
   Lambda { params: Vec<String>, body: Box<Expr> },
   /// A lambda applied to arguments: a module-level helper a component calls.
   Apply { f: Box<Expr>, args: Vec<Expr> },
+  /// [`Expr::Apply`] with the arguments as one array: `f(a, ...rest)`.
+  ApplyOf(Box<Expr>, Box<Expr>),
   /// Statements run in the enclosing scope: the value the first `return` yields, null when none. A lambda whose body is one may write the names around it, which a lambda with an expression body cannot; hoisting reads those writes as taint and the interpreter runs it on the async path.
   Block(Body),
   /// A fixed pure function; the list is `Builtin`.
@@ -967,6 +969,10 @@ impl Expr {
         f.free_vars(out);
         args.iter().for_each(|e| e.free_vars(out));
       }
+      Expr::ApplyOf(f, args) => {
+        f.free_vars(out);
+        args.free_vars(out);
+      }
       Expr::Lambda { params, body } => {
         let mut inner = Vec::new();
         body.free_vars(&mut inner);
@@ -1020,6 +1026,10 @@ impl Expr {
         callee.visit(f);
         args.iter().for_each(|e| e.visit(f));
       }
+      Expr::ApplyOf(callee, args) => {
+        callee.visit(f);
+        args.visit(f);
+      }
       Expr::Lambda { body, .. } => body.visit(f),
       Expr::Block(body) => body_visit(body, f),
       Expr::Hoist { expr, .. } => expr.visit(f),
@@ -1058,6 +1068,10 @@ impl Expr {
       Expr::Apply { f: callee, args } => {
         callee.visit_mut(f);
         args.iter_mut().for_each(|e| e.visit_mut(f));
+      }
+      Expr::ApplyOf(callee, args) => {
+        callee.visit_mut(f);
+        args.visit_mut(f);
       }
       Expr::Lambda { body, .. } => body.visit_mut(f),
       Expr::Block(body) => body_visit_mut(body, f),
@@ -1101,6 +1115,7 @@ impl Expr {
       Expr::Template(parts) => parts.iter().any(Expr::reads_request),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::reads_request),
       Expr::Apply { f, args } => f.reads_request() || args.iter().any(Expr::reads_request),
+      Expr::ApplyOf(f, args) => f.reads_request() || args.reads_request(),
       Expr::Lambda { body, .. } => body.reads_request(),
       Expr::Block(body) => body_reads_request(body),
       Expr::Hoist { expr, .. } => expr.reads_request(),
@@ -1132,6 +1147,7 @@ impl Expr {
       Expr::Template(parts) => parts.iter().any(Expr::has_call),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().any(Expr::has_call),
       Expr::Apply { f, args } => f.has_call() || args.iter().any(Expr::has_call),
+      Expr::ApplyOf(..) => true,
       Expr::Lambda { body, .. } => body.has_call(),
       Expr::Block(body) => {
         let mut any = false;

@@ -12663,7 +12663,7 @@ mod fills {
   pub(super) fn holds_function(e: &Expr) -> bool {
     let mut callbacks: Vec<*const Expr> = Vec::new();
     e.visit(&mut |x| match x {
-      Expr::Map(_, f) | Expr::Filter(_, f) | Expr::Find(_, f) | Expr::FindIndex(_, f) | Expr::Some(_, f) | Expr::Every(_, f) | Expr::Sort(_, f) | Expr::FlatMap(_, f) | Expr::Reduce(_, _, f) | Expr::ReplaceWith(_, _, f) | Expr::Apply { f, .. } => callbacks.push(&**f as *const Expr),
+      Expr::Map(_, f) | Expr::Filter(_, f) | Expr::Find(_, f) | Expr::FindIndex(_, f) | Expr::Some(_, f) | Expr::Every(_, f) | Expr::Sort(_, f) | Expr::FlatMap(_, f) | Expr::Reduce(_, _, f) | Expr::ReplaceWith(_, _, f) | Expr::Apply { f, .. } | Expr::ApplyOf(f, _) => callbacks.push(&**f as *const Expr),
       _ => {}
     });
     let mut found = false;

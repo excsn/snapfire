@@ -1201,6 +1201,10 @@ impl Env {
         }
         self.apply_sync(f, values)
       }
+      Expr::ApplyOf(f, args) => {
+        let values = self.seq_sync(args, "apply")?;
+        self.apply_sync(f, values)
+      }
       Expr::Builtin { name, args } => self.builtin_sync(name, args),
       Expr::Ext { module, name, args } => {
         let mut values = Vec::with_capacity(args.len());
@@ -1780,6 +1784,10 @@ impl Env {
           for arg in args {
             values.push(self.eval(arg).await?);
           }
+          self.apply(f, values).await
+        }
+        Expr::ApplyOf(f, args) => {
+          let values = self.seq(args, "apply").await?;
           self.apply(f, values).await
         }
         Expr::Builtin { name: name @ (Builtin::CallMethod | Builtin::GetMember), args } => {

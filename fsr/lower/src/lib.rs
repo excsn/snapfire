@@ -3162,8 +3162,12 @@ impl<'a> Lowerer<'a> {
       return self.expr(&named.expr);
     }
     let math = matches!(&**callee, js::Expr::Member(m) if matches!(&*m.obj, js::Expr::Ident(id) if id.sym.as_ref() == "Math"));
+    let applied = matches!(&**callee, js::Expr::Ident(id) if self.scope.iter().any(|(n, _)| *n == *id.sym) || self.local_fns.iter().any(|(n, _)| *n == *id.sym) || self.globals.iter().any(|(n, _)| *n == *id.sym));
     for arg in &call.args {
-      if arg.spread.is_some() && !math {
+      if arg.spread.is_some() && !math && !applied {
+        if let js::Expr::Ident(id) = &**callee {
+          self.unbound = Some(id.sym.to_string());
+        }
         return Err(self.residue(arg.expr.span(), "a spread argument"));
       }
     }
@@ -3173,11 +3177,7 @@ impl<'a> Lowerer<'a> {
       if !self.scope.iter().any(|(n, _)| n == name) && self.root_of(id).is_none() {
         if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| f.clone()) {
           let f = Box::new(self.function_expr(&function)?);
-          let mut args = Vec::with_capacity(call.args.len());
-          for a in &call.args {
-            args.push(self.expr(&a.expr)?);
-          }
-          return Ok(Expr::Apply { f, args });
+          return self.applied(f, call);
         }
         if let Some((_, f)) = self.globals.iter().rev().find(|(n, _)| n == name) {
           let f = Box::new(f.clone());
@@ -3206,11 +3206,8 @@ impl<'a> Lowerer<'a> {
               return Err(self.residue(call.span, format!("`{name}` calls `{key}` on a render path")));
             }
           }
-          let mut args = Vec::with_capacity(call.args.len());
-          for a in &call.args {
-            args.push(self.expr(&a.expr)?);
-          }
-          return Ok(self.candidate(call.span, Expr::Apply { f, args }));
+          let applied = self.applied(f, call)?;
+          return Ok(self.candidate(call.span, applied));
         }
         let one = |this: &mut Self| -> Lowered<Box<Expr>> {
           let a = call.args.first().ok_or_else(|| this.residue(call.span, format!("`{name}` takes one argument")))?;
@@ -3264,11 +3261,7 @@ impl<'a> Lowerer<'a> {
         ));
       }
       let f = Box::new(self.expr(callee)?);
-      let mut args = Vec::with_capacity(call.args.len());
-      for a in &call.args {
-        args.push(self.expr(&a.expr)?);
-      }
-      return Ok(Expr::Apply { f, args });
+      return self.applied(f, call);
     };
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
 
@@ -4153,6 +4146,19 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A `function` expression or a method as the lambda it is; a generator is residue.
+  /// `f` applied to `call`'s arguments: [`Expr::Apply`], or [`Expr::ApplyOf`] over one array when an argument is spread.
+  fn applied(&mut self, f: Box<Expr>, call: &js::CallExpr) -> Lowered<Expr> {
+    let mut args = Vec::with_capacity(call.args.len());
+    for a in &call.args {
+      args.push((a.spread.is_some(), self.expr(&a.expr)?));
+    }
+    if args.iter().all(|(spread, _)| !spread) {
+      return Ok(Expr::Apply { f, args: args.into_iter().map(|(_, e)| e).collect() });
+    }
+    let entries = args.into_iter().map(|(spread, e)| if spread { Entry::Spread(e) } else { Entry::Item(e) }).collect();
+    Ok(Expr::ApplyOf(f, Box::new(Expr::Array(entries))))
+  }
+
   pub(crate) fn function_expr(&mut self, f: &js::Function) -> Lowered<Expr> {
     if f.is_generator {
       return Err(self.residue(f.span, "a generator function"));
