@@ -53,6 +53,22 @@ fn test_a_renamed_source_takes_its_old_output_with_it() {
 }
 
 #[test]
+fn test_a_source_renamed_by_case_keeps_its_output_under_the_new_name() {
+  let fixture = Fixture::new("computed-root");
+  build(&fixture);
+
+  fs::rename(fixture.root().join("src/ui/panel.ts"), fixture.root().join("src/ui/Panel.ts")).unwrap();
+  build(&fixture);
+
+  let names: Vec<String> = fs::read_dir(fixture.root().join("dist"))
+    .unwrap()
+    .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+    .collect();
+  assert!(names.iter().any(|name| name == "Panel.js"), "{names:?}");
+  assert!(!names.iter().any(|name| name == "panel.js"), "{names:?}");
+}
+
+#[test]
 fn test_files_snapfirec_did_not_write_are_never_removed() {
   let fixture = Fixture::new("computed-root");
   build(&fixture);

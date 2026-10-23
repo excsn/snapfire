@@ -1801,6 +1801,15 @@ fn prune_stale(opts: &Options, build: &Build, previous: &[String]) -> Result<()>
       continue;
     }
 
+    // On a filesystem that ignores case, a name differing from a claimed one only by case opens
+    // the file this build wrote, which keeps the old spelling until it is renamed.
+    if let Some(claimed) = build.claimed.keys().find(|claimed| same_file(claimed, &stale)) {
+      if let Err(e) = fs::rename(&stale, claimed) {
+        eprintln!("⚠️  Could not rename {} to {}: {}", display(&stale, &opts.root), display(claimed, &opts.root), e);
+      }
+      continue;
+    }
+
     match fs::remove_file(&stale) {
       Ok(()) => println!("   Removed: {}", display(&stale, &opts.root)),
       Err(e) => eprintln!("⚠️  Could not remove {}: {}", display(&stale, &opts.root), e),
@@ -1808,6 +1817,24 @@ fn prune_stale(opts: &Options, build: &Build, previous: &[String]) -> Result<()>
   }
 
   Ok(())
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+  if !a.as_os_str().eq_ignore_ascii_case(b.as_os_str()) {
+    return false;
+  }
+  #[cfg(unix)]
+  {
+    use std::os::unix::fs::MetadataExt;
+    match (fs::metadata(a), fs::metadata(b)) {
+      (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+      _ => false,
+    }
+  }
+  #[cfg(not(unix))]
+  {
+    a.is_file()
+  }
 }
 
 /// The `outputs` of the previous build, read back from the facts file this one is about to
