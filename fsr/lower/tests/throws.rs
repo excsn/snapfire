@@ -76,3 +76,13 @@ fn an_error_made_as_a_value_has_its_name_and_message() {
   let html = html("error_value", &[("routes/page.tsx", page)]).unwrap();
   assert_eq!(html, "<p>RangeError: below zero / TypeError: not a count</p>");
 }
+
+#[test]
+fn a_throw_inside_a_loop_ends_the_function_when_reached_and_the_loop_runs_on_otherwise() {
+  let count = "export function count(xs: number[]) {\n  let n = 0;\n  for (let i = 0; i < xs.length; i++) {\n    if (xs[i] < 0) {\n      throw new Error(`negative at ${i}`);\n    }\n    n = n + xs[i];\n  }\n  return n;\n}\n\nexport function first(xs: number[]) {\n  for (const x of xs) {\n    if (x < 0) {\n      throw new Error(`negative`);\n    }\n  }\n  return xs.length;\n}\n";
+  let page = "import { count, first } from \"@src/count\";\nexport default function Page() {\n  return <p>{count([1, 2, 3])} {first([4, 5])}</p>;\n}\n";
+  assert_eq!(html("loop_throw_ok", &[("src/count.ts", count), ("routes/page.tsx", page)]).unwrap(), "<p>6 2</p>");
+  let thrown = "import { count } from \"@src/count\";\nexport default function Page() {\n  return <p>{count([1, -2, 3])}</p>;\n}\n";
+  let err = html("loop_throw_reached", &[("src/count.ts", count), ("routes/page.tsx", thrown)]).unwrap_err();
+  assert!(err.contains("negative at 1"), "{err}");
+}

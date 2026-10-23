@@ -5926,11 +5926,12 @@ fn returns_from_loop(stmt: &js::Stmt) -> bool {
   }
 }
 
-/// A loop that returns as one that does not: `returned` and `value` declared before it, each `return e` in its body a write of both, the rest of an iteration run only while nothing returned, then `if (returned) return value;` ahead of `rest`.
+/// A loop that returns or throws as one that does not: `returned`, `value` and `thrown` declared before it, each `return e` in its body a write of `value` and `returned`, each `throw e` a write of `thrown` and `returned`, the rest of an iteration run only while nothing returned, then `if (thrown) throw thrown; if (returned) return value;` ahead of `rest`.
 fn loop_return(looped: &js::Stmt, rest: &[&js::Stmt]) -> Vec<js::Stmt> {
   let span = looped.span();
   let returned = format!("$returned{}", span.lo.0);
   let value = format!("$value{}", span.lo.0);
+  let thrown = format!("$thrown{}", span.lo.0);
   let ident = |name: &str| js::Ident::new_no_ctxt(name.into(), span);
   let read = |name: &str| Box::new(js::Expr::Ident(ident(name)));
   let declare = |name: &str, init: js::Expr| {
@@ -5947,12 +5948,16 @@ fn loop_return(looped: &js::Stmt, rest: &[&js::Stmt]) -> Vec<js::Stmt> {
   };
   let flag = |on: bool| Box::new(js::Expr::Lit(js::Lit::Bool(js::Bool { span, value: on })));
   let block = |stmts: Vec<js::Stmt>| js::Stmt::Block(js::BlockStmt { span, ctxt: Default::default(), stmts });
-  fn rewrite(stmts: &[js::Stmt], on_return: &dyn Fn(Option<Box<js::Expr>>) -> Vec<js::Stmt>, unless: &dyn Fn(Vec<js::Stmt>) -> js::Stmt) -> Vec<js::Stmt> {
+  fn rewrite(stmts: &[js::Stmt], on_return: &dyn Fn(Option<Box<js::Expr>>) -> Vec<js::Stmt>, on_throw: &dyn Fn(Box<js::Expr>) -> Vec<js::Stmt>, unless: &dyn Fn(Vec<js::Stmt>) -> js::Stmt) -> Vec<js::Stmt> {
     let mut out = Vec::new();
     for (at, stmt) in stmts.iter().enumerate() {
       match stmt {
         js::Stmt::Return(ret) => {
           out.extend(on_return(ret.arg.clone()));
+          return out;
+        }
+        js::Stmt::Throw(t) => {
+          out.extend(on_throw(t.arg.clone()));
           return out;
         }
         js::Stmt::If(branch) if holds_return(stmt) => {
@@ -5961,17 +5966,17 @@ fn loop_return(looped: &js::Stmt, rest: &[&js::Stmt]) -> Vec<js::Stmt> {
               js::Stmt::Block(b) => b.stmts.clone(),
               other => vec![other.clone()],
             };
-            Box::new(js::Stmt::Block(js::BlockStmt { span: s.span(), ctxt: Default::default(), stmts: rewrite(&stmts, on_return, unless) }))
+            Box::new(js::Stmt::Block(js::BlockStmt { span: s.span(), ctxt: Default::default(), stmts: rewrite(&stmts, on_return, on_throw, unless) }))
           };
           out.push(js::Stmt::If(js::IfStmt { span: branch.span, test: branch.test.clone(), cons: arm(&branch.cons), alt: branch.alt.as_deref().map(arm) }));
         }
-        js::Stmt::Block(b) if holds_return(stmt) => out.push(js::Stmt::Block(js::BlockStmt { span: b.span, ctxt: b.ctxt, stmts: rewrite(&b.stmts, on_return, unless) })),
+        js::Stmt::Block(b) if holds_return(stmt) => out.push(js::Stmt::Block(js::BlockStmt { span: b.span, ctxt: b.ctxt, stmts: rewrite(&b.stmts, on_return, on_throw, unless) })),
         other => {
           out.push(other.clone());
           continue;
         }
       }
-      let after = rewrite(&stmts[at + 1..], on_return, unless);
+      let after = rewrite(&stmts[at + 1..], on_return, on_throw, unless);
       if !after.is_empty() {
         out.push(unless(after));
       }
@@ -5980,13 +5985,14 @@ fn loop_return(looped: &js::Stmt, rest: &[&js::Stmt]) -> Vec<js::Stmt> {
     out
   }
   let on_return = |arg: Option<Box<js::Expr>>| vec![set(&value, arg.unwrap_or_else(|| read("undefined"))), set(&returned, flag(true))];
+  let on_throw = |arg: Box<js::Expr>| vec![set(&thrown, arg), set(&returned, flag(true))];
   let unless = |stmts: Vec<js::Stmt>| js::Stmt::If(js::IfStmt { span, test: Box::new(js::Expr::Unary(js::UnaryExpr { span, op: js::UnaryOp::Bang, arg: read(&returned) })), cons: Box::new(block(stmts)), alt: None });
   let guard = |body: &js::Stmt| -> Box<js::Stmt> {
     let stmts = match body {
       js::Stmt::Block(b) => b.stmts.clone(),
       other => vec![other.clone()],
     };
-    Box::new(block(vec![unless(rewrite(&stmts, &on_return, &unless))]))
+    Box::new(block(vec![unless(rewrite(&stmts, &on_return, &on_throw, &unless))]))
   };
   let looped = match looped {
     js::Stmt::For(f) => js::Stmt::For(js::ForStmt { body: guard(&f.body), ..f.clone() }),
@@ -5997,7 +6003,9 @@ fn loop_return(looped: &js::Stmt, rest: &[&js::Stmt]) -> Vec<js::Stmt> {
     }
     other => other.clone(),
   };
-  let mut out = vec![declare(&returned, *flag(false)), declare(&value, *read("undefined")), looped];
+  let mut out = vec![declare(&returned, *flag(false)), declare(&value, *read("undefined")), declare(&thrown, *read("undefined")), looped];
+  let threw = js::Expr::Bin(js::BinExpr { span, op: js::BinaryOp::NotEqEq, left: read(&thrown), right: read("undefined") });
+  out.push(js::Stmt::If(js::IfStmt { span, test: Box::new(threw), cons: Box::new(js::Stmt::Throw(js::ThrowStmt { span, arg: read(&thrown) })), alt: None }));
   out.push(js::Stmt::If(js::IfStmt { span, test: read(&returned), cons: Box::new(js::Stmt::Return(js::ReturnStmt { span, arg: Some(read(&value)) })), alt: None }));
   out.extend(rest.iter().map(|s| (*s).clone()));
   out
