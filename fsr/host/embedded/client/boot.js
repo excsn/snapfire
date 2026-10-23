@@ -80,7 +80,7 @@ export function serverRendered(el) {
 }
 function awaitingAnAncestor(el) {
     const above = el.parentElement?.closest("sf-i");
-    return above !== null && above !== undefined && !serverRendered(above);
+    return above !== null && above !== undefined && !serverRendered(above) && !above.hasAttribute(MOUNTED);
 }
 let lastMount = Promise.resolve();
 const fresh = new WeakSet();

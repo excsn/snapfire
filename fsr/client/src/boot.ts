@@ -137,10 +137,10 @@ export function serverRendered(el: Element): boolean {
   return Array.from(el.childNodes).some((node) => !(node instanceof Element && node.tagName === "SF-S"));
 }
 
-/** An island the nearest island above it has not rendered. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded and the copy carries the `data-sf-scheduled` a scan would leave. The parent's own mount reaches it instead. */
+/** An island the nearest island above it has not rendered and has not yet mounted. Mounting that one builds its regions from markup it copies out, so this element is about to be replaced by a copy of itself: anything mounted into it now is discarded and the copy carries the `data-sf-scheduled` a scan would leave. The parent's own mount reaches it instead, once that mount has run: a parent that renders nothing but its regions still holds no markup of its own then. */
 function awaitingAnAncestor(el: Element): boolean {
   const above = el.parentElement?.closest("sf-i");
-  return above !== null && above !== undefined && !serverRendered(above);
+  return above !== null && above !== undefined && !serverRendered(above) && !above.hasAttribute(MOUNTED);
 }
 
 /** The mount before the next one, so islands mount in the order they were scheduled, document order for a scan, whatever order their modules land in. A framework's module state then advances across a page's islands in the order the server rendered them, as it does across the components of one app. Modules still load in parallel. */

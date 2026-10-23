@@ -1,6 +1,7 @@
 import { Link } from "@snapfire/fsr/components";
 
 import type { RootProps } from "@generated/client";
+import Guard from "@src/ui/Guard";
 import Opening from "@src/ui/Opening";
 
 export default function SchedulePage({ track, tracks, talks, saved }: RootProps) {
@@ -17,6 +18,7 @@ export default function SchedulePage({ track, tracks, talks, saved }: RootProps)
           </Link>
         ))}
       </nav>
+      <Guard>
       <ol className="talks">
         {talks.map((talk) => (
           <li key={talk.id} className="talk-row">
@@ -36,6 +38,7 @@ export default function SchedulePage({ track, tracks, talks, saved }: RootProps)
           </li>
         ))}
       </ol>
+      </Guard>
       {talks.length === 0 ? <p className="quiet">Nothing on that track.</p> : null}
     </section>
   );
