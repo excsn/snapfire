@@ -4629,8 +4629,9 @@ fn note_alias(lowerer: &mut Lowerer<'_>, name: &str, init: &js::Expr, writable: 
   let (array, index, from_end) = match init {
     js::Expr::Member(member) => match (&member.prop, &*member.obj) {
       (js::MemberProp::Computed(prop), js::Expr::Ident(array)) => (array, &*prop.expr, false),
-      _ => return Ok(()),
+      _ => return note_field_alias(lowerer, name, init, writable),
     },
+    js::Expr::OptChain(_) => return note_field_alias(lowerer, name, init, writable),
     js::Expr::Call(call) => match (&call.callee, call.args.as_slice()) {
       (js::Callee::Expr(callee), [at]) if at.spread.is_none() => match &**callee {
         js::Expr::Member(member) => match (&member.prop, &*member.obj) {
@@ -4660,10 +4661,72 @@ fn note_alias(lowerer: &mut Lowerer<'_>, name: &str, init: &js::Expr, writable: 
   Ok(())
 }
 
+/// The tag of a field alias record under [`alias_key`]: `[tag, root, keys, bound]`, where an element alias is `[array, index, bound]`.
+const FIELD_ALIAS: &str = "$field";
+
+/// A local bound to a field of another local, `const verbs = config.settings.verbs`, through `.`, `?.` or a computed key: recorded so a write through it rewrites the root at that path too. The root must be a local the body may write.
+fn note_field_alias(lowerer: &mut Lowerer<'_>, name: &str, init: &js::Expr, writable: &Writable<'_>) -> Lowered<()> {
+  let mut keys = Vec::new();
+  let mut at = init;
+  let root = loop {
+    match crate::meaning::bare(at) {
+      js::Expr::Ident(id) => break id.sym.to_string(),
+      js::Expr::Member(member) => {
+        keys.push(&member.prop);
+        at = &member.obj;
+      }
+      js::Expr::OptChain(chain) => match &*chain.base {
+        js::OptChainBase::Member(member) => {
+          keys.push(&member.prop);
+          at = &member.obj;
+        }
+        js::OptChainBase::Call(_) => return Ok(()),
+      },
+      _ => return Ok(()),
+    }
+  };
+  if keys.is_empty() || !writable.local(lowerer, &root) {
+    return Ok(());
+  }
+  let Some(bound) = lowerer.scope.iter().rposition(|(n, _)| *n == root) else { return Ok(()) };
+  keys.reverse();
+  let mut lowered = Vec::with_capacity(keys.len());
+  for key in keys {
+    lowered.push(Entry::Item(match key {
+      js::MemberProp::Ident(field) => Expr::lit_str(field.sym.as_ref()),
+      js::MemberProp::Computed(key) => lowerer.expr(&key.expr)?,
+      js::MemberProp::PrivateName(_) => return Ok(()),
+    }));
+  }
+  lowerer.scope.push((alias_key(name), field_alias(&root, lowered, bound)));
+  Ok(())
+}
+
+fn field_alias(root: &str, keys: Vec<Entry>, bound: usize) -> Expr {
+  Expr::Array(vec![Entry::Item(Expr::lit_str(FIELD_ALIAS)), Entry::Item(Expr::lit_str(root)), Entry::Item(Expr::Array(keys)), Entry::Item(Expr::Lit(Lit::Int(bound as i128)))])
+}
+
+/// `current` with `value` written at `keys`, a name a field and anything else an index, as [`Lowerer::written_at`] writes along a member chain.
+fn write_keys(current: Expr, keys: &[Expr], value: Expr) -> Expr {
+  let Some((key, rest)) = keys.split_first() else { return value };
+  match key {
+    Expr::Lit(Lit::Str(field)) => {
+      let inner = write_keys(current.clone().field(field.to_string()), rest, value);
+      Expr::Object(vec![Entry::Spread(current), Entry::Field(field.to_string(), inner)])
+    }
+    key => {
+      let inner = write_keys(Expr::Index(Box::new(current.clone()), Box::new(key.clone())), rest, value);
+      Expr::Builtin { name: Builtin::SetAt, args: vec![current, key.clone(), inner] }
+    }
+  }
+}
+
 enum Alias {
   None,
   Of { array: String, index: Expr },
+  Field { root: String, keys: Vec<Expr> },
   Stale(String),
+  StaleField(String),
 }
 
 /// What a write to `name` reaches besides `name`. An alias whose array was
@@ -4675,6 +4738,15 @@ fn alias_of(lowerer: &Lowerer<'_>, name: &str) -> Alias {
     return Alias::None;
   }
   let Expr::Array(entries) = &lowerer.scope[at].1 else { return Alias::None };
+  if let [Entry::Item(Expr::Lit(Lit::Str(tag))), Entry::Item(Expr::Lit(Lit::Str(root))), Entry::Item(Expr::Array(keys)), Entry::Item(Expr::Lit(Lit::Int(bound)))] = entries.as_slice() {
+    if tag.as_str() == FIELD_ALIAS {
+      let keys = keys.iter().filter_map(|key| match key { Entry::Item(key) => Some(key.clone()), _ => None }).collect();
+      return match lowerer.scope.iter().rposition(|(n, _)| n == root) {
+        Some(now) if now as i128 == *bound => Alias::Field { root: root.to_string(), keys },
+        _ => Alias::StaleField(root.to_string()),
+      };
+    }
+  }
   let [Entry::Item(Expr::Lit(Lit::Str(array))), Entry::Item(index), Entry::Item(Expr::Lit(Lit::Int(bound)))] = entries.as_slice() else { return Alias::None };
   match lowerer.scope.iter().rposition(|(n, _)| n == array) {
     Some(now) if now as i128 == *bound => Alias::Of { array: array.clone(), index: index.clone() },
@@ -4683,7 +4755,7 @@ fn alias_of(lowerer: &Lowerer<'_>, name: &str) -> Alias {
 }
 
 /// Rebinds the local `name` to `value` after a write to one of its fields,
-/// and the array element it aliases with it.
+/// and the array element or the field of another local it aliases with it.
 /// The kind `name` had while bound to `from`, noted for it bound to `to`.
 fn keep_kind(lowerer: &mut Lowerer<'_>, name: &str, from: &Expr, to: Expr) {
   if let Some(kind) = lowerer.kinds.iter().rev().find(|(n, held, _)| n == name && held == from).map(|(_, _, kind)| *kind) {
@@ -4732,6 +4804,20 @@ fn write_field(lowerer: &mut Lowerer<'_>, span: Span, name: &str, value: Expr, a
   let alias = alias_of(lowerer, name);
   if let Alias::Stale(array) = &alias {
     return Err(lowerer.residue(span, format!("a write through `{name}`, an element of `{array}`, after `{array}` was written")));
+  }
+  if let Alias::StaleField(root) = &alias {
+    return Err(lowerer.residue(span, format!("a write through `{name}`, a field of `{root}`, after `{root}` was written")));
+  }
+  if let Alias::Field { root, keys } = &alias {
+    lowerer.scope.push((name.to_owned(), value.clone()));
+    if !assigned.iter().any(|a| a == name) {
+      assigned.push(name.to_owned());
+    }
+    let rewritten = write_keys(current(lowerer, root), keys, value);
+    write_field(lowerer, span, root, rewritten, assigned)?;
+    let bound = lowerer.scope.iter().rposition(|(n, _)| n == root).expect("the root was just bound");
+    lowerer.scope.push((alias_key(name), field_alias(root, keys.iter().cloned().map(Entry::Item).collect(), bound)));
+    return Ok(());
   }
   let mut note = |name: &str| {
     if !assigned.iter().any(|a| a == name) {
@@ -5638,6 +5724,7 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
         bind_pattern(lowerer, &decl.name, expr)?;
         if let (js::Pat::Ident(id), Some(init)) = (&decl.name, decl.init.as_deref()) {
           lowerer.note_kind(id.id.sym.as_ref(), init);
+          note_alias(lowerer, id.id.sym.as_ref(), init, &Writable { floor, frozen: &[], setters: &[] })?;
         }
       }
       block_to_expr_inner(lowerer, rest, floor)
