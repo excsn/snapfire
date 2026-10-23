@@ -89,3 +89,23 @@ fn a_console_call_reaching_a_server_only_extension_is_still_refused() {
   std::fs::remove_dir_all(&dir).unwrap();
   assert!(result.as_ref().is_err_and(|e| e.to_string().contains("render path")), "{result:?}");
 }
+
+#[test]
+fn a_console_call_spreading_an_array_writes_its_items() {
+  use tracing_subscriber::layer::SubscriberExt;
+  let _ = tracing::subscriber::set_global_default(tracing_subscriber::registry().with(Capture));
+  let page = "const tag = (message: string, ...rest: unknown[]) => {\n  console.log(message, ...rest);\n  return message;\n};\nexport default function Page() {\n  const xs = [\"a\", \"b\"];\n  console.warn(...xs, \"c\");\n  return <p>{tag(\"ready\", 1, { n: 2 })}</p>;\n}\n";
+  let dir = app("spread", &[("routes/page.tsx", page)]);
+  let mut set = ComponentSet::new(&dir);
+  let result = set.lower("routes/page.tsx#default");
+  std::fs::remove_dir_all(&dir).unwrap();
+  result.unwrap();
+  set.settle_fills();
+  assert!(set.browser_only.is_empty(), "{:?}", set.browser_only);
+  let library: Components = set.components.iter().map(|(module, component)| (module.clone(), Arc::new(prepare(component)))).collect();
+  let module = "routes/page.tsx#default";
+  let out = Interpreter::default().render_module(module, &library[module], &ValueMap::default(), &library).unwrap();
+  assert_eq!(out.html, "<p>ready</p>");
+  let lines = LINES.lock().unwrap().clone();
+  assert_eq!(lines, vec![(tracing::Level::WARN, "a b c".to_owned()), (tracing::Level::INFO, "ready 1 {\"n\":2}".to_owned())]);
+}

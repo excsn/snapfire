@@ -3333,8 +3333,15 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
     Builtin::Throw => return Err(thrown_fail(&args)),
-    Builtin::Log => {
-      let line = || args.iter().skip(1).map(console_text).collect::<Vec<_>>().join(" ");
+    Builtin::Log | Builtin::LogOf => {
+      let items: Vec<&Value> = match name {
+        Builtin::LogOf => match arg(1)? {
+          Value::Seq(items) => items.iter().collect(),
+          other => return Err(type_error("LogOf", "an array", other)),
+        },
+        _ => args.iter().skip(1).collect(),
+      };
+      let line = || items.iter().map(|v| console_text(v)).collect::<Vec<_>>().join(" ");
       match args.first() {
         Some(Value::Str(method)) if method.as_str() == "debug" => tracing::debug!(target: CONSOLE_TARGET, "{}", line()),
         Some(Value::Str(method)) if method.as_str() == "warn" => tracing::warn!(target: CONSOLE_TARGET, "{}", line()),

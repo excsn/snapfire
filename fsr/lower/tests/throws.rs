@@ -86,3 +86,10 @@ fn a_throw_inside_a_loop_ends_the_function_when_reached_and_the_loop_runs_on_oth
   let err = html("loop_throw_reached", &[("src/count.ts", count), ("routes/page.tsx", thrown)]).unwrap_err();
   assert!(err.contains("negative at 1"), "{err}");
 }
+
+#[test]
+fn an_error_made_without_new_is_the_value_new_makes() {
+  let page = "const made = (n: number) => {\n  const e = n < 0 ? RangeError(\"below zero\") : Error(\"plain\");\n  return `${e.name}: ${e.message}`;\n};\nexport default function Page() {\n  return <p>{made(-1)} / {made(2)}</p>;\n}\n";
+  let html = html("error_call", &[("routes/page.tsx", page)]).unwrap();
+  assert_eq!(html, "<p>RangeError: below zero / Error: plain</p>");
+}

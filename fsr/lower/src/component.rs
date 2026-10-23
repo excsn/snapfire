@@ -5716,6 +5716,11 @@ fn block_to_expr_inner(lowerer: &mut Lowerer<'_>, stmts: &[&js::Stmt], floor: us
       let value = block_to_expr_inner(lowerer, rest, floor)?;
       Ok(sequenced(vec![Stmt::Let { name: held, expr: effect }], value))
     }
+    js::Stmt::Expr(stmt) if matches!(crate::meaning::bare(&stmt.expr), js::Expr::Call(call) if console_method(lowerer, call).is_some()) => {
+      let logged = lowerer.effect(&stmt.expr)?;
+      let value = block_to_expr_inner(lowerer, rest, floor)?;
+      Ok(sequenced(vec![logged], value))
+    }
     js::Stmt::Expr(stmt) if matches!(&*stmt.expr, js::Expr::Call(_)) && {
       let depth = lowerer.scope.len();
       let probed = lowerer.expr(&stmt.expr).map(|e| writes_store(&e) || (lowerer.reaches(Reach::Terminal) && effectful(&e))).unwrap_or(false);
@@ -5805,23 +5810,24 @@ fn sequenced(mut lets: Vec<Stmt>, value: Expr) -> Expr {
   Expr::Block(lets)
 }
 
-/// `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console` as the log it writes on the server, as a server renderer running the component writes it, or as nothing when an argument is one only the browser can compute.
-pub(crate) fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Option<Expr>> {
-  let js::Callee::Expr(callee) = &call.callee else { return Ok(None) };
-  let js::Expr::Member(m) = crate::meaning::bare(callee) else { return Ok(None) };
-  let js::Expr::Ident(console) = crate::meaning::bare(&m.obj) else { return Ok(None) };
+/// The method of `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console`; `None` for any other call.
+fn console_method(lowerer: &Lowerer<'_>, call: &js::CallExpr) -> Option<String> {
+  let js::Callee::Expr(callee) = &call.callee else { return None };
+  let js::Expr::Member(m) = crate::meaning::bare(callee) else { return None };
+  let js::Expr::Ident(console) = crate::meaning::bare(&m.obj) else { return None };
   let global = lowerer.meanings.as_ref().is_none_or(|meanings| console.ctxt == meanings.unresolved);
   let method = prop_name_of(m).unwrap_or_default();
-  if !global || console.sym.as_ref() != "console" || !matches!(method.as_str(), "log" | "info" | "debug" | "warn" | "error") {
-    return Ok(None);
-  }
-  let mut args = vec![Expr::lit_str(method)];
+  (global && console.sym.as_ref() == "console" && matches!(method.as_str(), "log" | "info" | "debug" | "warn" | "error")).then_some(method)
+}
+
+/// `console.log(...)`, `info`, `debug`, `warn` or `error` on the global `console` as the log it writes on the server, as a server renderer running the component writes it, or as nothing when an argument is one only the browser can compute.
+pub(crate) fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+  let Some(method) = console_method(lowerer, call) else { return Ok(None) };
+  let spread = call.args.iter().any(|arg| arg.spread.is_some());
+  let mut values = Vec::with_capacity(call.args.len());
   for arg in &call.args {
-    if arg.spread.is_some() {
-      return Err(lowerer.residue(arg.expr.span(), "a spread into `console`"));
-    }
     match lowerer.expr(&arg.expr) {
-      Ok(value) => args.push(value),
+      Ok(value) => values.push((arg.spread.is_some(), value)),
       // An argument the server cannot compute, the viewer's clock or zone among them, leaves the call to the browser, which logs it when the component hydrates; the markup is the same either way.
       Err(residue) => {
         let followable = lowerer.unbound.as_ref().is_some_and(|name| !lowerer.unfollowed.contains(name) && matches!(lowerer.meanings.as_ref().and_then(|m| m.bindings.get(name)), Some(crate::meaning::Meaning::Own { .. })));
@@ -5833,6 +5839,12 @@ pub(crate) fn console_call(lowerer: &mut Lowerer<'_>, call: &js::CallExpr) -> Lo
       }
     }
   }
+  if spread {
+    let entries = values.into_iter().map(|(spread, value)| if spread { Entry::Spread(value) } else { Entry::Item(value) }).collect();
+    return Ok(Some(Expr::Builtin { name: Builtin::LogOf, args: vec![Expr::lit_str(method), Expr::Array(entries)] }));
+  }
+  let mut args = vec![Expr::lit_str(method)];
+  args.extend(values.into_iter().map(|(_, value)| value));
   Ok(Some(Expr::Builtin { name: Builtin::Log, args }))
 }
 

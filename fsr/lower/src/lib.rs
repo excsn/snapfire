@@ -3214,6 +3214,13 @@ impl<'a> Lowerer<'a> {
             }
             Ok(Expr::Builtin { name: Builtin::ParseInt, args })
           }
+          name if ERROR_CONSTRUCTORS.contains(&name) => {
+            let message = match call.args.first() {
+              Some(a) => Expr::Str(Box::new(self.expr(&a.expr)?)),
+              None => Expr::lit_str(""),
+            };
+            Ok(Expr::Object(vec![Entry::Field("name".to_owned(), Expr::lit_str(name)), Entry::Field("message".to_owned(), message)]))
+          }
           "fail" => Err(self.residue(call.span, "`fail` inside an expression; it is a statement")),
           "redirect" if self.parsed.names_server(&call.callee, "redirect") => self.redirect_to(call),
           "$state" | "$derived" if self.parsed.file.ends_with(".svelte.ts") || self.parsed.file.ends_with(".svelte.js") => match call.args.first() {
