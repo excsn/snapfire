@@ -38,7 +38,7 @@ struct Cli {
 enum Command {
   /// Scaffolds a bare project: configuration, routes and an import map, no framework; --with react adds React.
   New(New),
-  /// Rewrites a Next.js application into a new project, naming each line it left for a person.
+  /// Rewrites a Next.js, SvelteKit, Nuxt or Ink application into a new project, naming each line it left for a person.
   Migrate(Migrate),
   /// Builds and serves an application, rebuilding what changed as it changes.
   Dev(Dev),
