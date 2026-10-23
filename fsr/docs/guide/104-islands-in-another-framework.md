@@ -102,13 +102,13 @@ Neither `fsr` nor `snapfirec` compiles Vue. `fsr build` looks for `snapfirec-vue
 ```text
 ❌ `snapfirec-vue` is not on PATH; `cargo install snapfire_vue` puts it there
    needed by "src/ui/Tonight.vue"
-❌ "dist/generated/islands.js" imports '../src/ui/Tonight.js', which resolves to nothing
+❌ "dist/generated/islands.js" imports '../src/ui/Tonight.vue', which resolves to nothing
 plugins   `snapfirec-vue` is not on PATH, so no `.vue` component was read or compiled; `cargo install snapfire_vue` puts it there, and until it does the bundle stops on the module the registry imports
 ```
 
 That is not the `foreign` fallback. A component goes foreign when the plugin read it and the build could not lower what it found, which leaves a module to mount; a missing plugin leaves no module at all.
 
-What comes back is a module and a stylesheet: `dist/src/ui/Tonight.js`, whose imports the build resolves like any other module's, plus `dist/src/ui/Tonight.vue.css`, the component's `<style scoped>` with its `data-v-` attribute. The template's `import Tonight from "@src/ui/Tonight.vue"` is rewritten to the `.js` beside it. The island registry the build writes registers the module with the Vue mounter:
+What comes back is a module and a stylesheet: `dist/src/ui/Tonight.vue`, the compiled module under the component's own name, whose imports the build resolves like any other module's, plus `dist/src/ui/Tonight.vue.css`, the component's `<style scoped>` with its `data-v-` attribute. The template's `import Tonight from "@src/ui/Tonight.vue"` stays as written and the host serves the module as JavaScript. The island registry the build writes registers the module with the Vue mounter:
 
 ```ts
 import { registerIsland } from "@snapfire/fsr-client";

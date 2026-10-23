@@ -201,7 +201,7 @@ fn a_driven_compiler_asks_its_driver_for_the_plugin_rather_than_starting_one() {
   let mut seen = Vec::new();
   assert_eq!(answering(fixture.root(), &mut seen), REBUILT);
   assert_eq!(seen, ["hello vue", "compile vue src/Card.vue"], "one hello, then one batch per extension");
-  let module = fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module");
+  let module = fs::read_to_string(fixture.root().join("dist/src/Card.vue")).expect("the module");
   assert!(module.contains("the driver"), "the module is the driver's answer: {module}");
 }
 

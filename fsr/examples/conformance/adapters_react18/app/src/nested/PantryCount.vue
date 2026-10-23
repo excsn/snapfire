@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { counted } from "@src/nested/stock";
+import { counted } from "@src/nested/pantry";
 
 const items = await counted;
 </script>

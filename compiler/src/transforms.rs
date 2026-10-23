@@ -258,9 +258,7 @@ pub fn resolve_specifier(dir: &Path, specifier: &str) -> String {
 
   match extension.as_deref() {
     Some(ext) if COMPILED_TO_JS.contains(&ext) || crate::build::WRITTEN_BY_FSR.contains(&ext) => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
-    // A framework source becomes a module the same way a `.ts` does, so an
-    // import of one names the `.js` beside it rather than the source.
-    Some(ext) if crate::plugin::claimed(ext).is_some() => format!("{}.js", &specifier[..specifier.len() - ext.len() - 1]),
+    Some(ext) if crate::plugin::claimed(ext).is_some() => specifier.to_string(),
     Some(ext) if BROWSER_READY.contains(&ext) => specifier.to_string(),
     // `./transport.nextjs` beside `transport.nextjs.ts`: the dot is part of the name, not an extension.
     Some(_) if !dir.join(specifier).is_file() && COMPILED_TO_JS.iter().any(|ext| dir.join(format!("{specifier}.{ext}")).is_file()) => format!("{specifier}.js"),
@@ -315,7 +313,7 @@ fn is_bare(specifier: &str) -> bool {
 /// minified variant of. Assets have no `.min` counterpart, so they are delivered once and both
 /// graphs point at the same copy.
 fn minified_name(specifier: &str) -> String {
-  for ext in ["js", "mjs", "css"] {
+  for ext in ["js", "mjs", "css"].iter().chain(snapfire_compiler_wire::EXTENSIONS) {
     if let Some(stem) = specifier.strip_suffix(&format!(".{ext}")) {
       return format!("{stem}.min.{ext}");
     }

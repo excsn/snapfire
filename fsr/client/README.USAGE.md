@@ -542,7 +542,7 @@ const svelteUnmounter: Unmounter = (handle) => {
 };
 
 registerIsland("components/Counter.svelte#default", {
-  loader: () => import("./Counter.js").then((m) => m.default),
+  loader: () => import("./Counter.svelte").then((m) => m.default),
   mount: svelteMounter,
   unmount: svelteUnmounter,
 });

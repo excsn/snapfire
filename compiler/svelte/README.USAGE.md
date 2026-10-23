@@ -62,18 +62,15 @@ match compiler.compile("src/Card.svelte", &source, &Options::default(), &Default
 Nothing is configured. `snapfirec` finds `snapfirec-svelte` on `PATH` when a project holds a `.svelte` file, hands every such file to it in one batch and writes what comes back beside the other outputs:
 
 ```text
-dist/src/Card.js            the component module
+dist/src/Card.svelte        the component module
 dist/src/Card.svelte.css    its scoped stylesheet
 ```
 
-An import of the component names the module it became:
+An import of the component is left as written, since the module keeps the component's name. A runes module beside it, `Card.svelte.ts`, compiles to `Card.svelte.js`, so the two never share an output:
 
 ```ts
 import Card from "./Card.svelte";
-```
-
-```js
-import Card from "./Card.js";
+import { held } from "./Card.svelte.js";
 ```
 
 What to check when it does not:

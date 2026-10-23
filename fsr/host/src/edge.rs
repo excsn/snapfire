@@ -442,6 +442,10 @@ impl Host {
           return match dir.clone().oneshot(inner).await {
             Ok(response) => {
               let mut response = response.map(|b| b.map_err(std::io::Error::other).boxed_unsync());
+              let served = output.as_deref().unwrap_or(rest);
+              if response.status().is_success() && served.rsplit('/').next().and_then(|name| name.rsplit_once('.')).is_some_and(|(_, ext)| ext != "js" && crate::config::is_module_extension(ext)) {
+                response.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(crate::client::MEDIA_TYPE));
+              }
               // A hashed file is public and immutable; a font is fetched in CORS mode
               // whatever the page says, so when `[fonts] base` or `[images] base` puts the
               // file under another origin the browser needs this to use it.

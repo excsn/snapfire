@@ -862,13 +862,13 @@ A plugin that speaks another protocol version is refused with both versions and 
 
 ### What a Component Becomes
 
-One source, two outputs. The module lands where a `.ts` would, `dist/src/Card.js`, in the dialect the plugin says it wrote: a typed `<script setup lang="ts">` comes back as TypeScript and the build strips it here, so there is one TypeScript front end rather than two. Its imports are resolved like any other module's, `./util` to `./util.js`, `vue` left bare for the import map. The styles land beside it as `dist/src/Card.vue.css`, already scoped by the plugin when the source asked for it. The build facts list every such sheet under `styles` so a host can link them:
+One source, two outputs. The module keeps the source's name, `dist/src/Card.vue`, in the dialect the plugin says it wrote: a typed `<script setup lang="ts">` comes back as TypeScript and the build strips it here, so there is one TypeScript front end rather than two. Its imports are resolved like any other module's, `./util` to `./util.js`, `vue` left bare for the import map. The styles land beside it as `dist/src/Card.vue.css`, already scoped by the plugin when the source asked for it. The build facts list every such sheet under `styles` so a host can link them:
 
 ```json
 "styles": ["src/Card.vue.css"]
 ```
 
-An import of the component names the module it became. `import Card from "./Card.vue"` is rewritten to `./Card.js`, so a `.vue` specifier resolves the way a `.ts` one does.
+An import of the component is left as written: `import Card from "./Card.vue"` names the compiled module. FSR's host serves it as JavaScript. A module beside it whose name differs only by case or by a further extension, `card.ts` or `Card.vue.ts`, keeps an output of its own.
 
 A diagnostic comes back structured and is printed in the build's own voice, with the file and the line:
 

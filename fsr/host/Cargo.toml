@@ -49,6 +49,7 @@ snapfire_fsr_ogimage.workspace = true
 snapfire_fsr_runtime.workspace = true
 snapfire_fsr_service = { workspace = true, features = ["grpc", "graphql"] }
 snapfire_fsr_session.workspace = true
+snapfire_compiler_wire = { path = "../../compiler/wire", version = "0.3.0" }
 snapfire_sitemap = { path = "../../sitemap", version = "0.2.0" }
 bytes = "1"
 c5store = { version = "^0", features = ["toml"] }

@@ -2956,6 +2956,12 @@ pub struct Bundle {
   hashed: std::sync::OnceLock<BTreeMap<String, String>>,
 }
 
+/// Whether the compiler writes a module under this extension: `.js` or a framework component's own
+/// extension, which its compiled module keeps.
+pub fn is_module_extension(ext: &str) -> bool {
+  ext == "js" || snapfire_compiler_wire::claimed(&ext.to_ascii_lowercase()).is_some()
+}
+
 impl Bundle {
   /// Each module and stylesheet output against its name carrying the first eight hex digits of its
   /// content's SHA-256, `src/main.3f2a91c0.js` for `src/main.js`. Read from `dir` on the first
@@ -2967,7 +2973,7 @@ impl Bundle {
         .outputs
         .iter()
         .filter_map(|output| {
-          let (stem, ext) = output.rsplit_once('.').filter(|(_, ext)| *ext == "js" || *ext == "css")?;
+          let (stem, ext) = output.rsplit_once('.').filter(|(_, ext)| *ext == "css" || is_module_extension(ext))?;
           let bytes = std::fs::read(self.dir.join(output)).ok()?;
           let hash: String = sha2::Sha256::digest(&bytes).iter().take(4).map(|b| format!("{b:02x}")).collect();
           Some((output.clone(), format!("{stem}.{hash}.{ext}")))
@@ -2998,7 +3004,7 @@ impl Bundle {
     self
       .hashed()
       .iter()
-      .filter(|(output, _)| output.ends_with(".js"))
+      .filter(|(output, _)| output.rsplit_once('.').is_some_and(|(_, ext)| is_module_extension(ext)))
       .map(|(output, hashed)| (format!("{}/{output}", self.route), format!("{}/{hashed}", self.route)))
       .filter(|(plain, _)| self.minified_url(plain) == *plain)
       .collect()

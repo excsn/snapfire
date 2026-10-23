@@ -15,7 +15,7 @@ fn a_component_becomes_a_module_and_a_stylesheet_beside_it() {
   with_plugin_on_path(&mut cmd);
   cmd.arg("--root").arg(fixture.root()).assert().success();
 
-  let module = fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module");
+  let module = fs::read_to_string(fixture.root().join("dist/src/Card.vue")).expect("the module");
   assert!(module.contains("export default _sfc_main"), "{module}");
   assert!(module.contains("_sfc_main.render"), "the template is bound to the component");
   assert!(!module.contains(": string"), "the plugin handed back typescript and the build finished it");
@@ -26,15 +26,32 @@ fn a_component_becomes_a_module_and_a_stylesheet_beside_it() {
 }
 
 #[test]
-fn an_import_of_a_component_names_the_module_it_became() {
+fn an_import_of_a_component_names_the_module_it_became_by_its_own_name() {
   let fixture = Fixture::new("vue-plugin");
   let mut cmd = get_snapfirec_cmd();
   with_plugin_on_path(&mut cmd);
   cmd.arg("--root").arg(fixture.root()).assert().success();
 
   let main = fs::read_to_string(fixture.root().join("dist/src/main.js")).expect("the importer");
-  assert!(main.contains("from \"./Card.js\""), "a `.vue` specifier becomes the `.js` beside it: {main}");
-  assert!(!main.contains(".vue"), "{main}");
+  assert!(main.contains("from \"./Card.vue\""), "{main}");
+  assert!(!main.contains("./Card.js"), "{main}");
+}
+
+#[test]
+fn a_component_and_a_module_whose_names_differ_only_by_case_both_reach_the_output() {
+  let fixture = Fixture::new("vue-plugin");
+  fs::write(fixture.root().join("src/card.ts"), "export const stock: number = 3;\n").expect("written");
+  fs::write(fixture.root().join("src/main.ts"), "import Card from \"./Card.vue\";\nimport { stock } from \"./card\";\nexport { Card, stock };\n").expect("written");
+  let mut cmd = get_snapfirec_cmd();
+  with_plugin_on_path(&mut cmd);
+  cmd.arg("--root").arg(fixture.root()).assert().success();
+
+  let component = fs::read_to_string(fixture.root().join("dist/src/Card.vue")).expect("the component's module");
+  assert!(component.contains("_sfc_main"), "{component}");
+  let module = fs::read_to_string(fixture.root().join("dist/src/card.js")).expect("the module");
+  assert!(module.contains("stock = 3"), "{module}");
+  let main = fs::read_to_string(fixture.root().join("dist/src/main.js")).expect("the importer");
+  assert!(main.contains("from \"./Card.vue\"") && main.contains("from \"./card.js\""), "{main}");
 }
 
 #[test]
@@ -44,7 +61,7 @@ fn what_the_component_imports_is_resolved_the_way_any_module_is() {
   with_plugin_on_path(&mut cmd);
   cmd.arg("--root").arg(fixture.root()).assert().success();
 
-  let module = fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module");
+  let module = fs::read_to_string(fixture.root().join("dist/src/Card.vue")).expect("the module");
   assert!(module.contains("from \"./util.js\""), "a relative import inside the component resolved: {module}");
   assert!(module.contains("from \"vue\""), "and the framework stayed an external: {module}");
 }
@@ -115,5 +132,5 @@ fn a_second_build_answers_unchanged_components_from_the_cache() {
   assert!(second.status.success());
   let said = String::from_utf8_lossy(&second.stdout);
   assert!(said.contains("Plugin cache: 1 of 1"), "nothing changed, so nothing was compiled again: {said}");
-  assert!(fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module").contains("_sfc_main"));
+  assert!(fs::read_to_string(fixture.root().join("dist/src/Card.vue")).expect("the module").contains("_sfc_main"));
 }

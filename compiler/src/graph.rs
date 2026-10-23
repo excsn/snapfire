@@ -100,10 +100,10 @@ impl Graph {
 }
 
 fn preloadable(path: &Path) -> bool {
-  path
-    .extension()
-    .and_then(|e| e.to_str())
-    .is_some_and(|e| PRELOADABLE.contains(&e.to_ascii_lowercase().as_str()))
+  path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+    let e = e.to_ascii_lowercase();
+    PRELOADABLE.contains(&e.as_str()) || snapfire_compiler_wire::claimed(&e).is_some()
+  })
 }
 
 /// Without a public path the manifest stays in the output directory's own terms, which keeps the

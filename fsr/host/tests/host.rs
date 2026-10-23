@@ -6852,6 +6852,33 @@ async fn a_development_host_names_the_bundle_s_modules_as_written() {
   assert!(!html.contains("\"/static/js/app/src/shared.js\":"), "{html}");
 }
 
+/// `hashed_app` with a Vue component the compiler wrote under its source name.
+fn component_app(dev: bool) -> PathBuf {
+  let dir = hashed_app(dev);
+  let facts = std::fs::read_to_string(dir.join("dist/.snapfire-build.json")).unwrap();
+  std::fs::write(dir.join("dist/.snapfire-build.json"), facts.replace(r#""src/ui/Late.js"]"#, r#""src/ui/Late.js","src/ui/Card.vue","src/ui/Card.min.vue"]"#)).unwrap();
+  std::fs::write(dir.join("dist/src/ui/Card.vue"), "export default { name: 'Card' };").unwrap();
+  std::fs::write(dir.join("dist/src/ui/Card.min.vue"), "export default{name:'Card'};").unwrap();
+  dir
+}
+
+#[tokio::test]
+async fn a_compiled_component_is_served_as_a_module_under_its_source_name() {
+  let host = tuned_host(&component_app(true));
+  let response = host.handle(Request::get("/static/js/app/src/ui/Card.vue").body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("content-type").unwrap(), "text/javascript; charset=utf-8");
+
+  let host = tuned_host(&component_app(false));
+  let hashed = format!("/static/js/app/src/ui/Card.min.{}.vue", content_hash("export default{name:'Card'};"));
+  let html = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(html.contains(&format!(r#""/static/js/app/src/ui/Card.min.vue":"{hashed}""#)), "{html}");
+  let response = host.handle(Request::get(hashed.as_str()).body(Bytes::new()).unwrap()).await;
+  assert_eq!(response.status(), StatusCode::OK);
+  assert_eq!(response.headers().get("content-type").unwrap(), "text/javascript; charset=utf-8");
+  assert_eq!(response.headers().get("cache-control").unwrap(), "public, max-age=31536000, immutable");
+}
+
 #[tokio::test]
 async fn a_mounted_site_s_minified_bundle_is_served_by_a_shell_outside_development() {
   let site = site_dir();

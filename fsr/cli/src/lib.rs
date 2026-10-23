@@ -3124,8 +3124,7 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
   for module in registered {
     let Some((path, export)) = module.split_once('#') else { continue };
     // A foreign source is imported as itself: the typechecker knows it through
-    // `<types>/foreign.d.ts` and snapfirec rewrites the specifier to the
-    // module its plugin emitted.
+    // `<types>/foreign.d.ts` and its compiled module keeps the source's name.
     // A component with a module of its own name beside it is imported through
     // the alias, the one form the typechecker resolves to its declaration.
     let js = match snapfire_fsr_lower::component::is_foreign(path) {

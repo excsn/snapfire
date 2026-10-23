@@ -977,7 +977,9 @@ fn plugin_jobs(opts: &Options, build: &mut Build, path: &Path, check_collisions:
 
   let mut planned: Vec<(PathBuf, Emit, Asset, Supplied)> = Vec::new();
   let mut dest = build.out_dir.join(&relative);
-  dest.set_extension("js");
+  if dest.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ts")) {
+    dest.set_extension("js");
+  }
   let supplied = Supplied::Module { source: compiled.js.clone(), dialect };
   planned.push((dest.clone(), Emit::Code(None), module, supplied.clone()));
   if let Some(level) = opts.minify {

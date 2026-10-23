@@ -19,7 +19,7 @@ fn build() -> Fixture {
 #[test]
 fn a_svelte_component_becomes_a_module_and_a_stylesheet_beside_it() {
   let fixture = build();
-  let module = fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module");
+  let module = fs::read_to_string(fixture.root().join("dist/src/Card.svelte")).expect("the module");
   assert!(module.contains("export default function"), "{module}");
   assert!(!module.contains(": string"), "the types are gone: {module}");
 
@@ -29,17 +29,17 @@ fn a_svelte_component_becomes_a_module_and_a_stylesheet_beside_it() {
 }
 
 #[test]
-fn an_import_of_a_svelte_component_names_the_module_it_became() {
+fn an_import_of_a_svelte_component_names_the_module_it_became_by_its_own_name() {
   let fixture = build();
   let main = fs::read_to_string(fixture.root().join("dist/src/main.js")).expect("the importer");
-  assert!(main.contains("from \"./Card.js\""), "a `.svelte` specifier becomes the `.js` beside it: {main}");
-  assert!(!main.contains("./Card.svelte"), "{main}");
+  assert!(main.contains("from \"./Card.svelte\""), "{main}");
+  assert!(!main.contains("./Card.js"), "{main}");
 }
 
 #[test]
 fn what_a_svelte_component_imports_is_resolved_the_way_any_module_is() {
   let fixture = build();
-  let module = fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module");
+  let module = fs::read_to_string(fixture.root().join("dist/src/Card.svelte")).expect("the module");
   assert!(module.contains("from \"./util.js\""), "a relative import inside the component resolved: {module}");
   assert!(module.contains("from 'svelte/internal/client'"), "and the runtime stayed an external, as Svelte wrote it: {module}");
 }
@@ -64,6 +64,20 @@ fn a_runes_module_goes_to_the_plugin_and_keeps_its_name() {
   assert!(!module.contains(": number"), "snapfirec stripped the types before the plugin saw it: {module}");
   let main = fs::read_to_string(fixture.root().join("dist/src/main.js")).expect("the importer");
   assert!(main.contains("from \"./counter.svelte.js\""), "{main}");
+}
+
+#[test]
+fn a_component_and_the_runes_module_of_its_own_name_are_two_outputs() {
+  let fixture = Fixture::new("svelte-plugin");
+  fs::write(fixture.root().join("src/Card.svelte.ts"), "export const held = $state({ n: 1 });\n").expect("written");
+  let mut cmd = get_snapfirec_cmd();
+  with_plugin_on_path(&mut cmd);
+  cmd.arg("--root").arg(fixture.root()).assert().success();
+
+  let component = fs::read_to_string(fixture.root().join("dist/src/Card.svelte")).expect("the component's module");
+  let runes = fs::read_to_string(fixture.root().join("dist/src/Card.svelte.js")).expect("the runes module");
+  assert!(component.contains("export default function Card"), "{component}");
+  assert!(runes.contains("held") && !runes.contains("function Card"), "{runes}");
 }
 
 #[test]
@@ -100,7 +114,7 @@ fn the_applications_own_compiler_compiles_and_a_new_one_under_the_same_path_comp
     let mut cmd = get_snapfirec_cmd();
     with_plugin_on_path(&mut cmd);
     cmd.arg("--root").arg(fixture.root()).arg("--plugin-compiler").arg(format!("svelte={}", compiler.display())).assert().success();
-    fs::read_to_string(fixture.root().join("dist/src/Card.js")).expect("the module")
+    fs::read_to_string(fixture.root().join("dist/src/Card.svelte")).expect("the module")
   };
   assert!(run().contains("\"9.9.9\""), "the named compiler answered");
   fs::write(&compiler, stand_in_compiler("9.9.10")).unwrap();
