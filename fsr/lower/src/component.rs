@@ -6716,7 +6716,7 @@ fn library_hook<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> 
 const FSR_HOOKS: &[&str] = &["useStore", "useLocale", "useEffectEvent", "useAnimation"];
 
 fn hook_call<'a>(meanings: &crate::meaning::Meanings, expr: &'a js::Expr) -> Option<(&'a str, &'a js::CallExpr)> {
-  let js::Expr::Call(call) = expr else { return None };
+  let js::Expr::Call(call) = crate::meaning::bare(expr) else { return None };
   let js::Callee::Expr(callee) = &call.callee else { return None };
   let meant = meanings.of_expr(callee);
   if let Some(hook) = meant.as_ref().and_then(|meant| meant.hook()) {

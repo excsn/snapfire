@@ -341,3 +341,18 @@ fn a_file_read_on_a_web_page_is_refused_naming_what_it_needs() {
   };
   assert!(message.contains("`fs.readFileSync`, which needs a host with processes of its own"), "{message}");
 }
+
+#[test]
+fn a_hook_called_under_a_type_cast_is_the_hook() {
+  let sized = "import { useState } from \"react\";\nimport { Text, useStdout } from \"ink\";\n\nfunction useScreenSize() {\n  const { stdout } = useStdout() as any;\n  const [size] = useState(() => ({ width: stdout.columns, height: stdout.rows }));\n  return size;\n}\n\nexport default function Sized() {\n  const { width, height } = useScreenSize();\n  return <Text>{width}x{height}</Text>;\n}\n";
+  let library = library(sized);
+  let component = &library[MODULE];
+  let mut store = ValueMap::default();
+  store.insert("$terminal.columns".to_owned(), Value::Int(100));
+  store.insert("$terminal.rows".to_owned(), Value::Int(30));
+  let mut props = ValueMap::default();
+  props.insert("$store".to_owned(), Value::Map(store));
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &props, &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>100x30</ink-text>");
+}
