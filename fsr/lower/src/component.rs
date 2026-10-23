@@ -9081,9 +9081,11 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
   /// state of the component's own, each function it declares a handler named
   /// `call:<n>`, a call to one at the top of the effect a `mount` handler, and
   /// a `setInterval` or `setTimeout` it starts a handler named `interval:<ms>`
-  /// or `timeout:<ms>`. Inside a handler, a timer started on one of the
-  /// effect's functions is a `$timer` act the terminal schedules. The cleanup
-  /// it returns is left out, since a terminal stops every timer on exit.
+  /// or `timeout:<ms>`. Any other statement at its top, an `if` around
+  /// setter calls for one, is a `mount` handler of its own. Inside a handler,
+  /// a timer started on one of the effect's functions is a `$timer` act the
+  /// terminal schedules. The cleanup it returns is left out, since a terminal
+  /// stops every timer on exit.
   fn terminal_effect(&mut self, arrow: &'p js::ArrowExpr) -> Lowered<()> {
     let depth = self.lowerer.scope.len();
     let (locals, fns, spawns) = (self.effect_locals.len(), self.effect_fns.len(), self.spawns.len());
@@ -9167,7 +9169,10 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           }
         }
         js::Stmt::Decl(js::Decl::Fn(_)) | js::Stmt::Return(_) | js::Stmt::Empty(_) => {}
-        other => return Err(self.lowerer.residue(other.span(), "a statement a terminal effect cannot hold; it declares `let`s and functions, calls them and starts timers")),
+        other => {
+          let body = self.handler_fn(&[], FunctionBody::Block(std::slice::from_ref(*stmt)), other.span())?;
+          self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Mount.name(), body });
+        }
       }
     }
     Ok(())

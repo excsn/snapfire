@@ -716,3 +716,11 @@ fn a_page_reads_the_process_memory_behind_a_guard_on_the_process_object() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "rss object heap");
 }
+
+#[test]
+fn a_mount_effect_branches_before_it_sets_state() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nconst startup = { wasUpdated: true, oldVersion: \"1.0\" };\n\nexport default function Note() {\n  const [note, setNote] = useState<string | null>(null);\n  const [applied, setApplied] = useState(true);\n  useEffect(() => {\n    if (startup.wasUpdated && startup.oldVersion) {\n      setNote(`updated from ${startup.oldVersion}`);\n      setApplied(false);\n    }\n  }, []);\n  return <Text>{note ?? \"fresh\"} {applied ? \"applied\" : \"pending\"}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 40).lines()[0].trim_end(), "updated from 1.0 pending");
+}
