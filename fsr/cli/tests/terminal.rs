@@ -749,3 +749,11 @@ fn instanceof_error_tells_a_thrown_error_from_another_value() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 60).lines()[0].trim_end(), "Error: boom | not an error | not an error");
 }
+
+#[test]
+fn a_write_through_a_field_alias_reaches_the_object_it_came_from() {
+  let page = "import { Text } from \"ink\";\n\ntype Verbs = { punctuation?: string; format?: string };\ntype Config = { settings: { verbs: Verbs; theme: string } };\n\nconst normalize = (config: Config) => {\n  const verbs = config.settings.verbs;\n  if (verbs.punctuation) {\n    verbs.format = \"{}\" + verbs.punctuation;\n    delete verbs.punctuation;\n  }\n  return config;\n};\n\nexport default function Shown() {\n  const config = normalize({ settings: { verbs: { punctuation: \"...\" }, theme: \"dark\" } });\n  return <Text>{config.settings.verbs.format ?? \"none\"} {\"punctuation\" in config.settings.verbs ? \"kept\" : \"dropped\"} {config.settings.theme}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 40).lines()[0].trim_end(), "{}... dropped dark");
+}
