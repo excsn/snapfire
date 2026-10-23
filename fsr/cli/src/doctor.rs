@@ -716,7 +716,7 @@ fn cache_tags(config: &Config) -> Vec<Finding> {
 }
 
 /// A literal internal link in a render tree, against everything this
-/// deployment answers: its own routes, the routes `[[route]]` declares, its
+/// deployment answers: its own routes and route handlers, the routes `[[route]]` declares, its
 /// static roots, the sites it mounts and the framework's own prefixes. A link
 /// matching none of them is a 404 nobody sees until someone clicks it.
 ///
@@ -741,7 +741,7 @@ fn links(config: &Config, manifest: Option<&Manifest>) -> Vec<Finding> {
     .as_ref()
     .map(|l| l.supported.iter().map(String::as_str).collect())
     .unwrap_or_default();
-  let patterns: Vec<&str> = manifest.routes.iter().map(|r| r.pattern.as_str()).chain(config.routes.iter().map(|r| r.pattern.as_str())).collect();
+  let patterns: Vec<&str> = manifest.routes.iter().map(|r| r.pattern.as_str()).chain(manifest.handlers.iter().map(|h| h.pattern.as_str())).chain(config.routes.iter().map(|r| r.pattern.as_str())).collect();
   let prefixes: Vec<String> = config
     .statics
     .iter()

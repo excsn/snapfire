@@ -520,6 +520,7 @@ fn a_link_to_a_path_nothing_answers_is_reported() {
   let plan = |href: &str| {
     format!(
       "(plan 2)\n(route / (node 0 shell#document))\n(route |/product/{{id}}| (node 1 shell#document))\n\
+       (handler export~csv.GET GET /export.csv lowered (module routes/export.csv/route.ts) (body (ret \"id\")))\n\
        (component routes/page.tsx#default\n  (render (el a ((href \"{href}\")) \"go\")))\n"
     )
   };
@@ -537,6 +538,10 @@ fn a_link_to_a_path_nothing_answers_is_reported() {
 
   // A route with a parameter answers the path that fills it.
   let (found, out) = of("", "/product/9", &[]);
+  assert!(!found.contains(&"links".to_owned()), "{out}");
+
+  // A route handler answers its path, a file name in it or not.
+  let (found, out) = of("", "/export.csv", &[]);
   assert!(!found.contains(&"links".to_owned()), "{out}");
 
   // A route the application registers in Rust is declared, so the doctor answers it.
