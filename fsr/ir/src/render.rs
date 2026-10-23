@@ -2390,12 +2390,18 @@ fn render_children<'a>(env: &mut Env, children: &'a [Tmpl], keys: Option<&(Strin
   let held = std::mem::replace(&mut env.hoists, caller);
   let outer_framework = std::mem::replace(&mut env.in_framework, false);
   out.markup(open);
+  let start = out.html.len();
   let mut result = Ok(());
   for child in children {
     result = render(env, child, library, slots, out);
     if result.is_err() {
       break;
     }
+  }
+  if env.island == Some(crate::ast::Owner::Svelte) {
+    let content = out.html.split_off(start);
+    let marked = svelte::tree(&content, &mut out.islands, library);
+    out.markup(&marked);
   }
   out.close_tag(tag);
   env.in_framework = outer_framework;
@@ -4040,6 +4046,39 @@ mod island_tests {
     let page = Component::new(crate::ast::Owner::React, Vec::new(), island_at("src/ui/Shell.tsx#Shell", 0));
     let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
     assert_eq!(rendered.islands[0].body.islands[0].body.html, "dusk", "React mounts a .tsx island, so it renders in the React island's tree");
+  }
+
+  #[test]
+  fn a_svelte_islands_children_carry_the_markers_of_the_tree_its_adapter_renders_them_in() {
+    use crate::ast::Owner;
+    let element = |tag: &str, attrs: Vec<Entry>, children: Vec<Tmpl>| Tmpl::Element { tag: tag.to_owned(), attrs, children };
+    let mut library = Components::new();
+    library.insert("src/ui/Outer.svelte#default".to_owned(), Arc::new(Component::new(Owner::Svelte, Vec::new(), element("div", Vec::new(), vec![Tmpl::Slot("children".to_owned())]))));
+    library.insert("src/ui/Inner.svelte#default".to_owned(), Arc::new(Component::new(Owner::Svelte, Vec::new(), element("b", Vec::new(), vec![Tmpl::Text("in".to_owned())]))));
+    library.insert("src/ui/Late.svelte#default".to_owned(), Arc::new(Component::new(Owner::Svelte, Vec::new(), element("i", Vec::new(), vec![Tmpl::Text("late".to_owned())]))));
+    let late = Tmpl::Island { module: "src/ui/Late.svelte#default".to_owned(), props: Vec::new(), children: Vec::new(), when: Some("visible".to_owned()), mode: None, id: 2, define: false };
+    let children = vec![
+      Tmpl::Text("hi ".to_owned()),
+      element("p", Vec::new(), vec![island_at("src/ui/Inner.svelte#default", 1)]),
+      element("div", vec![Entry::Field("class".to_owned(), Expr::lit_str("q"))], vec![Tmpl::Text("q".to_owned())]),
+      late,
+      island_at("src/ui/Away.svelte#default", 3),
+    ];
+    let page = Component::new(Owner::Fsr, Vec::new(), Tmpl::Island { module: "src/ui/Outer.svelte#default".to_owned(), props: Vec::new(), children, when: None, mode: None, id: 0, define: false });
+    let interpreter = Interpreter::default().with_frameworks(crate::Frameworks::default().svelte(Some(SvelteMajor::V5)));
+    let rendered = interpreter.render_module("routes/w/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
+    let outer = &rendered.islands[0].body;
+    let expected = "<!--[--><div><sf-s data-sf-children><!--[-->\
+      <!--[-1--><!---->hi <!----><!--]-->\
+      <!--[1--><!----><p><!--[--><!--[0-->\u{0}sf-island:0\u{0}<!--]--><!--]--><!----></p><!----><!--]-->\
+      <!--[2--><!----><div class=\"q\">q</div><!----><!--]-->\
+      <!--[2--><!---->\u{0}sf-island:1\u{0}<!----><!--]-->\
+      <!--[0-->\u{0}sf-island:2\u{0}<!--]-->\
+      <!--]--><!----></sf-s></div><!--]-->";
+    assert_eq!(outer.html, expected);
+    assert_eq!(outer.islands[0].body.html, "<!--[0--><!--[--><b>in</b><!--]--><!--]-->", "an island hydrated in the tree");
+    assert_eq!(outer.islands[1].body.html, "<!--[--><i>late</i><!--]-->", "an island hydrated later as a root of its own");
+    assert_eq!(outer.islands[2].body.html, "<!--[-1--><!--]-->", "an island the browser renders in the tree");
   }
 
   #[test]

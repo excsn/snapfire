@@ -74,9 +74,9 @@ export function markerProps(marker) {
         encoded
     };
 }
-const nesting = new WeakSet();
-export function rendersNested(mount) {
-    nesting.add(mount);
+const nesting = new WeakMap();
+export function rendersNested(mount, takes) {
+    nesting.set(mount, takes ?? null);
 }
 export function nestsIn(outer, inner) {
     return outer !== undefined && inner !== undefined && outer.mount === inner.mount && nesting.has(outer.mount);
@@ -209,7 +209,9 @@ function inParentTree(el, entry) {
     }
     const outer = islands.get(above.getAttribute("data-sf-module") ?? "");
     if (!outer) return null;
-    return nestsIn(outer, entry);
+    if (!nestsIn(outer, entry)) return false;
+    const takes = nesting.get(entry.mount);
+    return takes ? takes(el) : true;
 }
 export const defineMounter = ()=>undefined;
 export function serverRendered(el) {
@@ -360,6 +362,25 @@ function schedule(entry, moduleId, el, props) {
                 return;
             }
     }
+}
+export function timingFired(when, find) {
+    if (when === "load") return Promise.resolve();
+    if (when === "idle") return new Promise((resolve)=>(globalThis.requestIdleCallback ?? setTimeout)(()=>resolve()));
+    return new Promise((resolve)=>{
+        const observe = (el)=>{
+            if (!el || typeof IntersectionObserver === "undefined") return resolve();
+            const observer = new IntersectionObserver((entries)=>{
+                if (entries.some((entry)=>entry.isIntersecting)) {
+                    observer.disconnect();
+                    resolve();
+                }
+            });
+            observer.observe(el);
+        };
+        const now = find();
+        if (now) observe(now);
+        else setTimeout(()=>observe(find()));
+    });
 }
 const SCHEDULED = "data-sf-scheduled";
 const MOUNTED = "data-sf-mounted";

@@ -71,8 +71,8 @@ export declare function markerProps(marker: Element): {
 	props: Props;
 	encoded: unknown;
 };
-/** Says that `mount`'s adapter renders the children of an island it mounts in one tree with that island, every island of its own kind under it included. A scan then leaves those islands to it. */
-export declare function rendersNested(mount: Mounter): void;
+/** Says that `mount`'s adapter renders the children of an island it mounts in one tree with that island: every island of its own kind under it, else those `takes` answers true for. A scan then leaves those islands to it and mounts the rest as roots of their own. */
+export declare function rendersNested(mount: Mounter, takes?: (el: Element) => boolean): void;
 /** Whether the adapter of the island `outer` renders the island `inner` in its own tree. */
 export declare function nestsIn(outer: IslandEntry | undefined, inner: IslandEntry | undefined): boolean;
 /** The region holding `el`'s children: the `<sf-s data-sf-children>` its markup placed them in, else the inert `<template data-sf-children>` the server writes after its markup when its render did not place them. Never one inside an island nested in `el`. */
@@ -113,6 +113,8 @@ export declare function islandState(el: Element): {
 export declare function patchIsland(el: Element, props: Props, regions?: unknown, children?: string | null, encoded?: unknown, markup?: {
 	[n: string]: string;
 } | null): Promise<boolean>;
+/** Settles when an island's timing fires: at once on load, once its element is in view or once the main thread is idle. */
+export declare function timingFired(when: MountTiming, find: () => Element | null): Promise<void>;
 /** Whether the island named `name`, by its region key or else its id, is mounted in the document. */
 export declare function mountedIsland(name: string): boolean;
 /** Ends the island named `name` (its region key or else its id) and mounts it again afresh. */

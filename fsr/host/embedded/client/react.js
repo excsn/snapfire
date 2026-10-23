@@ -1,7 +1,7 @@
 import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
-import { childrenRegion, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered } from "./boot.js";
+import { childrenRegion, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR } from "./render.js";
 import { morph } from "./server.js";
@@ -302,25 +302,6 @@ function Timed({ waiting, children }) {
     if (reactUse) reactUse(waiting);
     else if (waiting.status !== "fulfilled") throw waiting;
     return children;
-}
-function timingFired(when, find) {
-    if (when === "load") return Promise.resolve();
-    if (when === "idle") return new Promise((resolve)=>(globalThis.requestIdleCallback ?? setTimeout)(()=>resolve()));
-    return new Promise((resolve)=>{
-        const observe = (el)=>{
-            if (!el || typeof IntersectionObserver === "undefined") return resolve();
-            const observer = new IntersectionObserver((entries)=>{
-                if (entries.some((entry)=>entry.isIntersecting)) {
-                    observer.disconnect();
-                    resolve();
-                }
-            });
-            observer.observe(el);
-        };
-        const now = find();
-        if (now) observe(now);
-        else setTimeout(()=>observe(find()));
-    });
 }
 const lazies = new WeakMap();
 function componentFor(entry) {

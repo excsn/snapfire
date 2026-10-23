@@ -1,5 +1,5 @@
 import { createApp, createCommentVNode, createSSRApp, createTextVNode, defineAsyncComponent, defineComponent, getCurrentInstance, h, hydrateOnIdle, hydrateOnVisible, inject, onBeforeUnmount, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch } from "vue";
-import { childrenRegion, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, unmarked } from "./boot.js";
+import { childrenRegion, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -193,25 +193,6 @@ const Foreign = defineComponent({
             });
     }
 });
-function timingFired(when, find) {
-    if (when === "load") return Promise.resolve();
-    if (when === "idle") return new Promise((resolve)=>(globalThis.requestIdleCallback ?? setTimeout)(()=>resolve()));
-    return new Promise((resolve)=>{
-        const observe = (el)=>{
-            if (!el || typeof IntersectionObserver === "undefined") return resolve();
-            const observer = new IntersectionObserver((entries)=>{
-                if (entries.some((entry)=>entry.isIntersecting)) {
-                    observer.disconnect();
-                    resolve();
-                }
-            });
-            observer.observe(el);
-        };
-        const now = find();
-        if (now) observe(now);
-        else setTimeout(()=>observe(find()));
-    });
-}
 const IslandScope = defineComponent({
     name: "SfIslandScope",
     props: {

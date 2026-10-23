@@ -1757,6 +1757,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   files.extend(rewritten.into_iter().filter(|(file, _)| !snapfire_fsr_lower::component::is_transformed(file)).map(|(file, source)| (format!("{}/{file}", dev::BUNDLE_OVERLAY), source)));
   files.extend(mdx_files);
   files.extend(written_themes.files);
+  let svelte_islands = islands.iter().filter(|m| !static_modules.contains(m) && !defines.contains(m)).any(|m| adapter_for(m, &owners).is_ok_and(|adapter| adapter.module == SVELTE.module));
+  let svelte_components = svelte_components || svelte_islands;
   if svelte_components {
     generated_files.extend(svelte_components_files().into_iter().map(|(file, _)| file));
   }
@@ -2814,8 +2816,11 @@ const SVELTE_COMPONENT_FILES: &[(&str, &str)] = &[
 pub(crate) const SVELTE_COMPONENTS: &str = "@generated/components";
 
 /// The Svelte components and the module that exports them, by path under the application.
+/// The Svelte components the Svelte adapter renders an island's children with, written beside FSR's own and exported by none.
+const SVELTE_TREE_FILES: &[(&str, &str)] = &[("Pieces", include_str!("../embedded/components/svelte/Pieces.svelte")), ("Island", include_str!("../embedded/components/svelte/Island.svelte"))];
+
 fn svelte_components_files() -> Vec<(String, String)> {
-  let mut files: Vec<(String, String)> = SVELTE_COMPONENT_FILES.iter().map(|(name, source)| (format!("generated/components/{name}.svelte"), (*source).to_owned())).collect();
+  let mut files: Vec<(String, String)> = SVELTE_COMPONENT_FILES.iter().chain(SVELTE_TREE_FILES).map(|(name, source)| (format!("generated/components/{name}.svelte"), (*source).to_owned())).collect();
   files.push(("generated/components/index.ts".to_owned(), SVELTE_COMPONENT_FILES.iter().map(|(name, _)| format!("export {{ default as {name} }} from \"./{name}.svelte\";\n")).collect()));
   files
 }
@@ -3116,10 +3121,22 @@ fn islands_module(islands: &[String], static_modules: &[String], defines: &[Stri
       }
     }
   }
+  let svelte = imported.iter_mut().find(|(module, _)| *module == SVELTE.module);
+  let tree = svelte.is_some();
+  if let Some((_, names)) = svelte {
+    names.push("registerTree");
+  }
   for (module, names) in &imported {
     let _ = writeln!(out, "import {{ {} }} from \"{module}\";", names.join(", "));
   }
+  if tree {
+    out.push_str("// @ts-ignore: the snippet Pieces.svelte exports from its module script, which the declaration of a `.svelte` file leaves out\n");
+    out.push_str("import { tree } from \"./components/Pieces.svelte\";\n");
+  }
   out.push_str("\nexport function registerIslands(): void {\n");
+  if tree {
+    out.push_str("  registerTree(tree);\n");
+  }
   let prefix = options.prefix();
   for module in registered {
     let Some((path, export)) = module.split_once('#') else { continue };

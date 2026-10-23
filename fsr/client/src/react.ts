@@ -2,7 +2,7 @@ import * as ReactModule from "react";
 import { cloneElement, createContext, createElement, Fragment, isValidElement, lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, version, type AnchorHTMLAttributes, type ComponentType, type ImgHTMLAttributes, type ReactElement, type ReactNode } from "react";
 import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 
-import { childrenRegion, discard, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
+import { childrenRegion, discard, release, unmarked, islandState, loadedModule, loadModule, markerProps, markRendered, MountTiming, Mounter, Patcher, patchIsland, piecesOf, readPieces, registeredIslands, rendersNested, scan, serverRendered, timingFired, type IslandEntry, type IslandPiece, type Pauser, type Piece, type Props, type Unmounter } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
@@ -250,27 +250,6 @@ function Timed({ waiting, children }: { waiting: Waiting | null; children?: Reac
   if (reactUse) reactUse(waiting);
   else if (waiting.status !== "fulfilled") throw waiting;
   return children;
-}
-
-/** Settles when an island's timing fires: at once on load, once its element is in view or once the main thread is idle. */
-function timingFired(when: MountTiming, find: () => Element | null): Promise<void> {
-  if (when === "load") return Promise.resolve();
-  if (when === "idle") return new Promise((resolve) => ((globalThis as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? setTimeout)(() => resolve()));
-  return new Promise((resolve) => {
-    const observe = (el: Element | null) => {
-      if (!el || typeof IntersectionObserver === "undefined") return resolve();
-      const observer = new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          observer.disconnect();
-          resolve();
-        }
-      });
-      observer.observe(el);
-    };
-    const now = find();
-    if (now) observe(now);
-    else setTimeout(() => observe(find()));
-  });
 }
 
 /** The component of a registered React island, loaded as React renders it, by entry. */

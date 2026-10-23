@@ -26,7 +26,7 @@ fn runtime() -> PathBuf {
 /// What the components a fixture imports by bare specifier stand for in the oracle.
 fn stubs() -> BTreeMap<String, String> {
   BTreeMap::from([
-    ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function useLinkStatus() { return { subscribe(run) { run({ pending: false }); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
+    ("@snapfire/fsr-client/svelte".to_owned(), "import { getContext, setContext } from 'svelte';\nexport function held(get) { const listed = getContext('sf-pieces'); return () => get() ?? listed; }\nexport function opaque() { return () => () => {}; }\nexport function nested(get) { const piece = get(); setContext('sf-pieces', piece.children); const component = piece.ssr ? getContext('sf-components')[piece.moduleId] : null; return { component, props: piece.props, attach: () => {} }; }\nexport function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function useLinkStatus() { return { subscribe(run) { run({ pending: false }); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
     ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\nexport function key(name) { return name; }\n".to_owned()),
     ("@snapfire/fsr-client/store".to_owned(), "export function key(name) { return name; }\n".to_owned()),
   ])
@@ -100,9 +100,14 @@ fn both(tag: &str, files: &[(&str, &str)], props: &ValueMap, children: Option<&s
   let rendered = interpreter.render(&host(&module, child_tree), props, &library).expect("renders");
   assert_eq!(rendered.islands.len(), 1, "{rendered:?}");
   let rust = rendered.islands[0].body.html.clone();
-  let svelte = COMPILER.with(|compiler| compiler.render_module(&format!("/{entry}"), &modules, &value_json(&Value::Map(props.clone())), children, &runtime())).expect("Svelte renders");
+  let svelte = COMPILER.with(|compiler| compiler.render_module(&format!("/{entry}"), &modules, &value_json(&Value::Map(props.clone())), children.map(text_pieces).as_deref(), &runtime())).expect("Svelte renders");
   let _ = std::fs::remove_dir_all(&dir);
   (rust, svelte)
+}
+
+/// What the client's `Pieces.svelte` writes for children that are one run of text, which `svelte/server` hands the component as its `children`.
+fn text_pieces(text: &str) -> String {
+  format!("<!--[--><!--[-1--><!---->{text}<!----><!--]--><!--]--><!---->")
 }
 
 fn check(tag: &str, source: &str, props: &ValueMap) {
@@ -607,6 +612,72 @@ fn an_islands_children_render_where_the_component_renders_its_children() {
   assert_eq!(rust, svelte);
 }
 
+#[test]
+fn an_islands_children_holding_islands_of_its_own_carry_what_the_clients_pieces_write() {
+  let outer = "<script>let { children } = $props();</script><div class=\"o\">{@render children?.()}</div>";
+  let inner = "<script>let { n = 3, children } = $props();</script><b>{n}</b>{@render children?.()}";
+  let dir = app("pieces", &[("src/ui/Outer.svelte", outer), ("src/ui/Inner.svelte", inner)]);
+  let mut set = ComponentSet::new(&dir);
+  let mut modules = stubs();
+  let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../cli/embedded/components/svelte");
+  let root = "<script>import { setContext } from 'svelte'; import Outer from './ui/Outer.svelte'; import Inner from './ui/Inner.svelte'; import { tree } from './fsr/Pieces.svelte'; let { pieces } = $props(); setContext('sf-pieces', pieces); setContext('sf-components', { 'src/ui/Inner.svelte#default': Inner });</script><Outer children={tree} />";
+  COMPILER.with(|compiler| {
+    for (file, source) in [("src/ui/Outer.svelte", outer.to_owned()), ("src/ui/Inner.svelte", inner.to_owned()), ("src/Root.svelte", root.to_owned()), ("src/fsr/Pieces.svelte", std::fs::read_to_string(shipped.join("Pieces.svelte")).unwrap()), ("src/fsr/Island.svelte", std::fs::read_to_string(shipped.join("Island.svelte")).unwrap())] {
+      if file.starts_with("src/ui/") {
+        match compiler.describe(file, &source, &Options::default()).expect("the driver answers") {
+          Outcome::Described(described) => set.describe(file, described),
+          other => panic!("{file}: not described: {other:?}"),
+        }
+      }
+      match compiler.ssr_module(file, &source).expect("the driver answers") {
+        Outcome::Ok(compiled) => modules.insert(format!("/{file}"), compiled.js),
+        other => panic!("{file}: no server module: {other:?}"),
+      };
+    }
+  });
+  for module in ["src/ui/Outer.svelte#default", "src/ui/Inner.svelte#default"] {
+    set.lower(module).unwrap_or_else(|e| panic!("{module}: {e}"));
+  }
+  let library: Components = set.components.iter().map(|(m, c)| (m.clone(), Arc::new(snapfire_fsr_ir::render::prepare(c)))).collect();
+  let island = |module: &str, children: Vec<Tmpl>, id: u32| Tmpl::Island { module: module.to_owned(), props: Vec::new(), children, when: None, mode: None, id, define: false };
+  let children = vec![
+    Tmpl::Text("hi ".to_owned()),
+    Tmpl::Element { tag: "p".to_owned(), attrs: Vec::new(), children: vec![island("src/ui/Inner.svelte#default", vec![Tmpl::Text("kid".to_owned())], 1)] },
+    island("src/ui/Away.svelte#default", Vec::new(), 2),
+  ];
+  let mut page = host("src/ui/Outer.svelte#default", children);
+  page.render = match page.render {
+    Tmpl::Island { module, children, .. } => island(&module, children, 0),
+    other => other,
+  };
+  let interpreter = Interpreter::default().with_frameworks(Frameworks::default().svelte(Some(SvelteMajor::V5)));
+  let rendered = interpreter.render(&page, &ValueMap::default(), &library).expect("renders");
+  let outer = &rendered.islands[0].body;
+  let placed = |at: usize, ssr: bool| {
+    let nested = &outer.islands[at];
+    let region = match nested.key.is_empty() {
+      true => String::new(),
+      false => format!(" data-sf-region=\"{}\"", nested.key),
+    };
+    let ssr = if ssr { " data-sf-ssr=\"\"" } else { "" };
+    format!("<sf-s data-sf-island=\"\"{region}><sf-i id=\"sf-i{at}\" data-sf-module=\"{}\"{ssr}>{}</sf-i><script type=\"application/json\" data-sf-props=\"sf-i{at}\"></script></sf-s>", nested.module, nested.body.html)
+  };
+  let rust = outer.html.replace("\u{0}sf-island:0\u{0}", &placed(0, true)).replace("\u{0}sf-island:1\u{0}", &placed(1, false));
+  let key = |at: usize| match outer.islands[at].key.as_str() {
+    "" => "null".to_owned(),
+    key => format!("\"{key}\""),
+  };
+  let pieces = format!(
+    "{{\"pieces\":[{{\"kind\":\"html\",\"html\":\"hi \"}},{{\"kind\":\"element\",\"tag\":\"p\",\"attrs\":{{}},\"children\":[{{\"kind\":\"island\",\"id\":\"sf-i0\",\"moduleId\":\"src/ui/Inner.svelte#default\",\"region\":{},\"ssr\":true,\"props\":{{}},\"children\":[{{\"kind\":\"html\",\"html\":\"kid\"}}]}}]}},{{\"kind\":\"island\",\"id\":\"sf-i1\",\"moduleId\":\"src/ui/Away.svelte#default\",\"region\":{},\"ssr\":false,\"props\":{{}},\"children\":null}}]}}",
+    key(0),
+    key(1)
+  );
+  let svelte = COMPILER.with(|compiler| compiler.render_module("/src/Root.svelte", &modules, &pieces, None, &runtime())).expect("Svelte renders");
+  let _ = std::fs::remove_dir_all(&dir);
+  // The server writes the region's attribute bare, which parses to the same element.
+  assert_eq!(rust, svelte.replace("data-sf-children=\"\"", "data-sf-children"));
+}
+
 /// The Svelte components the build writes for `@snapfire/fsr/components`, compiled beside the files of `dir` with `fsr-components.js` exporting them, over the client's own parts.
 fn fsr_components(compiler: &Compiler, modules: &mut BTreeMap<String, String>, dir: &str) {
   let index = format!("/{dir}/fsr-components.js");
@@ -673,7 +744,7 @@ fn repo_with(app: &str, file: &str, others: &[&str], stubbed: &[(&str, &str)], p
   let child_tree = children.map(|c| vec![Tmpl::Text(c.to_owned())]).unwrap_or_default();
   let rendered = interpreter.render(&host(&module, child_tree), props, &library).expect("renders");
   let rust = rendered.islands[0].body.html.clone();
-  let svelte = COMPILER.with(|compiler| compiler.render_module(&format!("/{file}"), &modules, &value_json(&Value::Map(props.clone())), children, &runtime())).expect("Svelte renders");
+  let svelte = COMPILER.with(|compiler| compiler.render_module(&format!("/{file}"), &modules, &value_json(&Value::Map(props.clone())), children.map(text_pieces).as_deref(), &runtime())).expect("Svelte renders");
   (rust, svelte)
 }
 

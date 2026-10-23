@@ -1,7 +1,6 @@
-import { createRawSnippet, getContext, hydrate, mount as mountSvelte, setContext, unmount } from "svelte";
+import { getAllContexts, getContext, hydrate, mount as mountSvelte, setContext, unmount } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
-import { discard, islandState, patchIsland, scan } from "./boot.js";
-import { CHILDREN_ATTR } from "./render.js";
+import { discard, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, rendersNested, scan, timingFired, unmarked } from "./boot.js";
 import { morph } from "./server.js";
 import { get, set, subscribe } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
@@ -16,7 +15,7 @@ const RUNTIME_PROPS = [
     "$s",
     "$sv"
 ];
-const held = new WeakMap();
+const states = new WeakMap();
 function ownProps(props) {
     const own = {};
     for (const key of Object.keys(props)){
@@ -24,114 +23,290 @@ function ownProps(props) {
     }
     return own;
 }
-function childrenRegion(el) {
-    for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))){
-        if (region.parentElement?.closest("sf-i") === el) return region;
-    }
-    return null;
-}
 function componentOf(module) {
     const holder = module;
-    return holder && holder.default || module;
+    return holder && holder.default || (module ?? null);
+}
+const ISLAND = Symbol("sf-island");
+const PIECES = Symbol("sf-pieces");
+const scopes = new WeakMap();
+let childrenTree = null;
+export function registerTree(tree) {
+    childrenTree = tree;
+}
+function isMark(piece, text) {
+    return piece?.kind === "comment" && (text === undefined || piece.text === text);
+}
+function treeOf(pieces) {
+    return isMark(pieces[0], "[") ? marked(pieces) : plain(pieces);
+}
+function marked(pieces) {
+    const out = [];
+    let at = 1;
+    while(at < pieces.length && !isMark(pieces[at], "]")){
+        const branch = pieces[at].kind === "comment" ? pieces[at].text : "";
+        const inner = [];
+        let depth = 0;
+        for(at++; at < pieces.length; at++){
+            const piece = pieces[at];
+            if (piece.kind === "comment" && piece.text.startsWith("[")) depth++;
+            if (piece.kind === "comment" && piece.text === "]" && depth-- === 0) break;
+            inner.push(piece);
+        }
+        at++;
+        out.push(item(branch, inner));
+    }
+    return out;
+}
+function item(branch, inner) {
+    const element = inner.find((piece)=>piece.kind === "element");
+    if (element?.kind === "element") {
+        const island = element.children.find((piece)=>piece.kind === "island");
+        if (branch === "[0" && island) return treeIsland(island, element.attrs);
+        if (branch === "[1") return {
+            kind: "element",
+            tag: element.tag,
+            attrs: element.attrs,
+            children: treeOf(element.children)
+        };
+        if (branch === "[2") return {
+            kind: "opaque",
+            tag: element.tag,
+            attrs: element.attrs,
+            html: unmarked(element.node.innerHTML)
+        };
+    }
+    return {
+        kind: "html",
+        html: serialised(inner.slice(1, -1))
+    };
+}
+function treeIsland(island, around) {
+    const timing = around["data-sf-when"] ?? island.entry?.when ?? "load";
+    return {
+        kind: "island",
+        id: island.marker.id,
+        moduleId: island.moduleId,
+        region: around["data-sf-region"] ?? null,
+        when: around["data-sf-when"] ?? null,
+        mode: around["data-sf-mode"] ?? null,
+        ssr: island.ssr,
+        props: island.props,
+        children: island.children ? treeOf(island.children) : null,
+        entry: island.entry,
+        timing
+    };
+}
+function inTree(island, around) {
+    const timing = around["data-sf-when"] ?? island.entry?.when ?? "load";
+    return island.entry?.mount === svelteMounter && around["data-sf-mode"] === undefined && !(island.ssr && timing !== "load");
+}
+function holdsIsland(pieces) {
+    return pieces.some((piece)=>piece.kind === "element" && (wrapped(piece) !== null || holdsIsland(piece.children)));
+}
+function wrapped(piece) {
+    if (piece.kind !== "element" || piece.tag !== "sf-s" || !("data-sf-island" in piece.attrs)) return null;
+    const island = piece.children.find((child)=>child.kind === "island");
+    return island && inTree(island, piece.attrs) ? island : null;
+}
+function plain(pieces) {
+    const out = [];
+    let run = [];
+    const flush = ()=>{
+        if (run.length) out.push({
+            kind: "html",
+            html: serialised(run)
+        });
+        run = [];
+    };
+    for (const piece of pieces){
+        if (piece.kind !== "element") {
+            run.push(piece);
+            continue;
+        }
+        flush();
+        const island = wrapped(piece);
+        if (island) out.push(treeIsland(island, piece.attrs));
+        else if (holdsIsland(piece.children)) out.push({
+            kind: "element",
+            tag: piece.tag,
+            attrs: piece.attrs,
+            children: plain(piece.children)
+        });
+        else out.push({
+            kind: "opaque",
+            tag: piece.tag,
+            attrs: piece.attrs,
+            html: unmarked(piece.node.innerHTML)
+        });
+    }
+    flush();
+    return out;
+}
+function serialised(pieces) {
+    return pieces.map((piece)=>{
+        switch(piece.kind){
+            case "text":
+                return piece.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            case "comment":
+                return `<!--${piece.text}-->`;
+            case "element":
+                return unmarked(piece.node.outerHTML);
+            case "island":
+                return unmarked(piece.marker.outerHTML + (piece.script?.outerHTML ?? ""));
+        }
+    }).join("");
+}
+export function held(given) {
+    const around = getContext(PIECES);
+    return ()=>given() ?? around?.read() ?? [];
+}
+export function opaque() {
+    const contexts = getAllContexts();
+    return (piece)=>(el)=>{
+            scopes.set(el, contexts);
+            if (unmarked(el.innerHTML) !== piece.html) morph(el, piece.html);
+            scan(el);
+            return ()=>{
+                queueMicrotask(()=>{
+                    if (!el.isConnected) {
+                        scopes.delete(el);
+                        discard(el);
+                    }
+                });
+            };
+        };
+}
+export function nested(piece) {
+    const first = piece();
+    let marker = null;
+    setContext(ISLAND, ()=>marker);
+    setContext(PIECES, {
+        read: ()=>piece().children ?? []
+    });
+    let current = first.ssr && first.entry ? componentOf(loadedModule(first.entry)) : null;
+    let changed = ()=>{};
+    const subscribed = createSubscriber((update)=>{
+        changed = update;
+        return ()=>{
+            changed = ()=>{};
+        };
+    });
+    return {
+        get component () {
+            subscribed();
+            return current;
+        },
+        get props () {
+            return ownProps(piece().props);
+        },
+        attach: (el)=>{
+            marker = el;
+            markRendered(el);
+            let live = true;
+            const entry = first.entry;
+            if (!current && entry) {
+                void timingFired(first.timing, ()=>marker).then(()=>loadedModule(entry) ?? loadModule(entry)).then((mod)=>{
+                    if (!live) return;
+                    current = componentOf(mod);
+                    changed();
+                });
+            }
+            return ()=>{
+                live = false;
+                if (marker === el) marker = null;
+            };
+        }
+    };
+}
+function contextsAbove(el) {
+    for(let at = el.parentElement; at; at = at.parentElement){
+        const found = scopes.get(at);
+        if (found) return found;
+    }
+    return new Map();
 }
 function liveProps(state) {
-    const subscribed = createSubscriber((update)=>{
+    const read = (key)=>{
+        state.track();
+        if (key === "children" && state.pieces !== null) return childrenTree ?? undefined;
+        return typeof key === "string" ? state.props[key] : undefined;
+    };
+    const keys = ()=>[
+            ...Object.keys(state.props),
+            ...state.pieces !== null && childrenTree ? [
+                "children"
+            ] : []
+        ];
+    return new Proxy({}, {
+        get: (_, key)=>read(key),
+        has: (_, key)=>{
+            state.track();
+            return typeof key === "string" && keys().includes(key);
+        },
+        ownKeys: ()=>{
+            state.track();
+            return keys();
+        },
+        getOwnPropertyDescriptor: (_, key)=>({
+                configurable: true,
+                enumerable: true,
+                value: read(key)
+            })
+    });
+}
+export const svelteMounter = (module, props, el, isHydrating, children)=>{
+    const state = {
+        props: ownProps(props),
+        pieces: children ? treeOf(children) : null,
+        changed: ()=>{},
+        track: ()=>{}
+    };
+    state.track = createSubscriber((update)=>{
         state.changed = update;
         return ()=>{
             state.changed = ()=>{};
         };
     });
-    const read = (key)=>{
-        subscribed();
-        return typeof key === "string" ? state.props[key] : undefined;
-    };
-    return new Proxy({}, {
-        get: (_, key)=>key === "children" && state.children !== null ? childrenSnippet(state) : read(key),
-        has: (_, key)=>{
-            subscribed();
-            return typeof key === "string" && (key in state.props || key === "children" && state.children !== null);
-        },
-        ownKeys: ()=>{
-            subscribed();
-            return [
-                ...Object.keys(state.props),
-                ...state.children !== null ? [
-                    "children"
-                ] : []
-            ];
-        },
-        getOwnPropertyDescriptor: (_, key)=>({
-                configurable: true,
-                enumerable: true,
-                value: key === "children" && state.children !== null ? childrenSnippet(state) : read(key)
-            })
-    });
-}
-function childrenSnippet(state) {
-    if (state.snippet) return state.snippet;
-    state.snippet = createRawSnippet(()=>({
-            render: ()=>`<sf-s ${CHILDREN_ATTR}></sf-s>`,
-            setup: (region)=>{
-                state.region = region;
-                if (!state.hydrating) {
-                    const template = document.createElement("template");
-                    template.innerHTML = state.children ?? "";
-                    region.replaceChildren(template.content);
-                }
-                scan(region);
-                return ()=>{
-                    if (state.region === region) state.region = null;
-                };
+    states.set(el, state);
+    const context = new Map([
+        ...contextsAbove(el),
+        [
+            ISLAND,
+            ()=>el
+        ],
+        [
+            PIECES,
+            {
+                read: ()=>(state.track(), state.pieces ?? [])
             }
-        }));
-    return state.snippet;
-}
-export const svelteMounter = (module, props, el, isHydrating)=>{
-    const region = childrenRegion(el);
-    const state = {
-        props: ownProps(props),
-        changed: ()=>{},
-        region: null,
-        children: region ? region.innerHTML : null,
-        snippet: null,
-        hydrating: isHydrating
-    };
-    held.set(el, state);
+        ]
+    ]);
     const options = {
         target: el,
         props: liveProps(state),
-        context: new Map([
-            [
-                ISLAND,
-                el
-            ]
-        ])
+        context
     };
-    if (isHydrating) {
-        const instance = hydrate(componentOf(module), options);
-        state.hydrating = false;
-        return instance;
-    }
+    const component = componentOf(module);
+    if (isHydrating) return hydrate(component, options);
     el.replaceChildren();
-    return mountSvelte(componentOf(module), options);
+    return mountSvelte(component, options);
 };
+rendersNested(svelteMounter, (el)=>{
+    const before = el.parentElement?.previousSibling;
+    return before?.nodeType === 8 && before.data === "[0";
+});
 export const sveltePatcher = (_handle, _module, props, el)=>{
-    const state = held.get(el);
+    const state = states.get(el);
     if (!state) return;
     state.props = ownProps(props);
     const fresh = islandState(el)?.children ?? null;
-    if (fresh !== null && fresh !== state.children) {
-        state.children = fresh;
-        if (state.region) {
-            morph(state.region, fresh);
-            scan(state.region);
-        }
-    }
+    if (fresh !== null) state.pieces = treeOf(piecesOf(fresh));
     state.changed();
 };
 export const svelteUnmounter = (handle, el)=>{
     void unmount(handle);
-    held.delete(el);
+    states.delete(el);
 };
 export function useStore(key, initial) {
     const current = ()=>get(key) ?? initial;
@@ -152,7 +327,6 @@ export function useLocale() {
         }
     };
 }
-const ISLAND = Symbol("sf-island");
 const LINK = Symbol("sf-link");
 export function holdLink(anchor) {
     setContext(LINK, anchor);
@@ -162,7 +336,7 @@ export function useLinkStatus() {
     const island = getContext(ISLAND);
     const pending = ()=>{
         const at = pendingLink();
-        return at !== null && at === (link ? link() : island?.closest("a") ?? null);
+        return at !== null && at === (link ? link() : island?.()?.closest("a") ?? null);
     };
     return {
         subscribe: (run)=>{

@@ -1,6 +1,6 @@
 import { createApp, createCommentVNode, createSSRApp, createTextVNode, defineAsyncComponent, defineComponent, getCurrentInstance, h, hydrateOnIdle, hydrateOnVisible, inject, onBeforeUnmount, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref, type VNode } from "vue";
 
-import { childrenRegion, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
+import { childrenRegion, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, timingFired, unmarked, type IslandEntry, type IslandPiece, type MountTiming, type Mounter, type Patcher, type Piece, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -153,27 +153,6 @@ const Foreign = defineComponent({
     return () => h("sf-i", { ...markerAttrs(props.piece.marker), ref: node, innerHTML: html });
   },
 });
-
-/** Settles when an island's timing fires: at once on load, once its element is in view or once the main thread is idle. */
-function timingFired(when: MountTiming, find: () => Element | null): Promise<void> {
-  if (when === "load") return Promise.resolve();
-  if (when === "idle") return new Promise((resolve) => ((globalThis as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? setTimeout)(() => resolve()));
-  return new Promise((resolve) => {
-    const observe = (el: Element | null) => {
-      if (!el || typeof IntersectionObserver === "undefined") return resolve();
-      const observer = new IntersectionObserver((entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          observer.disconnect();
-          resolve();
-        }
-      });
-      observer.observe(el);
-    };
-    const now = find();
-    if (now) observe(now);
-    else setTimeout(() => observe(find()));
-  });
-}
 
 /** The island-scoped values a nested island reads, provided again around it: the element it is in and the store values it was rendered from, hydrating for as long as the app around it is. */
 const IslandScope = defineComponent({

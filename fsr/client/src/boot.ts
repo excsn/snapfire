@@ -171,12 +171,12 @@ export function markerProps(marker: Element): { script: Element | null; props: P
   return { script, props: decodeValue(encoded) as Props, encoded };
 }
 
-/** Mounters whose adapter renders an island of its own kind nested in one it mounts inside that island's tree. */
-const nesting = new WeakSet<Mounter>();
+/** Mounters whose adapter renders an island of its own kind nested in one it mounts inside that island's tree, with what says which of those islands it takes when it does not take them all. */
+const nesting = new WeakMap<Mounter, ((el: Element) => boolean) | null>();
 
-/** Says that `mount`'s adapter renders the children of an island it mounts in one tree with that island, every island of its own kind under it included. A scan then leaves those islands to it. */
-export function rendersNested(mount: Mounter): void {
-  nesting.add(mount);
+/** Says that `mount`'s adapter renders the children of an island it mounts in one tree with that island: every island of its own kind under it, else those `takes` answers true for. A scan then leaves those islands to it and mounts the rest as roots of their own. */
+export function rendersNested(mount: Mounter, takes?: (el: Element) => boolean): void {
+  nesting.set(mount, takes ?? null);
 }
 
 /** Whether the adapter of the island `outer` renders the island `inner` in its own tree. */
@@ -311,7 +311,9 @@ function inParentTree(el: Element, entry: IslandEntry | undefined): boolean | nu
   }
   const outer = islands.get(above.getAttribute("data-sf-module") ?? "");
   if (!outer) return null;
-  return nestsIn(outer, entry);
+  if (!nestsIn(outer, entry)) return false;
+  const takes = nesting.get(entry.mount);
+  return takes ? takes(el) : true;
 }
 
 /** The mounter for an island whose module defines a custom element: importing the module is the whole mount, since the element the server already wrote upgrades itself once its definition runs. What the island's timing schedules, then, is the import. */
@@ -466,6 +468,27 @@ function schedule(entry: IslandEntry, moduleId: string, el: Element, props: Prop
       return;
     }
   }
+}
+
+/** Settles when an island's timing fires: at once on load, once its element is in view or once the main thread is idle. */
+export function timingFired(when: MountTiming, find: () => Element | null): Promise<void> {
+  if (when === "load") return Promise.resolve();
+  if (when === "idle") return new Promise((resolve) => ((globalThis as { requestIdleCallback?: (cb: () => void) => void }).requestIdleCallback ?? setTimeout)(() => resolve()));
+  return new Promise((resolve) => {
+    const observe = (el: Element | null) => {
+      if (!el || typeof IntersectionObserver === "undefined") return resolve();
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(el);
+    };
+    const now = find();
+    if (now) observe(now);
+    else setTimeout(() => observe(find()));
+  });
 }
 
 /** Marks a marker some scan has taken, so a rescan leaves it alone however its timing is still waiting. What it does not say is that anything mounted: [`MOUNTED`] says that. */

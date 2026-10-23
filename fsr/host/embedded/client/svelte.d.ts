@@ -1,8 +1,64 @@
-import { type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
+import { type Component, type Snippet } from "svelte";
+import { type IslandEntry, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
 import { type StoreKey } from "./store.js";
 import { type LinkOptions } from "./link.js";
 import { type PictureOptions } from "./picture.js";
 import { embedParts, type EmbedOptions } from "./embed.js";
+/** One node of an island's children as `Pieces.svelte` renders it in the island's tree. */
+export type TreePiece = TreeIsland | TreeElement | TreeOpaque | TreeHtml;
+/** A Svelte island rendered in the tree: hydrated where the server rendered it, else rendered once its timing fires. */
+export interface TreeIsland {
+	kind: "island";
+	id: string;
+	moduleId: string;
+	region: string | null;
+	when: string | null;
+	mode: string | null;
+	ssr: boolean;
+	props: Props;
+	children: TreePiece[] | null;
+	entry: IslandEntry | undefined;
+	timing: MountTiming;
+}
+/** An element holding a Svelte island of the tree, rebuilt around it. */
+export interface TreeElement {
+	kind: "element";
+	tag: string;
+	attrs: {
+		[name: string]: string;
+	};
+	children: TreePiece[];
+}
+/** An element whose content Svelte never renders: kept as the server wrote it and morphed when a patch changes it. */
+export interface TreeOpaque {
+	kind: "opaque";
+	tag: string;
+	attrs: {
+		[name: string]: string;
+	};
+	html: string;
+}
+/** A run of text and comments. */
+export interface TreeHtml {
+	kind: "html";
+	html: string;
+}
+/** Takes the snippet that renders an island's children in its tree, the one `Pieces.svelte` exports. Called by the island registry the build writes. */
+export declare function registerTree(tree: Snippet): void;
+/** What `Pieces.svelte` lists: the pieces it was given, else the children of the island around it. */
+export declare function held(given: () => TreePiece[] | undefined): () => TreePiece[];
+/** The attachment `Pieces.svelte` puts on an element it keeps as the server wrote it: the content stays while hydrating, is written on a fresh render and morphed when a patch changes it. The islands inside it are scanned and ended once the element leaves the document. */
+export declare function opaque(): (piece: TreeOpaque) => (el: Element) => () => void;
+/** What `Island.svelte` renders a Svelte island of the tree with: its props and its component, loaded already when the server rendered it, else once its timing fires. Sets the contexts the island's own children and `useLinkStatus` read. */
+export declare function nested(piece: () => TreeIsland): {
+	readonly component: Component<{
+		[key: string]: unknown;
+	}> | null;
+	readonly props: {
+		[key: string]: unknown;
+	};
+	attach: (el: Element) => () => void;
+};
 export declare const svelteMounter: Mounter;
 export declare const sveltePatcher: Patcher;
 export declare const svelteUnmounter: Unmounter;

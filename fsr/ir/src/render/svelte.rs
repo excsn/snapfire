@@ -152,3 +152,212 @@ fn invalid_name_char(c: char) -> bool {
   let code = c as u32;
   matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}') || matches!(c, '\'' | '"' | '>' | '/' | '=') || (0xfdd0..=0xfdef).contains(&code) || (code & 0xfffe) == 0xfffe
 }
+
+/// How the Svelte adapter's `Pieces.svelte` takes a nested island: in its tree, as a root of its own mounted later or as one another adapter mounts.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Nested {
+  InTree,
+  Root,
+  Opaque,
+}
+
+/// A Svelte island's children as `Pieces.svelte` writes them under `svelte/server`, so its adapter hydrates them in the island's own tree: the list between block markers, each item in the branch of its kind. A Svelte island among them that the server rendered at load or that the browser renders alone is an item of the tree (branch 0). An element holding one is rebuilt in the tree around it (branch 1). Any other element, a Svelte island timed to hydrate later included, is kept as the server wrote it (branch 2). A run of text and comments is `{@html}` (the else branch). The bodies of the nested islands are wrapped to match.
+pub(super) fn tree(content: &str, islands: &mut [super::RenderedIsland], library: &super::Components) -> String {
+  let kinds: Vec<Nested> = islands.iter().map(|island| nested(island, library)).collect();
+  for (island, kind) in islands.iter_mut().zip(&kinds) {
+    let html = std::mem::take(&mut island.body.html);
+    island.body.html = match (kind, island.rendered) {
+      (Nested::InTree, true) => wrapped(&html, "<!--[0--><!--[-->", "<!--]--><!--]-->"),
+      (Nested::InTree, false) => match html.strip_prefix(super::CHILDREN_OPEN).and_then(|rest| rest.strip_suffix("</sf-s>")) {
+        Some(region) => format!("<!--[1--><template data-sf-children>{region}</template><!--]-->"),
+        None => "<!--[-1--><!--]-->".to_owned(),
+      },
+      (Nested::Root, _) => wrapped(&html, ROOT_OPEN, ROOT_CLOSE),
+      (Nested::Opaque, _) => html,
+    };
+  }
+  let mut out = String::new();
+  list(content, &kinds, &mut out);
+  out
+}
+
+fn nested(island: &super::RenderedIsland, library: &super::Components) -> Nested {
+  if super::island_owner(&island.module, library) != Some(crate::ast::Owner::Svelte) || island.mode.is_some() {
+    return Nested::Opaque;
+  }
+  if island.rendered {
+    return match island.when.as_deref() {
+      None | Some("load") => Nested::InTree,
+      Some(_) => Nested::Root,
+    };
+  }
+  let html = island.body.html.as_str();
+  let whole_region = html.strip_prefix(super::CHILDREN_OPEN).is_some() && token(html, 0).1 == html.len();
+  match html.is_empty() || whole_region {
+    true => Nested::InTree,
+    false => Nested::Opaque,
+  }
+}
+
+/// `body` between `open` and `close`, a held children template after its markup staying after them.
+fn wrapped(body: &str, open: &str, close: &str) -> String {
+  let (markup, held) = match body.rfind(super::CHILDREN_HELD_OPEN) {
+    Some(at) if body.ends_with("</template>") => body.split_at(at),
+    _ => (body, ""),
+  };
+  format!("{open}{markup}{close}{held}")
+}
+
+fn list(content: &str, kinds: &[Nested], out: &mut String) {
+  out.push_str(BLOCK_OPEN);
+  let mut run = 0;
+  let mut at = 0;
+  while at < content.len() {
+    let (kind, end) = token(content, at);
+    match kind {
+      Token::Run => {}
+      Token::Island(index) => {
+        flush(&content[run..at], out);
+        match kinds.get(index).copied().unwrap_or(Nested::Opaque) {
+          Nested::InTree => {
+            out.push_str("<!--[0-->");
+            out.push_str(&content[at..end]);
+            out.push_str(BLOCK_CLOSE);
+          }
+          _ => opaque(&content[at..end], out),
+        }
+        run = end;
+      }
+      Token::Element { open_end, close_start } => {
+        flush(&content[run..at], out);
+        let inner = &content[open_end..close_start];
+        if holds(inner, kinds) {
+          out.push_str("<!--[1-->");
+          out.push_str(EMPTY);
+          out.push_str(&content[at..open_end]);
+          list(inner, kinds, out);
+          out.push_str(&content[close_start..end]);
+          out.push_str(EMPTY);
+          out.push_str(BLOCK_CLOSE);
+        } else {
+          opaque(&content[at..end], out);
+        }
+        run = end;
+      }
+    }
+    at = end;
+  }
+  flush(&content[run..], out);
+  out.push_str(BLOCK_CLOSE);
+  out.push_str(EMPTY);
+}
+
+fn opaque(element: &str, out: &mut String) {
+  out.push_str("<!--[2-->");
+  out.push_str(EMPTY);
+  out.push_str(element);
+  out.push_str(EMPTY);
+  out.push_str(BLOCK_CLOSE);
+}
+
+/// A run of text, comments and marks: `{@html}` when it writes a node, as it stands when it holds only marks.
+fn flush(run: &str, out: &mut String) {
+  if run.is_empty() {
+    return;
+  }
+  let mut visible = false;
+  let mut rest = run;
+  while let Some(start) = rest.find('\u{0}') {
+    visible |= start > 0;
+    let end = rest[start + 1..].find('\u{0}').map_or(rest.len(), |e| start + e + 2);
+    rest = &rest[end..];
+  }
+  visible |= !rest.is_empty();
+  if !visible {
+    out.push_str(run);
+    return;
+  }
+  out.push_str("<!--[-1-->");
+  out.push_str(EMPTY);
+  out.push_str(run);
+  out.push_str(EMPTY);
+  out.push_str(BLOCK_CLOSE);
+}
+
+/// Whether markup holds a Svelte island its adapter renders in the tree.
+fn holds(markup: &str, kinds: &[Nested]) -> bool {
+  let mut rest = markup;
+  while let Some(at) = rest.find(super::ISLAND_MARK) {
+    let after = &rest[at + super::ISLAND_MARK.len()..];
+    let end = after.find('\u{0}').unwrap_or(after.len());
+    if after[..end].parse::<usize>().ok().and_then(|index| kinds.get(index)) == Some(&Nested::InTree) {
+      return true;
+    }
+    rest = &after[end..];
+  }
+  false
+}
+
+const BLOCK_OPEN: &str = "<!--[-->";
+const BLOCK_CLOSE: &str = "<!--]-->";
+const EMPTY: &str = "<!---->";
+
+enum Token {
+  /// Text, a comment or a mark other than an island's.
+  Run,
+  Island(usize),
+  Element { open_end: usize, close_start: usize },
+}
+
+/// The node of the markup the renderer wrote that starts at `at` and where it ends.
+fn token(s: &str, at: usize) -> (Token, usize) {
+  let rest = &s[at..];
+  if rest.starts_with('\u{0}') {
+    let end = rest[1..].find('\u{0}').map_or(s.len(), |e| at + e + 2);
+    let index = rest.strip_prefix(super::ISLAND_MARK).and_then(|r| r[..r.find('\u{0}').unwrap_or(r.len())].parse::<usize>().ok());
+    return (index.map_or(Token::Run, Token::Island), end);
+  }
+  if rest.starts_with("<!--") {
+    return (Token::Run, rest.find("-->").map_or(s.len(), |e| at + e + 3));
+  }
+  let starts_tag = rest.starts_with('<') && rest[1..].starts_with(|c: char| c.is_ascii_alphabetic());
+  if !starts_tag {
+    let first = rest.chars().next().map_or(1, char::len_utf8);
+    let next = rest[first..].find(['<', '\u{0}']).map_or(s.len(), |e| at + e + first);
+    return (Token::Run, next);
+  }
+  let name_end = rest[1..].find(|c: char| c.is_ascii_whitespace() || c == '/' || c == '>').map_or(rest.len(), |e| e + 1);
+  let tag = rest[1..name_end].to_ascii_lowercase();
+  let mut quote = None;
+  let mut open_end = s.len();
+  for (i, c) in rest.char_indices().skip(name_end) {
+    match (quote, c) {
+      (Some(q), c) if c == q => quote = None,
+      (Some(_), _) => {}
+      (None, '"' | '\'') => quote = Some(c),
+      (None, '>') => {
+        open_end = at + i + 1;
+        break;
+      }
+      _ => {}
+    }
+  }
+  if super::VOID.contains(&tag.as_str()) || s[..open_end].ends_with("/>") {
+    return (Token::Element { open_end, close_start: open_end }, open_end);
+  }
+  let close = format!("</{tag}");
+  if matches!(tag.as_str(), "script" | "style" | "textarea" | "title") {
+    let close_start = s[open_end..].to_ascii_lowercase().find(&close).map_or(s.len(), |e| open_end + e);
+    let end = s[close_start..].find('>').map_or(s.len(), |e| close_start + e + 1);
+    return (Token::Element { open_end, close_start }, end);
+  }
+  let mut at = open_end;
+  while at < s.len() {
+    if s[at..].starts_with("</") {
+      let end = s[at..].find('>').map_or(s.len(), |e| at + e + 1);
+      return (Token::Element { open_end, close_start: at }, end);
+    }
+    at = token(s, at).1;
+  }
+  (Token::Element { open_end, close_start: s.len() }, s.len())
+}
