@@ -4,10 +4,11 @@
 
 use std::collections::BTreeMap;
 
-use swc_core::common::Spanned;
+use swc_core::common::{Span, Spanned};
 use swc_core::ecma::ast as js;
 use swc_core::ecma::visit::{Visit, VisitWith};
 
+use crate::lift::ctx_type;
 use crate::next::{read_packages_but, source_path};
 use crate::relocate::{dirname, find, normalize, relocate, Aliases};
 use crate::syntax::{is_script, parse, SCRIPT_EXTENSIONS};
@@ -54,8 +55,12 @@ impl Pass for Layout {
       }
     }
     let aliases = Aliases::read(tree);
+    let loader = match (&entry, kept_entry.is_some()) {
+      (Some(entry), false) => loader_for(tree, &moves, &aliases, entry, report),
+      _ => None,
+    };
     let page = match &entry {
-      Some(entry) => page_for(tree, &moves, &aliases, entry, kept_entry.is_some(), report),
+      Some(entry) => page_for(tree, &moves, &aliases, entry, kept_entry.is_some(), loader.is_some(), report),
       None => {
         report.note("package.json", 0, "no file imports `render` from `ink`, so `routes/page.tsx` was not written");
         None
@@ -65,6 +70,9 @@ impl Pass for Layout {
     if let Some(page) = page {
       tree.insert("app/routes/page.tsx", page);
     }
+    if let Some(loader) = loader {
+      tree.insert("app/routes/page.loader.ts", loader);
+    }
   }
 }
 
@@ -72,6 +80,8 @@ impl Pass for Layout {
 struct Entry {
   path: String,
   line: usize,
+  /// The `render` call.
+  call: Span,
   /// The component rendered, by the name the entry holds it under.
   component: String,
   /// What `render` passed the component: prop names from an element, or the count of arguments from a call.
@@ -79,8 +89,8 @@ struct Entry {
 }
 
 enum Passed {
-  /// `<Root …/>` as written: its source, the prop names on the root and every name the tree reads, tags and attribute expressions alike.
-  Element { text: String, props: Vec<String>, names: Vec<String> },
+  /// `<Root …/>` as written: its source, the prop names on the root, each prop's value as written and every name the tree reads, tags and attribute expressions alike.
+  Element { text: String, props: Vec<String>, values: Vec<(String, String)>, names: Vec<String> },
   /// `Root(…)` or `createElement(Root, props)`: the argument count, or the prop names.
   Arguments(usize),
   Props(Vec<String>),
@@ -97,8 +107,8 @@ fn entry(tree: &Tree, root: &str) -> Option<Entry> {
     let Ok(parsed) = parse(path, text) else { continue };
     let mut calls = Renders { render: None, found: None, parsed: &parsed, text };
     parsed.module.visit_with(&mut calls);
-    if let Some((line, component, passed)) = calls.found {
-      found = Some(Entry { path: path.to_owned(), line, component, passed });
+    if let Some((line, call, component, passed)) = calls.found {
+      found = Some(Entry { path: path.to_owned(), line, call, component, passed });
     }
   }
   found
@@ -109,7 +119,7 @@ struct Renders<'a> {
   text: &'a str,
   /// The local name `render` from `ink` is imported under.
   render: Option<String>,
-  found: Option<(usize, String, Passed)>,
+  found: Option<(usize, Span, String, Passed)>,
 }
 
 impl Visit for Renders<'_> {
@@ -135,7 +145,7 @@ impl Visit for Renders<'_> {
       if let (Some(render), js::Callee::Expr(callee)) = (&self.render, &n.callee) {
         if matches!(&**callee, js::Expr::Ident(id) if *id.sym == **render) {
           if let Some(arg) = n.args.first() {
-            self.found = rendered(self.parsed, self.text, &arg.expr).map(|(component, passed)| (self.parsed.line(n.span()), component, passed));
+            self.found = rendered(self.parsed, self.text, &arg.expr).map(|(component, passed)| (self.parsed.line(n.span()), n.span(), component, passed));
           }
         }
       }
@@ -166,10 +176,33 @@ fn rendered(parsed: &crate::syntax::Parsed, text: &str, e: &js::Expr) -> Option<
           js::JSXAttrOrSpread::SpreadElement(_) => "...".to_owned(),
         })
         .collect();
+      let values = el
+        .opening
+        .attrs
+        .iter()
+        .filter_map(|attr| match attr {
+          js::JSXAttrOrSpread::JSXAttr(a) => {
+            let name = match &a.name {
+              js::JSXAttrName::Ident(id) => id.sym.to_string(),
+              js::JSXAttrName::JSXNamespacedName(ns) => format!("{}:{}", ns.ns.sym, ns.name.sym),
+            };
+            let value = match &a.value {
+              None => "true".to_owned(),
+              Some(js::JSXAttrValue::JSXExprContainer(c)) => match &c.expr {
+                js::JSXExpr::Expr(e) => text[parsed.range(e.span())].to_owned(),
+                js::JSXExpr::JSXEmptyExpr(_) => "undefined".to_owned(),
+              },
+              Some(other) => text[parsed.range(other.span())].to_owned(),
+            };
+            Some((name, value))
+          }
+          js::JSXAttrOrSpread::SpreadElement(_) => None,
+        })
+        .collect();
       let mut reads = Reads(Vec::new());
       el.visit_with(&mut reads);
       let range = parsed.range(el.span());
-      Some((root, Passed::Element { text: text[range].to_owned(), props, names: reads.0 }))
+      Some((root, Passed::Element { text: text[range].to_owned(), props, values, names: reads.0 }))
     }
     js::Expr::Call(call) => match &call.callee {
       js::Callee::Expr(callee) => match &**callee {
@@ -349,10 +382,8 @@ fn renders(e: &js::Expr) -> bool {
   matches!(&**callee, js::Expr::Ident(id) if id.sym.as_ref() == "render")
 }
 
-/// `app/routes/page.tsx` rendering what the entry rendered: the element tree as written when every name it reads is an import of the entry, otherwise the root component alone with no props and a note. Each import is rewritten to where its file went; `None` with a note when the root's import cannot be followed.
-fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entry: &Entry, kept: bool, report: &mut Report) -> Option<String> {
-  let text = tree.text(&entry.path)?;
-  let parsed = parse(&entry.path, text).ok()?;
+/// The entry's static imports: each local name, the specifier it came from and the clause that imports it again.
+fn imports_of(parsed: &crate::syntax::Parsed) -> Vec<(String, String, String)> {
   let mut imports: Vec<(String, String, String)> = Vec::new();
   for item in &parsed.module.body {
     let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(decl)) = item else { continue };
@@ -382,26 +413,148 @@ fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, en
       imports.push((local, decl.src.value.to_string_lossy().into_owned(), clause));
     }
   }
+  imports
+}
+
+/// Where an import of the entry is written from under `app/`: a relative specifier or an alias followed to the file it names and that file's `@src/` module; a package specifier as it stands.
+fn follow(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entry: &Entry, spec: &str) -> Result<String, String> {
+  let relative_spec = spec.starts_with("./") || spec.starts_with("../");
+  let candidates: Vec<String> = if relative_spec { normalize(dirname(&entry.path), spec).into_iter().collect() } else { aliases.candidates(spec) };
+  if candidates.is_empty() {
+    return Ok(spec.to_owned());
+  }
+  let Some((target, _)) = candidates.iter().find_map(|c| find(tree, c)) else { return Err(format!("`{spec}`, which the build cannot follow")) };
+  let Some(moved) = moves.get(&target).and_then(|m| m.strip_prefix("app/src/")) else { return Err(format!("`{target}`, which is not under the sources")) };
+  let mut module = moved.to_owned();
+  if let Some(ext) = SCRIPT_EXTENSIONS.iter().find(|ext| module.ends_with(*ext)) {
+    module.truncate(module.len() - ext.len());
+  }
+  if let Some(dir) = module.strip_suffix("/index") {
+    module = dir.to_owned();
+  }
+  Ok(format!("@src/{module}"))
+}
+
+/// The names as prose: `` `a` ``, `` `a` and `b` ``, `` `a`, `b` and `c` ``.
+fn listed(names: &[String]) -> String {
+  let quoted: Vec<String> = names.iter().map(|n| format!("`{n}`")).collect();
+  match quoted.len() {
+    0 => String::new(),
+    1 => quoted[0].clone(),
+    n => format!("{} and {}", quoted[..n - 1].join(", "), quoted[n - 1]),
+  }
+}
+
+/// The statements before the one holding `call` in the innermost function around it, as byte ranges of `text`, with that function's parameter names and every name those statements read; the module's top-level statements when no function holds the call.
+fn enclosing(parsed: &crate::syntax::Parsed, call: Span) -> (Vec<std::ops::Range<usize>>, Vec<String>, Vec<String>) {
+  struct Enclosing<'a> {
+    parsed: &'a crate::syntax::Parsed,
+    call: Span,
+    best: Option<(Span, Vec<std::ops::Range<usize>>, Vec<String>, Vec<String>)>,
+  }
+  impl Enclosing<'_> {
+    fn consider(&mut self, span: Span, stmts: &[js::Stmt], params: &[js::Pat]) {
+      if span.lo > self.call.lo || span.hi < self.call.hi {
+        return;
+      }
+      if self.best.as_ref().is_some_and(|(best, ..)| best.lo >= span.lo && best.hi <= span.hi) {
+        return;
+      }
+      let before: Vec<&js::Stmt> = stmts.iter().take_while(|s| s.span().hi <= self.call.lo).collect();
+      let mut reads = Reads(Vec::new());
+      before.iter().for_each(|s| s.visit_with(&mut reads));
+      let mut names = Vec::new();
+      params.iter().for_each(|p| crate::items::pat_names(p, &mut names));
+      self.best = Some((span, before.iter().map(|s| self.parsed.range(s.span())).collect(), names, reads.0));
+    }
+  }
+  impl Visit for Enclosing<'_> {
+    fn visit_function(&mut self, f: &js::Function) {
+      if let Some(body) = &f.body {
+        let params: Vec<js::Pat> = f.params.iter().map(|p| p.pat.clone()).collect();
+        self.consider(f.span(), &body.stmts, &params);
+      }
+      f.visit_children_with(self);
+    }
+    fn visit_arrow_expr(&mut self, a: &js::ArrowExpr) {
+      if let js::ArrowFunctionBody::FunctionBody(body) = &*a.body {
+        self.consider(a.span(), &body.stmts, &a.params);
+      }
+      a.visit_children_with(self);
+    }
+  }
+  let mut search = Enclosing { parsed, call, best: None };
+  parsed.module.visit_with(&mut search);
+  if let Some((_, before, params, names)) = search.best {
+    return (before, params, names);
+  }
+  let mut before = Vec::new();
+  let mut reads = Reads(Vec::new());
+  for item in &parsed.module.body {
+    let js::ModuleItem::Stmt(stmt) = item else { continue };
+    if stmt.span().hi <= call.lo {
+      stmt.visit_with(&mut reads);
+      before.push(parsed.range(stmt.span()));
+    }
+  }
+  (before, Vec::new(), reads.0)
+}
+
+/// `app/routes/page.loader.ts` from the entry: the statements before `render` in the function that rendered, or at the module's top level, then a `return` of what `render` passed the component, each prop as written. The imports those statements and values read come along, written as [`follow`] writes them. `None` when `render` passed nothing or spread something.
+fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entry: &Entry, report: &mut Report) -> Option<String> {
+  let Passed::Element { props, values, names: value_names, .. } = &entry.passed else { return None };
+  if values.is_empty() || props.iter().any(|p| p == "...") {
+    return None;
+  }
+  let text = tree.text(&entry.path)?;
+  let parsed = parse(&entry.path, text).ok()?;
+  let (before, params, mut names) = enclosing(&parsed, entry.call);
+  names.extend(value_names.iter().cloned());
+  let mut imports = Vec::new();
+  for (local, spec, clause) in imports_of(&parsed) {
+    if matches!(spec.as_str(), "ink" | "react" | "react/jsx-runtime") || local == entry.component || !names.contains(&local) {
+      continue;
+    }
+    match follow(tree, moves, aliases, entry, &spec) {
+      Ok(module) => imports.push(format!("import {clause} from \"{module}\";")),
+      Err(why) => report.note(&entry.path, entry.line, format!("`{local}` comes from {why}, so `routes/page.loader.ts` does not import it")),
+    }
+  }
+  let mut body = String::new();
+  if !params.is_empty() {
+    body.push_str(&format!("  const {{ {} }} = params;\n", params.join(", ")));
+    report.note(&entry.path, entry.line, format!("the function that rendered took {}, read from `params` in `routes/page.loader.ts`", listed(&params)));
+  }
+  for range in before {
+    let indent = text[..range.start].rsplit('\n').next().map(|l| l.len() - l.trim_start().len()).unwrap_or(0);
+    for (i, line) in text[range].lines().enumerate() {
+      body.push_str("  ");
+      body.push_str(if i == 0 { line.trim_start() } else { line.get(indent..).unwrap_or(line.trim_start()) });
+      body.push('\n');
+    }
+  }
+  let fields: Vec<String> = values.iter().map(|(name, value)| if name == value { name.clone() } else { format!("{name}: {value}") }).collect();
+  body.push_str(&format!("  return {{ {} }};\n", fields.join(", ")));
+  let mut out = String::from("import type { Ctx } from \"@snapfire/fsr\";\n");
+  for line in imports {
+    out.push_str(&line);
+    out.push('\n');
+  }
+  out.push_str(&format!("\nexport async function load({{ params }}: {}) {{\n{body}}}\n", ctx_type("app/routes/page.loader.ts")));
+  Some(out)
+}
+
+/// `app/routes/page.tsx` rendering what the entry rendered: the element tree as written when every name it reads is an import of the entry; the root with each prop from `RootProps` when `routes/page.loader.ts` was written (`loaded`); otherwise the root component alone with no props and a note. Each import is rewritten to where its file went; `None` with a note when the root's import cannot be followed.
+fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entry: &Entry, kept: bool, loaded: bool, report: &mut Report) -> Option<String> {
+  let text = tree.text(&entry.path)?;
+  let parsed = parse(&entry.path, text).ok()?;
+  let mut imports = imports_of(&parsed);
   if kept {
     imports.push((entry.component.clone(), format!("./{}", entry.path.rsplit('/').next().unwrap_or(&entry.path)), format!("{{ {} }}", entry.component)));
   }
   let follow = |spec: &str, report: &mut Report| -> Result<String, String> {
-    let relative_spec = spec.starts_with("./") || spec.starts_with("../");
-    let candidates: Vec<String> = if relative_spec { normalize(dirname(&entry.path), spec).into_iter().collect() } else { aliases.candidates(spec) };
-    if candidates.is_empty() {
-      return Ok(spec.to_owned());
-    }
-    let Some((target, _)) = candidates.iter().find_map(|c| find(tree, c)) else { return Err(format!("`{spec}`, which the build cannot follow")) };
-    let Some(moved) = moves.get(&target).and_then(|m| m.strip_prefix("app/src/")) else { return Err(format!("`{target}`, which is not under the sources")) };
-    let mut module = moved.to_owned();
-    if let Some(ext) = SCRIPT_EXTENSIONS.iter().find(|ext| module.ends_with(*ext)) {
-      module.truncate(module.len() - ext.len());
-    }
-    if let Some(dir) = module.strip_suffix("/index") {
-      module = dir.to_owned();
-    }
     let _ = report;
-    Ok(format!("@src/{module}"))
+    follow(tree, moves, aliases, entry, spec)
   };
   let Some((_, root_spec, root_clause)) = imports.iter().find(|(local, _, _)| *local == entry.component).cloned() else {
     report.note(&entry.path, entry.line, format!("`render` renders `{}`, which the file does not import, so `routes/page.tsx` was not written", entry.component));
@@ -437,6 +590,14 @@ fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, en
       return Some(format!("{}\n\nexport default function Page() {{\n{body}}}\n", lines.join("\n")));
     }
   }
+  if loaded {
+    if let Passed::Element { values, .. } = &entry.passed {
+      let names: Vec<String> = values.iter().map(|(name, _)| name.clone()).collect();
+      let attrs: Vec<String> = names.iter().map(|name| format!("{name}={{{name}}}")).collect();
+      report.note(&entry.path, entry.line, format!("`render` passed `{}` the props {}; `routes/page.loader.ts` returns them from the entry's statements and `routes/page.tsx` gives them to `{}`", entry.component, listed(&names), entry.component));
+      return Some(format!("import type {{ RootProps }} from \"@generated/client\";\nimport {root_clause} from \"{root_module}\";\n\nexport default function Page({{ {} }}: RootProps) {{\n  return <{} {} />;\n}}\n", names.join(", "), entry.component, attrs.join(" ")));
+    }
+  }
   let mut root = entry.component.clone();
   let mut clause = root_clause;
   if root.starts_with(|c: char| c.is_ascii_lowercase()) && clause == root {
@@ -446,12 +607,8 @@ fn page_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, en
   }
   match &entry.passed {
     Passed::Element { props, .. } | Passed::Props(props) if !props.is_empty() => {
-      let names: Vec<String> = props.iter().map(|p| format!("`{p}`")).collect();
-      let (word, list) = match names.len() {
-        1 => ("prop", names[0].clone()),
-        n => ("props", format!("{} and {}", names[..n - 1].join(", "), names[n - 1])),
-      };
-      report.note(&entry.path, entry.line, format!("`render` passed `{}` the {word} {list}, read from the command line; `routes/page.tsx` renders it without them", entry.component));
+      let word = if props.len() == 1 { "prop" } else { "props" };
+      report.note(&entry.path, entry.line, format!("`render` passed `{}` the {word} {}, read from the command line; `routes/page.tsx` renders it without them", entry.component, listed(props)));
     }
     Passed::Arguments(n) if *n > 0 => {
       report.note(&entry.path, entry.line, format!("`render` called `{}` with {n} argument{}, read from the command line; `routes/page.tsx` renders it without them", entry.component, if *n == 1 { "" } else { "s" }));

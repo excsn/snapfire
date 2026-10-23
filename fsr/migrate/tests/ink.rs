@@ -64,15 +64,20 @@ fn an_alias_from_tsconfig_paths_is_written_as_the_src_alias() {
 }
 
 #[test]
-fn what_the_entry_passed_the_component_is_a_note() {
+fn what_the_entry_passed_the_component_comes_from_a_loader_written_from_the_entry() {
   let t = tree(&[
     ("package.json", PACKAGE),
     ("source/cli.tsx", "import React from 'react';\nimport {render} from 'ink';\nimport meow from 'meow';\nimport Ui from './ui.js';\n\nconst cli = meow('', {importMeta: import.meta, flags: {limit: {type: 'number'}}});\n\nrender(<Ui limit={cli.flags.limit ?? 7} skinNumber={0} />);\n"),
     ("source/ui.tsx", "export default function Ui({ limit, skinNumber }: { limit: number; skinNumber: number }) {\n  return null;\n}\n"),
   ]);
   let (out, report) = migrate(&t);
-  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import Ui from \"@src/ui\";\n\nexport default function Page() {\n  return <Ui />;\n}\n");
-  assert_eq!(report.notes.iter().map(ToString::to_string).collect::<Vec<_>>(), ["source/cli.tsx:8: `render` passed `Ui` the props `limit` and `skinNumber`, read from the command line; `routes/page.tsx` renders it without them"]);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import type { RootProps } from \"@generated/client\";\nimport Ui from \"@src/ui\";\n\nexport default function Page({ limit, skinNumber }: RootProps) {\n  return <Ui limit={limit} skinNumber={skinNumber} />;\n}\n");
+  let loader = out.text("app/routes/page.loader.ts").unwrap();
+  assert!(loader.contains("import meow from \"meow\";\n"), "{loader}");
+  assert!(loader.contains("export async function load({ params }: Ctx"), "{loader}");
+  assert!(loader.contains("\n  const cli = meow('', {importMeta: import.meta, flags: {limit: {type: 'number'}}});\n  return { limit: cli.flags.limit ?? 7, skinNumber: 0 };\n}\n"), "{loader}");
+  assert!(report.packages.contains_key("meow"), "{:?}", report.packages.keys().collect::<Vec<_>>());
+  assert_eq!(report.notes.iter().map(ToString::to_string).collect::<Vec<_>>(), ["source/cli.tsx:8: `render` passed `Ui` the props `limit` and `skinNumber`; `routes/page.loader.ts` returns them from the entry's statements and `routes/page.tsx` gives them to `Ui`"]);
 }
 
 #[test]
