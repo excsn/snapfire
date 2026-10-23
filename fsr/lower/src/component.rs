@@ -6158,6 +6158,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
       None => expr,
       Some(fired) => Expr::Ternary(Box::new(fired), Box::new(Expr::Lit(Lit::Null)), Box::new(expr)),
     };
+    // A function declaration is hoisted: a handler above it calls it by name.
+    for stmt in stmts {
+      if let js::Stmt::Decl(js::Decl::Fn(f)) = stmt {
+        let bound = format!("{prefix}{}", f.ident.sym);
+        if let Some(body) = &f.function.body {
+          self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+        }
+        self.lowerer.browser_functions.push(f.ident.sym.to_string());
+        self.browser_function(bound.clone());
+        renames.push((f.ident.sym.to_string(), bound));
+      }
+    }
     for stmt in stmts {
       match stmt {
         js::Stmt::Decl(js::Decl::Var(var)) => {
@@ -6171,15 +6183,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
           }
         }
-        js::Stmt::Decl(js::Decl::Fn(f)) => {
-          let bound = format!("{prefix}{}", f.ident.sym);
-          if let Some(body) = &f.function.body {
-            self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
-          }
-          self.lowerer.browser_functions.push(f.ident.sym.to_string());
-          self.browser_function(bound.clone());
-          renames.push((f.ident.sym.to_string(), bound));
-        }
+        js::Stmt::Decl(js::Decl::Fn(_)) => {}
         js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
           let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
           let depth = self.hook_renames.len();
@@ -7066,6 +7070,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           None => expr,
           Some(fired) => Expr::Ternary(Box::new(fired), Box::new(Expr::Lit(Lit::Null)), Box::new(expr)),
         };
+        // A function declaration is hoisted: a handler above it calls it by name.
+        for stmt in stmts.iter() {
+          if let js::Stmt::Decl(js::Decl::Fn(f)) = stmt {
+            if let Some(body) = &f.function.body {
+              self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+            }
+          }
+        }
         for (at, stmt) in stmts.iter().enumerate() {
           match stmt {
             js::Stmt::Return(ret) => {
@@ -7731,7 +7743,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             self.browser_function(local);
             return Ok(None);
           }
-          Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
+          Some((hook @ ("useDeferredValue" | "useFormStatus" | "useLinkStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
           Some(("useId", call)) if !matches!(self.meanings().bindings.get("useId"), Some(crate::meaning::Meaning::Own { .. })) => {
             let range = self.lowerer.parsed.range(call.span);
             let viewer = self.lowerer.reaches(Reach::Terminal);
@@ -7969,18 +7981,18 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         return Err(self.lowerer.residue(call.span, format!("`{hook}`, a hook the build cannot follow")));
       }
       Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(pattern)),
-      Some(("useFormStatus", call)) => {
+      Some((hook @ ("useFormStatus" | "useLinkStatus"), call)) => {
         // Each field is a constant on the server, bound as one so a read of `data` is known to be null.
-        let Expr::Object(fields) = self.lowerer.server_hook_value("useFormStatus", call)? else { unreachable!("useFormStatus is an object") };
-        let js::Pat::Object(obj) = pattern else { return Err(self.lowerer.residue(pattern.span(), "`useFormStatus` destructured as other than an object")) };
+        let Expr::Object(fields) = self.lowerer.server_hook_value(hook, call)? else { unreachable!("{hook} is an object") };
+        let js::Pat::Object(obj) = pattern else { return Err(self.lowerer.residue(pattern.span(), format!("`{hook}` destructured as other than an object"))) };
         for prop in &obj.props {
           let (key, local) = match prop {
             js::ObjectPatProp::Assign(a) => (a.key.id.sym.to_string(), a.key.id.sym.to_string()),
             js::ObjectPatProp::KeyValue(kv) => match (prop_name(&kv.key), &*kv.value) {
               (Some(key), js::Pat::Ident(id)) => (key, id.id.sym.to_string()),
-              _ => return Err(self.lowerer.residue(prop.span(), "a `useFormStatus` field bound to other than a name")),
+              _ => return Err(self.lowerer.residue(prop.span(), format!("a `{hook}` field bound to other than a name"))),
             },
-            js::ObjectPatProp::Rest(r) => return Err(self.lowerer.residue(r.span, "a rest of `useFormStatus`")),
+            js::ObjectPatProp::Rest(r) => return Err(self.lowerer.residue(r.span, format!("a rest of `{hook}`"))),
           };
           let value = fields.iter().find_map(|f| match f {
             Entry::Field(n, v) if *n == key => Some(v.clone()),

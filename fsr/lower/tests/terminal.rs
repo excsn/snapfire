@@ -356,3 +356,16 @@ fn a_hook_called_under_a_type_cast_is_the_hook() {
   let first = interpreter.island_step(MODULE, component, &props, &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>100x30</ink-text>");
 }
+
+#[test]
+fn a_handler_calls_a_function_the_component_declares_below_it() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  useInput((input, key) => {\n    if (input === \"+\") {\n      useStepUp(input, key);\n    }\n  });\n  function useStepUp(input: string, key: any) {\n    setCount(count + 1);\n  }\n  return <Text>{count}</Text>;\n}\n";
+  let library = library(page);
+  let component = &library[MODULE];
+  let input = component.handlers.iter().position(|handler| handler.event == "input").unwrap();
+  let interpreter = Interpreter::default();
+  let first = interpreter.island_step(MODULE, component, &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
+  assert_eq!(first.rendered.html, "<ink-text>0</ink-text>");
+  let plus = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(input)), &key("+", &[]), &library).unwrap();
+  assert_eq!(plus.rendered.html, "<ink-text>1</ink-text>");
+}
