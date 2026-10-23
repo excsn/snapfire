@@ -5,6 +5,7 @@ pub mod ctx;
 pub mod data;
 pub mod evaluator;
 pub mod matcher;
+pub mod middleware;
 pub mod meta;
 pub mod resolver;
 pub mod response;
@@ -31,6 +32,7 @@ pub use matcher::{EntryId, HandlerMatch, HandlerMatcher, Matcher, MatchitMatcher
 pub use meta::{is_data_block, DocumentTheme, Head, HeadEl, HeadRows, Meta, Metadata, PATH_MARK};
 pub use resolver::{Resolver, TableResolver};
 pub use response::{HttpResponse, REDIRECT_STATUSES, RESPONSE_TAG};
+pub use middleware::{drive_middleware, NextHandle, Passed, Target, REQUEST_TAG};
 pub use segments::{DefaultKeyer, SegmentInfo, SegmentKeyer};
 pub use natives::{FromNativeValue, IntoNativeValue, Native, NativeHandle, Natives, native_arg};
 pub use futures_util::future::BoxFuture;

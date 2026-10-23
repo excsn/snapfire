@@ -596,7 +596,7 @@ fn lift_route(tree: &Tree, path: &str, text: &str, parsed: &Parsed, function: &j
     }
     without_delays(text, parsed, *stmt, range.start, &mut edits, path, report);
     if found_redirect(stmt) {
-      report.note(path, parsed.line(stmt.span()), "a `redirect()` in the loader belongs in `middleware.ts`, which answers `{ redirect }` before the route runs");
+      report.note(path, parsed.line(stmt.span()), "a `redirect()` in the loader belongs in `middleware.ts`, which answers `Response.redirect(to, 307)` before the route runs");
     }
     statements.push_str("  ");
     statements.push_str(&edits.apply(&text[range]));

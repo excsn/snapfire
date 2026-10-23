@@ -919,6 +919,8 @@ enum Root {
   Input,
   Now,
   Ctx,
+  /// Middleware's `next`.
+  Next,
 }
 
 pub(crate) struct Lowerer<'a> {
@@ -1030,6 +1032,8 @@ pub(crate) enum Kind {
   Url,
   Date,
   BigInt,
+  /// A `Response`: what `new Response`, `Response.json`, `Response.redirect` and middleware's `next` make.
+  Response,
   /// A value only the browser knows, the viewer's clock for one: null on the server, read as an error the sites that can leave it to the browser catch.
   Browser,
 }
@@ -1043,6 +1047,7 @@ impl Kind {
       Kind::Url => "URL",
       Kind::Date => "Date",
       Kind::BigInt => "BigInt",
+      Kind::Response => "Response",
       Kind::Browser => "value only the browser knows",
     }
   }
@@ -1053,7 +1058,7 @@ impl Kind {
     match self {
       Kind::Map => Some(typed::MAP),
       Kind::Set => Some(typed::SET),
-      Kind::Query | Kind::Browser => None,
+      Kind::Query | Kind::Browser | Kind::Response => None,
       Kind::Url => Some(typed::URL),
       Kind::Date => Some(typed::DATE),
       Kind::BigInt => Some(typed::BIGINT),
@@ -1298,6 +1303,9 @@ impl<'a> Lowerer<'a> {
     if self.middleware && name == "request" {
       return Some(Root::Input);
     }
+    if self.middleware && name == "next" {
+      return Some(Root::Next);
+    }
     if self.theming && name == "theme" {
       return Some(Root::Input);
     }
@@ -1370,6 +1378,8 @@ impl<'a> Lowerer<'a> {
   pub(crate) fn kind_of(&self, e: &js::Expr) -> Option<Kind> {
     match e {
       js::Expr::Paren(p) => self.kind_of(&p.expr),
+      js::Expr::Await(a) => self.kind_of(&a.arg),
+      js::Expr::Call(call) if self.calls_next(call) => Some(Kind::Response),
       js::Expr::TsAs(a) => self.kind_of(&a.expr),
       js::Expr::TsNonNull(a) => self.kind_of(&a.expr),
       js::Expr::Ident(id) => {
@@ -1649,6 +1659,21 @@ impl<'a> Lowerer<'a> {
   pub(crate) fn effect(&mut self, expr: &js::Expr) -> Lowered<Stmt> {
     // A `console` call in a helper's block logs on the server as one in a component's body does.
     if let js::Expr::Call(call) = expr {
+      if let Some((response, op, args)) = self.response_headers_call(call) {
+        if matches!(op.as_str(), "set" | "append" | "delete") {
+          let js::Expr::Ident(local) = crate::meaning::bare(response) else { return Err(self.residue(call.span, "a header written on a `Response` that is not a local")) };
+          let Some((_, Expr::Var(name))) = self.scope.iter().rev().find(|(n, _)| n == local.sym.as_ref()).cloned() else { return Err(self.residue(call.span, "a header written on a `Response` that is not a local")) };
+          let wanted = if op == "delete" { 1 } else { 2 };
+          if args.len() != wanted {
+            return Err(self.residue(call.span, format!("`headers.{op}` takes {wanted} arguments")));
+          }
+          let mut lowered = vec![Expr::Var(name.clone()), Expr::lit_str(&op)];
+          for arg in args {
+            lowered.push(self.expr(&arg.expr)?);
+          }
+          return Ok(Stmt::Set { name, expr: Expr::Builtin { name: Builtin::ResponseHeaderSet, args: lowered } });
+        }
+      }
       if let Some(logged) = crate::component::console_call(self, call)? {
         return Ok(Stmt::Expr(logged));
       }
@@ -2509,6 +2534,41 @@ impl<'a> Lowerer<'a> {
     }
   }
 
+  /// Whether `call` is middleware's `next(...)` or `ctx.next(...)`.
+  fn calls_next(&self, call: &js::CallExpr) -> bool {
+    let js::Callee::Expr(callee) = &call.callee else { return false };
+    match crate::meaning::bare(callee) {
+      js::Expr::Ident(id) => self.root_of(id) == Some(Root::Next),
+      js::Expr::Member(m) => self.middleware && matches!((&*m.obj, &m.prop), (js::Expr::Ident(obj), js::MemberProp::Ident(prop)) if self.root_of(obj) == Some(Root::Ctx) && &*prop.sym == "next"),
+      _ => false,
+    }
+  }
+
+  /// `response.headers.get(name)` or `.has(name)` on a `Response`; `None` for any other call.
+  fn response_header_read(&mut self, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    let Some((response, op, args)) = self.response_headers_call(call) else { return Ok(None) };
+    if !matches!(op.as_str(), "get" | "has") {
+      return Err(self.residue(call.span, format!("`headers.{op}` inside an expression; it is a statement")));
+    }
+    let [name] = args else { return Err(self.residue(call.span, format!("`headers.{op}` takes a header name"))) };
+    let mut lowered = vec![self.expr(response)?, self.expr(&name.expr)?];
+    if op == "has" {
+      lowered.push(Expr::lit_str("has"));
+    }
+    Ok(Some(Expr::Builtin { name: Builtin::ResponseHeaderGet, args: lowered }))
+  }
+
+  /// A call `response.headers.<op>(...)` with `op` one of a `Headers`' `get`, `has`, `set`, `append` and `delete`, on anything not known to be another kind: the response, the operation and the arguments. A value that is not a `Response` fails where it runs.
+  fn response_headers_call<'c>(&self, call: &'c js::CallExpr) -> Option<(&'c js::Expr, String, &'c [js::ExprOrSpread])> {
+    let js::Callee::Expr(callee) = &call.callee else { return None };
+    let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
+    let js::MemberProp::Ident(op) = &method.prop else { return None };
+    let js::Expr::Member(headers) = crate::meaning::bare(&method.obj) else { return None };
+    let js::MemberProp::Ident(field) = &headers.prop else { return None };
+    let known = matches!(op.sym.as_ref(), "get" | "has" | "set" | "append" | "delete");
+    (&*field.sym == "headers" && known && !matches!(self.kind_of(&headers.obj), Some(kind) if kind != Kind::Response)).then(|| (&*headers.obj, op.sym.to_string(), call.args.as_slice()))
+  }
+
   fn root_of(&self, id: &js::Ident) -> Option<Root> {
     let name = id.sym.as_ref();
     self.roots.iter().rev().find(|(n, _)| n == name).map(|(_, r)| r.clone())
@@ -2615,7 +2675,7 @@ impl<'a> Lowerer<'a> {
         js::UnaryOp::Delete => Err(self.residue(u.span, "`delete` inside an expression")),
         js::UnaryOp::TypeOf => Ok(match self.kind_of(&u.arg) {
           Some(Kind::BigInt) => Expr::lit_str("bigint"),
-          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url) => Expr::lit_str("object"),
+          Some(Kind::Map | Kind::Set | Kind::Date | Kind::Query | Kind::Url | Kind::Response) => Expr::lit_str("object"),
           Some(Kind::Browser) | None => Expr::Builtin { name: Builtin::TypeOf, args: vec![self.expr(&u.arg)?] },
         }),
         other => Err(self.residue(u.span, format!("the `{}` operator", other))),
@@ -2724,6 +2784,7 @@ impl<'a> Lowerer<'a> {
       Some(Root::Services) => Err(self.residue(id.span, "`services` as a value; call a method on it")),
       Some(Root::Native) => Err(self.residue(id.span, "`native` as a value; call a method on it")),
       Some(Root::Ctx) => Err(self.residue(id.span, "`ctx` as a value; read one of its fields")),
+      Some(Root::Next) => Err(self.residue(id.span, "`next` as a value; call it")),
       None => match name {
         "undefined" => Ok(Expr::Lit(Lit::Undefined)),
         "Infinity" => Ok(Expr::Arith(ArithOp::Div, Box::new(Expr::Lit(Lit::Float(1.0))), Box::new(Expr::Lit(Lit::Float(0.0))))),
@@ -2882,6 +2943,13 @@ impl<'a> Lowerer<'a> {
     }
     let collection = self.kind_of(&member.obj);
     let target = self.expr(&member.obj)?;
+    if collection == Some(Kind::Response) {
+      return match prop(self)? {
+        Ok(name) if matches!(name.as_str(), "status" | "ok") => Ok(Expr::Builtin { name: Builtin::ResponseMember, args: vec![target, Expr::lit_str(&name)] }),
+        Ok(name) => Err(self.residue(member.span, format!("`.{name}` of a `Response`; `status`, `ok` and `headers.get` are read"))),
+        Err(_) => Err(self.residue(member.span, "a computed member of a `Response`")),
+      };
+    }
     if collection == Some(Kind::Url) {
       return match prop(self)? {
         Ok(name) if name == "href" => Ok(target),
@@ -2953,6 +3021,17 @@ impl<'a> Lowerer<'a> {
   }
 
   pub(crate) fn call(&mut self, call: &js::CallExpr) -> Lowered<Expr> {
+    if self.calls_next(call) {
+      let request = match call.args.as_slice() {
+        [] => Expr::Lit(Lit::Undefined),
+        [request] => self.expr(&request.expr)?,
+        _ => return Err(self.residue(call.span, "`next` takes one request")),
+      };
+      return Ok(Expr::Next(Box::new(request)));
+    }
+    if let Some(read) = self.response_header_read(call)? {
+      return Ok(read);
+    }
     if let (Some(reader), js::Callee::Expr(callee)) = (&self.reader, &call.callee) {
       if matches!(&**callee, js::Expr::Ident(id) if id.sym == reader.0 && id.ctxt == reader.1) {
         let named = call.args.first().ok_or_else(|| self.residue(call.span, "a compute's `read` takes the source key"))?;
@@ -3852,6 +3931,7 @@ impl<'a> Lowerer<'a> {
         }
         Ok(Expr::Builtin { name: Builtin::Response, args })
       }
+      ("Request", Some(url)) => Ok(Expr::Builtin { name: Builtin::RequestNew, args: vec![url] }),
       ("Uint8Array", source) => Ok(Expr::Builtin { name: Builtin::Uint8Array, args: source.into_iter().collect() }),
       ("URLSearchParams", None) => Ok(Expr::lit_str("")),
       ("URLSearchParams", Some(x)) => Ok(Expr::Builtin { name: Builtin::FormEncode, args: vec![x] }),
@@ -4144,12 +4224,14 @@ pub(crate) fn made_kind(e: &js::Expr) -> Option<Kind> {
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URLSearchParams" | "SvelteURLSearchParams") => Some(Kind::Query),
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "URL" | "SvelteURL") => Some(Kind::Url),
       js::Expr::Ident(id) if matches!(id.sym.as_ref(), "Date" | "SvelteDate") => Some(Kind::Date),
+      js::Expr::Ident(id) if id.sym.as_ref() == "Response" => Some(Kind::Response),
       _ => None,
     },
     js::Expr::Lit(js::Lit::BigInt(_)) => Some(Kind::BigInt),
     js::Expr::Call(call) => match &call.callee {
       js::Callee::Expr(callee) => match &**callee {
         js::Expr::Ident(id) if id.sym.as_ref() == "BigInt" => Some(Kind::BigInt),
+        js::Expr::Member(m) if matches!((&*m.obj, &m.prop), (js::Expr::Ident(obj), js::MemberProp::Ident(method)) if &*obj.sym == "Response" && matches!(&*method.sym, "json" | "redirect")) => Some(Kind::Response),
         _ => None,
       },
       _ => None,

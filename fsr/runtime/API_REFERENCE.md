@@ -72,6 +72,7 @@ The request blocks of SnapFire FSR: matching, resolution, data sources, evaluati
   * [`ActionHandler`](#actionhandler)
   * [`ActionRegistry`](#actionregistry)
   * [`HttpResponse`](#httpresponse)
+  * [Middleware](#middleware)
 * [12. Streaming](#12-streaming)
   * [`wire_stream`](#wire_stream)
   * [`meta_to_json`](#meta_to_json)
@@ -594,6 +595,7 @@ Everything a loader or action may know about the request. `Clone + Default` and 
 * `pub services: ServiceHandle`
 * `pub natives: NativeHandle`: `ctx.native`, the application's own Rust in this process.
 * `pub redirect: RedirectHandle`: where a successful action sends its caller. `set(to)` takes a path on this origin (one leading `/`, not `//` or `/\`) and refuses anything else as `ActionError` `invalid`; `check(to)` refuses the same without setting; `get` answers what was set. A clone shares the cell, so the edge reads what the handler it passed a clone to set. `Default` holds nothing.
+* `pub next: Option<NextHandle>`: middleware's `next`, set by `drive_middleware` while a middleware runs; `None` everywhere else.
 * `pub query: Params`: the decoded query string, one value per key, the last repeat winning; keys starting with `__` are dropped at the edge.
 * `pub path: String`: the path the request matched, query excluded and locale prefix included, so a link a body builds from it stays in the locale the reader asked for. Empty under an action, whose own path is the action endpoint rather than the document's. Empty too under a context nothing resolved.
 * `pub failure: Option<Value>`: the failure of a form post that redirected back to this render, a map of `kind` and `message`, which every dynamic page and layout receives as its `action_failure` prop. The host takes it off the session rather than reading it, so the render that shows it is the only one that does.
@@ -700,9 +702,18 @@ A response a body answers in place of data: what `new Response(...)`, `Response.
 * `pub fn header(&self, name: &str) -> Option<&str>`: matched without regard to case.
 * `pub fn header_default(&mut self, name: &str, value: &str)`: sets `name` unless it is already there.
 * `pub fn location(&self) -> Option<&str>`: the `location` of a 3xx response.
-* `pub fn to_value(&self) -> Value`: a `Value::Variant` tagged `RESPONSE_TAG`, `"$response"`, whose payload is an object of `status`, `headers` and `body`.
+* `pub fn to_value(&self) -> Value`: a `Value::Variant` tagged `RESPONSE_TAG`, `"$response"`, whose payload is an object of `status`, `headers` and `body`, with `headers` an array of `[name, value]` pairs so a header may repeat.
 * `pub fn from_value(value: &Value) -> Option<Result<Self, String>>`: `None` for a value that is not one; an error for one whose payload is not.
 * `pub const REDIRECT_STATUSES: [u16; 5]`: 301, 302, 303, 307 and 308.
+* `pub downstream: Option<usize>`: which route response a middleware's `next` answered this stands for; the host holds its body.
+
+### Middleware
+
+* `pub struct NextHandle`: `next` in a middleware's context, `RequestCtx.next`, `None` outside a middleware. `NextHandle::new(f)` wraps `Fn(Value) -> BoxFuture<'static, Result<Value, ActionError>>`; `call(&self, request: Value)` runs the rest of the chain for `request` and answers the route's `HttpResponse` value.
+* `pub struct Target { pub path: String, pub query: String }`: where `next` sends a request. `Target::of(request, path, query)` reads nothing as the request as it came, a string or a `Request` value's `url` as a path on this origin (an absolute URL keeping its path and query) and the middleware's own request line by its `path`; anything else is `Internal`.
+* `pub const REQUEST_TAG: &str = "$request"`: the tag of the `Value::Variant` `new Request(url)` makes, its payload an object holding `url`.
+* `pub enum Passed<B> { Continue, Answer(HttpResponse), Route(HttpResponse, B) }`: how a middleware answered. `Continue` is nothing returned without calling `next`; `Route` is the route's response with the status and headers the middleware left on it and the body the route answered.
+* `pub async fn drive_middleware<B>(ctx: RequestCtx, query: &str, run, serve) -> Result<Passed<B>, ActionError>`: runs `run(ctx)` with `ctx.next` set, serving each `next` call with `serve(Target)`, which answers the route's head and its body, while the middleware waits on it. Nothing returned after `next` is the last route response as it came; a value that is neither a response nor nothing is `Internal`.
 
 ## 12. Streaming
 

@@ -412,15 +412,16 @@ fn a_route_handler_answers_a_request_with_a_value() {
 
 #[test]
 fn the_middleware_redirects_rewrites_and_adds_a_header() {
-  use snapfire_fsr_host::{Preflight, PreflightAction};
-
-  let app = app_over(Arc::new(MockTransport::new()));
-  let redirect = block_on(app.preflight("GET", "/basket", SessionCell::default())).unwrap();
-  assert_eq!(redirect, Preflight::new(PreflightAction::Redirect { to: "/cart".into(), status: 307 }, Vec::new()));
-  let rewrite = block_on(app.preflight("get", "/shop?q=x", SessionCell::default())).unwrap();
-  assert_eq!(rewrite.action, PreflightAction::Rewrite("/".into()));
-  let plain = block_on(app.preflight("POST", "/_sf/action/cart.checkout", SessionCell::default())).unwrap();
-  assert_eq!(plain, Preflight::new(PreflightAction::Continue, vec![("x-storefront".into(), "fsr".into())]));
+  let app = app_over(Arc::new(MockTransport::new().returns("shopping.listProducts", Value::seq(Vec::new()))));
+  let get = |path: &str| block_on(app.handle(http::Request::get(path).body(bytes::Bytes::new()).unwrap()));
+  let redirect = get("/basket");
+  assert_eq!((redirect.status().as_u16(), redirect.headers().get("location").and_then(|v| v.to_str().ok())), (307, Some("/cart")));
+  let (status, shop) = body_text(get("/shop"));
+  let (_, catalog) = body_text(get("/"));
+  assert_eq!(status, 200, "{shop}");
+  assert_eq!(shop.split("<main").nth(1), catalog.split("<main").nth(1), "the catalog under /shop");
+  let plain = get("/about");
+  assert_eq!(plain.headers().get("x-storefront").and_then(|v| v.to_str().ok()), Some("fsr"));
   assert_eq!(app.report().app.middleware, Some(snapfire_fsr::Owner::Lowered));
 }
 
@@ -439,7 +440,8 @@ fn middleware_written_in_rust_must_override_the_lowered_one() {
     .middleware_override(|_ctx, _request| async { Ok(Value::Null) })
     .build()
     .unwrap();
-  assert_eq!(block_on(app.preflight("GET", "/basket", SessionCell::default())).unwrap().action, snapfire_fsr_host::PreflightAction::Continue);
+  let basket = block_on(app.handle(http::Request::get("/basket").body(bytes::Bytes::new()).unwrap()));
+  assert_ne!(basket.status().as_u16(), 307, "the override goes on where the lowered middleware redirected");
   assert_eq!(app.report().app.middleware, Some(snapfire_fsr::Owner::RustOverride));
 }
 

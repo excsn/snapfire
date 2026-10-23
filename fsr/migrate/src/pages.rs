@@ -571,7 +571,7 @@ fn rewrite_data_function(path: &str, text: &str, parsed: &Parsed, item: &js::Mod
       edits.replace(stmt, "fail(\"not_found\", \"not found\");");
       fails = true;
     } else if field("redirect").is_some() {
-      report.note(path, line, "a redirect from a data function belongs in `middleware.ts`, which answers `{ redirect }` before the route runs");
+      report.note(path, line, "a redirect from a data function belongs in `middleware.ts`, which answers `Response.redirect(to, 307)` before the route runs");
     } else {
       report.note(path, line, format!("`{name}` returns an object with no `props`, which was left as it is"));
     }

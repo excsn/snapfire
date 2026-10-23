@@ -369,6 +369,8 @@ struct MockCtx {
   extended: Option<u64>,
   /// The path the last run redirected to.
   redirect: Option<String>,
+  /// The requests a middleware handed `next`, each as its path and query; `next` answers each with a 200 and no body.
+  next: Arc<parking_lot::Mutex<Vec<String>>>,
 }
 
 impl MockCtx {
@@ -389,6 +391,7 @@ impl MockCtx {
     session_trace.insert("extended".to_owned(), self.extended.map(Value::int).unwrap_or(Value::Null));
     trace.insert("session".to_owned(), Value::Map(session_trace));
     trace.insert("redirect".to_owned(), self.redirect.clone().map(Value::str).unwrap_or(Value::Null));
+    trace.insert("next".to_owned(), Value::seq(self.next.lock().iter().map(Value::str).collect::<Vec<_>>()));
     map.insert("trace".to_owned(), Value::Map(trace));
     Value::Map(map)
   }
@@ -515,7 +518,26 @@ impl<'a> Run<'a> {
     ctx.origin = origin;
     ctx.config = config;
     ctx.services = handle;
-    let mock = MockCtx { ctx, input, transport, written: Vec::new(), extended: None, redirect: None };
+    let asked = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let requested = match &input {
+      Some(Value::Map(request)) => match request.get("path") {
+        Some(Value::Str(path)) => Some(path.to_string()),
+        _ => None,
+      },
+      _ => None,
+    };
+    let at = if ctx.path.is_empty() { requested.unwrap_or_default() } else { ctx.path.clone() };
+    let (record, at_query) = (asked.clone(), String::new());
+    ctx.next = Some(snapfire_fsr_runtime::NextHandle::new(move |request| {
+      let answered = snapfire_fsr_runtime::Target::of(&request, &at, &at_query).map(|target| {
+        record.lock().push(if target.query.is_empty() { target.path } else { format!("{}?{}", target.path, target.query) });
+        let mut head = snapfire_fsr_runtime::HttpResponse::new(200);
+        head.downstream = Some(0);
+        head.to_value()
+      });
+      Box::pin(async move { answered })
+    }));
+    let mock = MockCtx { ctx, input, transport, written: Vec::new(), extended: None, redirect: None, next: asked };
     self.bind(name, mock.value());
     self.mocks.insert(name.to_owned(), mock);
     Ok(())

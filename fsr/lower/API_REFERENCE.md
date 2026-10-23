@@ -214,6 +214,7 @@ A file in another language that a caller turns into TSX, `.mdx` and `.md` among 
 * `try { } catch (e) { } finally { }` is `Stmt::Try`; the `catch` and the `finally` are each optional and a `catch` parameter may be a pattern. `throw e` is a `Throw` builtin over the message and the value thrown.
 * `redirect(to)` from `@snapfire/fsr` is a `RedirectTo` builtin in an action or a route handler: a statement is a `Return` of it, an expression its value. In a loader or middleware it is residue.
 * `new Response(body, init)`, `Response.json(value, init)` and `Response.redirect(url, status)` are the `Response`, `ResponseJson` and `ResponseRedirect` builtins; `new Uint8Array(source)` is `Uint8Array`.
+* In middleware, `next(request?)` and `ctx.next(request?)` are `Expr::Next`, the request `undefined` when absent; `new Request(url)` is `RequestNew`. `response.status` and `response.ok` on a `Response` are `ResponseMember`; `response.headers.get(name)` and `.has(name)` are `ResponseHeaderGet` and the statements `response.headers.set`, `.append` and `.delete` on a local rebind it through `ResponseHeaderSet`. The headers calls lower by their shape and fail where they run on anything but a `Response`.
 * `while`, `for`, `for...in`, nested functions, classes, `break` outside a `switch`, `continue`, labels and bare blocks are residue.
 
 ### Component Bodies

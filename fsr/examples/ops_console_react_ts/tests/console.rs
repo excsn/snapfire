@@ -178,13 +178,15 @@ fn the_handler_and_the_middleware_answer_before_any_page() {
   assert_eq!(got.get("open"), Some(&Value::int(2i64)));
   assert_eq!(got.get("watching"), Some(&Value::int(2i64)));
 
-  use snapfire_fsr_host::{Preflight, PreflightAction};
-  let redirect = block_on(app.preflight("GET", "/dashboard", SessionCell::default())).unwrap();
-  assert_eq!(redirect.action, PreflightAction::Redirect { to: "/".into(), status: 307 });
-  let rewrite = block_on(app.preflight("GET", "/fleet", SessionCell::default())).unwrap();
-  assert_eq!(rewrite.action, PreflightAction::Rewrite("/agents".into()));
-  let plain = block_on(app.preflight("GET", "/help", SessionCell::default())).unwrap();
-  assert_eq!(plain, Preflight::new(PreflightAction::Continue, vec![("x-ops-console".into(), "fsr".into())]));
+  let get = |path: &str| block_on(app.handle(http::Request::get(path).body(bytes::Bytes::new()).unwrap()));
+  let redirect = get("/dashboard");
+  assert_eq!((redirect.status().as_u16(), redirect.headers().get("location").and_then(|v| v.to_str().ok())), (307, Some("/")));
+  let rewritten = get("/fleet");
+  assert_eq!(rewritten.status().as_u16(), 200, "next(new Request(\"/agents\")) serves the agent list under /fleet");
+  let body = block_on(async { String::from_utf8(http_body_util::BodyExt::collect(rewritten.into_body()).await.unwrap().to_bytes().to_vec()).unwrap() });
+  assert!(body.contains("builder-eu-1"), "{body}");
+  let plain = get("/help");
+  assert_eq!(plain.headers().get("x-ops-console").and_then(|v| v.to_str().ok()), Some("fsr"), "the header the middleware set on the route's response");
 }
 
 #[test]

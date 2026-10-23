@@ -349,6 +349,7 @@ impl<'a> Inferer<'a> {
         .method(service, method)
         .map(|m| Ts::from_contract(&m.returns))
         .unwrap_or(Ts::Unknown),
+      Expr::Next(_) => Ts::Named("Response".to_owned()),
       Expr::NativeCall { module, method, .. } => self
         .natives
         .iter()

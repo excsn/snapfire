@@ -278,12 +278,14 @@ This is the API route: the same session, identity and services as a page, reache
 
 ## Middleware
 
-`middleware.ts` at the top of the app exports a function that runs before every request that is not a static file: the action route, the handlers and the pages alike. It reads `request.method` and `request.path` beside the session, the identity and the services. What it returns decides the request. Returning nothing lets the request continue. `redirect` answers with a location. `rewrite` serves another path under the same URL. `status` with a `body` answers outright. `headers` join whatever response follows.
+`middleware.ts` at the top of the app exports a function that runs before every request that is not a static file: the action route, the handlers and the pages alike. It reads `request.method` and `request.path` beside the session, the identity and the services. It answers with a `Response`. A `Response` of its own ends the request there. `await next()` runs the route and hands back its `Response`, which the middleware can change before returning it; `next(new Request("/"))` runs the route for another path under the same URL. Returning nothing lets the request continue.
 
 ```ts
-export async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {
-  if (request.path.startsWith("/account") && !identity?.subject) return { redirect: "/login" };
-  return { headers: { "x-frame-options": "DENY" } };
+export async function middleware({ request, identity, next }: MiddlewareCtx) {
+  if (request.path.startsWith("/account") && !identity?.subject) return Response.redirect("/login", 307);
+  const response = await next();
+  response.headers.set("x-frame-options", "DENY");
+  return response;
 }
 ```
 

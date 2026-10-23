@@ -553,24 +553,26 @@ This is what an htmx region asks for: `hx-get="/?category=Garden&__fragment"` sw
 
 ## Middleware in Rust
 
-The plan's `middleware.ts` runs before every request; `middleware_override` replaces it with a Rust function of the request context and the request line, whose value the host reads as a `Preflight`. `preflight` runs it without a request, for a test.
+The plan's `middleware.ts` runs before every request; `middleware_override` replaces it with a Rust function of the request context and the request line. It answers an `HttpResponse` value or `Value::Null`, as a lowered one does: `ctx.next` runs the route and answers the route's response, which the function may change and return.
 
 ```rust
-use snapfire_fsr_host::{Preflight, PreflightAction};
+use snapfire_fsr_runtime::HttpResponse;
 
 let host = Host::from(".")?
-  .middleware_override(|_ctx, request| async move {
-    let mut out = ValueMap::new();
+  .middleware_override(|ctx, request| async move {
     if let Value::Map(line) = &request {
       if line.get("path") == Some(&Value::str("/old")) {
-        out.insert("redirect".into(), Value::str("/new"));
+        let mut moved = HttpResponse::new(307);
+        moved.headers.push(("location".into(), "/new".into()));
+        return Ok(moved.to_value());
       }
     }
-    Ok(Value::Map(out))
+    let next = ctx.next.clone().expect("a middleware's context holds next");
+    let mut response = HttpResponse::from_value(&next.call(Value::Null).await?).unwrap().unwrap();
+    response.headers.push(("x-frame-options".into(), "DENY".into()));
+    Ok(response.to_value())
   })
   .build()?;
-
-assert_eq!(host.preflight("GET", "/old", session).await?.action, PreflightAction::Redirect { to: "/new".into(), status: 307 });
 ```
 
 ## Prerendering the Routes That Never Change
@@ -1248,7 +1250,7 @@ let host = Host::from(shell)?.mount(billing).build()?;
 
 `Loader::mount` reads the site under the shell's deployment and with the shell's secrets options, so a site's own `config/private_keys` and the same decryptors apply to it. What a mount does, in order: it reads the artifact's configuration through the shell's ladder and refuses one whose `[site]` names another site; it refuses an artifact with engine-owned rows unless `allow_engine` is set and one whose bundle carries a server module; it takes the site's middleware aside; it nests every route and intercept of the site under the shell's `routes/layout.tsx#default` or under the document alone when the shell has no root layout; it adds the site's rows to the shell's tables under their prefixed ids and merges the site's contract; it registers the site's clients under `<name>:<client>` and their bearer keys; it serves the site's static roots that sit under its prefix and skips the rest, since the shell serves `/static/js/fsr` and the vendor tree itself; it adds the site's import map entries the shell lacks; and it ignores the site's `[session]`, `[auth]`, `[locales]` and `[cache]`, which are the shell's. The report prints one `sites` row per mount with its prefix, artifact, version and hash and one more naming what was ignored.
 
-A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; a site's middleware may redirect, respond, add headers or rewrite within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table. A site names the pages a shell renders before a candidate holding the site swaps in with `[site] probe = ["/billing", { path = "/billing/overdue", as = "probe" }]`, a path alone rendered anonymously and `{ path, as }` by a visitor signed in as that subject; any failure of a probed page refuses the reload and names the site and the path, so a release whose loader breaks never replaces the one serving. A site's cache tags take its prefix at mount, `billing:invoices`, so one site's drop never reaches another's answers; a tag written `@catalog` keeps that spelling in every site and the shell, so a write in one site drops what another cached under it. The boot report lists each such tag under `shared` with who caches and who drops.
+A request under a site's prefix runs the shell's middleware first, with `request.site` naming the site and then the site's, on the same path; the shell's `next` runs the site's middleware and the site's `next` runs the route. A site's middleware may answer, change the route's response or hand `next` another path within its own prefix and never sees the shell's. The document adds the site's stylesheets and entry module to the head on the site's routes and a payload for one carries an `E` row so the navigator loads the site's islands on first arrival. `GET /__fsr/sites` answers with every mounted site's name, prefix, version and hash, for a monitor to compare against the table. A site names the pages a shell renders before a candidate holding the site swaps in with `[site] probe = ["/billing", { path = "/billing/overdue", as = "probe" }]`, a path alone rendered anonymously and `{ path, as }` by a visitor signed in as that subject; any failure of a probed page refuses the reload and names the site and the path, so a release whose loader breaks never replaces the one serving. A site's cache tags take its prefix at mount, `billing:invoices`, so one site's drop never reaches another's answers; a tag written `@catalog` keeps that spelling in every site and the shell, so a write in one site drops what another cached under it. The boot report lists each such tag under `shared` with who caches and who drops.
 
 `snapfire_fsr_sites` turns the `[sites]` table into mounts, fetches a version the cache lacks from `[sites] store`, hashes each artifact, refuses a pinned hash that differs and rereads the table on `SIGHUP` or a poll, so `fsr serve` and a Rust shell built with it need no code beyond `mount_all` and `watch`.
 

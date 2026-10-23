@@ -87,3 +87,60 @@ fn a_plain_value_is_still_its_json() {
   let value = answered("export function GET() {\n  return { ok: true };\n}\n", "GET").unwrap();
   assert!(HttpResponse::from_value(&value).is_none(), "{value:?}");
 }
+
+mod middleware {
+  use std::sync::Arc;
+
+  use parking_lot::Mutex;
+  use snapfire_fsr_core::{Value, ValueMap};
+  use snapfire_fsr_ir::Interpreter;
+  use snapfire_fsr_runtime::{HttpResponse, NextHandle, RequestCtx, Target};
+
+  /// Runs a middleware at `path` with a `next` that answers 200 and records each target it was asked for.
+  fn run(source: &str, path: &str) -> (Value, Vec<Target>) {
+    let body = snapfire_fsr_lower::lower_middleware("middleware.ts", source).unwrap_or_else(|e| panic!("{e}"));
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let mut ctx = RequestCtx::anonymous(Default::default());
+    ctx.path = path.to_owned();
+    let record = asked.clone();
+    let at = path.to_owned();
+    ctx.next = Some(NextHandle::new(move |request| {
+      let target = Target::of(&request, &at, "").unwrap();
+      record.lock().push(target);
+      let mut head = HttpResponse::new(200);
+      head.downstream = Some(0);
+      Box::pin(async move { Ok(head.to_value()) })
+    }));
+    let mut request = ValueMap::default();
+    request.insert("method".to_owned(), Value::str("GET"));
+    request.insert("path".to_owned(), Value::str(path));
+    let value = futures::executor::block_on(Interpreter::default().run(&body, &ctx, Some(Value::Map(request)))).map(|o| o.value).unwrap_or_else(|f| panic!("{}", f.message));
+    let asked = asked.lock().clone();
+    (value, asked)
+  }
+
+  const MIDDLEWARE: &str = "import type { MiddlewareCtx } from \"@snapfire/fsr\";\n\nexport async function middleware({ request, next }: MiddlewareCtx) {\n  if (request.path === \"/dashboard\") return Response.redirect(\"/\", 307);\n  if (request.path === \"/fleet\") return next(new Request(\"/agents\"));\n  const response = await next();\n  response.headers.set(\"x-ops-console\", \"fsr\");\n  if (response.status === 404) response.headers.set(\"x-missing\", request.path);\n  return response;\n}\n";
+
+  #[test]
+  fn a_redirect_is_a_response_of_its_own_and_runs_no_route() {
+    let (value, asked) = run(MIDDLEWARE, "/dashboard");
+    let response = HttpResponse::from_value(&value).unwrap().unwrap();
+    assert_eq!((response.status, response.location(), response.downstream), (307, Some("/"), None));
+    assert!(asked.is_empty());
+  }
+
+  #[test]
+  fn next_with_a_request_runs_the_route_for_its_path() {
+    let (value, asked) = run(MIDDLEWARE, "/fleet");
+    assert_eq!(asked, [Target { path: "/agents".to_owned(), query: String::new() }]);
+    assert_eq!(HttpResponse::from_value(&value).unwrap().unwrap().downstream, Some(0));
+  }
+
+  #[test]
+  fn the_routes_response_comes_back_with_the_header_set() {
+    let (value, asked) = run(MIDDLEWARE, "/help");
+    assert_eq!(asked, [Target { path: "/help".to_owned(), query: String::new() }]);
+    let response = HttpResponse::from_value(&value).unwrap().unwrap();
+    assert_eq!((response.status, response.header("x-ops-console"), response.header("x-missing"), response.downstream), (200, Some("fsr"), None, Some(0)));
+  }
+}

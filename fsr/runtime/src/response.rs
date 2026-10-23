@@ -2,7 +2,7 @@
 
 use snapfire_fsr_core::{TypedArray, Value, ValueMap};
 
-/// The tag of the `Value::Variant` that holds an [`HttpResponse`]. Its payload is an object of `status`, `headers` and `body`, the body a string or bytes.
+/// The tag of the `Value::Variant` that holds an [`HttpResponse`]. Its payload is an object of `status`, `headers` and `body`: the headers an array of `[name, value]` pairs so a header may repeat; the body a string or bytes.
 pub const RESPONSE_TAG: &str = "$response";
 
 /// The statuses `Response.redirect` takes, as the Fetch standard lists them.
@@ -14,11 +14,13 @@ pub struct HttpResponse {
   /// In the order given, names as written.
   pub headers: Vec<(String, String)>,
   pub body: Vec<u8>,
+  /// Which route response a middleware's `next` answered this stands for, whose body the host holds.
+  pub downstream: Option<usize>,
 }
 
 impl HttpResponse {
   pub fn new(status: u16) -> Self {
-    Self { status, headers: Vec::new(), body: Vec::new() }
+    Self { status, headers: Vec::new(), body: Vec::new(), downstream: None }
   }
 
   /// The value of the header `name`, matched without regard to case.
@@ -39,14 +41,14 @@ impl HttpResponse {
   }
 
   pub fn to_value(&self) -> Value {
-    let mut headers = ValueMap::default();
-    for (name, value) in &self.headers {
-      headers.insert(name.clone(), Value::str(value.clone()));
-    }
+    let headers: Vec<Value> = self.headers.iter().map(|(name, value)| Value::seq(vec![Value::str(name.clone()), Value::str(value.clone())])).collect();
     let mut fields = ValueMap::default();
     fields.insert("status".to_owned(), Value::Int(i128::from(self.status)));
-    fields.insert("headers".to_owned(), Value::Map(headers));
+    fields.insert("headers".to_owned(), Value::seq(headers));
     fields.insert("body".to_owned(), Value::Bytes(self.body.clone()));
+    if let Some(at) = self.downstream {
+      fields.insert("downstream".to_owned(), Value::Int(at as i128));
+    }
     Value::Variant { tag: RESPONSE_TAG.to_owned(), payload: Some(Box::new(Value::Map(fields))) }
   }
 
@@ -66,10 +68,15 @@ impl HttpResponse {
       other => return Err(format!("a response status of {other:?}")),
     };
     let mut headers = Vec::new();
-    if let Some(Value::Map(given)) = fields.get("headers") {
-      for (name, value) in given {
-        let Value::Str(value) = value else { return Err(format!("the response header `{name}` is not a string")) };
-        headers.push((name.clone(), value.to_string()));
+    if let Some(Value::Seq(given)) = fields.get("headers") {
+      for pair in given.iter() {
+        match pair {
+          Value::Seq(pair) => match (pair.get(0), pair.get(1)) {
+            (Some(Value::Str(name)), Some(Value::Str(value))) => headers.push((name.to_string(), value.to_string())),
+            _ => return Err("a response header that is not a name and a value".to_owned()),
+          },
+          _ => return Err("a response header that is not a name and a value".to_owned()),
+        }
       }
     }
     let body = match fields.get("body") {
@@ -79,6 +86,10 @@ impl HttpResponse {
       Some(Value::Str(text)) => text.as_bytes().to_vec(),
       Some(other) => return Err(format!("a response body of {other:?}")),
     };
-    Ok(Self { status, headers, body })
+    let downstream = match fields.get("downstream") {
+      Some(Value::Int(at)) => usize::try_from(*at).ok(),
+      _ => None,
+    };
+    Ok(Self { status, headers, body, downstream })
   }
 }

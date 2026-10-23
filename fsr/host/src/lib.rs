@@ -78,10 +78,10 @@ pub use config::{
   AuthSection, BearerKey, ClientConfig, Config, DataCacheSection, Loader, MountConfig, SecretOptions, SiteSection,
   SitesSection,
 };
-pub use actions::{IslandBody, IslandStep, Preflight, PreflightAction, island_body, island_step};
+pub use actions::{IslandBody, IslandStep, island_body, island_step};
 pub use auth::referer_path;
 pub use builder::HostBuilder;
-pub use edge::percent_decoded;
+pub use edge::{middleware_request, percent_decoded};
 pub use locale::{Locales, LocalesSection, Resolution};
 pub use mount::{Artifact, Mount};
 pub use prerender::{BUILD_FILE, LOADS_FILE, RENDERS_FILE, WRITTEN_FILE};

@@ -70,7 +70,7 @@ export const deletePost = action<{ id: string }>(async ({ input, services }) => 
 });
 ```
 
-A form post is answered with a 303 to that path instead of back to the page that posted. A call from `actions` navigates there instead of refreshing. `redirect` is a statement like `fail` and only an action holds one: middleware answers `{ redirect }` and a loader cannot send a visitor away. The path must be on this origin. Anything else, `https://elsewhere/` or `//elsewhere/`, fails the action as `invalid`, so a `?next=` the request carries cannot become an open redirect.
+A form post is answered with a 303 to that path instead of back to the page that posted. A call from `actions` navigates there instead of refreshing. `redirect` ends the body where it stands and makes a `Response`, which `return redirect(to)` hands back the same way; an action or a route handler holds one, middleware answers `Response.redirect(to)` and a loader cannot send a visitor away. The path must be on this origin. Anything else, `https://elsewhere/` or `//elsewhere/`, fails the action as `invalid`, so a `?next=` the request carries cannot become an open redirect.
 
 ## File uploads
 

@@ -65,7 +65,7 @@ fn site_files() -> Vec<(&'static str, &'static str)> {
     ("routes/item/[id]/page.tsx", PAGE),
     ("routes/item/[id]/page.loader.ts", "import type { Ctx } from \"@snapfire/fsr\";\nexport async function load({ params }: Ctx<\"/item/{id}\">) {\n  return { id: params.id };\n}\n"),
     ("routes/api/ping/route.ts", "export async function GET() {\n  return { ok: true };\n}\n"),
-    ("middleware.ts", "import type { MiddlewareCtx, MiddlewareResult } from \"@snapfire/fsr\";\nexport async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {\n  if (request.path.startsWith(\"/account\") && !identity?.subject) return { redirect: \"/\" };\n  return {};\n}\n"),
+    ("middleware.ts", "import type { MiddlewareCtx } from \"@snapfire/fsr\";\nexport async function middleware({ request, identity }: MiddlewareCtx) {\n  if (request.path.startsWith(\"/account\") && !identity?.subject) return Response.redirect(\"/\", 307);\n}\n"),
   ]
 }
 

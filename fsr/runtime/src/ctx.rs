@@ -264,6 +264,8 @@ pub struct RequestCtx {
   /// Where a successful action sends its caller, `redirect(to)`: a form post
   /// is answered with a 303 there instead of back to its page.
   pub redirect: RedirectHandle,
+  /// Middleware's `next`, set while a middleware runs; `None` everywhere else.
+  pub next: Option<crate::NextHandle>,
 }
 
 /// The target an action body named with `redirect`. A clone shares the cell,
@@ -314,6 +316,7 @@ impl RequestCtx {
       services: ServiceHandle::default(),
       natives: crate::natives::NativeHandle::default(),
       redirect: RedirectHandle::default(),
+      next: None,
     }
   }
 

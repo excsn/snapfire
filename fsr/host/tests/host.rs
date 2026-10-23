@@ -1365,12 +1365,12 @@ fn localised() -> Arc<Host> {
         Value::Map(map) => map.get("path").cloned().unwrap_or(Value::Null),
         _ => Value::Null,
       };
-      let mut headers = ValueMap::default();
-      headers.insert("x-locale".to_owned(), Value::str(ctx.locale.tag.clone()));
-      headers.insert("x-path".to_owned(), path);
-      let mut out = ValueMap::default();
-      out.insert("headers".to_owned(), Value::Map(headers));
-      Ok(Value::Map(out))
+      let path = match path {
+        Value::Str(path) => path.to_string(),
+        _ => String::new(),
+      };
+      let locale = ctx.locale.tag.clone();
+      route_with(ctx, vec![("x-locale", locale), ("x-path", path)]).await
     })
     .build()
     .unwrap();
@@ -3068,7 +3068,18 @@ fn a_bad_site_section_refuses_to_start() {
   assert!(e.contains("site.name"), "{e}");
 }
 
-const SITE_MIDDLEWARE: &str = r#"[ { "return": { "object": [ { "field": [ "headers", { "object": [ { "field": [ "x-site", { "lit": { "str": "shop" } } ] } ] } ] } ] } } ]"#;
+const SITE_MIDDLEWARE: &str = r#"[ { "let": { "name": "r", "expr": { "next": { "lit": "undefined" } } } }, { "set": { "name": "r", "expr": { "builtin": { "name": "response_header_set", "args": [ { "var": "r" }, { "lit": { "str": "set" } }, { "lit": { "str": "x-site" } }, { "lit": { "str": "shop" } } ] } } } }, { "return": { "var": "r" } } ]"#;
+
+/// What a middleware that goes on to the route answers once it has added `headers` to the route's response.
+async fn route_with(ctx: snapfire_fsr_runtime::RequestCtx, headers: Vec<(&'static str, String)>) -> Result<Value, snapfire_fsr_runtime::ActionError> {
+  let next = ctx.next.clone().expect("next in a middleware's context");
+  let answered = next.call(Value::Null).await?;
+  let mut response = snapfire_fsr_runtime::HttpResponse::from_value(&answered).expect("a response").expect("a response's fields");
+  for (name, value) in headers {
+    response.headers.push((name.to_owned(), value));
+  }
+  Ok(response.to_value())
+}
 
 const SHELL_LAYOUT: &str = r#"{ "module": "routes/layout.tsx#default", "body": { "render": { "element": { "tag": "main", "attrs": [ { "field": [ "class", { "lit": { "str": "shell" } } ] } ], "children": [ { "element": { "tag": "header", "children": [ { "text": "the shell" } ] } }, { "slot": "content" } ] } } } }"#;
 
@@ -3092,7 +3103,7 @@ fn shell_with(site: &std::path::Path) -> Arc<Host> {
   let host = Host::from(shell_dir().join("app.toml"))
     .unwrap()
     .services_over(transport)
-    .middleware(|_ctx, input| async move {
+    .middleware(|ctx, input| async move {
       let site = match &input {
         Value::Map(map) => match map.get("site") {
           Some(Value::Str(name)) => name.to_string(),
@@ -3100,11 +3111,7 @@ fn shell_with(site: &std::path::Path) -> Arc<Host> {
         },
         _ => "none".to_owned(),
       };
-      let mut headers = ValueMap::default();
-      headers.insert("x-shell".to_owned(), Value::str(site));
-      let mut out = ValueMap::default();
-      out.insert("headers".to_owned(), Value::Map(headers));
-      Ok(Value::Map(out))
+      route_with(ctx, vec![("x-shell", site)]).await
     })
     .mount(mount)
     .build()
@@ -3246,7 +3253,7 @@ async fn a_mounted_site_serves_under_the_shells_root_layout_with_its_own_middlew
 async fn a_mounted_sites_middleware_reads_the_constants_its_plan_declares() {
   let site = site_dir();
   let mut json = read_plan(&site);
-  json["middleware"] = serde_json::from_str(r#"[ { "return": { "object": [ { "field": [ "headers", { "object": [ { "field": [ "x-site", { "const": "src/moved.ts#WHERE" } ] } ] } ] } ] } } ]"#).unwrap();
+  json["middleware"] = serde_json::from_str(&SITE_MIDDLEWARE.replace(r#"{ "lit": { "str": "shop" } }"#, r#"{ "const": "src/moved.ts#WHERE" }"#)).unwrap();
   json["consts"] = serde_json::json!({ "src/moved.ts#WHERE": { "lit": { "str": "moved" } } });
   write_plan_value(&site, json);
   let host = shell_with(&site);
@@ -4595,16 +4602,12 @@ async fn the_middleware_sees_a_payload_asked_for_with_an_empty_value() {
   let host = Host::from(dir.join("app.toml"))
     .unwrap()
     .services_over(transport)
-    .middleware(|_ctx, input| async move {
+    .middleware(|ctx, input| async move {
       let payload = match &input {
         Value::Map(map) => matches!(map.get("payload"), Some(Value::Bool(true))),
         _ => false,
       };
-      let mut headers = ValueMap::default();
-      headers.insert("x-payload".to_owned(), Value::str(payload.to_string()));
-      let mut out = ValueMap::default();
-      out.insert("headers".to_owned(), Value::Map(headers));
-      Ok(Value::Map(out))
+      route_with(ctx, vec![("x-payload", payload.to_string())]).await
     })
     .build()
     .unwrap();
@@ -6653,7 +6656,7 @@ async fn an_exposed_page_reads_back_its_own_trace_by_the_signed_token() {
     .filter(|s| ["session", "middleware", "match"].contains(&s["name"].as_str().unwrap()))
     .map(|s| format!("{}{}", s["name"].as_str().unwrap(), s["fields"]["op"].as_str().map(|op| format!(":{op}")).unwrap_or_default()))
     .collect();
-  assert_eq!(order, ["session:open", "middleware", "match", "session:save"], "{json}");
+  assert_eq!(order, ["session:open", "match", "session:save"], "an app with no middleware records no middleware span: {json}");
   let matched = spans.iter().find(|s| s["name"] == "match").unwrap();
   assert_eq!(matched["fields"]["pattern"], "/", "{json}");
 

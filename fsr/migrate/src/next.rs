@@ -164,7 +164,7 @@ pub(crate) fn source_path(path: &str, root: &str, report: &mut Report) -> Option
     return Some(format!("app/tests/{}", inner.split_once('/').map(|(_, r)| r).unwrap_or(inner)));
   }
   if inner == "middleware.ts" || inner == "middleware.js" {
-    report.note(path, 0, "Next's middleware takes a `NextRequest`; FSR's `middleware.ts` takes the request context and returns what to do");
+    report.note(path, 0, "Next's middleware takes a `NextRequest`; FSR's `middleware.ts` takes the request context with `next` and answers a `Response`, its own or the route's");
     return Some(format!("app/{inner}"));
   }
   Some(format!("app/src/{inner}"))

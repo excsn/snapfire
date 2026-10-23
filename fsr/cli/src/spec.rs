@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use snapfire_fsr_core::{Params, Value, ValueMap};
 use snapfire_fsr_engine::{Engine, FetchResponse, Hooks, JsCalls, Resolution};
 use snapfire_fsr_host::config::Config;
-use snapfire_fsr_host::{Host, HostError, Preflight, PreflightAction, RenderMode};
+use snapfire_fsr_host::{Host, HostError, RenderMode};
 use snapfire_fsr_ir::render::Components;
 use snapfire_fsr_ir::{Body, Interpreter};
 use snapfire_fsr_payload::{json_to_value, value_to_json};
@@ -966,50 +966,47 @@ impl Hooks for SpecHooks {
     let interpreter = self.interpreter.clone();
     let hooks = self.clone_for_fetch();
     Box::pin(async move {
-      let preflight = match middleware {
-        Some(body_ir) => {
-          let mut request = ValueMap::default();
-          request.insert("method".to_owned(), Value::str(method.clone()));
-          request.insert("path".to_owned(), Value::str(path.clone()));
-          let mut ctx = mock.ctx.clone();
-          ctx.params = Params::new();
-          ctx.query = parse_query(&query);
-          match interpreter.run(&body_ir, &ctx, Some(Value::Map(request))).await {
-            Ok(outcome) => match Preflight::from_value(&outcome.value) {
-              Ok(preflight) => preflight,
-              Err(message) => return json_response(500, serde_json::json!({ "kind": "internal", "message": message })),
-            },
-            Err(fail) => return json_response(fail.kind.http_status(), serde_json::json!({ "kind": fail.kind.as_str(), "message": fail.message })),
-          }
-        }
-        None => Preflight::pass(),
+      let Some(body_ir) = middleware else {
+        let target = if query.is_empty() { path.clone() } else { format!("{path}?{query}") };
+        return hooks.dispatch(method, path, query, target, body, headers).await;
       };
-      let (path, query, target) = match &preflight.action {
-        PreflightAction::Continue => (path, query, target),
-        PreflightAction::Rewrite(to) => {
-          let (to_path, to_query) = to.split_once('?').unwrap_or((to.as_str(), ""));
-          let query = if to_query.is_empty() { query } else { to_query.to_owned() };
-          let target = if query.is_empty() { to_path.to_owned() } else { format!("{to_path}?{query}") };
-          (to_path.to_owned(), query, target)
-        }
-        PreflightAction::Redirect { to, status } => {
-          let mut response = FetchResponse::new(*status, "").header("location", to.clone());
-          response.headers.extend(preflight.headers.iter().cloned());
-          return response;
-        }
-        PreflightAction::Respond { status, body } => {
-          let mut response = match body {
-            Value::Null => FetchResponse::new(*status, ""),
-            Value::Str(text) => FetchResponse::new(*status, text.clone()),
-            other => FetchResponse::new(*status, value_to_json(other).to_string()),
-          };
-          response.headers.extend(preflight.headers.iter().cloned());
-          return response;
+      let mut ctx = mock.ctx.clone();
+      ctx.params = Params::new();
+      ctx.query = parse_query(&query);
+      ctx.path = path.clone();
+      let input = snapfire_fsr_host::middleware_request(&method, &path, &query, None);
+      let run = move |ctx: snapfire_fsr_runtime::RequestCtx| -> futures_util::future::BoxFuture<'static, Result<Value, snapfire_fsr_runtime::ActionError>> {
+        Box::pin(async move { interpreter.run(&body_ir, &ctx, Some(input)).await.map(|outcome| outcome.value).map_err(|fail| snapfire_fsr_runtime::ActionError::new(fail.kind, fail.message)) })
+      };
+      let serve = |target: snapfire_fsr_runtime::Target| {
+        let (method, body, headers) = (method.clone(), body.clone(), headers.clone());
+        let hooks = &hooks;
+        async move {
+          let asked = if target.query.is_empty() { target.path.clone() } else { format!("{}?{}", target.path, target.query) };
+          let answered = hooks.dispatch(method, target.path, target.query, asked, body, headers).await;
+          let mut head = snapfire_fsr_runtime::HttpResponse::new(answered.status);
+          head.headers = answered.headers;
+          Ok((head, answered.body))
         }
       };
-      let mut response = hooks.dispatch(method, path, query, target, body, headers).await;
-      response.headers.extend(preflight.headers.iter().cloned());
-      response
+      let passed = snapfire_fsr_runtime::drive_middleware(ctx, &query, run, serve).await;
+      match passed {
+        Ok(snapfire_fsr_runtime::Passed::Continue) => {
+          let target = if query.is_empty() { path.clone() } else { format!("{path}?{query}") };
+          hooks.dispatch(method, path, query, target, body, headers).await
+        }
+        Ok(snapfire_fsr_runtime::Passed::Route(head, body)) => {
+          let mut response = FetchResponse::new(head.status, body);
+          response.headers = head.headers;
+          response
+        }
+        Ok(snapfire_fsr_runtime::Passed::Answer(answered)) => {
+          let mut response = FetchResponse::new(answered.status, String::from_utf8_lossy(&answered.body).into_owned());
+          response.headers = answered.headers;
+          response
+        }
+        Err(e) => json_response(e.kind.http_status(), serde_json::json!({ "kind": e.kind.as_str(), "message": e.message })),
+      }
     })
   }
 }

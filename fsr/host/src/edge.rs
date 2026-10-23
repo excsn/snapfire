@@ -96,6 +96,51 @@ pub(crate) fn http_response(answered: snapfire_fsr_runtime::HttpResponse) -> Res
     .expect("a handler's response")
 }
 
+/// Where a request stands in the middleware chain.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage {
+  App,
+  Site,
+  Route,
+}
+
+/// The request line a middleware reads as `request`.
+pub fn middleware_request(method: &str, path: &str, query: &str, site: Option<&str>) -> Value {
+  let mut request = snapfire_fsr_core::ValueMap::default();
+  request.insert("method".to_owned(), Value::str(method.to_ascii_uppercase()));
+  request.insert("path".to_owned(), Value::str(path.to_owned()));
+  request.insert("payload".to_owned(), Value::Bool(payload_of(query)));
+  request.insert("site".to_owned(), site.map(|s| Value::str(s.to_owned())).unwrap_or(Value::Null));
+  Value::Map(request)
+}
+
+/// A request the route can take again: `next` may run it more than once.
+fn copy_request(req: &Request<Bytes>) -> Request<Bytes> {
+  let mut copy = Request::builder().method(req.method().clone()).uri(req.uri().clone()).version(req.version());
+  for (name, value) in req.headers() {
+    copy = copy.header(name, value);
+  }
+  copy.body(req.body().clone()).expect("a copy of a request that parsed")
+}
+
+/// A route's response as the head a middleware reads and the body the host keeps.
+fn split_response(response: Response<Body>) -> (snapfire_fsr_runtime::HttpResponse, Body) {
+  let (parts, body) = response.into_parts();
+  let mut head = snapfire_fsr_runtime::HttpResponse::new(parts.status.as_u16());
+  for (name, value) in &parts.headers {
+    head.headers.push((name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()));
+  }
+  (head, body)
+}
+
+/// A route's body under the head a middleware answered with.
+fn joined_response(head: snapfire_fsr_runtime::HttpResponse, body: Body) -> Response<Body> {
+  let mut response = Response::new(body);
+  *response.status_mut() = StatusCode::from_u16(head.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+  with_headers(&mut response, &head.headers);
+  response
+}
+
 pub(crate) fn text_response(status: StatusCode, text: String) -> Response<Body> {
   Response::builder()
     .status(status)
@@ -501,76 +546,75 @@ impl Host {
         return response;
       }
     }
-    let asked = if raw_query.is_empty() {
-      path.clone()
-    } else {
-      format!("{path}?{raw_query}")
-    };
-    let preflight = match tracing::Instrument::instrument(
-      self.preflight_in(
-        t,
-        req.method().as_str(),
-        &path,
-        &raw_query,
-        self.incoming(opened, self.matched_host(req.headers())),
-        &visit.locale,
-      ),
-      tracing::info_span!(target: "fsr::trace", "middleware"),
-    )
-    .await
-    {
-      Ok(preflight) => preflight,
-      Err(e) => {
-        return json_response(
+    let incoming = self.incoming(opened, self.matched_host(req.headers()));
+    self.through(t, &req, opened, &visit, incoming, Stage::App, path, raw_query).await
+  }
+
+  /// The request at `stage` of the chain: the application's middleware, then the middleware of the site the path belongs to, then the route. A middleware's `next` runs the stages after its own for the request it names; what it answers is the response.
+  #[allow(clippy::too_many_arguments)]
+  fn through<'a>(
+    &'a self,
+    t: &'a Tables,
+    req: &'a Request<Bytes>,
+    opened: &'a snapfire_fsr_session::Opened,
+    visit: &'a Resolution,
+    incoming: Incoming,
+    stage: Stage,
+    path: String,
+    query: String,
+  ) -> futures_util::future::BoxFuture<'a, Response<Body>> {
+    Box::pin(async move {
+      let site = t.site_for(&path);
+      let (middleware, inner) = match stage {
+        Stage::App => (t.app.middleware.clone(), Stage::Site),
+        Stage::Site => (site.and_then(|s| s.middleware.clone()), Stage::Route),
+        Stage::Route => {
+          let target = if query.is_empty() { path.clone() } else { format!("{path}?{query}") };
+          return self.respond(t, copy_request(req), opened, path, target, &query, visit).await;
+        }
+      };
+      let Some(middleware) = middleware else {
+        return self.through(t, req, opened, visit, incoming, inner, path, query).await;
+      };
+      let ctx = self.ctx(t, incoming.clone(), Params::new(), parse_query(&query), &path, visit.locale.clone());
+      let input = middleware_request(req.method().as_str(), &path, &query, site.map(|s| s.name.as_str()));
+      let bound = (stage == Stage::Site).then(|| site.map(|s| (s.name.clone(), s.at.clone()))).flatten();
+      let passed = tracing::Instrument::instrument(
+        snapfire_fsr_runtime::drive_middleware(
+          ctx,
+          &query,
+          move |ctx| middleware.call(ctx, input),
+          |target| {
+            let incoming = incoming.clone();
+            let bound = bound.clone();
+            async move {
+              if let Some((name, at)) = &bound {
+                if !t.site_for(&target.path).is_some_and(|s| &s.name == name) {
+                  return Err(snapfire_fsr_runtime::ActionError::new(snapfire_fsr_runtime::FailureKind::Internal, format!("site `{name}` handed `next` `{}`, outside {at}", target.path)));
+                }
+              }
+              let response = self.through(t, req, opened, visit, incoming, inner, target.path, target.query).await;
+              Ok(split_response(response))
+            }
+          },
+        ),
+        tracing::info_span!(target: "fsr::trace", "middleware"),
+      )
+      .await;
+      match passed {
+        Ok(snapfire_fsr_runtime::Passed::Continue) => self.through(t, req, opened, visit, incoming, inner, path, query).await,
+        Ok(snapfire_fsr_runtime::Passed::Route(head, body)) => joined_response(head, body),
+        Ok(snapfire_fsr_runtime::Passed::Answer(answered)) => {
+          let mut response = http_response(answered);
+          self.set_cookie(opened, &mut response).await;
+          response
+        }
+        Err(e) => json_response(
           StatusCode::from_u16(e.kind.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
           &serde_json::json!({ "kind": e.kind.as_str(), "message": e.message }),
-        );
+        ),
       }
-    };
-    let (path, target) = match &preflight.action {
-      PreflightAction::Continue => (path, asked),
-      PreflightAction::Rewrite(to) => {
-        let (to_path, to_query) = to.split_once('?').unwrap_or((to.as_str(), ""));
-        let query = if to_query.is_empty() {
-          raw_query.clone()
-        } else {
-          to_query.to_owned()
-        };
-        let target = if query.is_empty() {
-          to_path.to_owned()
-        } else {
-          format!("{to_path}?{query}")
-        };
-        (to_path.to_owned(), target)
-      }
-      PreflightAction::Redirect { to, status } => {
-        let mut response = Response::builder()
-          .status(StatusCode::from_u16(*status).unwrap_or(StatusCode::TEMPORARY_REDIRECT))
-          .header(header::LOCATION, to.as_str())
-          .body(Body::default())
-          .expect("a redirect");
-        with_headers(&mut response, &preflight.headers);
-        self.set_cookie(opened, &mut response).await;
-        return response;
-      }
-      PreflightAction::Respond { status, body } => {
-        let status = StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let mut response = match body {
-          Value::Null => Response::builder()
-            .status(status)
-            .body(Body::default())
-            .expect("an empty response"),
-          Value::Str(text) => text_response(status, text.to_string()),
-          other => json_response(status, &snapfire_fsr_payload::value_to_json(other)),
-        };
-        with_headers(&mut response, &preflight.headers);
-        self.set_cookie(opened, &mut response).await;
-        return response;
-      }
-    };
-    let mut response = self.respond(t, req, opened, path, target, &raw_query, &visit).await;
-    with_headers(&mut response, &preflight.headers);
-    response
+    })
   }
 
   pub(crate) async fn respond(

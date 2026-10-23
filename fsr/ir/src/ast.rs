@@ -106,6 +106,8 @@ pub enum Expr {
   /// handle, since nothing crosses a wire and there is no contract to check
   /// it against.
   NativeCall { module: String, method: String, #[serde(default)] args: Vec<(String, Expr)>, #[serde(default, skip_serializing_if = "std::ops::Not::not")] sync: bool },
+  /// Middleware's `next(request)`: the rest of the chain run for `request`, `undefined` for the request as it came, answering the route's `Response`.
+  Next(Box<Expr>),
   Lambda { params: Vec<String>, body: Box<Expr> },
   /// A lambda applied to arguments: a module-level helper a component calls.
   Apply { f: Box<Expr>, args: Vec<Expr> },
@@ -285,6 +287,14 @@ pub enum Builtin {
   ResponseRedirect,
   /// `redirect(to)` from `@snapfire/fsr`: a 303 to `to`, which must be a path on this origin.
   RedirectTo,
+  /// `new Request(url)`: a request for `url`, which middleware hands to `next`.
+  RequestNew,
+  /// A member of a response: `status` or `ok`, by the name in the second argument.
+  ResponseMember,
+  /// `response.headers.get(name)` or, with `"has"` as the third argument, `.has(name)`.
+  ResponseHeaderGet,
+  /// `response.headers.set(name, value)`, `.append(name, value)` or `.delete(name)`: the response with its headers changed, the operation in the second argument.
+  ResponseHeaderSet,
   /// `new Uint8Array(source)`: the bytes of an array of numbers, each taken modulo 256; for a length, that many zeros.
   Uint8Array,
   /// `url.pathname` and the other parts of a href: `href`, `origin`, `protocol`, `username`, `password`, `host`, `hostname`, `port`, `pathname`, `search` and `hash`, each as `URL` reads it.
@@ -949,6 +959,7 @@ impl Expr {
       }
       Expr::Template(parts) => parts.iter().for_each(|p| p.free_vars(out)),
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.free_vars(out)),
+      Expr::Next(e) => e.free_vars(out),
       Expr::Builtin { args, .. } | Expr::Ext { args, .. } => args.iter().for_each(|e| e.free_vars(out)),
       Expr::Apply { f, args } => {
         f.free_vars(out);
@@ -979,6 +990,7 @@ impl Expr {
       Expr::Markup(tmpl) => tmpl.visit(f),
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().for_each(|(_, e)| e.visit(f)),
+      Expr::Next(e) => e.visit(f),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().for_each(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.visit(f),
           Entry::Baked(_) => {}
@@ -1024,6 +1036,7 @@ impl Expr {
       Expr::Markup(tmpl) => std::sync::Arc::make_mut(tmpl).visit_mut(f),
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => {}
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter_mut().for_each(|(_, e)| e.visit_mut(f)),
+      Expr::Next(e) => e.visit_mut(f),
       Expr::Object(entries) | Expr::Array(entries) => entries.iter_mut().for_each(|entry| entry.visit_mut(f)),
       Expr::Field(e, _) | Expr::Not(e) | Expr::Entries(e) | Expr::Keys(e) | Expr::Values(e)
       | Expr::Length(e) | Expr::Str(e) | Expr::Num(e) | Expr::BigInt(e) => e.visit_mut(f),
@@ -1070,6 +1083,7 @@ impl Expr {
       Expr::Folded(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Input | Expr::Now | Expr::Host | Expr::Address => true,
       Expr::Locale | Expr::Path | Expr::Document | Expr::Origin | Expr::Config(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Call { args, .. } | Expr::NativeCall { args, .. } => args.iter().any(|(_, e)| e.reads_request()),
+      Expr::Next(_) => true,
       Expr::Var(_) | Expr::Const(_) | Expr::Lit(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.reads_request(),
@@ -1100,7 +1114,7 @@ impl Expr {
         tmpl.visit(&mut |e| calls |= e.has_call());
         calls
       }
-      Expr::Call { .. } | Expr::NativeCall { .. } => true,
+      Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_) => true,
       Expr::Folded(_) | Expr::Var(_) | Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Context(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Const(_) | Expr::Lit(_) | Expr::Handler(_) | Expr::HoistId(_) => false,
       Expr::Object(entries) | Expr::Array(entries) => entries.iter().any(|entry| match entry {
         Entry::Field(_, e) | Entry::Item(e) | Entry::Spread(e) => e.has_call(),
@@ -1119,7 +1133,7 @@ impl Expr {
       Expr::Lambda { body, .. } => body.has_call(),
       Expr::Block(body) => {
         let mut any = false;
-        body_visit(body, &mut |e| any |= matches!(e, Expr::Call { .. } | Expr::NativeCall { .. }));
+        body_visit(body, &mut |e| any |= matches!(e, Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_)));
         any
       }
       Expr::Hoist { expr, .. } => expr.has_call(),

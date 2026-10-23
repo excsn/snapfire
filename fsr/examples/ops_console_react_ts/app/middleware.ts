@@ -1,8 +1,10 @@
-import type { MiddlewareCtx, MiddlewareResult } from "@snapfire/fsr";
+import type { MiddlewareCtx } from "@snapfire/fsr";
 
-export async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {
-  if (request.path === "/dashboard") return { redirect: "/" };
-  if (request.path === "/fleet") return { rewrite: "/agents" };
-  if (request.path === "/account" && !identity?.subject) return { redirect: "/auth/login?return_to=/account" };
-  return { headers: { "x-ops-console": "fsr" } };
+export async function middleware({ request, identity, next }: MiddlewareCtx) {
+  if (request.path === "/dashboard") return Response.redirect("/", 307);
+  if (request.path === "/fleet") return next(new Request("/agents"));
+  if (request.path === "/account" && !identity?.subject) return Response.redirect("/auth/login?return_to=/account", 307);
+  const response = await next();
+  response.headers.set("x-ops-console", "fsr");
+  return response;
 }

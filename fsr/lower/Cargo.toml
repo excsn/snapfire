@@ -26,6 +26,7 @@ version = "82"
 features = ["common", "ecma_ast", "ecma_parser", "ecma_visit", "ecma_transforms"]
 
 [dev-dependencies]
+parking_lot = "0.12"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["registry", "std"] }
 snapfire_fsr_core.workspace = true

@@ -72,7 +72,7 @@ How to lay out an application's routes, clients and schemas, run a build and rea
 * **Pattern** comes from the directory path: `index` is `/`, `[id]` is `{id}`, `[...rest]` is `{*rest}`.
 * **Source id** is the route's segments joined with `.`, `index` for the root, a parameter contributing `$<name>`, so `routes/product/[id]` is `product.$id`; it names the loader. The marker is why a route and its parameterised child are two ids rather than one. Its props type drops it: `product.$id` is `ProductIdProps`.
 * **Action id** is `<source id>.<export>`, so `routes/cart/actions.ts` exporting `checkout` is `cart.checkout`.
-* **Middleware** is `middleware.ts` at the top of the app, run before every request that is not a static file with the request line as `request`; it continues, redirects, rewrites, responds or adds headers.
+* **Middleware** is `middleware.ts` at the top of the app, run before every request that is not a static file with the request line as `request` and `next` to run the route; it answers with a `Response`, its own or the route's.
 * **Locale** is a request attribute the host resolves from the path prefix, the cookie and `Accept-Language` under a `[locales]` section, read as `ctx.locale` in every body and as `useLocale()` in a component; the prefix is stripped before the route matches, so no route carries a locale segment.
 * **Handler** is an export of a directory's `route.ts` named `GET`, `POST`, `PUT`, `PATCH` or `DELETE`, answered with JSON rather than a document; its id is `<route id>.<METHOD>`. A directory is a page or a handler, never both.
 * **Layout** is `layout.tsx` in a routes directory: an island that wraps every page beneath it and renders the page where it puts `children`; its `layout.loader.ts` is its loader, named for the module it feeds the way `page.loader.ts` is.
@@ -367,29 +367,33 @@ The status must lie between 200 and 599 and a redirect's must be 301, 302, 303, 
 
 ## Writing Middleware
 
-`middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method`, `request.path` and `request.payload`, true for a navigation's payload and false for a document, plus the same `query`, `session`, `identity`, `locale` and `services` a loader gets. `request.path` has no locale prefix: the host strips it before anything reads the path, so `/fr_FR/basket` reaches the middleware as `/basket` with `locale` set to `fr_FR`. What it returns decides the request: nothing continues; `redirect` answers with a `Location` and status 307 unless `status` says otherwise; `status` with an optional `body` answers outright, text for a string and JSON for anything else; `rewrite` serves another path under the same location; `headers` join the response in every case.
+`middleware.ts` exports `middleware`. It runs before the action route, the handlers and the pages, with `request.method`, `request.path` and `request.payload`, true for a navigation's payload and false for a document, plus the same `query`, `session`, `identity`, `locale` and `services` a loader gets. `request.path` has no locale prefix: the host strips it before anything reads the path, so `/fr_FR/basket` reaches the middleware as `/basket` with `locale` set to `fr_FR`. It works with `Request` and `Response` only. A `Response` it returns is the answer, so `Response.redirect` or `new Response(body, { status })` ends the request there. `await next()` runs the route and answers its `Response`, whose headers the middleware may change before returning it; `next(new Request("/"))` runs the route for another path under the same URL. Returning nothing goes on to the route.
 
 ```ts
-import type { MiddlewareCtx, MiddlewareResult } from "@snapfire/fsr";
+import type { MiddlewareCtx } from "@snapfire/fsr";
 
-export async function middleware({ request, identity }: MiddlewareCtx): Promise<MiddlewareResult> {
-  if (request.path.startsWith("/account") && !identity?.subject) return { redirect: "/login" };
-  if (request.path === "/shop") return { rewrite: "/" };
-  return { headers: { "x-frame-options": "DENY" } };
+export async function middleware({ request, identity, next }: MiddlewareCtx) {
+  if (request.path.startsWith("/account") && !identity?.subject) return Response.redirect("/login", 307);
+  if (request.path === "/shop") return next(new Request("/"));
+  const response = await next();
+  response.headers.set("x-frame-options", "DENY");
+  if (response.status === 404) response.headers.set("cache-control", "no-store");
+  return response;
 }
 ```
 
-`identity` is read by field, `identity?.subject` here, since a body holds no whole value for it. A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`.
+The route's response reads `status`, `ok` and `headers.get(name)`; `headers.set`, `append` and `delete` change it; its body streams to the visitor as the route writes it. A `Request` handed to `next` names a path on this origin, query and all. Under a site's prefix the shell's middleware runs first and its `next` runs the site's middleware, whose `next` runs the route.
+
+`identity` is read by field, `identity?.subject` here, since a body holds no whole value for it. A body test imports `middleware` from the file and builds its context with `request`: `ctx({ request: { method: "GET", path: "/shop" } })`. There `next` answers a 200 with no body and `c.trace.next` lists the requests it was handed; `c.trace.redirect` is where a redirect pointed.
 
 Middleware is also where a session is kept alive. A session ends one `session.ttl` after it opened however often it is read and nothing moves that end on its own; `session.extend(seconds)` moves it to that many seconds from now and the host sets the cookie again to match. Guard it with a key the session holds, so a busy session costs one store write every few hours rather than one a request:
 
 ```ts
-export async function middleware({ session, now }: MiddlewareCtx): Promise<MiddlewareResult> {
+export async function middleware({ session, now }: MiddlewareCtx) {
   if (session.touched == null || now - session.touched > 6n * 3600n) {
     session.touched = now;
     session.extend(24 * 3600);
   }
-  return {};
 }
 ```
 
@@ -582,7 +586,7 @@ export default function Layout({ children, identity, csrf_token }: { children: R
 A private route is a line of middleware, with the literal `return_to` you want:
 
 ```ts
-if (request.path === "/account" && !identity?.subject) return { redirect: "/auth/login?return_to=/account" };
+if (request.path === "/account" && !identity?.subject) return Response.redirect("/auth/login?return_to=/account", 307);
 ```
 
 `provider = "service"` with `client = "<name>"` asks that client's `authenticate` instead of a file and `[session] store = "service"` with a `client` keeps the sessions behind one too, so the host holds neither accounts nor sessions; the console's identity service is the example and `APP_ENV=mock` puts it behind a file like any other client. A page or layout that reads `identity` or `csrf_token` keeps its route out of the prerender list. Under `fsr test`, `ctx({ identity: { subject, claims } })` renders a page as that user and `load(path, { ctx })` runs the guard with it; the runner also serves the three `/auth/` routes against the spec's session, so the flow itself is a spec, see [Running the Specs](#running-the-specs).

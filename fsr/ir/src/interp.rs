@@ -125,7 +125,7 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
   let mut pure = free.is_empty();
   let mut refs = Vec::new();
   expr.visit(&mut |e| match e {
-    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
+    Expr::Param(_) | Expr::Query(_) | Expr::ParamsAll | Expr::QueryAll | Expr::Session(_) | Expr::Store(_) | Expr::Identity(_) | Expr::Locale | Expr::Path | Expr::Document | Expr::Host | Expr::Origin | Expr::Address | Expr::Config(_) | Expr::Input | Expr::Now | Expr::Call { .. } | Expr::NativeCall { .. } | Expr::Next(_) | Expr::Ext { .. } | Expr::Hoist { .. } | Expr::HoistId(_) | Expr::Cell(_) | Expr::ModuleCell { .. } | Expr::ReadCell(_) | Expr::WriteCell(..) | Expr::WriteStore(..) => pure = false,
     Expr::Const(other) => refs.push(other.clone()),
     _ => {}
   });
@@ -1173,6 +1173,7 @@ impl Env {
         Ok(Value::str(out))
       }
       Expr::Call { .. } => Err(Fail::internal("a service call in an expression that cannot suspend")),
+      Expr::Next(_) => Err(Fail::internal("`next` in an expression that cannot suspend")),
       Expr::NativeCall { module, method, args, sync } => self.native_sync(module, method, args, *sync),
       Expr::Lambda { params, body } => self.close(params, body),
       Expr::Block(body) => {
@@ -1737,6 +1738,11 @@ impl Env {
           }
           self.ctx.services.call(service, method, map).await.map_err(|e| Fail::new(e.kind, e.message))
         }
+        Expr::Next(request) => {
+          let request = self.eval(request).await?;
+          let Some(next) = self.ctx.next.clone() else { return Err(Fail::internal("`next` outside a middleware")) };
+          next.call(request).await.map_err(|e| Fail::new(e.kind, e.message))
+        }
         Expr::NativeCall { module, method, args, sync } => {
           let mut map = ValueMap::default();
           for (name, e) in args {
@@ -2028,6 +2034,9 @@ pub(crate) fn truthy(value: &Value) -> bool {
 fn get_field(target: &Value, name: &str) -> Value {
   match target {
     Value::Map(map) => map.get(name).cloned().unwrap_or(Value::Undefined),
+    Value::Variant { tag, .. } if tag == snapfire_fsr_runtime::RESPONSE_TAG && matches!(name, "status" | "ok") => {
+      message_builtin(Builtin::ResponseMember, &[target.clone(), Value::str(name)]).unwrap_or(Value::Undefined)
+    }
     _ => Value::Undefined,
   }
 }
@@ -2515,6 +2524,50 @@ fn response_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
     _ => return Err(Fail::internal(format!("{name:?} does not make a response"))),
   }
   Ok(response.to_value())
+}
+
+/// `new Request(url)` and what a response's members read and write.
+fn message_builtin(name: Builtin, args: &[Value]) -> Result<Value, Fail> {
+  use snapfire_fsr_runtime::HttpResponse;
+  let text = |at: usize| args.get(at).map(stringify).unwrap_or_else(|| Ok(String::new()));
+  if name == Builtin::RequestNew {
+    let mut fields = ValueMap::default();
+    fields.insert("url".to_owned(), Value::str(text(0)?));
+    return Ok(Value::Variant { tag: snapfire_fsr_runtime::REQUEST_TAG.to_owned(), payload: Some(Box::new(Value::Map(fields))) });
+  }
+  let mut response = match args.first().and_then(HttpResponse::from_value) {
+    Some(Ok(response)) => response,
+    Some(Err(message)) => return Err(Fail::internal(message)),
+    None => return Err(type_error("a response member", "a Response", args.first().unwrap_or(&Value::Undefined))),
+  };
+  Ok(match name {
+    Builtin::ResponseMember => match text(1)?.as_str() {
+      "status" => Value::F64(f64::from(response.status)),
+      "ok" => Value::Bool((200..300).contains(&response.status)),
+      other => return Err(Fail::internal(format!("`{other}` is not a member of a Response the build reads"))),
+    },
+    Builtin::ResponseHeaderGet => {
+      let header = text(1)?;
+      let found = response.header(&header).map(str::to_owned);
+      match args.get(2) {
+        Some(Value::Str(op)) if op.as_str() == "has" => Value::Bool(found.is_some()),
+        _ => found.map(Value::str).unwrap_or(Value::Null),
+      }
+    }
+    _ => {
+      let (op, header) = (text(1)?, text(2)?);
+      match op.as_str() {
+        "set" => {
+          response.headers.retain(|(n, _)| !n.eq_ignore_ascii_case(&header));
+          response.headers.push((header, text(3)?));
+        }
+        "append" => response.headers.push((header, text(3)?)),
+        "delete" => response.headers.retain(|(n, _)| !n.eq_ignore_ascii_case(&header)),
+        other => return Err(Fail::internal(format!("`headers.{other}` is not one the build reads"))),
+      }
+      response.to_value()
+    }
+  })
 }
 
 /// The URL a `UrlParse` href holds.
@@ -3405,6 +3458,7 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       Value::str(pairs.iter().map(|(k, v)| format!("{}={}", form_encode(k), form_encode(v))).collect::<Vec<_>>().join("&"))
     }
     Builtin::Response | Builtin::ResponseJson | Builtin::ResponseRedirect | Builtin::RedirectTo => return response_builtin(name, &args),
+    Builtin::RequestNew | Builtin::ResponseMember | Builtin::ResponseHeaderGet | Builtin::ResponseHeaderSet => return message_builtin(name, &args),
     Builtin::Uint8Array => Value::TypedArray(snapfire_fsr_core::TypedArray::U8(match args.first() {
       None | Some(Value::Null | Value::Undefined) => Vec::new(),
       Some(Value::Seq(items)) => items.iter().map(|item| number(name, item).map(|n| if n.is_finite() { n.trunc().rem_euclid(256.0) as u8 } else { 0 })).collect::<Result<_, _>>()?,
