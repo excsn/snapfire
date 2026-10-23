@@ -139,3 +139,16 @@ fn a_kept_entry_loses_an_if_that_chooses_what_to_render() {
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
 }
 
+
+#[test]
+fn the_entry_is_the_shallowest_file_that_renders_when_several_do() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("src/commands/commit.tsx", "import React from 'react';\nimport {render} from 'ink';\nimport {Commit} from '../ui/Commit';\n\nexport function runCommit() {\n  render(<Commit />);\n}\n"),
+    ("src/index.ts", "import React from 'react';\nimport {render} from 'ink';\nimport {App} from './ui/App';\n\nrender(React.createElement(App));\n"),
+    ("src/ui/App.tsx", "import React from 'react';\nimport {Text} from 'ink';\n\nexport function App() {\n  return <Text>app</Text>;\n}\n"),
+    ("src/ui/Commit.tsx", "import React from 'react';\nimport {Text} from 'ink';\n\nexport function Commit() {\n  return <Text>commit</Text>;\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { App } from \"@src/ui/App\";\n\nexport default function Page() {\n  return <App />;\n}\n", "{:?}", report.notes);
+}

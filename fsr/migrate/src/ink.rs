@@ -86,16 +86,19 @@ enum Passed {
   Props(Vec<String>),
 }
 
+/// The shallowest file under `root` that calls Ink's `render`, ties in path order.
 fn entry(tree: &Tree, root: &str) -> Option<Entry> {
-  let mut found = None;
+  let mut found: Option<Entry> = None;
   for path in tree.paths().filter(|p| is_script(p) && (p.starts_with(root) || !p.contains('/'))) {
+    if found.as_ref().is_some_and(|f| f.path.matches('/').count() <= path.matches('/').count()) {
+      continue;
+    }
     let Some(text) = tree.text(path) else { continue };
     let Ok(parsed) = parse(path, text) else { continue };
     let mut calls = Renders { render: None, found: None, parsed: &parsed, text };
     parsed.module.visit_with(&mut calls);
     if let Some((line, component, passed)) = calls.found {
       found = Some(Entry { path: path.to_owned(), line, component, passed });
-      break;
     }
   }
   found
