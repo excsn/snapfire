@@ -37,6 +37,11 @@ impl Pass for Layout {
     let entry = entry(tree, root);
     // An entry that declares the component it renders stays, exporting it, with the `render` call taken out.
     let kept_entry = entry.as_ref().and_then(|e| keep_entry(tree, e));
+    if let Some(e) = &entry {
+      for line in &e.earlier {
+        report.note(&e.path, *line, "`render` is called here too; a page for it waits on the terminal running more than one route");
+      }
+    }
     if let (Some(e), Some(text)) = (&entry, &kept_entry) {
       tree.insert(e.path.clone(), text.clone());
     }
@@ -80,8 +85,10 @@ impl Pass for Layout {
 struct Entry {
   path: String,
   line: usize,
-  /// The `render` call.
+  /// The `render` call, the last in the file.
   call: Span,
+  /// The lines of the other `render` calls in the file.
+  earlier: Vec<usize>,
   /// The component rendered, by the name the entry holds it under.
   component: String,
   /// What `render` passed the component: prop names from an element, or the count of arguments from a call.
@@ -105,10 +112,14 @@ fn entry(tree: &Tree, root: &str) -> Option<Entry> {
     }
     let Some(text) = tree.text(path) else { continue };
     let Ok(parsed) = parse(path, text) else { continue };
-    let mut calls = Renders { render: None, found: None, parsed: &parsed, text };
+    let mut calls = Renders { render: None, found: Vec::new(), branches: 0, callbacks: 0, parsed: &parsed, text };
     parsed.module.visit_with(&mut calls);
-    if let Some((line, call, component, passed)) = calls.found {
-      found = Some(Entry { path: path.to_owned(), line, call, component, passed });
+    // The root page is the last render on the straight-line path, outside every branch and callback; the first render when every one is inside a branch.
+    let chosen = calls.found.iter().rposition(|(.., straight)| *straight).or_else(|| (!calls.found.is_empty()).then_some(0));
+    if let Some(at) = chosen {
+      let earlier = calls.found.iter().enumerate().filter(|(i, _)| *i != at).map(|(_, (line, ..))| *line).collect();
+      let (line, call, component, passed, _) = calls.found.swap_remove(at);
+      found = Some(Entry { path: path.to_owned(), line, call, earlier, component, passed });
     }
   }
   found
@@ -119,7 +130,18 @@ struct Renders<'a> {
   text: &'a str,
   /// The local name `render` from `ink` is imported under.
   render: Option<String>,
-  found: Option<(usize, Span, String, Passed)>,
+  /// Every `render` call in order: its line, span, component, what it passed and whether it stands on the straight-line path, outside every branch and callback.
+  found: Vec<(usize, Span, String, Passed, bool)>,
+  branches: usize,
+  callbacks: usize,
+}
+
+impl Renders<'_> {
+  fn branched<N: VisitWith<Self>>(&mut self, n: &N) {
+    self.branches += 1;
+    n.visit_children_with(self);
+    self.branches -= 1;
+  }
 }
 
 impl Visit for Renders<'_> {
@@ -141,16 +163,51 @@ impl Visit for Renders<'_> {
   }
 
   fn visit_call_expr(&mut self, n: &js::CallExpr) {
-    if self.found.is_none() {
-      if let (Some(render), js::Callee::Expr(callee)) = (&self.render, &n.callee) {
-        if matches!(&**callee, js::Expr::Ident(id) if *id.sym == **render) {
-          if let Some(arg) = n.args.first() {
-            self.found = rendered(self.parsed, self.text, &arg.expr).map(|(component, passed)| (self.parsed.line(n.span()), n.span(), component, passed));
+    if let (Some(render), js::Callee::Expr(callee)) = (&self.render, &n.callee) {
+      if matches!(&**callee, js::Expr::Ident(id) if *id.sym == **render) {
+        if let Some(arg) = n.args.first() {
+          if let Some((component, passed)) = rendered(self.parsed, self.text, &arg.expr) {
+            self.found.push((self.parsed.line(n.span()), n.span(), component, passed, self.branches == 0 && self.callbacks == 0));
           }
         }
       }
     }
     n.visit_children_with(self);
+  }
+
+  fn visit_if_stmt(&mut self, n: &js::IfStmt) {
+    self.branched(n);
+  }
+  fn visit_switch_stmt(&mut self, n: &js::SwitchStmt) {
+    self.branched(n);
+  }
+  fn visit_try_stmt(&mut self, n: &js::TryStmt) {
+    self.branched(n);
+  }
+  fn visit_for_stmt(&mut self, n: &js::ForStmt) {
+    self.branched(n);
+  }
+  fn visit_for_of_stmt(&mut self, n: &js::ForOfStmt) {
+    self.branched(n);
+  }
+  fn visit_for_in_stmt(&mut self, n: &js::ForInStmt) {
+    self.branched(n);
+  }
+  fn visit_while_stmt(&mut self, n: &js::WhileStmt) {
+    self.branched(n);
+  }
+  fn visit_cond_expr(&mut self, n: &js::CondExpr) {
+    self.branched(n);
+  }
+  fn visit_arrow_expr(&mut self, n: &js::ArrowExpr) {
+    self.callbacks += 1;
+    n.visit_children_with(self);
+    self.callbacks -= 1;
+  }
+  fn visit_fn_expr(&mut self, n: &js::FnExpr) {
+    self.callbacks += 1;
+    n.visit_children_with(self);
+    self.callbacks -= 1;
   }
 }
 
@@ -423,7 +480,12 @@ fn follow(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, entr
   if candidates.is_empty() {
     return Ok(spec.to_owned());
   }
-  let Some((target, _)) = candidates.iter().find_map(|c| find(tree, c)) else { return Err(format!("`{spec}`, which the build cannot follow")) };
+  let Some((target, _)) = candidates.iter().find_map(|c| find(tree, c)) else {
+    if relative_spec {
+      return Err(format!("`{spec}`, which the build cannot follow"));
+    }
+    return Ok(spec.to_owned());
+  };
   let Some(moved) = moves.get(&target).and_then(|m| m.strip_prefix("app/src/")) else { return Err(format!("`{target}`, which is not under the sources")) };
   let mut module = moved.to_owned();
   if let Some(ext) = SCRIPT_EXTENSIONS.iter().find(|ext| module.ends_with(*ext)) {
@@ -528,8 +590,11 @@ fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, 
   for range in before {
     let indent = text[..range.start].rsplit('\n').next().map(|l| l.len() - l.trim_start().len()).unwrap_or(0);
     for (i, line) in text[range].lines().enumerate() {
-      body.push_str("  ");
-      body.push_str(if i == 0 { line.trim_start() } else { line.get(indent..).unwrap_or(line.trim_start()) });
+      let line = if i == 0 { line.trim_start() } else { line.get(indent..).unwrap_or(line.trim_start()) };
+      if !line.trim().is_empty() {
+        body.push_str("  ");
+        body.push_str(line);
+      }
       body.push('\n');
     }
   }

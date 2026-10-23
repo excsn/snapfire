@@ -69,11 +69,12 @@ fn what_the_entry_passed_the_component_comes_from_a_loader_written_from_the_entr
     ("package.json", PACKAGE),
     ("source/cli.tsx", "import React from 'react';\nimport {render} from 'ink';\nimport meow from 'meow';\nimport Ui from './ui.js';\n\nconst cli = meow('', {importMeta: import.meta, flags: {limit: {type: 'number'}}});\n\nrender(<Ui limit={cli.flags.limit ?? 7} skinNumber={0} />);\n"),
     ("source/ui.tsx", "export default function Ui({ limit, skinNumber }: { limit: number; skinNumber: number }) {\n  return null;\n}\n"),
+    ("tsconfig.json", "{ \"compilerOptions\": { \"baseUrl\": \".\", \"paths\": { \"*\": [\"node_modules/*\"] } } }"),
   ]);
   let (out, report) = migrate(&t);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import type { RootProps } from \"@generated/client\";\nimport Ui from \"@src/ui\";\n\nexport default function Page({ limit, skinNumber }: RootProps) {\n  return <Ui limit={limit} skinNumber={skinNumber} />;\n}\n");
   let loader = out.text("app/routes/page.loader.ts").unwrap();
-  assert!(loader.contains("import meow from \"meow\";\n"), "{loader}");
+  assert!(loader.contains("import meow from \"meow\";\n"), "a package behind a catch-all alias is imported as itself: {loader}");
   assert!(loader.contains("export async function load({ params }: Ctx"), "{loader}");
   assert!(loader.contains("\n  const cli = meow('', {importMeta: import.meta, flags: {limit: {type: 'number'}}});\n  return { limit: cli.flags.limit ?? 7, skinNumber: 0 };\n}\n"), "{loader}");
   assert!(report.packages.contains_key("meow"), "{:?}", report.packages.keys().collect::<Vec<_>>());
@@ -156,4 +157,20 @@ fn the_entry_is_the_shallowest_file_that_renders_when_several_do() {
   ]);
   let (out, report) = migrate(&t);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { App } from \"@src/ui/App\";\n\nexport default function Page() {\n  return <App />;\n}\n", "{:?}", report.notes);
+}
+
+#[test]
+fn the_last_render_in_the_entry_is_the_page_and_the_statements_before_it_keep_their_shape() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("source/cli.tsx", "import React from 'react';\nimport {render} from 'ink';\nimport Picker from './picker.js';\nimport App from './app.js';\n\nasync function main() {\n  if (process.argv.includes('--pick')) {\n    render(<Picker onPick={() => {}} />);\n    return;\n  }\n  const config = {\n    verbose: true,\n\n    name: 'x',\n  };\n  render(<App config={config} />);\n}\n\nmain();\n"),
+    ("source/picker.tsx", "export default function Picker({ onPick }: { onPick: () => void }) {\n  return null;\n}\n"),
+    ("source/app.tsx", "export default function App({ config }: { config: unknown }) {\n  return null;\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import type { RootProps } from \"@generated/client\";\nimport App from \"@src/app\";\n\nexport default function Page({ config }: RootProps) {\n  return <App config={config} />;\n}\n");
+  let loader = out.text("app/routes/page.loader.ts").unwrap();
+  assert!(loader.contains("\n  if (process.argv.includes('--pick')) {\n    render(<Picker onPick={() => {}} />);\n    return;\n  }\n  const config = {\n    verbose: true,\n\n    name: 'x',\n  };\n  return { config };\n}\n"), "{loader}");
+  assert!(!loader.lines().any(|l| l.ends_with(' ')), "a blank line inside a copied statement stays blank: {loader:?}");
+  assert!(report.notes.iter().any(|n| n.to_string() == "source/cli.tsx:8: `render` is called here too; a page for it waits on the terminal running more than one route"), "{:?}", report.notes);
 }
