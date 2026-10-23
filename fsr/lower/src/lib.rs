@@ -984,6 +984,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) reader: Option<js::Id>,
   /// A component's setters, dispatchers and inner functions, which only the browser calls. Read as a value on the server one is `render::BROWSER_HANDLER`, a function that renders nothing, as React renders nothing for one.
   pub(crate) browser_functions: Vec<String>,
+  /// The functions a component's body declares, by name; a call to one in an expression applies it as a lambda made where the call stands.
+  pub(crate) local_fns: Vec<(String, js::Function)>,
   /// The application's functions whose every statement the browser alone runs, so a call to one as a statement does nothing on the server.
   pub(crate) browser_effects: Vec<String>,
   /// Names held in a cell, `Expr::Cell` or `Expr::ModuleCell`, because a function writes them, each with the expression for its handle: a write in a block is a `WriteCell` through it.
@@ -1114,7 +1116,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -3168,6 +3170,14 @@ impl<'a> Lowerer<'a> {
     if let js::Expr::Ident(id) = &**callee {
       let name = id.sym.as_ref();
       if !self.scope.iter().any(|(n, _)| n == name) && self.root_of(id).is_none() {
+        if let Some(function) = self.local_fns.iter().rev().find(|(n, _)| n == name).map(|(_, f)| f.clone()) {
+          let f = Box::new(self.function_expr(&function)?);
+          let mut args = Vec::with_capacity(call.args.len());
+          for a in &call.args {
+            args.push(self.expr(&a.expr)?);
+          }
+          return Ok(Expr::Apply { f, args });
+        }
         if let Some((_, f)) = self.globals.iter().rev().find(|(n, _)| n == name) {
           let f = Box::new(f.clone());
           if let Expr::Ext { module, name: member, args: declared } = &*f {

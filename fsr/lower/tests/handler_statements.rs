@@ -61,3 +61,12 @@ fn a_ternary_statement_in_a_handler_runs_one_arm() {
   assert!(html[0].contains(">5</button>"), "{}", html[0]);
   assert!(html[1].contains(">0</button>"), "{}", html[1]);
 }
+
+#[test]
+fn a_handler_calls_a_function_the_component_declares_for_a_value() {
+  let page = "import { useState } from 'react';\n\nexport default function Count() {\n  const [count, setCount] = useState(0);\n  const step = () => {\n    isHigh() ? setCount(0) : setCount(count + 1);\n  };\n  function isHigh() {\n    return count > 2;\n  }\n  return <button onClick={step}>{count}</button>;\n}\n";
+  let html = steps("value_fn", page, 0, 4).unwrap();
+  assert!(html[0].contains(">1</button>"), "{}", html[0]);
+  assert!(html[2].contains(">3</button>"), "{}", html[2]);
+  assert!(html[3].contains(">0</button>"), "{}", html[3]);
+}

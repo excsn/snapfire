@@ -6164,6 +6164,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         let bound = format!("{prefix}{}", f.ident.sym);
         if let Some(body) = &f.function.body {
           self.handler_fns.insert(bound.clone(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+          self.lowerer.local_fns.push((f.ident.sym.to_string(), (*f.function).clone()));
         }
         self.lowerer.browser_functions.push(f.ident.sym.to_string());
         self.browser_function(bound.clone());
@@ -7071,10 +7072,12 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           Some(fired) => Expr::Ternary(Box::new(fired), Box::new(Expr::Lit(Lit::Null)), Box::new(expr)),
         };
         // A function declaration is hoisted: a handler above it calls it by name.
+        self.lowerer.local_fns.clear();
         for stmt in stmts.iter() {
           if let js::Stmt::Decl(js::Decl::Fn(f)) = stmt {
             if let Some(body) = &f.function.body {
               self.handler_fns.insert(f.ident.sym.to_string(), (patterns(&f.function), FunctionBody::Block(&body.stmts)));
+              self.lowerer.local_fns.push((f.ident.sym.to_string(), (*f.function).clone()));
             }
           }
         }
