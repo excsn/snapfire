@@ -1987,13 +1987,12 @@ fn render_placed<'a>(env: &mut Env, module: &str, props: &[Entry], children: &'a
   result
 }
 
-/// The framework an island's module renders with: its lowered component's owner, else its file's. None for a module no framework renders.
+/// The framework an island's module renders with: its lowered component's owner, else, for a module lowered framework-neutral or not lowered at all, its file's. None for a module no framework renders.
 fn island_owner(module: &str, library: &Components) -> Option<crate::ast::Owner> {
   use crate::ast::Owner;
   match library.get(module).map(|c| c.owner) {
-    Some(Owner::Fsr) => None,
-    Some(owner) => Some(owner),
-    None => {
+    Some(owner) if owner != Owner::Fsr => Some(owner),
+    _ => {
       let file = module.split_once('#').map_or(module, |(file, _)| file);
       if file.ends_with(".vue") {
         Some(Owner::Vue)
@@ -4030,6 +4029,17 @@ mod island_tests {
     assert!(!shell.body.html.contains("page"), "the page's provider stays outside the outermost island: {}", shell.body.html);
     assert_eq!(shell.body.islands[0].body.html, "dusk", "a React island in a React island");
     assert_eq!(shell.body.islands[1].body.html, "", "a Vue island in a React island");
+  }
+
+  #[test]
+  fn a_neutral_component_placed_as_an_island_takes_the_framework_of_its_file() {
+    let mut library = Components::new();
+    library.insert("src/ui/Label.tsx#default".to_owned(), Arc::new(Component::new(crate::ast::Owner::Fsr, Vec::new(), Tmpl::Expr(Expr::Context("tone".to_owned())))));
+    let provide = Tmpl::Let { name: format!("{CONTEXT_PREFIX}tone"), expr: Expr::Lit(crate::ast::Lit::Str("dusk".to_owned())), then: Box::new(island_at("src/ui/Label.tsx#default", 1)) };
+    library.insert("src/ui/Shell.tsx#Shell".to_owned(), Arc::new(Component::new(crate::ast::Owner::React, Vec::new(), provide)));
+    let page = Component::new(crate::ast::Owner::React, Vec::new(), island_at("src/ui/Shell.tsx#Shell", 0));
+    let rendered = Interpreter::default().render_module("routes/w/page.tsx#default", &page, &ValueMap::default(), &library).unwrap();
+    assert_eq!(rendered.islands[0].body.islands[0].body.html, "dusk", "React mounts a .tsx island, so it renders in the React island's tree");
   }
 
   #[test]

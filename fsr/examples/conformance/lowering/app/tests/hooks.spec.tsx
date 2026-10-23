@@ -39,14 +39,15 @@ describe("the hooks page", () => {
     expect(text(".tally")).toEqual("4 add");
   });
 
-  test("reads a provider's value inline and the default inside an island of its own", async () => {
+  test("reads a provider's value inline and inside an island of its own framework placed under it", async () => {
     await load("/hooks");
     await settle();
     expect(text(".label.inline")).toEqual("inline:dark");
-    expect(text(".label.island")).toEqual("island:light");
+    expect(text(".label.island")).toEqual("island:dark");
     await fireEvent.click(document.querySelector(".flip")!);
     await settle();
     expect(text(".label.inline")).toEqual("inline:light");
+    expect(text(".label.island")).toEqual("island:light");
   });
 
   test("spells each useId from the component and its placement, the same on both halves", async () => {
