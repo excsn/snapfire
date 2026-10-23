@@ -47,3 +47,7 @@ code {
   border-radius: 4px;
   padding: 2px 5px;
 }
+
+.plan-gap {
+  height: 120vh;
+}

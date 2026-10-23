@@ -1,5 +1,5 @@
-import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch } from "vue";
-import { islandState, patchIsland, scan } from "./boot.js";
+import { createApp, createCommentVNode, createSSRApp, createTextVNode, defineAsyncComponent, defineComponent, getCurrentInstance, h, hydrateOnIdle, hydrateOnVisible, inject, onBeforeUnmount, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch } from "vue";
+import { childrenRegion, islandState, loadedModule, loadModule, markRendered, patchIsland, piecesOf, release, rendersNested, scan, unmarked } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
 import { encodeValue } from "./values.js";
@@ -27,63 +27,291 @@ function ownProps(props) {
     return own;
 }
 const childrenHeld = new WeakMap();
-function childrenRegion(el) {
-    for (const region of Array.from(el.querySelectorAll(`sf-s[${CHILDREN_ATTR}], template[${CHILDREN_ATTR}]`))){
-        if (region.parentElement?.closest("sf-i") === el) return region;
-    }
-    return null;
+function holdsOwn(piece) {
+    if (piece.kind === "island") return piece.entry?.mount === vueMounter;
+    return piece.kind === "element" && piece.children.some(holdsOwn);
 }
-const Children = defineComponent({
-    name: "SfChildren",
+function regionNode(attrs, pieces, html) {
+    if (!pieces.some(holdsOwn)) return h(Opaque, {
+        tag: "sf-s",
+        attrs,
+        html
+    });
+    return h(Scanned, {
+        tag: "sf-s",
+        attrs
+    }, ()=>vnodesOf(pieces));
+}
+const Scanned = defineComponent({
+    name: "SfScanned",
     props: {
+        tag: {
+            type: String,
+            required: true
+        },
+        attrs: {
+            type: Object,
+            required: true
+        }
+    },
+    setup (props, { slots }) {
+        const node = shallowRef(null);
+        const rescan = ()=>{
+            if (node.value) scan(node.value);
+        };
+        onMounted(rescan);
+        onUpdated(rescan);
+        return ()=>h(props.tag, {
+                ...props.attrs,
+                ref: node
+            }, slots.default?.());
+    }
+});
+const Opaque = defineComponent({
+    name: "SfOpaque",
+    props: {
+        tag: {
+            type: String,
+            required: true
+        },
+        attrs: {
+            type: Object,
+            required: true
+        },
         html: {
             type: String,
             required: true
         }
     },
     setup (props) {
-        const region = shallowRef(null);
-        let written = null;
-        const write = ()=>{
-            const el = region.value;
-            if (!el || written === props.html) return;
-            if (written === null && el.childNodes.length > 0) {
-                written = props.html;
-                return;
-            }
-            if (written === null) {
-                const template = document.createElement("template");
-                template.innerHTML = props.html;
-                el.replaceChildren(template.content);
-            } else {
-                morph(el, props.html);
-            }
-            written = props.html;
+        const node = shallowRef(null);
+        const first = unmarked(props.html);
+        let shown = props.html;
+        onMounted(()=>{
+            if (node.value) scan(node.value);
+        });
+        watch(()=>props.html, (html)=>{
+            const el = node.value;
+            if (!el || html === shown) return;
+            shown = html;
+            morph(el, html);
             scan(el);
-        };
-        onMounted(write);
-        watch(()=>props.html, write, {
+        }, {
             flush: "post"
         });
-        return ()=>h("sf-s", {
-                ref: region,
-                [CHILDREN_ATTR]: ""
+        onBeforeUnmount(()=>{
+            if (node.value) release(node.value);
+        });
+        return ()=>h(props.tag, {
+                ...props.attrs,
+                ref: node,
+                innerHTML: first
             });
     }
 });
-function rootFor(component, props, el) {
+const VOID_TAGS = new Set([
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "source",
+    "track",
+    "wbr"
+]);
+function vnodesOf(pieces) {
+    const out = [];
+    pieces.forEach((piece, key)=>{
+        if (piece.kind === "text") out.push(createTextVNode(piece.text));
+        else if (piece.kind === "comment") out.push(createCommentVNode(piece.text));
+        else if (piece.kind === "island") {
+            out.push(h(piece.entry?.mount === vueMounter ? NestedIsland : Foreign, {
+                key: `${key}:${piece.moduleId}`,
+                piece
+            }));
+            const script = propsScript(piece);
+            if (script) out.push(script);
+        } else if (VOID_TAGS.has(piece.tag)) out.push(h(piece.tag, {
+            ...piece.attrs,
+            key
+        }));
+        else if (piece.children.some(holdsOwn)) out.push(h(piece.tag, {
+            ...piece.attrs,
+            key
+        }, vnodesOf(piece.children)));
+        else out.push(h(Opaque, {
+            key,
+            tag: piece.tag,
+            attrs: piece.attrs,
+            html: piece.node.innerHTML
+        }));
+    });
+    return out;
+}
+function markerAttrs(marker) {
+    const attrs = {};
+    for (const attr of Array.from(marker.attributes)){
+        if (attr.name !== "data-sf-scheduled" && attr.name !== "data-sf-mounted") attrs[attr.name] = attr.value;
+    }
+    return attrs;
+}
+function propsScript(piece) {
+    if (!piece.script) return null;
+    return h("script", {
+        type: "application/json",
+        "data-sf-props": piece.marker.id,
+        innerHTML: piece.script.textContent ?? ""
+    });
+}
+const Foreign = defineComponent({
+    name: "SfForeign",
+    props: {
+        piece: {
+            type: Object,
+            required: true
+        }
+    },
+    setup (props) {
+        const node = shallowRef(null);
+        const html = unmarked(props.piece.marker.innerHTML);
+        watch(()=>props.piece, (piece)=>{
+            const el = node.value;
+            if (el?.hasAttribute("data-sf-scheduled")) void patchIsland(el, piece.props, null, childrenRegion(piece.marker)?.innerHTML ?? null, piece.encoded);
+        });
+        onBeforeUnmount(()=>{
+            if (node.value) release(node.value);
+        });
+        return ()=>h("sf-i", {
+                ...markerAttrs(props.piece.marker),
+                ref: node,
+                innerHTML: html
+            });
+    }
+});
+function timingFired(when, find) {
+    if (when === "load") return Promise.resolve();
+    if (when === "idle") return new Promise((resolve)=>(globalThis.requestIdleCallback ?? setTimeout)(()=>resolve()));
+    return new Promise((resolve)=>{
+        const observe = (el)=>{
+            if (!el || typeof IntersectionObserver === "undefined") return resolve();
+            const observer = new IntersectionObserver((entries)=>{
+                if (entries.some((entry)=>entry.isIntersecting)) {
+                    observer.disconnect();
+                    resolve();
+                }
+            });
+            observer.observe(el);
+        };
+        const now = find();
+        if (now) observe(now);
+        else setTimeout(()=>observe(find()));
+    });
+}
+const IslandScope = defineComponent({
+    name: "SfIslandScope",
+    props: {
+        at: {
+            type: Function,
+            required: true
+        },
+        values: {
+            type: Object,
+            required: true
+        }
+    },
+    setup (props, { slots }) {
+        provide(ISLAND, props.at);
+        const outer = inject(RENDERED_STORE, null);
+        provide(RENDERED_STORE, {
+            values: props.values,
+            get hydrating () {
+                return outer?.hydrating ?? false;
+            }
+        });
+        return ()=>slots.default?.()[0];
+    }
+});
+const NestedIsland = defineComponent({
+    name: "SfNestedIsland",
+    props: {
+        piece: {
+            type: Object,
+            required: true
+        }
+    },
+    setup (props) {
+        const node = shallowRef(null);
+        const id = props.piece.marker.id;
+        const find = ()=>node.value ?? document.getElementById(id);
+        const entry = props.piece.entry;
+        const when = props.piece.when;
+        const ready = loadedModule(entry);
+        const component = when === "load" && ready !== undefined ? componentOf(ready) : defineAsyncComponent({
+            loader: ()=>timingFired(when, find).then(()=>loadModule(entry)).then(componentOf),
+            hydrate: when === "visible" ? hydrateOnVisible() : when === "idle" ? hydrateOnIdle() : undefined,
+            suspensible: false
+        });
+        const rendered = inject(RENDERED_STORE, null);
+        const hydrating = rendered !== null && (rendered.hydrating || getCurrentInstance()?.vnode.el != null);
+        const live = ref(props.piece.ssr || !hydrating);
+        const html = props.piece.marker.innerHTML;
+        onMounted(()=>{
+            if (node.value) markRendered(node.value);
+            live.value = true;
+        });
+        onUpdated(()=>{
+            if (node.value) markRendered(node.value);
+        });
+        return ()=>{
+            const piece = props.piece;
+            const attrs = {
+                ...markerAttrs(piece.marker),
+                ref: node
+            };
+            if (!live.value) return h("sf-i", {
+                ...attrs,
+                innerHTML: html
+            });
+            const values = piece.props.$sv ?? {};
+            const slots = piece.children === null ? undefined : {
+                default: ()=>regionNode({
+                        [CHILDREN_ATTR]: ""
+                    }, piece.children ?? [], childrenRegion(piece.marker)?.innerHTML ?? "")
+            };
+            const body = h(IslandScope, {
+                at: find,
+                values
+            }, ()=>h(component, ownProps(piece.props), slots));
+            return h("sf-i", attrs, [
+                body
+            ]);
+        };
+    }
+});
+function rootFor(component, props, el, pieces) {
     const state = reactive(ownProps(props));
     const region = childrenRegion(el);
-    const children = ref(region ? region.innerHTML : null);
+    const children = shallowRef(pieces === null ? null : {
+        pieces,
+        html: region?.innerHTML ?? ""
+    });
     if (region?.tagName === "TEMPLATE") region.remove();
     const root = defineComponent({
         name: "SfIsland",
         setup () {
-            return ()=>h(component, state, children.value === null ? undefined : {
-                    default: ()=>h(Children, {
-                            html: children.value ?? ""
-                        })
+            return ()=>{
+                const held = children.value;
+                return h(component, state, held === null ? undefined : {
+                    default: ()=>regionNode({
+                            [CHILDREN_ATTR]: ""
+                        }, held.pieces, held.html)
                 });
+            };
         }
     });
     return {
@@ -107,15 +335,15 @@ function startTeleports(el, props) {
     }
     if (!set.has(document.body)) document.body._lpa = null;
 }
-export const vueMounter = (module, props, el, hydrate)=>{
-    const { root, props: state, children } = rootFor(componentOf(module), props, el);
+export const vueMounter = (module, props, el, hydrate, pieces)=>{
+    const { root, props: state, children } = rootFor(componentOf(module), props, el, pieces);
     const app = hydrate ? createSSRApp(root) : createApp(root);
     const rendered = {
         values: props.$sv ?? {},
         hydrating: hydrate
     };
     app.provide(RENDERED_STORE, rendered);
-    app.provide(ISLAND, el);
+    app.provide(ISLAND, ()=>el);
     held.set(el, state);
     childrenHeld.set(el, children);
     if (hydrate) startTeleports(el, props);
@@ -138,8 +366,12 @@ export const vuePatcher = (handle, module, props, el)=>{
     Object.assign(state, next);
     const fresh = islandState(el)?.children ?? null;
     const children = childrenHeld.get(el);
-    if (fresh !== null && children) children.value = fresh;
+    if (fresh !== null && children?.value && children.value.html !== fresh) children.value = {
+        pieces: piecesOf(fresh),
+        html: fresh
+    };
 };
+rendersNested(vueMounter);
 export function useStore(key, initial) {
     const rendered = inject(RENDERED_STORE, null);
     const hydrating = rendered !== null && (rendered.hydrating || getCurrentInstance()?.vnode.el != null);
@@ -188,7 +420,7 @@ export function useLinkStatus() {
     });
     const update = ()=>{
         const at = pendingLink();
-        status.pending = at !== null && at === (link ? link.value : island?.closest("a") ?? null);
+        status.pending = at !== null && at === (link ? link.value : island?.()?.closest("a") ?? null);
     };
     update();
     onScopeDispose(subscribePendingLink(update));
