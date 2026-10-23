@@ -3144,6 +3144,9 @@ impl<'a> Lowerer<'a> {
       return self.svelte_store(store, call);
     }
     if let Some(meaning::Meaning::Library(meaning::Construct::Extension(key))) = self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) {
+      if key == "crypto.digest" {
+        return Err(self.residue(call.span, "`createHash` on its own; it is read as `createHash(algorithm).update(part).digest(encoding)`"));
+      }
       let (module, member) = key.split_once('.').expect("an extension is `module.member`");
       let reach = standard_reach(module, member).expect("a package maps to a standard member");
       if let (false, Some(needs)) = (self.reaches(reach), reach.needs()) {
@@ -3288,6 +3291,11 @@ impl<'a> Lowerer<'a> {
       return self.applied(f, call);
     };
     let method = self.member_name(member).ok_or_else(|| self.residue(member.span, "a computed method name"))?;
+    if method == "digest" {
+      if let Some(folded) = self.hash_chain(member, call)? {
+        return Ok(folded);
+      }
+    }
 
     if let js::Expr::Ident(obj) = &*member.obj {
       let global = obj.sym.as_ref();
@@ -4170,6 +4178,40 @@ impl<'a> Lowerer<'a> {
   }
 
   /// A `function` expression or a method as the lambda it is; a generator is residue.
+  /// `createHash(algorithm).update(part)….digest(encoding)` as one `crypto.digest` call, the parts in order after the algorithm and the encoding; `None` when the chain under `.digest` does not start at `createHash` from `node:crypto`.
+  fn hash_chain(&mut self, member: &js::MemberExpr, call: &js::CallExpr) -> Lowered<Option<Expr>> {
+    let mut parts: Vec<&js::Expr> = Vec::new();
+    let mut receiver: &js::Expr = &member.obj;
+    loop {
+      let js::Expr::Call(inner) = crate::meaning::bare(receiver) else { return Ok(None) };
+      let js::Callee::Expr(callee) = &inner.callee else { return Ok(None) };
+      match crate::meaning::bare(callee) {
+        js::Expr::Member(m) if self.member_name(m).as_deref() == Some("update") => {
+          let Some(part) = inner.args.first() else { return Ok(None) };
+          parts.push(&part.expr);
+          receiver = &m.obj;
+        }
+        callee => {
+          if self.meanings.as_ref().and_then(|meanings| meanings.of_expr(callee)) != Some(meaning::Meaning::Library(meaning::Construct::Extension("crypto.digest"))) {
+            return Ok(None);
+          }
+          let reach = Reach::Render;
+          if let (false, Some(needs)) = (self.reaches(reach), reach.needs()) {
+            return Err(self.residue(call.span, format!("a call to `crypto.digest`, which {needs}")));
+          }
+          self.check_reach(call.span, "crypto.digest", reach)?;
+          let Some(algorithm) = inner.args.first() else { return Err(self.residue(inner.span, "`createHash` without an algorithm")) };
+          let Some(encoding) = call.args.first() else { return Err(self.residue(call.span, "`digest()` without an encoding; `hex` or `base64` reads the bytes")) };
+          let mut args = vec![self.expr(&algorithm.expr)?, self.expr(&encoding.expr)?];
+          for part in parts.iter().rev() {
+            args.push(self.expr(part)?);
+          }
+          return Ok(Some(Expr::Ext { module: "crypto".to_owned(), name: "digest".to_owned(), args }));
+        }
+      }
+    }
+  }
+
   /// `f` applied to `call`'s arguments: [`Expr::Apply`], or [`Expr::ApplyOf`] over one array when an argument is spread.
   fn applied(&mut self, f: Box<Expr>, call: &js::CallExpr) -> Lowered<Expr> {
     let mut args = Vec::with_capacity(call.args.len());

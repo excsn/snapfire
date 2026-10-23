@@ -3711,6 +3711,9 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       }
     }
     Builtin::Radix => {
+      if let (Value::Bytes(bytes), Some(Value::Str(encoding))) = (arg(0)?, args.get(1)) {
+        return crate::std::crypto::encode("toString", bytes, encoding);
+      }
       let radix = match args.get(1) {
         None | Some(Value::Null | Value::Undefined) => 10.0,
         v => integer(name, v)?,
@@ -3860,6 +3863,7 @@ pub(crate) fn stringify(value: &Value) -> Result<String, Fail> {
     Value::F64(f) => number_text(*f),
     Value::F32(f) => number_text(f64::from(*f)),
     Value::Str(s) => s.to_string(),
+    Value::Bytes(bytes) => String::from_utf8_lossy(bytes).into_owned(),
     other => return Err(type_error("String", "a scalar", other)),
   })
 }

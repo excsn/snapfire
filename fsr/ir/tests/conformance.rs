@@ -64,6 +64,8 @@ fn cases() -> Vec<(&'static str, Vec<serde_json::Value>)> {
     ("crypto.hash", vec![json!("")]),
     ("crypto.hash", vec![json!("a".repeat(200))]),
     ("crypto.verify", vec![json!("hello"), json!("2CF24DBA5FB0A30E26E83B2AC5B9E29E1B161E5C1FA7425E73043362938B9824")]),
+    ("crypto.digest", vec![json!("sha256"), json!("hex"), json!("abc")]),
+    ("crypto.digest", vec![json!("SHA-256"), json!("base64"), json!("ab"), json!("c")]),
     ("crypto.verify", vec![json!("hello"), json!("nope")]),
   ]
 }

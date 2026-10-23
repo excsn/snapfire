@@ -315,6 +315,21 @@ export const crypto = {
         const buf = new Uint8Array(Math.max(0, Math.min(1024, bytes)));
         globalThis.crypto.getRandomValues(buf);
         return toHex(buf);
+    },
+    randomBytes (n) {
+        const buf = new Uint8Array(Math.max(0, Math.min(1024, n)));
+        globalThis.crypto.getRandomValues(buf);
+        return buf;
+    },
+    uuid () {
+        return globalThis.crypto.randomUUID();
+    },
+    digest (algorithm, encoding, ...parts) {
+        if (algorithm.toLowerCase().replace("-", "") !== "sha256") throw new Error(`crypto.digest: \`${algorithm}\` is not provided; \`sha256\` is`);
+        const bytes = sha256(parts.join(""));
+        if (encoding === "hex") return toHex(bytes);
+        if (encoding === "base64") return btoa(String.fromCharCode(...bytes));
+        throw new Error(`crypto.digest: an encoding of \`${encoding}\`; \`hex\` and \`base64\` are read`);
     }
 };
 export function t(key, args) {

@@ -262,6 +262,24 @@ export const crypto = {
     globalThis.crypto.getRandomValues(buf);
     return toHex(buf);
   },
+  /** `n` random bytes as Node's `randomBytes` gives them; `toString("hex")` or `toString("base64")` reads them. Server only on a render path. */
+  randomBytes(n: number): Uint8Array {
+    const buf = new Uint8Array(Math.max(0, Math.min(1024, n)));
+    globalThis.crypto.getRandomValues(buf);
+    return buf;
+  },
+  /** A version 4 UUID, as Node's `randomUUID`. Server only on a render path. */
+  uuid(): string {
+    return globalThis.crypto.randomUUID();
+  },
+  /** `createHash(algorithm).update(part)….digest(encoding)`: SHA-256 of the parts' UTF-8 bytes in order as `hex` or `base64`; `sha256` is the algorithm provided. */
+  digest(algorithm: string, encoding: string, ...parts: string[]): string {
+    if (algorithm.toLowerCase().replace("-", "") !== "sha256") throw new Error(`crypto.digest: \`${algorithm}\` is not provided; \`sha256\` is`);
+    const bytes = sha256(parts.join(""));
+    if (encoding === "hex") return toHex(bytes);
+    if (encoding === "base64") return btoa(String.fromCharCode(...bytes));
+    throw new Error(`crypto.digest: an encoding of \`${encoding}\`; \`hex\` and \`base64\` are read`);
+  },
 };
 
 /** The message under `key` in the document's locale, `{name}` placeholders filled from `args`; with `args.count`, the `key.<plural category>` form, then `key.other`, then `key`. A key the catalog lacks answers as itself. Under `fsr test` the runner answers with the Rust half. */

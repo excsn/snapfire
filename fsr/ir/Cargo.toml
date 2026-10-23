@@ -43,7 +43,7 @@ tracing = "0.1"
 unicode-normalization = "0.1"
 unicode-segmentation = "1"
 unicode-width = "0.2"
-uuid = { version = "1", features = ["v7"] }
+uuid = { version = "1", features = ["v4", "v7"] }
 
 [dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }

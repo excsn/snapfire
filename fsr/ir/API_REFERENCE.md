@@ -333,6 +333,9 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `crypto.hash` | render | `s` | SHA-256 of the UTF-8 bytes as lowercase hex |
 | `crypto.verify` | render | `s`, `hash` | whether `hash` is the hash of `s`, compared in constant time, case insensitive |
 | `crypto.random` | body | `bytes` (at most 1024) | that many random bytes as hex |
+| `crypto.randomBytes` | body | `n` (at most 1024) | that many random bytes as `Bytes`; `Radix` with `"hex"`, `"base64"` or `"utf8"` encodes them |
+| `crypto.uuid` | body | | a version 4 UUID |
+| `crypto.digest` | render | `algorithm`, `encoding`, `parts…` | the `sha256` of the parts' bytes in order as `hex` or `base64`; another algorithm or encoding fails |
 | `id.new` | body | | a UUID version 7 |
 | `intl.localTime` | terminal | `when`, `locale?` | `toLocaleTimeString(locale)` in this machine's time zone at ICU's medium length; without a locale the one `LC_ALL`, `LC_TIME` or `LANG` names, else `en-US`; `Invalid Date` for an invalid instant |
 | `time.localOffset` | terminal | `when` | `getTimezoneOffset()` for that instant in this machine's time zone, minutes behind UTC; NaN for an invalid instant |
