@@ -741,3 +741,11 @@ fn a_function_deletes_a_field_of_the_object_it_normalizes() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "{}... dropped");
 }
+
+#[test]
+fn instanceof_error_tells_a_thrown_error_from_another_value() {
+  let page = "import { Text } from \"ink\";\n\nconst explain = (e: unknown) => (e instanceof Error ? `${e.name}: ${e.message}` : \"not an error\");\n\nexport default function Explained() {\n  return <Text>{explain(new Error(\"boom\"))} | {explain(\"text\")} | {explain({ message: \"shape\" })}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 60).lines()[0].trim_end(), "Error: boom | not an error | not an error");
+}

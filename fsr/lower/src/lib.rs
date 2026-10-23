@@ -1445,6 +1445,9 @@ impl<'a> Lowerer<'a> {
     if class == "Array" {
       return Ok(Expr::Builtin { name: Builtin::IsArray, args: vec![self.expr(&bin.left)?] });
     }
+    if ERROR_CONSTRUCTORS.contains(&class) {
+      return Ok(Expr::Builtin { name: Builtin::IsError, args: vec![self.expr(&bin.left)?, Expr::lit_str(class)] });
+    }
     if !matches!(class, "Map" | "Set" | "Date") {
       return Err(self.residue(bin.span, format!("`instanceof {class}`")));
     }

@@ -3365,6 +3365,17 @@ fn builtin(name: Builtin, args: Vec<Value>) -> Result<Value, Fail> {
       other => return Err(type_error(&format!("{name:?}"), "an array", other)),
     },
     Builtin::IsArray => Value::Bool(matches!(arg(0)?, Value::Seq(_))),
+    Builtin::IsError => {
+      const ERROR_NAMES: [&str; 7] = ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"];
+      let class = text(name, arg(1)?)?;
+      Value::Bool(match arg(0)? {
+        Value::Map(map) => match (map.get("name"), map.get("message")) {
+          (Some(Value::Str(error_name)), Some(Value::Str(_))) => ERROR_NAMES.contains(&error_name.as_str()) && (class == "Error" || error_name.as_str() == class),
+          _ => false,
+        },
+        _ => false,
+      })
+    }
     Builtin::Throw => return Err(thrown_fail(&args)),
     Builtin::Log | Builtin::LogOf => {
       let items: Vec<&Value> = match name {
