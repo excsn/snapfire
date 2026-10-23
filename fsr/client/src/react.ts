@@ -6,7 +6,7 @@ import { discard, islandState, MountTiming, Mounter, Patcher, patchIsland, scan,
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR, type RegionSource } from "./render.js";
 import { morph } from "./server.js";
-import { type PrefetchTiming } from "./navigator.js";
+import { pendingLink, subscribePendingLink, type PrefetchTiming } from "./navigator.js";
 import { linkAttributes, type LinkOptions } from "./link.js";
 import { embedParts, styleObject, type EmbedOptions } from "./embed.js";
 import { pictureParts, type ImageAsset, type PictureOptions } from "./picture.js";
@@ -459,9 +459,31 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   current?: "url" | "document";
 }
 
+/** The anchor a `Link` rendered, for `useLinkStatus` in a component inside it. */
+const LinkContext = createContext<{ readonly current: Element | null } | null>(null);
+
+/** The element an island is mounted in, for `useLinkStatus` in an island the server placed inside a link. */
+const IslandContext = createContext<Element | null>(null);
+
 /** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes, `match` as the `data-sf-link` the navigator re-reads after each navigation and `current` as `data-sf-current` when it is the document's. */
 export function Link(props: LinkProps): ReactElement {
-  return createElement("a", linkAttributes(props as LinkOptions));
+  const anchor = useRef<HTMLAnchorElement>(null);
+  return createElement(LinkContext.Provider, { value: anchor }, createElement("a", { ...linkAttributes(props as LinkOptions), ref: anchor }));
+}
+
+/** Whether the navigation a click on the enclosing link started is still in flight: the `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Outside a link `pending` is always false. */
+export function useLinkStatus(): { pending: boolean } {
+  const link = useContext(LinkContext);
+  const island = useContext(IslandContext);
+  const pending = useSyncExternalStore(
+    subscribePendingLink,
+    () => {
+      const at = pendingLink();
+      return at !== null && at === (link ? link.current : (island?.closest("a") ?? null));
+    },
+    () => false,
+  );
+  return { pending };
 }
 
 export interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> {
@@ -640,7 +662,7 @@ function islandElement(component: unknown, props: object, el: Element, patched: 
   const [own, hoisted, rendered] = splitHoisted(props);
   const element = createElement(component as never, { ...(withMarkup(own, el) as object), ...slotPropsFor(el) } as never, childrenFor(el));
   const under = createElement(RenderedStoreContext.Provider, { value: rendered }, withHoisted(hoisted, element));
-  return createElement(Mounting, { el }, withRegions(el, under, patched, sources));
+  return createElement(IslandContext.Provider, { value: el }, createElement(Mounting, { el }, withRegions(el, under, patched, sources)));
 }
 
 /** Scans the regions the root around it has built. A root the server did not render copies each region's markup into a fresh element, so an island inside one is a copy nothing has mounted; a scan from here is where it is reached and `scan` leaves alone whatever is mounted already. Every path through `islandElement` wraps in this, mount, hydrate and patch alike: a root whose child element changed type between renders is torn down and rebuilt, which would lose the DOM a patch exists to keep. */

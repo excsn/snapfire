@@ -3,6 +3,7 @@ import { Link } from "@snapfire/fsr/components";
 
 import Tally from "@src/ui/Tally.svelte";
 import Recent from "@src/ui/Recent.svelte";
+import Opening from "@src/ui/Opening.svelte";
 import { books } from "@src/books";
 
 export default function ShelfLayout({ children, done, total, reading }: { children: Children; done: number; total: number; reading: string }) {
@@ -18,6 +19,9 @@ export default function ShelfLayout({ children, done, total, reading }: { childr
         {reading === "" ? null : <span className="reading">Reading {reading}</span>}
         <Link href="/stats" className="to-stats">
           Stats
+          <Island when="load">
+            <Opening />
+          </Island>
         </Link>
       </header>
       <div className="columns">

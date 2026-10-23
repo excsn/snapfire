@@ -16,6 +16,14 @@ export declare function useStore<T>(key: StoreKey<T>, initial: T): {
 export declare function useLocale(): {
 	subscribe: (run: (value: string) => void) => () => void;
 };
+/** What FSR's `Link` component calls as it initialises, so `useLinkStatus` in a component inside it reads the anchor it rendered. */
+export declare function holdLink(anchor: () => Element | null): void;
+/** Whether the navigation a click on the enclosing link started is still in flight, as a Svelte store of `{ pending }`: FSR's `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Call it while the component initialises. */
+export declare function useLinkStatus(): {
+	subscribe: (run: (value: {
+		pending: boolean;
+	}) => void) => () => void;
+};
 /** The attributes of an anchor the navigator reads, to spread on an `<a>`: `<a {...link({ href: "/next" })}>`. */
 export declare function link(options: LinkOptions): Record<string, unknown>;
 /** The `<img>` and, when the image policy derives variants, the `<source>`s the server writes for the same options: an `<img {...parts.img}>` inside a `<picture>` holding one `<source>` per entry of `parts.sources`, or the `<img>` alone when `sources` is null. */

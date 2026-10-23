@@ -1,4 +1,8 @@
 import { Head } from "./reader.js";
+/** The link whose navigation is in flight, null when none is or the navigation in flight did not start from a click on one. */
+export declare function pendingLink(): Element | null;
+/** Calls `watcher` each time the pending link changes; the returned function stops it. */
+export declare function subscribePendingLink(watcher: () => void): () => void;
 /** Sets the document's title and description meta, its theme and its scheme from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
 export declare function applyHead(head: Head): void;
 export type PrefetchTiming = "hover" | "viewport" | "none";

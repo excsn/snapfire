@@ -1,6 +1,7 @@
 import { Link } from "@snapfire/fsr/components";
 
 import type { RootProps } from "@generated/client";
+import Opening from "@src/ui/Opening";
 
 export default function SchedulePage({ track, tracks, talks, saved }: RootProps) {
   return (
@@ -25,6 +26,7 @@ export default function SchedulePage({ track, tracks, talks, saved }: RootProps)
             <span className="what">
               <Link href={`/talk/${talk.id}`} className="talk-title">
                 {talk.title}
+                <Opening />
               </Link>
               <span className="by">{talk.speaker}</span>
             </span>

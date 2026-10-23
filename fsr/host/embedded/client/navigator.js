@@ -488,6 +488,25 @@ let openSlot = null;
 let currentPath = "";
 let documentPath = "";
 let documentSidecar = false;
+let pendingAnchor = null;
+let clickedAnchor = null;
+const pendingWatchers = new Set();
+function showPending(anchor) {
+    if (anchor === pendingAnchor) return;
+    pendingAnchor?.removeAttribute("data-sf-pending");
+    pendingAnchor = anchor;
+    anchor?.setAttribute("data-sf-pending", "");
+    for (const watcher of Array.from(pendingWatchers))watcher();
+}
+export function pendingLink() {
+    return pendingAnchor;
+}
+export function subscribePendingLink(watcher) {
+    pendingWatchers.add(watcher);
+    return ()=>{
+        pendingWatchers.delete(watcher);
+    };
+}
 export function applyHead(head) {
     for (const script of head.scripts ?? [])loadMarkedScript(script);
     if (head.theme !== undefined) setRootAttribute("data-sf-theme", head.theme);
@@ -871,6 +890,8 @@ function scrollToFragment(hash) {
     else window.scrollTo(0, 0);
 }
 export async function navigate(href, push = true, options = {}) {
+    const from = clickedAnchor;
+    clickedAnchor = null;
     const url = new URL(href, window.location.href);
     const record = (same)=>{
         entry = newEntry();
@@ -893,6 +914,7 @@ export async function navigate(href, push = true, options = {}) {
     const page = new URL(url.href);
     page.hash = "";
     const gen = ++generation;
+    showPending(from);
     const feed = payloadFor(page, askFor(options));
     if (!await feed.ok) {
         if (gen === generation) window.location.assign(href);
@@ -939,6 +961,7 @@ export async function navigate(href, push = true, options = {}) {
         window.location.assign(href);
         return;
     }
+    showPending(null);
     announce();
     await drain(rows, eager.segments, gen);
 }
@@ -1025,6 +1048,7 @@ export function enableNavigation(options = {}) {
         const url = new URL(href, window.location.href);
         if (url.origin !== window.location.origin) return;
         event.preventDefault();
+        clickedAnchor = anchor;
         void navigate(url.pathname + url.search + url.hash, true, askOf(anchor));
     });
     fallbackPrefetch = options.prefetch ?? "hover";

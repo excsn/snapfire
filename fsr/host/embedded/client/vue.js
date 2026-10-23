@@ -1,4 +1,4 @@
-import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch } from "vue";
+import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch } from "vue";
 import { islandState, patchIsland, scan } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
 import { morph } from "./server.js";
@@ -6,6 +6,7 @@ import { encodeValue } from "./values.js";
 import { get, set, subscribe } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes } from "./link.js";
+import { pendingLink, subscribePendingLink } from "./navigator.js";
 import { pictureParts } from "./picture.js";
 import { embedParts } from "./embed.js";
 const held = new WeakMap();
@@ -16,6 +17,8 @@ const RUNTIME_PROPS = [
     "$sv"
 ];
 const RENDERED_STORE = Symbol("sf-rendered-store");
+const ISLAND = Symbol("sf-island");
+const LINK = Symbol("sf-link");
 function ownProps(props) {
     const own = {};
     for (const key of Object.keys(props)){
@@ -112,6 +115,7 @@ export const vueMounter = (module, props, el, hydrate)=>{
         hydrating: hydrate
     };
     app.provide(RENDERED_STORE, rendered);
+    app.provide(ISLAND, el);
     held.set(el, state);
     childrenHeld.set(el, children);
     if (hydrate) startTeleports(el, props);
@@ -175,6 +179,20 @@ export function useLocale() {
         locale.value = next;
     }));
     return locale;
+}
+export function useLinkStatus() {
+    const link = inject(LINK, null);
+    const island = inject(ISLAND, null);
+    const status = reactive({
+        pending: false
+    });
+    const update = ()=>{
+        const at = pendingLink();
+        status.pending = at !== null && at === (link ? link.value : island?.closest("a") ?? null);
+    };
+    update();
+    onScopeDispose(subscribePendingLink(update));
+    return status;
 }
 let placed = 0;
 export const Place = defineComponent({
@@ -245,7 +263,12 @@ export const Link = defineComponent({
     name: "SfLink",
     inheritAttrs: false,
     setup (_, { attrs, slots }) {
-        return ()=>h("a", linkAttributes(attrs), slots.default?.());
+        const anchor = ref(null);
+        provide(LINK, anchor);
+        return ()=>h("a", {
+                ...linkAttributes(attrs),
+                ref: anchor
+            }, slots.default?.());
     }
 });
 export const Embed = defineComponent({

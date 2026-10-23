@@ -55,7 +55,7 @@ Every import follows the file it names. A relative specifier is rewritten for bo
 | `getStaticProps`, `getServerSideProps` | `load`, returning the props themselves |
 | `getStaticPaths` | `paths`, one params object per path |
 | `pages/_app`'s `<Component {...pageProps} />` | the layout's `children` |
-| `next/link` | `Link` from `@snapfire/fsr/components` |
+| `next/link` | `Link` from `@snapfire/fsr/components`; `useLinkStatus` from `@snapfire/fsr-client/react` |
 | `next/image` | `Picture` from `@snapfire/fsr/components` |
 | `next/font/google` | a `[fonts.<key>]` table in `config/app.toml` and a `font-<key>` class over `--font-<key>` |
 | `<html>` and `<body>` in a route layout or in the layout component it re-exports (`export default BaseLayout`) | a fragment and a `<div>`, since the host writes the document |

@@ -26,7 +26,7 @@ fn runtime() -> PathBuf {
 /// What the components a fixture imports by bare specifier stand for in the oracle.
 fn stubs() -> BTreeMap<String, String> {
   BTreeMap::from([
-    ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
+    ("@snapfire/fsr-client/svelte".to_owned(), "export function useStore(key, initial) { return { subscribe(run) { run(initial); return () => {}; } }; }\nexport function useLocale() { return { subscribe(run) { run('en'); return () => {}; } }; }\nexport function useLinkStatus() { return { subscribe(run) { run({ pending: false }); return () => {}; } }; }\nexport function link(options) { return { href: options.href }; }\nexport function island() { return () => () => {}; }\n".to_owned() + PICTURE_PARTS),
     ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\nexport function key(name) { return name; }\n".to_owned()),
     ("@snapfire/fsr-client/store".to_owned(), "export function key(name) { return name; }\n".to_owned()),
   ])
@@ -691,7 +691,7 @@ fn the_examples_svelte_components_render_as_svelte_server_writes_them() {
     assert_eq!(progress.0, progress.1, "Progress at {read}");
   }
   let titles = Value::seq(vec![Value::Map(props(&[("id", s("stoner")), ("title", s("Stoner"))]))]);
-  let shown = repo("shelf_svelte_ts/app", "src/ui/Recent.svelte", &[recent, visits], &props(&[("titles", titles)]));
+  let shown = repo_with("shelf_svelte_ts/app", "src/ui/Recent.svelte", &["src/ui/Opening.svelte"], &[recent, visits], &props(&[("titles", titles)]), None);
   assert_eq!(shown.0, shown.1, "Recent");
   let holding = |symbol: &str, price: f64| Value::Map(props(&[("symbol", s(symbol)), ("name", s("Name & co")), ("shares", Value::int(3i64)), ("price", Value::F64(price)), ("change", Value::F64(0.5))]));
   let holdings = Value::seq(vec![holding("ACME", 12.5), holding("INIT", 3.0)]);
@@ -1008,7 +1008,7 @@ fn a_call_through_a_context_to_a_function_that_only_schedules_effects_does_nothi
 }
 
 /// The client's `link` and `embed` as the oracle's Svelte components call them, for a page at no address.
-const COMPONENT_PARTS: &str = "export function link({ full, into, prefetch, native, keep, match, current, ...rest }) {\n  const attrs = { ...rest };\n  if (full) attrs['data-sf-full'] = 'true';\n  if (into) attrs['data-sf-into'] = into;\n  if (prefetch) attrs['data-sf-prefetch'] = prefetch;\n  if (native) attrs['data-sf-native'] = 'true';\n  if (keep !== undefined) attrs['data-sf-keep'] = keep ? 'true' : 'false';\n  const rule = match ?? 'exact';\n  if (rule !== 'none' && typeof rest.href === 'string' && rest['aria-current'] === undefined) attrs['data-sf-link'] = rule;\n  return attrs;\n}\nconst OUTER = 'position:relative;aspect-ratio:16/9;background:#000;overflow:hidden';\nconst BUTTON = 'all:unset;cursor:pointer;position:absolute;inset:0;display:block';\nconst STILL = 'width:100%;height:100%;object-fit:cover;display:block';\nconst TITLE = 'position:absolute;left:0;right:0;top:0;padding:12px 16px;color:#fff;font:600 16px/1.3 system-ui,sans-serif;text-align:left;background:linear-gradient(rgba(0,0,0,.65),transparent)';\nconst PLAY = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:68px;height:48px;border-radius:12px;background:rgba(0,0,0,.75);color:#fff;display:flex;align-items:center;justify-content:center;font:24px/1 sans-serif';\nexport function embed(o) {\n  const outer = { 'data-sf-embed': o.provider === 'vimeo' ? `https://player.vimeo.com/video/${o.id}?autoplay=1` : `https://www.youtube-nocookie.com/embed/${o.id}?autoplay=1`, 'data-sf-embed-title': o.title, style: OUTER };\n  if (o.className) outer.class = o.className;\n  const still = o.provider === 'youtube' ? { src: `https://i.ytimg.com/vi/${o.id}/hqdefault.jpg`, alt: '', width: '480', height: '360', loading: 'lazy', decoding: 'async', style: STILL } : null;\n  return { outer, button: { type: 'button', style: BUTTON }, still, title: { style: TITLE }, play: { 'aria-hidden': 'true', style: PLAY } };\n}\nexport function mount() { return () => () => {}; }\n";
+const COMPONENT_PARTS: &str = "export function link({ full, into, prefetch, native, keep, match, current, ...rest }) {\n  const attrs = { ...rest };\n  if (full) attrs['data-sf-full'] = 'true';\n  if (into) attrs['data-sf-into'] = into;\n  if (prefetch) attrs['data-sf-prefetch'] = prefetch;\n  if (native) attrs['data-sf-native'] = 'true';\n  if (keep !== undefined) attrs['data-sf-keep'] = keep ? 'true' : 'false';\n  const rule = match ?? 'exact';\n  if (rule !== 'none' && typeof rest.href === 'string' && rest['aria-current'] === undefined) attrs['data-sf-link'] = rule;\n  return attrs;\n}\nconst OUTER = 'position:relative;aspect-ratio:16/9;background:#000;overflow:hidden';\nconst BUTTON = 'all:unset;cursor:pointer;position:absolute;inset:0;display:block';\nconst STILL = 'width:100%;height:100%;object-fit:cover;display:block';\nconst TITLE = 'position:absolute;left:0;right:0;top:0;padding:12px 16px;color:#fff;font:600 16px/1.3 system-ui,sans-serif;text-align:left;background:linear-gradient(rgba(0,0,0,.65),transparent)';\nconst PLAY = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:68px;height:48px;border-radius:12px;background:rgba(0,0,0,.75);color:#fff;display:flex;align-items:center;justify-content:center;font:24px/1 sans-serif';\nexport function embed(o) {\n  const outer = { 'data-sf-embed': o.provider === 'vimeo' ? `https://player.vimeo.com/video/${o.id}?autoplay=1` : `https://www.youtube-nocookie.com/embed/${o.id}?autoplay=1`, 'data-sf-embed-title': o.title, style: OUTER };\n  if (o.className) outer.class = o.className;\n  const still = o.provider === 'youtube' ? { src: `https://i.ytimg.com/vi/${o.id}/hqdefault.jpg`, alt: '', width: '480', height: '360', loading: 'lazy', decoding: 'async', style: STILL } : null;\n  return { outer, button: { type: 'button', style: BUTTON }, still, title: { style: TITLE }, play: { 'aria-hidden': 'true', style: PLAY } };\n}\nexport function mount() { return () => () => {}; }\nexport function holdLink() {}\n";
 
 /// FSR's components in a `.svelte` file against `svelte/server` rendering the Svelte components the build supplies for them.
 #[test]
@@ -1052,4 +1052,9 @@ fn fsr_components_in_svelte_write_what_their_svelte_components_write() {
   let svelte = COMPILER.with(|compiler| compiler.render_module("/src/P.svelte", &modules, &value_json(&Value::Map(given.clone())), None, &runtime())).expect("Svelte renders");
   let _ = std::fs::remove_dir_all(&app);
   assert_eq!(rust, svelte);
+}
+
+#[test]
+fn use_link_status_renders_no_link_pending_as_svelte_does() {
+  check("link_status", "<script>import { useLinkStatus } from '@snapfire/fsr-client/svelte'; const status = useLinkStatus();</script><span class={$status.pending ? 'opening opening-on' : 'opening'}>{$status.pending ? 'opening' : ''}</span>", &props(&[]));
 }

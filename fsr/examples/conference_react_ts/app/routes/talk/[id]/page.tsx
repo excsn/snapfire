@@ -4,6 +4,7 @@ import { Link } from "@snapfire/fsr/components";
 
 import type { TalkIdProps } from "@generated/client";
 import { Feedback } from "@src/ui/Feedback";
+import Opening from "@src/ui/Opening";
 import SaveTalk from "@src/ui/SaveTalk";
 
 /** Below the abstract and not wanted at first paint, so it hydrates when it is scrolled to. */
@@ -35,7 +36,10 @@ export default function TalkPage({ talk, alongside, saved }: TalkIdProps) {
           <ul>
             {alongside.map((other) => (
               <li key={other.id}>
-                <Link href={`/talk/${other.id}`}>{other.title}</Link>
+                <Link href={`/talk/${other.id}`}>
+                  {other.title}
+                  <Opening />
+                </Link>
                 <span className="room">{other.room}</span>
               </li>
             ))}

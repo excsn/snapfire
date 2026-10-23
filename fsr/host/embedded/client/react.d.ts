@@ -75,6 +75,10 @@ export interface LinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
 }
 /** An `<a>` the navigator reads: `full`, `into`, `prefetch`, `native` and `keep` ride as `data-sf-*` attributes, `match` as the `data-sf-link` the navigator re-reads after each navigation and `current` as `data-sf-current` when it is the document's. */
 export declare function Link(props: LinkProps): ReactElement;
+/** Whether the navigation a click on the enclosing link started is still in flight: the `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Outside a link `pending` is always false. */
+export declare function useLinkStatus(): {
+	pending: boolean;
+};
 export interface PictureProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "src"> {
 	/** An imported image, or a string: a URL as written, or the value a named source's template takes. */
 	src: ImageAsset | string;

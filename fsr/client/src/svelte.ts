@@ -1,4 +1,4 @@
-import { createRawSnippet, hydrate, mount as mountSvelte, unmount, type Component } from "svelte";
+import { createRawSnippet, getContext, hydrate, mount as mountSvelte, setContext, unmount, type Component } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 
 import { discard, islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
@@ -7,6 +7,7 @@ import { morph } from "./server.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes, type LinkOptions } from "./link.js";
+import { pendingLink, subscribePendingLink } from "./navigator.js";
 import { pictureParts, type PictureOptions } from "./picture.js";
 import { embedParts, type EmbedOptions } from "./embed.js";
 import { encodeValue } from "./values.js";
@@ -112,7 +113,7 @@ export const svelteMounter: Mounter = (module, props, el, isHydrating) => {
   const region = childrenRegion(el);
   const state: Held = { props: ownProps(props), changed: () => {}, region: null, children: region ? region.innerHTML : null, snippet: null, hydrating: isHydrating };
   held.set(el, state);
-  const options = { target: el, props: liveProps(state) };
+  const options = { target: el, props: liveProps(state), context: new Map<unknown, unknown>([[ISLAND, el]]) };
   if (isHydrating) {
     const instance = hydrate(componentOf(module), options);
     state.hydrating = false;
@@ -161,6 +162,33 @@ export function useLocale(): { subscribe: (run: (value: string) => void) => () =
     subscribe: (run) => {
       run(currentLocale());
       return subscribeLocale(run);
+    },
+  };
+}
+
+/** The element an island is mounted in, for `useLinkStatus` in an island the server placed inside a link. */
+const ISLAND = Symbol("sf-island");
+
+/** The anchor FSR's `Link` component rendered, for `useLinkStatus` in a component inside it. */
+const LINK = Symbol("sf-link");
+
+/** What FSR's `Link` component calls as it initialises, so `useLinkStatus` in a component inside it reads the anchor it rendered. */
+export function holdLink(anchor: () => Element | null): void {
+  setContext(LINK, anchor);
+}
+
+/** Whether the navigation a click on the enclosing link started is still in flight, as a Svelte store of `{ pending }`: FSR's `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Call it while the component initialises. */
+export function useLinkStatus(): { subscribe: (run: (value: { pending: boolean }) => void) => () => void } {
+  const link = getContext<(() => Element | null) | undefined>(LINK);
+  const island = getContext<Element | undefined>(ISLAND);
+  const pending = () => {
+    const at = pendingLink();
+    return at !== null && at === (link ? link() : (island?.closest("a") ?? null));
+  };
+  return {
+    subscribe: (run) => {
+      run({ pending: pending() });
+      return subscribePendingLink(() => run({ pending: pending() }));
     },
   };
 }

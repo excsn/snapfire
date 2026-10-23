@@ -26,6 +26,7 @@ How to build the package, register and hydrate islands, keep up with a streamed 
 * [Rescanning After Streamed Content Arrives](#rescanning-after-streamed-content-arrives)
 * [Enabling Navigation](#enabling-navigation)
 * [Marking the Link to the Page Being Shown](#marking-the-link-to-the-page-being-shown)
+* [Showing That a Link Is Opening](#showing-that-a-link-is-opening)
 * [Placing a Video Embed](#placing-a-video-embed)
 * [Declaring a Place for Teleported Content](#declaring-a-place-for-teleported-content)
 * [Placing a Picture](#placing-a-picture)
@@ -644,6 +645,36 @@ An intercepted navigation changes the address and leaves the page beneath in pla
 ```
 
 Open the drawer from the agent list and `Agents` keeps its mark while the gear takes one. `current="url"` is the default and the two agree whenever no intercept is open. On a plain anchor the same is `data-sf-current="document"` beside `data-sf-link`.
+
+## Showing That a Link Is Opening
+
+The link a click follows carries `data-sf-pending` from the click until the page it names is shown, so a stylesheet can show the wait with no script of its own:
+
+```css
+a[data-sf-pending] {
+  opacity: 0.7;
+}
+```
+
+A component inside the link reads the same thing with `useLinkStatus`, the counterpart of Next's hook. Each adapter has one:
+
+```tsx
+import { useLinkStatus } from "@snapfire/fsr-client/react";
+
+export default function Opening() {
+  const { pending } = useLinkStatus();
+  return <span className="opening">{pending ? "opening…" : ""}</span>;
+}
+```
+
+```tsx
+<Link href={`/talk/${talk.id}`}>
+  {talk.title}
+  <Opening />
+</Link>
+```
+
+The component reads the `Link` it renders inside when an island renders that link. Otherwise it reads the link the server placed the island in. So the same component works in a layout the server renders and inside an island. The server renders it with `pending` false, since nothing is pending at first paint. `pending` turns false once the eager part of the new page is shown, before its deferred segments arrive. A second click moves it to the second link. A navigation started from code with `navigate` has no link and marks none. Vue's `useLinkStatus()` returns a reactive `{ pending }`; Svelte's is a store of `{ pending }`, read as `$status.pending`. `pendingLink()` and `subscribePendingLink(watcher)` from `@snapfire/fsr-client` are the neutral form for any other library.
 
 ## Animating a Navigation
 

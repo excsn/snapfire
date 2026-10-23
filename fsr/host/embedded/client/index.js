@@ -5,7 +5,7 @@ export { adoptCatalog, adoptLocale, catalog, currentLocale, setCatalog, setLocal
 export { decodeNode, linesOf, parsePayload, parseRow } from "./reader.js";
 export { nodeToHtml, renderSegment } from "./render.js";
 export { loadDeclaredScripts, loadMarkedScript, loadScript } from "./script.js";
-export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, prefetch, refresh } from "./navigator.js";
+export { applyHead, clearRouterCache, currentAddressPath, currentDocumentPath, enableNavigation, localePath, markLinks, navigate, pendingLink, prefetch, refresh, subscribePendingLink } from "./navigator.js";
 export { live } from "./live.js";
 export { socket } from "./socket.js";
 export { applyStyles, boot, defineMounter, discard, loadEntry, markerProps, patchIsland, registerIsland, registerModule, registeredIslands, scan, serverRendered } from "./boot.js";

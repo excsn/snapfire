@@ -1,4 +1,4 @@
-import { createRawSnippet, hydrate, mount as mountSvelte, unmount } from "svelte";
+import { createRawSnippet, getContext, hydrate, mount as mountSvelte, setContext, unmount } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 import { discard, islandState, patchIsland, scan } from "./boot.js";
 import { CHILDREN_ATTR } from "./render.js";
@@ -6,6 +6,7 @@ import { morph } from "./server.js";
 import { get, set, subscribe } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes } from "./link.js";
+import { pendingLink, subscribePendingLink } from "./navigator.js";
 import { pictureParts } from "./picture.js";
 import { embedParts } from "./embed.js";
 import { encodeValue } from "./values.js";
@@ -98,7 +99,13 @@ export const svelteMounter = (module, props, el, isHydrating)=>{
     held.set(el, state);
     const options = {
         target: el,
-        props: liveProps(state)
+        props: liveProps(state),
+        context: new Map([
+            [
+                ISLAND,
+                el
+            ]
+        ])
     };
     if (isHydrating) {
         const instance = hydrate(componentOf(module), options);
@@ -142,6 +149,29 @@ export function useLocale() {
         subscribe: (run)=>{
             run(currentLocale());
             return subscribeLocale(run);
+        }
+    };
+}
+const ISLAND = Symbol("sf-island");
+const LINK = Symbol("sf-link");
+export function holdLink(anchor) {
+    setContext(LINK, anchor);
+}
+export function useLinkStatus() {
+    const link = getContext(LINK);
+    const island = getContext(ISLAND);
+    const pending = ()=>{
+        const at = pendingLink();
+        return at !== null && at === (link ? link() : island?.closest("a") ?? null);
+    };
+    return {
+        subscribe: (run)=>{
+            run({
+                pending: pending()
+            });
+            return subscribePendingLink(()=>run({
+                    pending: pending()
+                }));
         }
     };
 }

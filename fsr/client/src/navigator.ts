@@ -564,6 +564,33 @@ let documentPath = "";
 /** True while `current` is the sidecar the document shipped, which the fill script rewrites as streamed segments land; false once a payload has replaced it. */
 let documentSidecar = false;
 
+/** The anchor whose click started the navigation in flight. It carries `data-sf-pending` until that navigation is applied or another one starts. */
+let pendingAnchor: Element | null = null;
+/** The anchor a click hands to the `navigate` it calls, taken as that call starts. */
+let clickedAnchor: Element | null = null;
+const pendingWatchers = new Set<() => void>();
+
+function showPending(anchor: Element | null): void {
+  if (anchor === pendingAnchor) return;
+  pendingAnchor?.removeAttribute("data-sf-pending");
+  pendingAnchor = anchor;
+  anchor?.setAttribute("data-sf-pending", "");
+  for (const watcher of Array.from(pendingWatchers)) watcher();
+}
+
+/** The link whose navigation is in flight, null when none is or the navigation in flight did not start from a click on one. */
+export function pendingLink(): Element | null {
+  return pendingAnchor;
+}
+
+/** Calls `watcher` each time the pending link changes; the returned function stops it. */
+export function subscribePendingLink(watcher: () => void): () => void {
+  pendingWatchers.add(watcher);
+  return () => {
+    pendingWatchers.delete(watcher);
+  };
+}
+
 /** Sets the document's title and description meta, its theme and its scheme from a payload's `H` row and loads the scripts it lists, each once per document; a field the row left out is left alone. */
 export function applyHead(head: Head): void {
   for (const script of head.scripts ?? []) loadMarkedScript(script);
@@ -1038,6 +1065,8 @@ function scrollToFragment(hash: string): void {
 
 /** Navigates to `href` by payload, from the document's current path unless `options` say otherwise. The eager wave is applied and history moves as soon as the sidecar arrives, deferred segments showing their fallbacks; each resolution fills its slot as it lands and the promise resolves once the payload has been applied whole. A navigation that changes only the query keeps the islands the page places again, unless `options.keep` says otherwise. An intercepted navigation opens in its slot without scrolling, as does one whose `options.scroll` is false; a step back or forward returns the window to where that entry was left; anything else scrolls to the element its fragment names or to the top. A fragment of the page already showing scrolls without fetching, as does a step back or forward within that page. */
 export async function navigate(href: string, push = true, options: NavigateOptions = {}): Promise<void> {
+  const from = clickedAnchor;
+  clickedAnchor = null;
   const url = new URL(href, window.location.href);
   const record = (same: boolean) => {
     entry = newEntry();
@@ -1056,6 +1085,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
   const page = new URL(url.href);
   page.hash = "";
   const gen = ++generation;
+  showPending(from);
   const feed = payloadFor(page, askFor(options));
   if (!(await feed.ok)) {
     if (gen === generation) window.location.assign(href);
@@ -1103,6 +1133,7 @@ export async function navigate(href: string, push = true, options: NavigateOptio
     window.location.assign(href);
     return;
   }
+  showPending(null);
   announce();
   await drain(rows, eager.segments, gen);
 }
@@ -1206,6 +1237,7 @@ export function enableNavigation(options: NavigationOptions = {}): void {
     const url = new URL(href, window.location.href);
     if (url.origin !== window.location.origin) return;
     event.preventDefault();
+    clickedAnchor = anchor;
     void navigate(url.pathname + url.search + url.hash, true, askOf(anchor));
   });
   fallbackPrefetch = options.prefetch ?? "hover";

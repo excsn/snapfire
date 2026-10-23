@@ -3012,7 +3012,7 @@ impl<'a> Lowerer<'a> {
     }
   }
 
-  /// What React's server renderer returns for a hook whose value does not wait on the browser: `useDeferredValue`'s initial value when given and its value otherwise, `useFormStatus`'s status of no form pending and `useSyncExternalStore`'s server snapshot.
+  /// What React's server renderer returns for a hook whose value does not wait on the browser: `useDeferredValue`'s initial value when given and its value otherwise, `useFormStatus`'s status of no form pending, `useLinkStatus`'s of no link pending and `useSyncExternalStore`'s server snapshot.
   pub(crate) fn server_hook_value(&mut self, hook: &str, call: &js::CallExpr) -> Lowered<Expr> {
     match hook {
       "useDeferredValue" => match call.args.get(1).or(call.args.first()) {
@@ -3020,6 +3020,7 @@ impl<'a> Lowerer<'a> {
         None => Ok(Expr::Lit(Lit::Null)),
       },
       "useFormStatus" => Ok(Expr::Object(["pending", "data", "method", "action"].map(|key| Entry::Field(key.to_owned(), Expr::Lit(if key == "pending" { Lit::Bool(false) } else { Lit::Null }))).to_vec())),
+      "useLinkStatus" => Ok(Expr::Object(vec![Entry::Field("pending".to_owned(), Expr::Lit(Lit::Bool(false)))])),
       _ => match call.args.get(2) {
         Some(server) => Ok(Expr::Apply { f: Box::new(self.expr(&server.expr)?), args: Vec::new() }),
         None => Err(self.residue(call.span, "`useSyncExternalStore` without `getServerSnapshot`, which React's server renderer refuses too")),

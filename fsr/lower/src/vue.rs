@@ -1176,6 +1176,11 @@ impl<'a, 'p> VueLowerer<'a, 'p> {
             self.bind(name.clone(), Self::holder(&name), Expr::Var(name));
             return Ok(());
           }
+          "useLinkStatus" if source.as_deref() == Some(VUE_CLIENT) => {
+            self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Object(vec![Entry::Field("pending".to_owned(), Expr::Lit(Lit::Bool(false)))]) });
+            self.bind(name.clone(), Expr::Var(name.clone()), Expr::Var(name));
+            return Ok(());
+          }
           "defineEmits" => {
             self.emits.push(name);
             return Ok(());

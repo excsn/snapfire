@@ -104,7 +104,7 @@ fn runtime() -> BTreeMap<String, String> {
   let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../compiler/vue/tests/runtime/esm");
   let mut modules: BTreeMap<String, String> = snapfire_vue::SERVER_RUNTIME.iter().map(|(specifier, file)| ((*specifier).to_owned(), std::fs::read_to_string(dir.join(file)).expect("the runtime is vendored for tests"))).collect();
   modules.extend([
-    ("@snapfire/fsr-client/vue".to_owned(), "export function useStore(key, initial) { return { value: initial }; }\n".to_owned()),
+    ("@snapfire/fsr-client/vue".to_owned(), "export function useStore(key, initial) { return { value: initial }; }\nexport function useLinkStatus() { return { pending: false }; }\n".to_owned()),
     ("@snapfire/fsr-client".to_owned(), "export function get() { return 0; }\nexport async function optimistic() {}\n".to_owned()),
     ("@generated/client".to_owned(), "export const actions = {};\n".to_owned()),
     ("@src/store".to_owned(), "export const plannedCount = \"tonight/planned\";\n".to_owned()),
@@ -1541,5 +1541,15 @@ fn an_options_child_that_emits_from_created_writes_its_parents_data_before_the_p
   let files = [("src/ui/Asker.vue", "", OPTIONS_ASKER), ("src/ui/Answerer.vue", "Answerer.vue", OPTIONS_ANSWERER)];
   let html = agree_tree(&compiler, &dir, &files, "src/ui/Asker.vue", &ValueMap::default());
   assert!(html.contains("<p>hello from child</p>"), "{html}");
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn use_link_status_renders_no_link_pending_as_vue_does() {
+  let compiler = Compiler::new().expect("the compiler boots");
+  let dir = app("link_status", &[]);
+  let source = "<script setup lang=\"ts\">\nimport { useLinkStatus } from \"@snapfire/fsr-client/vue\";\nconst status = useLinkStatus();\n</script>\n<template>\n  <span class=\"opening\" :class=\"{ 'opening-on': status.pending }\">{{ status.pending ? \"opening\" : \"\" }}</span>\n</template>\n";
+  let html = agree(&compiler, &dir, "src/ui/Opening.vue", source, &props(&[]), "");
+  assert_eq!(html, "<span class=\"opening\"></span>");
   std::fs::remove_dir_all(&dir).unwrap();
 }

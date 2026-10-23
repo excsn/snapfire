@@ -10,6 +10,10 @@ export declare function useStore<T>(key: StoreKey<T>, initial: T): {
 };
 /** The document's locale as a Vue ref, following every navigation that changes it. Call it in `setup`, so the subscription ends with the component. */
 export declare function useLocale(): Readonly<Ref<string>>;
+/** Whether the navigation a click on the enclosing link started is still in flight, as a reactive `{ pending }`: the `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Call it in `setup`, so the subscription ends with the component. */
+export declare function useLinkStatus(): {
+	readonly pending: boolean;
+};
 /** What [`Mount`] takes: the module id the registry knows the island under, the props it is mounted with and re-patched from, plus the timing that schedules it. */
 export interface MountProps {
 	module: string;

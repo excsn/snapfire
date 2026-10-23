@@ -1,4 +1,4 @@
-import { ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
+import { createEvent, ctx, expect, fireEvent, load, screen, settle, test } from "@snapfire/fsr-client/testing";
 
 const talks = [
   { id: "1", title: "A plan is not a program", track: "Runtime", room: "Hall B", starts: "09:30", ends: "10:10", speaker: "Ada Okonjo", level: "intro", abstract: "What you get back when the thing your server reads is data." },
@@ -61,4 +61,37 @@ test("a click back to the day replaces the talk layout with the day", async () =
   expect(location.pathname).toEqual("/");
   expect(document.querySelectorAll(".talk-row").length, "the day rendered under the root layout").toEqual(2);
   expect(document.querySelector(".crumbs"), "the talk layout is gone").toBeNull();
+});
+
+const OPENING = 'sf-i[data-sf-module="src/ui/Opening.tsx#default"]';
+
+/** Clicks `link` without settling, so the navigation it starts is still in flight when the caller looks. */
+async function startFollowing(link: Element): Promise<void> {
+  link.dispatchEvent(createEvent("click", link));
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+test("the link a click follows is pending until the page it names is shown", async () => {
+  await load("/", { ctx: day() });
+  await settle();
+  const link = screen.getByText("Loaders that refuse to waterfall").closest("a");
+  expect(link?.querySelector(OPENING), "the link holds an island reading its status").toBeTruthy();
+  await startFollowing(link as Element);
+  expect(link?.hasAttribute("data-sf-pending"), "the link is marked while the payload is fetched").toBe(true);
+  expect(link?.querySelector(".opening-on")?.textContent, "and the island inside it says so").toEqual("opening…");
+  await settle();
+  expect(location.pathname).toEqual("/talk/2");
+  expect(document.querySelector("[data-sf-pending]"), "the mark is gone once the page is shown").toBeNull();
+});
+
+test("a Link an island renders tells the component inside it that its navigation is pending", async () => {
+  await load("/talk/1", { ctx: day() });
+  await settle();
+  const link = screen.getByText("Loaders that refuse to waterfall").closest("a");
+  expect(link?.querySelector(".opening"), "the island's own link holds the component").toBeTruthy();
+  await startFollowing(link as Element);
+  expect(link?.querySelector(".opening-on")?.textContent).toEqual("opening…");
+  await settle();
+  expect(location.pathname).toEqual("/talk/2");
+  expect(document.querySelector(".opening-on"), "nothing is pending once the page is shown").toBeNull();
 });

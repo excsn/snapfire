@@ -56,6 +56,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [clearRouterCache](#clearroutercache)
   * [navigate](#navigate)
   * [refresh](#refresh)
+  * [pendingLink and subscribePendingLink](#pendinglink-and-subscribependinglink)
   * [live](#live)
   * [socket](#socket)
   * [enablePwa](#enablepwa)
@@ -100,6 +101,7 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [Slot](#slot)
   * [useStore](#usestore)
   * [useLocale](#uselocale)
+  * [useLinkStatus](#uselinkstatus)
   * [Link](#link)
   * [Picture](#picture)
   * [Embed](#embed)
@@ -115,12 +117,14 @@ The browser half of SnapFire FSR: payload decoding, island hydration, streamed s
   * [vueUnmounter](#vueunmounter)
   * [Mount (Vue)](#mount-vue)
   * [useStore (Vue)](#usestore-vue)
+  * [useLinkStatus (Vue)](#uselinkstatus-vue)
 * [12. The Svelte Mounter](#12-the-svelte-mounter)
   * [svelteMounter](#sveltemounter)
   * [sveltePatcher](#sveltepatcher)
   * [svelteUnmounter](#svelteunmounter)
   * [useStore (Svelte)](#usestore-svelte)
   * [useLocale (Svelte)](#uselocale-svelte)
+  * [useLinkStatus and holdLink (Svelte)](#uselinkstatus-and-holdlink-svelte)
   * [link, picture and embed (Svelte)](#link-picture-and-embed-svelte)
   * [island (Svelte)](#island-svelte)
   * [mount (Svelte)](#mount-svelte)
@@ -173,10 +177,10 @@ Eight ES module entry points, resolved through an import map. There is no packag
 | Specifier | Built file | Exports | Bare imports |
 | --- | --- | --- | --- |
 | `@snapfire/fsr-client` | `dist/index.js` | everything in sections 2 to 9, plus `ActionFailure` and `upload` | none |
-| `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale` and the placement elements | `react`, `react-dom/client` |
+| `@snapfire/fsr-client/react` | `dist/react.js` | `reactMounter`, `useStore`, `useLocale`, `useLinkStatus` and the placement elements | `react`, `react-dom/client` |
 | `@snapfire/fsr-client/store` | `dist/store.js` | section 8, which the core entry re-exports | none |
-| `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore` | `vue` |
-| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `useStore`, `useLocale`, `link`, `picture`, `embed`, `island` | `svelte`, `svelte/reactivity` |
+| `@snapfire/fsr-client/vue` | `dist/vue.js` | `vueMounter`, `vuePatcher`, `useStore`, `useLinkStatus` | `vue` |
+| `@snapfire/fsr-client/svelte` | `dist/svelte.js` | `svelteMounter`, `sveltePatcher`, `svelteUnmounter`, `useStore`, `useLocale`, `useLinkStatus`, `holdLink`, `link`, `picture`, `embed`, `island` | `svelte`, `svelte/reactivity` |
 | `@snapfire/fsr-client/htmx` | `dist/htmx.js` | `bindHtmx` | none |
 | `@snapfire/fsr-client/elements` | `dist/elements.js` | `shadowOf` | none |
 | `@snapfire/fsr-client/jsx-runtime` | `dist/jsx-runtime.js` | `jsx`, `jsxs`, `Fragment`, `Embed`, `Island`, `island`, `Link`, `Picture`, `Slot` | none |
@@ -603,6 +607,13 @@ Drops the router cache, re-fetches the current `pathname` and `search` with `__p
 
 Falls back to `window.location.reload()` when there is no sidecar, when the response is neither ok nor a payload or when the payload cannot be applied. A request that gets no response at all, offline or with the server down, leaves the page as it is, since a reload would land on the browser's error page. A `404` payload is still a payload: the host renders the error segment the page's loader failed into and the navigator applies it, so a link to an entity that does not exist lands on that route with its error page in place, as a full load would.
 
+### pendingLink and subscribePendingLink
+
+* `pendingLink(): Element | null`
+* `subscribePendingLink(watcher: () => void): () => void`
+
+The anchor whose click started the navigation in flight and a subscription to its changes; the returned function unsubscribes. The click handler hands the anchor to the `navigate` it calls, which marks it `data-sf-pending` (an empty value) as its fetch starts and clears the mark once the eager wave is applied, before the drain. A `navigate` begun later clears the earlier mark and marks its own anchor. One not started by a click marks none. A navigation that hands over to a full load leaves the mark on. A fragment-only step marks nothing.
+
 ### live
 
 * `live(topics: string[], options?: LiveOptions): () => void`
@@ -935,6 +946,12 @@ The build lowers the call, so the key must be a string literal or a `key()` it c
 
 The document's locale, re-rendering the island when a navigation changes it. The build lowers the call, so the server renders the same value the browser adopts.
 
+### useLinkStatus
+
+* `function useLinkStatus(): { pending: boolean }`
+
+Whether `pendingLink()` is the enclosing link: the anchor of the `Link` the component renders inside, else the closest `a` around the element the island is mounted in. `pending` is false outside a link. Read through `useSyncExternalStore` over `subscribePendingLink`, with a server snapshot of false. The build lowers the call to `{ pending: false }`, bound as the component's state, so the component hydrates.
+
 ### Link
 
 * `function Link({ full, into, prefetch, native, keep, match, current, ...rest }: LinkProps): ReactElement`
@@ -1042,6 +1059,12 @@ The counterpart of the React `Mount` in a Vue tree: it writes the island marker 
 
 A store key as a Vue ref: reads the store's value (`initial` while nothing has set the key) and follows every later write to the key from any root. Writing `.value` writes the store. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`.
 
+### useLinkStatus (Vue)
+
+* `function useLinkStatus(): { readonly pending: boolean }`
+
+`useLinkStatus` as a reactive object: the anchor the Vue `Link` around the component rendered, else the closest `a` around the element the island is mounted in, which the mounter provides. Subscribes on the current scope and unsubscribes when it is disposed, so it is called in `setup`. The build lowers the call to `{ pending: false }`.
+
 ## 12. The Svelte Mounter
 
 `@snapfire/fsr-client/svelte`: its own entry point, so the core package never imports Svelte and a page with no Svelte island never loads it. Requires `svelte` and `svelte/reactivity` in the page's import map, which `fsr use <app> svelte` writes. Svelte 5.
@@ -1075,6 +1098,13 @@ A store key as a Svelte store: `$count` reads it (`initial` while nothing has se
 * `function useLocale(): { subscribe(run: (value: string) => void): () => void }`
 
 The document's locale as a readable Svelte store, `$locale`, following every navigation that changes it.
+
+### useLinkStatus and holdLink (Svelte)
+
+* `function useLinkStatus(): { subscribe(run: (value: { pending: boolean }) => void): () => void }`
+* `function holdLink(anchor: () => Element | null): void`
+
+`useLinkStatus` as a readable store of `{ pending }`, `$status.pending`, called while the component initialises. It reads the anchor a `holdLink` above it put in context, else the closest `a` around the element the island is mounted in, which `svelteMounter` passes as context. FSR's `Link.svelte` calls `holdLink` with its bound anchor. The build lowers the call to `{ pending: false }`.
 
 ### link, picture and embed (Svelte)
 

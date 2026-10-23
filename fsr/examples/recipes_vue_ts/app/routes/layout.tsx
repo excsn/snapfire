@@ -2,6 +2,7 @@ import { Island, type Children } from "@snapfire/fsr-authoring/template";
 import { Link, Place } from "@snapfire/fsr/components";
 
 import Tonight from "@src/ui/Tonight.vue";
+import Opening from "@src/ui/Opening.vue";
 import type { Box } from "@generated/services";
 
 export default function BoxLayout({
@@ -26,7 +27,12 @@ export default function BoxLayout({
         </div>
         <nav className="masthead-nav">
           <Link href="/">Recipes</Link>
-          <Link href="/tonight">Tonight</Link>
+          <Link href="/tonight">
+            Tonight
+            <Island when="load">
+              <Opening />
+            </Island>
+          </Link>
         </nav>
         <Place name="notices" className="notices" />
         <Island when="load">

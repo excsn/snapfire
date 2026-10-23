@@ -5,6 +5,7 @@ import { islandState, patchIsland, scan } from "./boot.js";
 import { encodeValue } from "./values.js";
 import { CHILDREN_ATTR, MARKUP_ATTR } from "./render.js";
 import { morph } from "./server.js";
+import { pendingLink, subscribePendingLink } from "./navigator.js";
 import { linkAttributes } from "./link.js";
 import { embedParts, styleObject } from "./embed.js";
 import { pictureParts } from "./picture.js";
@@ -389,8 +390,27 @@ function suspendOn(k) {
 export function useLocale() {
     return useSyncExternalStore(subscribeLocale, currentLocale, currentLocale);
 }
+const LinkContext = createContext(null);
+const IslandContext = createContext(null);
 export function Link(props) {
-    return createElement("a", linkAttributes(props));
+    const anchor = useRef(null);
+    return createElement(LinkContext.Provider, {
+        value: anchor
+    }, createElement("a", {
+        ...linkAttributes(props),
+        ref: anchor
+    }));
+}
+export function useLinkStatus() {
+    const link = useContext(LinkContext);
+    const island = useContext(IslandContext);
+    const pending = useSyncExternalStore(subscribePendingLink, ()=>{
+        const at = pendingLink();
+        return at !== null && at === (link ? link.current : island?.closest("a") ?? null);
+    }, ()=>false);
+    return {
+        pending
+    };
 }
 const FETCH_PRIORITY = Number(version.split(".")[0]) >= 19 ? "fetchPriority" : "fetchpriority";
 export function Picture(props) {
@@ -566,9 +586,11 @@ function islandElement(component, props, el, patched, sources) {
     const under = createElement(RenderedStoreContext.Provider, {
         value: rendered
     }, withHoisted(hoisted, element));
-    return createElement(Mounting, {
+    return createElement(IslandContext.Provider, {
+        value: el
+    }, createElement(Mounting, {
         el
-    }, withRegions(el, under, patched, sources));
+    }, withRegions(el, under, patched, sources)));
 }
 function Mounting({ el, children }) {
     useEffect(()=>{

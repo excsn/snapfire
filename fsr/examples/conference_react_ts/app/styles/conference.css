@@ -357,3 +357,13 @@ a:hover {
   max-width: 40rem;
   margin-block: 1.5rem;
 }
+
+.opening {
+  margin-left: 0.5em;
+  font-size: 0.8em;
+  color: var(--quiet);
+}
+
+a[data-sf-pending] {
+  opacity: 0.7;
+}

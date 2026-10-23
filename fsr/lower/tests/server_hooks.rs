@@ -101,3 +101,15 @@ fn a_call_on_use_form_status_data_is_null_since_no_form_is_pending() {
   let out = render("form_status_data", "export default function Page() {\n  const { pending, data } = useFormStatus();\n  return <p>{data ? `Requesting ${data?.get(\"username\")}...` : \"idle\"}{pending ? \"!\" : \"\"}</p>;\n}\n");
   assert_eq!(out.as_deref(), Ok("<p>idle</p>"));
 }
+
+#[test]
+fn use_link_status_is_no_link_pending() {
+  let out = html("link_status", &[("routes/page.tsx", "import { useLinkStatus } from \"@snapfire/fsr-client/react\";\nexport default function Page() {\n  const { pending } = useLinkStatus();\n  const status = useLinkStatus();\n  return <span className={pending ? \"on\" : \"off\"}>{status.pending ? \"opening\" : \"\"}</span>;\n}\n")]);
+  assert_eq!(out.as_deref(), Ok("<span class=\"off\"></span>"));
+  let dir = app("link_status_owner", &[("routes/page.tsx", "import { useLinkStatus } from \"@snapfire/fsr-client/react\";\nexport default function Page() {\n  const { pending } = useLinkStatus();\n  return <span>{pending ? \"opening\" : \"\"}</span>;\n}\n")]);
+  let mut set = ComponentSet::new(&dir);
+  set.lower("routes/page.tsx#default").unwrap();
+  std::fs::remove_dir_all(&dir).unwrap();
+  let (_, page) = set.components.iter().find(|(m, _)| m == "routes/page.tsx#default").unwrap();
+  assert_eq!(page.owner, snapfire_fsr_ir::ast::Owner::React, "the browser re-renders it when a link's navigation starts");
+}

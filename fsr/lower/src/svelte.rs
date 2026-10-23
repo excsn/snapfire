@@ -888,6 +888,12 @@ impl<'a, 'p> SvelteLowerer<'a, 'p> {
             self.bind(name.clone(), Expr::Var(name));
             return Ok(());
           }
+          "useLinkStatus" => {
+            self.lets.push(Stmt::Let { name: name.clone(), expr: Expr::Object(vec![Entry::Field("pending".to_owned(), Expr::Lit(Lit::Bool(false)))]) });
+            self.bind(format!("${name}"), Expr::Var(name.clone()));
+            self.bind(name.clone(), Expr::Var(name));
+            return Ok(());
+          }
           _ => {}
         }
       }

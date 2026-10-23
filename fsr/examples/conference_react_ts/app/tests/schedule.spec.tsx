@@ -26,7 +26,7 @@ test("the day is a row per talk under the masthead the layout loaded", async () 
   expect(document.querySelector(".masthead h1")?.textContent).toEqual("Everything At Once");
   const rows = Array.from(document.querySelectorAll(".talk-row"));
   expect(rows.length, "one row per talk").toEqual(2);
-  expect(rows[0]?.querySelector(".talk-title")?.textContent).toEqual("A plan is not a program");
+  expect(rows[0]?.querySelector(".talk-title")?.firstChild?.textContent).toEqual("A plan is not a program");
   expect(rows[1]?.querySelector(".room")?.textContent).toEqual("Room 2");
 });
 

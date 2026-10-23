@@ -7746,7 +7746,14 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             self.browser_function(local);
             return Ok(None);
           }
-          Some((hook @ ("useDeferredValue" | "useFormStatus" | "useLinkStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
+          Some(("useLinkStatus", call)) => {
+            let expr = self.lowerer.server_hook_value("useLinkStatus", call)?;
+            self.state.push(local.clone());
+            self.state_bindings.push(local.clone());
+            self.lowerer.scope.push((local.clone(), Expr::Var(local.clone())));
+            return Ok(Some(Stmt::Let { name: local, expr }));
+          }
+          Some((hook @ ("useDeferredValue" | "useFormStatus" | "useSyncExternalStore"), call)) => self.lowerer.server_hook_value(hook, call)?,
           Some(("useId", call)) if !matches!(self.meanings().bindings.get("useId"), Some(crate::meaning::Meaning::Own { .. })) => {
             let range = self.lowerer.parsed.range(call.span);
             let viewer = self.lowerer.reaches(Reach::Terminal);
@@ -7984,18 +7991,26 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         return Err(self.lowerer.residue(call.span, format!("`{hook}`, a hook the build cannot follow")));
       }
       Some((hook, call)) if self.custom_hook(hook) => return self.inline_hook(hook, call, Some(pattern)),
-      Some((hook @ ("useFormStatus" | "useLinkStatus"), call)) => {
+      Some(("useLinkStatus", call)) => {
+        let expr = self.lowerer.server_hook_value("useLinkStatus", call)?;
+        let name = self.lowerer.temp();
+        self.state.push(name.clone());
+        self.state_bindings.push(name.clone());
+        bind_pattern(&mut self.lowerer, pattern, Expr::Var(name.clone()))?;
+        return Ok(Some(Stmt::Let { name, expr }));
+      }
+      Some(("useFormStatus", call)) => {
         // Each field is a constant on the server, bound as one so a read of `data` is known to be null.
-        let Expr::Object(fields) = self.lowerer.server_hook_value(hook, call)? else { unreachable!("{hook} is an object") };
-        let js::Pat::Object(obj) = pattern else { return Err(self.lowerer.residue(pattern.span(), format!("`{hook}` destructured as other than an object"))) };
+        let Expr::Object(fields) = self.lowerer.server_hook_value("useFormStatus", call)? else { unreachable!("useFormStatus is an object") };
+        let js::Pat::Object(obj) = pattern else { return Err(self.lowerer.residue(pattern.span(), "`useFormStatus` destructured as other than an object")) };
         for prop in &obj.props {
           let (key, local) = match prop {
             js::ObjectPatProp::Assign(a) => (a.key.id.sym.to_string(), a.key.id.sym.to_string()),
             js::ObjectPatProp::KeyValue(kv) => match (prop_name(&kv.key), &*kv.value) {
               (Some(key), js::Pat::Ident(id)) => (key, id.id.sym.to_string()),
-              _ => return Err(self.lowerer.residue(prop.span(), format!("a `{hook}` field bound to other than a name"))),
+              _ => return Err(self.lowerer.residue(prop.span(), "a `useFormStatus` field bound to other than a name")),
             },
-            js::ObjectPatProp::Rest(r) => return Err(self.lowerer.residue(r.span, format!("a rest of `{hook}`"))),
+            js::ObjectPatProp::Rest(r) => return Err(self.lowerer.residue(r.span, "a rest of `useFormStatus`")),
           };
           let value = fields.iter().find_map(|f| match f {
             Entry::Field(n, v) if *n == key => Some(v.clone()),

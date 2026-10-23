@@ -262,6 +262,28 @@ An intercept opens a drawer or a modal over the page and puts the target's URL i
 
 The two differ only while an intercept is open. The console's header does this: the settings drawer puts `/settings` in the address bar and `Agents` keeps its mark, while the gear that opened it, judged by the address, takes one.
 
+## A link that is opening
+
+The link a click follows carries `data-sf-pending` until the page it names is shown, so `a[data-sf-pending] { opacity: 0.7; }` dims it while the payload is on its way. A component placed inside the link reads the same thing with `useLinkStatus` from its framework's adapter, as Next's hook does:
+
+```tsx
+import { useLinkStatus } from "@snapfire/fsr-client/react";
+
+export default function Opening() {
+  const { pending } = useLinkStatus();
+  return <span className="opening">{pending ? "opening…" : ""}</span>;
+}
+```
+
+```tsx
+<Link href={`/talk/${talk.id}`}>
+  {talk.title}
+  <Opening />
+</Link>
+```
+
+The server renders it as not pending and it hydrates, so it can change when the click comes. The conference schedule does this for each talk, in a page the server renders and in one that is an island. The Vue and Svelte adapters have the same hook. `fsr migrate` points an import of `useLinkStatus` from `next/link` at the React one.
+
 ## Route handlers
 
 A directory may hold a `route.ts` instead of a page. Its exports named `GET`, `POST`, `PUT`, `PATCH` or `DELETE` are handlers: the host matches the method and the pattern before any page, runs the body with the same context a loader gets plus the request body as `input` and answers with the returned value as JSON. A `fail` sets the status by its kind. Written as an `action<T>`, a handler has its input checked against `T` before the body runs; written as a plain function, `input` is whatever the request carried.

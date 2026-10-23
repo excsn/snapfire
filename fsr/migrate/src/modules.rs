@@ -33,7 +33,8 @@ fn default_import<'a>(parsed: &'a Parsed, module: &str) -> Option<(&'a js::Impor
   })
 }
 
-/// `next/link`'s `Link` as FSR's, from `@snapfire/fsr/components`.
+/// `next/link`'s `Link` as FSR's from `@snapfire/fsr/components` and its
+/// `useLinkStatus` as the React adapter's.
 /// `prefetch={false}` is `prefetch="none"` and a `prefetch` that asks for
 /// the default is dropped; `passHref` is dropped, since FSR's `Link` is the
 /// anchor. `replace`, `scroll`, `shallow`, `locale` and `legacyBehavior`
@@ -52,10 +53,48 @@ impl Pass for Links {
         continue;
       }
       let Ok(parsed) = parse(&path, &text) else { continue };
-      let Some((import, local)) = default_import(&parsed, "next/link") else { continue };
+      let Some(import) = parsed.module.body.iter().find_map(|item| match item {
+        js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) if import.src.value.to_string_lossy() == "next/link" => Some(import),
+        _ => None,
+      }) else {
+        continue;
+      };
+      let mut local = None;
+      let mut status = None;
+      for specifier in &import.specifiers {
+        match specifier {
+          js::ImportSpecifier::Default(d) => local = Some(d.local.sym.to_string()),
+          js::ImportSpecifier::Named(n) => {
+            let imported = match &n.imported {
+              Some(js::ModuleExportName::Ident(i)) => i.sym.to_string(),
+              Some(js::ModuleExportName::Str(s)) => s.value.to_string_lossy().into_owned(),
+              None => n.local.sym.to_string(),
+            };
+            if imported == "useLinkStatus" {
+              status = Some(n.local.sym.to_string());
+            }
+          }
+          js::ImportSpecifier::Namespace(_) => {}
+        }
+      }
+      let mut lines = Vec::new();
+      if let Some(local) = &local {
+        let clause = if local == "Link" { "{ Link }".to_owned() } else { format!("{{ Link as {local} }}") };
+        lines.push(format!("import {clause} from \"@snapfire/fsr/components\";"));
+      }
+      if let Some(status) = &status {
+        let clause = if status == "useLinkStatus" { "{ useLinkStatus }".to_owned() } else { format!("{{ useLinkStatus as {status} }}") };
+        lines.push(format!("import {clause} from \"@snapfire/fsr-client/react\";"));
+      }
+      if lines.is_empty() {
+        continue;
+      }
       let mut edits = Edits::default();
-      let clause = if local == "Link" { "{ Link }".to_owned() } else { format!("{{ Link as {local} }}") };
-      edits.replace(parsed.range(import.span), format!("import {clause} from \"@snapfire/fsr/components\";"));
+      edits.replace(parsed.range(import.span), lines.join("\n"));
+      let Some(local) = local else {
+        tree.insert(path, edits.apply(&text));
+        continue;
+      };
       let mut found = Elements { name: local, found: Vec::new() };
       parsed.module.visit_with(&mut found);
       for opening in &found.found {
@@ -494,6 +533,20 @@ mod tests {
       "import { Link as NextLink } from \"@snapfire/fsr/components\";\n\nexport default function Page() {\n  return <NextLink href=\"/a\" prefetch=\"none\">a</NextLink>;\n}\n"
     );
     assert_eq!(report.notes.len(), 1, "{:?}", report.notes);
+  }
+
+  #[test]
+  fn use_link_status_comes_from_the_react_adapter_beside_the_link() {
+    let input = tree(&[
+      ("package.json", PACKAGE),
+      ("app/page.tsx", "import Link, { useLinkStatus } from \"next/link\";\n\nfunction Hint() {\n  const { pending } = useLinkStatus();\n  return pending ? <i>…</i> : null;\n}\n\nexport default function Page() {\n  return <Link href=\"/a\">a<Hint /></Link>;\n}\n"),
+      ("app/b/page.tsx", "import { useLinkStatus as linkStatus } from \"next/link\";\n\nexport default function Page() {\n  return linkStatus().pending ? <i>…</i> : null;\n}\n"),
+    ]);
+    let (out, _) = migrate(&input);
+    let page = out.text("app/routes/page.tsx").unwrap();
+    assert!(page.starts_with("import { Link } from \"@snapfire/fsr/components\";\nimport { useLinkStatus } from \"@snapfire/fsr-client/react\";\n\nfunction Hint() {"), "{page}");
+    let b = out.text("app/routes/b/page.tsx").unwrap();
+    assert!(b.starts_with("import { useLinkStatus as linkStatus } from \"@snapfire/fsr-client/react\";\n"), "{b}");
   }
 
   #[test]

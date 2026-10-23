@@ -1,4 +1,4 @@
-import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref } from "vue";
+import { createApp, createSSRApp, defineComponent, getCurrentInstance, h, inject, onMounted, onScopeDispose, onUpdated, provide, reactive, ref, shallowRef, watch, type App, type Component, type InjectionKey, type Ref } from "vue";
 
 import { islandState, patchIsland, scan, type MountTiming, type Mounter, type Patcher, type Props, type Unmounter } from "./boot.js";
 import { CHILDREN_ATTR, PLACED_ISLAND, PLACED_OPEN, REGION_KEY } from "./render.js";
@@ -7,6 +7,7 @@ import { encodeValue } from "./values.js";
 import { get, set, subscribe, type StoreKey } from "./store.js";
 import { currentLocale, subscribeLocale } from "./locale.js";
 import { linkAttributes, type LinkOptions } from "./link.js";
+import { pendingLink, subscribePendingLink } from "./navigator.js";
 import { pictureParts, type PictureOptions } from "./picture.js";
 import { embedParts, type EmbedOptions } from "./embed.js";
 
@@ -23,6 +24,12 @@ interface Rendered {
 }
 
 const RENDERED_STORE: InjectionKey<Rendered> = Symbol("sf-rendered-store");
+
+/** The element an island is mounted in, for `useLinkStatus` in an island the server placed inside a link. */
+const ISLAND: InjectionKey<Element> = Symbol("sf-island");
+
+/** The anchor a `Link` rendered, for `useLinkStatus` in a component inside it. */
+const LINK: InjectionKey<Ref<Element | null>> = Symbol("sf-link");
 
 function ownProps(props: Props): Record<string, unknown> {
   const own: Record<string, unknown> = {};
@@ -119,6 +126,7 @@ export const vueMounter: Mounter = (module, props, el, hydrate) => {
   const app: App = hydrate ? createSSRApp(root) : createApp(root);
   const rendered: Rendered = { values: (props as { $sv?: { [key: string]: unknown } }).$sv ?? {}, hydrating: hydrate };
   app.provide(RENDERED_STORE, rendered);
+  app.provide(ISLAND, el);
   held.set(el, state);
   childrenHeld.set(el, children);
   if (hydrate) startTeleports(el, props);
@@ -186,6 +194,20 @@ export function useLocale(): Readonly<Ref<string>> {
     locale.value = next;
   }));
   return locale;
+}
+
+/** Whether the navigation a click on the enclosing link started is still in flight, as a reactive `{ pending }`: the `Link` this component renders inside, else the link the server placed this island in. It turns false once the page the link names is shown. Call it in `setup`, so the subscription ends with the component. */
+export function useLinkStatus(): { readonly pending: boolean } {
+  const link = inject(LINK, null);
+  const island = inject(ISLAND, null);
+  const status = reactive({ pending: false });
+  const update = () => {
+    const at = pendingLink();
+    status.pending = at !== null && at === (link ? link.value : (island?.closest("a") ?? null));
+  };
+  update();
+  onScopeDispose(subscribePendingLink(update));
+  return status;
 }
 
 /** Ids for the markers this module writes, which no server rendered. */
@@ -256,7 +278,9 @@ export const Link: Component = defineComponent({
   name: "SfLink",
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
-    return () => h("a", linkAttributes(attrs as LinkOptions), slots.default?.());
+    const anchor = ref<Element | null>(null);
+    provide(LINK, anchor);
+    return () => h("a", { ...linkAttributes(attrs as LinkOptions), ref: anchor }, slots.default?.());
   },
 });
 
