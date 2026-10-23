@@ -301,8 +301,8 @@ fn keep_entry(tree: &Tree, entry: &Entry) -> Option<String> {
         };
         declared |= name == entry.component;
       }
-      js::ModuleItem::Stmt(js::Stmt::Expr(e)) if renders(&e.expr) => {
-        edits.replace(crate::items::line_range(text, parsed.range(e.span())), String::new());
+      js::ModuleItem::Stmt(stmt) if holds_render(stmt) => {
+        edits.replace(crate::items::line_range(text, parsed.range(stmt.span())), String::new());
       }
       _ => {}
     }
@@ -313,6 +313,26 @@ fn keep_entry(tree: &Tree, entry: &Entry) -> Option<String> {
   let text = edits.apply(text);
   let text = crate::items::drop_named_import(&text, "ink", "render").unwrap_or(text);
   Some(format!("{}\n", text.trim_end_matches('\n')))
+}
+
+/// Whether a top-level statement calls `render` anywhere in it: the call itself, or an `if` choosing between two.
+fn holds_render(stmt: &js::Stmt) -> bool {
+  struct Found(bool);
+  impl Visit for Found {
+    fn visit_call_expr(&mut self, n: &js::CallExpr) {
+      if let js::Callee::Expr(callee) = &n.callee {
+        if matches!(&**callee, js::Expr::Ident(id) if id.sym.as_ref() == "render") {
+          self.0 = true;
+        }
+      }
+      n.visit_children_with(self);
+    }
+    fn visit_function(&mut self, _: &js::Function) {}
+    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+  }
+  let mut found = Found(false);
+  stmt.visit_with(&mut found);
+  found.0
 }
 
 /// Whether `e` is a call of `render`, Ink's or anyone's by that name.

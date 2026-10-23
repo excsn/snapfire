@@ -127,3 +127,15 @@ fn an_alias_declared_in_a_tsconfig_the_application_extends_is_rewritten() {
   assert_eq!(out.text("app/src/ui/App.tsx").unwrap(), "import Header from '@src/ui/components/Header';\n\nexport default function App() { return <Header />; }\n", "{:?}", report.notes);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import App from \"@src/ui/App\";\n\nexport default function Page() {\n  return <App />;\n}\n");
 }
+
+#[test]
+fn a_kept_entry_loses_an_if_that_chooses_what_to_render() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("lrn.tsx", "import React from 'react';\nimport { render, Text } from 'ink';\n\nconst mode = 'match';\n\nexport function AppMatch() {\n  return <Text>match</Text>;\n}\n\nfunction AppCards() {\n  return <Text>cards</Text>;\n}\n\nif (mode === 'match') {\n  render(<AppMatch />);\n} else {\n  render(<AppCards />);\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React from 'react';\nimport { Text } from 'ink';\n\nconst mode = 'match';\n\nexport function AppMatch() {\n  return <Text>match</Text>;\n}\n\nfunction AppCards() {\n  return <Text>cards</Text>;\n}\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
+}
+
