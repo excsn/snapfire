@@ -2010,8 +2010,9 @@ impl<'a> Lowerer<'a> {
     use snapfire_fsr_ir::host::Report;
     let js::Callee::Expr(callee) = &call.callee else { return None };
     let js::Expr::Member(method) = crate::meaning::bare(callee) else { return None };
-    if let (Some(on @ ("on" | "off")), Some(js::Expr::Lit(js::Lit::Str(event)))) = (self.member_name(method).as_deref(), call.args.first().map(|a| crate::meaning::bare(&a.expr))) {
-      if event.value.to_string_lossy() == Report::Resize.name() {
+    let event = call.args.first().and_then(|a| string_literal(&a.expr));
+    if let (Some(on @ ("on" | "off")), Some(event)) = (self.member_name(method).as_deref(), event.as_deref()) {
+      if event == Report::Resize.name() {
         return Some((&method.obj, Some(Report::Resize), call.args.get(1).map(|a| &*a.expr), on == "off"));
       }
     }
@@ -2022,10 +2023,6 @@ impl<'a> Lowerer<'a> {
         _ => return None,
       },
       _ => return None,
-    };
-    let event = match call.args.first().map(|a| crate::meaning::bare(&a.expr)) {
-      Some(js::Expr::Lit(js::Lit::Str(event))) => Some(event.value.to_string_lossy().into_owned()),
-      _ => None,
     };
     let report = match (stream, self.member_name(method).as_deref(), event.as_deref()) {
       (Some(_), Some("setEncoding"), _) => return Some((process, None, None, false)),
@@ -4298,6 +4295,18 @@ fn strip_parens(e: &js::Expr) -> &js::Expr {
   match e {
     js::Expr::Paren(p) => strip_parens(&p.expr),
     other => other,
+  }
+}
+
+/// The text of a string literal or of a template literal with no `${}` part.
+fn string_literal(e: &js::Expr) -> Option<String> {
+  match crate::meaning::bare(e) {
+    js::Expr::Lit(js::Lit::Str(s)) => Some(s.value.to_string_lossy().into_owned()),
+    js::Expr::Tpl(tpl) if tpl.exprs.is_empty() && tpl.quasis.len() == 1 => {
+      let quasi = &tpl.quasis[0];
+      Some(quasi.cooked.as_ref().map(|c| c.to_atom_lossy().to_string()).unwrap_or_else(|| quasi.raw.to_string()))
+    }
+    _ => None,
   }
 }
 

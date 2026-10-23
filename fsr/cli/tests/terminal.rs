@@ -653,3 +653,13 @@ fn a_resize_runs_the_listener_process_stdout_on_added_with_a_function_the_effect
   session.resize(120, 40);
   assert_eq!(line(session.view().unwrap()), "120x40");
 }
+
+#[test]
+fn a_resize_runs_the_listener_a_custom_hook_adds_on_use_stdout_with_a_template_event_name() {
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text, useStdout } from \"ink\";\n\nfunction useScreenSize() {\n  const { stdout } = useStdout() as any;\n  const [size, setSize] = useState(() => ({ width: stdout.columns, height: stdout.rows }));\n  useEffect(() => {\n    const onResize = () => setSize({ width: stdout.columns, height: stdout.rows });\n    stdout.on(`resize`, onResize);\n    return () => void stdout.off(`resize`, onResize);\n  }, [stdout]);\n  return size;\n}\n\nexport default function Sized() {\n  const { width, height } = useScreenSize();\n  return <Text>{width}x{height}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].clone();
+  assert_eq!(line(session.view().unwrap()), "80x24");
+  session.resize(120, 40);
+  assert_eq!(line(session.view().unwrap()), "120x40");
+}
