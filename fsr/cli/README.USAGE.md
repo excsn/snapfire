@@ -2011,7 +2011,7 @@ A build script never declares a directory it writes into. `types/` is left out o
 
 `emit` is generation and then the bundle. `build` and `write` are the generation alone and a build script that calls only those leaves `dist/` at whatever the last bundle wrote, which the host cannot tell from a current one: it renders from the new plan while the browser hydrates the old module, so the page fails with a hydration mismatch and nothing says why. Reach for `build` and `write` when the bundle genuinely is not wanted, such as generating another application's shell contract and for `emit` otherwise.
 
-`src` belongs in the watched list whenever a component outside `routes/` is placed with `<Island>`, since a change there has to reach `dist/`. `emit` finds the compiler at `$SNAPFIREC`, else beside the running binary, else on `PATH`; set `options.snapfirec` when it is somewhere else, as the examples in this repository do.
+`src` belongs in the watched list whenever a component outside `routes/` is placed with `<Island>`, since a change there has to reach `dist/`. `emit` finds the compiler at `$SNAPFIREC`, else beside the running binary, else on `PATH`; set `options.snapfirec` when it is somewhere else, as the examples in this repository do. A compiler older than the release this fsr builds with is refused before it runs, naming both releases and `cargo install snapfire_compiler`.
 
 A build script is not beside either binary, so name the typechecker the same way; without one the build script finds none and emits without checking. `emit` returns what the checker said in `Emitted::checked` and fails with `BuildError::Typecheck` when a diagnostic is an error.
 

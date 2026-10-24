@@ -24,6 +24,8 @@ pub struct Tool {
   /// The registry it is published to; crates.io when absent. Not every tool a
   /// project reaches for is public.
   pub registry: Option<&'static str>,
+  /// The earliest release the command works with, read from the last word `--version` prints.
+  pub floor: Option<&'static str>,
 }
 
 impl Tool {
@@ -36,11 +38,15 @@ impl Tool {
   }
 }
 
+/// The earliest `snapfirec` this fsr builds with. Raised with the compiler's release when fsr
+/// starts relying on what that release emits.
+pub const COMPILER_FLOOR: &str = "0.17.0";
+
 pub const COMPILER: Tool =
-  Tool { binary: "snapfirec", package: "snapfire_compiler", needed_for: "compiling the browser bundle", required: true, registry: None };
+  Tool { binary: "snapfirec", package: "snapfire_compiler", needed_for: "compiling the browser bundle", required: true, registry: None, floor: Some(COMPILER_FLOOR) };
 
 pub const CHECKER: Tool =
-  Tool { binary: "snapfiretc", package: "snapfire_typecheck", needed_for: "checking the application's types", required: false, registry: None };
+  Tool { binary: "snapfiretc", package: "snapfire_typecheck", needed_for: "checking the application's types", required: false, registry: None, floor: None };
 
 #[non_exhaustive]
 pub enum Ready {
@@ -57,10 +63,12 @@ pub fn present(path: &Path) -> bool {
 
 pub fn ensure(tool: &Tool, path: &Path) -> Result<Ready, BuildError> {
   if present(path) {
+    recent(tool, path)?;
     return Ok(Ready::Yes);
   }
   if asked(tool)? {
     install(tool)?;
+    recent(tool, path)?;
     return Ok(Ready::Yes);
   }
   if tool.required {
@@ -71,6 +79,22 @@ pub fn ensure(tool: &Tool, path: &Path) -> Result<Ready, BuildError> {
   }
   eprintln!("note      {} is skipped: no `{}` on PATH; `{}`", tool.needed_for, tool.binary, tool.command());
   Ok(Ready::Skipped)
+}
+
+/// Refuses a release older than the tool's floor.
+fn recent(tool: &Tool, path: &Path) -> Result<(), BuildError> {
+  use crate::types::range::Version;
+  let Some(floor) = tool.floor else {
+    return Ok(());
+  };
+  let output = Command::new(path).arg("--version").stdin(Stdio::null()).stderr(Stdio::null()).output().map_err(|e| BuildError::Tool(format!("{} --version: {e}", path.display())))?;
+  let printed = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+  let least = Version::parse(floor).expect("a floor is a version");
+  match printed.split_whitespace().last().and_then(Version::parse) {
+    Some(found) if found >= least => Ok(()),
+    Some(found) => Err(BuildError::Tool(format!("{} is {} {found} and this fsr needs {floor} or later; `{}`", path.display(), tool.binary, tool.command()))),
+    None => Err(BuildError::Tool(format!("{} --version printed `{printed}`, which names no release; this fsr needs {} {floor} or later; `{}`", path.display(), tool.binary, tool.command()))),
+  }
 }
 
 /// Whether the answer was yes. A prompt is only put to a terminal.
@@ -100,4 +124,39 @@ fn install(tool: &Tool) -> Result<(), BuildError> {
     return Err(BuildError::Tool(format!("cargo install {} exited with {status}", tool.package)));
   }
   Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+  use super::*;
+
+  fn stub(name: &str, version: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = std::env::temp_dir().join(format!("fsr-install-{name}-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("snapfirec");
+    std::fs::write(&path, format!("#!/bin/sh\necho '{version}'\n")).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    path
+  }
+
+  #[test]
+  fn a_compiler_older_than_the_floor_is_refused_with_the_install_command() {
+    let path = stub("older", "snapfire_compiler 0.1.0");
+    let Err(BuildError::Tool(message)) = ensure(&COMPILER, &path) else { panic!("an older compiler was accepted") };
+    assert!(message.contains("0.1.0") && message.contains(COMPILER_FLOOR) && message.contains("cargo install snapfire_compiler"), "{message}");
+  }
+
+  #[test]
+  fn a_compiler_at_the_floor_is_accepted() {
+    let path = stub("floor", &format!("snapfire_compiler {COMPILER_FLOOR}"));
+    assert!(matches!(ensure(&COMPILER, &path), Ok(Ready::Yes)));
+  }
+
+  #[test]
+  fn a_compiler_that_names_no_version_is_refused() {
+    let path = stub("unnamed", "snapfirec");
+    let Err(BuildError::Tool(message)) = ensure(&COMPILER, &path) else { panic!("a compiler naming no version was accepted") };
+    assert!(message.contains(COMPILER_FLOOR), "{message}");
+  }
 }

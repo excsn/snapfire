@@ -258,6 +258,7 @@ Every command parses its arguments with clap, so each takes `--help` and a flag 
 * The whole artifact a host reads and what a `build.rs` calls when `dev::owns_build()` is false. `build` and `write` alone leave `dist/` at whatever the last bundle wrote, which the host cannot distinguish from a current one.
 * The typecheck runs beside the bundle rather than after it, since neither reads the other's output and `Emitted::checked` carries what it found. `BuildError::Typecheck` when a diagnostic is an error, carrying the row and every diagnostic.
 * `Dev` naming the compiler when it cannot start or its exit status when it fails.
+* `Tool` naming the compiler, the release its `--version` printed and `install::COMPILER_FLOOR` when the release is older than the floor or `--version` names none. `fsr dev` and `fsr test` check the same floor before they start the compiler.
 
 ### Plugins
 
