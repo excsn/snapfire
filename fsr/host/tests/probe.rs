@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use http::{Request, StatusCode};
-use http_body_util::BodyExt;
 use snapfire_fsr_core::ext::FailureKind;
 use snapfire_fsr_core::Value;
 use snapfire_fsr_host::{Candidate, Host, HostBuilder, Loader, Mount, Probe, ReloadCheck};
 use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_test_internal::body_of;
 
 fn dir(tag: &str) -> PathBuf {
   static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -82,10 +82,6 @@ fn builder(shell: &std::path::Path, site: Option<&std::path::Path>, transport: A
     builder = builder.mount(Mount::new("billing", "dev", "-", false, Loader::at(site).load().unwrap()));
   }
   builder
-}
-
-async fn body_of(response: http::Response<snapfire_fsr_host::Body>) -> String {
-  String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap()
 }
 
 #[tokio::test]

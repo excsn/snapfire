@@ -24,6 +24,7 @@ members = [
   "session",
   "tera",
   "terminal",
+  "test_internal",
 ]
 exclude = [
   # Their own workspace, so they build the way a consumer's crate would.

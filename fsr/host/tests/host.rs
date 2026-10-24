@@ -12,6 +12,7 @@ use snapfire_fsr_core::{Value, ValueMap};
 use snapfire_fsr_host::{Host, RenderMode};
 use snapfire_fsr_runtime::SessionCell;
 use snapfire_fsr_service::MockTransport;
+use snapfire_fsr_test_internal::body_of;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// The tests keep their plans as JSON literals, which read better inline than
@@ -1427,10 +1428,6 @@ async fn the_path_a_source_reads_keeps_the_locale_prefix() {
     html.contains("\"/en_US/where\""),
     "a prefix is spelled the way the configuration spells it: {html}"
   );
-}
-
-async fn body_of(response: http::Response<snapfire_fsr_host::Body>) -> String {
-  String::from_utf8(response.into_body().collect().await.unwrap().to_bytes().to_vec()).unwrap()
 }
 
 #[tokio::test]

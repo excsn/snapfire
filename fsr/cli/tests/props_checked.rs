@@ -1,30 +1,22 @@
 //! A page's props are its loader's own return type as the checker reads it: what a `try` and its `catch` return, a value a `fail` guard rules out and a cast are all the checker's. Runs the real checker over declarations from registry.npmjs.org; when the registry does not answer or no checker is built, each test says so on the terminal and passes.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_cli::new::{create, NewOptions};
 use snapfire_fsr_cli::typecheck::Typecheck;
 use snapfire_fsr_cli::{check, Options};
+use snapfire_fsr_test_internal::Probe;
 
 const REGISTRY: &str = "https://registry.npmjs.org/@types%2freact";
 
-/// `snapfiretc` from `$SNAPFIRETC` or the workspace above this one, when the registry answers; the reason on stderr otherwise.
+/// The checker, when it is built and the registry answers; the reason on stderr otherwise.
 fn ready(test: &str) -> Option<PathBuf> {
-  let skip = |why: String| {
-    let _ = writeln!(std::io::stderr(), "SKIPPED {test}: {why}");
-    None
-  };
-  let checker = std::env::var_os("SNAPFIRETC").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/snapfiretc"));
+  let checker = snapfire_fsr_test_internal::snapfiretc();
   if !checker.is_file() {
-    return skip(format!("no checker at {}", checker.display()));
+    snapfire_fsr_test_internal::skipped(test, &format!("no checker at {}", checker.display()));
+    return None;
   }
-  let probe = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10)).build().and_then(|client| client.head(REGISTRY).send());
-  match probe {
-    Ok(response) if response.status().is_success() => Some(checker),
-    Ok(response) => skip(format!("{REGISTRY} answered HTTP {}", response.status())),
-    Err(e) => skip(format!("{REGISTRY} did not answer ({e})")),
-  }
+  snapfire_fsr_test_internal::answers(test, &[Probe::Head(REGISTRY)]).then_some(checker)
 }
 
 fn project(tag: &str, files: &[(&str, &str)]) -> PathBuf {

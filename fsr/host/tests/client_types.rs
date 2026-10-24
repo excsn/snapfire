@@ -3,7 +3,7 @@
 //! A missing checker or missing declarations fail the test; `FSR_SKIP_CLIENT_TYPES=1`
 //! skips it on purpose.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 #[test]
@@ -13,7 +13,7 @@ fn the_embedded_client_type_checks_clean() {
     return;
   }
   let fsr = Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("host sits in fsr/");
-  let snapfiretc = std::env::var_os("SNAPFIRETC").map(PathBuf::from).unwrap_or_else(|| fsr.join("../target/debug/snapfiretc"));
+  let snapfiretc = snapfire_fsr_test_internal::snapfiretc();
   assert!(snapfiretc.is_file(), "no snapfiretc at {}; `cargo build -p snapfire_typecheck` in the snapfire root builds it, or set FSR_SKIP_CLIENT_TYPES=1 to skip this check", snapfiretc.display());
   let declarations = fsr.join("examples/conformance/adapters_react18/app/types/.fsr-types.json");
   assert!(declarations.is_file(), "no declarations at {}; `fsr types app` in examples/conformance/adapters_react18 fetches them, or set FSR_SKIP_CLIENT_TYPES=1 to skip this check", declarations.display());

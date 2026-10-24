@@ -93,6 +93,7 @@ tokio-tungstenite = { version = "0.27", default-features = false, features = ["h
 multer = "3"
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../test_internal" }
 # The tests sign in, so they build the host with every sign-in method.
 snapfire_fsr_host = { path = ".", features = ["auth", "oidc", "passkey"] }
 snapfire_fsr_macros.workspace = true

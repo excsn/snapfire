@@ -2,24 +2,16 @@
 //! not answer, each test says so on the terminal and passes; the line is
 //! written past libtest's capture, so a skip is never silent.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use snapfire_fsr_cli::published::{add_published, imports_of};
 use snapfire_fsr_cli::vendor::Spec;
+use snapfire_fsr_test_internal::Probe;
 
 const REGISTRY: &str = "https://registry.npmjs.org/svelte/5.57.2";
 
-/// Whether the registry answers; when it does not, the reason on stderr.
 fn registry_answers(test: &str) -> bool {
-  let probe = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10)).build().and_then(|client| client.get(REGISTRY).send());
-  let why = match probe {
-    Ok(response) if response.status().is_success() => return true,
-    Ok(response) => format!("HTTP {}", response.status()),
-    Err(e) => e.to_string(),
-  };
-  let _ = writeln!(std::io::stderr(), "SKIPPED {test}: {REGISTRY} did not answer ({why})");
-  false
+  snapfire_fsr_test_internal::answers(test, &[Probe::Get(REGISTRY)])
 }
 
 fn app(name: &str) -> PathBuf {

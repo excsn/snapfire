@@ -1,0 +1,15 @@
+[package]
+name = "snapfire_fsr_test_internal"
+version = "0.1.0"
+description = "What FSR's own tests share: scratch directories, network probes that skip loudly, the checker a test runs and a response body as text."
+publish = false
+
+edition = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+
+[dependencies]
+http = "1"
+http-body = "1"
+http-body-util = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }

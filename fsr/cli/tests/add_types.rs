@@ -1,24 +1,14 @@
 //! `fsr add` against esm.sh and registry.npmjs.org. When either does not answer, the test says so on the terminal and passes; the line is written past libtest's capture, so a skip is never silent.
 
-use std::io::Write;
 use std::process::Command;
 
 use snapfire_fsr_cli::new::{create, NewOptions};
+use snapfire_fsr_test_internal::Probe;
 
 const SERVICES: [&str; 2] = ["https://esm.sh/clsx@2.1.1", "https://registry.npmjs.org/clsx/2.1.1"];
 
 fn services_answer(test: &str) -> bool {
-  let client = reqwest::blocking::Client::builder().timeout(std::time::Duration::from_secs(10)).build().unwrap();
-  for url in SERVICES {
-    let why = match client.get(url).send() {
-      Ok(response) if response.status().is_success() => continue,
-      Ok(response) => format!("HTTP {}", response.status()),
-      Err(e) => e.to_string(),
-    };
-    let _ = writeln!(std::io::stderr(), "SKIPPED {test}: {url} did not answer ({why})");
-    return false;
-  }
-  true
+  snapfire_fsr_test_internal::answers(test, &SERVICES.map(Probe::Get))
 }
 
 #[test]
