@@ -461,6 +461,39 @@ fn the_bound_source_and_action_answer_through_the_runtime_traits() {
   assert_eq!(err.kind, FailureKind::Invalid);
 }
 
+struct Slow;
+
+impl ServiceCaller for Slow {
+  fn call(&self, _service: &str, _method: &str, _args: ValueMap) -> BoxFuture<'static, Result<Value, ServiceError>> {
+    Box::pin(async {
+      tokio::time::sleep(Duration::from_millis(30)).await;
+      Ok(Value::Null)
+    })
+  }
+}
+
+/// A clock read after an awaited call is read once the call has answered, though it reads nothing the call returned.
+#[tokio::test]
+async fn a_clock_read_after_an_awaited_call_sees_the_time_the_call_took() {
+  let now = || Expr::Num(Box::new(Expr::Ext { module: "time".into(), name: "now".into(), args: vec![] }));
+  let body = vec![
+    Stmt::Let { name: "start".into(), expr: now() },
+    Stmt::Let { name: "answer".into(), expr: Expr::call("shopping", "listProducts", vec![]) },
+    Stmt::Let { name: "end".into(), expr: now() },
+    Stmt::Return(Expr::object(vec![("start", Expr::var("start")), ("end", Expr::var("end")), ("answer", Expr::var("answer"))])),
+  ];
+  let mut c = RequestCtx::anonymous(Params::new());
+  c.services = ServiceHandle::new(Arc::new(Slow));
+  let outcome = Interpreter::default().run(&body, &c, None).await.unwrap();
+  let Value::Map(out) = outcome.value else { panic!() };
+  let ms = |key: &str| match out.get(key) {
+    Some(Value::F64(n)) => *n,
+    Some(Value::Int(n)) => i128::from(*n) as f64,
+    other => panic!("{key}: {other:?}"),
+  };
+  assert!(ms("end") - ms("start") >= 30.0, "start {} end {}", ms("start"), ms("end"));
+}
+
 /// DEFECTS 1.158.
 #[test]
 fn a_loader_whose_call_fails_names_the_method_and_the_kind() {
