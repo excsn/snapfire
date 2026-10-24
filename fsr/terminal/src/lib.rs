@@ -104,6 +104,8 @@ pub struct BoxStyle {
   pub height: Option<Extent>,
   pub grow: f32,
   pub shrink: Option<f32>,
+  /// Ink's `flexBasis`; `None` is `auto`.
+  pub basis: Option<Extent>,
   pub justify: Option<Justify>,
   pub align: Option<Align>,
   pub border: Option<Border>,

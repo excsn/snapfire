@@ -47,6 +47,15 @@ fn a_fractional_margin_lays_out_and_rounds_to_cells_as_yoga_does() {
 }
 
 #[test]
+fn siblings_growing_from_a_zero_basis_share_the_row_equally_as_yoga_does() {
+  let row = r#"<ink-box flex-direction="row"><ink-box flex-grow="1" flex-basis="0" border-style="round"><ink-text>abcdef</ink-text></ink-box><ink-box flex-grow="1" flex-basis="0" border-style="round"><ink-text>b</ink-text></ink-box></ink-box>"#;
+  let node = from_markup(row).unwrap();
+  assert_eq!(render(&node, 20).lines()[0], format!("╭{0}╮╭{0}╮", "─".repeat(8)));
+  let wide = from_markup(&row.replace("abcdef", "abcdefghijkl")).unwrap();
+  assert_eq!(render(&wide, 20).lines()[0], format!("╭{0}╮╭{0}╮", "─".repeat(8)), "Yoga lets a flex item shrink below its content");
+}
+
+#[test]
 fn a_text_that_starts_with_a_newline_keeps_its_empty_first_line() {
   let rows = r#"<ink-text><ink-text></ink-text><ink-newline></ink-newline><ink-text>a</ink-text><ink-newline></ink-newline><ink-text>b</ink-text></ink-text>"#;
   let node = from_markup(rows).unwrap();

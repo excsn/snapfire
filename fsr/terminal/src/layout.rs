@@ -119,6 +119,9 @@ fn add(tree: &mut TaffyTree<usize>, kinds: &mut Vec<(NodeId, Kind)>, node: &Node
         size: Size { width: dimension(s.width), height: dimension(s.height) },
         flex_grow: s.grow,
         flex_shrink: s.shrink.unwrap_or(1.0),
+        flex_basis: dimension(s.basis),
+        // Yoga has no automatic minimum size, so a flex item shrinks below its content.
+        min_size: Size { width: LengthPercentageAuto::length(0.0), height: LengthPercentageAuto::length(0.0) },
         justify_content: match s.justify {
           None => JustifyContent::NORMAL,
           Some(Justify::Start) => JustifyContent::FLEX_START,

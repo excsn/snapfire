@@ -138,6 +138,7 @@ fn boxed(el: Element) -> Result<Boxed, String> {
       "height" => s.height = Some(extent()?),
       "flex-grow" => s.grow = value.parse().map_err(|_| format!("`flex-grow` is a number, not `{value}`"))?,
       "flex-shrink" => s.shrink = Some(value.parse().map_err(|_| format!("`flex-shrink` is a number, not `{value}`"))?),
+      "flex-basis" => s.basis = Some(extent()?),
       "justify-content" => {
         s.justify = Some(match value.as_str() {
           "center" => Justify::Center,
