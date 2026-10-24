@@ -51,3 +51,55 @@ fn a_gray_matter_use_with_no_member_is_noted_and_left() {
   assert_eq!(report.notes.len(), 1, "{:?}", report.notes);
   assert!(report.notes[0].message.contains("matter.read"), "{:?}", report.notes);
 }
+
+const LOGGING: &str = r#"{ "name": "tool", "type": "module", "dependencies": { "ink": "^5", "react": "^18", "pino": "^9", "winston": "^3" } }"#;
+
+#[test]
+fn a_pino_logger_is_the_log_member_with_the_message_first() {
+  let t = tree(&[
+    ("package.json", LOGGING),
+    ("src/cli.tsx", ENTRY),
+    ("src/ui.tsx", UI),
+    ("src/run.ts", "import pino from 'pino';\n\nconst logger = pino({ level: 'info' });\nconst child = logger.child({ module: 'sync' });\n\nexport function run(id: string, extra: object) {\n  logger.info('starting');\n  logger.info({ id }, 'running');\n  child.warn({ id }, 'slow');\n  child.error('failed');\n  child.info(extra, 'more');\n  logger.debug({ id });\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(
+    out.text("app/src/run.ts").unwrap(),
+    "import { log } from \"@snapfire/fsr-client/std\";\n\nexport function run(id: string, extra: object) {\n  log.info('starting');\n  log.info('running', { id });\n  log.warn('slow', { module: 'sync', id });\n  log.error('failed', { module: 'sync' });\n  log.info('more', { module: 'sync', ...extra });\n  log.debug(\"\", { id });\n}\n",
+    "{:?}",
+    report.notes
+  );
+  assert_eq!(report.notes.len(), 1, "{:?}", report.notes);
+  assert!(report.notes[0].message.contains("pino({ level: 'info' })"), "{:?}", report.notes);
+  assert!(!report.packages.contains_key("pino"), "{:?}", report.packages);
+}
+
+#[test]
+fn a_winston_logger_is_the_log_member_at_the_nearest_level() {
+  let t = tree(&[
+    ("package.json", LOGGING),
+    ("src/cli.tsx", ENTRY),
+    ("src/ui.tsx", UI),
+    ("src/save.ts", "import winston from 'winston';\n\nconst logger = winston.createLogger({ level: 'info' });\n\nexport const save = (path: string, log: string[]) => {\n  logger.info('saved', { path, n: log.length });\n  logger.log('verbose', 'detail');\n  logger.http('request');\n  logger.silly('noise');\n};\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  assert_eq!(
+    out.text("app/src/save.ts").unwrap(),
+    "import { log as std_log } from \"@snapfire/fsr-client/std\";\n\nexport const save = (path: string, log: string[]) => {\n  std_log.info('saved', { path, n: log.length });\n  std_log.debug('detail');\n  std_log.debug('request');\n  std_log.trace('noise');\n};\n",
+    "{:?}",
+    report.notes
+  );
+  assert_eq!(report.notes.len(), 1, "{:?}", report.notes);
+  assert!(!report.packages.contains_key("winston"), "{:?}", report.packages);
+}
+
+#[test]
+fn a_logger_used_past_its_levels_is_noted_and_left() {
+  let source = "import pino from 'pino';\n\nexport const logger = pino();\nlogger.flush();\n";
+  let t = tree(&[("package.json", LOGGING), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/shared.ts", source)]);
+  let (out, report) = migrate(&t);
+  assert_eq!(out.text("app/src/shared.ts").unwrap(), source);
+  assert_eq!(report.packages.keys().collect::<Vec<_>>(), ["pino"]);
+  assert!(report.notes.iter().any(|n| n.message.contains("export const logger")), "{:?}", report.notes);
+  assert!(report.notes.iter().any(|n| n.message.contains("logger.flush")), "{:?}", report.notes);
+}
