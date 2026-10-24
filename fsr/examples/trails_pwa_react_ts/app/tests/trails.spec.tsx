@@ -18,6 +18,15 @@ test("the status says so when the connection goes and when a new version is read
   expect(document.querySelector(".update a")?.getAttribute("href")).toEqual("/");
 });
 
+test("opening the new version is left to the browser, a full load of the new build", async () => {
+  await load("/trail/chalk", { ctx: ctx() });
+  set(updateReady, true);
+  await Promise.resolve();
+  const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+  document.querySelector(".update a")?.dispatchEvent(click);
+  expect(click.defaultPrevented).toEqual(false);
+});
+
 test("the offline page links back to the trails", async () => {
   await load("/offline", { ctx: ctx() });
   expect(document.querySelector("h1")?.textContent).toEqual("No signal");

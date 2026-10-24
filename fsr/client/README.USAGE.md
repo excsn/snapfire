@@ -954,13 +954,13 @@ export default function Status() {
   return (
     <div className="status">
       {connected ? null : <p>Offline: you are reading saved pages.</p>}
-      {ready ? <Link href="/" full>A new version is ready</Link> : null}
+      {ready ? <Link href="/" native>A new version is ready</Link> : null}
     </div>
   );
 }
 ```
 
-A script that is not an island listens for `sf:update-ready` on the document instead. The page keeps running on the modules it loaded until the next full load.
+The link is `native`, which leaves the click to the browser, so the document loads again from the new build. A navigator link, `full` included, would fetch the page and keep the old modules. A script that is not an island listens for `sf:update-ready` on the document instead. The page keeps running on the modules it loaded until the next full load.
 
 ## Sending as Fast as Someone Types
 

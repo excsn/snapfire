@@ -11,7 +11,7 @@ export default function Status() {
       {ready ? (
         <p className="update">
           A new version is ready.{" "}
-          <Link href="/" full>
+          <Link href="/" native>
             Open it
           </Link>
         </p>
