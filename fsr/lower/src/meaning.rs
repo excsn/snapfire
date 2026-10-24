@@ -235,6 +235,7 @@ pub(crate) const LIBRARY: &[(&str, &str, Construct)] = &[
   ("@snapfire/fsr/terminal", "stripAnsi", Construct::Extension("terminal.stripAnsi")),
   ("@snapfire/fsr/terminal", "stringWidth", Construct::Extension("terminal.stringWidth")),
   ("@snapfire/fsr/terminal", "wrapAnsi", Construct::Extension("terminal.wrapAnsi")),
+  ("@snapfire/fsr/terminal", "bigText", Construct::Extension("terminal.bigText")),
   ("svelte/store", "writable", Construct::SvelteStore("writable")),
   ("svelte/store", "readable", Construct::SvelteStore("readable")),
   ("svelte/store", "readonly", Construct::SvelteStore("readonly")),

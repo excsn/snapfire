@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use snapfire_fsr_migrate::{migrate, Report, Tree, MAP_FILE, WORKSPACE_DIR};
+use snapfire_fsr_migrate::{migrate, Report, Tree, CFONTS_DIR, MAP_FILE, WORKSPACE_DIR};
 
 use crate::new::{self, Created, NewOptions};
 use crate::BuildError;
@@ -30,6 +30,7 @@ pub struct Migrated {
 pub fn run(from: &Path, to: &Path, fetch: bool, map: Option<&Path>) -> Result<Migrated, BuildError> {
   let mut input = Tree::new();
   read(from, from, &mut input)?;
+  read_cfonts(from, &mut input)?;
   if let Some(map) = map {
     let text = std::fs::read(map).map_err(|e| BuildError::Io(map.to_path_buf(), e))?;
     input.insert(MAP_FILE, text);
@@ -151,6 +152,19 @@ fn relative_dir(from: &Path, to: &Path) -> String {
 
 fn manifest(dir: &Path) -> Option<serde_json::Value> {
   serde_json::from_str(&std::fs::read_to_string(dir.join("package.json")).ok()?).ok()
+}
+
+/// The font files of the cfonts package installed for `from`, in its own `node_modules` or one a workspace hoisted it to, under `CFONTS_DIR`.
+fn read_cfonts(from: &Path, tree: &mut Tree) -> Result<(), BuildError> {
+  let Some(fonts) = from.ancestors().map(|dir| dir.join("node_modules/cfonts/fonts")).find(|dir| dir.is_dir()) else { return Ok(()) };
+  for entry in std::fs::read_dir(&fonts).map_err(|e| BuildError::Io(fonts.clone(), e))?.flatten() {
+    let path = entry.path();
+    if path.extension().is_some_and(|x| x == "json") {
+      let bytes = std::fs::read(&path).map_err(|e| BuildError::Io(path.clone(), e))?;
+      tree.insert(format!("{CFONTS_DIR}{}", entry.file_name().to_string_lossy()), bytes);
+    }
+  }
+  Ok(())
 }
 
 fn read(dir: &Path, root: &Path, tree: &mut Tree) -> Result<(), BuildError> {

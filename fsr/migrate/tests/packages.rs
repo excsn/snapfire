@@ -115,6 +115,48 @@ fn ink_and_the_packages_around_it_are_fsrs_modules() {
   );
 }
 
+const FONT: &str = r#"{ "name": "f", "colors": 1, "lines": 1, "buffer": [""], "letterspace": [""], "chars": { "A": ["a"] } }"#;
+
+#[test]
+fn ink_big_text_draws_the_cfonts_font_files_the_application_now_ships() {
+  let title = "import React from 'react';\nimport {Box} from 'ink';\nimport BigText from 'ink-big-text';\n\nexport default function Title() {\n  return <Box><BigText text=\"hi\" /><BigText text=\"hi\" font=\"simple3d\" colors={['red']} /></Box>;\n}\n";
+  let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/title.tsx", title), (".cfonts/block.json", FONT), (".cfonts/simple3d.json", FONT), (".cfonts/tiny.json", FONT)]);
+  let (out, report) = migrate(&t);
+  assert_eq!(
+    out.text("app/src/title.tsx").unwrap(),
+    "import React from 'react';\nimport {Box} from \"@snapfire/fsr/terminal/ink\";\nimport BigText from \"@snapfire/fsr/terminal/big-text\";\nimport fontBlock from \"../fonts/block.json\";\nimport fontSimple3d from \"../fonts/simple3d.json\";\n\nexport default function Title() {\n  return <Box><BigText font={fontBlock} text=\"hi\" /><BigText text=\"hi\" font={fontSimple3d} colors={['red']} /></Box>;\n}\n"
+  );
+  assert_eq!(out.text("app/fonts/block.json"), Some(FONT));
+  assert_eq!(out.text("app/fonts/simple3d.json"), Some(FONT));
+  assert!(!out.contains("app/fonts/tiny.json") && out.paths().all(|p| !p.starts_with(".cfonts/")), "{:?}", out.paths().collect::<Vec<_>>());
+  assert!(report.notes.iter().any(|n| n.file == "app/fonts/block.json" && n.message.contains("GPL-3.0-or-later")), "{:?}", report.notes);
+}
+
+#[test]
+fn ink_big_text_with_a_font_chosen_as_it_runs_draws_from_every_cfonts_font() {
+  let title = "import React from 'react';\nimport BigText from 'ink-big-text';\n\nexport default function Title({ font }: { font: string }) {\n  return <BigText text=\"hi\" font={font} />;\n}\n";
+  let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/title.tsx", title), (".cfonts/3d.json", FONT), (".cfonts/block.json", FONT)]);
+  let (out, _) = migrate(&t);
+  assert_eq!(
+    out.text("app/src/title.tsx").unwrap(),
+    "import React from 'react';\nimport BigText from \"@snapfire/fsr/terminal/big-text\";\nimport cfontsFonts from \"../fonts/cfonts\";\n\nexport default function Title({ font }: { font: string }) {\n  return <BigText text=\"hi\" font={cfontsFonts[font]} />;\n}\n"
+  );
+  assert_eq!(
+    out.text("app/fonts/cfonts.ts").unwrap(),
+    "import font3d from \"./3d.json\";\nimport fontBlock from \"./block.json\";\n\nconst fonts: Record<string, unknown> = { \"3d\": font3d, \"block\": fontBlock };\n\nexport default fonts;\n"
+  );
+  assert!(out.contains("app/fonts/3d.json") && out.contains("app/fonts/block.json"));
+}
+
+#[test]
+fn ink_big_text_without_cfonts_installed_says_which_font_file_to_supply() {
+  let title = "import React from 'react';\nimport BigText from 'ink-big-text';\n\nexport default function Title() {\n  return <BigText text=\"hi\" font=\"chrome\" />;\n}\n";
+  let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", UI), ("src/title.tsx", title)]);
+  let (out, report) = migrate(&t);
+  assert!(out.text("app/src/title.tsx").unwrap().contains("font={fontChrome}"));
+  assert!(report.notes.iter().any(|n| n.file == "app/fonts/chrome.json" && n.message.contains("node_modules/cfonts/fonts/chrome.json")), "{:?}", report.notes);
+}
+
 #[test]
 fn clipboardy_is_the_clipboard_member() {
   let copier = "import clip from 'clipboardy';\n\nexport async function copy(text: string) {\n  clip.writeSync(text);\n  await clip.write(text);\n  const back = await clip.read();\n  return back + clip.readSync();\n}\n\nexport const later = () => clip.read().then((t) => t.trim());\n";

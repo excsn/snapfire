@@ -80,7 +80,7 @@ fn key(input: &str, pressed: &[&str]) -> Value {
 
 #[test]
 fn an_npm_package_fsr_provides_its_own_of_is_refused_naming_fsrs_module() {
-  for (npm, fsr) in [("ink", "@snapfire/fsr/terminal/ink"), ("ink-spinner", "@snapfire/fsr/terminal/spinner"), ("ink-text-input", "@snapfire/fsr/terminal/text-input"), ("cli-spinners", "@snapfire/fsr/terminal/spinners")] {
+  for (npm, fsr) in [("ink", "@snapfire/fsr/terminal/ink"), ("ink-spinner", "@snapfire/fsr/terminal/spinner"), ("ink-text-input", "@snapfire/fsr/terminal/text-input"), ("cli-spinners", "@snapfire/fsr/terminal/spinners"), ("ink-big-text", "@snapfire/fsr/terminal/big-text")] {
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

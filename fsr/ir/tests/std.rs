@@ -237,6 +237,37 @@ fn strip_ansi_removes_escape_codes_as_ansi_regex_matches_them() {
   assert_eq!(call("", "terminal.stripAnsi", vec![s("\u{1b}]8;;https://x.dev\u{7}link\u{1b}]8;;\u{7} plain")]), Ok(s("link plain")), "an OSC hyperlink");
 }
 
+/// A two-colour font two lines tall in cfonts' format.
+fn tiny_font() -> Value {
+  snapfire_fsr_core::json::to_value(&serde_json::json!({
+    "name": "tiny", "colors": 2, "lines": 2,
+    "buffer": ["", ""],
+    "letterspace": [" ", " "],
+    "chars": { "A": ["<c1>/\\</c1>", "<c2>||</c2>"], " ": ["  ", "  "] }
+  }))
+}
+
+fn big(text: &str, options: serde_json::Value) -> Result<Value, String> {
+  call("", "terminal.bigText", vec![tiny_font(), s(text), snapfire_fsr_core::json::to_value(&options)])
+}
+
+#[test]
+fn big_text_draws_a_cfonts_font_as_cfonts_renders_it() {
+  assert_eq!(big("a", serde_json::json!({ "space": false })), Ok(s(" /\\\n ||")), "system colours add no codes and a letter is upper-cased");
+  assert_eq!(big("A", serde_json::json!({})), Ok(s("\n\n /\\\n ||\n\n")), "space by default");
+  assert_eq!(
+    big("A", serde_json::json!({ "space": false, "colors": ["red", "#00ff80"] })),
+    Ok(s(" \u{1b}[31m/\\\u{1b}[39m\n \u{1b}[38;2;0;255;128m||\u{1b}[39m")),
+    "each <cN> takes the Nth colour"
+  );
+  assert_eq!(big("A|A", serde_json::json!({ "space": false })), Ok(s(" /\\\n ||\n\n /\\\n ||")), "`|` breaks the line, lineHeight 1 between");
+  assert_eq!(big("AAA", serde_json::json!({ "space": false, "width": 6, "lineHeight": 0 })), Ok(s(" /\\ /\\\n || ||\n /\\\n ||")), "a letter past the width starts a line");
+  assert_eq!(big("A", serde_json::json!({ "space": false, "width": 10, "align": "center" })), Ok(s("     /\\\n     ||")), "center pads by half the space left, rounded up");
+  assert_eq!(big("A", serde_json::json!({ "space": false, "width": 10, "align": "right" })), Ok(s("        /\\\n        ||")));
+  assert_eq!(big("A?A", serde_json::json!({ "space": false, "letterSpacing": 0 })), Ok(s("/\\/\\\n||||")), "a character the font lacks is left out");
+  assert_eq!(big("A", serde_json::json!({ "space": false, "background": "blue" })), Ok(s("\u{1b}[44m\n /\\\n ||\u{1b}[49m")));
+}
+
 #[test]
 fn string_width_counts_terminal_columns_as_string_width_does() {
   for (text, columns) in [("abc", 3.0), ("古", 2.0), ("안녕", 4.0), ("\u{1b}[1municorn\u{1b}[22m", 7.0), ("👍🏽", 2.0), ("👨‍👩‍👧", 2.0), ("e\u{301}", 1.0), ("", 0.0)] {

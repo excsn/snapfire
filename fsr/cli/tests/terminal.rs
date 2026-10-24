@@ -552,6 +552,21 @@ fn ink_spinner_steps_through_the_frames_cli_spinners_names_at_its_interval() {
 }
 
 #[test]
+fn big_text_draws_the_font_file_the_application_ships() {
+  let page = "import { Box, Text } from \"@snapfire/fsr/terminal/ink\";\nimport BigText from \"@snapfire/fsr/terminal/big-text\";\nimport tiny from \"../fonts/tiny.json\";\n\nexport default function Title() {\n  return (\n    <Box flexDirection=\"column\">\n      <BigText text=\"aa\" font={tiny} space={false} colors={[\"red\"]} />\n      <BigText text=\"a\" font={tiny} align=\"right\" />\n    </Box>\n  );\n}\n";
+  let app = app(page);
+  std::fs::create_dir_all(app.join("fonts")).unwrap();
+  std::fs::write(app.join("fonts/tiny.json"), r#"{ "name": "tiny", "colors": 2, "lines": 2, "buffer": ["", ""], "letterspace": [" ", " "], "chars": { "A": ["<c1>/\\</c1>", "<c2>||</c2>"] } }"#).unwrap();
+  let mut session = Session::open(&app).unwrap();
+  session.resize(10, 12);
+  let frame = snapfire_fsr_terminal::render(&session.view().unwrap(), 10);
+  let lines: Vec<String> = frame.lines().iter().map(|l| l.trim_end().to_owned()).collect();
+  assert_eq!(lines[..8], [" /\\ /\\", " || ||", "", "", "        /\\", "        ||", "", ""], "the second takes the terminal's width to align right and space around it");
+  assert_eq!(frame.cell(1, 0).style.color, Some(snapfire_fsr_terminal::Color::Ansi(1)), "the first colour");
+  assert_eq!(frame.cell(1, 1).style.color, None, "a second colour left out is the system's");
+}
+
+#[test]
 fn a_large_constant_another_module_exports_reads_in_the_terminal() {
   let page = "import { Text } from \"@snapfire/fsr/terminal/ink\";\nimport WORDS from \"../src/words\";\n\nexport default function Word() {\n  return <Text>{WORDS[3]} of {WORDS.length}</Text>;\n}\n";
   let app = app(page);

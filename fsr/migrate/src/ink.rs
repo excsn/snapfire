@@ -52,6 +52,10 @@ impl Pass for Layout {
       if kept_entry.is_none() && entry.as_ref().is_some_and(|e| e.path == path) {
         continue;
       }
+      if path.starts_with(crate::big_text::CFONTS_DIR) {
+        moves.insert(path.to_owned(), path.to_owned());
+        continue;
+      }
       let inner = path.strip_prefix(root).unwrap_or(path);
       let file = inner.rsplit('/').next().unwrap_or(inner);
       let is_test = is_script(file) && (file.contains(".test.") || file.contains(".spec.") || file.split_once('.').is_some_and(|(stem, _)| stem == "test"));

@@ -13,18 +13,20 @@ pub const INK_SOURCE: &str = include_str!("../terminal/ink.tsx");
 pub const INK_MODULE: &str = "@snapfire/fsr/terminal/ink";
 
 /// The modules FSR provides beside Ink, each with the file the build provides under the specifier and that file's source: `(specifier, file, source)`.
-pub const COMPANIONS: [(&str, &str, &str); 3] = [
+pub const COMPANIONS: [(&str, &str, &str); 4] = [
   ("@snapfire/fsr/terminal/spinners", "$fsr/terminal/spinners.ts", include_str!("../terminal/spinners.ts")),
   ("@snapfire/fsr/terminal/spinner", "$fsr/terminal/spinner.tsx", include_str!("../terminal/spinner.tsx")),
   ("@snapfire/fsr/terminal/text-input", "$fsr/terminal/text-input.tsx", include_str!("../terminal/text-input.tsx")),
+  ("@snapfire/fsr/terminal/big-text", "$fsr/terminal/big-text.tsx", include_str!("../terminal/big-text.tsx")),
 ];
 
 /// The npm packages FSR provides its own of, each with the module of FSR's to import instead: `fsr migrate` writes the one for the other and the build refuses the npm name.
-pub const REPLACED: [(&str, &str); 4] = [
+pub const REPLACED: [(&str, &str); 5] = [
   ("ink", INK_MODULE),
   ("cli-spinners", "@snapfire/fsr/terminal/spinners"),
   ("ink-spinner", "@snapfire/fsr/terminal/spinner"),
   ("ink-text-input", "@snapfire/fsr/terminal/text-input"),
+  ("ink-big-text", "@snapfire/fsr/terminal/big-text"),
 ];
 
 /// A focusable a terminal can move focus to, `{ id, autoFocus, isActive }`, one per `useFocus`, in render order.

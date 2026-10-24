@@ -16,7 +16,7 @@ use crate::{Pass, Report, Tree};
 use snapfire_fsr_lower::terminal::REPLACED;
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
-  vec![Box::new(GrayMatter), Box::new(Loggers), Box::new(Terminal), Box::new(Clipboardy)]
+  vec![Box::new(GrayMatter), Box::new(Loggers), Box::new(crate::big_text::BigText), Box::new(Terminal), Box::new(Clipboardy)]
 }
 
 /// The packages a terminal tool reaches for whose functions FSR's terminal module has, by package and member.

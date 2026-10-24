@@ -4,6 +4,7 @@
 //! is a [`Note`] naming the line.
 
 mod actions;
+mod big_text;
 mod callbacks;
 mod commonjs;
 mod config;
@@ -27,6 +28,7 @@ mod stats;
 mod syntax;
 mod workspace;
 
+pub use big_text::CFONTS_DIR;
 pub use map::{schema as map_schema, Entry, MigrationMap, MAP_FILE};
 pub use workspace::WORKSPACE_DIR;
 

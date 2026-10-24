@@ -47,6 +47,26 @@ fn a_next_app_becomes_a_project_whose_routes_are_its_own() {
 }
 
 #[test]
+fn an_ink_big_text_font_comes_from_the_cfonts_package_installed_above_the_application() {
+  let dir = scratch();
+  let from = dir.join("packages/title");
+  let font = r#"{ "name": "block", "colors": 1, "lines": 1, "buffer": [""], "letterspace": [""], "chars": { "A": ["a"] } }"#;
+  write(&dir, &[("node_modules/cfonts/fonts/block.json", font), ("node_modules/cfonts/fonts/tiny.json", font)]);
+  write(
+    &from,
+    &[
+      ("package.json", r#"{ "type": "module", "dependencies": { "ink": "^5", "react": "^18", "ink-big-text": "^2" } }"#),
+      ("src/cli.tsx", "import React from 'react';\nimport {render} from 'ink';\nimport BigText from 'ink-big-text';\n\nrender(<BigText text=\"hi\" />);\n"),
+    ],
+  );
+  let to = dir.join("fsr");
+  run(&from, &to, false, None).unwrap();
+  assert_eq!(std::fs::read_to_string(to.join("app/fonts/block.json")).unwrap(), font);
+  assert!(!to.join("app/fonts/tiny.json").exists() && !to.join(".cfonts").exists());
+  std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn an_application_no_package_json_names_a_framework_for_is_refused() {
   let dir = scratch();
   let from = dir.join("plain");
