@@ -3351,6 +3351,42 @@ fn a_mount_is_refused_when_its_name_differs_it_carries_engine_rows_or_the_shell_
   assert!(e.contains("cannot mount sites"), "{e}");
 }
 
+const FILES_PLAN: &str = r#"{
+  "version": 2,
+  "routes": [
+    { "pattern": "/", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "index" } } ] } },
+    { "pattern": "/secret", "plan": { "id": 0, "module": "shell#document", "children": [
+      { "slot": "content", "node": { "id": 1, "module": "routes/index/page.tsx#default", "source": "secret" } } ] } }
+  ],
+  "sources": [
+    { "id": "index", "owner": "lowered", "module": "routes/index/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "text", { "ext": { "module": "file", "name": "read", "args": [ { "lit": { "str": "content/a.md" } } ] } } ] } ] } } ] },
+    { "id": "secret", "owner": "lowered", "module": "routes/secret/page.loader.ts",
+      "body": [ { "return": { "object": [ { "field": [ "text", { "ext": { "module": "file", "name": "read", "args": [ { "lit": { "str": "app.toml" } } ] } } ] } ] } } ] }
+  ]
+}"#;
+
+#[tokio::test]
+async fn a_loader_reads_a_file_under_the_configured_roots_relative_to_the_app_and_nothing_outside() {
+  let dir = app_dir_with("\n[files]\nroots = [\"content\"]\n");
+  write_plan(&dir, FILES_PLAN);
+  std::fs::create_dir_all(dir.join("content")).unwrap();
+  std::fs::write(dir.join("content/a.md"), "# From the content root").unwrap();
+  let host = Host::from(dir.join("app.toml")).unwrap().build().unwrap();
+  let read = host.render_to_string("/", RenderMode::Payload, SessionCell::default()).await.unwrap();
+  assert!(read.contains("# From the content root"), "{read}");
+  let refused = host.render_to_string("/secret", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(refused.contains("[files] roots") && !refused.contains("test-key"), "{refused}");
+  assert!(!refused.contains(&dir.to_string_lossy().into_owned()), "the page names the path as the body wrote it, not where the host keeps it: {refused}");
+
+  let unconfigured = app_dir();
+  write_plan(&unconfigured, FILES_PLAN);
+  let host = Host::from(unconfigured.join("app.toml")).unwrap().build().unwrap();
+  let refused = host.render_to_string("/", RenderMode::Html, SessionCell::default()).await.unwrap();
+  assert!(refused.contains("no `[files] roots`"), "{refused}");
+}
+
 const EXT_PLAN: &str = r#"{
   "version": 2,
   "routes": [

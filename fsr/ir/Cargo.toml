@@ -48,6 +48,7 @@ uuid = { version = "1", features = ["v4", "v7"] }
 yaml-rust2 = "0.13"
 
 [dev-dependencies]
+snapfire_fsr_test_internal = { path = "../test_internal" }
 arbitrary = { version = "1", features = ["derive"] }
 bolero = "0.13"
 proptest = "1"

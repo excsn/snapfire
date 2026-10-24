@@ -63,6 +63,8 @@ pub struct Config {
   pub desktop: Option<DesktopSection>,
   /// `[pwa]`: the web app manifest and the service worker the host serves; absent means neither.
   pub pwa: Option<PwaSection>,
+  /// `[files]`: the directories a body's `file` calls reach, relative to the application; none means `file` reaches nothing.
+  pub files: FilesSection,
   /// `[mdx]`: how `fsr` reads `.mdx` and `.md` files, defaults filled.
   pub mdx: MdxSection,
   /// The application as a site: its name and the prefix its routes sit
@@ -1395,6 +1397,15 @@ pub struct CrawlSection {
   pub disallow: Vec<String>,
 }
 
+/// `[files]`: the directories `file` reads and writes in a body, each relative to the application's directory or absolute. A path a body names is resolved against the application's directory and refused outside every root.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Default, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct FilesSection {
+  #[serde(default)]
+  pub roots: Vec<String>,
+}
+
 /// `[pwa]`. The manifest is written from `name` and the fields beside it, or
 /// read from `file`, never both; its icons are the PNGs and SVGs the icons
 /// directory holds with their size in the name. Outside development the host
@@ -1540,6 +1551,7 @@ const SECTIONS: &[&str] = &[
   "crawl",
   "desktop",
   "pwa",
+  "files",
   "mdx",
   "site",
   "sites",
@@ -1681,6 +1693,7 @@ pub fn config_schema() -> serde_json::Value {
     ("crawl", of::<CrawlSection>(&mut generator)),
     ("desktop", of::<DesktopSection>(&mut generator)),
     ("pwa", of::<PwaSection>(&mut generator)),
+    ("files", of::<FilesSection>(&mut generator)),
     ("mdx", serde_json::json!({
       "type": "object",
       "properties": {
@@ -2158,6 +2171,7 @@ impl Config {
 
     let app_section: AppSection = section(store, "app", &at)?;
     let server: ServerConfig = section(store, "server", &at)?;
+    let files: FilesSection = section(store, "files", &at)?;
     let document: DocumentConfig = section(store, "document", &at)?;
     let session: SessionSection = match store.path_exists("session") {
       true => store.get_into_struct("session").map_err(fail)?,
@@ -2990,6 +3004,7 @@ impl Config {
       crawl,
       desktop,
       pwa,
+      files,
       mdx,
       site,
       sites,

@@ -49,6 +49,7 @@ pub struct Interpreter {
   store_keys: Arc<StoreKeyCache>,
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
+  files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>,
   consts: Option<Arc<Consts>>,
   held: Arc<Held>,
   frameworks: Frameworks,
@@ -138,13 +139,13 @@ fn is_pure(key: &str, consts: &Consts, seen: &mut HashMap<String, Option<bool>>)
 
 impl Default for Interpreter {
   fn default() -> Self {
-    Self { clock: Arc::new(SystemClock), store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
+    Self { clock: Arc::new(SystemClock), store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, files: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
   }
 }
 
 impl Interpreter {
   pub fn with_clock(clock: Arc<dyn Clock>) -> Self {
-    Self { clock, store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
+    Self { clock, store_keys: Arc::default(), extensions: Arc::new(Extensions::standard()), catalogs: None, files: None, consts: None, held: Arc::default(), frameworks: Frameworks::default(), island_reads: Arc::default(), derives: Arc::default(), config: Arc::default() }
   }
 
   /// The frameworks the application vendors. A component one of them
@@ -190,6 +191,12 @@ impl Interpreter {
 
   pub fn config(&self) -> &Arc<ValueMap> {
     &self.config
+  }
+
+  /// Where `file` resolves and what it reaches: a web host's roots. None by default, as a terminal program has, where a path is the working directory's.
+  pub fn with_files(mut self, files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>) -> Self {
+    self.files = files;
+    self
   }
 
   /// The message catalogs `i18n.t` reads; none by default, where every key answers as itself.
@@ -299,6 +306,7 @@ impl Interpreter {
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
       catalogs: self.catalogs.clone(),
+      files: self.files.clone(),
       consts: self.consts.clone(),
       held: self.held.clone(),
     };
@@ -377,6 +385,7 @@ pub(crate) struct Env {
   clock: Arc<dyn Clock>,
   extensions: Arc<Extensions>,
   catalogs: Option<Arc<Catalogs>>,
+  files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>,
   consts: Option<Arc<Consts>>,
   held: Arc<Held>,
   /// Where a render records hoisted values; `None` in a body, which hoists nothing.
@@ -656,6 +665,7 @@ impl Env {
       clock: interpreter.clock.clone(),
       extensions: interpreter.extensions.clone(),
       catalogs: interpreter.catalogs.clone(),
+      files: interpreter.files.clone(),
       consts: interpreter.consts.clone(),
       held: interpreter.held.clone(),
       hoists: None,
@@ -913,6 +923,7 @@ impl Env {
       clock: self.clock.clone(),
       extensions: self.extensions.clone(),
       catalogs: self.catalogs.clone(),
+      files: self.files.clone(),
       consts: self.consts.clone(),
       held: self.held.clone(),
       hoists: None,
@@ -956,7 +967,7 @@ impl Env {
   }
 
   fn ambient(&self) -> Ambient {
-    Ambient::default().locale(self.ctx.locale.tag.clone()).now(self.clock.now()).catalogs(self.catalogs.clone())
+    Ambient::default().locale(self.ctx.locale.tag.clone()).now(self.clock.now()).catalogs(self.catalogs.clone()).files(self.files.clone())
   }
 
   async fn stmt(&mut self, stmt: &Stmt) -> Result<Flow, Fail> {

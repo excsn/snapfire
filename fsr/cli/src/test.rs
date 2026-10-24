@@ -170,6 +170,7 @@ fn run_here(app: &Path, options: &Options, typecheck: &crate::typecheck::Typeche
       manifest: Arc::new(built.manifest.clone()),
       prefix: options.site.as_ref().map(|site| site.prefix()).unwrap_or_default(),
       consts: Some(Arc::new(built.manifest.consts.clone())),
+      files: crate::file_roots(app),
       loaders: HashMap::new(),
       actions: HashMap::new(),
     };
@@ -235,6 +236,8 @@ struct Targets {
   manifest: Arc<Manifest>,
   prefix: String,
   consts: Option<Arc<Consts>>,
+  /// The roots `file` reaches, the host's when a configuration sits beside the application.
+  files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>,
   loaders: HashMap<String, Arc<Body>>,
   actions: HashMap<String, Arc<Body>>,
 }
@@ -458,8 +461,8 @@ struct Run<'a> {
 }
 
 impl<'a> Run<'a> {
-  fn new(contract: &'a Arc<Contract>, consts: &Option<Arc<Consts>>) -> Self {
-    Self { interpreter: Interpreter::default().with_consts(consts.clone()), contract, scope: Vec::new(), mocks: HashMap::new(), fns: Arc::new(Mutex::new(HashMap::new())) }
+  fn new(contract: &'a Arc<Contract>, consts: &Option<Arc<Consts>>, files: &Option<Arc<snapfire_fsr_core::ext::FileRoots>>) -> Self {
+    Self { interpreter: Interpreter::default().with_consts(consts.clone()).with_files(files.clone()), contract, scope: Vec::new(), mocks: HashMap::new(), fns: Arc::new(Mutex::new(HashMap::new())) }
   }
 
   async fn eval(&self, expr: &Expr) -> Result<Value, Fail> {
@@ -658,7 +661,7 @@ struct Expansion {
 
 async fn expansions(file: &TestFile, case: &TestCase, contract: &Arc<Contract>, consts: &Option<Arc<Consts>>) -> Result<Vec<Expansion>, String> {
   let chain = file.chain(case.block);
-  let run = Run::new(contract, consts);
+  let run = Run::new(contract, consts, &None);
   let mut combos = vec![Expansion { name: String::new(), rows: Vec::new(), bindings: Vec::new() }];
   for level in 0..=chain.len() {
     let (label, each) = match chain.get(level) {
@@ -822,7 +825,7 @@ async fn run_case<'c>(file: &TestFile, case: &TestCase, expansion: &Expansion, t
       base = Some(held.run.clone());
       continue;
     }
-    let mut run = base.clone().unwrap_or_else(|| Run::new(contract, &targets.consts));
+    let mut run = base.clone().unwrap_or_else(|| Run::new(contract, &targets.consts, &targets.files));
     for (name, value) in &expansion.bindings[depth] {
       run.bind(name, value.clone());
     }
@@ -842,7 +845,7 @@ async fn run_case<'c>(file: &TestFile, case: &TestCase, expansion: &Expansion, t
   if let Some(failure) = failure {
     return Outcome::Failed(failure);
   }
-  let mut run = base.unwrap_or_else(|| Run::new(contract, &targets.consts));
+  let mut run = base.unwrap_or_else(|| Run::new(contract, &targets.consts, &targets.files));
   for (name, value) in expansion.bindings.last().into_iter().flatten() {
     run.bind(name, value.clone());
   }

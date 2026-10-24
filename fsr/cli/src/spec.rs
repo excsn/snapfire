@@ -219,7 +219,7 @@ pub fn run(app: &Path, built: &Built, contract: &Arc<Contract>, filter: Option<&
     if !compiled.is_file() {
       return Err(BuildError::Dev(format!("{rel}: snapfirec wrote no {}", compiled.display())));
     }
-    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), handlers.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone(), &natives, frameworks));
+    let hooks = Rc::new(SpecHooks::new(contract.clone(), actions.clone(), handlers.clone(), components.clone(), calls.clone(), current.clone(), records.clone(), host.clone(), &natives, frameworks, crate::file_roots(&app)));
     let local = tokio::task::LocalSet::new();
     let outcome: Result<Vec<(String, Outcome)>, BuildError> = runtime.block_on(local.run_until(async {
       let engine = Engine::new(resolution.clone(), &dom, hooks.clone(), calls.clone()).map_err(|e| BuildError::Dev(format!("{rel}: {e}")))?;
@@ -781,12 +781,12 @@ struct SpecHooks {
 }
 
 impl SpecHooks {
-  fn new(contract: Arc<Contract>, actions: Actions, handlers: Handlers, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>, natives: &[String], frameworks: snapfire_fsr_ir::Frameworks) -> Self {
+  fn new(contract: Arc<Contract>, actions: Actions, handlers: Handlers, components: Arc<Components>, calls: JsCalls, current: Arc<AtomicU32>, records: Records, host: Option<Arc<Host>>, natives: &[String], frameworks: snapfire_fsr_ir::Frameworks, files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>) -> Self {
     let mut extensions = snapfire_fsr_ir::Extensions::standard();
     for name in natives {
       extensions.register(name.clone(), snapfire_fsr_ir::Reach::Render, browser_half(name.clone()));
     }
-    let interpreter = Interpreter::default().with_extensions(Arc::new(extensions)).with_catalogs(host.as_ref().and_then(|h| h.catalogs())).with_frameworks(frameworks);
+    let interpreter = Interpreter::default().with_extensions(Arc::new(extensions)).with_catalogs(host.as_ref().and_then(|h| h.catalogs())).with_files(files).with_frameworks(frameworks);
     let hooks = Self { contract, actions, handlers, components, calls, interpreter, ctxs: RefCell::new(Vec::new()), current, records, host };
     hooks.reset();
     hooks

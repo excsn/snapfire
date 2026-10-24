@@ -1,17 +1,16 @@
-//! `file` and `system`: the files and the machine a terminal page runs on,
-//! which is the viewer's. `Process` reach.
+//! `file` and `system`. `file` is `Body` reach: in a terminal program a path is the working directory's, in a web host the application's and confined to the roots `Ambient::files` names. `system` is the machine a terminal page runs on, `Process` reach.
 
-use crate::ext::{option, text, Extensions, Reach};
+use crate::ext::{option, text, Ambient, Extensions, Reach};
 use crate::interp::Fail;
 use snapfire_fsr_core::{Value, ValueMap};
 
 pub fn register(extensions: &mut Extensions) {
-  extensions.register("file.read", Reach::Process, |_, args| read("file.read", args));
-  extensions.register("file.write", Reach::Process, |_, args| write("file.write", args));
-  extensions.register("file.exists", Reach::Process, |_, args| Ok(Value::Bool(std::path::Path::new(text("file.exists", args, 0)?).exists())));
-  extensions.register("file.list", Reach::Process, |_, args| list("file.list", args));
-  extensions.register("file.makeDir", Reach::Process, |_, args| make_dir("file.makeDir", args));
-  extensions.register("file.stat", Reach::Process, |_, args| stat("file.stat", args));
+  extensions.register("file.read", Reach::Body, |ambient, args| read("file.read", ambient, args));
+  extensions.register("file.write", Reach::Body, |ambient, args| write("file.write", ambient, args));
+  extensions.register("file.exists", Reach::Body, |ambient, args| Ok(Value::Bool(placed("file.exists", ambient, args)?.exists())));
+  extensions.register("file.list", Reach::Body, |ambient, args| list("file.list", ambient, args));
+  extensions.register("file.makeDir", Reach::Body, |ambient, args| make_dir("file.makeDir", ambient, args));
+  extensions.register("file.stat", Reach::Body, |ambient, args| stat("file.stat", ambient, args));
   extensions.register("system.env", Reach::Process, |_, args| Ok(std::env::var(text("system.env", args, 0)?).map_or(Value::Null, Value::str)));
   extensions.register("system.home", Reach::Process, |_, _| Ok(Value::str(std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_default())));
   extensions.register("system.platform", Reach::Process, |_, _| Ok(Value::str(std::env::consts::OS)));
@@ -59,46 +58,57 @@ fn io_fail(what: &str, path: &str, e: std::io::Error) -> Fail {
 }
 
 /// `file.read(path)`: the file as text, bytes that are not UTF-8 as U+FFFD.
-fn read(what: &str, args: &[Value]) -> Result<Value, Fail> {
+/// The first argument as a path: as written in a terminal program, placed under the roots in a web host.
+fn placed(what: &str, ambient: &Ambient, args: &[Value]) -> Result<std::path::PathBuf, Fail> {
   let path = text(what, args, 0)?;
-  let bytes = std::fs::read(path).map_err(|e| io_fail(what, path, e))?;
+  match &ambient.files {
+    Some(roots) => roots.place(what, path),
+    None => Ok(std::path::PathBuf::from(path)),
+  }
+}
+
+fn read(what: &str, ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
+  let path = text(what, args, 0)?;
+  let bytes = std::fs::read(placed(what, ambient, args)?).map_err(|e| io_fail(what, path, e))?;
   Ok(Value::str(String::from_utf8_lossy(&bytes).into_owned()))
 }
 
 /// `file.write(path, data)`: `data` as text, a value that is not text as JSON.
-fn write(what: &str, args: &[Value]) -> Result<Value, Fail> {
+fn write(what: &str, ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let path = text(what, args, 0)?;
+  let target = placed(what, ambient, args)?;
   let data = match args.get(1) {
     Some(Value::Str(s)) => s.to_string(),
     Some(other) => crate::interp::stringify(other).unwrap_or_default(),
     None => String::new(),
   };
-  std::fs::write(path, data).map_err(|e| io_fail(what, path, e))?;
+  std::fs::write(target, data).map_err(|e| io_fail(what, path, e))?;
   Ok(Value::Null)
 }
 
 /// `file.makeDir(path, { recursive }?)`: the directory, its parents too with `recursive`.
-fn make_dir(what: &str, args: &[Value]) -> Result<Value, Fail> {
+fn make_dir(what: &str, ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let path = text(what, args, 0)?;
+  let target = placed(what, ambient, args)?;
   let recursive = option(what, args, 1, "recursive")?.is_some_and(crate::interp::truthy);
-  let made = if recursive { std::fs::create_dir_all(path) } else { std::fs::create_dir(path) };
+  let made = if recursive { std::fs::create_dir_all(target) } else { std::fs::create_dir(target) };
   made.map_err(|e| io_fail(what, path, e))?;
   Ok(Value::Null)
 }
 
 /// `file.list(path)`: the entries' names, sorted.
-fn list(what: &str, args: &[Value]) -> Result<Value, Fail> {
+fn list(what: &str, ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let path = text(what, args, 0)?;
-  let entries = std::fs::read_dir(path).map_err(|e| io_fail(what, path, e))?;
+  let entries = std::fs::read_dir(placed(what, ambient, args)?).map_err(|e| io_fail(what, path, e))?;
   let mut names: Vec<String> = entries.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect();
   names.sort();
   Ok(Value::Seq(names.into_iter().map(Value::str).collect()))
 }
 
 /// `file.stat(path)`: `{ isFile, isDirectory, size, mtimeMs }`.
-fn stat(what: &str, args: &[Value]) -> Result<Value, Fail> {
+fn stat(what: &str, ambient: &Ambient, args: &[Value]) -> Result<Value, Fail> {
   let path = text(what, args, 0)?;
-  let meta = std::fs::metadata(path).map_err(|e| io_fail(what, path, e))?;
+  let meta = std::fs::metadata(placed(what, ambient, args)?).map_err(|e| io_fail(what, path, e))?;
   let modified = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
   let mut out = ValueMap::default();
   out.insert("isFile".to_owned(), Value::Bool(meta.is_file()));
@@ -114,7 +124,7 @@ mod tests {
 
   #[test]
   fn a_missing_file_fails_with_a_throwable_carrying_enoent() {
-    let fail = read("file.read", &[Value::str("/nowhere/at/all.txt")]).unwrap_err();
+    let fail = read("file.read", &Ambient::default(), &[Value::str("/nowhere/at/all.txt")]).unwrap_err();
     let Some(thrown) = fail.thrown else { panic!("a thrown value") };
     let Value::Map(map) = *thrown else { panic!("a map") };
     assert_eq!(map.get("code"), Some(&Value::str("ENOENT")));

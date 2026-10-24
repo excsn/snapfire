@@ -494,6 +494,7 @@ pub struct AppBuilder {
   derives: Vec<snapfire_fsr_plan::DeriveEntry>,
   extensions: Extensions,
   catalogs: Option<Arc<Catalogs>>,
+  files: Option<Arc<snapfire_fsr_core::ext::FileRoots>>,
   config: Arc<snapfire_fsr_core::ValueMap>,
   /// The plan's named constants, which `Expr::Const` reads.
   consts: Option<Arc<snapfire_fsr_ir::ast::Consts>>,
@@ -557,6 +558,7 @@ impl App {
       action_claims: Vec::new(),
       extensions: Extensions::standard(),
       catalogs: None,
+      files: None,
       config: Arc::default(),
       consts: None,
       bearer_services: Vec::new(),
@@ -769,6 +771,12 @@ impl AppBuilder {
   }
 
   /// The message catalogs `t` reads, by locale; none by default.
+  /// The directories a body's `file` calls reach, resolved against the application; a web host always gives some, empty when the configuration names none.
+  pub fn files(mut self, files: Arc<snapfire_fsr_core::ext::FileRoots>) -> Self {
+    self.files = Some(files);
+    self
+  }
+
   pub fn catalogs(mut self, catalogs: Arc<Catalogs>) -> Self {
     self.catalogs = Some(catalogs);
     self
@@ -925,6 +933,7 @@ impl AppBuilder {
     let interpreter = Interpreter::default()
       .with_extensions(Arc::new(self.extensions.clone()))
       .with_catalogs(self.catalogs.clone())
+      .with_files(self.files.clone())
       .with_config(self.config.clone())
       .with_consts(self.consts.clone())
       .with_frameworks(self.frameworks)

@@ -853,6 +853,7 @@ impl HostBuilder {
       app = app.catalogs(catalogs.clone());
     }
     app = app.config(public_values(&config));
+    app = app.files(Arc::new(snapfire_fsr_core::ext::FileRoots::new(config.app.clone(), config.files.roots.iter().map(std::path::PathBuf::from).collect())));
     let catalog_rows = catalogs.rows();
     app = app.bearer_services(bearer_rows.iter().map(|(client, _)| client.clone()));
     let prerendered = self

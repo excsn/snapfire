@@ -682,6 +682,12 @@ pub fn unprefixed(service: &str) -> &str {
 
 /// The configuration beside `app`, when it names this app directory. One that does not load is
 /// `None` here and refused by [`build_with`].
+/// The roots a body's `file` calls reach under the host this application's configuration describes, as the stock host gives them.
+pub(crate) fn file_roots(app: &Path) -> Option<std::sync::Arc<snapfire_fsr_core::ext::FileRoots>> {
+  let config = config_beside(app)?;
+  Some(std::sync::Arc::new(snapfire_fsr_core::ext::FileRoots::new(config.app.clone(), config.files.roots.iter().map(PathBuf::from).collect())))
+}
+
 pub(crate) fn config_beside(app: &Path) -> Option<snapfire_fsr_host::config::Config> {
   let root = serve::project_root(app);
   let config = snapfire_fsr_host::config::Config::load(&root).ok()?;

@@ -288,6 +288,81 @@ pub struct Ambient {
   /// The message catalogs the host loaded, which `i18n.t` reads; `None`
   /// when the application has none.
   pub catalogs: Option<Arc<Catalogs>>,
+  /// Where `file` resolves and what it may reach in a web host. `None` in a terminal program, where a path is the working directory's.
+  pub files: Option<Arc<FileRoots>>,
+}
+
+/// The directories a web host's bodies read and write. A relative path is resolved against `base`, the application's directory. A path outside every root is refused once links are followed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRoots {
+  base: std::path::PathBuf,
+  roots: Vec<std::path::PathBuf>,
+}
+
+impl FileRoots {
+  /// `roots` relative to `base` or absolute.
+  pub fn new(base: impl Into<std::path::PathBuf>, roots: Vec<std::path::PathBuf>) -> Self {
+    let base = base.into();
+    let roots = roots.into_iter().map(|root| lexical(&base.join(root))).collect();
+    Self { base, roots }
+  }
+
+  pub fn roots(&self) -> &[std::path::PathBuf] {
+    &self.roots
+  }
+
+  /// `path` resolved against the application, when it falls under a root once links are followed; why not otherwise.
+  pub fn place(&self, what: &str, path: &str) -> Result<std::path::PathBuf, Fail> {
+    let named: Vec<String> = self.roots.iter().map(|root| root.strip_prefix(&self.base).unwrap_or(root).to_string_lossy().into_owned()).collect();
+    if self.roots.is_empty() {
+      return Err(Fail::new(FailureKind::Forbidden, format!("{what}({path:?}): no `[files] roots` in the configuration, so this host reads and writes no files; name the directories under `[files]`")));
+    }
+    let placed = lexical(&self.base.join(path));
+    let real = real_ancestor(&placed);
+    let inside = self.roots.iter().any(|root| real.starts_with(real_ancestor(root)));
+    if inside {
+      Ok(placed)
+    } else {
+      Err(Fail::new(FailureKind::Forbidden, format!("{what}({path:?}) is outside the directories `[files] roots` names ({}); add its directory there", named.join(", "))))
+    }
+  }
+}
+
+/// `path` with `.` dropped and `..` taken off what precedes it, without touching the disk.
+fn lexical(path: &std::path::Path) -> std::path::PathBuf {
+  let mut out = std::path::PathBuf::new();
+  for part in path.components() {
+    match part {
+      std::path::Component::ParentDir => {
+        out.pop();
+      }
+      std::path::Component::CurDir => {}
+      other => out.push(other),
+    }
+  }
+  out
+}
+
+/// `path` with links followed through its longest existing ancestor, the rest appended as written.
+fn real_ancestor(path: &std::path::Path) -> std::path::PathBuf {
+  let mut existing = path.to_path_buf();
+  let mut rest = Vec::new();
+  loop {
+    if let Ok(real) = existing.canonicalize() {
+      let mut out = real;
+      for part in rest.iter().rev() {
+        out.push(part);
+      }
+      return out;
+    }
+    match (existing.file_name().map(|n| n.to_os_string()), existing.parent().map(|p| p.to_path_buf())) {
+      (Some(name), Some(parent)) => {
+        rest.push(name);
+        existing = parent;
+      }
+      _ => return path.to_path_buf(),
+    }
+  }
 }
 
 impl Ambient {
@@ -303,6 +378,11 @@ impl Ambient {
 
   pub fn catalogs(mut self, catalogs: Option<Arc<Catalogs>>) -> Self {
     self.catalogs = catalogs;
+    self
+  }
+
+  pub fn files(mut self, files: Option<Arc<FileRoots>>) -> Self {
+    self.files = files;
     self
   }
 }
