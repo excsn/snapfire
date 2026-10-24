@@ -106,3 +106,15 @@ fn a_newline_draws_as_many_line_breaks_as_its_count() {
   let rows = r#"<ink-text>a<ink-newline count="2"></ink-newline>b</ink-text>"#;
   assert_eq!(render(&from_markup(rows).unwrap(), 10).lines(), ["a", "", "b"]);
 }
+
+#[test]
+fn inks_aria_props_are_declared_and_draw_nothing() {
+  let declared = snapfire_fsr_terminal::prop_declarations();
+  for line in ["  \"aria-label\"?: string;", "  \"aria-hidden\"?: boolean;"] {
+    assert_eq!(declared.lines().filter(|held| *held == line).count(), 2, "{line} on Box and Text in\n{declared}");
+  }
+  assert!(declared.lines().any(|line| line.starts_with("  \"aria-role\"?: \"button\" | ")), "{declared}");
+  assert!(declared.lines().any(|line| line.starts_with("  \"aria-state\"?: { busy?: boolean;")), "{declared}");
+  let node = from_markup(r#"<ink-box aria-label="x" aria-hidden="true"><ink-text aria-label="y">a</ink-text></ink-box>"#).unwrap();
+  assert_eq!(render(&node, 3).lines()[0].trim_end(), "a");
+}

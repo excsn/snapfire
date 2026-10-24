@@ -25,7 +25,12 @@ pub enum Value<S: 'static> {
   Color(fn(&mut S, Option<Color>)),
   /// One of these words, each with what it sets.
   Words(&'static [(&'static str, fn(&mut S))]),
+  /// Taken and drawn as nothing, declared with this TypeScript type: Ink's screen-reader props, since a terminal page has no screen reader.
+  Unseen(&'static str),
 }
+
+const ARIA_ROLE: &str = "\"button\" | \"checkbox\" | \"combobox\" | \"list\" | \"listbox\" | \"listitem\" | \"menu\" | \"menuitem\" | \"option\" | \"progressbar\" | \"radio\" | \"radiogroup\" | \"tab\" | \"tablist\" | \"table\" | \"textbox\" | \"timer\" | \"toolbar\"";
+const ARIA_STATE: &str = "{ busy?: boolean; checked?: boolean; disabled?: boolean; expanded?: boolean; multiline?: boolean; multiselectable?: boolean; readonly?: boolean; required?: boolean; selected?: boolean }";
 
 /// The props of `Box`.
 pub static BOX_PROPS: &[Prop<BoxStyle>] = &[
@@ -99,6 +104,10 @@ pub static BOX_PROPS: &[Prop<BoxStyle>] = &[
   Prop { name: "overflowY", value: Value::Words(&[("visible", |s| s.overflow_y = false), ("hidden", |s| s.overflow_y = true)]) },
   Prop { name: "contentOffsetX", value: Value::Offset(|s, n| s.content_offset.0 = n) },
   Prop { name: "contentOffsetY", value: Value::Offset(|s, n| s.content_offset.1 = n) },
+  Prop { name: "aria-label", value: Value::Unseen("string") },
+  Prop { name: "aria-hidden", value: Value::Unseen("boolean") },
+  Prop { name: "aria-role", value: Value::Unseen(ARIA_ROLE) },
+  Prop { name: "aria-state", value: Value::Unseen(ARIA_STATE) },
 ];
 
 /// The props of `Text`.
@@ -111,6 +120,8 @@ pub static TEXT_PROPS: &[Prop<Text>] = &[
   Prop { name: "underline", value: Value::Flag(|t, on| t.style.underline = on) },
   Prop { name: "strikethrough", value: Value::Flag(|t, on| t.style.strikethrough = on) },
   Prop { name: "inverse", value: Value::Flag(|t, on| t.style.inverse = on) },
+  Prop { name: "aria-label", value: Value::Unseen("string") },
+  Prop { name: "aria-hidden", value: Value::Unseen("boolean") },
   Prop {
     name: "wrap",
     value: Value::Words(&[
@@ -163,6 +174,7 @@ pub(crate) fn apply<S>(props: &[Prop<S>], element: &str, attribute: &str, value:
       };
       set(target)
     }
+    Value::Unseen(_) => {}
   }
   Ok(true)
 }
@@ -175,6 +187,7 @@ fn declared<S>(value: &Value<S>) -> String {
     Value::Flag(_) => "boolean".to_owned(),
     Value::Color(_) => "string".to_owned(),
     Value::Words(words) => words.iter().map(|(word, _)| format!("\"{word}\"")).collect::<Vec<_>>().join(" | "),
+    Value::Unseen(ty) => (*ty).to_owned(),
   }
 }
 
@@ -184,7 +197,8 @@ fn interface<S>(name: &str, doc: &str, fixed: &[&str], props: &[Prop<S>]) -> Str
     out.push_str(&format!("  {line}\n"));
   }
   for prop in props {
-    out.push_str(&format!("  {}?: {};\n", prop.name, declared(&prop.value)));
+    let name = if prop.name.contains('-') { format!("\"{}\"", prop.name) } else { prop.name.to_owned() };
+    out.push_str(&format!("  {name}?: {};\n", declared(&prop.value)));
   }
   out.push_str("}\n");
   out
