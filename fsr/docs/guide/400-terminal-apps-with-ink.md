@@ -6,7 +6,7 @@ It builds on three earlier chapters. [002](002-a-body-is-data.md) says what lowe
 
 ## Terminal mode is a feature of the CLI
 
-The `terminal` Cargo feature of the CLI lets `fsr dev` run a terminal app. It is off by default. An app is a terminal app when its root page, or a local file the page imports, imports a value from `ink` or `@snapfire/fsr/terminal`: `fsr dev` draws it in the terminal and `fsr build` lowers it with no browser half.
+The `terminal` Cargo feature of the CLI lets `fsr dev` run a terminal app. It is off by default. An app is a terminal app when its root page or a local file the page imports takes a value from `@snapfire/fsr/terminal/ink`: `fsr dev` draws it in the terminal and `fsr build` lowers it with no browser half.
 
 ```sh
 cargo install --path fsr/cli --features terminal
@@ -18,12 +18,12 @@ The command lowers the app's root page `routes/page.tsx` and draws it in the ter
 
 ## A page is an Ink component
 
-The page imports Ink's names from `ink`. `@snapfire/fsr/terminal` exports the same names for an application that does not want to name Ink:
+The page imports Ink's names from `@snapfire/fsr/terminal/ink`, FSR's own Ink. Importing them from `ink` is refused, naming that module; `fsr migrate` writes it in place of `ink`:
 
 ```tsx
 // app/routes/page.tsx
 import { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput } from "@snapfire/fsr/terminal/ink";
 
 export default function Count() {
   const [n, setN] = useState(0);
@@ -111,7 +111,7 @@ useEffect(() => {
 }, [chosen]);
 ```
 
-`ms`, `stripAnsi`, `stringWidth` and `wrapAnsi` from `@snapfire/fsr/terminal` run natively, since a terminal tool reaches for them constantly. `ink-spinner` with the `cli-spinners` it reads and `ink-text-input` are provided as TypeScript modules written as the packages are, so `<Spinner />` runs on the same timers as any other component and `<TextInput />` reads keys with `useInput` as any other component does. Other npm packages are not followed; [chapter 301](301-dependencies-without-npm.md) covers how an application gets its dependencies without npm.
+`ms`, `stripAnsi`, `stringWidth` and `wrapAnsi` from `@snapfire/fsr/terminal` run natively, since a terminal tool reaches for them constantly. FSR's `Spinner` from `@snapfire/fsr/terminal/spinner` with the spinners it reads from `@snapfire/fsr/terminal/spinners` and its `TextInput` from `@snapfire/fsr/terminal/text-input` are TypeScript modules written as `ink-spinner`, `cli-spinners` and `ink-text-input` are, which `fsr migrate` writes in place of those packages, so `<Spinner />` runs on the same timers as any other component and `<TextInput />` reads keys with `useInput` as any other component does. Other npm packages are not followed; [chapter 301](301-dependencies-without-npm.md) covers how an application gets its dependencies without npm.
 
 ## Promises and handing over the terminal
 
@@ -127,7 +127,7 @@ useEffect(() => {
 fsr migrate ./my-ink-tool ./my-fsr-tool
 ```
 
-The sources under `source/` or `src/` go to `app/src/` and a top-level `test.ts` or a `*.test.*` file to `app/tests/`. The entry that calls Ink's `render` is left behind, since `app/routes/page.tsx` renders the same component instead.
+The sources under `source/` or `src/` go to `app/src/` and a top-level `test.ts` or a `*.test.*` file to `app/tests/`. An import from `ink`, `ink-spinner`, `ink-text-input` or `cli-spinners` is written as FSR's module of it. The entry that calls Ink's `render` is left behind, since `app/routes/page.tsx` renders the same component instead.
 
 When `render` passed the component props, `app/routes/page.loader.ts` is written as well: the statements before `render` in the function that rendered become the loader's body and each prop becomes a field of its return, which the page gives to the component from `RootProps`. The loader runs once when the terminal opens, with the command line after `--` as `params`, so `fsr dev app --terminal -- --limit 3` reaches it as `params.limit`.
 
@@ -158,4 +158,4 @@ fsr dev app --terminal
 
 Press space to start it, then again to pause it. The clock stops. Now delete the `return () => clearInterval(tick);` line from `app/routes/page.tsx` and save. The page redraws with its state kept. Start and pause it again: the clock keeps counting while it says paused, because nothing stopped the interval the first run started. Start it once more and it counts two seconds for every one, since a second interval now runs beside the first. That is what Ink does with the same code; the cleanup is the only thing that stops a timer.
 
-Put the line back, then add `import { measureElement } from "ink";` and call `measureElement(null)` inside the `Bar` component. The page is replaced by the reason it cannot run, naming `Bar` and `measureElement`.
+Put the line back, then add `measureElement` to the import from `@snapfire/fsr/terminal/ink` and call `measureElement(null)` inside the `Bar` component. The page is replaced by the reason it cannot run, naming `Bar` and `measureElement`.

@@ -1329,7 +1329,7 @@ The window installs a bridge before the page's scripts run, which `desktop` from
 
 ## Running a Terminal App
 
-Terminal mode is experimental. With the `terminal` feature, `fsr dev` runs an app whose root page draws with Ink in this terminal instead of serving it. The root page draws with Ink when it, or a local file it imports, imports a value from `ink` or `@snapfire/fsr/terminal`; `--terminal` asks for the terminal on any app. `fsr build` and `fsr check` lower such an app as the terminal does, with no browser half, so its generated types follow its loader. The page is an Ink component: `Box`, `Text`, `Spacer`, `Newline` and `useInput` come from `ink`, or from `@snapfire/fsr/terminal`, which exports the same names. No Node runs and nothing is served.
+Terminal mode is experimental. With the `terminal` feature, `fsr dev` runs an app whose root page draws with Ink in this terminal instead of serving it. The root page draws with Ink when it or a local file it imports imports a value from `@snapfire/fsr/terminal/ink`; `--terminal` asks for the terminal on any app. `fsr build` and `fsr check` lower such an app as the terminal does, with no browser half, so its generated types follow its loader. The page is an Ink component: `Box`, `Text`, `Spacer`, `Newline` and `useInput` come from `@snapfire/fsr/terminal/ink`, FSR's own Ink; an import from `ink` is refused with that module named. `fsr migrate` writes it in place of `ink`. No Node runs and nothing is served.
 
 ```sh
 cargo install --path fsr/cli --features terminal
@@ -1339,7 +1339,7 @@ fsr dev app
 ```tsx
 // app/routes/page.tsx
 import { useState } from "react";
-import { Box, Spacer, Text, useInput } from "ink";
+import { Box, Spacer, Text, useInput } from "@snapfire/fsr/terminal/ink";
 
 export default function Status() {
   const [done, setDone] = useState(0);
@@ -1376,7 +1376,7 @@ A mount effect may also branch before it sets state, `if (startup.wasUpdated) se
 Every component the page places runs in place with its own state, its own `useInput` and its own timers. A key reaches every `useInput` whose `isActive` option is not false, as in Ink: `useInput(handler, { isActive: focused })`. `useFocus` makes a component focusable; Tab and Shift+Tab move the focus through them in the order they render and Esc clears it:
 
 ```tsx
-import { Box, Text, useFocus, useFocusManager, useInput } from "ink";
+import { Box, Text, useFocus, useFocusManager, useInput } from "@snapfire/fsr/terminal/ink";
 
 function Item({ label, id }: { label: string; id?: string }) {
   const { isFocused } = useFocus({ id });
@@ -1397,7 +1397,7 @@ export default function Menu() {
 }
 ```
 
-`useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do. `ms`, `stripAnsi`, `stringWidth` and `wrapAnsi` from `@snapfire/fsr/terminal` run natively; `fsr migrate` rewrites the default imports of the `ms`, `strip-ansi`, `string-width` and `wrap-ansi` packages to them. `wrapAnsi` keeps escape codes where they stand rather than reopening a style on the next row. `ink-spinner`'s `Spinner` and the spinners of `cli-spinners` are provided as TypeScript modules the build reads in place of the packages, so `<Spinner type="line" />` steps through its frames at the interval `cli-spinners` gives it. `ink-text-input`'s `TextInput` and `UncontrolledTextInput` are provided the same way, with the cursor drawn in Ink's `inverse` where the package writes chalk's escape codes. `getHours()`, the other local getters, `getTimezoneOffset()` and `toLocaleTimeString()` read this machine's time zone, since the machine running the page is the viewer; without a locale, `toLocaleTimeString()` takes the system's from `LC_ALL`, `LC_TIME` or `LANG`. A Box's `width` and `height` may be a percentage of its parent, `width="50%"`.
+`useFocusManager` gives `focus(id)`, `focusNext`, `focusPrevious`, `enableFocus`, `disableFocus` and `activeId`. `useReducer`'s `dispatch`, a write to a `useRef`'s `current` and `startTransition`, whose callback runs at once, work in a handler. A module-level `new Intl.Segmenter(undefined, { granularity: "grapheme" })` splits text into graphemes with `segment` and `containing`. `useApp().exit`, `useWindowSize`, `useStdout`, `useStderr` and `useAnimation` read as Ink's do. `ms`, `stripAnsi`, `stringWidth` and `wrapAnsi` from `@snapfire/fsr/terminal` run natively; `fsr migrate` rewrites the default imports of the `ms`, `strip-ansi`, `string-width` and `wrap-ansi` packages to them. `wrapAnsi` keeps escape codes where they stand rather than reopening a style on the next row. `Spinner` from `@snapfire/fsr/terminal/spinner` and the spinners of `@snapfire/fsr/terminal/spinners` are TypeScript modules written as `ink-spinner` and `cli-spinners` are, so `<Spinner type="line" />` steps through its frames at the interval the spinners give it. `TextInput` and `UncontrolledTextInput` from `@snapfire/fsr/terminal/text-input` are written as `ink-text-input`'s are, with the cursor drawn in Ink's `inverse` where the package writes chalk's escape codes. `getHours()`, the other local getters, `getTimezoneOffset()` and `toLocaleTimeString()` read this machine's time zone, since the machine running the page is the viewer; without a locale, `toLocaleTimeString()` takes the system's from `LC_ALL`, `LC_TIME` or `LANG`. A Box's `width` and `height` may be a percentage of its parent, `width="50%"`.
 
 An effect or a handler may start a process with `system.spawn` from `@snapfire/fsr-client/std`. The terminal runs it with its output piped. Its listeners step the page as handlers do and may call the component's setters. A local the listeners write keeps its value from one report to the next; each run of the effect gets its own:
 

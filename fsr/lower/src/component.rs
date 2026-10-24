@@ -227,7 +227,7 @@ impl ComponentSet {
 
   /// Whether `file` draws in a terminal: it or a local file it reaches imports a value from Ink's API, which only a terminal renders.
   pub fn draws_in_terminal(&mut self, file: &str) -> bool {
-    self.local_reach(file).iter().any(|reached| crate::terminal::INK_MODULES.iter().any(|module| self.imports_value_from(reached, module)))
+    self.local_reach(file).iter().any(|reached| self.imports_value_from(reached, crate::terminal::INK_MODULE))
   }
 
   /// Whether these pages may use `reach`.
@@ -2272,7 +2272,7 @@ impl ComponentSet {
     if export == "actions" && is_generated_client(file, source) {
       return Meaning::Library(Construct::GeneratedActions);
     }
-    if self.reaches(Reach::Terminal) && file != crate::terminal::INK_FILE && crate::terminal::INK_MODULES.contains(&source) {
+    if self.reaches(Reach::Terminal) && file != crate::terminal::INK_FILE && source == crate::terminal::INK_MODULE {
       if let Some(written) = self.meanings(crate::terminal::INK_FILE).exports.get(export).cloned() {
         return written;
       }

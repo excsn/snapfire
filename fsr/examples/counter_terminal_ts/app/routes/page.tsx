@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Box, Newline, Spacer, Text, useInput } from "ink";
+import { Box, Newline, Spacer, Text, useInput } from "@snapfire/fsr/terminal/ink";
 
 export default function Counter() {
   const [count, setCount] = useState(0);

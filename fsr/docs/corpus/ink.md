@@ -1,6 +1,6 @@
 # Ink in the terminal
 
-The corpus in `fsr/examples/corpus` runs the 29 examples of Ink (MIT, at `26d2c3f`) through FSR's terminal mode as one application per example and records what each one does in `ink_outcomes.txt`. Each example's `render(…)` names what it draws, which the harness makes the root component; Ink's own source is imported as `ink`. The example's files then go through `fsr migrate` as an application's would, which writes Node's `process` and `child_process` onto FSR's `system`. Run it from `fsr/examples`: `cargo test -p corpus --test ink`. The counts here are from `7f54a389` and the commits after it.
+The corpus in `fsr/examples/corpus` runs the 29 examples of Ink (MIT, at `26d2c3f`) through FSR's terminal mode as one application per example and records what each one does in `ink_outcomes.txt`. Each example's `render(…)` names what it draws, which the harness makes the root component; The example's files then go through `fsr migrate` as an application's would, which writes `ink` as `@snapfire/fsr/terminal/ink` and Node's `process` and `child_process` onto FSR's `system`. Run it from `fsr/examples`: `cargo test -p corpus --test ink`. The counts here are from `7f54a389` and the commits after it.
 
 | Outcome | Examples | Meaning |
 | --- | --- | --- |

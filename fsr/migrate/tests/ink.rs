@@ -37,7 +37,7 @@ fn the_entry_that_renders_becomes_a_page_rendering_the_same_component() {
   paths.sort();
   assert_eq!(paths, ["app/routes/page.tsx", "app/src/index.ts", "app/src/ui.tsx", "app/tests/test.ts"], "{:?}", report.notes);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import Ui from \"@src/ui\";\n\nexport default function Page() {\n  return <Ui />;\n}\n");
-  assert_eq!(out.text("app/src/ui.tsx").unwrap(), "import React from 'react';\nimport {Text} from 'ink';\nimport Conf from 'conf';\nimport {search} from './index.js';\n\nexport default function Ui() {\n  return <Text>{search('a')}</Text>;\n}\n");
+  assert_eq!(out.text("app/src/ui.tsx").unwrap(), "import React from 'react';\nimport {Text} from \"@snapfire/fsr/terminal/ink\";\nimport Conf from 'conf';\nimport {search} from './index.js';\n\nexport default function Ui() {\n  return <Text>{search('a')}</Text>;\n}\n");
   assert_eq!(report.packages.keys().collect::<Vec<_>>(), ["conf"], "ink, react, the packages FSR provides and what only the entry imported are not carried");
   assert!(report.notes.is_empty(), "{:?}", report.notes);
 }
@@ -88,7 +88,7 @@ fn an_entry_that_declares_the_component_it_renders_is_kept_and_exports_it() {
     ("lrn.tsx", "import React, { useState } from 'react';\nimport { render, Text, useInput } from 'ink';\nimport { readFileSync } from 'node:fs';\n\nconst cards = readFileSync('cards.txt', 'utf8');\n\nfunction AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n\nrender(<AppMatch />);\n"),
   ]);
   let (out, report) = migrate(&t);
-  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React, { useState } from 'react';\nimport { Text, useInput } from 'ink';\nimport { file } from \"@snapfire/fsr-client/std\";\n\nconst cards = file.read('cards.txt');\n\nexport function AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React, { useState } from 'react';\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport { file } from \"@snapfire/fsr-client/std\";\n\nconst cards = file.read('cards.txt');\n\nexport function AppMatch() {\n  const [n] = useState(0);\n  return <Text>{cards} {n}</Text>;\n}\n", "{:?}", report.notes);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
   assert!(report.notes.is_empty(), "{:?}", report.notes);
 }
@@ -141,7 +141,7 @@ fn a_kept_entry_loses_an_if_that_chooses_what_to_render() {
     ("lrn.tsx", "import React from 'react';\nimport { render, Text } from 'ink';\n\nconst mode = 'match';\n\nexport function AppMatch() {\n  return <Text>match</Text>;\n}\n\nfunction AppCards() {\n  return <Text>cards</Text>;\n}\n\nif (mode === 'match') {\n  render(<AppMatch />);\n} else {\n  render(<AppCards />);\n}\n"),
   ]);
   let (out, report) = migrate(&t);
-  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React from 'react';\nimport { Text } from 'ink';\n\nconst mode = 'match';\n\nexport function AppMatch() {\n  return <Text>match</Text>;\n}\n\nfunction AppCards() {\n  return <Text>cards</Text>;\n}\n", "{:?}", report.notes);
+  assert_eq!(out.text("app/src/lrn.tsx").unwrap(), "import React from 'react';\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\n\nconst mode = 'match';\n\nexport function AppMatch() {\n  return <Text>match</Text>;\n}\n\nfunction AppCards() {\n  return <Text>cards</Text>;\n}\n", "{:?}", report.notes);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import { AppMatch } from \"@src/lrn\";\n\nexport default function Page() {\n  return <AppMatch />;\n}\n");
 }
 

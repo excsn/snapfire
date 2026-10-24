@@ -708,7 +708,32 @@ pub(crate) fn parse_from(file: &str, source: &str, tsx: bool, origin: Option<std
       via: Vec::new(),
     }));
   }
+  if let Some((source, fsr, span)) = replaced_import(&module) {
+    let (line, column) = at(span);
+    return Err(LowerError::Residue(Residue {
+      file: file.to_owned(),
+      line,
+      column,
+      message: format!("`{source}`, which is not FSR's"),
+      hint: Some(format!("FSR provides its own; import it from `{fsr}`, which `fsr migrate` writes")),
+      via: Vec::new(),
+    }));
+  }
   Ok(Parsed { file: file.to_owned(), cm, module, top, unresolved, meanings: std::cell::OnceCell::new(), origin })
+}
+
+/// The first import or re-export in `module` from an npm package FSR provides its own of ([`terminal::REPLACED`]), with FSR's module and where.
+fn replaced_import(module: &js::Module) -> Option<(String, &'static str, Span)> {
+  module.body.iter().find_map(|item| {
+    let (src, span) = match item {
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) => (&*import.src, import.span),
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportNamed(js::NamedExport { src: Some(src), span, .. })) => (&**src, *span),
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportAll(all)) => (&*all.src, all.span),
+      _ => return None,
+    };
+    let source = src.value.to_atom_lossy().to_string();
+    terminal::REPLACED.iter().find(|(npm, _)| *npm == source).map(|(_, fsr)| (source, *fsr, span))
+  })
 }
 
 /// The first name `module` binds twice at its top level, with the spans of the second binding and the first: an import, a `let`, `const` or `var`, a function or a class. Two `var`s of one name, a function's overload signatures and `declare` statements bind it once, as JavaScript and TypeScript have it; types, enums and namespaces are a namespace of their own and are left out.

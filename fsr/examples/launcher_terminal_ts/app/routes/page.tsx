@@ -1,6 +1,6 @@
 import { system } from "@snapfire/fsr-client/std";
 import { Suspense, useState } from "react";
-import { Box, Text, useApp, useInput } from "ink";
+import { Box, Text, useApp, useInput } from "@snapfire/fsr/terminal/ink";
 import { ms } from "@snapfire/fsr/terminal";
 
 type Command = { label: string; run: string; owns: boolean };

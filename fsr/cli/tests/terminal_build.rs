@@ -25,7 +25,7 @@ fn islands(built: &snapfire_fsr_cli::Built) -> Vec<String> {
 
 #[test]
 fn a_terminal_app_builds_with_its_loader_in_root_props() {
-  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\nimport type { RootProps } from \"@generated/client\";\n\nexport default function Hello({ greeting, count }: RootProps) {\n  const [more, setMore] = useState(0);\n  useInput(() => setMore(more + 1));\n  return <Text>{greeting} {count + more}</Text>;\n}\n";
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\nimport type { RootProps } from \"@generated/client\";\n\nexport default function Hello({ greeting, count }: RootProps) {\n  const [more, setMore] = useState(0);\n  useInput(() => setMore(more + 1));\n  return <Text>{greeting} {count + more}</Text>;\n}\n";
   let loader = "export async function load() {\n  return { greeting: \"hello\", count: 3 };\n}\n";
   let app = app(&[("routes/page.tsx", page), ("routes/page.loader.ts", loader), ("importmap.json", IMPORT_MAP)]);
   let built = build(&app, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
@@ -37,7 +37,7 @@ fn a_terminal_app_builds_with_its_loader_in_root_props() {
 
 #[test]
 fn an_app_runs_in_a_terminal_when_its_root_page_draws_with_ink() {
-  let ink = app(&[("routes/page.tsx", "import { Text } from \"ink\";\n\nexport default function Page() {\n  return <Text>hi</Text>;\n}\n")]);
+  let ink = app(&[("routes/page.tsx", "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Page() {\n  return <Text>hi</Text>;\n}\n")]);
   let web = app(&[("routes/page.tsx", "export default function Page() {\n  return <p>hi</p>;\n}\n")]);
   assert!(snapfire_fsr_cli::is_terminal_app(&ink));
   assert!(!snapfire_fsr_cli::is_terminal_app(&web));
@@ -46,7 +46,7 @@ fn an_app_runs_in_a_terminal_when_its_root_page_draws_with_ink() {
 #[test]
 fn a_page_drawing_with_ink_through_its_own_component_is_a_terminal_page() {
   let page = "import { App } from \"../src/app\";\n\nexport default function Page() {\n  return <App />;\n}\n";
-  let component = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nexport function App() {\n  const [keys, setKeys] = useState(0);\n  useInput(() => setKeys(keys + 1));\n  return <Box><Text>{keys} keys</Text></Box>;\n}\n";
+  let component = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport function App() {\n  const [keys, setKeys] = useState(0);\n  useInput(() => setKeys(keys + 1));\n  return <Box><Text>{keys} keys</Text></Box>;\n}\n";
   let app = app(&[("routes/page.tsx", page), ("src/app.tsx", component), ("importmap.json", IMPORT_MAP)]);
   let built = build(&app, &Options::default()).unwrap_or_else(|e| panic!("{e}"));
   assert_eq!(islands(&built), Vec::<String>::new());

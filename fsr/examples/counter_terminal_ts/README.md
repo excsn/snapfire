@@ -1,6 +1,6 @@
 # counter_terminal_ts
 
-An Ink component run in the terminal by `fsr dev --terminal`: no Node and no React in the process. The page is written against Ink's own `Box`, `Text`, `Spacer`, `Newline` and `useInput`, imported from `ink`, so the same file runs under Ink. FSR lowers it, draws it with flexbox in the terminal and runs its `useInput` handler on each key, redrawing only the cells that changed.
+An Ink component run in the terminal by `fsr dev --terminal`: no Node and no React in the process. The page is written against Ink's `Box`, `Text`, `Spacer`, `Newline` and `useInput`, imported from `@snapfire/fsr/terminal/ink`, FSR's own Ink. FSR lowers it, draws it with flexbox in the terminal and runs its `useInput` handler on each key, redrawing only the cells that changed.
 
 ```sh
 cargo install --path fsr/cli --features terminal

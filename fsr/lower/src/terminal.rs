@@ -6,17 +6,25 @@
 /// Where a terminal page's Ink API is read from: [`INK_SOURCE`], provided to the build under this name.
 pub const INK_FILE: &str = "$fsr/terminal.tsx";
 
-/// Ink's hooks written over the terminal primitives, which the build reads wherever a page imports one of its exports from [`INK_MODULES`].
+/// Ink's hooks written over the terminal primitives, which the build reads wherever a page imports one of its exports from [`INK_MODULE`].
 pub const INK_SOURCE: &str = include_str!("../terminal/ink.tsx");
 
-/// The specifiers a page imports Ink's API from.
-pub const INK_MODULES: [&str; 2] = ["ink", "@snapfire/fsr/terminal"];
+/// The module a page imports FSR's Ink from: its elements, `useInput` and its hooks.
+pub const INK_MODULE: &str = "@snapfire/fsr/terminal/ink";
 
-/// The npm packages around Ink a terminal page may import, each with the file the build provides in its place and that file's source: `(specifier, file, source)`.
+/// The modules FSR provides beside Ink, each with the file the build provides under the specifier and that file's source: `(specifier, file, source)`.
 pub const COMPANIONS: [(&str, &str, &str); 3] = [
-  ("cli-spinners", "$fsr/terminal/cli-spinners.ts", include_str!("../terminal/cli-spinners.ts")),
-  ("ink-spinner", "$fsr/terminal/ink-spinner.tsx", include_str!("../terminal/ink-spinner.tsx")),
-  ("ink-text-input", "$fsr/terminal/ink-text-input.tsx", include_str!("../terminal/ink-text-input.tsx")),
+  ("@snapfire/fsr/terminal/spinners", "$fsr/terminal/spinners.ts", include_str!("../terminal/spinners.ts")),
+  ("@snapfire/fsr/terminal/spinner", "$fsr/terminal/spinner.tsx", include_str!("../terminal/spinner.tsx")),
+  ("@snapfire/fsr/terminal/text-input", "$fsr/terminal/text-input.tsx", include_str!("../terminal/text-input.tsx")),
+];
+
+/// The npm packages FSR provides its own of, each with the module of FSR's to import instead: `fsr migrate` writes the one for the other and the build refuses the npm name.
+pub const REPLACED: [(&str, &str); 4] = [
+  ("ink", INK_MODULE),
+  ("cli-spinners", "@snapfire/fsr/terminal/spinners"),
+  ("ink-spinner", "@snapfire/fsr/terminal/spinner"),
+  ("ink-text-input", "@snapfire/fsr/terminal/text-input"),
 ];
 
 /// A focusable a terminal can move focus to, `{ id, autoFocus, isActive }`, one per `useFocus`, in render order.

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ms } from "@snapfire/fsr/terminal";
-import { Box, Text, useApp, useInput, useStdout } from "ink";
+import { Box, Text, useApp, useInput, useStdout } from "@snapfire/fsr/terminal/ink";
 
 const WORK = 25 * 60;
 const BREAK = 5 * 60;

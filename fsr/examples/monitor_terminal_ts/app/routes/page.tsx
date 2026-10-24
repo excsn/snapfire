@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { system } from "@snapfire/fsr-client/std";
 import { stripAnsi } from "@snapfire/fsr/terminal";
-import { Box, Text, useAnimation, useApp, useBoxMetrics, useInput, useWindowSize } from "ink";
+import { Box, Text, useAnimation, useApp, useBoxMetrics, useInput, useWindowSize } from "@snapfire/fsr/terminal/ink";
 
 const TABS = [
   { name: "Load", command: "uptime" },

@@ -103,3 +103,14 @@ fn a_logger_used_past_its_levels_is_noted_and_left() {
   assert!(report.notes.iter().any(|n| n.message.contains("export const logger")), "{:?}", report.notes);
   assert!(report.notes.iter().any(|n| n.message.contains("logger.flush")), "{:?}", report.notes);
 }
+
+#[test]
+fn ink_and_the_packages_around_it_are_fsrs_modules() {
+  let picker = "import React from 'react';\nimport {Box, Text, useInput} from 'ink';\nimport Spinner from 'ink-spinner';\nimport TextInput, {UncontrolledTextInput} from 'ink-text-input';\nimport spinners from 'cli-spinners';\n\nexport default function Ui() {\n  return <Box><Spinner /><Text>{spinners.dots.interval}</Text></Box>;\n}\n";
+  let t = tree(&[("package.json", PACKAGE), ("src/cli.tsx", ENTRY), ("src/ui.tsx", picker)]);
+  let (out, _) = migrate(&t);
+  assert_eq!(
+    out.text("app/src/ui.tsx").unwrap(),
+    "import React from 'react';\nimport {Box, Text, useInput} from \"@snapfire/fsr/terminal/ink\";\nimport Spinner from \"@snapfire/fsr/terminal/spinner\";\nimport TextInput, {UncontrolledTextInput} from \"@snapfire/fsr/terminal/text-input\";\nimport spinners from \"@snapfire/fsr/terminal/spinners\";\n\nexport default function Ui() {\n  return <Box><Spinner /><Text>{spinners.dots.interval}</Text></Box>;\n}\n"
+  );
+}

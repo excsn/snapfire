@@ -73,8 +73,8 @@ pub const COMPONENTS_MODULE: &str = "@snapfire/fsr/components";
 /// The module whose `config` and named exports are the deployment's `[public]` values, read anywhere.
 pub const CONFIG_MODULE: &str = "@snapfire/fsr/config";
 const COMPONENTS: [&str; 5] = ["Link", "Picture", "Mount", "Embed", "Place"];
-/// Ink's elements, from Ink itself or FSR's terminal module, which a terminal window draws.
-const TERMINAL_MODULES: [&str; 3] = ["ink", "@snapfire/fsr/terminal", "@snapfire/fsr/terminal/core"];
+/// Ink's elements, from FSR's Ink and the primitives it is written over, which a terminal window draws.
+const TERMINAL_MODULES: [&str; 2] = [crate::terminal::INK_MODULE, "@snapfire/fsr/terminal/core"];
 const TERMINAL_ELEMENTS: [&str; 4] = ["Box", "Text", "Newline", "Spacer"];
 
 fn rows() -> &'static [(&'static str, &'static str, Construct)] {

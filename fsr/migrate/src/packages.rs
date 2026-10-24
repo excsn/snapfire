@@ -13,6 +13,7 @@ use crate::edit::Edits;
 use crate::items::{line_range, tidy};
 use crate::syntax::{is_script, parse, Parsed};
 use crate::{Pass, Report, Tree};
+use snapfire_fsr_lower::terminal::REPLACED;
 
 pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
   vec![Box::new(GrayMatter), Box::new(Loggers), Box::new(Terminal)]
@@ -21,7 +22,7 @@ pub(crate) fn passes() -> Vec<Box<dyn Pass>> {
 /// The packages a terminal tool reaches for whose functions FSR's terminal module has, by package and member.
 const TERMINAL: &[(&str, &str)] = &[("ms", "ms"), ("strip-ansi", "stripAnsi"), ("string-width", "stringWidth"), ("wrap-ansi", "wrapAnsi")];
 
-/// `ms`, `strip-ansi`, `string-width` and `wrap-ansi` imported by default as the member of `@snapfire/fsr/terminal` that does what each does, under the name the file used.
+/// `ms`, `strip-ansi`, `string-width` and `wrap-ansi` imported by default as the member of `@snapfire/fsr/terminal` that does what each does, under the name the file used; `ink`, `ink-spinner`, `ink-text-input` and `cli-spinners` imported from FSR's module of each, with the names the file imported.
 struct Terminal;
 
 impl Pass for Terminal {
@@ -33,7 +34,7 @@ impl Pass for Terminal {
     let paths: Vec<String> = tree.paths().filter(|p| p.starts_with("app/") && is_script(p)).map(str::to_owned).collect();
     for path in paths {
       let Some(text) = tree.text(&path).map(str::to_owned) else { continue };
-      if !TERMINAL.iter().any(|(package, _)| text.contains(package)) {
+      if !TERMINAL.iter().map(|(package, _)| package).chain(REPLACED.iter().map(|(package, _)| package)).any(|package| text.contains(package)) {
         continue;
       }
       let Ok(parsed) = parse(&path, &text) else { continue };
@@ -41,6 +42,10 @@ impl Pass for Terminal {
       for item in &parsed.module.body {
         let js::ModuleItem::ModuleDecl(js::ModuleDecl::Import(import)) = item else { continue };
         let source = import.src.value.to_string_lossy();
+        if let Some((_, fsr)) = REPLACED.iter().find(|(package, _)| *package == source) {
+          edits.replace(parsed.range(import.src.span), format!("\"{fsr}\""));
+          continue;
+        }
         let Some((_, member)) = TERMINAL.iter().find(|(package, _)| *package == source) else { continue };
         let [js::ImportSpecifier::Default(d)] = import.specifiers.as_slice() else { continue };
         let local = d.local.sym.to_string();

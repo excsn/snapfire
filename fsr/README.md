@@ -86,11 +86,11 @@ Desktop mode is tried on macOS only; the Windows and Linux code is written but h
 
 ## Terminal apps (experimental)
 
-FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal. `Box`, `Text`, `Spacer`, `Newline` and `useInput` are imported from `ink` itself, so an Ink file runs unchanged. Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with Ink on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the changed cells rewritten.
+FSR runs [Ink](https://github.com/vadimdemedes/ink) components in the terminal. `Box`, `Text`, `Spacer`, `Newline` and `useInput` are imported from `@snapfire/fsr/terminal/ink`, FSR's own Ink. `fsr migrate` rewrites an Ink file's `ink` imports to it. Claude Code, Gemini CLI, Qwen Code, Shopify CLI and the TypeScript Codex CLI draw their terminals with Ink on Node. FSR lowers the same components and runs them inside its Rust binary with no Node and no React: flexbox layout through taffy, each key stepping the component's state and only the changed cells rewritten.
 
 ```tsx
 import { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput } from "@snapfire/fsr/terminal/ink";
 
 export default function Counter() {
   const [count, setCount] = useState(0);

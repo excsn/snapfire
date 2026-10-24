@@ -1,6 +1,6 @@
 import { system } from "@snapfire/fsr-client/std";
 import { useEffect, useRef, useState } from "react";
-import { Box, Text, useAnimation, useBoxMetrics, useInput, useWindowSize } from "ink";
+import { Box, Text, useAnimation, useBoxMetrics, useInput, useWindowSize } from "@snapfire/fsr/terminal/ink";
 import { stripAnsi } from "@snapfire/fsr/terminal";
 
 const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];

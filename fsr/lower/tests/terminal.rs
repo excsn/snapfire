@@ -79,8 +79,21 @@ fn key(input: &str, pressed: &[&str]) -> Value {
 }
 
 #[test]
+fn an_npm_package_fsr_provides_its_own_of_is_refused_naming_fsrs_module() {
+  for (npm, fsr) in [("ink", "@snapfire/fsr/terminal/ink"), ("ink-spinner", "@snapfire/fsr/terminal/spinner"), ("ink-text-input", "@snapfire/fsr/terminal/text-input"), ("cli-spinners", "@snapfire/fsr/terminal/spinners")] {
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("routes")).unwrap();
+    std::fs::write(dir.join("routes/page.tsx"), format!("import thing from \"{npm}\";\n\nexport default function Page() {{\n  return thing;\n}}\n")).unwrap();
+    let refused = ComponentSet::new(&dir).for_terminal().lower(MODULE).err().expect("refused").to_string();
+    assert!(refused.contains(&format!("`{npm}`, which is not FSR's")) && refused.contains(fsr), "{refused}");
+  }
+}
+
+#[test]
 fn ink_elements_lower_to_terminal_elements_and_use_input_steps_the_state() {
-  for from in ["ink", "@snapfire/fsr/terminal"] {
+  for from in ["@snapfire/fsr/terminal/ink"] {
     let library = library(&counter(from));
     let component = &library[MODULE];
     let input = component.handlers.iter().position(|handler| handler.event == "input").unwrap_or_else(|| panic!("{from}: no input handler in {:?}", component.handlers));
@@ -101,7 +114,7 @@ fn ink_elements_lower_to_terminal_elements_and_use_input_steps_the_state() {
   }
 }
 
-const CLOCK: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  const [shown, setShown] = useState(false);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 250);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setShown(true), 1000);\n  }, []);\n  useEffect(() => {\n    document.title = String(ticks);\n  }, [ticks]);\n  return <Text>{ticks} {shown ? \"shown\" : \"hidden\"}</Text>;\n}\n";
+const CLOCK: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Clock() {\n  const [ticks, setTicks] = useState(0);\n  const [shown, setShown] = useState(false);\n  useEffect(() => {\n    const timer = setInterval(() => setTicks((t) => t + 1), 250);\n    return () => clearInterval(timer);\n  }, []);\n  useEffect(() => {\n    setTimeout(() => setShown(true), 1000);\n  }, []);\n  useEffect(() => {\n    document.title = String(ticks);\n  }, [ticks]);\n  return <Text>{ticks} {shown ? \"shown\" : \"hidden\"}</Text>;\n}\n";
 
 #[test]
 fn a_timer_a_mount_effect_starts_is_an_act_its_mount_handler_runs() {
@@ -120,7 +133,7 @@ fn a_timer_a_mount_effect_starts_is_an_act_its_mount_handler_runs() {
 
 #[test]
 fn use_app_exit_is_the_act_the_terminal_quits_on() {
-  let quits = "import { Text, useApp, useInput } from \"ink\";\n\nexport default function Quits() {\n  const { exit } = useApp();\n  useInput((input) => {\n    if (input === \"q\") exit();\n  });\n  return <Text>press q</Text>;\n}\n";
+  let quits = "import { Text, useApp, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Quits() {\n  const { exit } = useApp();\n  useInput((input) => {\n    if (input === \"q\") exit();\n  });\n  return <Text>press q</Text>;\n}\n";
   let library = library(quits);
   let component = &library[MODULE];
   let input = component.handlers.iter().position(|handler| handler.event == "input").unwrap();
@@ -136,7 +149,7 @@ fn use_app_exit_is_the_act_the_terminal_quits_on() {
 
 #[test]
 fn the_terminal_size_reads_from_the_store_and_write_is_an_action_the_terminal_prints() {
-  let sized = "import { useEffect } from \"react\";\nimport { Text, useStdout, useWindowSize, useIsScreenReaderEnabled } from \"ink\";\n\nexport default function Sized() {\n  const { write } = useStdout();\n  const { columns, rows } = useWindowSize();\n  const reader = useIsScreenReaderEnabled();\n  useEffect(() => {\n    const timer = setInterval(() => {\n      write(\"tick\\n\");\n    }, 1000);\n    return () => clearInterval(timer);\n  }, [write]);\n  return <Text>{columns}x{rows} {reader ? \"reader\" : \"screen\"}</Text>;\n}\n";
+  let sized = "import { useEffect } from \"react\";\nimport { Text, useStdout, useWindowSize, useIsScreenReaderEnabled } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Sized() {\n  const { write } = useStdout();\n  const { columns, rows } = useWindowSize();\n  const reader = useIsScreenReaderEnabled();\n  useEffect(() => {\n    const timer = setInterval(() => {\n      write(\"tick\\n\");\n    }, 1000);\n    return () => clearInterval(timer);\n  }, [write]);\n  return <Text>{columns}x{rows} {reader ? \"reader\" : \"screen\"}</Text>;\n}\n";
   let library = library(sized);
   let component = &library[MODULE];
   let mut store = ValueMap::default();
@@ -155,7 +168,7 @@ fn the_terminal_size_reads_from_the_store_and_write_is_an_action_the_terminal_pr
 
 #[test]
 fn use_animation_counts_frames_on_its_own_interval_while_active() {
-  let animated = "import { useState } from \"react\";\nimport { Text, useAnimation, useInput } from \"ink\";\n\nexport default function Spin() {\n  const [paused, setPaused] = useState(false);\n  const { frame } = useAnimation({ interval: 80, isActive: !paused });\n  const { frame: slow, time } = useAnimation({ interval: 400 });\n  useInput((input) => {\n    if (input === \" \") setPaused(!paused);\n  });\n  return <Text>{frame} {slow} {time}</Text>;\n}\n";
+  let animated = "import { useState } from \"react\";\nimport { Text, useAnimation, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Spin() {\n  const [paused, setPaused] = useState(false);\n  const { frame } = useAnimation({ interval: 80, isActive: !paused });\n  const { frame: slow, time } = useAnimation({ interval: 400 });\n  useInput((input) => {\n    if (input === \" \") setPaused(!paused);\n  });\n  return <Text>{frame} {slow} {time}</Text>;\n}\n";
   let library = library(animated);
   let component = &library[MODULE];
   let events: Vec<&str> = component.handlers.iter().map(|h| h.event.as_str()).collect();
@@ -173,14 +186,14 @@ fn use_animation_counts_frames_on_its_own_interval_while_active() {
 
 #[test]
 fn an_empty_use_input_handler_is_no_handler() {
-  let idle = "import { Text, useInput } from \"ink\";\n\nexport default function Idle() {\n  useInput(() => {\n    // waits for Ctrl-C\n  });\n  return <Text>idle</Text>;\n}\n";
+  let idle = "import { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Idle() {\n  useInput(() => {\n    // waits for Ctrl-C\n  });\n  return <Text>idle</Text>;\n}\n";
   let library = library(idle);
   assert!(library[MODULE].handlers.is_empty());
 }
 
 #[test]
 fn a_terminal_reads_the_clock_on_its_render_path() {
-  let timed = "import { useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Timed() {\n  const [start] = useState(Date.now);\n  const now = Date.now();\n  return <Text>{now >= start && start > 1700000000000 ? \"ticking\" : \"stopped\"}</Text>;\n}\n";
+  let timed = "import { useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Timed() {\n  const [start] = useState(Date.now);\n  const now = Date.now();\n  return <Text>{now >= start && start > 1700000000000 ? \"ticking\" : \"stopped\"}</Text>;\n}\n";
   let library = library(timed);
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>ticking</ink-text>");
@@ -189,7 +202,7 @@ fn a_terminal_reads_the_clock_on_its_render_path() {
 
 #[test]
 fn number_checks_read_as_javascript_does() {
-  let checks = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Pick() {\n  const [picked, setPicked] = useState(0);\n  useInput((input) => {\n    const number = Number(input);\n    if (Number.isSafeInteger(number) && number > 0) setPicked(number);\n  });\n  const flags = [Number.isInteger(2.5), Number.isInteger(4), Number.isFinite(1 / 0), Number.isNaN(0 / 0), Number.isSafeInteger(2 ** 60), Number.isInteger(\"4\")];\n  return <Text>{picked} {flags.join(\",\")}</Text>;\n}\n";
+  let checks = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Pick() {\n  const [picked, setPicked] = useState(0);\n  useInput((input) => {\n    const number = Number(input);\n    if (Number.isSafeInteger(number) && number > 0) setPicked(number);\n  });\n  const flags = [Number.isInteger(2.5), Number.isInteger(4), Number.isFinite(1 / 0), Number.isNaN(0 / 0), Number.isSafeInteger(2 ** 60), Number.isInteger(\"4\")];\n  return <Text>{picked} {flags.join(\",\")}</Text>;\n}\n";
   let library = library(checks);
   let component = &library[MODULE];
   let interpreter = Interpreter::default();
@@ -203,7 +216,7 @@ fn number_checks_read_as_javascript_does() {
 
 #[test]
 fn the_screen_reader_props_are_left_out_of_a_terminal_element() {
-  let aria = "import { Box, Text } from \"ink\";\n\nexport default function Aria() {\n  return <Box aria-role=\"checkbox\" aria-state={{ checked: true }} aria-label=\"done\"><Text aria-hidden>ok</Text></Box>;\n}\n";
+  let aria = "import { Box, Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Aria() {\n  return <Box aria-role=\"checkbox\" aria-state={{ checked: true }} aria-label=\"done\"><Text aria-hidden>ok</Text></Box>;\n}\n";
   let library = library(aria);
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-box><ink-text>ok</ink-text></ink-box>");
@@ -211,7 +224,7 @@ fn the_screen_reader_props_are_left_out_of_a_terminal_element() {
 
 #[test]
 fn a_terminal_body_runs_a_while_loop_and_skips_a_busy_wait() {
-  let looped = "import { Text } from \"ink\";\n\nexport default function Digits() {\n  let n = 12345;\n  let digits = 0;\n  while (n >= 1) {\n    n = Math.floor(n / 10);\n    digits += 1;\n  }\n  const start = Date.now();\n  while (Date.now() - start < 100) {\n  }\n  return <Text>{digits}</Text>;\n}\n";
+  let looped = "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Digits() {\n  let n = 12345;\n  let digits = 0;\n  while (n >= 1) {\n    n = Math.floor(n / 10);\n    digits += 1;\n  }\n  const start = Date.now();\n  while (Date.now() - start < 100) {\n  }\n  return <Text>{digits}</Text>;\n}\n";
   let library = library(looped);
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>5</ink-text>");
@@ -219,7 +232,7 @@ fn a_terminal_body_runs_a_while_loop_and_skips_a_busy_wait() {
 
 #[test]
 fn a_terminal_function_returns_from_a_while_loop_drawing_random_numbers() {
-  let picked = "import { Text } from \"ink\";\n\nfunction pick(taken: number[]): number {\n  while (true) {\n    const n = Math.floor(Math.random() * 4);\n    if (!taken.includes(n)) {\n      return n;\n    }\n  }\n}\n\nexport default function Free() {\n  const n = pick([0, 1, 3]);\n  return <Text>{n}</Text>;\n}\n";
+  let picked = "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nfunction pick(taken: number[]): number {\n  while (true) {\n    const n = Math.floor(Math.random() * 4);\n    if (!taken.includes(n)) {\n      return n;\n    }\n  }\n}\n\nexport default function Free() {\n  const n = pick([0, 1, 3]);\n  return <Text>{n}</Text>;\n}\n";
   let library = library(picked);
   for _ in 0..20 {
     let step = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
@@ -229,7 +242,7 @@ fn a_terminal_function_returns_from_a_while_loop_drawing_random_numbers() {
 
 #[test]
 fn a_write_through_at_reaches_the_element_and_a_body_arrow_renders() {
-  let grouped = "import { Text } from \"ink\";\n\nexport default function Runs() {\n  const runs: Array<{ text: string; color: string }> = [];\n  for (const cell of [\"a\", \"a\", \"b\", \"a\"]) {\n    const last = runs.at(-1);\n    if (last !== undefined && last.color === cell) {\n      last.text += cell;\n    } else {\n      runs.push({ text: cell, color: cell });\n    }\n  }\n  const shout = (s: string) => s.toUpperCase();\n  return <Text>{runs.map((run) => shout(run.text)).join(\",\")}</Text>;\n}\n";
+  let grouped = "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Runs() {\n  const runs: Array<{ text: string; color: string }> = [];\n  for (const cell of [\"a\", \"a\", \"b\", \"a\"]) {\n    const last = runs.at(-1);\n    if (last !== undefined && last.color === cell) {\n      last.text += cell;\n    } else {\n      runs.push({ text: cell, color: cell });\n    }\n  }\n  const shout = (s: string) => s.toUpperCase();\n  return <Text>{runs.map((run) => shout(run.text)).join(\",\")}</Text>;\n}\n";
   let library = library(grouped);
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>AA,B,A</ink-text>");
@@ -237,7 +250,7 @@ fn a_write_through_at_reaches_the_element_and_a_body_arrow_renders() {
 
 #[test]
 fn a_terminal_reads_local_time_in_this_machines_zone() {
-  let page = "import { Text } from \"ink\";\n\nexport default function Clock() {\n  const at = new Date(1726011440123);\n  const now = new Date().toLocaleTimeString();\n  return <Text>{at.getHours()} {at.getMinutes()} {at.getTimezoneOffset()} {at.toLocaleTimeString(\"en-US\")} {now.length > 0 ? \"now\" : \"\"}</Text>;\n}\n";
+  let page = "import { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Clock() {\n  const at = new Date(1726011440123);\n  const now = new Date().toLocaleTimeString();\n  return <Text>{at.getHours()} {at.getMinutes()} {at.getTimezoneOffset()} {at.toLocaleTimeString(\"en-US\")} {now.length > 0 ? \"now\" : \"\"}</Text>;\n}\n";
   let library = library(page);
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   let text = first.rendered.html.trim_start_matches("<ink-text>").trim_end_matches("</ink-text>").to_owned();
@@ -253,7 +266,7 @@ fn a_terminal_reads_local_time_in_this_machines_zone() {
 
 #[test]
 fn a_terminal_updater_writes_a_copy_at_a_computed_index() {
-  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Lines() {\n  const [lines, setLines] = useState([\"a\", \"b\", \"c\"]);\n  useInput((input) => {\n    setLines((previous) => {\n      const next = [...previous];\n      next[Number(input)] = \"x\";\n      return next;\n    });\n  });\n  return <Text>{lines.join(\"\")}</Text>;\n}\n";
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Lines() {\n  const [lines, setLines] = useState([\"a\", \"b\", \"c\"]);\n  useInput((input) => {\n    setLines((previous) => {\n      const next = [...previous];\n      next[Number(input)] = \"x\";\n      return next;\n    });\n  });\n  return <Text>{lines.join(\"\")}</Text>;\n}\n";
   let library = library(page);
   let component = &library[MODULE];
   let interpreter = Interpreter::default();
@@ -264,7 +277,7 @@ fn a_terminal_updater_writes_a_copy_at_a_computed_index() {
 
 #[test]
 fn use_box_metrics_reads_what_the_terminal_measured_for_the_box_its_ref_is_on() {
-  let page = "import { useRef } from \"react\";\nimport { Box, Text, useBoxMetrics } from \"ink\";\n\nexport default function Measured() {\n  const ref = useRef(null);\n  const { width, clientHeight, hasMeasured } = useBoxMetrics(ref);\n  const all = useBoxMetrics(ref);\n  return <Box ref={ref} borderStyle=\"round\"><Text>{hasMeasured ? \"m\" : \"-\"} {width} {clientHeight} {all.top}</Text></Box>;\n}\n";
+  let page = "import { useRef } from \"react\";\nimport { Box, Text, useBoxMetrics } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Measured() {\n  const ref = useRef(null);\n  const { width, clientHeight, hasMeasured } = useBoxMetrics(ref);\n  const all = useBoxMetrics(ref);\n  return <Box ref={ref} borderStyle=\"round\"><Text>{hasMeasured ? \"m\" : \"-\"} {width} {clientHeight} {all.top}</Text></Box>;\n}\n";
   let library = library(page);
   let component = &library[MODULE];
   let interpreter = Interpreter::default();
@@ -288,7 +301,7 @@ fn use_box_metrics_reads_what_the_terminal_measured_for_the_box_its_ref_is_on() 
 
 #[test]
 fn the_text_packages_ink_apps_import_run_natively_in_a_terminal() {
-  let page = "import { ms } from \"@snapfire/fsr/terminal\";\nimport { stripAnsi } from \"@snapfire/fsr/terminal\";\nimport { stringWidth } from \"@snapfire/fsr/terminal\";\nimport { wrapAnsi } from \"@snapfire/fsr/terminal\";\nimport { Text } from \"ink\";\n\nexport default function Texts() {\n  const rows = wrapAnsi(\"ab cd\", 2, { hard: true }).split(\"\\n\");\n  return <Text>{ms(90000)} {ms(\"1h\")} {stripAnsi(\"\\u001b[1mx\\u001b[22m\")} {stringWidth(\"古a\")} {rows.join(\"|\")}</Text>;\n}\n";
+  let page = "import { ms } from \"@snapfire/fsr/terminal\";\nimport { stripAnsi } from \"@snapfire/fsr/terminal\";\nimport { stringWidth } from \"@snapfire/fsr/terminal\";\nimport { wrapAnsi } from \"@snapfire/fsr/terminal\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Texts() {\n  const rows = wrapAnsi(\"ab cd\", 2, { hard: true }).split(\"\\n\");\n  return <Text>{ms(90000)} {ms(\"1h\")} {stripAnsi(\"\\u001b[1mx\\u001b[22m\")} {stringWidth(\"古a\")} {rows.join(\"|\")}</Text>;\n}\n";
   let library = library(page);
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &ValueMap::default(), &ValueMap::default(), None, &Value::Null, &library).unwrap();
   assert_eq!(first.rendered.html, "<ink-text>2m 3600000 x 3 ab|cd</ink-text>");
@@ -296,12 +309,12 @@ fn the_text_packages_ink_apps_import_run_natively_in_a_terminal() {
 
 #[test]
 fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_starts_a_timer_on_a_continuation() {
-  let stable = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s) => s + 1, 0);\n  const tick = useCallback(() => dispatch(), []);\n  useEffect(() => {\n    const timer = setInterval(tick, 100);\n    return () => clearInterval(timer);\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
+  let stable = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s) => s + 1, 0);\n  const tick = useCallback(() => dispatch(), []);\n  useEffect(() => {\n    const timer = setInterval(tick, 100);\n    return () => clearInterval(timer);\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
   let ticks = library(stable);
   let none = ValueMap::default();
   let first = Interpreter::default().island_step(MODULE, &ticks[MODULE], &none, &none, None, &Value::Null, &ticks).unwrap();
   assert_eq!(mount_timers(&ticks, &none, &first.state).iter().map(|t| (t.ms, t.repeats)).collect::<Vec<_>>(), [(100, true)]);
-  let changing = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\n\nexport default function Echo() {\n  const [n, setN] = useState(0);\n  useEffect(() => {\n    setTimeout(() => setN(n + 1), 100);\n  }, [n]);\n  return <Text>{n}</Text>;\n}\n";
+  let changing = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Echo() {\n  const [n, setN] = useState(0);\n  useEffect(() => {\n    setTimeout(() => setN(n + 1), 100);\n  }, [n]);\n  return <Text>{n}</Text>;\n}\n";
   let echo = library(changing);
   let events: Vec<&str> = echo[MODULE].handlers.iter().map(|h| h.event.as_str()).collect();
   assert!(events[0].starts_with("resume:routes/page.tsx@") && events[1] == "effect:0", "{events:?}");
@@ -309,7 +322,7 @@ fn an_effect_on_a_callback_that_never_changes_runs_and_one_on_changing_state_sta
 
 #[test]
 fn a_timer_reads_its_delay_from_a_module_constant_and_runs_a_named_callback() {
-  let page = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"ink\";\n\nconst tickMs = 150;\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s: number) => s + 1, 0);\n  const tick = useCallback(() => {\n    dispatch();\n  }, []);\n  useEffect(() => {\n    const timer = setInterval(tick, tickMs);\n    return () => {\n      clearInterval(timer);\n    };\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
+  let page = "import { useCallback, useEffect, useReducer } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\n\nconst tickMs = 150;\n\nexport default function Ticks() {\n  const [n, dispatch] = useReducer((s: number) => s + 1, 0);\n  const tick = useCallback(() => {\n    dispatch();\n  }, []);\n  useEffect(() => {\n    const timer = setInterval(tick, tickMs);\n    return () => {\n      clearInterval(timer);\n    };\n  }, [tick]);\n  return <Text>{n}</Text>;\n}\n";
   let library = library(page);
   let none = ValueMap::default();
   let first = Interpreter::default().island_step(MODULE, &library[MODULE], &none, &none, None, &Value::Null, &library).unwrap();
@@ -321,7 +334,7 @@ fn a_timer_reads_its_delay_from_a_module_constant_and_runs_a_named_callback() {
 
 #[test]
 fn set_cursor_position_while_rendering_hands_the_terminal_where_the_cursor_goes() {
-  let page = "import { useState } from \"react\";\nimport { Text, useCursor, useInput } from \"ink\";\n\nexport default function Prompt() {\n  const [text, setText] = useState(\"\");\n  const { setCursorPosition } = useCursor();\n  useInput((input) => setText((t) => t + input));\n  setCursorPosition({ x: 2 + text.length, y: 0 });\n  return <Text>&gt; {text}</Text>;\n}\n";
+  let page = "import { useState } from \"react\";\nimport { Text, useCursor, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Prompt() {\n  const [text, setText] = useState(\"\");\n  const { setCursorPosition } = useCursor();\n  useInput((input) => setText((t) => t + input));\n  setCursorPosition({ x: 2 + text.length, y: 0 });\n  return <Text>&gt; {text}</Text>;\n}\n";
   let library = library(page);
   let component = &library[MODULE];
   let interpreter = Interpreter::default();
@@ -340,7 +353,7 @@ fn set_cursor_position_while_rendering_hands_the_terminal_where_the_cursor_goes(
 
 #[test]
 fn a_module_let_a_function_writes_lasts_from_one_step_to_the_next_in_a_cell() {
-  let page = "import { Text, useInput } from \"ink\";\n\nlet count = 0;\nlet rendered = 0;\n\nfunction bump() {\n  count = count + 1;\n}\n\nfunction seen() {\n  rendered = rendered + 1;\n  return rendered;\n}\n\nexport default function Counter() {\n  useInput(() => bump());\n  return <Text>{count} {seen()}</Text>;\n}\n";
+  let page = "import { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nlet count = 0;\nlet rendered = 0;\n\nfunction bump() {\n  count = count + 1;\n}\n\nfunction seen() {\n  rendered = rendered + 1;\n  return rendered;\n}\n\nexport default function Counter() {\n  useInput(() => bump());\n  return <Text>{count} {seen()}</Text>;\n}\n";
   let library = library(page);
   let component = &library[MODULE];
   let interpreter = Interpreter::default();
@@ -354,7 +367,7 @@ fn a_module_let_a_function_writes_lasts_from_one_step_to_the_next_in_a_cell() {
 
 #[test]
 fn ink_hooks_written_in_the_provided_module_are_inlined_like_an_apps_own() {
-  let page = "import { Text, useWindowSize } from \"ink\";\n\nexport default function Size() {\n  const { columns } = useWindowSize();\n  return <Text>{columns}</Text>;\n}\n";
+  let page = "import { Text, useWindowSize } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Size() {\n  const { columns } = useWindowSize();\n  return <Text>{columns}</Text>;\n}\n";
   let n = NEXT.fetch_add(1, Ordering::Relaxed);
   let dir = std::env::temp_dir().join(format!("fsr_terminal_{}_{n}", std::process::id()));
   std::fs::create_dir_all(dir.join("routes")).unwrap();
@@ -384,7 +397,7 @@ fn a_file_read_on_a_web_page_is_refused_naming_what_it_needs() {
 
 #[test]
 fn a_hook_called_under_a_type_cast_is_the_hook() {
-  let sized = "import { useState } from \"react\";\nimport { Text, useStdout } from \"ink\";\n\nfunction useScreenSize() {\n  const { stdout } = useStdout() as any;\n  const [size] = useState(() => ({ width: stdout.columns, height: stdout.rows }));\n  return size;\n}\n\nexport default function Sized() {\n  const { width, height } = useScreenSize();\n  return <Text>{width}x{height}</Text>;\n}\n";
+  let sized = "import { useState } from \"react\";\nimport { Text, useStdout } from \"@snapfire/fsr/terminal/ink\";\n\nfunction useScreenSize() {\n  const { stdout } = useStdout() as any;\n  const [size] = useState(() => ({ width: stdout.columns, height: stdout.rows }));\n  return size;\n}\n\nexport default function Sized() {\n  const { width, height } = useScreenSize();\n  return <Text>{width}x{height}</Text>;\n}\n";
   let library = library(sized);
   let component = &library[MODULE];
   let mut store = ValueMap::default();
@@ -399,7 +412,7 @@ fn a_hook_called_under_a_type_cast_is_the_hook() {
 
 #[test]
 fn a_handler_calls_a_function_the_component_declares_below_it() {
-  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  useInput((input, key) => {\n    if (input === \"+\") {\n      useStepUp(input, key);\n    }\n  });\n  function useStepUp(input: string, key: any) {\n    setCount(count + 1);\n  }\n  return <Text>{count}</Text>;\n}\n";
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"@snapfire/fsr/terminal/ink\";\n\nexport default function Counter() {\n  const [count, setCount] = useState(0);\n  useInput((input, key) => {\n    if (input === \"+\") {\n      useStepUp(input, key);\n    }\n  });\n  function useStepUp(input: string, key: any) {\n    setCount(count + 1);\n  }\n  return <Text>{count}</Text>;\n}\n";
   let library = library(page);
   let component = &library[MODULE];
   let input = component.handlers.iter().position(|handler| handler.event == "input").unwrap();
@@ -410,7 +423,7 @@ fn a_handler_calls_a_function_the_component_declares_below_it() {
   assert_eq!(plus.rendered.html, "<ink-text>1</ink-text>");
 }
 
-const LOOPED: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { file } from \"@snapfire/fsr-client/std\";\n\nconst readAll = async (names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await file.read(name);\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll([\"a\", \"b\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+const LOOPED: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"@snapfire/fsr/terminal/ink\";\nimport { file } from \"@snapfire/fsr-client/std\";\n\nconst readAll = async (names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await file.read(name);\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll([\"a\", \"b\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
 
 #[test]
 fn a_loop_that_awaits_lowers_to_a_head_continuation_run_from_the_function_and_from_the_end_of_its_pass() {
