@@ -757,3 +757,16 @@ fn a_write_through_a_field_alias_reaches_the_object_it_came_from() {
   let node = session.view().unwrap();
   assert_eq!(snapfire_fsr_terminal::render(&node, 40).lines()[0].trim_end(), "{}... dropped dark");
 }
+
+#[test]
+fn an_async_function_awaits_inside_a_for_of_loop_and_a_counted_loop() {
+  let dir = host_dir("loop");
+  std::fs::write(dir.join("one.txt"), "one\n").unwrap();
+  std::fs::write(dir.join("two.txt"), "two\n").unwrap();
+  unsafe { std::env::set_var("FSR_TEST_LOOP_DIR", &dir); }
+  let page = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\nimport { join } from \"node:path\";\n\nconst readAll = async (dir: string, names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await readFile(join(dir, name), \"utf8\");\n    out.push(text.trim());\n  }\n  let total = 0;\n  for (let i = 0; i < out.length; i++) {\n    const again = await readFile(join(dir, names[i]), \"utf8\");\n    total += again.length;\n  }\n  return `${out.join(\",\")} ${total}`;\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll(process.env.FSR_TEST_LOOP_DIR, [\"one.txt\", \"two.txt\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let line = |node| snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end().to_owned();
+  session.view().unwrap();
+  assert_eq!(line(session.view().unwrap()), "one,two 8");
+}

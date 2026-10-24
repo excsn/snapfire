@@ -1007,6 +1007,8 @@ pub(crate) struct Lowerer<'a> {
   pub(crate) spawned: Vec<String>,
   /// Where the scope of the async function lowering starts: its locals, declared before an `await` and carried to the continuation after it, are its own to write.
   pub(crate) async_floor: Option<usize>,
+  /// While a pass of a loop that awaits lowers: the loop head's event and the carry of the live locals it is run with, which the pass issues when it ends.
+  pub(crate) loop_tail: Option<(String, Expr)>,
   /// Set while render statements inside a `try` lower: a `return` there is `[value]` and a path that ends without one is `null`, so what follows the `try` can tell the two apart.
   pub(crate) wrapped_returns: bool,
   /// Set while a component's `try` that returns markup runs as statements: where its scope starts. A `return` there ends the run with which `return` it was as `$path` and each name in scope from there as `$0`, `$1` and on. `markup_returns` records each by its position in the source with the names.
@@ -1119,7 +1121,7 @@ pub(crate) type Lowered<T> = Result<T, Residue>;
 
 impl<'a> Lowerer<'a> {
   pub(crate) fn new(parsed: &'a Parsed, defaults: &'a SessionDefaults) -> Self {
-    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
+    Self { parsed, defaults, roots: Vec::new(), scope: Vec::new(), premade: std::collections::HashMap::new(), globals: Vec::new(), global_kinds: Vec::new(), unbound: None, middleware: false, theming: false, meta: false, extends: false, redirects: false, hoisting: None, natives: Vec::new(), in_handler: false, render_path: false, reach_violation: false, temps: 0, kinds: Vec::new(), prop_kinds: Vec::new(), consulted: std::cell::RefCell::new(Vec::new()), formatters: Vec::new(), global_formatters: Vec::new(), browser_value: None, reaches: Vec::new(), meanings: parsed.meanings.get().cloned(), reader: None, browser_functions: Vec::new(), local_fns: Vec::new(), unfollowed: Vec::new(), browser_effects: Vec::new(), provided: Vec::new(), cells: Vec::new(), held: Vec::new(), held_reach: Vec::new(), rebind_reach: Vec::new(), settlers: Vec::new(), continuations: Vec::new(), spawned: Vec::new(), async_floor: None, wrapped_returns: false, loop_tail: None, markup_base: None, markup_returns: Vec::new(), classes: None, class_parent: None, this_kinds: Vec::new(), dispatching: Vec::new(), type_kinds: Vec::new() }
   }
 
   pub(crate) fn resolved(mut self, resolved: &Resolved) -> Self {
@@ -2220,8 +2222,10 @@ impl<'a> Lowerer<'a> {
   /// [`Lowerer::async_stmts`] for a function whose promise is `done`: what it returns settles it; an awaited promise that rejects rejects it.
   pub(crate) fn async_to(&mut self, stmts: &[js::Stmt], done: Option<Expr>) -> Lowered<Expr> {
     let floor = self.async_floor.replace(self.scope.len());
+    let tail = self.loop_tail.take();
     let lowered = self.async_caught(stmts, done, None);
     self.async_floor = floor;
+    self.loop_tail = tail;
     lowered
   }
 
@@ -2231,6 +2235,53 @@ impl<'a> Lowerer<'a> {
     let lowered = self.async_to_in(stmts, done, catch);
     self.scope.truncate(depth);
     lowered
+  }
+
+  /// A loop that awaits. Its head is a continuation named for the loop, run through `$run` with the live locals carried: when the test holds it runs one pass, the body and the step, whose every way through ends by running the head again; otherwise it runs the statements after the loop. The locals the head reads are carried by value, so a `let` the body writes reaches the next pass and the statements after.
+  fn awaiting_loop_in(&mut self, stmts: &[js::Stmt], at: usize, looped: AwaitingLoop, done: Option<Expr>, inside: Option<AsyncCatch>) -> Lowered<Expr> {
+    if looped.pass.iter().any(loop_exits) {
+      return Err(self.residue(looped.span, "a `break`, `continue` or `return` inside a loop that awaits"));
+    }
+    if looped.over.as_ref().is_some_and(|over| self.kind_of(over) == Some(Kind::Map)) {
+      return Err(self.residue(looped.span, "`for...of` over a `Map` in a loop that awaits; iterate `[...map.entries()]`"));
+    }
+    let before = self.before_await(&stmts[..at])?;
+    let init = self.before_await(&looped.init)?;
+    let event = snapfire_fsr_ir::host::Event::Resume(format!("{}@{}", self.parsed.file, looped.span.lo.0)).name();
+    // Every variable in scope is carried, the function's promise among them: a pass may read or write any of them and a copy of one it does not touch costs nothing.
+    let mut carried: Vec<String> = self.scope.iter().filter_map(|(name, expr)| matches!(expr, Expr::Var(var) if var == name).then(|| name.clone())).collect();
+    if let Some(done) = &done {
+      done.free_vars(&mut carried);
+    }
+    carried.retain(|name| name != "$resume" && name != "$event" && !self.cells.iter().any(|(cell, _)| cell == name));
+    carried.sort();
+    carried.dedup();
+    let carry = Expr::Object(carried.iter().map(|name| Entry::Field(name.clone(), Expr::Var(name.clone()))).collect());
+    let depth = self.scope.len();
+    let outer_tail = self.loop_tail.replace((event.clone(), carry.clone()));
+    let covered = inside.clone().map(|catch| AsyncCatch { covers: looped.pass.len() + catch.covers - at - 1, ..catch });
+    let pass = self.expr(&looped.test).and_then(|cond| self.async_caught(&looped.pass, None, covered).map(|pass| (cond, pass)));
+    self.loop_tail = outer_tail;
+    let (cond, pass) = pass?;
+    let after = inside.map(|catch| AsyncCatch { covers: catch.covers - at - 1, ..catch }).filter(|catch| catch.covers > 0);
+    let rest = self.async_caught(&stmts[at + 1..], done, after)?;
+    self.scope.truncate(depth);
+    let resume = "$resume".to_owned();
+    let mut body = vec![Stmt::Let { name: resume.clone(), expr: Expr::Var("$event".to_owned()) }];
+    for name in &carried {
+      body.push(Stmt::Let { name: name.clone(), expr: Expr::Var(resume.clone()).field("carry").field(name.clone()) });
+    }
+    body.push(Stmt::If { cond, then: vec![Stmt::Expr(pass)], r#else: vec![Stmt::Expr(rest)] });
+    body.push(Stmt::Return(Expr::Object(Vec::new())));
+    if !self.continuations.iter().any(|held| held.event == event) {
+      self.continuations.push(snapfire_fsr_ir::ast::Handler { event: event.clone(), body });
+    }
+    let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]);
+    let mut entry = Vec::new();
+    splice(before, &mut entry);
+    splice(init, &mut entry);
+    entry.push(Stmt::Act { action: snapfire_fsr_ir::host::Act::Run.name().to_owned(), input });
+    Ok(Expr::Block(entry))
   }
 
   /// The statements before an `await`, as `let`s and effects whose names stay in scope for the awaited value and the continuation.
@@ -2245,6 +2296,11 @@ impl<'a> Lowerer<'a> {
   fn async_to_in(&mut self, stmts: &[js::Stmt], done: Option<Expr>, catch: Option<AsyncCatch>) -> Lowered<Expr> {
     let settle = |done: &Expr, ok: bool, value: Expr| Stmt::Act { action: snapfire_fsr_ir::host::Act::Settle.name().to_owned(), input: Expr::Object(vec![Entry::Field("settle".to_owned(), Expr::Object(vec![Entry::Field(snapfire_fsr_ir::host::SETTLES.to_owned(), done.clone()), Entry::Field("ok".to_owned(), Expr::Lit(Lit::Bool(ok)))])), Entry::Field("value".to_owned(), value)]) };
     let Some(at) = stmts.iter().position(awaits) else {
+      if let Some((event, carry)) = self.loop_tail.clone() {
+        let ran = self.before_await(stmts)?;
+        let input = Expr::Object(vec![Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]);
+        return Ok(Expr::Block(vec![Stmt::Expr(ran), Stmt::Act { action: snapfire_fsr_ir::host::Act::Run.name().to_owned(), input }]));
+      }
       let floor = self.async_floor.unwrap_or(self.scope.len());
       let value = crate::component::block_to_expr_from(self, stmts, floor)?;
       return Ok(match &done {
@@ -2257,6 +2313,9 @@ impl<'a> Lowerer<'a> {
       });
     };
     let inside = catch.filter(|catch| at < catch.covers);
+    if let Some(looped) = awaiting_loop(&stmts[at], self.parsed.top) {
+      return self.awaiting_loop_in(stmts, at, looped, done, inside);
+    }
     if let js::Stmt::Try(t) = &stmts[at] {
       if inside.is_some() {
         return Err(self.residue(t.span, "a `try` that awaits inside another"));
@@ -2286,7 +2345,7 @@ impl<'a> Lowerer<'a> {
       };
       let body: Vec<js::Stmt> = t.block.stmts.iter().chain(&after).cloned().collect();
       let ran = self.async_caught(&body, done, Some(catch))?;
-      return Ok(Expr::Block(vec![Stmt::Expr(before), Stmt::Expr(ran)]));
+      return Ok(spliced(before, vec![Stmt::Expr(ran)]));
     }
     if let js::Stmt::If(branch) = &stmts[at] {
       let before = self.before_await(&stmts[..at])?;
@@ -2303,7 +2362,7 @@ impl<'a> Lowerer<'a> {
       };
       let then = arm(self, Some(&branch.cons))?;
       let otherwise = arm(self, branch.alt.as_deref())?;
-      return Ok(Expr::Block(vec![Stmt::Expr(before), Stmt::If { cond, then: vec![Stmt::Expr(then)], r#else: vec![Stmt::Expr(otherwise)] }]));
+      return Ok(spliced(before, vec![Stmt::If { cond, then: vec![Stmt::Expr(then)], r#else: vec![Stmt::Expr(otherwise)] }]));
     }
     let (awaited, bound, assigned) = match &stmts[at] {
       js::Stmt::Expr(e) => match crate::meaning::bare(&e.expr) {
@@ -2351,7 +2410,7 @@ impl<'a> Lowerer<'a> {
       Ok(Expr::Ternary(Box::new(resumed.field("ok")), Box::new(ran), Box::new(rejected)))
     })?;
     let then = Stmt::Act { action: snapfire_fsr_ir::host::Act::Then.name().to_owned(), input: Expr::Object(vec![Entry::Field("deferred".to_owned(), deferred), Entry::Field("event".to_owned(), Expr::lit_str(event)), Entry::Field("carry".to_owned(), carry)]) };
-    Ok(Expr::Block(vec![Stmt::Expr(before), then]))
+    Ok(spliced(before, vec![then]))
   }
 
   /// Code the host runs later, the rest of an async function or a timer's callback, as a handler named [`snapfire_fsr_ir::host::Event::Resume`] for `at` in [`Lowerer::continuations`]. `bound` names the settled value it is handed. Every other name it reads that is not a module cell is carried to it. Returns the event and the carry the act that schedules it passes.
@@ -4556,6 +4615,103 @@ pub(crate) fn write_root(member: &js::MemberExpr) -> Option<(&js::Ident, Vec<&js
       _ => return None,
     }
   }
+}
+
+/// `first`'s statements, when it is a block, followed by `rest` in one block, so a `let` among them stays bound for what follows; a nested block would end its `let`s with it.
+fn spliced(first: Expr, rest: Vec<Stmt>) -> Expr {
+  let mut out = Vec::with_capacity(rest.len() + 1);
+  splice(first, &mut out);
+  out.extend(rest);
+  Expr::Block(out)
+}
+
+fn splice(expr: Expr, out: &mut Vec<Stmt>) {
+  match expr {
+    Expr::Block(stmts) => out.extend(stmts),
+    other => out.push(Stmt::Expr(other)),
+  }
+}
+
+/// A loop that awaits, taken apart for [`Lowerer::awaiting_loop_in`]: the statements that set it up, its test, one pass (the body, then the step) and what a `for...of` runs over.
+struct AwaitingLoop {
+  init: Vec<js::Stmt>,
+  test: js::Expr,
+  pass: Vec<js::Stmt>,
+  over: Option<js::Expr>,
+  span: Span,
+}
+
+/// `for...of` over an array, a counted `for` or a `while` that awaits in its body, as an [`AwaitingLoop`]: `for (const x of xs)` becomes `const $items = xs; let $i = 0;` with the test `$i < $items.length`, a pass starting `const x = $items[$i]` and ending `$i++`.
+fn awaiting_loop(stmt: &js::Stmt, top: swc_core::common::SyntaxContext) -> Option<AwaitingLoop> {
+  if !awaits(stmt) {
+    return None;
+  }
+  let span = stmt.span();
+  let ident = |name: &str| js::Ident::new(name.into(), span, top);
+  let expr_stmt = |e: js::Expr| js::Stmt::Expr(js::ExprStmt { span, expr: Box::new(e) });
+  let decl = |kind: js::VarDeclKind, name: js::Pat, init: js::Expr| js::Stmt::Decl(js::Decl::Var(Box::new(js::VarDecl { span, ctxt: Default::default(), kind, declare: false, decls: vec![js::VarDeclarator { span, name, init: Some(Box::new(init)), definite: false }] })));
+  let body_of = |body: &js::Stmt| -> Vec<js::Stmt> {
+    match body {
+      js::Stmt::Block(b) => b.stmts.clone(),
+      other => vec![other.clone()],
+    }
+  };
+  match stmt {
+    js::Stmt::ForOf(for_of) => {
+      let js::ForHead::VarDecl(left) = &for_of.left else { return None };
+      let pattern = left.decls.first()?.name.clone();
+      let (items, index) = (format!("$items{}", span.lo.0), format!("$i{}", span.lo.0));
+      let items_var = || js::Expr::Ident(ident(&items));
+      let index_var = || js::Expr::Ident(ident(&index));
+      let init = vec![
+        decl(js::VarDeclKind::Const, js::Pat::Ident(js::BindingIdent { id: ident(&items), type_ann: None }), (*for_of.right).clone()),
+        decl(js::VarDeclKind::Let, js::Pat::Ident(js::BindingIdent { id: ident(&index), type_ann: None }), js::Expr::Lit(js::Lit::Num(js::Number { span, value: 0.0, raw: None }))),
+      ];
+      let length = js::Expr::Member(js::MemberExpr { span, obj: Box::new(items_var()), prop: js::MemberProp::Ident(js::IdentName::new("length".into(), span)) });
+      let test = js::Expr::Bin(js::BinExpr { span, op: js::BinaryOp::Lt, left: Box::new(index_var()), right: Box::new(length) });
+      let item = js::Expr::Member(js::MemberExpr { span, obj: Box::new(items_var()), prop: js::MemberProp::Computed(js::ComputedPropName { span, expr: Box::new(index_var()) }) });
+      let mut pass = vec![decl(js::VarDeclKind::Const, pattern, item)];
+      pass.extend(body_of(&for_of.body));
+      pass.push(expr_stmt(js::Expr::Update(js::UpdateExpr { span, op: js::UpdateOp::PlusPlus, prefix: false, arg: Box::new(index_var()) })));
+      Some(AwaitingLoop { init, test, pass, over: Some((*for_of.right).clone()), span })
+    }
+    js::Stmt::For(counted) => {
+      let init = match &counted.init {
+        Some(js::VarDeclOrExpr::VarDecl(d)) => vec![js::Stmt::Decl(js::Decl::Var(d.clone()))],
+        Some(js::VarDeclOrExpr::Expr(e)) => vec![expr_stmt((**e).clone())],
+        None => Vec::new(),
+      };
+      let test = counted.test.as_deref().cloned().unwrap_or(js::Expr::Lit(js::Lit::Bool(js::Bool { span, value: true })));
+      let mut pass = body_of(&counted.body);
+      if let Some(update) = &counted.update {
+        pass.push(expr_stmt((**update).clone()));
+      }
+      Some(AwaitingLoop { init, test, pass, over: None, span })
+    }
+    js::Stmt::While(looped) => Some(AwaitingLoop { init: Vec::new(), test: (*looped.test).clone(), pass: body_of(&looped.body), over: None, span }),
+    _ => None,
+  }
+}
+
+/// Whether `stmt` leaves the loop around it with `break`, `continue` or `return`, outside any function it declares.
+fn loop_exits(stmt: &js::Stmt) -> bool {
+  struct Exits(bool);
+  impl swc_core::ecma::visit::Visit for Exits {
+    fn visit_break_stmt(&mut self, _: &js::BreakStmt) {
+      self.0 = true;
+    }
+    fn visit_continue_stmt(&mut self, _: &js::ContinueStmt) {
+      self.0 = true;
+    }
+    fn visit_return_stmt(&mut self, _: &js::ReturnStmt) {
+      self.0 = true;
+    }
+    fn visit_arrow_expr(&mut self, _: &js::ArrowExpr) {}
+    fn visit_function(&mut self, _: &js::Function) {}
+  }
+  let mut found = Exits(false);
+  swc_core::ecma::visit::VisitWith::visit_with(stmt, &mut found);
+  found.0
 }
 
 pub(crate) fn awaits(stmt: &js::Stmt) -> bool {

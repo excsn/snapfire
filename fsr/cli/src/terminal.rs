@@ -34,8 +34,8 @@ const WRITTEN: usize = 200;
 /// How many times a step runs the mount handlers of components a mount handler rendered.
 const MOUNT_PASSES: usize = 8;
 
-/// How many rounds of continuations a step runs for promises that settled while it ran.
-const CONTINUATION_PASSES: usize = 16;
+/// How many rounds of continuations a step runs for promises that settled while it ran. A loop that awaits runs its head once per item through `$run`, so a pass over a hundred files is a few hundred rounds.
+const CONTINUATION_PASSES: usize = 1024;
 
 /// How many times a step runs the effects whose dependencies the render before changed.
 const EFFECT_PASSES: usize = 8;

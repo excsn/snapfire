@@ -369,3 +369,16 @@ fn a_handler_calls_a_function_the_component_declares_below_it() {
   let plus = interpreter.island_step(MODULE, component, &ValueMap::default(), &first.state, Some(HandlerRef::own(input)), &key("+", &[]), &library).unwrap();
   assert_eq!(plus.rendered.html, "<ink-text>1</ink-text>");
 }
+
+const LOOPED: &str = "import { useEffect, useState } from \"react\";\nimport { Text } from \"ink\";\nimport { readFile } from \"node:fs/promises\";\n\nconst readAll = async (names: string[]) => {\n  const out: string[] = [];\n  for (const name of names) {\n    const text = await readFile(name, \"utf8\");\n    out.push(text.trim());\n  }\n  return out.join(\",\");\n};\n\nexport default function Files() {\n  const [text, setText] = useState(\"loading\");\n  useEffect(() => {\n    const run = async () => {\n      const joined = await readAll([\"a\", \"b\"]);\n      setText(joined);\n    };\n    run();\n  }, []);\n  return <Text>{text}</Text>;\n}\n";
+
+#[test]
+fn a_loop_that_awaits_lowers_to_a_head_continuation_run_from_the_function_and_from_the_end_of_its_pass() {
+  let library = library(LOOPED);
+  let component = &library[MODULE];
+  let events: Vec<&str> = component.handlers.iter().map(|h| h.event.as_str()).collect();
+  let resumes = events.iter().filter(|e| e.starts_with("resume:")).count();
+  assert!(resumes >= 3, "the head, the await inside the pass and the await of readAll: {events:?}");
+  let runs = component.handlers.iter().map(|h| format!("{:?}", h.body).matches("action: \"$run\"").count()).sum::<usize>();
+  assert!(runs >= 2, "the function runs the head and the end of the pass runs it again: {events:?}");
+}
