@@ -68,3 +68,14 @@ fn the_about_page_takes_an_avatar_from_a_remote_source_keeps_a_raw_img_and_rewri
   let plain = html.split("<picture>").find(|p| p.contains("ridge.")).expect("a plain img of an imported photo is rewritten");
   assert!(plain.contains("class=\"plain\"") && plain.contains("width=\"900\" height=\"1200\""), "{plain}");
 }
+
+/// The share card is drawn in Fraunces, read from the bundle's hashed copy, which a deploy tree carries where it has no `app/fonts/`.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_share_card_is_drawn_and_named_in_the_head() {
+  let host = gallery();
+  let html = host.render_to_string("/", RenderMode::Html, snapfire_fsr_runtime::SessionCell::default()).await.unwrap();
+  assert!(html.contains("<meta property=\"og:image\" content=\"/opengraph-image.png?v="), "{html}");
+  let response = host.handle(http::Request::get("/opengraph-image.png").body(bytes::Bytes::new()).unwrap()).await;
+  assert_eq!(response.status().as_u16(), 200);
+  assert_eq!(response.headers().get("content-type").and_then(|v| v.to_str().ok()), Some("image/png"));
+}

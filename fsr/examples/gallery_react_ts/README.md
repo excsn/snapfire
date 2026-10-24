@@ -25,6 +25,7 @@ Then open http://127.0.0.1:8200/. The images and fonts are served from `http://l
 | The close button on a zoomed photo | `src/ui/zoom.ts` runs in the browser only and imports `close.png`; the same handshake defines it. |
 | Fraunces, the display face | Vendored with `fsr fonts add app google:Fraunces@400,700`. The provider answers both weights with one variable file per subset, so three files land with their `.range` sidecars and the build declares `font-weight: 100 900` off the file's own axis. The fallback face is sized from Georgia against the Latin subset, since the Vietnamese one has no `a` to `z` to measure. |
 | Inter, the body face | `[fonts.sans] remote`: the provider's stylesheet is linked, the preconnects are written, the variable falls back to a plain system stack and the text reflows when the face arrives. Every visitor's IP reaches the provider; vendoring is the other choice. |
+| The share card, `/opengraph-image.png` | `routes/opengraph-image.tsx` drawn by the host in Fraunces, read from the bundle's hashed copy, so a tree from `fsr bundle` draws it in the same face though it carries no `app/fonts/`. |
 | Every asset URL | `[images] base` and `[fonts] base`: the second origin, widened into the policy and sent `Access-Control-Allow-Origin` by the host. |
 
 ## Checking it

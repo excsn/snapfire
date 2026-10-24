@@ -22,7 +22,8 @@ const CACHED: usize = 256;
 pub(crate) struct Cards {
   fonts: Arc<Fonts>,
   app: std::path::PathBuf,
-  sources: HashMap<String, String>,
+  /// The file each placed image's URL reads from.
+  sources: HashMap<String, std::path::PathBuf>,
   images: Mutex<Images>,
   drawn: Mutex<HashMap<String, Arc<Vec<u8>>>>,
   /// What each Tailwind class means on a card, from the build's table.
@@ -67,16 +68,21 @@ impl CardClasses {
 
 impl Cards {
   /// Every face the build read under `[dirs] fonts`, in the order the
-  /// manifest lists them. A face that does not read is skipped with a warning
+  /// manifest lists them, read from the bundle's copy under `out`, which a
+  /// deploy tree carries, or from the source under `app` with no bundle. A face that does not read is skipped with a warning
   /// and the card falls back past it.
   /// A `[fonts.<key>]` with `scripts` adds its faces as the ones for text in
   /// those scripts; a script name Unicode does not have refuses the boot.
-  pub(crate) fn new(app: &Path, manifest: Option<&AssetsManifest>, scripts: &dyn Fn(&str) -> Vec<String>) -> Result<Cards, String> {
+  pub(crate) fn new(app: &Path, out: Option<&Path>, manifest: Option<&AssetsManifest>, scripts: &dyn Fn(&str) -> Vec<String>) -> Result<Cards, String> {
+    let file_of = |path: &str, source: &str| match out.filter(|_| !path.is_empty()) {
+      Some(out) => out.join(path),
+      None => app.join(source),
+    };
     let mut fonts = Fonts::new();
     let mut sources = HashMap::new();
     if let Some(manifest) = manifest {
       for face in &manifest.fonts.faces {
-        let file = app.join(&face.source);
+        let file = file_of(&face.path, &face.source);
         let names = scripts(&face.key);
         let names: Vec<&str> = names.iter().map(String::as_str).collect();
         let bytes = match std::fs::read(&file) {
@@ -93,9 +99,10 @@ impl Cards {
         }
       }
       for entry in &manifest.entries {
-        sources.insert(entry.src.clone(), entry.source.clone());
+        let file = file_of(&entry.path, &entry.source);
+        sources.insert(entry.src.clone(), file.clone());
         for variant in &entry.variants {
-          sources.insert(variant.url.clone(), entry.source.clone());
+          sources.insert(variant.url.clone(), file.clone());
         }
       }
     }
@@ -126,8 +133,7 @@ impl Cards {
       if images.contains(&key) {
         continue;
       }
-      let Some(source) = self.sources.get(&key) else { continue };
-      let file = self.app.join(source);
+      let Some(file) = self.sources.get(&key).cloned() else { continue };
       match std::fs::read(&file) {
         Ok(bytes) => {
           if let Err(e) = images.insert(key.clone(), &bytes) {
@@ -639,6 +645,21 @@ pub(crate) fn parse_with(html: &str, classes: &CardClasses, width: f32) -> Eleme
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  /// A deploy tree carries the bundle's hashed copies and none of the sources, so a face is read from the copy the manifest names.
+  #[test]
+  fn a_face_is_read_from_the_bundles_copy_which_a_deploy_tree_carries() {
+    let root = std::env::temp_dir().join(format!("fsr-card-fonts-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (app, out) = (root.join("app"), root.join("serve/static/js/app"));
+    std::fs::create_dir_all(out.join("fonts")).unwrap();
+    std::fs::write(out.join("fonts/Fraunces.3f2a9c1e.woff2"), std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../cli/tests/fixtures/Fraunces-vietnamese.woff2")).unwrap()).unwrap();
+    let mut manifest = AssetsManifest::default();
+    manifest.fonts.faces.push(crate::assets::Face { key: "serif".to_owned(), family: "Fraunces".to_owned(), weight: 400, weight_range: None, style: "normal".to_owned(), source: "fonts/Fraunces.woff2".to_owned(), url: "/static/js/app/fonts/Fraunces.3f2a9c1e.woff2".to_owned(), path: "fonts/Fraunces.3f2a9c1e.woff2".to_owned(), unicode_range: None, preload: false });
+    let cards = Cards::new(&app, Some(&out), Some(&manifest), &|_| Vec::new()).unwrap();
+    assert!(cards.fonts.faces().iter().any(|face| face.family == "Fraunces"), "the face read from the bundle's copy");
+    std::fs::remove_dir_all(&root).unwrap();
+  }
 
   #[test]
   fn markup_becomes_boxes_text_and_runs() {

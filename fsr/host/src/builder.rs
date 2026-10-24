@@ -1187,7 +1187,7 @@ impl HostBuilder {
     let scripts = |key: &str| config.fonts.faces.get(key).map(|entry| entry.scripts.clone()).unwrap_or_default();
     let cards = match app.images.is_empty() {
       true => None,
-      false => Some(crate::card::Cards::new(&config.app, assets_manifest.as_ref(), &scripts).map_err(|why| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), why))?.with_sites(&site_apps)),
+      false => Some(crate::card::Cards::new(&config.app, config.bundle.as_ref().map(|bundle| bundle.dir.as_path()), assets_manifest.as_ref(), &scripts).map_err(|why| HostError::Config(config.sources.first().cloned().unwrap_or_else(|| config.root.clone()), why))?.with_sites(&site_apps)),
     };
     for (key, path) in [("health", &config.server.health), ("ready", &config.server.ready)] {
       if !path.is_empty() && taken.iter().any(|pattern| pattern == path) {
