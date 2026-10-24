@@ -112,7 +112,7 @@ fn worker(config: &Config, section: &PwaSection, import_map: Option<&str>, style
     })
     .unwrap_or_default();
   let mut warm: Vec<String> = Vec::new();
-  let mut add = |url: String, warm: &mut Vec<String>| {
+  let add = |url: String, warm: &mut Vec<String>| {
     if url.starts_with('/') && !url.starts_with("//") && !build.contains(&url) && !warm.contains(&url) {
       warm.push(url);
     }
