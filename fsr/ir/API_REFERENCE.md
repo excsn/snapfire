@@ -411,8 +411,9 @@ The frameworks an application vendors, each at the major whose server markup the
 ### ReactMajor
 
 * `pub enum ReactMajor { V18, V19 }`; `Default` is `V18`. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`.
-* `ReactMajor::of(version: &str) -> Option<ReactMajor>`: the major of a version such as `18.3.1` or `19.3.0`; `None` for any other major.
+* `ReactMajor::of(version: &str) -> Option<ReactMajor>`: the major of a version such as `18.3.1` or `19.3.1`; `None` for any other major.
 * `ReactMajor::number(self) -> u32`
+* `ReactMajor::checked(self) -> (&'static str, &'static str)`: the earliest and latest releases of the major the renderer's markup was checked against.
 * `ReactMajor::ALL: [ReactMajor; 2]`, oldest first.
 
 ### VueMajor
