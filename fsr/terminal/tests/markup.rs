@@ -100,3 +100,9 @@ fn a_text_truncates_at_its_end_start_or_middle_as_cli_truncate_does() {
   assert_eq!(cut("truncate-start"), "…ghij");
   assert_eq!(cut("truncate-middle"), "ab…ij");
 }
+
+#[test]
+fn a_newline_draws_as_many_line_breaks_as_its_count() {
+  let rows = r#"<ink-text>a<ink-newline count="2"></ink-newline>b</ink-text>"#;
+  assert_eq!(render(&from_markup(rows).unwrap(), 10).lines(), ["a", "", "b"]);
+}

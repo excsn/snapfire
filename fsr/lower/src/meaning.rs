@@ -73,9 +73,54 @@ pub const COMPONENTS_MODULE: &str = "@snapfire/fsr/components";
 /// The module whose `config` and named exports are the deployment's `[public]` values, read anywhere.
 pub const CONFIG_MODULE: &str = "@snapfire/fsr/config";
 const COMPONENTS: [&str; 5] = ["Link", "Picture", "Mount", "Embed", "Place"];
-/// Ink's elements, from FSR's Ink and the primitives it is written over, which a terminal window draws.
+/// The modules FSR's terminal primitives are imported from: FSR's Ink and the primitives it is written over.
 const TERMINAL_MODULES: [&str; 2] = [crate::terminal::INK_MODULE, "@snapfire/fsr/terminal/core"];
-const TERMINAL_ELEMENTS: [&str; 4] = ["Box", "Text", "Newline", "Spacer"];
+
+use snapfire_fsr_ir::{Field, Signature, Ty};
+
+const ELEMENT: Ty = Ty::Named("ReactElement");
+
+/// The terminal's primitives: what each name lowers to and the signatures it is declared with, the props types `BoxProps`, `TextProps` and `Key` written beside them.
+const TERMINAL_PRIMITIVES: &[(&str, Construct, &[Signature])] = &[
+  ("Box", Construct::Placement("Box"), &[Signature { doc: "Ink's `Box`: lays its children out with flexbox and draws its border.", generics: &[], params: &[Field::required("props", Ty::Named("BoxProps"))], returns: ELEMENT }]),
+  ("Text", Construct::Placement("Text"), &[Signature { doc: "Ink's `Text`: draws its text and nested `Text` in its style.", generics: &[], params: &[Field::required("props", Ty::Named("TextProps"))], returns: ELEMENT }]),
+  ("Newline", Construct::Placement("Newline"), &[Signature { doc: "`count` line breaks inside a `Text`, one unless given.", generics: &[], params: &[Field::required("props", Ty::Object(&[Field::optional("count", Ty::Number)]))], returns: ELEMENT }]),
+  ("Spacer", Construct::Placement("Spacer"), &[Signature { doc: "A box that grows to fill the space its parent leaves.", generics: &[], params: &[], returns: ELEMENT }]),
+  (
+    "useInput",
+    Construct::Hook("useInput"),
+    &[Signature {
+      doc: "Runs `handler` on each key the terminal reads while `isActive` holds.",
+      generics: &[],
+      params: &[
+        Field::required("handler", Ty::Function(&[Field::required("input", Ty::String), Field::required("key", Ty::Named("Key"))], &Ty::Void)),
+        Field::optional("options", Ty::Object(&[Field::optional("isActive", Ty::Boolean)])),
+      ],
+      returns: Ty::Void,
+    }],
+  ),
+  ("emit", Construct::Emit, &[Signature { doc: "Hands the terminal `value` under `key` for this render.", generics: &[], params: &[Field::required("key", Ty::String), Field::required("value", Ty::Unknown)], returns: Ty::Void }]),
+  (
+    "suspendTerminal",
+    Construct::Suspend,
+    &[Signature { doc: "Gives the terminal up while the promise `run` returns is pending, then takes it back.", generics: &["T"], params: &[Field::required("run", Ty::Function(&[], &Ty::Promise(&Ty::Named("T"))))], returns: Ty::Promise(&Ty::Named("T")) }],
+  ),
+  (
+    "useAnimation",
+    Construct::Hook("useAnimation"),
+    &[Signature {
+      doc: "A frame count that steps every `interval` milliseconds (100 unless given) while `isActive` holds, with the milliseconds it stands for.",
+      generics: &[],
+      params: &[Field::optional("options", Ty::Object(&[Field::optional("interval", Ty::Number), Field::optional("isActive", Ty::Boolean)]))],
+      returns: Ty::Object(&[Field::required("frame", Ty::Number), Field::required("time", Ty::Number)]),
+    }],
+  ),
+];
+
+/// Each terminal primitive's name with the signatures it is declared with.
+pub fn terminal_primitives() -> impl Iterator<Item = (&'static str, &'static [Signature])> {
+  TERMINAL_PRIMITIVES.iter().map(|(name, _, signatures)| (*name, *signatures))
+}
 
 fn rows() -> &'static [(&'static str, &'static str, Construct)] {
   static ROWS: std::sync::OnceLock<Vec<(&'static str, &'static str, Construct)>> = std::sync::OnceLock::new();
@@ -86,11 +131,7 @@ fn rows() -> &'static [(&'static str, &'static str, Construct)] {
     }
     rows.extend(COMPONENTS.iter().map(|name| (COMPONENTS_MODULE, *name, Construct::Placement(name))));
     for module in TERMINAL_MODULES {
-      rows.extend(TERMINAL_ELEMENTS.iter().map(|name| (module, *name, Construct::Placement(name))));
-      rows.push((module, "useInput", Construct::Hook("useInput")));
-      rows.push((module, "emit", Construct::Emit));
-      rows.push((module, "suspendTerminal", Construct::Suspend));
-      rows.push((module, "useAnimation", Construct::Hook("useAnimation")));
+      rows.extend(TERMINAL_PRIMITIVES.iter().map(|(name, construct, _)| (module, *name, *construct)));
     }
     let react_hooks: Vec<(&'static str, Construct)> = LIBRARY.iter().filter(|(m, _, c)| *m == "react" && matches!(c, Construct::Hook(_))).map(|(_, e, c)| (*e, *c)).collect();
     for module in ["preact/hooks", "preact/compat"] {

@@ -124,7 +124,11 @@ fn boxed(el: Element) -> Result<Boxed, String> {
 fn text(el: Element) -> Result<Text, String> {
   let mut out = Text::new();
   if el.tag == "ink-newline" {
-    return Ok(out.str("\n"));
+    let count = match el.attrs.iter().find(|(name, _)| name == "count") {
+      Some((_, value)) => value.parse::<usize>().map_err(|_| format!("`count` on a Newline is a whole number, not `{value}`"))?,
+      None => 1,
+    };
+    return Ok(out.str(&"\n".repeat(count)));
   }
   for (written, value) in &el.attrs {
     crate::props::apply(crate::props::TEXT_PROPS, "Text", written, value, &mut out)?;

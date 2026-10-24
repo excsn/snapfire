@@ -72,6 +72,13 @@ fn a_terminal_app_has_declarations_for_fsrs_terminal_modules_and_asks_for_react(
   }
   let core = std::fs::read_to_string(app.join("types/@snapfire/fsr/terminal/core.d.ts")).unwrap();
   assert!(core.contains(&snapfire_fsr_terminal::prop_declarations()), "{core}");
+  let ink = std::fs::read_to_string(app.join("types/@snapfire/fsr/terminal/ink.d.ts")).unwrap();
+  for (name, signatures) in snapfire_fsr_lower::meaning::terminal_primitives() {
+    for signature in signatures {
+      assert!(core.contains(&signature.declare(name)), "{name} in {core}");
+    }
+    assert!(ink.contains(&format!(" {name},")) || ink.contains(&format!(" {name} }}")), "{name} in {ink}");
+  }
   assert!(snapfire_fsr_cli::types::missing(&app).unwrap().contains(&"react".to_owned()));
 }
 

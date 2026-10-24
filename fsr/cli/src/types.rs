@@ -44,15 +44,19 @@ const FSR_AUTHORING: &[(&str, &str)] = &[
 /// Where a terminal application's declarations of FSR's terminal modules go under `types/`, which `@snapfire/fsr/terminal` and its subpaths map to.
 pub const TERMINAL_TYPES: &str = "@snapfire/fsr/terminal";
 
-/// The declarations of what FSR's terminal implements natively, which have no TypeScript source to declare them from; `core.d.ts` opens with the Box and Text props of `snapfire_fsr_terminal::prop_declarations`.
+/// The declarations of what FSR's terminal implements natively, which have no TypeScript source: `index.d.ts` from the terminal members' signatures, `core.d.ts` from the Box and Text props, `Key` and the primitives' signatures, `ink.d.ts` naming Ink's hooks and the primitives.
 #[cfg(feature = "terminal")]
 fn native_terminal() -> Vec<(String, String)> {
-  let core = format!("import type {{ ReactElement, ReactNode }} from \"react\";\n\n{}\n{}\n{}", snapfire_fsr_terminal::prop_declarations(), crate::terminal::key_declaration(), include_str!("../embedded/terminal/core.d.ts"));
-  vec![
-    ("index.d.ts".to_owned(), declared_members("terminal")),
-    ("core.d.ts".to_owned(), core),
-    ("ink.d.ts".to_owned(), include_str!("../embedded/terminal/ink.d.ts").to_owned()),
-  ]
+  let mut core = format!("import type {{ ReactElement, ReactNode }} from \"react\";\n\n{}\n{}\n", snapfire_fsr_terminal::prop_declarations(), crate::terminal::key_declaration());
+  let mut names = Vec::new();
+  for (name, signatures) in snapfire_fsr_lower::meaning::terminal_primitives() {
+    for signature in signatures {
+      core.push_str(&signature.declare(name));
+    }
+    names.push(name);
+  }
+  let ink = format!("export * from \"./hooks\";\nexport {{ {} }} from \"./core\";\nexport type {{ BoxProps, Extent, Key, TextProps }} from \"./core\";\n", names.join(", "));
+  vec![("index.d.ts".to_owned(), declared_members("terminal")), ("core.d.ts".to_owned(), core), ("ink.d.ts".to_owned(), ink)]
 }
 
 /// The declarations of the standard members of `module`, from the signatures their rows carry.
