@@ -15,6 +15,7 @@ mod map;
 mod meta;
 mod modules;
 mod next;
+mod packages;
 mod pages;
 mod prisma;
 mod relocate;
@@ -198,9 +199,9 @@ pub trait Pass {
 /// The passes for `source`, in the order they run.
 pub fn passes(source: Source) -> Vec<Box<dyn Pass>> {
   match source {
-    Source::NextApp => workspace_pass().into_iter().chain(next::app_passes()).chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
-    Source::NextPages => workspace_pass().into_iter().chain(pages::passes()).chain(modules::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
-    Source::Ink => workspace_pass().into_iter().chain(ink::passes()).collect(),
+    Source::NextApp => workspace_pass().into_iter().chain(next::app_passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::NextPages => workspace_pass().into_iter().chain(pages::passes()).chain(modules::passes()).chain(packages::passes()).chain(lift::passes()).chain(prisma_pass()).chain(env_pass()).collect(),
+    Source::Ink => workspace_pass().into_iter().chain(ink::passes()).chain(packages::passes()).collect(),
     Source::SvelteKit | Source::Nuxt => Vec::new(),
   }
 }

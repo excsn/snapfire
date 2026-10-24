@@ -30,6 +30,13 @@ impl VueMajor {
       Self::V3 => 3,
     }
   }
+
+  /// The earliest and latest releases of the major the renderer's markup was checked against.
+  pub fn checked(self) -> (&'static str, &'static str) {
+    match self {
+      Self::V3 => ("3.5.44", "3.5.44"),
+    }
+  }
 }
 
 /// `@vue/shared`'s `isBooleanAttr`: present or absent rather than valued.

@@ -325,6 +325,8 @@ Every `locale` is a BCP 47 tag written in the code, formatted the same everywher
 | `intl.list` | render | `items, { type?, style?, locale? }` | the strings joined as `Intl.ListFormat` joins them: `type` `conjunction` (the default), `disjunction` or `unit`, `style` `long` (the default), `short` or `narrow` |
 | `text.slug` | render | `s` | NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end |
 | `text.truncate` | render | `s`, `max`, `ellipsis?` (`…`) | the first `max` code points and the ellipsis when longer, else `s` |
+| `text.frontMatter` | terminal | `source`, `{ delimiters? }?` | `{ data, content }` as gray-matter 4 reads them: the YAML between a first line holding the opening delimiter and a line holding the closing one, `content` the text after it less one line break; `delimiters` is one string or `[open, close]`, `---` by default; text that does not open with the delimiter is all `content` and `data` is `{}`; YAML that does not parse is `Internal` |
+| `text.withFrontMatter` | terminal | `content`, `data`, `{ delimiters? }?` | `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` of a `{ content }` file writes it; empty `data` writes `content` alone |
 | `time.format` | render | `when`, `pattern` | `YYYY`, `MM`, `DD`, `HH`, `mm`, `ss` and `SSS` replaced in UTC, every other character kept |
 | `time.add` | render | `when`, `amount`, `unit` (`ms`, `s`, `m`, `h`, `d`) | `when` plus `amount` units, `F64` |
 | `time.diff` | render | `later`, `earlier`, `unit` | the difference in units, fractional, `F64` |
@@ -418,6 +420,7 @@ The frameworks an application vendors, each at the major whose server markup the
 * `pub enum VueMajor { V3 }`; `Default` is `V3`. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`.
 * `VueMajor::of(version: &str) -> Option<VueMajor>`: the major of a version such as `3.5.44`; `None` for any other major.
 * `VueMajor::number(self) -> u32`
+* `VueMajor::checked(self) -> (&'static str, &'static str)`: the earliest and latest releases of the major the renderer's markup was checked against.
 * `VueMajor::ALL: [VueMajor; 1]`
 
 ### SvelteMajor
@@ -425,6 +428,7 @@ The frameworks an application vendors, each at the major whose server markup the
 * `pub enum SvelteMajor { V5 }`; `Default` is `V5`. Derives `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, `Hash`.
 * `SvelteMajor::of(version: &str) -> Option<SvelteMajor>`: the major of a version such as `5.57.2`; `None` for any other major.
 * `SvelteMajor::number(self) -> u32`
+* `SvelteMajor::checked(self) -> (&'static str, &'static str)`: the earliest and latest releases of the major the renderer's markup was checked against.
 * `SvelteMajor::ALL: [SvelteMajor; 1]`
 * Under Svelte's rules text escapes `&` and `<` and adjacent runs join; an attribute escapes `&`, `"` and `<`; `null` omits an attribute and so does a falsy boolean attribute other than `""`, which Svelte's `is_boolean_attribute` list names; `hidden` is boolean unless it is `until-found`; `translate` writes `yes` and `no`; an empty `class` or `style` is omitted; a value prints as `String(value)` and a void element closes with `/>`. Where rendering enters a Svelte component from markup that is not Svelte's, the renderer writes `<!--[-->` before it and `<!--]-->` after it, as `svelte/server`'s `render` wraps the component `hydrate` mounts. Every other marker is a `Tmpl::Marker` the lowerer placed.
 

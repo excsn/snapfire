@@ -280,3 +280,41 @@ fn ms_formats_and_parses_as_the_ms_package_does() {
   }
   assert_eq!(call("", "terminal.ms", vec![s("soon")]), Ok(Value::Null), "undefined for what it cannot read");
 }
+
+fn map(fields: Vec<(&str, Value)>) -> Value {
+  let mut map = snapfire_fsr_core::ValueMap::default();
+  for (key, value) in fields {
+    map.insert(key.to_owned(), value);
+  }
+  Value::Map(map)
+}
+
+#[test]
+fn front_matter_reads_as_gray_matter_does() {
+  let parsed = |data: Value, content: &str| map(vec![("data", data), ("content", s(content))]);
+  let comments = || map(vec![("delimiters", Value::seq(vec![s("<!--"), s("-->")]))]);
+  assert_eq!(
+    call("", "text.frontMatter", vec![s("---\ntitle: Hi\ntags: [a, b]\ncount: 3\n---\nBody\n")]),
+    Ok(parsed(map(vec![("title", s("Hi")), ("tags", Value::seq(vec![s("a"), s("b")])), ("count", Value::Int(3))]), "Body\n"))
+  );
+  assert_eq!(call("", "text.frontMatter", vec![s("<!--\nname: x\n-->\n\nText"), comments()]), Ok(parsed(map(vec![("name", s("x"))]), "\nText")));
+  assert_eq!(call("", "text.frontMatter", vec![s("~~~\nname: y\n~~~\nText"), map(vec![("delimiters", s("~~~"))])]), Ok(parsed(map(vec![("name", s("y"))]), "Text")));
+  assert_eq!(call("", "text.frontMatter", vec![s("Just text\n")]), Ok(parsed(map(vec![]), "Just text\n")));
+  assert_eq!(call("", "text.frontMatter", vec![s("---\n---\nText")]), Ok(parsed(map(vec![]), "Text")));
+  assert_eq!(call("", "text.frontMatter", vec![s("---\ntitle: Hi\n")]), Ok(parsed(map(vec![("title", s("Hi"))]), "")), "an unclosed block runs to the end");
+  assert_eq!(call("", "text.frontMatter", vec![s("----\ntitle: Hi\n---\n")]), Ok(parsed(map(vec![]), "----\ntitle: Hi\n---\n")), "a longer run of the delimiter is not front matter");
+  assert!(call("", "text.frontMatter", vec![s("---\na: [1, 2\n---\n")]).is_err());
+}
+
+#[test]
+fn front_matter_writes_as_gray_matter_stringifies() {
+  let comments = || map(vec![("delimiters", Value::seq(vec![s("<!--"), s("-->")]))]);
+  let data = map(vec![("name", s("x")), ("variables", Value::seq(vec![s("A"), s("B")]))]);
+  let written = call("", "text.withFrontMatter", vec![s("Body"), data.clone(), comments()]);
+  assert_eq!(written, Ok(s("<!--\nname: x\nvariables:\n  - A\n  - B\n-->\nBody\n")));
+  assert_eq!(call("", "text.withFrontMatter", vec![s("Body\n"), map(vec![])]), Ok(s("Body\n")), "no data writes no block");
+  assert_eq!(call("", "text.withFrontMatter", vec![s("Body"), map(vec![("title", s("Hi"))])]), Ok(s("---\ntitle: Hi\n---\nBody\n")));
+  let Ok(Value::Str(text)) = written else { panic!() };
+  let read = call("", "text.frontMatter", vec![s(text.as_str()), comments()]);
+  assert_eq!(read, Ok(map(vec![("data", data), ("content", s("Body\n"))])));
+}

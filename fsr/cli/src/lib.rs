@@ -123,6 +123,8 @@ pub enum BuildError {
   VueMajor { version: String, supported: String },
   #[error("svelte {version} is vendored, but this fsr mounts Svelte {supported} only")]
   SvelteMajor { version: String, supported: String },
+  #[error("{package}@{version} is older than {floor}, the earliest release this fsr's renderer was checked against; `{add}`")]
+  FrameworkUnchecked { package: String, version: String, floor: String, add: String },
   /// A framework plugin that started and then failed to answer.
   #[error("{0}")]
   Plugin(String),
@@ -301,6 +303,9 @@ pub struct Report {
   pub mdx: Vec<(String, usize, usize, String)>,
   /// A named theme setting a token the stylesheet reads at build, one line each.
   pub theme_warnings: Vec<String>,
+  /// A vendored framework newer than the latest release its renderer was checked against: the
+  /// package, its version and that release.
+  pub unchecked: Vec<(String, String, String)>,
   /// The plan file as written and as it would be without whitespace, in bytes.
   /// The build writes it pretty so it reads and diffs; the second number is
   /// what a deployment would ship.
@@ -394,6 +399,9 @@ impl Report {
     }
     for warning in &self.theme_warnings {
       writeln!(f, "{:<9} {warning}", "warning")?;
+    }
+    for (package, version, latest) in &self.unchecked {
+      writeln!(f, "{:<9} {package}@{version} is newer than {latest}, the latest release this fsr's renderer was checked against; hydration may report a mismatch", "warning")?;
     }
     for (i, cause) in self.causes.iter().enumerate() {
       let label = if i == 0 { "client" } else { "" };
@@ -1648,7 +1656,8 @@ pub(crate) fn build_in(app: &Path, options: &Options, plugins: &mut plugins::Plu
   check_vendor_urls(app, &layout)?;
   check_vendor_imports(app, &layout, shell.as_ref().map(|(_, contract)| contract))?;
   check_shell_urls(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
-  let frameworks = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
+  let (frameworks, unchecked) = vendored_frameworks(app, &layout, shell.as_ref().map(|(path, contract)| (path.as_path(), contract)))?;
+  report.unchecked = unchecked;
   plugin_compilers(app, &layout)?;
   let clients: Vec<snapfire_fsr_plan::ClientEntry> = report
     .components
@@ -3385,12 +3394,26 @@ pub(crate) fn plugin_compilers(app: &Path, layout: &crate::xwpm::Layout) -> Resu
   Ok(compilers)
 }
 
-fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<std::collections::BTreeMap<String, String>, BuildError> {
+/// The earliest and latest releases of `package`'s major its renderer was checked against; `None`
+/// for a package without a renderer of its own, `react-dom` following `react`.
+fn checked_releases(package: &str, version: &str) -> Option<(&'static str, &'static str)> {
+  match package {
+    "react" => snapfire_fsr_ir::ReactMajor::of(version).map(snapfire_fsr_ir::ReactMajor::checked),
+    "vue" => snapfire_fsr_ir::VueMajor::of(version).map(snapfire_fsr_ir::VueMajor::checked),
+    "svelte" => snapfire_fsr_ir::SvelteMajor::of(version).map(snapfire_fsr_ir::SvelteMajor::checked),
+    _ => None,
+  }
+}
+
+type Unchecked = Vec<(String, String, String)>;
+
+fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(&Path, &ShellContract)>) -> Result<(std::collections::BTreeMap<String, String>, Unchecked), BuildError> {
   let contract = shell.map(|(_, contract)| contract);
   let manifest = || format!("`{}`", app.join(&layout.vendor).join(crate::vendor::VENDOR_MANIFEST).display());
   let vendored = crate::vendor::VendorManifest::read(app, layout)?;
   let served = served_specifiers(app, layout, contract).unwrap_or_default();
   let mut frameworks = std::collections::BTreeMap::new();
+  let mut unchecked = Vec::new();
   for package in framework_packages() {
     let own = vendored.packages.get(&package).map(|entry| entry.version.clone());
     let from_shell = contract.and_then(|contract| contract.frameworks.get(&package).cloned());
@@ -3413,6 +3436,16 @@ fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(
         return Err(BuildError::VueMajor { version, supported: majors_text(&majors) });
       }
       Some(version) => {
+        if let Some((floor, latest)) = checked_releases(&package, &version) {
+          use types::range::Version;
+          let found = Version::parse(&version);
+          if found.as_ref().is_some_and(|found| *found < Version::parse(floor).expect("a checked release is a version")) {
+            return Err(BuildError::FrameworkUnchecked { add: format!("fsr add {} {package}@{latest}", app.display()), package, version, floor: floor.to_owned() });
+          }
+          if found.is_some_and(|found| found > Version::parse(latest).expect("a checked release is a version")) {
+            unchecked.push((package.clone(), version.clone(), latest.to_owned()));
+          }
+        }
         frameworks.insert(package, version);
       }
       None => {
@@ -3428,7 +3461,7 @@ fn vendored_frameworks(app: &Path, layout: &crate::xwpm::Layout, shell: Option<(
       }
     }
   }
-  Ok(frameworks)
+  Ok((frameworks, unchecked))
 }
 
 /// Refuses a framework specifier the application maps somewhere other than the

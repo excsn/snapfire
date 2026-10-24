@@ -44,6 +44,14 @@ impl ReactMajor {
     }
   }
 
+  /// The earliest and latest releases of the major the renderer's markup was checked against.
+  pub fn checked(self) -> (&'static str, &'static str) {
+    match self {
+      Self::V18 => ("18.3.1", "18.3.1"),
+      Self::V19 => ("19.3.1", "19.3.1"),
+    }
+  }
+
   /// Writes an attribute of a custom element, which React passes through
   /// rather than checking against the attributes it knows.
   pub(super) fn custom_attribute(self, name: &str, value: &Value, out: &mut String) -> Result<(), Fail> {

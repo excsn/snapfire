@@ -108,7 +108,27 @@ export const text = {
     if (chars.length <= Math.max(0, max)) return s;
     return chars.slice(0, Math.max(0, max)).join("") + ellipsis;
   },
+  /** The YAML block between two delimiter lines at the top of `source` as `data`, the rest as `content`, read as gray-matter reads it. `delimiters` is one string for both lines or `[open, close]`, `---` by default. Terminal pages only. */
+  frontMatter<T = { [key: string]: unknown }>(source: string, options?: FrontMatterOptions): { data: T; content: string } {
+    return terminalOnly("text.frontMatter", [source, options ?? null]);
+  },
+  /** `data` as YAML between the delimiter lines, then `content` ending in a line break, as gray-matter's `stringify` writes it; empty `data` writes no block. Terminal pages only. */
+  withFrontMatter(content: string, data: { [key: string]: unknown }, options?: FrontMatterOptions): string {
+    return terminalOnly("text.withFrontMatter", [content, data, options ?? null]);
+  },
 };
+
+export interface FrontMatterOptions {
+  delimiters?: string | [string, string];
+}
+
+/** A member whose Rust half is the only one: `fsr test` answers it through the runner, and a browser has no answer. */
+function terminalOnly<T>(name: string, args: unknown[]): T {
+  const sf = (globalThis as { __sf?: Bridge }).__sf;
+  if (!sf?.ext) throw new Error(`${name} runs in a terminal page only`);
+  const json = JSON.stringify(args, (_, v: unknown) => (typeof v === "bigint" ? Number(v) : v === undefined ? null : v));
+  return JSON.parse(sf.ext(name, json, currentLocale())) as T;
+}
 
 const UNITS: { [unit: string]: number } = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 };
 

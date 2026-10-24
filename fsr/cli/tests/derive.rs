@@ -27,7 +27,7 @@ fn project(tag: &str, main: &str, loader: &str) -> PathBuf {
   let app = root.join("app");
   std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client":"/f","@snapfire/fsr-client/store":"/s","@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
-  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.1.0"},"react-dom":{"version":"19.1.0"}}}"#).unwrap();
+  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1"},"react-dom":{"version":"19.3.1"}}}"#).unwrap();
   std::fs::create_dir_all(app.join("src")).unwrap();
   for (file, text) in [("src/store.ts", STORE), ("src/main.ts", main), ("src/Total.tsx", TOTAL), ("routes/page.tsx", PAGE), ("routes/page.loader.ts", loader)] {
     std::fs::write(app.join(file), text).unwrap();

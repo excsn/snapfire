@@ -6,6 +6,7 @@
 //! member has no browser half.
 
 pub mod crypto;
+pub mod frontmatter;
 pub mod i18n;
 pub mod id;
 pub mod intl;
@@ -20,6 +21,7 @@ use crate::ext::Extensions;
 pub fn register(extensions: &mut Extensions) {
   intl::register(extensions);
   text::register(extensions);
+  frontmatter::register(extensions);
   time::register(extensions);
   crypto::register(extensions);
   id::register(extensions);

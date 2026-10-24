@@ -814,3 +814,11 @@ fn the_value_of_an_earlier_await_survives_a_later_one_in_a_handler_and_in_a_modu
   session.view().unwrap();
   assert_eq!(line(session.view().unwrap()), "PQ XY");
 }
+
+#[test]
+fn a_terminal_page_reads_and_writes_front_matter() {
+  let page = "import { Text } from \"ink\";\nimport { text } from \"@snapfire/fsr-client/std\";\n\nconst source = text.withFrontMatter(\"Body\", { name: \"prompt\", tags: [\"a\", \"b\"] }, { delimiters: [\"<!--\", \"-->\"] });\n\nexport default function Matter() {\n  const parsed = text.frontMatter(source, { delimiters: [\"<!--\", \"-->\"] });\n  return <Text>{parsed.data.name} {parsed.data.tags.join(\"+\")} {parsed.content.trim()}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let node = session.view().unwrap();
+  assert_eq!(snapfire_fsr_terminal::render(&node, 30).lines()[0].trim_end(), "prompt a+b Body");
+}

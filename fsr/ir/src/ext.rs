@@ -38,6 +38,8 @@ pub const STANDARD: &[(&str, &str, Reach)] = &[
   ("intl", "compare", Reach::Render),
   ("text", "slug", Reach::Render),
   ("text", "truncate", Reach::Render),
+  ("text", "frontMatter", Reach::Terminal),
+  ("text", "withFrontMatter", Reach::Terminal),
   ("time", "format", Reach::Render),
   ("time", "add", Reach::Render),
   ("time", "diff", Reach::Render),

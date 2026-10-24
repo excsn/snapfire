@@ -76,7 +76,7 @@ fn a_bare_application_given_vue_builds_a_vue_island() {
   map["imports"]["vue"] = serde_json::Value::String("/static/js/vendor/vue/vue.bundle.mjs".to_owned());
   std::fs::write(dir.join("importmap.json"), map.to_string()).unwrap();
   std::fs::create_dir_all(dir.join("vendor")).unwrap();
-  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.13","entries":{"vue":"vue/vue.bundle.mjs"}}}}"#).unwrap();
+  std::fs::write(dir.join("vendor/.fsr-vendor.json"), r#"{"packages":{"vue":{"version":"3.5.44","entries":{"vue":"vue/vue.bundle.mjs"}}}}"#).unwrap();
   let built = build(&dir, &Options::default()).unwrap();
   let islands = built.files.iter().find(|(name, _)| name == "generated/islands.ts").map(|(_, text)| text.clone()).unwrap();
   assert!(islands.contains("registerIsland(\"src/ui/Chart.vue#default\""), "{islands}");

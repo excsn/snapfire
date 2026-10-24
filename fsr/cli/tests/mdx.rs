@@ -20,7 +20,7 @@ fn project(config: &str, files: &[(&str, &str)]) -> PathBuf {
   std::fs::write(root.join("config/app.toml"), format!("[app]\ndir = \"app\"\n\n{config}")).unwrap();
   std::fs::write(app.join("importmap.json"), r#"{"imports":{"@snapfire/fsr-client/react":"/r","react":"/r","react-dom/client":"/d"}}"#).unwrap();
   std::fs::create_dir_all(app.join("vendor")).unwrap();
-  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.1.0"},"react-dom":{"version":"19.1.0"}}}"#).unwrap();
+  std::fs::write(app.join("vendor/.fsr-vendor.json"), r#"{"packages":{"react":{"version":"19.3.1"},"react-dom":{"version":"19.3.1"}}}"#).unwrap();
   for (name, source) in files {
     let path = app.join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

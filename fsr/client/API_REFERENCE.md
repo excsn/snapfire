@@ -1303,6 +1303,9 @@ On `htmx:before:history:restore` on `document`, while `enableNavigation` has wir
 
 * `text.slug(s: string): string`: NFD, marks dropped, lowercased, every run outside `a-z0-9` one hyphen, none at either end.
 * `text.truncate(s: string, max: number, ellipsis?: string): string`: the first `max` code points and `ellipsis`, `…` by default, when `s` is longer.
+* `text.frontMatter<T>(source: string, options?: FrontMatterOptions): { data: T; content: string }`: the YAML block between two delimiter lines at the top of `source` as `data` and the rest as `content`, as gray-matter reads them. Terminal pages only; in a browser it throws.
+* `text.withFrontMatter(content: string, data: object, options?: FrontMatterOptions): string`: `data` as YAML between the delimiter lines, then `content`, as gray-matter's `stringify` writes them. Terminal pages only; in a browser it throws.
+* `interface FrontMatterOptions { delimiters?: string | [string, string] }`: one string for both lines or `[open, close]`, `---` by default.
 
 ### time
 

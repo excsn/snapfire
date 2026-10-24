@@ -30,6 +30,13 @@ impl SvelteMajor {
       Self::V5 => 5,
     }
   }
+
+  /// The earliest and latest releases of the major the renderer's markup was checked against.
+  pub fn checked(self) -> (&'static str, &'static str) {
+    match self {
+      Self::V5 => ("5.57.2", "5.57.2"),
+    }
+  }
 }
 
 /// What `svelte/server`'s `render` writes around a component it mounts, which

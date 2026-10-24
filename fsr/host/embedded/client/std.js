@@ -79,8 +79,27 @@ export const text = {
         const chars = Array.from(s);
         if (chars.length <= Math.max(0, max)) return s;
         return chars.slice(0, Math.max(0, max)).join("") + ellipsis;
+    },
+    frontMatter (source, options) {
+        return terminalOnly("text.frontMatter", [
+            source,
+            options ?? null
+        ]);
+    },
+    withFrontMatter (content, data, options) {
+        return terminalOnly("text.withFrontMatter", [
+            content,
+            data,
+            options ?? null
+        ]);
     }
 };
+function terminalOnly(name, args) {
+    const sf = globalThis.__sf;
+    if (!sf?.ext) throw new Error(`${name} runs in a terminal page only`);
+    const json = JSON.stringify(args, (_, v)=>typeof v === "bigint" ? Number(v) : v === undefined ? null : v);
+    return JSON.parse(sf.ext(name, json, currentLocale()));
+}
 const UNITS = {
     ms: 1,
     s: 1_000,
