@@ -6452,6 +6452,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     };
     let floor = self.lowerer.scope.len();
     let mut renames: Vec<(String, String)> = Vec::new();
+    let mut inputs = Vec::new();
     let mut early: Vec<(Expr, Expr)> = Vec::new();
     let guard = |early: &[(Expr, Expr)], expr: Expr| match early.iter().map(|(cond, _)| cond.clone()).reduce(|a, b| Expr::Logic(LogicOp::Or, Box::new(a), Box::new(b))) {
       None => expr,
@@ -6486,11 +6487,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         js::Stmt::Decl(js::Decl::Fn(_)) => {}
         js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
           let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
-          let depth = self.hook_renames.len();
-          self.hook_renames.extend(renames.iter().cloned());
-          let result = self.input_hook(call);
-          self.hook_renames.truncate(depth);
-          result?;
+          self.hold_input(call, &mut inputs);
         }
         js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| EFFECT_HOOKS.contains(&name)) => {
           let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
@@ -6507,6 +6504,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
           self.inline_hook(hook, call, None)?;
         }
         js::Stmt::Return(ret) => {
+          self.lower_hook_inputs(std::mem::take(&mut inputs), &renames)?;
           let returned = match ret.arg.as_deref() {
             Some(arg) => self.returned(arg, &renames)?,
             None => Returned::Value(Expr::Lit(Lit::Null)),
@@ -6540,7 +6538,17 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
         other => return Err(self.lowerer.residue(other.span(), "a statement a custom hook cannot hold; it holds hooks, `const`s, `let`s, functions and a `return`")),
       }
     }
+    self.lower_hook_inputs(inputs, &renames)?;
     self.after_early(early, Returned::Value(Expr::Lit(Lit::Null)), Span::default())
+  }
+
+  /// [`Self::lower_inputs`] for a custom hook's `useInput` calls, with the names its body bound read under the call's prefix.
+  fn lower_hook_inputs(&mut self, inputs: Vec<(usize, &'p js::CallExpr)>, renames: &[(String, String)]) -> Lowered<()> {
+    let depth = self.hook_renames.len();
+    self.hook_renames.extend(renames.iter().cloned());
+    let result = self.lower_inputs(inputs);
+    self.hook_renames.truncate(depth);
+    result
   }
 
   /// A hook's return taken when none of its early exits fired, each `(cond, value)` checked in order before it.
@@ -7388,6 +7396,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
           }
         }
+        let mut inputs = Vec::new();
         for (at, stmt) in stmts.iter().enumerate() {
           match stmt {
             js::Stmt::Return(ret) => {
@@ -7438,7 +7447,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             }
             js::Stmt::Expr(e) if library_hook(&self.meanings(), &e.expr).is_some_and(|(name, _)| name == "useInput") => {
               let (_, call) = library_hook(&self.meanings(), &e.expr).expect("checked");
-              self.input_hook(call)?;
+              self.hold_input(call, &mut inputs);
             }
             js::Stmt::Expr(e) if hook_call(&self.meanings(), &e.expr).is_some_and(|(name, _)| self.custom_hook(name)) => {
               let (hook, call) = hook_call(&self.meanings(), &e.expr).expect("checked");
@@ -7484,6 +7493,7 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
             other => return Err(self.lowerer.residue(other.span(), "a statement a component cannot hold before its `return`")),
           }
         }
+        self.lower_inputs(inputs)?;
         let mut asked: Vec<String> = Vec::new();
         for (_, state) in &self.setters {
           let key = format!("{}{state}", snapfire_fsr_ir::render::RERUN_PREFIX);
@@ -9523,16 +9533,29 @@ impl<'a, 'p> ComponentLowerer<'a, 'p> {
     }
   }
 
-  /// Ink's `useInput((input, key) => …)`: the component's `input` handler, run
-  /// with each keypress as `$event`, `input` its text and `key` its flags. An
-  /// empty handler, which keeps an Ink app reading keys, is no handler.
-  fn input_hook(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
-    let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`useInput` with no handler")) };
-    if let js::Expr::Arrow(arrow) = &*arg.expr {
+  /// Holds a place among the handlers for a `useInput` call, lowered by [`Self::lower_inputs`] once the body's declarations are bound: a handler runs after the body, so it reads a name declared below the call. An empty handler, which keeps an Ink app reading keys, holds none.
+  fn hold_input(&mut self, call: &'p js::CallExpr, held: &mut Vec<(usize, &'p js::CallExpr)>) {
+    if let Some(js::Expr::Arrow(arrow)) = call.args.first().map(|arg| &*arg.expr) {
       if matches!(arrow_body(arrow), FunctionBody::Block(stmts) if stmts.is_empty()) {
-        return Ok(());
+        return;
       }
     }
+    held.push((self.lowered_handlers.len(), call));
+    self.lowered_handlers.push(Handler { event: snapfire_fsr_ir::host::Event::Input.name(), body: Vec::new() });
+  }
+
+  fn lower_inputs(&mut self, held: Vec<(usize, &'p js::CallExpr)>) -> Lowered<()> {
+    for (slot, call) in held {
+      self.input_hook(call)?;
+      self.lowered_handlers[slot] = self.lowered_handlers.pop().expect("input_hook pushes its handler");
+    }
+    Ok(())
+  }
+
+  /// Ink's `useInput((input, key) => …)`: the component's `input` handler, run
+  /// with each keypress as `$event`, `input` its text and `key` its flags.
+  fn input_hook(&mut self, call: &'p js::CallExpr) -> Lowered<()> {
+    let Some(arg) = call.args.first() else { return Err(self.lowerer.residue(call.span, "`useInput` with no handler")) };
     let active = match call.args.get(1).map(|options| &*options.expr) {
       None => None,
       Some(js::Expr::Object(object)) => {

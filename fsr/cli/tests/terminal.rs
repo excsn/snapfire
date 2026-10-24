@@ -525,6 +525,16 @@ fn a_handler_writes_its_own_let_in_a_branch_and_after_it() {
 }
 
 #[test]
+fn a_handler_reads_a_const_the_component_declares_below_its_use_input() {
+  let page = "import { useState } from \"react\";\nimport { Text, useInput } from \"ink\";\n\nexport default function Count() {\n  const [count, setCount] = useState(1);\n  useInput(() => {\n    setCount(shown + 1);\n  });\n  const shown = count * 2;\n  return <Text>{shown}</Text>;\n}\n";
+  let mut session = Session::open(&app(page)).unwrap();
+  let Some(Press::Input(x)) = key_event(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)) else { panic!("x is input") };
+  let line = |node| snapfire_fsr_terminal::render(&node, 10).lines()[0].trim_end().to_owned();
+  assert_eq!(line(session.view().unwrap()), "2");
+  assert_eq!(line(session.press(&x).unwrap()), "6");
+}
+
+#[test]
 fn a_state_setter_passed_as_a_prop_sets_the_parents_state_when_the_child_calls_it() {
   let page = "import { useState } from \"react\";\nimport { Box, Text, useInput } from \"ink\";\n\nfunction Typer({ value, onChange }: { value: string; onChange: (value: string) => void }) {\n  useInput((input) => onChange(value + input));\n  return <Text>typed {value}</Text>;\n}\n\nexport default function Page() {\n  const [query, setQuery] = useState(\"\");\n  return (\n    <Box flexDirection=\"column\">\n      <Typer value={query} onChange={setQuery} />\n      <Text>query {query}</Text>\n    </Box>\n  );\n}\n";
   let mut session = Session::open(&app(page)).unwrap();
