@@ -59,7 +59,13 @@ impl Resolution {
     if let Some(path) = self.overrides.get(specifier) {
       return Some(path.clone());
     }
-    let url = self.import_map.get(specifier)?;
+    let url = match self.import_map.get(specifier) {
+      Some(url) => url.clone(),
+      None => {
+        let (key, target) = self.import_map.iter().filter(|(key, _)| key.ends_with('/') && specifier.starts_with(key.as_str())).max_by_key(|(key, _)| key.len())?;
+        format!("{target}{}", &specifier[key.len()..])
+      }
+    };
     self.roots.iter().find_map(|(prefix, dir)| url.strip_prefix(prefix.as_str()).map(|rest| dir.join(rest.trim_start_matches('/'))))
   }
 }
