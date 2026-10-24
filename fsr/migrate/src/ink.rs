@@ -591,6 +591,7 @@ fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, 
   let parsed = parse(&entry.path, text).ok()?;
   let (before, params, mut names) = enclosing(&parsed, entry.call);
   names.extend(value_names.iter().cloned());
+  let carried = carried_declarations(&parsed, entry.call, &mut names);
   let mut imports = Vec::new();
   for (local, spec, clause) in imports_of(&parsed).into_iter().chain(entry.imports.iter().cloned()) {
     if matches!(spec.as_str(), "ink" | "react" | "react/jsx-runtime") || local == entry.component || !names.contains(&local) {
@@ -624,8 +625,57 @@ fn loader_for(tree: &Tree, moves: &BTreeMap<String, String>, aliases: &Aliases, 
     out.push_str(&line);
     out.push('\n');
   }
+  for range in carried {
+    out.push('\n');
+    out.push_str(&text[range]);
+    out.push('\n');
+  }
   out.push_str(&format!("\nexport async function load({{ params }}: {}) {{\n{body}}}\n", ctx_type("app/routes/page.loader.ts")));
   Some(out)
+}
+
+/// The top-level declarations of the entry that `names` read, a function, a class or a `const` or `let`, and each one those read in turn, in source order, as byte ranges of its text; what they read is added to `names`. The declaration holding the `render` call at `call` stays behind.
+fn carried_declarations(parsed: &crate::syntax::Parsed, call: Span, names: &mut Vec<String>) -> Vec<std::ops::Range<usize>> {
+  let mut declared: Vec<(Span, Vec<String>, Vec<String>)> = Vec::new();
+  for item in &parsed.module.body {
+    let decl = match item {
+      js::ModuleItem::Stmt(js::Stmt::Decl(decl)) => decl,
+      js::ModuleItem::ModuleDecl(js::ModuleDecl::ExportDecl(export)) => &export.decl,
+      _ => continue,
+    };
+    if decl.span().lo <= call.lo && decl.span().hi >= call.hi {
+      continue;
+    }
+    let mut bound = Vec::new();
+    match decl {
+      js::Decl::Fn(f) => bound.push(f.ident.sym.to_string()),
+      js::Decl::Class(c) => bound.push(c.ident.sym.to_string()),
+      js::Decl::Var(var) => var.decls.iter().for_each(|d| crate::items::pat_names(&d.name, &mut bound)),
+      _ => continue,
+    }
+    let mut reads = Reads(Vec::new());
+    decl.visit_with(&mut reads);
+    declared.push((item.span(), bound, reads.0));
+  }
+  let mut taken = vec![false; declared.len()];
+  loop {
+    let mut grew = false;
+    for (i, (_, bound, reads)) in declared.iter().enumerate() {
+      if !taken[i] && bound.iter().any(|name| names.contains(name)) {
+        taken[i] = true;
+        grew = true;
+        for read in reads {
+          if !names.contains(read) {
+            names.push(read.clone());
+          }
+        }
+      }
+    }
+    if !grew {
+      break;
+    }
+  }
+  declared.iter().zip(taken).filter(|(_, taken)| *taken).map(|((span, ..), _)| parsed.range(*span)).collect()
 }
 
 /// `app/routes/page.tsx` rendering what the entry rendered: the element tree as written when every name it reads is an import of the entry; the root with each prop from `RootProps` when `routes/page.loader.ts` was written (`loaded`); otherwise the root component alone with no props and a note. Each import is rewritten to where its file went; `None` with a note when the root's import cannot be followed.

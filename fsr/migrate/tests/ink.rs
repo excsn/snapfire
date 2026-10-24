@@ -198,3 +198,17 @@ fn an_entry_that_awaits_render_alone_from_a_dynamic_import_gets_a_page() {
   let (out, report) = migrate(&t);
   assert_eq!(out.text("app/routes/page.tsx").unwrap(), "import Ui from \"@src/ui\";\n\nexport default function Page() {\n  return <Ui />;\n}\n", "{:?}", report.notes);
 }
+
+#[test]
+fn a_local_function_and_constant_the_loader_body_reads_come_along_with_what_they_read() {
+  let t = tree(&[
+    ("package.json", PACKAGE),
+    ("source/cli.tsx", "import React from 'react';\nimport {render} from 'ink';\nimport {join} from 'node:path';\nimport App from './app.js';\n\nconst NAME = 'tool';\n\nfunction getInvocationCommand(): string {\n  return join('bin', NAME);\n}\n\nfunction unused() {\n  return 1;\n}\n\nasync function main() {\n  const command = getInvocationCommand();\n  render(<App command={command} />);\n}\n\nmain();\n"),
+    ("source/app.tsx", "export default function App({ command }: { command: string }) {\n  return null;\n}\n"),
+  ]);
+  let (out, report) = migrate(&t);
+  let loader = out.text("app/routes/page.loader.ts").unwrap();
+  assert!(loader.contains("\nconst NAME = 'tool';\n\nfunction getInvocationCommand(): string {\n  return path.join('bin', NAME);\n}\n\nexport async function load("), "{loader}\n{:?}", report.notes);
+  assert!(loader.contains("import { path } from \"@snapfire/fsr-client/std\";"), "{loader}");
+  assert!(!loader.contains("function unused") && !loader.contains("async function main"), "{loader}");
+}
