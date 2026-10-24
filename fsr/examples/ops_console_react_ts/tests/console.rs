@@ -116,7 +116,7 @@ fn a_document_streams_the_alerts_slot_and_the_agent_page_behind_their_own_fallba
     agent.contains("<sf-s data-sf-island data-sf-region=\"routes/agents/[id]/page.tsx#default|i1\" data-sf-when=\"visible\"><sf-i id=\"sf-i3\" data-sf-module=\"src/ui/JobTimeline.tsx#JobTimeline\""),
     "the job timeline is an island of its own, in the region its placement names: {agent}"
   );
-  assert!(agent.contains(";__sfHead({\"title\":\"builder-eu-1 · Ops console\""), "the page retitles the document on resolution: {agent}");
+  assert!(agent.contains("\"head\":{\"title\":\"builder-eu-1 · Ops console\""), "the page retitles the document on resolution: {agent}");
   assert!(agent.contains("\"d\":{\"fleet/selected\":\"1\"}"), "the page's `defaults` seed the agent it shows, with no `store` beside it: {agent}");
 }
 
