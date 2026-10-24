@@ -901,6 +901,23 @@ login = "/login"
 base_url = "http://127.0.0.1:8092"
 ```
 
+Several methods on one login page are `[[auth.methods]]`, in the order the page lists them. A sign-in with `?method=<name>` runs that one; one with none presents a `choose` step naming them all. `second_factor` names a method every sign-in through the others must also pass for the same subject:
+
+```toml
+[auth]
+login = "/login"
+second_factor = "code"
+
+[[auth.methods]]
+name = "password"
+provider = "file"
+
+[[auth.methods]]
+name = "code"
+provider = "service"
+client = "codes"
+```
+
 A Rust host hands in any `IdentityProvider` instead and the login page is `auth.login` when the section is written, `/login` otherwise:
 
 ```rust

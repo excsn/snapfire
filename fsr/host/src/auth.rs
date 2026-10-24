@@ -257,3 +257,31 @@ impl Host {
   }
 
 }
+
+/// The provider one configured method names.
+pub(crate) fn method_provider(method: &crate::config::MethodSection, config: &Config, services: &Arc<Services>, prefix: &str) -> Result<Arc<dyn IdentityProvider>, HostError> {
+  match method.provider.as_str() {
+    "file" => {
+      let users = config.config_dir().join(method.users.as_deref().unwrap_or("auth.toml"));
+      Ok(Arc::new(DevProvider::from_toml(&users).map_err(|e| HostError::Config(users.clone(), e))?))
+    }
+    "service" => {
+      let client = format!("{prefix}{}", method.client.clone().unwrap_or_default());
+      let declared = |name: &str| services.contract().services.get(&client).is_some_and(|service| service.methods.contains_key(name));
+      let steps = (declared(crate::remote::BEGIN_SIGN_IN), declared(crate::remote::ADVANCE_SIGN_IN));
+      if steps.0 != steps.1 || (!steps.0 && !declared(crate::remote::AUTHENTICATE)) {
+        return Err(HostError::Config(
+          config.config_dir(),
+          format!(
+            "auth.client `{client}` declares neither `{}` nor both `{}` and `{}`, so nobody can sign in through it",
+            crate::remote::AUTHENTICATE,
+            crate::remote::BEGIN_SIGN_IN,
+            crate::remote::ADVANCE_SIGN_IN
+          ),
+        ));
+      }
+      Ok(Arc::new(ServiceProvider::new(services.clone(), client)))
+    }
+    other => Err(HostError::Value("auth.provider".to_owned(), other.to_owned())),
+  }
+}

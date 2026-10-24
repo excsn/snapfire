@@ -22,6 +22,8 @@ How to run a sign-in over an `IdentityProvider` as a sequence of steps, where th
   * [Implementing begin](#implementing-begin)
   * [Implementing advance](#implementing-advance)
   * [Implementing refresh](#implementing-refresh)
+* [Offering Several Methods](#offering-several-methods)
+* [Requiring a Second Factor](#requiring-a-second-factor)
 * [Configuring the Dev Provider](#configuring-the-dev-provider)
 * [Reading the Accounts From a File](#reading-the-accounts-from-a-file)
 * [Why Each Answer Is Bound to the Session](#why-each-answer-is-bound-to-the-session)
@@ -325,6 +327,33 @@ fn refresh(&self, tokens: ValueMap) -> BoxFuture<'_, Result<Option<ValueMap>, Au
   Box::pin(async move { Ok(Some(self.exchange_refresh_token(&tokens).await?)) })
 }
 ```
+
+## Offering Several Methods
+
+`Methods` puts several providers behind one login page by name. A sign-in that names one runs it; one that names none presents a `choose` step listing them, which the page answers with `{ method }`:
+
+```rust
+use snapfire_fsr_auth::{Methods, Start};
+
+let methods = Methods::new()
+  .method("password", Arc::new(DevProvider::new().user("alice", "wonder")))
+  .method("corp", Arc::new(corp_sso));
+let auth = Auth::new(Arc::new(methods));
+
+let step = auth.begin(&opened, Start::sign_in("/inbox").method(Some("corp".to_owned()))).await?;
+```
+
+## Requiring a Second Factor
+
+`Sequence` passes one provider and then another for the same subject. Nobody is signed in until both have completed. An enrolment through it enrols the second:
+
+```rust
+use snapfire_fsr_auth::Sequence;
+
+let auth = Auth::new(Arc::new(Sequence::new(Arc::new(password), Arc::new(passkeys))));
+```
+
+The second provider's `begin` receives the first's identity in `Start::identity`, so it knows whose factor to ask for. An outcome for anyone else is `AuthError::Denied`.
 
 ## Configuring the Dev Provider
 

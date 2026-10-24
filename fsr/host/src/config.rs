@@ -1124,21 +1124,55 @@ impl BearerKey {
   }
 }
 
-/// The `[auth]` section: which provider signs users in and where its login
-/// page is. `users` is the `file` provider's table, relative to the
-/// configuration directory and read on its own, never through the ladder.
+/// The `[auth]` section: which method signs users in (or which several) and
+/// where the login page is. `users` is the `file` provider's table, relative
+/// to the configuration directory and read on its own, never through the ladder.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct AuthSection {
-  pub provider: String,
+  /// The one method, when `methods` is empty.
+  #[serde(default)]
+  pub provider: Option<String>,
   #[serde(default = "default_login")]
   pub login: String,
   #[serde(default)]
   pub users: Option<String>,
-  /// The `[clients.<name>]` entry a `service` provider sends `authenticate` to.
+  /// The `[clients.<name>]` entry a `service` provider sends its steps to.
   #[serde(default)]
   pub client: Option<String>,
+  /// Several methods on one login page, in the order the page lists them; the first is used when
+  /// a sign-in names none and the page offers no choice.
+  #[serde(default)]
+  pub methods: Vec<MethodSection>,
+  /// A method of `methods` that every sign-in through the others must also pass, for the same
+  /// subject.
+  #[serde(default)]
+  pub second_factor: Option<String>,
+}
+
+/// One `[[auth.methods]]` entry.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct MethodSection {
+  /// What `/auth/login?method=` names it by.
+  pub name: String,
+  pub provider: String,
+  #[serde(default)]
+  pub users: Option<String>,
+  #[serde(default)]
+  pub client: Option<String>,
+}
+
+impl AuthSection {
+  /// Every method the section configures, the single `provider` as one named after itself.
+  pub fn all_methods(&self) -> Vec<MethodSection> {
+    match &self.provider {
+      Some(provider) if self.methods.is_empty() => vec![MethodSection { name: provider.clone(), provider: provider.clone(), users: self.users.clone(), client: self.client.clone() }],
+      _ => self.methods.clone(),
+    }
+  }
 }
 
 pub const PROVIDERS: &[&str] = &["file", "service"];
@@ -2133,38 +2167,39 @@ impl Config {
     let auth: Option<AuthSection> =
       if store.path_exists("auth") || !store.key_paths_with_prefix(Some("auth")).is_empty() {
         let mut json = serde_json::Map::new();
-        for key in ["provider", "login", "users", "client"] {
+        for key in ["provider", "login", "users", "client", "methods", "second_factor"] {
           if let Some(value) = store.get(&format!("auth.{key}")) {
             json.insert(key.to_owned(), to_json(&value));
           }
         }
         let section: AuthSection = serde_json::from_value(serde_json::Value::Object(json))
           .map_err(|e| HostError::Config(at.clone(), format!("auth: {e}")))?;
-        if !PROVIDERS.contains(&section.provider.as_str()) {
-          return Err(HostError::Config(
-            at.clone(),
-            format!(
-              "auth.provider `{}` is not a provider; the providers are {}",
-              section.provider,
-              PROVIDERS.join(", ")
-            ),
-          ));
+        match (&section.provider, section.methods.is_empty()) {
+          (None, true) => return Err(HostError::Config(at.clone(), "auth names no `provider` and no `[[auth.methods]]`".to_owned())),
+          (Some(_), false) => return Err(HostError::Config(at.clone(), "auth names both a `provider` and `[[auth.methods]]`; one method is `provider`, several are `[[auth.methods]]`".to_owned())),
+          _ => {}
         }
-        if section.provider == "service" {
-          match &section.client {
-            Some(client) if clients.contains_key(client) => {}
-            Some(client) => {
-              return Err(HostError::Config(
-                at.clone(),
-                format!("auth.client names `{client}`, which is not a [clients] entry"),
-              ));
+        let methods = section.all_methods();
+        for (i, method) in methods.iter().enumerate() {
+          let at_key = if section.methods.is_empty() { "auth".to_owned() } else { format!("auth.methods `{}`", method.name) };
+          if methods[..i].iter().any(|earlier| earlier.name == method.name) {
+            return Err(HostError::Config(at.clone(), format!("{at_key} is named twice")));
+          }
+          if !PROVIDERS.contains(&method.provider.as_str()) {
+            let named = if section.methods.is_empty() { format!("auth.provider `{}`", method.provider) } else { format!("{at_key}: provider `{}`", method.provider) };
+            return Err(HostError::Config(at.clone(), format!("{named} is not a provider; the providers are {}", PROVIDERS.join(", "))));
+          }
+          if method.provider == "service" {
+            match &method.client {
+              Some(client) if clients.contains_key(client) => {}
+              Some(client) => return Err(HostError::Config(at.clone(), format!("{at_key}: client `{client}` is not a [clients] entry"))),
+              None => return Err(HostError::Config(at.clone(), format!("{at_key}: provider = \"service\" needs a client"))),
             }
-            None => {
-              return Err(HostError::Config(
-                at.clone(),
-                "auth.provider = \"service\" needs auth.client".to_owned(),
-              ));
-            }
+          }
+        }
+        if let Some(second) = &section.second_factor {
+          if !methods.iter().any(|method| &method.name == second) || methods.len() < 2 {
+            return Err(HostError::Config(at.clone(), format!("auth.second_factor `{second}` must name one of two or more [[auth.methods]]")));
           }
         }
         if !section.login.starts_with('/') {

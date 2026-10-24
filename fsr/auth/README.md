@@ -28,6 +28,8 @@ snapfire_fsr_session = "0"
 | Forget identity plus backend tokens on the way out | `Auth::logout` |
 | Plug in a provider of your own | `IdentityProvider` |
 | Send the browser elsewhere, hand the page data or finish | `Next` |
+| Offer several methods on one login page | `Methods` |
+| Require a second factor after any other method | `Sequence` |
 | Sign in against a fixed user table while developing | `DevProvider` |
 | Hand back an identity plus the tokens the backend tier will need | `AuthOutcome` |
 | Turn a failed step into an HTTP response | `AuthError::http_status` |

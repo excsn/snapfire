@@ -7552,3 +7552,127 @@ mod token_refresh {
     assert_eq!(transport.last_metadata("authorization").as_deref(), Some("Bearer fresh"), "the expired token was renewed before the call");
   }
 }
+
+mod auth_methods {
+  use super::*;
+  use snapfire_fsr_runtime::{FailureKind, ServiceError};
+
+  const CODE_OPENAPI: &str = r##"{
+  "openapi": "3.0.3",
+  "info": { "title": "Codes", "version": "1.0.0" },
+  "paths": {
+    "/begin": { "post": { "operationId": "beginSignIn",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Start" } } } },
+      "responses": { "200": { "description": "a step", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Next" } } } } } } },
+    "/advance": { "post": { "operationId": "advanceSignIn",
+      "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Answer" } } } },
+      "responses": { "200": { "description": "a step", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Next" } } } } } } }
+  },
+  "components": { "schemas": {
+    "Start": { "type": "object", "required": ["intent", "return_to"], "properties": { "intent": { "type": "string" }, "return_to": { "type": "string" }, "method": { "type": "string", "nullable": true }, "identity": { "type": "string", "nullable": true } } },
+    "Answer": { "type": "object", "required": ["params", "state"], "properties": { "params": { "type": "string" }, "state": { "type": "string" } } },
+    "Next": { "type": "object", "required": ["next"], "properties": { "next": { "type": "string" }, "kind": { "type": "string" }, "data": { "type": "string" }, "state": { "type": "string" }, "subject": { "type": "string" }, "claims": { "type": "string" }, "tokens": { "type": "string" } } }
+  } }
+}"##;
+
+  fn json_map(text: Option<&Value>) -> serde_json::Value {
+    match text {
+      Some(Value::Str(text)) => serde_json::from_str(text).unwrap(),
+      _ => serde_json::Value::Null,
+    }
+  }
+
+  /// A code sent to whoever `beginSignIn` names; `123` completes for them.
+  struct Codes;
+
+  impl snapfire_fsr_service::Transport for Codes {
+    fn call(&self, call: snapfire_fsr_service::Call) -> futures::future::BoxFuture<'static, Result<Value, ServiceError>> {
+      let mut answer = ValueMap::default();
+      let result = match format!("{}.{}", call.service, call.method).as_str() {
+        "shop.list" => Ok(Value::seq(vec![Value::str("a")])),
+        "codes.beginSignIn" => {
+          let subject = json_map(call.args.get("identity"))["subject"].as_str().unwrap_or("nobody").to_owned();
+          answer.insert("next".to_owned(), Value::str("present"));
+          answer.insert("kind".to_owned(), Value::str("notice"));
+          answer.insert("data".to_owned(), Value::str(r#"{"sent":"sms"}"#));
+          answer.insert("state".to_owned(), Value::str(serde_json::json!({ "subject": subject }).to_string()));
+          Ok(Value::Map(answer))
+        }
+        "codes.advanceSignIn" => {
+          let (params, state) = (json_map(call.args.get("params")), json_map(call.args.get("state")));
+          if params["code"] == "123" {
+            answer.insert("next".to_owned(), Value::str("complete"));
+            answer.insert("subject".to_owned(), Value::str(state["subject"].as_str().unwrap_or_default()));
+            answer.insert("tokens".to_owned(), Value::str(r#"{"factor":"sms"}"#));
+            Ok(Value::Map(answer))
+          } else {
+            Err(ServiceError::new(FailureKind::Unauthorized, "codes", "advanceSignIn", "wrong code"))
+          }
+        }
+        other => Err(ServiceError::new(FailureKind::Internal, call.service.clone(), call.method.clone(), format!("unexpected {other}"))),
+      };
+      Box::pin(futures::future::ready(result))
+    }
+  }
+
+  fn host(auth: &str) -> Result<Host, String> {
+    let dir = identified_dir(USERS);
+    std::fs::create_dir_all(dir.join("clients")).unwrap();
+    std::fs::write(dir.join("clients/codes.openapi.json"), CODE_OPENAPI).unwrap();
+    let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+    let toml = toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", auth) + "\n[clients.codes]\nbase_url = \"http://127.0.0.1:1\"\n";
+    std::fs::write(dir.join("app.toml"), toml).unwrap();
+    match Host::from(dir.join("app.toml")).map_err(|e| e.to_string())?.services_over(Arc::new(Codes)).build() {
+      Ok(host) => Ok(host),
+      Err(e) => Err(e.to_string()),
+    }
+  }
+
+  const METHODS: &str = "[auth]\nlogin = \"/login\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"code\"\nprovider = \"service\"\nclient = \"codes\"\n";
+
+  async fn json(host: &Host, request: Request<Bytes>) -> (String, serde_json::Value) {
+    let response = host.handle(request).await;
+    let cookie = response.headers().get_all(header::SET_COOKIE).iter().filter_map(|v| v.to_str().ok()).find(|v| v.starts_with("sf_session=")).map(|v| v.split(';').next().unwrap().to_owned()).unwrap_or_default();
+    (cookie, serde_json::from_str(&body_of(response).await).unwrap())
+  }
+
+  fn post(cookie: &str, body: &str) -> Request<Bytes> {
+    Request::post("/auth/callback").header(header::COOKIE, cookie).header(header::ACCEPT, "application/json").header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from(body.to_owned())).unwrap()
+  }
+
+  #[tokio::test]
+  async fn several_methods_offer_a_choice_in_their_order() {
+    let host = host(METHODS).unwrap();
+    assert!(host.report().to_string().contains("auth      methods password, code, login page /login"), "{}", host.report());
+    let (cookie, step) = json(&host, Request::get("/auth/login?return_to=/who").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert_eq!(step, serde_json::json!({ "next": "present", "kind": "choose", "data": { "methods": ["password", "code"] } }));
+    let (_, step) = json(&host, post(&cookie, "method=password")).await;
+    assert_eq!(step["kind"], "form");
+    let (_, step) = json(&host, post(&cookie, "user=alice&password=wonder")).await;
+    assert_eq!(step, serde_json::json!({ "next": "complete", "to": "/who" }));
+  }
+
+  #[tokio::test]
+  async fn a_second_factor_follows_every_other_method() {
+    let host = host(&METHODS.replace("login = \"/login\"\n", "login = \"/login\"\nsecond_factor = \"code\"\n")).unwrap();
+    assert!(host.report().to_string().contains("methods password then code"), "{}", host.report());
+    let (cookie, step) = json(&host, Request::get("/auth/login?return_to=/who").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    assert_eq!(step["kind"], "form", "one method before the second factor needs no choice");
+    let (_, step) = json(&host, post(&cookie, "user=alice&password=wonder")).await;
+    assert_eq!(step, serde_json::json!({ "next": "present", "kind": "notice", "data": { "sent": "sms" } }));
+    let (cookie, step) = json(&host, post(&cookie, "code=123")).await;
+    assert_eq!(step, serde_json::json!({ "next": "complete", "to": "/who" }));
+    let html = body_of(host.handle(Request::get("/who").header(header::COOKIE, &cookie).body(Bytes::new()).unwrap()).await).await;
+    assert!(html.contains("alice"), "{html}");
+  }
+
+  #[test]
+  fn a_section_naming_both_or_neither_or_an_unknown_second_factor_is_refused() {
+    let both = host(&METHODS.replace("login = \"/login\"\n", "login = \"/login\"\nprovider = \"file\"\n")).err().unwrap();
+    assert!(both.contains("both a `provider` and `[[auth.methods]]`"), "{both}");
+    let neither = host("[auth]\nlogin = \"/login\"\n").err().unwrap();
+    assert!(neither.contains("no `provider` and no `[[auth.methods]]`"), "{neither}");
+    let unknown = host(&METHODS.replace("login = \"/login\"\n", "login = \"/login\"\nsecond_factor = \"totp\"\n")).err().unwrap();
+    assert!(unknown.contains("second_factor `totp`"), "{unknown}");
+  }
+}

@@ -13,15 +13,18 @@ Auth for SnapFire FSR: the `IdentityProvider` seam, the sign-in flow over it as 
   * [Intent](#intent)
   * [Next](#next)
   * [AuthOutcome](#authoutcome)
-* [3. The Dev Provider](#3-the-dev-provider)
+* [3. Composing Methods](#3-composing-methods)
+  * [Methods](#methods)
+  * [Sequence](#sequence)
+* [4. The Dev Provider](#4-the-dev-provider)
   * [DevProvider](#devprovider)
   * [password_form](#password_form)
-* [4. Types From Other Crates](#4-types-from-other-crates)
+* [5. Types From Other Crates](#5-types-from-other-crates)
   * [Identity](#identity)
   * [Opened](#opened)
   * [TokenCell](#tokencell)
   * [Value and ValueMap](#value-and-valuemap)
-* [5. Error Handling](#5-error-handling)
+* [6. Error Handling](#6-error-handling)
   * [AuthError](#autherror)
 
 ## 1. The Flow
@@ -111,7 +114,29 @@ What a completed flow produces. `#[non_exhaustive]`: build one with `new`.
 
 `tokens` is merged into token custody key by key, so a key already present is overwritten while a key absent from the map survives.
 
-## 3. The Dev Provider
+## 3. Composing Methods
+
+Both are `IdentityProvider`s over other providers, so they nest and run behind a service like any other.
+
+### Methods
+
+Several methods on one login page, by name, in the order given.
+
+* `pub fn new() -> Self`, also `Default`
+* `pub fn method(self, name: impl Into<String>, provider: Arc<dyn IdentityProvider>) -> Self`
+* `pub fn names(&self) -> Vec<&str>`
+
+`begin` runs the method `Start::method` names (the only one when there is one). Otherwise it presents a step of kind `choose` with `data` `{ methods: [names] }`, answered with `{ method }`. A name it does not hold is `AuthError::Invalid` listing the names. Each step's state carries the method's name, so its answers reach that method alone. `refresh` asks each method in turn and answers the first renewal.
+
+### Sequence
+
+A sign-in that passes one provider and then another for the same subject: a second factor.
+
+* `pub fn new(first: Arc<dyn IdentityProvider>, second: Arc<dyn IdentityProvider>) -> Self`
+
+`first` runs to completion, then `second` begins with `Start::identity` set to who `first` named. The flow completes with that identity and both providers' tokens, `second`'s overwriting a key both hold, when `second` completes for the same subject; any other subject is `AuthError::Denied`. Nobody is signed in between the two. An enrolment runs `second` alone. `refresh` is `first`'s.
+
+## 4. The Dev Provider
 
 ### DevProvider
 
@@ -130,7 +155,7 @@ Name and password against a fixed in-memory table. Passwords are compared in the
 
 * `pub fn password_form() -> Next`: `Next::Present` of kind `form`, `data` `{ fields: ["user", "password"] }` and empty state, the step a name-and-password provider presents.
 
-## 4. Types From Other Crates
+## 5. Types From Other Crates
 
 These appear in this crate's signatures and are defined elsewhere in the family.
 
@@ -171,7 +196,7 @@ Reaches templates as the injected `identity` prop, a map of `subject` plus `clai
 
 `snapfire_fsr_core::Value` is the value model; `snapfire_fsr_core::ValueMap` is `IndexMap<String, Value>`, so insertion order is preserved. Callback params, provider state, claims and tokens are all `ValueMap`. This crate reads only `Value::Str` plus `Value::Map` out of them; any other variant in a key it inspects is treated as absent.
 
-## 5. Error Handling
+## 6. Error Handling
 
 ### AuthError
 

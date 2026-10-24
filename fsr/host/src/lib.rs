@@ -76,7 +76,7 @@ use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
 pub use config::{
-  AuthSection, BearerKey, ClientConfig, Config, DataCacheSection, Loader, MountConfig, SecretOptions, SiteSection,
+  AuthSection, BearerKey, MethodSection, ClientConfig, Config, DataCacheSection, Loader, MountConfig, SecretOptions, SiteSection,
   SitesSection,
 };
 pub use actions::{IslandBody, IslandStep, island_body, island_step};

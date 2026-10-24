@@ -1021,35 +1021,32 @@ impl HostBuilder {
         ))
       }
       (None, Some(section)) => {
-        let provider: Arc<dyn IdentityProvider> = match section.provider.as_str() {
-          "file" => {
-            let users = config
-              .config_dir()
-              .join(section.users.as_deref().unwrap_or("auth.toml"));
-            Arc::new(DevProvider::from_toml(&users).map_err(|e| HostError::Config(users.clone(), e))?)
+        let mut built = Vec::new();
+        for method in section.all_methods() {
+          let provider = crate::auth::method_provider(&method, &config, &app.services, &prefix)?;
+          let name = match (&method.client, method.provider.as_str()) {
+            (Some(client), "service") => format!("service via {client}"),
+            _ => method.provider.clone(),
+          };
+          built.push((method.name.clone(), name, provider));
+        }
+        let (provider, name): (Arc<dyn IdentityProvider>, String) = match (built.len(), &section.second_factor) {
+          (1, _) => {
+            let (_, name, provider) = built.remove(0);
+            (provider, name)
           }
-          "service" => {
-            let client = format!("{prefix}{}", section.client.clone().unwrap_or_default());
-            let declared = |method: &str| app.services.contract().services.get(&client).is_some_and(|service| service.methods.contains_key(method));
-            let steps = (declared(crate::remote::BEGIN_SIGN_IN), declared(crate::remote::ADVANCE_SIGN_IN));
-            if steps.0 != steps.1 || (!steps.0 && !declared(crate::remote::AUTHENTICATE)) {
-              return Err(HostError::Config(
-                config.config_dir(),
-                format!(
-                  "auth.client `{client}` declares neither `{}` nor both `{}` and `{}`, so nobody can sign in through it",
-                  crate::remote::AUTHENTICATE,
-                  crate::remote::BEGIN_SIGN_IN,
-                  crate::remote::ADVANCE_SIGN_IN
-                ),
-              ));
-            }
-            Arc::new(ServiceProvider::new(app.services.clone(), client))
+          (_, Some(second)) => {
+            let at = built.iter().position(|(own, _, _)| own == second).ok_or_else(|| HostError::Value("auth.second_factor".to_owned(), second.clone()))?;
+            let (_, _, then) = built.remove(at);
+            let names: Vec<String> = built.iter().map(|(own, _, _)| own.clone()).collect();
+            let first = built.into_iter().fold(snapfire_fsr_auth::Methods::new(), |methods, (own, _, provider)| methods.method(own, provider));
+            (Arc::new(snapfire_fsr_auth::Sequence::new(Arc::new(first), then)), format!("methods {} then {second}", names.join(", ")))
           }
-          other => return Err(HostError::Value("auth.provider".to_owned(), other.to_owned())),
-        };
-        let name = match &section.client {
-          Some(client) if section.provider == "service" => format!("service via {client}"),
-          _ => section.provider.clone(),
+          _ => {
+            let names: Vec<String> = built.iter().map(|(own, _, _)| own.clone()).collect();
+            let methods = built.into_iter().fold(snapfire_fsr_auth::Methods::new(), |methods, (own, _, provider)| methods.method(own, provider));
+            (Arc::new(methods), format!("methods {}", names.join(", ")))
+          }
         };
         Some((
           Mounted {
