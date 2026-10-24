@@ -1,6 +1,6 @@
 # Usage Guide: snapfire_fsr_passkey
 
-How to sign users in with passkeys on the stock host or from Rust (as the only method or as a second factor) and where the passkeys are kept.
+How to sign users in with passkeys on the stock host or from Rust, beside another method or as a second factor, and where the passkeys are kept.
 
 ## Table of Contents
 
@@ -27,14 +27,23 @@ How to sign users in with passkeys on the stock host or from Rust (as the only m
 
 ## Quick Start
 
-On the stock host, passkeys as the only method:
+On the stock host, a passkey beside a password, which signs a new visitor up and lets one who lost a device back in:
 
 ```toml
 [document]
 origin = "https://shop.example"
 
 [auth]
+login = "/login"
+
+[[auth.methods]]
+name = "password"
+provider = "file"
+
+[[auth.methods]]
+name = "passkey"
 provider = "passkey"
+store = "data/passkeys"
 ```
 
 The login page runs the ceremony with the client:
@@ -42,20 +51,23 @@ The login page runs the ceremony with the client:
 ```ts
 import { signIn } from "@snapfire/fsr-client";
 
-passkeyButton.onclick = () => signIn({ returnTo: "/account" });
+passkeyButton.onclick = () => signIn({ method: "passkey", returnTo: "/account" });
 ```
 
 ## Offering Passkeys on the Stock Host
 
-`provider = "passkey"` keeps the passkeys in `config/passkeys.json` unless `store` names another file, binds them to `document.origin`'s host and names the site in the prompt after `document.title` unless `rp_name` says otherwise. `verification = "required"` insists on a PIN or biometric:
+A passkey method keeps its passkeys in `passkeys.json` under `store`, a directory relative to the project. The host refuses a method without one and a `store` inside `config/`, since passkeys are data the host writes and `fsr dev` restarts on every change there. It binds them to `document.origin`'s host and names the site in the prompt after `document.title` unless `rp_name` says otherwise. `verification = "required"` insists on a PIN or biometric:
 
 ```toml
-[auth]
+[[auth.methods]]
+name = "passkey"
 provider = "passkey"
-store = "data/passkeys.json"
+store = "data/passkeys"
 rp_name = "Shop"
 verification = "required"
 ```
+
+A passkey is never the only method. Signing up needs a method that proves who the visitor is and a lost device needs a way back, so the host refuses a configuration where every method is a passkey.
 
 In development without `document.origin`, the relying party is `localhost` on the listening port, so browse to `http://localhost:<port>` rather than `127.0.0.1`.
 
@@ -75,6 +87,7 @@ provider = "file"
 [[auth.methods]]
 name = "passkey"
 provider = "passkey"
+store = "data/passkeys"
 ```
 
 ### Adding a Passkey From a Settings Page
@@ -89,13 +102,17 @@ await enrol(csrfToken, { method: "passkey", returnTo: "/settings" });
 
 ## Building the Provider in Rust
 
+A passkey goes beside a method that proves who a new visitor is, through `Methods` from `snapfire_fsr_auth`:
+
 ```rust
 use std::sync::Arc;
+use snapfire_fsr_auth::Methods;
 use snapfire_fsr_passkey::{FilePasskeys, PasskeyConfig, Passkeys};
 
 let config = PasskeyConfig::new("shop.example", "Shop", "https://shop.example").require_verification(true);
-let passkeys = Passkeys::new(config, Arc::new(FilePasskeys::new("passkeys.json")));
-let host = Host::from(".")?.identity(Arc::new(passkeys)).build()?;
+let passkeys = Passkeys::new(config, Arc::new(FilePasskeys::new("data/passkeys/passkeys.json")));
+let methods = Methods::new().method("password", Arc::new(accounts)).method("passkey", Arc::new(passkeys));
+let host = Host::from(".")?.identity(Arc::new(methods)).build()?;
 ```
 
 ## Keeping Passkeys Elsewhere

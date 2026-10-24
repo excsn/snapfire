@@ -1187,8 +1187,8 @@ pub struct AuthSection {
   pub key_id: Option<String>,
   #[serde(default)]
   pub signing_key: Option<String>,
-  /// `passkey`: the JSON file the passkeys are kept in, relative to the configuration directory,
-  /// `passkeys.json` when absent.
+  /// `passkey`: the directory the passkeys are kept in, relative to the project, outside `config/`;
+  /// they are written to `passkeys.json` inside it.
   #[serde(default)]
   pub store: Option<String>,
   /// `passkey`: what the browser's prompt calls the site, `document.title` when absent.
@@ -1240,8 +1240,8 @@ pub struct MethodSection {
   pub key_id: Option<String>,
   #[serde(default)]
   pub signing_key: Option<String>,
-  /// `passkey`: the JSON file the passkeys are kept in, relative to the configuration directory,
-  /// `passkeys.json` when absent.
+  /// `passkey`: the directory the passkeys are kept in, relative to the project, outside `config/`;
+  /// they are written to `passkeys.json` inside it.
   #[serde(default)]
   pub store: Option<String>,
   /// `passkey`: what the browser's prompt calls the site, `document.title` when absent.
@@ -2324,6 +2324,15 @@ impl Config {
           if method.provider == "passkey" && method.verification.as_deref().is_some_and(|v| v != "required" && v != "preferred") {
             return Err(HostError::Config(at.clone(), format!("{at_key}: verification is `required` or `preferred`")));
           }
+          if method.provider == "passkey" {
+            match &method.store {
+              None => return Err(HostError::Config(at.clone(), format!("{at_key}: a passkey method needs `store`, the directory its passkeys are kept in, relative to the project: `store = \"data/passkeys\"`"))),
+              Some(store) if Path::new(store).components().next().is_some_and(|first| first.as_os_str() == "config") => {
+                return Err(HostError::Config(at.clone(), format!("{at_key}: store `{store}` is inside the configuration directory, which holds what the host reads and restarts `fsr dev` on every change; keep the passkeys beside it, `data/passkeys`")))
+              }
+              Some(_) => {}
+            }
+          }
           if method.provider == "service" {
             match &method.client {
               Some(client) if clients.contains_key(client) => {}
@@ -2331,6 +2340,12 @@ impl Config {
               None => return Err(HostError::Config(at.clone(), format!("{at_key}: provider = \"service\" needs a client"))),
             }
           }
+        }
+        if methods.iter().all(|method| method.provider == "passkey") {
+          return Err(HostError::Config(
+            at.clone(),
+            "a passkey needs another method beside it in [[auth.methods]]: one that proves who a new visitor is, so an account can be made and a lost device recovered".to_owned(),
+          ));
         }
         if let Some(second) = &section.second_factor {
           if !methods.iter().any(|method| &method.name == second) || methods.len() < 2 {

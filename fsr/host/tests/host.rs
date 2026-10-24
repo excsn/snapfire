@@ -7955,9 +7955,8 @@ mod passkey_method {
 
   #[tokio::test]
   async fn a_passkey_sign_in_presents_a_discoverable_ceremony_for_the_origins_host() {
-    let host = host("[auth]\nprovider = \"passkey\"\n");
-    assert!(host.report().to_string().contains("passkey for shop.example"), "{}", host.report());
-    let (_, step) = json(&host, Request::get("/auth/login").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
+    let host = host("[auth]\nlogin = \"/login\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\nstore = \"data/passkeys\"\n");
+    let (_, step) = json(&host, Request::get("/auth/login?method=passkey").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
     assert_eq!(step["kind"], "webauthn.get");
     assert_eq!(step["data"]["publicKey"]["rpId"], "shop.example");
     assert_eq!(step["data"]["publicKey"]["allowCredentials"], serde_json::json!([]));
@@ -7965,7 +7964,7 @@ mod passkey_method {
 
   #[tokio::test]
   async fn a_passkey_second_factor_after_a_password_creates_the_first_passkey() {
-    let host = host("[auth]\nlogin = \"/login\"\nsecond_factor = \"passkey\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\nverification = \"required\"\n");
+    let host = host("[auth]\nlogin = \"/login\"\nsecond_factor = \"passkey\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\nstore = \"data/passkeys\"\nverification = \"required\"\n");
     let (cookie, step) = json(&host, Request::get("/auth/login").header(header::ACCEPT, "application/json").body(Bytes::new()).unwrap()).await;
     assert_eq!(step["kind"], "form");
     let request = Request::post("/auth/callback").header(header::COOKIE, &cookie).header(header::ACCEPT, "application/json").header(header::CONTENT_TYPE, "application/x-www-form-urlencoded").body(Bytes::from("user=alice&password=wonder")).unwrap();
@@ -7978,10 +7977,40 @@ mod passkey_method {
   }
 
   #[test]
+  fn passkeys_as_the_only_way_in_are_refused() {
+    let refused = |auth: &str| {
+      let dir = identified_dir(USERS);
+      let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+      std::fs::write(dir.join("app.toml"), toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", auth)).unwrap();
+      Host::from(dir.join("app.toml")).err().map(|e| e.to_string()).unwrap_or_default()
+    };
+    let alone = refused("[auth]\nprovider = \"passkey\"\nstore = \"data/passkeys\"\n");
+    assert!(alone.contains("a passkey needs another method"), "{alone}");
+    let only = refused("[auth]\nlogin = \"/login\"\n\n[[auth.methods]]\nname = \"laptop\"\nprovider = \"passkey\"\nstore = \"data/passkeys\"\n\n[[auth.methods]]\nname = \"phone\"\nprovider = \"passkey\"\nstore = \"data/passkeys\"\n");
+    assert!(only.contains("a passkey needs another method"), "{only}");
+  }
+
+  /// Passkeys are data the host writes, so the configuration names where they live and it is not the configuration directory, whose every change restarts `fsr dev`.
+  #[test]
+  fn a_passkey_method_names_a_store_outside_the_configuration() {
+    let refused = |store: &str| {
+      let dir = identified_dir(USERS);
+      let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
+      let auth = format!("[auth]\nlogin = \"/login\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\n{store}");
+      std::fs::write(dir.join("app.toml"), toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", &auth)).unwrap();
+      Host::from(dir.join("app.toml")).err().map(|e| e.to_string()).unwrap_or_default()
+    };
+    let unnamed = refused("");
+    assert!(unnamed.contains("a passkey method needs `store`"), "{unnamed}");
+    let configured = refused("store = \"config/passkeys\"\n");
+    assert!(configured.contains("is inside the configuration directory"), "{configured}");
+  }
+
+  #[test]
   fn a_passkey_method_with_an_unknown_verification_is_refused() {
     let dir = identified_dir(USERS);
     let toml = std::fs::read_to_string(dir.join("app.toml")).unwrap();
-    std::fs::write(dir.join("app.toml"), toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", "[auth]\nprovider = \"passkey\"\nverification = \"sometimes\"\n")).unwrap();
+    std::fs::write(dir.join("app.toml"), toml.replace("[auth]\nprovider = \"file\"\nlogin = \"/login\"\n", "[auth]\nlogin = \"/login\"\n\n[[auth.methods]]\nname = \"password\"\nprovider = \"file\"\n\n[[auth.methods]]\nname = \"passkey\"\nprovider = \"passkey\"\nverification = \"sometimes\"\n")).unwrap();
     let error = Host::from(dir.join("app.toml")).err().map(|e| e.to_string()).unwrap_or_default();
     assert!(error.contains("verification is `required` or `preferred`"), "{error}");
   }

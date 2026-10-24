@@ -320,7 +320,7 @@ fn passkey_provider(method: &crate::config::MethodSection, config: &Config) -> R
   let rp_id = host.rsplit_once(':').filter(|(_, port)| port.chars().all(|c| c.is_ascii_digit())).map_or(host, |(name, _)| name).to_owned();
   let title = config.document.title.literal();
   let rp_name = method.rp_name.clone().or_else(|| (!title.is_empty()).then(|| title.to_owned())).unwrap_or_else(|| rp_id.clone());
-  let store = config.config_dir().join(method.store.as_deref().unwrap_or("passkeys.json"));
+  let store = config.root.join(method.store.as_deref().unwrap_or_default()).join("passkeys.json");
   let passkeys = PasskeyConfig::new(rp_id.clone(), rp_name, origin).require_verification(method.verification.as_deref() == Some("required"));
   Ok((Arc::new(Passkeys::new(passkeys, Arc::new(FilePasskeys::new(store)))), format!("passkey for {rp_id}")))
 }
